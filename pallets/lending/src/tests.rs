@@ -75,11 +75,6 @@ fn alpha(who: &Account, hotkey: &Account, netuid: NetUid) -> u64 {
 fn mint_tao(who: &Account, amount: u64) {
     write(&key(b"test/tao", who), tao(who).saturating_add(amount));
 }
-/// Pin `Owner[hotkey] = owner` for short-open ownership checks. Unset hotkeys
-/// stay permitted in the mock so existing fixtures keep working.
-fn set_hotkey_owner(hotkey: &Account, owner: &Account) {
-    write(&key(b"test/hotkey_owner", hotkey), owner.clone());
-}
 fn mint_alpha(who: &Account, hotkey: &Account, netuid: NetUid, amount: u64) {
     write(
         &key(b"test/alpha", (who, hotkey, netuid)),
@@ -247,16 +242,6 @@ impl OrderSwapInterface<Account> for MockPool {
 impl LendingPoolInterface<Account> for MockPool {
     fn subnet_exists(_: NetUid) -> bool {
         true
-    }
-
-    fn coldkey_owns_hotkey(coldkey: &Account, hotkey: &Account) -> bool {
-        let owned: Option<Account> = sp_io::storage::get(&key(b"test/hotkey_owner", hotkey))
-            .and_then(|bytes| Account::decode(&mut &bytes[..]).ok());
-        match owned {
-            Some(owner) => owner == *coldkey,
-            // Unset → permit (keeps existing short fixtures green).
-            None => true,
-        }
     }
 
     fn network_alive(_: NetUid) -> bool {
@@ -617,96 +602,6 @@ fn lift_readd_preserves_price() {
 }
 
 #[test]
-fn open_rejects_unsolicited_third_party_hotkey_on_both_sides() {
-    new_test_ext().execute_with(|| {
-        let owner = account(1);
-        let victim = account(9);
-        let victim_hotkey = account(10);
-        set_hotkey_owner(&victim_hotkey, &victim);
-        mint_tao(&owner, 50_000_000_000_000);
-        mint_alpha(&owner, &victim_hotkey, netuid(), 100_000_000_000_000);
-        // Short: TAO collateral, no stake association required without this gate.
-        assert_err!(
-            Lending::quote_open_for(
-                &owner,
-                netuid(),
-                Side::Short,
-                5_000_000_000_000,
-                &victim_hotkey
-            ),
-            Error::<Test>::HotkeyNotOwned
-        );
-        assert_err!(
-            Lending::open(
-                RuntimeOrigin::signed(owner.clone()),
-                netuid(),
-                Side::Short,
-                5_000_000_000_000,
-                victim_hotkey.clone(),
-                1,
-                0,
-                0,
-                deadline(),
-            ),
-            Error::<Test>::HotkeyNotOwned
-        );
-        // Long: delegated stake on a foreign hotkey also cannot index LoanHotkeys.
-        assert_err!(
-            Lending::quote_open_for(
-                &owner,
-                netuid(),
-                Side::Long,
-                50_000_000_000_000,
-                &victim_hotkey
-            ),
-            Error::<Test>::HotkeyNotOwned
-        );
-        assert_err!(
-            Lending::open(
-                RuntimeOrigin::signed(owner.clone()),
-                netuid(),
-                Side::Long,
-                50_000_000_000_000,
-                victim_hotkey.clone(),
-                1,
-                0,
-                0,
-                deadline(),
-            ),
-            Error::<Test>::HotkeyNotOwned
-        );
-        assert_err!(
-            Lending::quote_raise(
-                &owner,
-                netuid(),
-                &victim_hotkey,
-                None,
-                Some(50_000_000_000_000),
-                None
-            ),
-            Error::<Test>::HotkeyNotOwned
-        );
-        assert_eq!(LoanHotkeys::<Test>::get(&victim_hotkey), 0);
-        let own_hotkey = account(2);
-        set_hotkey_owner(&own_hotkey, &owner);
-        mint_alpha(&owner, &own_hotkey, netuid(), 100_000_000_000_000);
-        assert_ok!(Lending::open(
-            RuntimeOrigin::signed(owner.clone()),
-            netuid(),
-            Side::Short,
-            5_000_000_000_000,
-            own_hotkey.clone(),
-            1,
-            0,
-            0,
-            deadline(),
-        ));
-        assert_eq!(LoanHotkeys::<Test>::get(&own_hotkey), 1);
-        assert_eq!(LoanHotkeys::<Test>::get(&victim_hotkey), 0);
-    });
-}
-
-#[test]
 fn short_escrows_tao_not_free_alpha() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
@@ -729,7 +624,7 @@ fn short_escrows_tao_not_free_alpha() {
         assert!(position.proceeds > 0);
         assert_eq!(position.escrow_alpha, 0);
         // Borrower does not receive free borrowed alpha.
-        assert_eq!(alpha(&owner, &position.hotkey, netuid()), 0);
+        assert_eq!(alpha(&owner, &account(2), netuid()), 0);
         let escrow = Lending::position_account(&owner, netuid());
         assert!(tao(&escrow) >= position.proceeds);
     });
@@ -1730,6 +1625,7 @@ fn short_buyback_bounds_input_to_remaining_principal() {
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             false,
             u64::MAX,
             0,
@@ -1897,6 +1793,7 @@ fn deadline_passed_rejects_open_close_and_raise() {
             Lending::close(
                 RuntimeOrigin::signed(owner),
                 netuid(),
+                account(2),
                 true,
                 u64::MAX,
                 0,
@@ -1971,6 +1868,7 @@ fn partial_repay_scales_position_pro_rata() {
         assert_ok!(Lending::repay(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             half,
             true,
             u64::MAX,
@@ -1989,6 +1887,7 @@ fn partial_repay_scales_position_pro_rata() {
         assert_ok!(Lending::repay(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             after.principal,
             true,
             u64::MAX,
@@ -2371,46 +2270,6 @@ fn short_settlement_uses_terminal_split_for_recovery_and_refund() {
     });
 }
 
-#[test]
-fn hotkey_swap_rewrites_open_by_hotkey_index() {
-    new_test_ext().execute_with(|| {
-        let owner = account(1);
-        let hotkey = account(2);
-        let new_hotkey = account(22);
-        mint_tao(&owner, 50_000_000_000_000);
-        assert_ok!(Lending::open(
-            RuntimeOrigin::signed(owner.clone()),
-            netuid(),
-            Side::Short,
-            10_000_000_000_000,
-            hotkey.clone(),
-            1,
-            1,
-            0,
-            deadline(),
-        ));
-        assert!(OpenByHotkey::<Test>::contains_key(
-            &hotkey,
-            (&owner, netuid())
-        ));
-        assert_ok!(Lending::on_hotkey_swap(&hotkey, &new_hotkey, None));
-        assert!(!OpenByHotkey::<Test>::contains_key(
-            &hotkey,
-            (&owner, netuid())
-        ));
-        assert!(OpenByHotkey::<Test>::contains_key(
-            &new_hotkey,
-            (&owner, netuid())
-        ));
-        assert_eq!(
-            Positions::<Test>::get(&owner, netuid()).unwrap().hotkey,
-            new_hotkey
-        );
-        assert_eq!(LoanHotkeys::<Test>::get(&hotkey), 0);
-        assert_eq!(LoanHotkeys::<Test>::get(&new_hotkey), 1);
-    });
-}
-
 /// Pool + subtoken fixture with **no** direct `References` / `G_ema` inserts.
 /// Mirrors a real chain that has registered a subnet and enabled the subtoken
 /// but has never called `warm_reference`.
@@ -2729,6 +2588,119 @@ fn ema_band_migration_try_runtime_noop_when_already_stamped() {
             <migrations::LiftParamsEmaBandMigration<Test> as OnRuntimeUpgrade>::post_upgrade(state)
         );
         assert_eq!(LiftParamsStore::<Test>::get(), params);
+    });
+}
+
+fn drop_hotkey_migration_key() -> BoundedVec<u8, ConstU32<128>> {
+    BoundedVec::truncate_from(b"migrate_drop_position_hotkey_v1".to_vec())
+}
+
+fn pre_drop_position(custody: Account) -> migrations::PositionBeforeHotkeyDrop<Account, u64> {
+    migrations::PositionBeforeHotkeyDrop {
+        side: Side::Long,
+        hotkey: account(2),
+        custody,
+        principal: 11,
+        collateral: 12,
+        proceeds: 0,
+        escrow_alpha: 13,
+        lift_tao: 14,
+        lift_alpha: 15,
+        annual_interest: 16,
+        last_accrued: 17,
+        interest_remainder: 18,
+        due: 19,
+        expires_at: 20,
+        expiry_due: 21,
+    }
+}
+
+fn put_retired_hotkey_indexes(hotkey: &Account) {
+    let pallet = <Lending as frame_support::traits::PalletInfoAccess>::name().as_bytes();
+    for item in migrations::RETIRED_HOTKEY_INDEXES {
+        frame_support::storage::migration::put_storage_value(pallet, item, &hotkey.encode(), 1u32);
+    }
+}
+
+fn retired_hotkey_indexes_empty() -> bool {
+    let pallet = <Lending as frame_support::traits::PalletInfoAccess>::name().as_bytes();
+    migrations::RETIRED_HOTKEY_INDEXES.iter().all(|item| {
+        !frame_support::storage::unhashed::contains_prefixed_key(
+            &frame_support::storage::storage_prefix(pallet, item),
+        )
+    })
+}
+
+#[test]
+fn drop_hotkey_migration_rewrites_positions_and_clears_indexes() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let custody = account(7);
+        let old = pre_drop_position(custody.clone());
+        frame_support::storage::unhashed::put_raw(
+            &Positions::<Test>::hashed_key_for(&owner, netuid()),
+            &old.encode(),
+        );
+        let migrated_owner = account(5);
+        let current = Position::from(pre_drop_position(custody));
+        Positions::<Test>::insert(&migrated_owner, netuid(), &current);
+        put_retired_hotkey_indexes(&old.hotkey);
+
+        let _ = migrations::migrate_drop_position_hotkey::<Test>();
+        assert!(HasMigrationRun::<Test>::get(drop_hotkey_migration_key()));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(after, current, "every non-hotkey field survives");
+        assert_eq!(
+            Positions::<Test>::get(&migrated_owner, netuid()),
+            Some(current.clone()),
+            "current-layout rows are left alone"
+        );
+        assert!(retired_hotkey_indexes_empty());
+
+        HasMigrationRun::<Test>::remove(drop_hotkey_migration_key());
+        let _ = migrations::migrate_drop_position_hotkey::<Test>();
+        assert_eq!(Positions::<Test>::get(&owner, netuid()), Some(current));
+        assert_eq!(Positions::<Test>::iter().count(), 2);
+    });
+}
+
+#[test]
+fn drop_hotkey_migration_keeps_undecodable_rows_and_retries() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let key = Positions::<Test>::hashed_key_for(&owner, netuid());
+        frame_support::storage::unhashed::put_raw(&key, &[0xff, 0x01]);
+
+        let _ = migrations::migrate_drop_position_hotkey::<Test>();
+        assert!(!HasMigrationRun::<Test>::get(drop_hotkey_migration_key()));
+        assert_eq!(
+            frame_support::storage::unhashed::get_raw(&key),
+            Some(vec![0xff, 0x01])
+        );
+    });
+}
+
+#[cfg(feature = "try-runtime")]
+#[test]
+fn drop_hotkey_migration_try_runtime_checks_pass() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        frame_support::storage::unhashed::put_raw(
+            &Positions::<Test>::hashed_key_for(&owner, netuid()),
+            &pre_drop_position(account(7)).encode(),
+        );
+        put_retired_hotkey_indexes(&account(2));
+        let state =
+            <migrations::DropPositionHotkeyMigration<Test> as OnRuntimeUpgrade>::pre_upgrade()
+                .expect("pre_upgrade must accept the pre-drop layout");
+        let _ =
+            <migrations::DropPositionHotkeyMigration<Test> as OnRuntimeUpgrade>::on_runtime_upgrade(
+            );
+        assert_ok!(
+            <migrations::DropPositionHotkeyMigration<Test> as OnRuntimeUpgrade>::post_upgrade(
+                state
+            )
+        );
     });
 }
 
@@ -3336,6 +3308,7 @@ fn fixed_term_partial_repay_keeps_expiry_after_increase_restart() {
         assert_ok!(Lending::repay(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             half,
             true,
             u64::MAX,
@@ -3837,6 +3810,7 @@ fn ema_band_never_blocks_close_or_repay() {
         assert_ok!(Lending::repay(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             half,
             true,
             u64::MAX,
@@ -3850,6 +3824,7 @@ fn ema_band_never_blocks_close_or_repay() {
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             true,
             u64::MAX,
             0,
@@ -4074,7 +4049,7 @@ fn quote_close_escrowed_short_refund_matches_execution() {
             0,
             deadline(),
         ));
-        let quoted = Lending::quote_close(&owner, netuid(), false).unwrap();
+        let quoted = Lending::quote_close(&owner, netuid(), &account(2), false).unwrap();
         assert!(
             quoted.refund > 0,
             "escrow buyback should leave a TAO refund"
@@ -4084,6 +4059,7 @@ fn quote_close_escrowed_short_refund_matches_execution() {
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             false,
             u64::MAX,
             0,
@@ -4155,6 +4131,7 @@ fn close_stops_after_interest_forfeits_short() {
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             true,
             u64::MAX,
             0,
@@ -4240,6 +4217,7 @@ fn partial_repay_stops_after_interest_forfeits_short() {
         assert_ok!(Lending::repay(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             snap.principal / 2,
             true,
             u64::MAX,
@@ -4295,6 +4273,7 @@ fn short_wallet_close_rejects_when_max_payment_below_principal() {
             Lending::close(
                 RuntimeOrigin::signed(owner.clone()),
                 netuid(),
+                account(2),
                 true,
                 principal.saturating_sub(1),
                 0,
@@ -4313,6 +4292,7 @@ fn short_wallet_close_rejects_when_max_payment_below_principal() {
             Lending::repay(
                 RuntimeOrigin::signed(owner.clone()),
                 netuid(),
+                account(2),
                 principal / 2,
                 true,
                 0,
@@ -4329,12 +4309,84 @@ fn short_wallet_close_rejects_when_max_payment_below_principal() {
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             true,
             principal,
             0,
             deadline(),
         ));
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
+#[test]
+fn long_close_refunds_alpha_to_the_named_destination_hotkey() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let source = account(2);
+        let destination = account(3);
+        let collateral = 20_000_000_000_000u64;
+        mint_alpha(&owner, &source, netuid(), collateral);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            collateral,
+            source.clone(),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        assert_eq!(alpha(&owner, &source, netuid()), 0);
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            destination.clone(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        assert_eq!(alpha(&owner, &source, netuid()), 0);
+        assert!(
+            alpha(&owner, &destination, netuid()) > 0,
+            "leftover collateral must land on the close-time hotkey"
+        );
+    });
+}
+
+#[test]
+fn short_wallet_repay_pulls_alpha_from_the_named_hotkey() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let payer = account(3);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            account(2),
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let principal = Positions::<Test>::get(&owner, netuid()).unwrap().principal;
+        mint_alpha(&owner, &payer, netuid(), principal);
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            payer.clone(),
+            true,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        assert_eq!(alpha(&owner, &payer, netuid()), 0);
     });
 }
 
@@ -4370,7 +4422,7 @@ fn long_amm_close_sells_minimal_collateral_and_refunds_alpha() {
             position.principal
         );
 
-        let quoted = Lending::quote_close(&owner, netuid(), false).unwrap();
+        let quoted = Lending::quote_close(&owner, netuid(), &account(2), false).unwrap();
         assert_eq!(quoted.payment, position.principal);
         assert!(
             quoted.refund > 0 && quoted.refund < position.collateral,
@@ -4382,6 +4434,7 @@ fn long_amm_close_sells_minimal_collateral_and_refunds_alpha() {
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             false,
             u64::MAX,
             0,
@@ -4534,7 +4587,7 @@ fn long_amm_close_minimal_sale_when_max_sell_quote_hits_slippage() {
             "need A sale short of P so collateral is tapped"
         );
 
-        let quoted = Lending::quote_close(&owner, netuid(), false).unwrap();
+        let quoted = Lending::quote_close(&owner, netuid(), &account(2), false).unwrap();
         assert!(
             quoted.refund > 0 && quoted.refund < position.collateral,
             "quote must leave leftover alpha, got refund={} collateral={}",
@@ -4547,6 +4600,7 @@ fn long_amm_close_minimal_sale_when_max_sell_quote_hits_slippage() {
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
+            account(2),
             false,
             u64::MAX,
             quoted.refund.saturating_mul(99) / 100,

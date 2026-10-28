@@ -1,7 +1,6 @@
 use super::*;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::Weight;
-use pallet_lending::LendingInterface;
 use share_pool::SafeFloat;
 use sp_core::Get;
 use sp_std::collections::btree_map::BTreeMap;
@@ -39,20 +38,6 @@ impl<T: Config> Pallet<T> {
                 .saturating_add(T::DbWeight::get().writes(39_u64))
         };
         base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
-            .saturating_add(Self::lending_hotkey_swap_weight(old_hotkey))
-    }
-
-    /// Pre-dispatch weight for rewriting lending `position.hotkey` rows indexed by
-    /// `old_hotkey`. Bounded by `LoanHotkeys` so the scheduler reserves the scan
-    /// even on lightweight `keep_stake` swaps that otherwise keep a fixed envelope.
-    pub fn lending_hotkey_swap_weight(old_hotkey: &T::AccountId) -> Weight {
-        let loans = u64::from(T::Lending::hotkey_position_count(old_hotkey));
-        // Prefix head + count read, then ~2 reads / 3 writes per loan (position +
-        // OpenByHotkey remove/insert) plus LoanHotkeys mutate pair.
-        T::DbWeight::get().reads_writes(
-            loans.saturating_mul(2).saturating_add(2),
-            loans.saturating_mul(3).saturating_add(2),
-        )
     }
 
     /// Pre-dispatch weight for moving basket rows on a root-touching hotkey swap.
@@ -542,10 +527,6 @@ impl<T: Config> Pallet<T> {
                 Self::queue_childkey_threshold_check(new_hotkey);
                 Self::queue_childkey_threshold_check(old_hotkey);
 
-                // §14: rewrite lending position.hotkey for the borrower's source hotkey.
-                weight.saturating_accrue(Self::lending_hotkey_swap_weight(old_hotkey));
-                T::Lending::on_hotkey_swap(old_hotkey, new_hotkey, None)?;
-
                 Self::deposit_event(Event::HotkeySwapped {
                     coldkey,
                     old_hotkey: old_hotkey.clone(),
@@ -851,10 +832,6 @@ impl<T: Config> Pallet<T> {
         // the threshold too.
         Self::queue_childkey_threshold_check(new_hotkey);
         Self::queue_childkey_threshold_check(old_hotkey);
-
-        // §14: rewrite lending position.hotkey for this subnet.
-        weight.saturating_accrue(Self::lending_hotkey_swap_weight(old_hotkey));
-        T::Lending::on_hotkey_swap(old_hotkey, new_hotkey, Some(netuid))?;
 
         // 12. Emit an event for the hotkey swap
         Self::deposit_event(Event::HotkeySwappedOnSubnet {

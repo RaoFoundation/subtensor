@@ -50,13 +50,6 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn owner_allowed(_owner: &AccountId) -> bool {
         true
     }
-    /// Whether `coldkey` owns `hotkey` (subtensor `Owner` map). Fresh opens on
-    /// either side require this so an unsolicited loan cannot index a
-    /// third-party hotkey and inflate its swap-hotkey weight past the block
-    /// limit (§14.3).
-    fn coldkey_owns_hotkey(_coldkey: &AccountId, _hotkey: &AccountId) -> bool {
-        true
-    }
     fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> Result<TaoBalance, DispatchError>;
     fn quote_buy(netuid: NetUid, tao: TaoBalance) -> Result<AlphaBalance, DispatchError>;
     fn fast_alpha_price(_netuid: NetUid) -> Option<U64F64> {
@@ -293,11 +286,7 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
 pub trait LendingInterface<AccountId> {
     fn custody_accounts(netuid: NetUid) -> Option<(AccountId, AccountId)>;
     fn has_positions(owner: &AccountId) -> bool;
-    fn has_hotkey_positions(hotkey: &AccountId) -> bool;
-    /// Bound for hotkey-swap weight: number of open loans on `hotkey`.
-    fn hotkey_position_count(hotkey: &AccountId) -> u32;
     fn max_positions() -> u32;
-    fn on_hotkey_swap(old: &AccountId, new: &AccountId, netuid: Option<NetUid>) -> DispatchResult;
     /// Re-key positions from `old` to `new` without moving custody funds (§14).
     fn on_coldkey_swap(old: &AccountId, new: &AccountId) -> DispatchResult;
     fn start_dissolution(netuid: NetUid) -> DispatchResult;
@@ -331,17 +320,8 @@ impl<AccountId> LendingInterface<AccountId> for () {
     fn has_positions(_: &AccountId) -> bool {
         false
     }
-    fn has_hotkey_positions(_: &AccountId) -> bool {
-        false
-    }
-    fn hotkey_position_count(_: &AccountId) -> u32 {
-        0
-    }
     fn max_positions() -> u32 {
         0
-    }
-    fn on_hotkey_swap(_: &AccountId, _: &AccountId, _: Option<NetUid>) -> DispatchResult {
-        Ok(())
     }
     fn on_coldkey_swap(_: &AccountId, _: &AccountId) -> DispatchResult {
         Ok(())
@@ -523,13 +503,12 @@ pub struct LiftBook {
     pub last: u64,
 }
 
-#[freeze_struct("c028154d007a921f")]
+#[freeze_struct("dc8f38da430bf563")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
 pub struct Position<AccountId, BlockNumber> {
     pub side: Side,
-    pub hotkey: AccountId,
     /// Per-position custody coldkey (escrow account). Stored so coldkey swap
     /// re-keys ownership without moving funds (§14).
     pub custody: AccountId,
@@ -696,20 +675,6 @@ pub mod pallet {
     pub type PositionCount<T> = StorageMap<_, Identity, NetUid, u32, ValueQuery>;
     #[pallet::storage]
     pub type TotalPositions<T> = StorageValue<_, u32, ValueQuery>;
-    #[pallet::storage]
-    pub type LoanHotkeys<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
-    /// Positions indexed by loan hotkey for O(loan-count) hotkey swaps.
-    #[pallet::storage]
-    pub type OpenByHotkey<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        Blake2_128Concat,
-        (T::AccountId, NetUid),
-        (),
-        OptionQuery,
-    >;
     #[pallet::storage]
     pub type EscrowOwner<T: Config> = StorageDoubleMap<
         _,
@@ -1002,12 +967,6 @@ pub mod pallet {
         ConflictingSizing,
         InvalidLiftParams,
         PositionSideMismatch,
-        HotkeyMismatch,
-        /// Fresh open named a hotkey the caller does not own. Prevents indexing
-        /// unsolicited loans onto a third-party hotkey and blocking its
-        /// rotation via swap weight (§14.3). Applies to both sides: longs can
-        /// stake onto a foreign hotkey without ownership consent.
-        HotkeyNotOwned,
         /// Subnet age is below `new_subnet_min_age` (§2.3).
         SubnetTooNew,
         /// Third-party stake onto the lending custody hotkey is rejected (§14).
@@ -1142,6 +1101,9 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// Open or increase a loan. Shorts force-sell; longs force-buy into escrow.
+        ///
+        /// Longs lock collateral alpha staked on `source_hotkey`; shorts ignore it.
+        /// The hotkey is not stored on the position.
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::open())]
         pub fn open(
@@ -1149,7 +1111,7 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            hotkey: T::AccountId,
+            source_hotkey: T::AccountId,
             min_borrow: u64,
             min_proceeds: u64,
             min_escrow_alpha: u64,
@@ -1161,7 +1123,7 @@ pub mod pallet {
                 netuid,
                 side,
                 collateral,
-                hotkey,
+                source_hotkey,
                 None,
                 min_borrow,
                 min_proceeds,
@@ -1178,7 +1140,7 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            hotkey: T::AccountId,
+            source_hotkey: T::AccountId,
             principal: u64,
             min_proceeds: u64,
             min_escrow_alpha: u64,
@@ -1193,7 +1155,7 @@ pub mod pallet {
                 netuid,
                 side,
                 collateral,
-                hotkey,
+                source_hotkey,
                 Some(principal),
                 principal,
                 min_proceeds,
@@ -1203,12 +1165,16 @@ pub mod pallet {
         }
 
         /// Close a position. Shorts buy back (or repay alpha); longs repay TAO (or sell escrow).
+        ///
+        /// Wallet alpha repayment is drawn from stake on `hotkey`, and returned
+        /// alpha is staked to `hotkey`.
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::close())]
         #[transactional]
         pub fn close(
             origin: OriginFor<T>,
             netuid: NetUid,
+            hotkey: T::AccountId,
             repay_from_wallet: bool,
             max_payment: u64,
             min_refund: u64,
@@ -1218,6 +1184,7 @@ pub mod pallet {
             Self::do_close(
                 owner,
                 netuid,
+                hotkey,
                 repay_from_wallet,
                 max_payment,
                 min_refund,
@@ -1279,12 +1246,15 @@ pub mod pallet {
         }
 
         /// Partial repay of `principal_part` (§4.4). `principal_part == principal` closes.
+        ///
+        /// `hotkey` is the alpha source and destination, as in [`Pallet::close`].
         #[pallet::call_index(6)]
         #[pallet::weight(T::WeightInfo::repay())]
         #[transactional]
         pub fn repay(
             origin: OriginFor<T>,
             netuid: NetUid,
+            hotkey: T::AccountId,
             principal_part: u64,
             repay_from_wallet: bool,
             max_payment: u64,
@@ -1295,6 +1265,7 @@ pub mod pallet {
             Self::do_repay(
                 owner,
                 netuid,
+                hotkey,
                 principal_part,
                 repay_from_wallet,
                 max_payment,
@@ -1864,26 +1835,11 @@ pub mod pallet {
             previous.checked_mul(U64F64::checked_from_num(multiplier)?)
         }
 
-        fn ensure_matching_position(
+        fn ensure_matching_side(
             position: &Position<T::AccountId, BlockNumberFor<T>>,
             side: Side,
-            hotkey: &T::AccountId,
         ) -> DispatchResult {
             ensure!(position.side == side, Error::<T>::PositionSideMismatch);
-            ensure!(&position.hotkey == hotkey, Error::<T>::HotkeyMismatch);
-            Ok(())
-        }
-
-        /// Both sides index `LoanHotkeys` / `OpenByHotkey`, and that count is
-        /// charged into every hotkey swap's weight. Require coldkey ownership
-        /// on fresh opens so a borrower cannot attach unsolicited loans to a
-        /// victim's hotkey (via short TAO collateral or long stake onto a
-        /// third-party key) and push declared swap weight past the block limit.
-        fn ensure_hotkey_owned(owner: &T::AccountId, hotkey: &T::AccountId) -> DispatchResult {
-            ensure!(
-                T::Pool::coldkey_owns_hotkey(owner, hotkey),
-                Error::<T>::HotkeyNotOwned
-            );
             Ok(())
         }
 
@@ -1949,12 +1905,11 @@ pub mod pallet {
             owner: &T::AccountId,
             netuid: NetUid,
             side: Side,
-            hotkey: Option<&T::AccountId>,
             now: BlockNumberFor<T>,
         ) -> Result<Option<Position<T::AccountId, BlockNumberFor<T>>>, DispatchError> {
             let mut existing = Positions::<T>::get(owner, netuid);
-            if let (Some(position), Some(hk)) = (&existing, hotkey) {
-                Self::ensure_matching_position(position, side, hk)?;
+            if let Some(position) = &existing {
+                Self::ensure_matching_side(position, side)?;
             }
             if let Some(mut position) = existing.take() {
                 Self::charge_interest(owner, netuid, &mut position, now, false)?;
@@ -2306,7 +2261,7 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            hotkey: T::AccountId,
+            source_hotkey: T::AccountId,
             requested_principal: Option<u64>,
             min_borrow: u64,
             min_proceeds: u64,
@@ -2332,12 +2287,7 @@ pub mod pallet {
             // Accrue interest before sizing so LTV/capacity use remaining collateral.
             let mut existing = Positions::<T>::get(&owner, netuid);
             if let Some(ref position) = existing {
-                Self::ensure_matching_position(position, side, &hotkey)?;
-            } else {
-                // Fresh open: require hotkey ownership before LoanHotkeys /
-                // OpenByHotkey index the key (Skeptic: unsolicited loans DoS
-                // hotkey rotation on either side).
-                Self::ensure_hotkey_owned(&owner, &hotkey)?;
+                Self::ensure_matching_side(position, side)?;
             }
             if let Some(mut position) = existing.take() {
                 Self::charge_interest(&owner, netuid, &mut position, now, false)?;
@@ -2441,7 +2391,6 @@ pub mod pallet {
                 let term: BlockNumberFor<T> = T::BlocksPerYear::get().saturated_into();
                 Position {
                     side,
-                    hotkey: hotkey.clone(),
                     custody: escrow,
                     principal: 0,
                     collateral: 0,
@@ -2500,7 +2449,7 @@ pub mod pallet {
                 Side::Long => {
                     T::Pool::lock_alpha_collateral(
                         &owner,
-                        &hotkey,
+                        &source_hotkey,
                         &escrow,
                         &custody,
                         netuid,
@@ -2557,9 +2506,7 @@ pub mod pallet {
             if !increasing {
                 let due = position.due;
                 let expires_at = position.expires_at;
-                LoanHotkeys::<T>::mutate(&hotkey, |count| *count = count.saturating_add(1));
                 OpenByNetuid::<T>::insert(netuid, &owner, ());
-                OpenByHotkey::<T>::insert(&hotkey, (&owner, netuid), ());
                 EscrowOwner::<T>::insert(netuid, &escrow, &owner);
                 PositionCount::<T>::mutate(netuid, |n| *n = n.saturating_add(1));
                 TotalPositions::<T>::mutate(|n| *n = n.saturating_add(1));
@@ -2621,6 +2568,7 @@ pub mod pallet {
         fn do_close(
             owner: T::AccountId,
             netuid: NetUid,
+            hotkey: T::AccountId,
             repay_from_wallet: bool,
             max_payment: u64,
             min_refund: u64,
@@ -2660,7 +2608,7 @@ pub mod pallet {
                         );
                         T::Pool::repay_alpha(
                             &owner,
-                            &position.hotkey,
+                            &hotkey,
                             &reserve,
                             &custody,
                             netuid,
@@ -2712,7 +2660,7 @@ pub mod pallet {
                                 &escrow,
                                 &custody,
                                 &owner,
-                                &position.hotkey,
+                                &hotkey,
                                 netuid,
                                 excess.into(),
                                 false,
@@ -2760,7 +2708,7 @@ pub mod pallet {
                                 &escrow,
                                 &custody,
                                 &owner,
-                                &position.hotkey,
+                                &hotkey,
                                 netuid,
                                 alpha_out.into(),
                                 false,
@@ -2841,7 +2789,7 @@ pub mod pallet {
                                 &escrow,
                                 &custody,
                                 &owner,
-                                &position.hotkey,
+                                &hotkey,
                                 netuid,
                                 coll_left.into(),
                                 false,
@@ -2899,6 +2847,7 @@ pub mod pallet {
         fn do_repay(
             owner: T::AccountId,
             netuid: NetUid,
+            hotkey: T::AccountId,
             principal_part: u64,
             repay_from_wallet: bool,
             max_payment: u64,
@@ -2923,6 +2872,7 @@ pub mod pallet {
                 return Self::do_close(
                     owner,
                     netuid,
+                    hotkey,
                     repay_from_wallet,
                     max_payment,
                     min_refund,
@@ -2960,7 +2910,7 @@ pub mod pallet {
                         ensure!(slice_p <= max_payment, Error::<T>::SlippageExceeded);
                         T::Pool::repay_alpha(
                             &owner,
-                            &position.hotkey,
+                            &hotkey,
                             &reserve,
                             &custody,
                             netuid,
@@ -3009,7 +2959,7 @@ pub mod pallet {
                                 &escrow,
                                 &custody,
                                 &owner,
-                                &position.hotkey,
+                                &hotkey,
                                 netuid,
                                 excess.into(),
                                 false,
@@ -3052,7 +3002,7 @@ pub mod pallet {
                                 &escrow,
                                 &custody,
                                 &owner,
-                                &position.hotkey,
+                                &hotkey,
                                 netuid,
                                 alpha_out.into(),
                                 false,
@@ -3122,7 +3072,7 @@ pub mod pallet {
                                 &escrow,
                                 &custody,
                                 &owner,
-                                &position.hotkey,
+                                &hotkey,
                                 netuid,
                                 coll_left.into(),
                                 false,
@@ -3536,7 +3486,7 @@ pub mod pallet {
             // snapshot so an omitted `sell_alpha` never subtracts a vanished
             // prior book, and LTV sizing sees the post-interest position.
             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
-                Self::ensure_matching_position(&position, Side::Long, &hotkey)?;
+                Self::ensure_matching_side(&position, Side::Long)?;
                 Self::charge_interest(&owner, netuid, &mut position, now, false)?;
                 if Positions::<T>::contains_key(&owner, netuid) {
                     Positions::<T>::insert(&owner, netuid, &position);
@@ -3857,7 +3807,6 @@ pub mod pallet {
         ) {
             Positions::<T>::remove(owner, netuid);
             OpenByNetuid::<T>::remove(netuid, owner);
-            OpenByHotkey::<T>::remove(&position.hotkey, (owner, netuid));
             EscrowOwner::<T>::remove(netuid, &position.custody);
             if Due::<T>::take(position.due, (owner, netuid)).is_some() {
                 Self::note_due_removed(position.due);
@@ -3876,14 +3825,6 @@ pub mod pallet {
                 NextExpiry::<T>::kill();
                 ExpiryBucketCursor::<T>::kill();
             }
-            LoanHotkeys::<T>::mutate_exists(&position.hotkey, |count| {
-                let remaining = count.unwrap_or_default().saturating_sub(1);
-                *count = if remaining == 0 {
-                    None
-                } else {
-                    Some(remaining)
-                };
-            });
         }
 
         fn unlink_due_bucket(due: BlockNumberFor<T>) {
@@ -4869,7 +4810,7 @@ pub mod pallet {
             side: Side,
             collateral: u64,
         ) -> Result<OpeningQuote, DispatchError> {
-            Self::quote_open_for_inner(None, netuid, side, collateral, None, None)
+            Self::quote_open_for_inner(None, netuid, side, collateral, None)
         }
 
         pub fn quote_open_for(
@@ -4877,9 +4818,9 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            hotkey: &T::AccountId,
+            _source_hotkey: &T::AccountId,
         ) -> Result<OpeningQuote, DispatchError> {
-            Self::quote_open_for_inner(Some(owner), netuid, side, collateral, Some(hotkey), None)
+            Self::quote_open_for_inner(Some(owner), netuid, side, collateral, None)
         }
 
         pub fn quote_open_exact_for(
@@ -4887,17 +4828,10 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            hotkey: &T::AccountId,
+            _source_hotkey: &T::AccountId,
             principal: u64,
         ) -> Result<OpeningQuote, DispatchError> {
-            Self::quote_open_for_inner(
-                Some(owner),
-                netuid,
-                side,
-                collateral,
-                Some(hotkey),
-                Some(principal),
-            )
+            Self::quote_open_for_inner(Some(owner), netuid, side, collateral, Some(principal))
         }
 
         fn quote_open_for_inner(
@@ -4905,7 +4839,6 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            hotkey: Option<&T::AccountId>,
             requested: Option<u64>,
         ) -> Result<OpeningQuote, DispatchError> {
             // Accrual / forfeit mutates pool + capacity; always roll back so a
@@ -4913,7 +4846,7 @@ pub mod pallet {
             use frame_support::storage::{TransactionOutcome, with_transaction};
             with_transaction(|| {
                 TransactionOutcome::Rollback(Self::quote_open_for_inner_after_accrual(
-                    owner, netuid, side, collateral, hotkey, requested,
+                    owner, netuid, side, collateral, requested,
                 ))
             })
         }
@@ -4923,7 +4856,6 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            hotkey: Option<&T::AccountId>,
             requested: Option<u64>,
         ) -> Result<OpeningQuote, DispatchError> {
             // Same gate order as `do_open`: live + §2.3 before amount/depth.
@@ -4941,15 +4873,10 @@ pub mod pallet {
             // Match `do_open`: charge interest (may forfeit → re-add lift /
             // free Cap_side) before sizing so quote Ok ⇒ dispatch Ok.
             let existing = if let Some(o) = owner {
-                Self::accrue_existing_before_size(o, netuid, side, hotkey, now)?
+                Self::accrue_existing_before_size(o, netuid, side, now)?
             } else {
                 None
             };
-            if existing.is_none() {
-                if let (Some(o), Some(hk)) = (owner, hotkey) {
-                    Self::ensure_hotkey_owned(o, hk)?;
-                }
-            }
             if existing.is_none() && owner.is_some() {
                 ensure!(
                     PositionCount::<T>::get(netuid) < T::MaxPositionsPerSubnet::get(),
@@ -5067,6 +4994,7 @@ pub mod pallet {
         pub fn quote_close(
             owner: &T::AccountId,
             netuid: NetUid,
+            _hotkey: &T::AccountId,
             repay_from_wallet: bool,
         ) -> Result<ClosingQuote, DispatchError> {
             // Match `do_close`: disabled / dissolving before position work.
@@ -5145,7 +5073,7 @@ pub mod pallet {
         pub fn quote_raise(
             owner: &T::AccountId,
             netuid: NetUid,
-            hotkey: &T::AccountId,
+            _source_hotkey: &T::AccountId,
             amount: Option<u64>,
             collateral: Option<u64>,
             sell: Option<u64>,
@@ -5154,7 +5082,7 @@ pub mod pallet {
             use frame_support::storage::{TransactionOutcome, with_transaction};
             with_transaction(|| {
                 TransactionOutcome::Rollback(Self::quote_raise_after_accrual(
-                    owner, netuid, hotkey, amount, collateral, sell,
+                    owner, netuid, amount, collateral, sell,
                 ))
             })
         }
@@ -5162,7 +5090,6 @@ pub mod pallet {
         fn quote_raise_after_accrual(
             owner: &T::AccountId,
             netuid: NetUid,
-            hotkey: &T::AccountId,
             amount: Option<u64>,
             collateral: Option<u64>,
             sell: Option<u64>,
@@ -5180,11 +5107,7 @@ pub mod pallet {
             let now = frame_system::Pallet::<T>::block_number();
             // Match raise extrinsic: charge interest (may forfeit → re-add α_L+A
             // and free Cap_long) before sizing / sale simulation.
-            let existing =
-                Self::accrue_existing_before_size(owner, netuid, Side::Long, Some(hotkey), now)?;
-            if existing.is_none() {
-                Self::ensure_hotkey_owned(owner, hotkey)?;
-            }
+            let existing = Self::accrue_existing_before_size(owner, netuid, Side::Long, now)?;
             let price_before = T::Pool::current_alpha_price(netuid);
             let (c, p) = if let Some(col) = collateral {
                 ensure!(col > 0, Error::<T>::CollateralZero);
@@ -5318,51 +5241,6 @@ pub mod pallet {
                 .ok_or_else(|| Error::<T>::Arithmetic.into())
         }
 
-        #[transactional]
-        pub fn on_hotkey_swap(
-            old: &T::AccountId,
-            new: &T::AccountId,
-            netuid: Option<NetUid>,
-        ) -> DispatchResult {
-            if old == new || LoanHotkeys::<T>::get(old) == 0 {
-                return Ok(());
-            }
-            let mut moved = 0u32;
-            let keys: alloc::vec::Vec<_> = OpenByHotkey::<T>::iter_prefix(old)
-                .map(|(key, ())| key)
-                .collect();
-            for (owner, this_netuid) in keys {
-                if netuid.is_some_and(|id| id != this_netuid) {
-                    continue;
-                }
-                let Some(mut position) = Positions::<T>::get(&owner, this_netuid) else {
-                    OpenByHotkey::<T>::remove(old, (&owner, this_netuid));
-                    continue;
-                };
-                ensure!(position.hotkey == *old, Error::<T>::Arithmetic);
-                position.hotkey = new.clone();
-                Positions::<T>::insert(&owner, this_netuid, &position);
-                OpenByHotkey::<T>::remove(old, (&owner, this_netuid));
-                OpenByHotkey::<T>::insert(new, (&owner, this_netuid), ());
-                moved = moved.checked_add(1).ok_or(Error::<T>::Arithmetic)?;
-            }
-            if moved > 0 {
-                LoanHotkeys::<T>::try_mutate_exists(old, |count| -> DispatchResult {
-                    let remaining = count
-                        .unwrap_or_default()
-                        .checked_sub(moved)
-                        .ok_or(Error::<T>::Arithmetic)?;
-                    *count = (remaining > 0).then_some(remaining);
-                    Ok(())
-                })?;
-                LoanHotkeys::<T>::try_mutate(new, |count| -> DispatchResult {
-                    *count = count.checked_add(moved).ok_or(Error::<T>::Arithmetic)?;
-                    Ok(())
-                })?;
-            }
-            Ok(())
-        }
-
         /// §14: re-key Positions / OpenByNetuid / EscrowOwner / Due / Expiry from
         /// `old` to `new` without moving custody funds (`Position.custody` stays
         /// put). Rejects when `new` already has a loan on the same netuid —
@@ -5392,8 +5270,6 @@ pub mod pallet {
                 Positions::<T>::insert(new, netuid, &position);
                 OpenByNetuid::<T>::remove(netuid, old);
                 OpenByNetuid::<T>::insert(netuid, new, ());
-                OpenByHotkey::<T>::remove(&position.hotkey, (old, netuid));
-                OpenByHotkey::<T>::insert(&position.hotkey, (new, netuid), ());
                 EscrowOwner::<T>::insert(netuid, &position.custody, new);
                 if Due::<T>::take(position.due, (old, netuid)).is_some() {
                     Due::<T>::insert(position.due, (new, netuid), ());
@@ -5426,21 +5302,8 @@ pub mod pallet {
         fn has_positions(owner: &T::AccountId) -> bool {
             Positions::<T>::iter_prefix(owner).next().is_some()
         }
-        fn has_hotkey_positions(hotkey: &T::AccountId) -> bool {
-            LoanHotkeys::<T>::get(hotkey) > 0
-        }
-        fn hotkey_position_count(hotkey: &T::AccountId) -> u32 {
-            LoanHotkeys::<T>::get(hotkey)
-        }
         fn max_positions() -> u32 {
             T::MaxTotalPositions::get()
-        }
-        fn on_hotkey_swap(
-            old: &T::AccountId,
-            new: &T::AccountId,
-            netuid: Option<NetUid>,
-        ) -> DispatchResult {
-            Self::on_hotkey_swap(old, new, netuid)
         }
         fn on_coldkey_swap(old: &T::AccountId, new: &T::AccountId) -> DispatchResult {
             Self::on_coldkey_swap(old, new)

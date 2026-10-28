@@ -149,6 +149,7 @@ mod benchmarks {
         _(
             RawOrigin::Signed(caller),
             netuid,
+            hotkey,
             true,
             u64::MAX,
             0u64,
@@ -167,6 +168,7 @@ mod benchmarks {
         _(
             RawOrigin::Signed(caller),
             netuid,
+            hotkey,
             1u64,
             true,
             u64::MAX,
