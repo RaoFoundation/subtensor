@@ -10,14 +10,17 @@ debt back through the AMM using escrow sale proceeds plus remaining TAO
 collateral, then refunds any leftover TAO. Set `repay_from_wallet=True`
 to repay short alpha from the saved hotkey instead and receive the full
 escrow pot. A long with the default sells escrow (then collateral) for
-principal TAO; `repay_from_wallet=True` pays TAO from free balance and
-returns escrow alpha. Both charge accrued interest through the closing
-block. A failed repayment, payment ceiling or refund floor rolls back.
+principal TAO (selling only enough collateral to cover any shortfall,
+returning leftover collateral as alpha); `repay_from_wallet=True` pays
+TAO from free balance and returns escrow alpha. Both charge accrued
+interest through the closing block. A failed repayment, payment ceiling
+or refund floor rolls back.
 
 `max_payment` is TAO for AMM short closes and long repayment, or alpha
 for a wallet-repaid short. `min_refund` is TAO for shorts and alpha for
-longs. Units are checked against the owner's actual stored position.
-Closing remains available when new borrowing is disabled.
+longs (matching the refund asset on each path). Units are checked against
+the owner's actual stored position. Closing remains available when new
+borrowing is disabled.
 
 On fork / clone chains without a live MEV decryptor, submit with
 `--no-mev-shield`.

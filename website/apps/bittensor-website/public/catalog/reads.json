@@ -1141,7 +1141,7 @@
   {
     "name": "lending_close_quote",
     "summary": "Runtime quote of the combined debt repayment and refund, after accrued interest.",
-    "description": "Runtime quote of the combined debt repayment and refund, after accrued interest.\n\nPayment is TAO except for a wallet-repaid short, which returns its fixed\nalpha principal. Refund is TAO for a short and alpha for a long. Default\n`repay_from_wallet=False` quotes the escrow buyback path used by\nescrowed shorts (sale proceeds + collateral buy P alpha; leftover is the\nrefund). Set True to quote a wallet-alpha repayment instead.",
+    "description": "Runtime quote of the combined debt repayment and refund, after accrued interest.\n\nPayment is TAO except for a wallet-repaid short, which returns its fixed\nalpha principal. Refund is TAO for a short and alpha for a long. Default\n`repay_from_wallet=False` quotes the escrow AMM path: shorts buy P alpha\nfrom escrow+collateral (leftover TAO refund); longs sell escrow A then\nonly enough collateral to cover any shortfall to P (leftover alpha refund).\nSet True to quote a wallet repayment instead.",
     "params": {
       "coldkey_ss58": "string",
       "netuid": "integer",
