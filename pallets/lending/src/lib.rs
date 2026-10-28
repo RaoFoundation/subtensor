@@ -2271,6 +2271,22 @@ pub mod pallet {
                 Expiry::<T>::insert(expires_at, (&owner, netuid), ());
                 Self::note_expiry_inserted(expires_at);
                 Self::note_active_net(netuid);
+            } else if side == Side::Long && collateral > 0 {
+                // Fresh long collateral must not inherit an imminent EMA cash
+                // settlement (§15). Restart the one-year term on collateral
+                // top-ups (Jacob allowed keep-or-restart; keep-original enabled
+                // a near-expiry drain of the pot).
+                let term: BlockNumberFor<T> = T::BlocksPerYear::get().saturated_into();
+                let new_expiry = now.saturating_add(term);
+                if new_expiry != position.expiry_due {
+                    if Expiry::<T>::take(position.expiry_due, (&owner, netuid)).is_some() {
+                        Self::note_expiry_removed(position.expiry_due);
+                    }
+                    Expiry::<T>::insert(new_expiry, (&owner, netuid), ());
+                    Self::note_expiry_inserted(new_expiry);
+                    position.expires_at = new_expiry;
+                    position.expiry_due = new_expiry;
+                }
             }
             Positions::<T>::insert(&owner, netuid, position);
             Self::deposit_event(if increasing {
@@ -4419,9 +4435,28 @@ pub mod pallet {
                     }
                 }
                 Side::Long => {
-                    // (A+C)*r; repay P first; remainder to borrower; shortfall reduces pot.
-                    let alpha = Self::add(position.escrow_alpha, position.collateral)?;
-                    let payout = Self::tao_for_alpha(alpha, r, false)?;
+                    // Escrow A settles at EMA (quantity-backed). Collateral C is
+                    // capped at an impact-aware AMM sale so near-expiry top-ups
+                    // cannot redeem above dumping C into the live pool.
+                    let a_val = Self::tao_for_alpha(position.escrow_alpha, r, false)?;
+                    let c = position.collateral;
+                    let c_ema = Self::tao_for_alpha(c, r, false)?;
+                    let c_amm = if c > 0 {
+                        match T::Pool::quote_sell(netuid, c.into()) {
+                            Ok(t) => t.to_u64(),
+                            Err(_) => {
+                                let y = T::Pool::pool_tao(netuid).to_u64();
+                                let x = T::Pool::pool_alpha(netuid).to_u64();
+                                let w = T::Pool::quote_weight_parts(netuid);
+                                T::Pool::quote_sell_on(y.into(), x.into(), w, c.into()).to_u64()
+                            }
+                        }
+                    } else {
+                        0
+                    };
+                    let c_val = c_ema.min(c_amm);
+                    let alpha = Self::add(position.escrow_alpha, c)?;
+                    let payout = Self::add(a_val, c_val)?;
                     let repay = payout.min(position.principal);
                     let remainder = payout.saturating_sub(repay);
                     let shortfall = position.principal.saturating_sub(repay);

@@ -3077,6 +3077,133 @@ fn fixed_term_add_keeps_original_expiry() {
 }
 
 #[test]
+fn long_collateral_top_up_restarts_fixed_term() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 100_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            5_000_000_000_000,
+            hotkey.clone(),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let first = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let opened_at = System::block_number();
+        assert_eq!(
+            first.expires_at,
+            opened_at.saturating_add(520),
+            "term = BlocksPerYear"
+        );
+        System::set_block_number(opened_at.saturating_add(100));
+        mint_alpha(&owner, &hotkey, netuid(), 20_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            2_000_000_000_000,
+            hotkey,
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let now = System::block_number();
+        assert_eq!(
+            after.expires_at,
+            now.saturating_add(520),
+            "long collateral top-up must restart the term"
+        );
+        assert!(after.expires_at > first.expires_at);
+        assert!(!Expiry::<Test>::contains_key(
+            first.expires_at,
+            (&owner, netuid())
+        ));
+        assert!(Expiry::<Test>::contains_key(
+            after.expires_at,
+            (&owner, netuid())
+        ));
+    });
+}
+
+#[test]
+fn long_expiry_caps_collateral_at_amm_not_ema_dump() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        // Small pool so a large C dump is impactful vs EMA flat pricing.
+        set_pool(1_000_000_000_000, 1_000_000_000_000); // 1k τ / 1k α
+        let spot = MockPool::price();
+        References::<Test>::insert(
+            netuid(),
+            LendingReference {
+                price: spot,
+                last_updated: 1u64,
+                valid_after: 1u64,
+            },
+        );
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.g_ema = pool_tao();
+            book.last = LiftParams::default().settle_ema_blocks;
+        });
+        mint_alpha(&owner, &hotkey, netuid(), 2_000_000_000_000);
+        // Tiny long (minimal principal) with large collateral — the near-expiry
+        // drain shape, without waiting a year (we jump to expires_at).
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            900_000_000_000, // 900 α collateral
+            hotkey,
+            1_000_000_000, // 1 τ principal
+            0,
+            1,
+            deadline(),
+        ));
+        let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let c = pos.collateral;
+        let r = References::<Test>::get(netuid()).unwrap().price;
+        let c_ema = {
+            // Floor(C * r) in the same units as settlement.
+            let bits = (U64F64::from_num(c) * r).saturating_to_num::<u64>();
+            bits
+        };
+        let c_amm = MockPool::quote_sell(netuid(), c.into()).unwrap().to_u64();
+        assert!(
+            c_amm < c_ema,
+            "fixture must make AMM impact < EMA flat value ({} vs {})",
+            c_amm,
+            c_ema
+        );
+        let tao_before = tao(&owner);
+        System::set_block_number(pos.expires_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(pos.expires_at, Weight::MAX);
+        assert!(!Positions::<Test>::contains_key(&owner, netuid()));
+        let gained = tao(&owner).saturating_sub(tao_before);
+        // Refund is payout − P; payout ≤ A_ema + min(C_ema, C_amm).
+        // With tiny A and P=1e9, gained must stay near the AMM-capped C value.
+        assert!(
+            gained <= c_amm.saturating_add(1_000_000_000),
+            "expiry refund {} must not exceed AMM-capped collateral (~{})",
+            gained,
+            c_amm
+        );
+        assert!(
+            gained < c_ema.saturating_sub(pos.principal),
+            "must not pay full EMA·C − P ({} would)",
+            c_ema.saturating_sub(pos.principal)
+        );
+    });
+}
+
+#[test]
 fn fixed_term_expiry_is_bounded_by_weight() {
     new_test_ext().execute_with(|| {
         // Open several shorts that share one expiry bucket.
