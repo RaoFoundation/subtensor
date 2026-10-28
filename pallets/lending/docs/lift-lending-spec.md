@@ -156,9 +156,9 @@ Notation: `C` = collateral, `P` = principal, `(α_L, τ_L)` = the lift legs, `E_
   4. `α_L` is held.
   5. `L_L += P`; `B_L += P`.
 * Repay (mirror of the short):
-  1. The borrower supplies `P` TAO and takes `A`, **or** (`--no-repay-from-wallet`) `A` plus as much collateral as needed is sold for `P` TAO, and any surplus TAO goes to the borrower.
+  1. The borrower supplies `P` TAO and takes `A`, **or** (`--no-repay-from-wallet`) `A` is sold, then only as much of `C` as needed to cover any shortfall to `P`; leftover `C` returns as alpha stake (`min_refund` is alpha). Dust TAO above `P` from rounding also returns free.
   2. `readd(P, α_L)`; `B_L −= P`; `L_L −= P`.
-  3. Refund the remaining collateral (and `A`, if the borrower repaid from the wallet).
+  3. Refund the remaining collateral alpha (and `A`, if the borrower repaid from the wallet).
 * Default (collateral exhausted by interest; there is no liquidation):
   1. `readd(0, α_L + A)`.
   2. **The pool is quantity-whole.** The `P` TAO is already back in the pool from the forced buy, and the alpha it bought comes back from escrow. Starting from `(y, x)`: open gives `(y, x − α_L − A)`, then default gives `(y, x)`.
@@ -191,9 +191,9 @@ Notation: `C` = collateral, `P` = principal, `(α_L, τ_L)` = the lift legs, `E_
   * release the slice's leftover escrow plus `k·C` to the borrower (≥ `min_refund`).
   * If the slice's own `k·(E_S + C)` can't buy `k·P` back (the price rose sharply), the call fails with `InsufficientEscrow`. The borrower can repay that slice with wallet alpha instead. The rest of the position is never tapped to fund a slice.
 * **Long, slice `k`:**
-  * Either the borrower supplies `k·P` TAO and takes `k·A`, or (`repay_from_wallet = false`) `k·A`, then up to `k·C`, is sold for `k·P` TAO, and any surplus goes to the borrower (≥ `min_refund`);
+  * Either the borrower supplies `k·P` TAO and takes `k·A`, or (`repay_from_wallet = false`) `k·A` is sold, then the minimal slice of `k·C` needed to cover any shortfall to `k·P`; leftover slice collateral returns as alpha (≥ `min_refund`, alpha units);
   * `readd(k·P, k·α_L)`; `L_L −= k·P`; `B_L −= k·P`;
-  * release `k·C` (and `k·A` if repaid from the wallet) as stake to `(position.hotkey, owner)`.
+  * release remaining slice `C` (and `k·A` if repaid from the wallet) as stake to `(position.hotkey, owner)`.
 * **Pro-rata release, not "release down to LTV".** Every position field (`P`, `τ_L`/`α_L`, `E_S`/`A`, `C`, `annual_interest`) scales by `(1 − k)`. The remaining position therefore keeps exactly the LTV, `V_dyn` headroom and interest backing it was opened with, and no revaluation is needed on a non-open path, consistent with no re-check and no liquidation (§5). **Jacob's call (optional):** also allow releasing extra collateral down to the tier LTV against a fresh `V_dyn`. This is more capital-efficient but adds a valuation step to repay.
 * **Dust:** the remainder must be either 0 or have opening value `≥ MinimumLoanValue` (1 τ), else `AmountTooSmall` (close in full instead). A later increase re-runs `V_dyn` on the whole position, as now.
 * Capacity frees up immediately (`L_side` falls). Dissolution settles whatever remains (§13.3). Once dissolving, `repay` fails with `SubnetUnavailable`, like `close`.
@@ -248,7 +248,7 @@ require P ≤ LTV_tier · V_dyn
 | `open` (max-borrow mode), both sides | none (sizing) | `min_borrow`: solved `P` ≥ limit | `BelowMinimumBorrow` |
 | `open_long_and_sell` | buy with `P`, then sell `S` | `min_tao_out` on the sale (§12.2); new `min_escrow_alpha` on the buy, needed when `S` is given explicitly (with `S = A` the sale floor already bounds both legs) | `SlippageExceeded` |
 | short `close` / `repay`, from escrow | buy back `P` (or `k·P`) alpha | `max_payment`: TAO spent ≤ limit; `min_refund` | `SlippageExceeded` / `BelowMinimumRefund` |
-| long `close` / `repay`, `repay_from_wallet = false` | sell `A` (then `C`) for `P` | `min_refund`: surplus TAO ≥ limit | `BelowMinimumRefund` |
+| long `close` / `repay`, `repay_from_wallet = false` | sell `A`, then minimal `C` for shortfall to `P` | `min_refund`: leftover alpha ≥ limit | `BelowMinimumRefund` |
 | wallet-repay paths | none | `max_payment` caps `P` + interest charged now | `SlippageExceeded` |
 
 * **Forced trades without a user limit are price-neutral or protocol-paced:** default re-adds (no swap); paced long-interest sales (1 bps per block cap plus the crash guard, §6); dissolution (no swaps, §13).
@@ -787,7 +787,7 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 
 ### 14.3 Hotkey and coldkey swaps
 * **Hotkey swap** of the borrower's source hotkey: `on_hotkey_swap` rewrites `position.hotkey` (and `LoanHotkeys`), so returns go to the new hotkey. Custody rows don't move, because they are on `PalletHotkey`.
-* **Coldkey swap** of the owner: re-key `Positions`, `OpenByNetuid`, `EscrowOwner` and the `Due` index from the old to the new coldkey, and keep `Position.custody` as stored, so no funds move. Every later close, repay or settlement payout goes to the new coldkey. A coldkey swap is how a user escapes a compromised key, so leaving positions on the old key would send dereg payouts to the attacker.
+* **Coldkey swap** of the owner: re-key `Positions`, `OpenByNetuid`, `EscrowOwner` and the `Due` index from the old to the new coldkey, and keep `Position.custody` as stored, so no funds move. Every later close, repay or settlement payout goes to the new coldkey. A coldkey swap is how a user escapes a compromised key, so leaving positions on the old key would send dereg payouts to the attacker. **While a subnet is dissolving** (`Dissolutions` set), coldkey migration of a loan on that netuid fails with `SubnetUnavailable`: re-keying `OpenByNetuid` past `DissolutionCursor` would skip settlement and strand custody.
 * Neither swap is allowed to change `Position.custody`, `PalletHotkey` or the lift accounts.
 
 ### 14.4 Proxies and origins

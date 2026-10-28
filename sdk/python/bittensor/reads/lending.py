@@ -433,9 +433,10 @@ async def lending_close_quote(
 
     Payment is TAO except for a wallet-repaid short, which returns its fixed
     alpha principal. Refund is TAO for a short and alpha for a long. Default
-    ``repay_from_wallet=False`` quotes the escrow buyback path used by
-    escrowed shorts (sale proceeds + collateral buy P alpha; leftover is the
-    refund). Set True to quote a wallet-alpha repayment instead.
+    ``repay_from_wallet=False`` quotes the escrow AMM path: shorts buy P alpha
+    from escrow+collateral (leftover TAO refund); longs sell escrow A then
+    only enough collateral to cover any shortfall to P (leftover alpha refund).
+    Set True to quote a wallet repayment instead.
     """
     view = await view.at()
     position = await lending_position(view, coldkey_ss58, netuid)

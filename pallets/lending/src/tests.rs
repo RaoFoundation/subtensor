@@ -2789,3 +2789,157 @@ fn quote_close_escrowed_short_refund_matches_execution() {
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
     });
 }
+
+#[test]
+fn long_amm_close_sells_minimal_collateral_and_refunds_alpha() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        let collateral = 20_000_000_000_000u64;
+        mint_alpha(&owner, &hotkey, netuid(), collateral.saturating_mul(2));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            collateral,
+            hotkey.clone(),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert!(position.escrow_alpha > 0);
+        assert!(position.principal > 0);
+        // Round-trip A alone is short of P (fees / CP), so close must sell some C.
+        let a_alone = MockPool::quote_sell(netuid(), position.escrow_alpha.into())
+            .unwrap()
+            .to_u64();
+        assert!(
+            a_alone < position.principal,
+            "test needs A sale short of P (got {} vs {})",
+            a_alone,
+            position.principal
+        );
+
+        let quoted = Lending::quote_close(&owner, netuid(), false).unwrap();
+        assert_eq!(quoted.payment, position.principal);
+        assert!(
+            quoted.refund > 0 && quoted.refund < position.collateral,
+            "quote should leave leftover collateral alpha, not sell it all"
+        );
+
+        let alpha_before = alpha(&owner, &hotkey, netuid());
+        let tao_before = tao(&owner);
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        let alpha_refunded = alpha(&owner, &hotkey, netuid()).saturating_sub(alpha_before);
+        assert!(
+            alpha_refunded > 0,
+            "remaining collateral must return as alpha"
+        );
+        let diff = quoted.refund.abs_diff(alpha_refunded);
+        assert!(
+            diff <= quoted.refund / 100 + 1,
+            "quote alpha refund {} vs executed {} (diff {})",
+            quoted.refund,
+            alpha_refunded,
+            diff
+        );
+        // Dust TAO surplus may appear; primary refund is alpha, not full C as TAO.
+        let tao_gained = tao(&owner).saturating_sub(tao_before);
+        assert!(
+            tao_gained < position.principal / 10,
+            "must not liquidate all leftover collateral into TAO (gained {})",
+            tao_gained
+        );
+    });
+}
+
+#[test]
+fn quote_open_collateral_only_applies_ema_band() {
+    new_test_ext().execute_with(|| {
+        // Spot already above EMA·1.15 — any long open (and its quote) must fail.
+        let ema = U64F64::from_num(1u64) / U64F64::from_num(2u64);
+        set_reference_price(ema);
+        assert!(
+            MockPool::price()
+                > ema.saturating_mul(U64F64::from_num(115u64)) / U64F64::from_num(100u64)
+        );
+
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+
+        assert_err!(
+            Lending::quote_open_for(&owner, netuid(), Side::Long, 5_000_000_000_000, &hotkey,),
+            Error::<Test>::PriceTooFarFromEma
+        );
+        // Exact path: size under V_dyn/LTV so EMA (not collateral) is the refusal.
+        assert_err!(
+            Lending::quote_open_exact_for(
+                &owner,
+                netuid(),
+                Side::Long,
+                5_000_000_000_000,
+                &hotkey,
+                100_000_000_000, // 0.1 τ ≪ LTV·V_dyn at p_ref=0.5
+            ),
+            Error::<Test>::PriceTooFarFromEma
+        );
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Long,
+                5_000_000_000_000,
+                hotkey,
+                1,
+                0,
+                1,
+                deadline(),
+            ),
+            Error::<Test>::PriceTooFarFromEma
+        );
+    });
+}
+
+#[test]
+fn coldkey_swap_refused_while_subnet_dissolving() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let new_owner = account(11);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            hotkey,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        assert_ok!(Lending::start_dissolution(netuid()));
+        assert!(Dissolutions::<Test>::contains_key(netuid()));
+        // Simulate a mid-settlement cursor so a re-key past it would skip the loan.
+        DissolutionCursor::<Test>::insert(netuid(), account(0));
+        assert_err!(
+            Lending::on_coldkey_swap(&owner, &new_owner),
+            Error::<Test>::SubnetUnavailable
+        );
+        assert!(Positions::<Test>::get(&owner, netuid()).is_some());
+        assert!(Positions::<Test>::get(&new_owner, netuid()).is_none());
+        assert!(OpenByNetuid::<Test>::contains_key(netuid(), &owner));
+        assert!(!OpenByNetuid::<Test>::contains_key(netuid(), &new_owner));
+    });
+}

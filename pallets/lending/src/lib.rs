@@ -2383,7 +2383,8 @@ pub mod pallet {
                         );
                         (alpha_out, position.escrow_alpha)
                     } else {
-                        // Sell A then collateral for P TAO.
+                        // Sell A, then the minimal collateral needed to cover P;
+                        // leftover collateral returns as alpha (min_refund is alpha).
                         let mut raised = 0u64;
                         if position.escrow_alpha > 0 {
                             let out = T::Pool::forced_sell_into_escrow(
@@ -2398,20 +2399,23 @@ pub mod pallet {
                         }
                         let mut coll_left = position.collateral;
                         if raised < position.principal && coll_left > 0 {
-                            // Sell as much collateral as needed (simple: sell all remaining needed via quote).
                             let need = position.principal.saturating_sub(raised);
-                            let sell = coll_left; // sell all remaining collateral; surplus refunded
+                            let (sell, floor) = match Self::alpha_to_raise_tao(netuid, need) {
+                                Ok(a) if a <= coll_left => (a, need),
+                                Ok(a) => (coll_left.min(a), 0u64),
+                                Err(_) => (coll_left, 0u64),
+                            };
+                            ensure!(sell > 0, Error::<T>::InsufficientEscrow);
                             let out = T::Pool::forced_sell_into_escrow(
                                 &escrow,
                                 &custody,
                                 &escrow,
                                 netuid,
                                 sell.into(),
-                                0u64.into(),
+                                floor.into(),
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
-                            coll_left = 0;
-                            let _ = need;
+                            coll_left = coll_left.saturating_sub(sell);
                         }
                         ensure!(raised >= position.principal, Error::<T>::InsufficientEscrow);
                         ensure!(
@@ -2419,6 +2423,8 @@ pub mod pallet {
                             Error::<T>::SlippageExceeded
                         );
                         T::Pool::transfer_tao(&escrow, &reserve, position.principal.into())?;
+                        // Dust TAO above P (rounding) returns with the alpha refund path
+                        // via free balance; primary refund is remaining collateral alpha.
                         let surplus = raised.saturating_sub(position.principal);
                         if surplus > 0 {
                             T::Pool::transfer_tao(&escrow, &owner, surplus.into())?;
@@ -2452,8 +2458,11 @@ pub mod pallet {
                                 .long_collateral_alpha
                                 .saturating_sub(position.collateral);
                         });
-                        ensure!(surplus >= min_refund, Error::<T>::BelowMinimumRefund);
-                        (surplus, 0)
+                        ensure!(
+                            coll_left >= min_refund || min_refund == 0,
+                            Error::<T>::BelowMinimumRefund
+                        );
+                        (coll_left, 0)
                     }
                 }
             };
@@ -2672,17 +2681,23 @@ pub mod pallet {
                         }
                         let mut coll_left = slice_c;
                         if raised < slice_p && coll_left > 0 {
-                            let sell = coll_left;
+                            let need = slice_p.saturating_sub(raised);
+                            let (sell, floor) = match Self::alpha_to_raise_tao(netuid, need) {
+                                Ok(a) if a <= coll_left => (a, need),
+                                Ok(a) => (coll_left.min(a), 0u64),
+                                Err(_) => (coll_left, 0u64),
+                            };
+                            ensure!(sell > 0, Error::<T>::InsufficientEscrow);
                             let out = T::Pool::forced_sell_into_escrow(
                                 &escrow,
                                 &custody,
                                 &escrow,
                                 netuid,
                                 sell.into(),
-                                0u64.into(),
+                                floor.into(),
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
-                            coll_left = 0;
+                            coll_left = coll_left.saturating_sub(sell);
                         }
                         ensure!(raised >= slice_p, Error::<T>::InsufficientEscrow);
                         ensure!(slice_p <= max_payment, Error::<T>::SlippageExceeded);
@@ -2718,8 +2733,11 @@ pub mod pallet {
                             book.long_collateral_alpha =
                                 book.long_collateral_alpha.saturating_sub(slice_c);
                         });
-                        ensure!(surplus >= min_refund, Error::<T>::BelowMinimumRefund);
-                        (surplus, 0)
+                        ensure!(
+                            coll_left >= min_refund || min_refund == 0,
+                            Error::<T>::BelowMinimumRefund
+                        );
+                        (coll_left, 0)
                     }
                 }
             };
@@ -2788,6 +2806,118 @@ pub mod pallet {
                 }
                 let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
                 if T::Pool::quote_buy(netuid, mid.into())?.to_u64() >= alpha_wanted {
+                    hi = mid;
+                } else {
+                    lo = mid.saturating_add(1);
+                }
+            }
+            Ok(hi)
+        }
+
+        /// Minimal alpha that quotes to at least `tao_wanted` on the live pool.
+        fn alpha_to_raise_tao(netuid: NetUid, tao_wanted: u64) -> Result<u64, DispatchError> {
+            if tao_wanted == 0 {
+                return Ok(0);
+            }
+            let mut lo = 1u64;
+            let mut hi = T::Pool::max_sell_input(netuid).to_u64().max(1);
+            for _ in 0..64 {
+                let got = T::Pool::quote_sell(netuid, hi.into())?.to_u64();
+                if got >= tao_wanted {
+                    break;
+                }
+                let next = hi.saturating_mul(2);
+                if next == hi {
+                    break;
+                }
+                hi = next;
+            }
+            ensure!(
+                T::Pool::quote_sell(netuid, hi.into())?.to_u64() >= tao_wanted,
+                Error::<T>::InsufficientEscrow
+            );
+            for _ in 0..64 {
+                if lo >= hi {
+                    break;
+                }
+                let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
+                if T::Pool::quote_sell(netuid, mid.into())?.to_u64() >= tao_wanted {
+                    hi = mid;
+                } else {
+                    lo = mid.saturating_add(1);
+                }
+            }
+            Ok(hi)
+        }
+
+        /// Minimal alpha that raises `tao_wanted` on hypothetical reserves
+        /// (fee-free `quote_sell_on`; used by `quote_close` after a simulated A sale).
+        fn alpha_to_raise_tao_on(
+            tao_reserve: u64,
+            alpha_reserve: u64,
+            quote_weight_parts: u64,
+            tao_wanted: u64,
+        ) -> Result<u64, DispatchError> {
+            if tao_wanted == 0 {
+                return Ok(0);
+            }
+            ensure!(
+                tao_reserve > 0 && alpha_reserve > 0,
+                Error::<T>::InsufficientEscrow
+            );
+            let mut lo = 1u64;
+            // Upper bound: sell enough that CP out ≈ y * a / (x+a) ≥ need → a ≥ need·x / (y−need).
+            let mut hi = if tao_wanted >= tao_reserve {
+                u64::MAX / 4
+            } else {
+                let numer = u128::from(tao_wanted).saturating_mul(u128::from(alpha_reserve));
+                let denom = u128::from(tao_reserve.saturating_sub(tao_wanted)).max(1);
+                ((numer / denom).saturating_add(1) as u64)
+                    .saturating_mul(2)
+                    .max(1)
+            };
+            for _ in 0..64 {
+                let got = T::Pool::quote_sell_on(
+                    tao_reserve.into(),
+                    alpha_reserve.into(),
+                    quote_weight_parts,
+                    hi.into(),
+                )
+                .to_u64();
+                if got >= tao_wanted {
+                    break;
+                }
+                let next = hi.saturating_mul(2);
+                if next == hi {
+                    break;
+                }
+                hi = next;
+            }
+            ensure!(
+                T::Pool::quote_sell_on(
+                    tao_reserve.into(),
+                    alpha_reserve.into(),
+                    quote_weight_parts,
+                    hi.into(),
+                )
+                .to_u64()
+                    >= tao_wanted,
+                Error::<T>::InsufficientEscrow
+            );
+            for _ in 0..64 {
+                if lo >= hi {
+                    break;
+                }
+                let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
+                if T::Pool::quote_sell_on(
+                    tao_reserve.into(),
+                    alpha_reserve.into(),
+                    quote_weight_parts,
+                    mid.into(),
+                )
+                .to_u64()
+                    >= tao_wanted
+                {
                     hi = mid;
                 } else {
                     lo = mid.saturating_add(1);
@@ -4148,9 +4278,6 @@ pub mod pallet {
                     )?,
                     Error::<T>::InsufficientCollateral
                 );
-                // Post-trade EMA band (same gate as `do_open`).
-                let spot_after = Self::simulate_open_spot_after(netuid, side, p)?;
-                Self::ensure_open_ema_band(side, spot_after, reference.price, &params)?;
                 p
             } else {
                 Self::max_principal_for_collateral(
@@ -4163,6 +4290,12 @@ pub mod pallet {
                     &params,
                 )?
             };
+            // Post-trade EMA band for both exact and collateral-only sizing
+            // (same gate as `do_open`; catches OpenLoan / quote_open without amount).
+            if principal > 0 {
+                let spot_after = Self::simulate_open_spot_after(netuid, side, principal)?;
+                Self::ensure_open_ema_band(side, spot_after, reference.price, &params)?;
+            }
             let price = reference.price.min(T::Pool::current_alpha_price(netuid));
             let total_p = Self::add(
                 existing.as_ref().map(|p| p.principal).unwrap_or(0),
@@ -4256,15 +4389,52 @@ pub mod pallet {
                         })
                     }
                 }
-                Side::Long => Ok(ClosingQuote {
-                    payment: position.principal,
-                    refund: remaining.saturating_add(if repay_from_wallet {
-                        position.escrow_alpha
+                Side::Long => {
+                    if repay_from_wallet {
+                        Ok(ClosingQuote {
+                            payment: position.principal,
+                            refund: remaining.saturating_add(position.escrow_alpha),
+                            escrow_return: position.escrow_alpha,
+                        })
                     } else {
-                        0
-                    }),
-                    escrow_return: position.escrow_alpha,
-                }),
+                        // Sell A, then minimal C for the shortfall; refund leftover C as alpha.
+                        let w = T::Pool::quote_weight_parts(netuid);
+                        let mut y = T::Pool::pool_tao(netuid).to_u64();
+                        let mut x = T::Pool::pool_alpha(netuid).to_u64();
+                        let mut raised = 0u64;
+                        if position.escrow_alpha > 0 {
+                            let out = T::Pool::quote_sell_on(
+                                y.into(),
+                                x.into(),
+                                w,
+                                position.escrow_alpha.into(),
+                            )
+                            .to_u64();
+                            raised = Self::add(raised, out)?;
+                            y = y.saturating_sub(out);
+                            x = x.saturating_add(position.escrow_alpha);
+                        }
+                        let mut coll_left = remaining;
+                        if raised < position.principal && coll_left > 0 {
+                            let need = position.principal.saturating_sub(raised);
+                            let sell = match Self::alpha_to_raise_tao_on(y, x, w, need) {
+                                Ok(a) => a.min(coll_left),
+                                Err(_) => coll_left,
+                            };
+                            ensure!(sell > 0, Error::<T>::InsufficientEscrow);
+                            let out =
+                                T::Pool::quote_sell_on(y.into(), x.into(), w, sell.into()).to_u64();
+                            raised = Self::add(raised, out)?;
+                            coll_left = coll_left.saturating_sub(sell);
+                        }
+                        ensure!(raised >= position.principal, Error::<T>::InsufficientEscrow);
+                        Ok(ClosingQuote {
+                            payment: position.principal,
+                            refund: coll_left,
+                            escrow_return: 0,
+                        })
+                    }
+                }
             }
         }
 
@@ -4409,7 +4579,9 @@ pub mod pallet {
         /// §14: re-key Positions / OpenByNetuid / EscrowOwner / Due / Expiry from
         /// `old` to `new` without moving custody funds (`Position.custody` stays
         /// put). Rejects when `new` already has a loan on the same netuid —
-        /// overwriting would orphan the destination's custody funds.
+        /// overwriting would orphan the destination's custody funds. Also
+        /// rejects while a subnet is dissolving: re-keying `OpenByNetuid` past
+        /// `DissolutionCursor` would skip settlement and strand custody.
         #[transactional]
         pub fn on_coldkey_swap(old: &T::AccountId, new: &T::AccountId) -> DispatchResult {
             if old == new {
@@ -4417,6 +4589,10 @@ pub mod pallet {
             }
             let positions: alloc::vec::Vec<_> = Positions::<T>::iter_prefix(old).collect();
             for (netuid, position) in positions {
+                ensure!(
+                    !Dissolutions::<T>::contains_key(netuid),
+                    Error::<T>::SubnetUnavailable
+                );
                 ensure!(
                     !Positions::<T>::contains_key(new, netuid),
                     Error::<T>::PositionExists

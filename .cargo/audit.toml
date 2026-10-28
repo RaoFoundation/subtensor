@@ -49,4 +49,15 @@ ignore = [
     # 0383 webpki-root-certs: only a wasm32 / FreeBSD-dev dependency of
     #   rustls-platform-verifier; not part of the node build.
     "RUSTSEC-2026-0383",
+    # RUSTSEC-2026-0387 (added 2026-10-28): crypto-bigint timing variability
+    # in ops intended to be constant-time. Pulled transitively by the
+    # polkadot-sdk crypto stack; no patch on the pinned line without an SDK
+    # bump. Accepted as a known fork-tree exception; revisit on next bump.
+    "RUSTSEC-2026-0387",
+    # RUSTSEC-2026-0403 (added 2026-10-28): zstd-safe uninitialized memory on
+    # failed legacy-frame streaming decompression (5.0.2 and 6.0.6). Same
+    # SDK-pinned zstd graph as the other zstd-safe unsound entries; node
+    # decompression paths do not feed untrusted legacy frames. Fix needs a
+    # newer zstd-safe major via the polkadot-sdk bump.
+    "RUSTSEC-2026-0403",
 ]
