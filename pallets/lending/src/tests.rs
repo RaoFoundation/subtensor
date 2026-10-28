@@ -688,6 +688,83 @@ fn raise_open_long_and_sell_is_atomic() {
 }
 
 #[test]
+fn raise_increase_default_sale_is_new_escrow_only() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        // Large unlocked stake so a buggy cumulative default sale would succeed.
+        mint_alpha(&owner, &hotkey, netuid(), 200_000_000_000_000);
+        assert_ok!(Lending::open_long_and_sell(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            Some(10_000_000_000_000),
+            None,
+            10_000_000_000_000,
+            1,
+            None, // default S = newly escrowed A
+            1,
+            0,
+            deadline(),
+        ));
+        let first = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let escrow_after_first = first.escrow_alpha;
+        assert!(escrow_after_first > 0);
+
+        // Top up unlocked stake for the increase's collateral + sale.
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        let alpha_before = alpha(&owner, &hotkey, netuid());
+        System::reset_events();
+        assert_ok!(Lending::open_long_and_sell(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            Some(2_000_000_000_000),
+            None,
+            2_000_000_000_000,
+            1,
+            None, // must default to *new* escrow only
+            1,
+            0,
+            deadline(),
+        ));
+        let second = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let new_escrow = second.escrow_alpha.saturating_sub(escrow_after_first);
+        assert!(new_escrow > 0);
+        assert!(new_escrow < escrow_after_first);
+
+        let sold = alpha_before
+            .saturating_sub(alpha(&owner, &hotkey, netuid()))
+            .saturating_sub(2_000_000_000_000); // subtract collateral locked
+        // Sale quantity ≈ new escrow (not cumulative first+new).
+        let diff = sold.abs_diff(new_escrow);
+        assert!(
+            diff <= new_escrow / 100 + 1,
+            "default raise sale {} must track new escrow {}, not cumulative {}",
+            sold,
+            new_escrow,
+            second.escrow_alpha
+        );
+        assert!(
+            sold < escrow_after_first,
+            "must not sell prior escrow book from unlocked stake"
+        );
+
+        let raised = System::events().into_iter().find_map(|e| match e.event {
+            RuntimeEvent::Lending(Event::Raised {
+                escrow_alpha,
+                sell_alpha,
+                ..
+            }) => Some((escrow_alpha, sell_alpha)),
+            _ => None,
+        });
+        let (evt_escrow, evt_sell) = raised.expect("Raised event");
+        assert_eq!(evt_escrow, new_escrow);
+        assert_eq!(evt_sell, new_escrow);
+    });
+}
+
+#[test]
 fn raise_rolls_back_on_slippage() {
     new_test_ext().execute_with(|| {
         let owner = account(1);

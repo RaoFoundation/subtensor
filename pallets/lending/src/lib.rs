@@ -3289,6 +3289,14 @@ pub mod pallet {
                 Error::<T>::InsufficientSellStake
             );
 
+            // Snapshot prior escrow so an *increase* defaults the sale to only
+            // the newly escrowed alpha (matches `quote_raise` / `a_quote`), not
+            // the cumulative book. Otherwise an omitted `sell_alpha` would
+            // liquidate prior escrow amounts from the caller's unlocked stake.
+            let escrow_before = Positions::<T>::get(&owner, netuid)
+                .map(|p| p.escrow_alpha)
+                .unwrap_or(0);
+
             // Open escrowed long (locks C, lifts, forced buy).
             Self::do_open(
                 owner.clone(),
@@ -3304,8 +3312,8 @@ pub mod pallet {
             )?;
             let position =
                 Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
-            // Default S to realised escrow alpha from this open.
-            let realised_a = position.escrow_alpha;
+            // Default S to escrow alpha realised by *this* open/increase only.
+            let realised_a = position.escrow_alpha.saturating_sub(escrow_before);
             ensure!(realised_a >= min_escrow_alpha, Error::<T>::SlippageExceeded);
             let s = sell_alpha.unwrap_or(realised_a);
 
