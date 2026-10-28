@@ -1453,6 +1453,8 @@ parameter_types! {
     pub const LendingReferenceWarmup: BlockNumber = 7_200; // ~24h
     pub const LendingMaxPositionsPerSubnet: u32 = 10_000;
     pub const LendingMaxTotalPositions: u32 = 1_000_000;
+    // ~20 min at 12 s blocks: defer failed expiry settles without stalling the queue.
+    pub const LendingExpiryRetryDelay: BlockNumber = 100;
 }
 
 impl pallet_lending::Config for Runtime {
@@ -1464,6 +1466,7 @@ impl pallet_lending::Config for Runtime {
     type ReferenceWarmup = LendingReferenceWarmup;
     type MaxPositionsPerSubnet = LendingMaxPositionsPerSubnet;
     type MaxTotalPositions = LendingMaxTotalPositions;
+    type ExpiryRetryDelay = LendingExpiryRetryDelay;
     type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
 }
 

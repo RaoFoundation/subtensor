@@ -194,3 +194,4 @@ class Lending:
     ReferenceWarmup = Item('Lending', 'ReferenceWarmup')
     MaxPositionsPerSubnet = Item('Lending', 'MaxPositionsPerSubnet')
     MaxTotalPositions = Item('Lending', 'MaxTotalPositions')
+    ExpiryRetryDelay = Item('Lending', 'ExpiryRetryDelay')

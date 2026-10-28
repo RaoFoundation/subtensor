@@ -42,6 +42,7 @@ impl Config for Test {
     type ReferenceWarmup = ConstU64<1>;
     type MaxPositionsPerSubnet = ConstU32<8>;
     type MaxTotalPositions = ConstU32<16>;
+    type ExpiryRetryDelay = ConstU64<5>;
     type WeightInfo = ();
 }
 
@@ -2327,16 +2328,125 @@ fn long_expiry_preserves_collateral_when_pot_payout_fails() {
         assert_eq!(still.collateral, snap.collateral);
         assert_eq!(still.escrow_alpha, snap.escrow_alpha);
         assert_eq!(alpha(&escrow, &custody, netuid()), alpha_before);
-        assert!(Expiry::<Test>::contains_key(
+        // Failed claim is deferred, not left pinning the original bucket.
+        assert!(!Expiry::<Test>::contains_key(
             snap.expires_at,
             (&owner, netuid())
         ));
+        let retry_at = snap.expires_at.saturating_add(5);
+        assert!(Expiry::<Test>::contains_key(retry_at, (&owner, netuid())));
         assert!(
             System::events()
                 .into_iter()
                 .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. }))),
             "must not emit Expired after a failed payout"
         );
+    });
+}
+
+#[test]
+fn failed_expiry_does_not_block_later_bucket() {
+    new_test_ext().execute_with(|| {
+        let owner_fail = account(1);
+        let owner_ok = account(3);
+        let hotkey_fail = account(2);
+        let hotkey_ok = account(4);
+        mint_alpha(&owner_fail, &hotkey_fail, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner_fail.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            hotkey_fail,
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let fail_exp = Positions::<Test>::get(&owner_fail, netuid())
+            .unwrap()
+            .expires_at;
+        // Open the healthy short later so it lands in a later expiry bucket.
+        System::set_block_number(20);
+        mint_tao(&owner_ok, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner_ok.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            hotkey_ok,
+            1,
+            1,
+            1,
+            deadline(),
+        ));
+        let ok_exp = Positions::<Test>::get(&owner_ok, netuid())
+            .unwrap()
+            .expires_at;
+        assert!(
+            ok_exp > fail_exp,
+            "healthy loan must expire in a later bucket"
+        );
+        Positions::<Test>::mutate(&owner_fail, netuid(), |p| {
+            if let Some(p) = p {
+                p.annual_interest = 0;
+                p.interest_remainder = 0;
+                p.last_accrued = fail_exp;
+            }
+        });
+        Positions::<Test>::mutate(&owner_ok, netuid(), |p| {
+            if let Some(p) = p {
+                p.annual_interest = 0;
+                p.interest_remainder = 0;
+                p.last_accrued = ok_exp;
+            }
+        });
+        // Force the earlier long settle to miss the pot.
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = U64F64::from_num(100u64);
+            }
+        });
+        set_pool(1, pool_alpha());
+        System::set_block_number(fail_exp);
+        let _ = <Lending as Hooks<_>>::on_idle(fail_exp, Weight::MAX);
+        assert!(
+            Positions::<Test>::contains_key(&owner_fail, netuid()),
+            "failed long must remain open"
+        );
+        assert!(
+            Positions::<Test>::contains_key(&owner_ok, netuid()),
+            "later short must still be waiting"
+        );
+        let retry_at = fail_exp.saturating_add(5);
+        assert_ne!(
+            NextExpiry::<Test>::get(),
+            Some(fail_exp),
+            "failed bucket must not pin NextExpiry"
+        );
+        assert_eq!(
+            NextExpiry::<Test>::get(),
+            Some(retry_at),
+            "failed claim moves onto the bounded retry slot"
+        );
+        assert!(retry_at < ok_exp);
+        // Short settlement does not need pot TAO — it must clear once due,
+        // even though the deferred long is still ahead in the schedule.
+        System::set_block_number(ok_exp);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(ok_exp, Weight::MAX);
+        assert!(
+            !Positions::<Test>::contains_key(&owner_ok, netuid()),
+            "later expiry must still settle while an earlier claim is deferred"
+        );
+        assert!(System::events().into_iter().any(|e| matches!(
+            e.event,
+            RuntimeEvent::Lending(Event::Expired {
+                side: Side::Short,
+                ..
+            })
+        )));
+        assert!(Positions::<Test>::contains_key(&owner_fail, netuid()));
     });
 }
 

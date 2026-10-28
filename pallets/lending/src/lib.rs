@@ -640,6 +640,10 @@ pub mod pallet {
         type MaxPositionsPerSubnet: Get<u32>;
         #[pallet::constant]
         type MaxTotalPositions: Get<u32>;
+        /// Blocks to wait before retrying an expiry settle that rolled back.
+        /// Failed claims stay covered but must not pin `NextExpiry` forever.
+        #[pallet::constant]
+        type ExpiryRetryDelay: Get<BlockNumberFor<Self>>;
         type WeightInfo: WeightInfo;
     }
 
@@ -3818,17 +3822,26 @@ pub mod pallet {
                             }
                         }
                         Err(_) => {
-                            // Keep the queue entry for retry; do not drop coverage.
+                            // Preserve coverage, but do not pin NextExpiry on this
+                            // bucket: a persistently failing loan would otherwise
+                            // starve later expiries on every subnet. Drop orphan
+                            // claims; defer live ones onto a bounded retry slot.
+                            if Expiry::<T>::contains_key(at, (&owner, netuid)) {
+                                Expiry::<T>::remove(at, (&owner, netuid));
+                                Self::note_expiry_removed(at);
+                            }
+                            if Positions::<T>::contains_key(&owner, netuid) {
+                                let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
+                                if !Expiry::<T>::contains_key(retry_at, (&owner, netuid)) {
+                                    Expiry::<T>::insert(retry_at, (&owner, netuid), ());
+                                    Self::note_expiry_inserted(retry_at);
+                                }
+                            }
                         }
                     }
                     last_done = Some((owner, netuid));
                 }
                 ExpiryBucketCursor::<T>::kill();
-                if ExpiryIndex::<T>::get(at) > 0 {
-                    // Failed entries remain — retry this bucket next on_idle.
-                    NextExpiry::<T>::put(at);
-                    break;
-                }
                 if !saw_entry {
                     ExpiryIndex::<T>::remove(at);
                     Self::unlink_expiry_bucket(at);
@@ -4305,8 +4318,8 @@ pub mod pallet {
                     }
                     // Pay remainder before destroying custody alpha. A pot miss
                     // must revert the whole transactional settle so collateral is
-                    // not destroyed and the claim is not removed; expiry keeps the
-                    // queue entry for retry. Below-ED transfer dust is reported.
+                    // not destroyed; collect_expiry then defers the claim onto a
+                    // retry slot instead of pinning NextExpiry. Below-ED dust only.
                     let mut paid_remainder = 0u64;
                     if remainder > 0 {
                         let paid = T::Pool::pay_from_pot(netuid, owner, remainder.into())?;
