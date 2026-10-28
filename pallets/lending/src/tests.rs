@@ -3429,6 +3429,167 @@ fn quote_close_escrowed_short_refund_matches_execution() {
 }
 
 #[test]
+fn close_stops_after_interest_forfeits_short() {
+    new_test_ext().execute_with(|| {
+        // Second short keeps shared reserve funded so a buggy double-readd
+        // would succeed and corrupt PositionCount rather than Err-masking.
+        let other = account(3);
+        let other_hk = account(4);
+        mint_tao(&other, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(other.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            other_hk,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            hotkey.clone(),
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        // Prefund escrow so a continued close could still refund/readd.
+        mint_tao(&snap.custody, 20_000_000_000_000);
+        mint_alpha(&owner, &hotkey, netuid(), snap.principal.saturating_mul(2));
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.collateral = 1;
+                p.annual_interest = 10_000_000_000_000;
+                p.interest_remainder = 0;
+                p.last_accrued = System::block_number().saturating_sub(100);
+            }
+        });
+        let count_before = PositionCount::<Test>::get(netuid());
+        let total_before = TotalPositions::<Test>::get();
+        System::reset_events();
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            true,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(
+            !Positions::<Test>::contains_key(&owner, netuid()),
+            "forfeit must clear the position"
+        );
+        assert!(
+            Positions::<Test>::contains_key(&other, netuid()),
+            "peer short must remain"
+        );
+        assert_eq!(PositionCount::<Test>::get(netuid()), count_before - 1);
+        assert_eq!(TotalPositions::<Test>::get(), total_before - 1);
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. })))
+        );
+        assert!(
+            System::events()
+                .into_iter()
+                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Closed { .. }))),
+            "must not continue to Closed after forfeit"
+        );
+        assert!(
+            System::events()
+                .into_iter()
+                .filter(|e| matches!(e.event, RuntimeEvent::Lending(Event::Readded { .. })))
+                .count()
+                <= 1,
+            "must not double-readd after forfeit"
+        );
+    });
+}
+
+#[test]
+fn partial_repay_stops_after_interest_forfeits_short() {
+    new_test_ext().execute_with(|| {
+        let other = account(3);
+        let other_hk = account(4);
+        mint_tao(&other, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(other.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            other_hk,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            8_000_000_000_000,
+            hotkey.clone(),
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        mint_tao(&snap.custody, 20_000_000_000_000);
+        mint_alpha(&owner, &hotkey, netuid(), snap.principal.saturating_mul(2));
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.collateral = 1;
+                p.annual_interest = 10_000_000_000_000;
+                p.interest_remainder = 0;
+                p.last_accrued = System::block_number().saturating_sub(100);
+            }
+        });
+        let count_before = PositionCount::<Test>::get(netuid());
+        System::reset_events();
+        assert_ok!(Lending::repay(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            snap.principal / 2,
+            true,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(!Positions::<Test>::contains_key(&owner, netuid()));
+        assert!(Positions::<Test>::contains_key(&other, netuid()));
+        assert_eq!(PositionCount::<Test>::get(netuid()), count_before - 1);
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. })))
+        );
+        assert!(
+            System::events().into_iter().all(|e| !matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Repaid { .. } | Event::Closed { .. })
+            )),
+            "must not continue repay/close after forfeit"
+        );
+    });
+}
+
+#[test]
 fn short_wallet_close_rejects_when_max_payment_below_principal() {
     new_test_ext().execute_with(|| {
         let owner = account(1);

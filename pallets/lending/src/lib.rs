@@ -2262,6 +2262,12 @@ pub mod pallet {
             let mut position =
                 Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
             Self::charge_interest(&owner, netuid, &mut position, now, true)?;
+            // Interest can exhaust collateral and `forfeit`, which already restored
+            // lifts, moved escrow, and removed indexes. Do not continue close on a
+            // forfeited loan (would double-readd / undercount PositionCount).
+            if !Positions::<T>::contains_key(&owner, netuid) {
+                return Ok(());
+            }
             ensure!(
                 position.collateral > 0 || position.side == Side::Short,
                 Error::<T>::InsufficientEscrow
@@ -2553,6 +2559,10 @@ pub mod pallet {
             let mut position = existing;
             // Interest first on the whole position (§4.4).
             Self::charge_interest(&owner, netuid, &mut position, now, true)?;
+            // Same as close / settle: forfeit already cleaned up — stop.
+            if !Positions::<T>::contains_key(&owner, netuid) {
+                return Ok(());
+            }
             ensure!(
                 position.collateral > 0 || position.side == Side::Short,
                 Error::<T>::InsufficientEscrow
