@@ -688,6 +688,152 @@ fn raise_open_long_and_sell_is_atomic() {
 }
 
 #[test]
+fn raise_after_interest_forfeit_sells_full_new_escrow() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 200_000_000_000_000);
+        assert_ok!(Lending::open_long_and_sell(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            Some(5_000_000_000_000),
+            None,
+            5_000_000_000_000,
+            1,
+            None,
+            1,
+            0,
+            deadline(),
+        ));
+        let first = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let old_escrow = first.escrow_alpha;
+        assert!(old_escrow > 0);
+        // Keep collateral healthy for raise *sizing*, but make the open-path
+        // interest charge exhaust it and forfeit inside `do_open`.
+        let now = System::block_number();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(pos) = p {
+                pos.annual_interest = 10_000_000_000_000;
+                pos.interest_remainder = 0;
+                pos.last_accrued = 0;
+            }
+        });
+        System::set_block_number(now.saturating_add(520));
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        System::reset_events();
+        assert_ok!(Lending::open_long_and_sell(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            Some(3_000_000_000_000),
+            None,
+            3_000_000_000_000,
+            1,
+            None,
+            1,
+            0,
+            deadline(),
+        ));
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. }))),
+            "prior loan must forfeit during raise open"
+        );
+        let raised = System::events().into_iter().find_map(|e| match e.event {
+            RuntimeEvent::Lending(Event::Raised {
+                escrow_alpha,
+                sell_alpha,
+                ..
+            }) => Some((escrow_alpha, sell_alpha)),
+            _ => None,
+        });
+        let (evt_escrow, evt_sell) = raised.expect("Raised event");
+        assert!(evt_escrow > 0, "replacement open must report new escrow");
+        assert_eq!(evt_sell, evt_escrow);
+        // Bug: subtracting forfeited old_escrow from the replacement book
+        // would yield zero (old_escrow > new escrow on a smaller raise).
+        assert_ne!(
+            evt_escrow,
+            0u64.saturating_sub(old_escrow),
+            "must not treat forfeited escrow as still present"
+        );
+        let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(pos.escrow_alpha, evt_escrow);
+        // Fresh open after forfeit — principal is only this raise's borrow.
+        assert!(pos.principal > 0);
+        assert!(pos.principal < first.principal.saturating_add(pos.principal));
+    });
+}
+
+#[test]
+fn quote_raise_sale_matches_post_buy_pool_not_live() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 100_000_000_000_000);
+        let collateral = 5_000_000_000_000u64;
+        let quoted =
+            Lending::quote_raise(&owner, netuid(), &hotkey, None, Some(collateral), None).unwrap();
+        assert!(quoted.escrow_alpha > 0);
+        assert!(quoted.free_tao_out > 0);
+        // Post-buy spot must move vs the pre-trade reference (buy lifts price).
+        assert!(
+            quoted.price_after_buy > quoted.price_before,
+            "forced buy must raise quoted spot"
+        );
+        // Sale after the buy should leave spot below the post-buy peak.
+        assert!(
+            quoted.price_after < quoted.price_after_buy,
+            "wallet sale must pull spot back from post-buy"
+        );
+
+        // Independently recompute the post-buy sale; must match free_tao_out.
+        let y = pool_tao();
+        let x = pool_alpha();
+        let w = MockPool::quote_weight_parts(netuid());
+        let p = quoted.principal_tao;
+        let y_lift = y.saturating_sub(p);
+        let x_lift =
+            x.saturating_sub(((u128::from(x) * u128::from(p)) / u128::from(y).max(1)) as u64);
+        let a = MockPool::quote_buy_on(y_lift.into(), x_lift.into(), w, p.into()).to_u64();
+        let y_buy = y_lift.saturating_add(p);
+        let x_buy = x_lift.saturating_sub(a);
+        let expected =
+            MockPool::quote_sell_on(y_buy.into(), x_buy.into(), w, quoted.sell_alpha.into())
+                .to_u64();
+        assert_eq!(quoted.free_tao_out, expected);
+        assert_eq!(quoted.escrow_alpha, a);
+
+        // Execution with the quoted floor must succeed and land near the quote.
+        let tao_before = tao(&owner);
+        assert_ok!(Lending::open_long_and_sell(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey,
+            Some(collateral),
+            None,
+            collateral,
+            quoted.principal_tao,
+            None,
+            quoted.free_tao_out.saturating_mul(99) / 100,
+            0,
+            deadline(),
+        ));
+        let gained = tao(&owner).saturating_sub(tao_before);
+        let diff = gained.abs_diff(quoted.free_tao_out);
+        assert!(
+            diff <= quoted.free_tao_out / 50 + 1,
+            "executed free TAO {} vs quote {} (diff {})",
+            gained,
+            quoted.free_tao_out,
+            diff
+        );
+    });
+}
+
+#[test]
 fn raise_increase_default_sale_is_new_escrow_only() {
     new_test_ext().execute_with(|| {
         let owner = account(1);

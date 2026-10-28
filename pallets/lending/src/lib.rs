@@ -3218,6 +3218,17 @@ pub mod pallet {
             let params = Self::lift_params();
             let price_before = T::Pool::current_alpha_price(netuid);
 
+            // Accrue (and forfeit if exhausted) *before* sizing and escrow
+            // snapshot so an omitted `sell_alpha` never subtracts a vanished
+            // prior book, and LTV sizing sees the post-interest position.
+            if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
+                Self::ensure_matching_position(&position, Side::Long, &hotkey)?;
+                Self::charge_interest(&owner, netuid, &mut position, now, false)?;
+                if Positions::<T>::contains_key(&owner, netuid) {
+                    Positions::<T>::insert(&owner, netuid, &position);
+                }
+            }
+
             let (collateral, principal) = if let Some(c) = collateral_alpha {
                 ensure!(c > 0, Error::<T>::CollateralZero);
                 ensure!(c <= max_collateral_alpha, Error::<T>::CollateralExceedsMax);
@@ -3289,15 +3300,14 @@ pub mod pallet {
                 Error::<T>::InsufficientSellStake
             );
 
-            // Snapshot prior escrow so an *increase* defaults the sale to only
-            // the newly escrowed alpha (matches `quote_raise` / `a_quote`), not
-            // the cumulative book. Otherwise an omitted `sell_alpha` would
-            // liquidate prior escrow amounts from the caller's unlocked stake.
+            // Post-interest escrow snapshot: increase → sale defaults to delta;
+            // forfeited / fresh → entire new escrow (escrow_before is 0).
             let escrow_before = Positions::<T>::get(&owner, netuid)
                 .map(|p| p.escrow_alpha)
                 .unwrap_or(0);
 
             // Open escrowed long (locks C, lifts, forced buy).
+            // `do_open` re-charges interest; elapsed is 0 after the pre-charge.
             Self::do_open(
                 owner.clone(),
                 netuid,
@@ -3312,7 +3322,6 @@ pub mod pallet {
             )?;
             let position =
                 Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
-            // Default S to escrow alpha realised by *this* open/increase only.
             let realised_a = position.escrow_alpha.saturating_sub(escrow_before);
             ensure!(realised_a >= min_escrow_alpha, Error::<T>::SlippageExceeded);
             let s = sell_alpha.unwrap_or(realised_a);
@@ -4794,33 +4803,29 @@ pub mod pallet {
                 }
                 (best, p)
             };
+            // Simulate the raise's reserve path: lift → forced buy → wallet sale.
+            // Sale must be quoted on the *post-buy* pool (not live pre-trade).
             let y = T::Pool::pool_tao(netuid).to_u64();
             let x = T::Pool::pool_alpha(netuid).to_u64();
+            ensure!(y > p && x > 0, Error::<T>::EmptyPool);
             let w = T::Pool::quote_weight_parts(netuid);
             let y_lift = y.saturating_sub(p);
             let x_lift =
                 x.saturating_sub(((u128::from(x) * u128::from(p)) / u128::from(y).max(1)) as u64);
+            ensure!(y_lift > 0 && x_lift > 0, Error::<T>::EmptyPool);
             let a = T::Pool::quote_buy_on(y_lift.into(), x_lift.into(), w, p.into()).to_u64();
-            let price_after_buy = if y_lift > 0 && x_lift.saturating_sub(a.min(x_lift)) > 0 {
-                // approximate via pool formula not available; use spot after buy quote
-                price_before
-            } else {
-                price_before
-            };
+            let y_buy = y_lift.saturating_add(p);
+            let x_buy = x_lift.saturating_sub(a);
+            ensure!(y_buy > 0 && x_buy > 0, Error::<T>::Arithmetic);
+            let price_after_buy =
+                Self::approx_spot_after(price_before, y_lift, x_lift, y_buy, x_buy)?;
             let s = sell.unwrap_or(a);
-            let free = T::Pool::quote_sell_on(
-                y_lift.saturating_add(p).into(), // after buy y back
-                x_lift.saturating_sub(a).saturating_add(a).into(),
-                w,
-                s.into(),
-            )
-            .to_u64();
-            // Better free estimate: sell S on post-buy state (y+ P - fees, x - A)
-            let y_buy = y_lift; // after spending P, y returns toward original; use live quote_sell
-            let free = T::Pool::quote_sell(netuid, s.into())
-                .unwrap_or(free.into())
-                .to_u64();
-            let _ = y_buy;
+            let free = T::Pool::quote_sell_on(y_buy.into(), x_buy.into(), w, s.into()).to_u64();
+            let y_after = y_buy.saturating_sub(free);
+            let x_after = x_buy.saturating_add(s);
+            ensure!(y_after > 0 && x_after > 0, Error::<T>::Arithmetic);
+            let price_after =
+                Self::approx_spot_after(price_before, y_lift, x_lift, y_after, x_after)?;
             let (_cap, _cs, cl) = Self::side_caps(netuid, &params)?;
             let book = Lifts::<T>::get(netuid);
             let headroom = cl.saturating_sub(book.l_l);
@@ -4833,12 +4838,31 @@ pub mod pallet {
                 free_tao_out: free,
                 price_before,
                 price_after_buy,
-                price_after: price_before,
+                price_after,
                 v_dyn: Self::v_dyn(netuid, c, p, &reference, Some(owner))?,
                 ltv_tier_bps: Self::ltv_tier_bps(netuid, Side::Long, &params),
                 long_cap_headroom: headroom,
                 annual_interest_alpha: Self::mul_bps(interest, params.apr_bps)?,
             })
+        }
+
+        /// Scale `spot_before` by the reserve-ratio change from `(y0,x0)` → `(y1,x1)`.
+        fn approx_spot_after(
+            spot_before: U64F64,
+            y0: u64,
+            x0: u64,
+            y1: u64,
+            x1: u64,
+        ) -> Result<U64F64, DispatchError> {
+            ensure!(y0 > 0 && x0 > 0 && y1 > 0 && x1 > 0, Error::<T>::Arithmetic);
+            let before_ratio = U64F64::from_num(y0) / U64F64::from_num(x0);
+            let after_ratio = U64F64::from_num(y1) / U64F64::from_num(x1);
+            let factor = after_ratio
+                .checked_div(before_ratio)
+                .ok_or(Error::<T>::Arithmetic)?;
+            spot_before
+                .checked_mul(factor)
+                .ok_or_else(|| Error::<T>::Arithmetic.into())
         }
 
         #[transactional]
