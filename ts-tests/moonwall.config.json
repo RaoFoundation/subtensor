@@ -79,6 +79,7 @@
         {
             "name": "zombienet_shield",
             "timeout": 600000,
+            "multiThreads": 6,
             "envVars": [
                 "SHIELD_RUNTIME=release"
             ],
@@ -97,7 +98,9 @@
                 }
             },
             "vitestArgs": {
-                "bail": 1
+                "bail": 1,
+                "sequence": { "concurrent": true },
+                "maxConcurrency": 6
             },
             "connections": [
                 {

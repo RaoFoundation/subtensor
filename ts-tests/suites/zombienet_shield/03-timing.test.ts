@@ -11,7 +11,8 @@ import {
     getBalance,
     getNextKey,
     getSignerFromKeypair,
-    keyringPairFromUri,
+    fundShieldAccounts,
+    shieldAccount,
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
@@ -33,18 +34,19 @@ describeSuite({
         let two: KeyringPair;
 
         beforeAll(async () => {
-            alice = keyringPairFromUri("//Alice");
-            bob = keyringPairFromUri("//Bob");
-            charlie = keyringPairFromUri("//Charlie");
-            dave = keyringPairFromUri("//Dave");
-            eve = keyringPairFromUri("//Eve");
-            ferdie = keyringPairFromUri("//Ferdie");
-            one = keyringPairFromUri("//One");
-            two = keyringPairFromUri("//Two");
+            alice = shieldAccount("timing", "Alice");
+            bob = shieldAccount("timing", "Bob");
+            charlie = shieldAccount("timing", "Charlie");
+            dave = shieldAccount("timing", "Dave");
+            eve = shieldAccount("timing", "Eve");
+            ferdie = shieldAccount("timing", "Ferdie");
+            one = shieldAccount("timing", "One");
+            two = shieldAccount("timing", "Two");
 
             api = context.papi("Node").getTypedApi(subtensor);
 
             await checkRuntime(api);
+            await fundShieldAccounts(api, "timing", [alice, bob, charlie, dave, eve, ferdie, one, two]);
         }, 120000);
 
         // This environment runs the four cases concurrently. Every case uses a

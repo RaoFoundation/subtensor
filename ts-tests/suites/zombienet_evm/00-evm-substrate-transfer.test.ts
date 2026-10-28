@@ -91,6 +91,8 @@ describeSuite({
             api = context.papi("Node").getTypedApi(subtensor);
 
             provider = context.ethers("EVM").provider as ethers.JsonRpcProvider;
+            // Match the local 100 ms block cadence instead of ethers' 4 s default.
+            provider.pollingInterval = 100;
             ethWallet = createEthersWallet(provider);
             ethWallet2 = createEthersWallet(provider);
 

@@ -11,7 +11,8 @@ import {
     getBalance,
     getNextKey,
     getSignerFromKeypair,
-    keyringPairFromUri,
+    fundShieldAccounts,
+    shieldAccount,
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
@@ -56,11 +57,11 @@ describeSuite({
         let t03Recipient: KeyringPair;
 
         beforeAll(async () => {
-            alice = keyringPairFromUri("//Alice");
-            bob = keyringPairFromUri("//Bob");
-            charlie = keyringPairFromUri("//Charlie");
-            t03Sender = keyringPairFromUri("//Dave");
-            t03Recipient = keyringPairFromUri("//Eve");
+            alice = shieldAccount("scaling", "Alice");
+            bob = shieldAccount("scaling", "Bob");
+            charlie = shieldAccount("scaling", "Charlie");
+            t03Sender = shieldAccount("scaling", "Dave");
+            t03Recipient = shieldAccount("scaling", "Eve");
 
             client = context.papi("Node");
             api = client.getTypedApi(subtensor);
@@ -68,9 +69,10 @@ describeSuite({
             apiFull = clientFull.getTypedApi(subtensor);
 
             await checkRuntime(api);
+            await fundShieldAccounts(api, "scaling", [alice, bob, charlie, t03Sender, t03Recipient]);
         }, 120000);
 
-        // This shard runs all six read/write cases concurrently. T03 uses
+        // This shard runs all four read/write cases concurrently. T03 uses
         // Dave/Eve while T04 uses Alice/Bob/Charlie, so the writers never
         // share a nonce or a recipient balance. The key and topology cases
         // are read-only.

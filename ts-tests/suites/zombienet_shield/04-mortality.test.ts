@@ -14,7 +14,8 @@ import {
     getNextKey,
     getShieldSlotDurationMs,
     getSignerFromKeypair,
-    keyringPairFromUri,
+    fundShieldAccounts,
+    shieldAccount,
     waitForFinalizedBlocks,
 } from "../../utils";
 
@@ -40,8 +41,8 @@ describeSuite({
         let mortalityRecipient: KeyringPair;
 
         beforeAll(async () => {
-            mortalitySender = keyringPairFromUri("//Eve");
-            mortalityRecipient = keyringPairFromUri("//Ferdie");
+            mortalitySender = shieldAccount("mortality", "Eve");
+            mortalityRecipient = shieldAccount("mortality", "Ferdie");
 
             apiAuthority = context.papi("Node").getTypedApi(subtensor);
 
@@ -49,6 +50,7 @@ describeSuite({
             apiFull = clientFull.getTypedApi(subtensor);
 
             await checkRuntime(apiAuthority);
+            await fundShieldAccounts(apiAuthority, "mortality", [mortalitySender, mortalityRecipient]);
 
             // Wait for a fresh finalized block, then immediately read NextKey and submit.
             // This tests the "just after block" boundary where keys just rotated.

@@ -11,7 +11,8 @@ import {
     getBalance,
     getNextKey,
     getSignerFromKeypair,
-    keyringPairFromUri,
+    fundShieldAccounts,
+    shieldAccount,
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
@@ -37,17 +38,18 @@ describeSuite({
             client = context.papi("Node");
             api = client.getTypedApi(subtensor);
 
-            alice = keyringPairFromUri("//Alice");
-            bob = keyringPairFromUri("//Bob");
-            charlie = keyringPairFromUri("//Charlie");
-            dave = keyringPairFromUri("//Dave");
-            eve = keyringPairFromUri("//Eve");
-            ferdie = keyringPairFromUri("//Ferdie");
-            one = keyringPairFromUri("//One");
-            two = keyringPairFromUri("//Two");
-            t04Recipient = keyringPairFromUri("//ShieldT04Recipient");
+            alice = shieldAccount("basic", "Alice");
+            bob = shieldAccount("basic", "Bob");
+            charlie = shieldAccount("basic", "Charlie");
+            dave = shieldAccount("basic", "Dave");
+            eve = shieldAccount("basic", "Eve");
+            ferdie = shieldAccount("basic", "Ferdie");
+            one = shieldAccount("basic", "One");
+            two = shieldAccount("basic", "Two");
+            t04Recipient = shieldAccount("basic", "ShieldT04Recipient");
 
             await checkRuntime(api);
+            await fundShieldAccounts(api, "basic", [alice, bob, charlie, dave, eve, ferdie, one, two, t04Recipient]);
 
             await waitForFinalizedBlocks(api, 3);
         }, 120000);

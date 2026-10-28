@@ -296,6 +296,21 @@ grep -Fq 'release_build: ${{ steps.lanes.outputs.release_build }}' "$workflow"
 grep -Fq 'name: Audit canonical unsharded ${{ matrix.test }}' "$workflow"
 grep -Fq 'EVM_SELECTED: ${{ needs.changes.outputs.evm }}' "$workflow"
 grep -Fq 'SHIELD_SELECTED: ${{ needs.changes.outputs.shield }}' "$workflow"
+# Hash-enabled lanes must wait for both their WASM and matching ordinary node,
+# without waiting for the other runtime variant or rebuilding native nodes.
+grep -Fq 'needs: [trusted-pr, changes, build-fast, build-fast-metadata-hash, build-bittensor-ts]' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, build-release, build-release-metadata-hash, build-bittensor-ts]' "$workflow"
+for features in metadata-hash fast-runtime,metadata-hash; do
+  grep -Fq "run: cargo build --profile release --features $features -p node-subtensor-runtime" "$workflow"
+  if grep -Fxq "        run: cargo build --profile release --features $features -p node-subtensor" "$workflow"; then
+    echo "Metadata-hash lanes must reuse the matching node executable." >&2
+    exit 1
+  fi
+done
+e2e_action="$repo_root/.github/actions/run-typescript-e2e/action.yml"
+grep -Fq 'name: node-subtensor-${{ steps.artifacts.outputs.node }}' "$e2e_action"
+grep -Fq 'name: runtime-${{ inputs.binary }}' "$e2e_action"
+grep -Fq 'python3 .github/scripts/verify-base-node-runtime.py' "$e2e_action"
 if grep -Eq '^  build:$' "$workflow"; then
   echo "TypeScript E2E consumers must not depend on a combined build matrix." >&2
   exit 1

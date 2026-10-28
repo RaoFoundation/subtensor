@@ -3,7 +3,7 @@ description: Download a prebuilt node and SDK and run one or two isolated Moonwa
 
 inputs:
   binary:
-    description: Node artifact variant to download.
+    description: Node/runtime variant to download (release, fast, or their metadata-hash variants).
     required: true
   test:
     description: Moonwall environment to run.
@@ -16,11 +16,30 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Select matching node artifact
+      id: artifacts
+      shell: bash
+      env:
+        VARIANT: ${{ inputs.binary }}
+      run: |
+        case "$VARIANT" in
+          release|fast|release-metadata-hash|fast-metadata-hash) ;;
+          *) echo "Unsupported E2E node/runtime variant: $VARIANT" >&2; exit 1 ;;
+        esac
+        echo "node=${VARIANT%-metadata-hash}" >> "$GITHUB_OUTPUT"
+
     - name: Download binary
       uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       with:
-        name: node-subtensor-${{ inputs.binary }}
+        name: node-subtensor-${{ steps.artifacts.outputs.node }}
         path: target/release
+
+    - name: Download metadata-hash runtime
+      if: endsWith(inputs.binary, '-metadata-hash')
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        name: runtime-${{ inputs.binary }}
+        path: target/release/wbuild/node-subtensor-runtime
 
     # The node may come from the base commit (build-node-reusing-base.py), so
     # `dev` and `local` chains take this revision's runtime from the artifact.
@@ -31,6 +50,14 @@ runs:
         wasm="$PWD/target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm"
         test -s "$wasm"
         echo "SUBTENSOR_LOCALNET_RUNTIME_WASM=$wasm" >> "$GITHUB_ENV"
+
+    - name: Verify metadata-hash runtime works with the shared node
+      if: endsWith(inputs.binary, '-metadata-hash')
+      shell: bash
+      run: |
+        python3 .github/scripts/verify-base-node-runtime.py \
+          --node "$PWD/target/release/node-subtensor" \
+          --wasm "$SUBTENSOR_LOCALNET_RUNTIME_WASM"
 
     - name: Download bittensor-ts build
       uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4

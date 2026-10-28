@@ -252,7 +252,7 @@ jobs:
     environment:
       name: sccache-reader
       deployment: false
-    needs: [trusted-pr, typescript-formatting, changes]
+    needs: [trusted-pr, changes]
     if: needs.changes.outputs.e2e == 'true'
     timeout-minutes: 60
     steps:
@@ -812,8 +812,11 @@ jobs:
             exit 1
           fi
 
-  build-metadata-hash:
-    name: Build node-subtensor (${{ matrix.variant }})
+  # metadata-hash changes only runtime WASM. Reuse the matching same-run
+  # fast/release executable and verify its runtime API compatibility in the
+  # consumer instead of recompiling the node and all its native dependencies.
+  build-fast-metadata-hash:
+    name: Build runtime (fast-metadata-hash)
     needs: [trusted-pr, changes]
     if: needs.changes.outputs.e2e == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
@@ -821,13 +824,6 @@ jobs:
       name: sccache-reader
       deployment: false
     timeout-minutes: 60
-    strategy:
-      matrix:
-        include:
-          - variant: release-metadata-hash
-            features: metadata-hash
-          - variant: fast-metadata-hash
-            features: fast-runtime,metadata-hash
     env:
       RUST_BACKTRACE: full
     steps:
@@ -839,26 +835,59 @@ jobs:
         with:
           sccache-credential-mode: reader
 
-      - name: Build node-subtensor (${{ matrix.variant }})
-        run: cargo build --profile release --features ${{ matrix.features }} -p node-subtensor
+      - name: Build runtime (fast-metadata-hash)
+        run: cargo build --profile release --features fast-runtime,metadata-hash -p node-subtensor-runtime
 
       - name: Report metadata-hash compiler cache
         if: always()
         run: .github/scripts/sccache-report.sh "E2E metadata-hash compiler cache"
 
-      - name: Upload node and runtime wasm
+      - name: Upload metadata-hash runtime wasm
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: node-subtensor-${{ matrix.variant }}
-          path: |
-            target/release/node-subtensor
-            target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
+          name: runtime-fast-metadata-hash
+          path: target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
+          if-no-files-found: error
+          retention-days: 3
+
+  build-release-metadata-hash:
+    name: Build runtime (release-metadata-hash)
+    needs: [trusted-pr, changes]
+    if: needs.changes.outputs.e2e == 'true'
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: sccache-reader
+      deployment: false
+    timeout-minutes: 60
+    env:
+      RUST_BACKTRACE: full
+    steps:
+      - name: Check-out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Rust build environment
+        uses: ./.github/actions/rust-setup
+        with:
+          sccache-credential-mode: reader
+
+      - name: Build runtime (release-metadata-hash)
+        run: cargo build --profile release --features metadata-hash -p node-subtensor-runtime
+
+      - name: Report metadata-hash compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "E2E metadata-hash compiler cache"
+
+      - name: Upload metadata-hash runtime wasm
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-release-metadata-hash
+          path: target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
           if-no-files-found: error
           retention-days: 3
 
   run-fast-metadata-hash-tests:
     name: "bittensor-ts-e2e-${{ matrix.test }}-metadata-hash"
-    needs: [trusted-pr, changes, build-metadata-hash, build-bittensor-ts]
+    needs: [trusted-pr, changes, build-fast, build-fast-metadata-hash, build-bittensor-ts]
     if: needs.changes.outputs.fast_state_count != '0'
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
@@ -879,7 +908,7 @@ jobs:
 
   run-release-metadata-hash-tests:
     name: "bittensor-ts-e2e-${{ matrix.test }}-metadata-hash"
-    needs: [trusted-pr, changes, build-metadata-hash, build-bittensor-ts]
+    needs: [trusted-pr, changes, build-release, build-release-metadata-hash, build-bittensor-ts]
     if: needs.changes.outputs.release_state_count != '0'
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
@@ -900,7 +929,7 @@ jobs:
 
   run-shield-metadata-hash-tests:
     name: "bittensor-ts-e2e-${{ matrix.test }}-metadata-hash"
-    needs: [trusted-pr, changes, build-metadata-hash, build-bittensor-ts]
+    needs: [trusted-pr, changes, build-release, build-release-metadata-hash, build-bittensor-ts]
     if: needs.changes.outputs.shield_count != '0'
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30

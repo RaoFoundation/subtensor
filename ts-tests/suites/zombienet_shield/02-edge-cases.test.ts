@@ -10,7 +10,8 @@ import {
     getBalance,
     getNextKey,
     getSignerFromKeypair,
-    keyringPairFromUri,
+    fundShieldAccounts,
+    shieldAccount,
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
@@ -28,14 +29,15 @@ describeSuite({
         let dave: KeyringPair;
 
         beforeAll(async () => {
-            alice = keyringPairFromUri("//Alice");
-            bob = keyringPairFromUri("//Bob");
-            charlie = keyringPairFromUri("//Charlie");
-            dave = keyringPairFromUri("//Dave");
+            alice = shieldAccount("edge", "Alice");
+            bob = shieldAccount("edge", "Bob");
+            charlie = shieldAccount("edge", "Charlie");
+            dave = shieldAccount("edge", "Dave");
 
             api = context.papi("Node").getTypedApi(subtensor);
 
             await checkRuntime(api);
+            await fundShieldAccounts(api, "edge", [alice, bob, charlie, dave]);
 
             await waitForFinalizedBlocks(api, 2);
         }, 120000);
