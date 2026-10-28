@@ -2245,6 +2245,105 @@ fn fixed_term_expiry_settles_at_smoothed_reference_price() {
         let (debt, rate) = expired.unwrap();
         assert_eq!(rate, settle_rate);
         assert_eq!(debt, expected_debt);
+        // Expiry must restore held lift legs (dissolution does this in aggregate first).
+        let book = Lifts::<Test>::get(netuid());
+        assert_eq!(book.held_tao, 0, "expiry must readd short lift_tao");
+        assert_eq!(book.l_s, 0);
+    });
+}
+
+#[test]
+fn fixed_term_expiry_restores_long_held_alpha() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            hotkey,
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert!(position.lift_alpha > 0);
+        assert!(Lifts::<Test>::get(netuid()).held_alpha >= position.lift_alpha);
+        System::set_block_number(position.expires_at);
+        let _ = <Lending as Hooks<_>>::on_idle(position.expires_at, Weight::MAX);
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        let book = Lifts::<Test>::get(netuid());
+        assert_eq!(book.held_alpha, 0, "expiry must readd long lift_alpha");
+        assert_eq!(book.l_l, 0);
+        assert_eq!(book.escrow_alpha, 0);
+    });
+}
+
+#[test]
+fn coldkey_swap_rewinds_expiry_cursor_so_due_loan_still_settles() {
+    new_test_ext().execute_with(|| {
+        let owner_a = account(1);
+        let owner_b = account(2);
+        let dest = account(99);
+        let hotkey_a = account(10);
+        let hotkey_b = account(11);
+        mint_tao(&owner_a, 50_000_000_000_000);
+        mint_tao(&owner_b, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner_a.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            hotkey_a,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner_b.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            hotkey_b,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let expires_at = Positions::<Test>::get(&owner_a, netuid())
+            .unwrap()
+            .expires_at;
+        assert_eq!(
+            Positions::<Test>::get(&owner_b, netuid())
+                .unwrap()
+                .expires_at,
+            expires_at
+        );
+        // Simulate mid-bucket drain past owner_a; migrating a→dest with a key that
+        // sorts before the cursor would skip settlement without a rewind.
+        ExpiryBucketCursor::<Test>::put((owner_a.clone(), netuid()));
+        assert_ok!(Lending::on_coldkey_swap(&owner_a, &dest));
+        assert!(
+            ExpiryBucketCursor::<Test>::get().is_none(),
+            "cursor rewound"
+        );
+        assert!(Expiry::<Test>::contains_key(expires_at, (&dest, netuid())));
+        assert!(!Expiry::<Test>::contains_key(
+            expires_at,
+            (&owner_a, netuid())
+        ));
+
+        System::set_block_number(expires_at);
+        let _ = <Lending as Hooks<_>>::on_idle(expires_at, Weight::MAX);
+        assert!(
+            Positions::<Test>::get(&dest, netuid()).is_none(),
+            "migrated loan must still expire"
+        );
+        assert!(Positions::<Test>::get(&owner_b, netuid()).is_none());
     });
 }
 

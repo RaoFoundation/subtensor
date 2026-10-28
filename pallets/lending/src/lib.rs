@@ -3779,7 +3779,7 @@ pub mod pallet {
                         NextExpiry::<T>::put(at);
                         return;
                     }
-                    let _ = with_transaction(|| {
+                    let outcome = with_transaction(|| {
                         let result = (|| {
                             // Dissolution settle is authoritative if it started first.
                             if Dissolutions::<T>::contains_key(netuid) {
@@ -3808,13 +3808,27 @@ pub mod pallet {
                             Err(e) => TransactionOutcome::Rollback(Err(e)),
                         }
                     });
-                    if Expiry::<T>::contains_key(at, (&owner, netuid)) {
-                        Expiry::<T>::remove(at, (&owner, netuid));
-                        Self::note_expiry_removed(at);
+                    match outcome {
+                        Ok(()) => {
+                            // Stale / dissolving skips leave the queue row; drop it.
+                            // Successful settle already cleared it via remove_position.
+                            if Expiry::<T>::contains_key(at, (&owner, netuid)) {
+                                Expiry::<T>::remove(at, (&owner, netuid));
+                                Self::note_expiry_removed(at);
+                            }
+                        }
+                        Err(_) => {
+                            // Keep the queue entry for retry; do not drop coverage.
+                        }
                     }
                     last_done = Some((owner, netuid));
                 }
                 ExpiryBucketCursor::<T>::kill();
+                if ExpiryIndex::<T>::get(at) > 0 {
+                    // Failed entries remain — retry this bucket next on_idle.
+                    NextExpiry::<T>::put(at);
+                    break;
+                }
                 if !saw_entry {
                     ExpiryIndex::<T>::remove(at);
                     Self::unlink_expiry_bucket(at);
@@ -4192,6 +4206,19 @@ pub mod pallet {
                     let available = Self::add(position.proceeds, position.collateral)?;
                     let to_pot = debt.min(available);
                     let refund = available.saturating_sub(to_pot);
+                    // Expiry (unlike dissolution) has not restored held lift legs yet.
+                    if matches!(kind, SettleKind::Expiry) && position.lift_tao > 0 {
+                        T::Pool::readd_and_credit(
+                            netuid,
+                            &reserve,
+                            &custody,
+                            position.lift_tao.into(),
+                            0u64.into(),
+                        )?;
+                        Lifts::<T>::mutate(netuid, |book| {
+                            book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
+                        });
+                    }
                     // Withdraw recovery + refund in one credit split so a below-ED
                     // refund cannot be reaped by an intervening Expendable transfer.
                     let (recovered, refunded) = T::Pool::terminal_split_tao(
@@ -4263,12 +4290,46 @@ pub mod pallet {
                     let repay = payout.min(position.principal);
                     let remainder = payout.saturating_sub(repay);
                     let shortfall = position.principal.saturating_sub(repay);
+                    // Expiry must restore held lift alpha; dissolution already did.
+                    if matches!(kind, SettleKind::Expiry) && position.lift_alpha > 0 {
+                        T::Pool::readd_and_credit(
+                            netuid,
+                            &reserve,
+                            &custody,
+                            0u64.into(),
+                            position.lift_alpha.into(),
+                        )?;
+                        Lifts::<T>::mutate(netuid, |book| {
+                            book.held_alpha = book.held_alpha.saturating_sub(position.lift_alpha);
+                        });
+                    }
+                    // Pay remainder atomically with alpha destruction. If the pot
+                    // cannot cover, forfeit the unpaid TAO as dust (same pattern as
+                    // short terminal_split) rather than destroying collateral unpaid.
+                    let mut paid_remainder = 0u64;
                     if remainder > 0 {
-                        let _ = T::Pool::pay_from_pot(netuid, owner, remainder.into());
+                        match T::Pool::pay_from_pot(netuid, owner, remainder.into()) {
+                            Ok(paid) => {
+                                paid_remainder = paid.to_u64();
+                                if paid_remainder < remainder {
+                                    Self::deposit_event(Event::DustForfeited {
+                                        netuid,
+                                        recipient: owner.clone(),
+                                        tao: remainder.saturating_sub(paid_remainder),
+                                    });
+                                }
+                            }
+                            Err(_) => {
+                                Self::deposit_event(Event::DustForfeited {
+                                    netuid,
+                                    recipient: owner.clone(),
+                                    tao: remainder,
+                                });
+                            }
+                        }
                     }
                     if alpha > 0 {
-                        let _ =
-                            T::Pool::destroy_custody_alpha(&escrow, &custody, netuid, alpha.into());
+                        T::Pool::destroy_custody_alpha(&escrow, &custody, netuid, alpha.into())?;
                     }
                     Lifts::<T>::mutate(netuid, |book| {
                         book.l_l = book.l_l.saturating_sub(position.principal);
@@ -4287,7 +4348,7 @@ pub mod pallet {
                                 side: Side::Long,
                                 principal_tao_equiv: position.principal,
                                 tao_to_pot: shortfall,
-                                tao_refund: remainder,
+                                tao_refund: paid_remainder,
                             });
                             Self::deposit_event(Event::Settled {
                                 owner: owner.clone(),
@@ -4295,7 +4356,7 @@ pub mod pallet {
                                 side: Side::Long,
                                 principal_tao_equiv: position.principal,
                                 tao_to_pot: shortfall,
-                                tao_refund: remainder,
+                                tao_refund: paid_remainder,
                             });
                         }
                         SettleKind::Expiry => {
@@ -4305,7 +4366,7 @@ pub mod pallet {
                                 side: Side::Long,
                                 principal_tao_equiv: position.principal,
                                 tao_to_pool: shortfall,
-                                tao_refund: remainder,
+                                tao_refund: paid_remainder,
                                 rate: r,
                             });
                         }
@@ -4705,12 +4766,16 @@ pub mod pallet {
         /// overwriting would orphan the destination's custody funds. Also
         /// rejects while a subnet is dissolving: re-keying `OpenByNetuid` past
         /// `DissolutionCursor` would skip settlement and strand custody.
+        /// Re-keying Due / Expiry rewinds their bucket cursors so a destination
+        /// key sorting before the cursor cannot skip mandatory collection.
         #[transactional]
         pub fn on_coldkey_swap(old: &T::AccountId, new: &T::AccountId) -> DispatchResult {
             if old == new {
                 return Ok(());
             }
             let positions: alloc::vec::Vec<_> = Positions::<T>::iter_prefix(old).collect();
+            let mut rekeyed_due = false;
+            let mut rekeyed_expiry = false;
             for (netuid, position) in positions {
                 ensure!(
                     !Dissolutions::<T>::contains_key(netuid),
@@ -4729,10 +4794,18 @@ pub mod pallet {
                 EscrowOwner::<T>::insert(netuid, &position.custody, new);
                 if Due::<T>::take(position.due, (old, netuid)).is_some() {
                     Due::<T>::insert(position.due, (new, netuid), ());
+                    rekeyed_due = true;
                 }
                 if Expiry::<T>::take(position.expires_at, (old, netuid)).is_some() {
                     Expiry::<T>::insert(position.expires_at, (new, netuid), ());
+                    rekeyed_expiry = true;
                 }
+            }
+            if rekeyed_due {
+                DueBucketCursor::<T>::kill();
+            }
+            if rekeyed_expiry {
+                ExpiryBucketCursor::<T>::kill();
             }
             Ok(())
         }
