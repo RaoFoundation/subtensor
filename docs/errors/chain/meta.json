@@ -361,6 +361,7 @@
     "ServingRateLimitExceeded",
     "SettingWeightsTooFast",
     "SideCapacity",
+    "SideCapacityRamping",
     "SignatoriesOutOfOrder",
     "SlippageExceeded",
     "SlippageTooHigh",
