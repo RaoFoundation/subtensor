@@ -1424,11 +1424,75 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// Ensure the coldkey does not have an active lock on any subnets.
+    /// Ensure the coldkey does not have a blocking lock on any subnet.
+    ///
+    /// Read-only. A lock blocks when rolled state is not fully exhausted
+    /// ([`LockState::is_zero`]): either locked mass or residual conviction above
+    /// the dust threshold. Zero-mass / conviction-only rows therefore reject
+    /// coldkey-swap admission until a merge can preserve conviction safely —
+    /// announce validation must not mutate another account's locks.
     pub fn ensure_no_active_locks(coldkey: &T::AccountId) -> Result<(), Error<T>> {
+        Self::ensure_no_active_locks_with_limit(coldkey, u32::MAX).map(|_| ())
+    }
+
+    /// Coldkey-swap admission: same as [`Self::ensure_no_active_locks`], but stops after
+    /// `limit` lock rows so announce/execute prechecks stay inside their weight envelope.
+    /// Exceeding the limit without finding a blocking lock fails as `ColdkeySwapTooHeavy`.
+    ///
+    /// On success returns the number of lock rows scanned (for weight accounting).
+    pub fn ensure_no_active_locks_for_swap(coldkey: &T::AccountId) -> Result<u32, Error<T>> {
+        // Pass the declared cap (not cap+1): `ensure_no_active_locks_with_limit`
+        // rejects when `scanned > limit`, so `MAX` admits at most
+        // `MAX_COLDKEY_SWAP_DEST_LOCKS` rows and the first excess row fails
+        // closed inside the declared weight (Auditor fid:9792420a).
+        Self::ensure_no_active_locks_with_limit(coldkey, crate::MAX_COLDKEY_SWAP_DEST_LOCKS)
+    }
+
+    fn ensure_no_active_locks_with_limit(
+        coldkey: &T::AccountId,
+        limit: u32,
+    ) -> Result<u32, Error<T>> {
         let now = Self::get_current_block_as_u64();
         let unlock_rate = UnlockRate::<T>::get();
         let maturity_rate = MaturityRate::<T>::get();
+        let mut scanned = 0u32;
+
+        for ((netuid, hotkey), lock) in Lock::<T>::iter_prefix((coldkey,)) {
+            scanned = scanned.saturating_add(1);
+            if scanned > limit {
+                return Err(Error::<T>::ColdkeySwapTooHeavy);
+            }
+            let rolled = ConvictionModel::roll_forward_lock(
+                lock,
+                now,
+                unlock_rate,
+                maturity_rate,
+                Self::is_subnet_owner_hotkey(netuid, &hotkey),
+                Self::is_perpetual_lock(coldkey, netuid),
+            );
+            // Reject residual conviction as well as locked mass. Announce
+            // admission is unauthenticated w.r.t. the destination, so it must
+            // stay read-only and must not treat conviction-only rows as clear.
+            if !rolled.0.is_zero() {
+                return Err(Error::<T>::ActiveLockExists);
+            }
+        }
+
+        Ok(scanned)
+    }
+
+    /// Remove fully exhausted (`is_zero`) destination lock rows after admission.
+    ///
+    /// Only safe to call once [`Self::ensure_no_active_locks`] has passed: any
+    /// remaining row is dust and cannot back subnet-king conviction. Purging
+    /// prevents a later insert from leaving two Lock rows on the same subnet
+    /// (`read_conviction_model` only sees the first). Never call this from
+    /// unauthenticated announce validation.
+    fn purge_exhausted_locks_for_swap(coldkey: &T::AccountId) {
+        let now = Self::get_current_block_as_u64();
+        let unlock_rate = UnlockRate::<T>::get();
+        let maturity_rate = MaturityRate::<T>::get();
+        let mut to_purge: Vec<(NetUid, T::AccountId, LockState)> = Vec::new();
 
         for ((netuid, hotkey), lock) in Lock::<T>::iter_prefix((coldkey,)) {
             let rolled = ConvictionModel::roll_forward_lock(
@@ -1438,13 +1502,24 @@ impl<T: Config> Pallet<T> {
                 maturity_rate,
                 Self::is_subnet_owner_hotkey(netuid, &hotkey),
                 Self::is_perpetual_lock(coldkey, netuid),
-            );
-            if rolled.0.locked_mass > AlphaBalance::ZERO {
-                return Err(Error::<T>::ActiveLockExists);
+            )
+            .0;
+            if rolled.is_zero() {
+                to_purge.push((netuid, hotkey, rolled));
             }
         }
 
-        Ok(())
+        for (netuid, hotkey, rolled) in to_purge {
+            Lock::<T>::remove((coldkey.clone(), netuid, hotkey.clone()));
+            Self::maybe_remove_locking_coldkey(&hotkey, netuid, coldkey);
+            Self::reduce_aggregate_lock(
+                coldkey,
+                &hotkey,
+                netuid,
+                rolled.locked_mass,
+                rolled.conviction,
+            );
+        }
     }
 
     /// Transfers the lock from one coldkey to another for all subnets. This is used when a
@@ -1459,7 +1534,11 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
+        // Reject residual mass/conviction on the destination (read-only), then
+        // drop fully exhausted dust rows so a source insert cannot leave two
+        // Lock rows on the same subnet for `read_conviction_model`.
         Self::ensure_no_active_locks(new_coldkey)?;
+        Self::purge_exhausted_locks_for_swap(new_coldkey);
 
         let mut locks_to_transfer: Vec<(NetUid, T::AccountId, LockState)> = Vec::new();
         let now = Self::get_current_block_as_u64();
@@ -1476,22 +1555,35 @@ impl<T: Config> Pallet<T> {
 
         let mut rolled_locks_to_transfer: Vec<(NetUid, T::AccountId, LockState, bool)> = Vec::new();
         for (netuid, hotkey, lock) in locks_to_transfer {
-            let perpetual_lock = decaying_locks_to_transfer
+            // Roll the historical interval under the SOURCE policy so a merge into a
+            // destination with a different DecayingLock flag cannot re-inflate already
+            // decayed mass / conviction (or under-subtract the source aggregate).
+            let source_perpetual = decaying_locks_to_transfer
                 .iter()
                 .any(|(decaying_netuid, decaying)| *decaying_netuid == netuid && !*decaying);
+            // Destination policy applies only prospectively after the hand-off.
+            let dest_perpetual = if DecayingLock::<T>::contains_key(new_coldkey, netuid) {
+                Self::is_perpetual_lock(new_coldkey, netuid)
+            } else {
+                source_perpetual
+            };
             let (old_lock, _) = ConvictionModel::roll_forward_lock(
                 lock,
                 now,
                 unlock_rate,
                 maturity_rate,
                 Self::is_subnet_owner_hotkey(netuid, &hotkey),
-                perpetual_lock,
+                source_perpetual,
             );
-            Self::ensure_can_receive_locked_alpha_with_flag(
-                new_coldkey_rejects_locked_alpha,
-                old_lock.locked_mass,
-            )?;
-            rolled_locks_to_transfer.push((netuid, hotkey, old_lock, perpetual_lock));
+            // Admission treats sub-threshold rows as zero and `insert_lock_state`
+            // drops them, so only real locks need the destination's consent.
+            if !old_lock.is_zero() {
+                Self::ensure_can_receive_locked_alpha_with_flag(
+                    new_coldkey_rejects_locked_alpha,
+                    old_lock.locked_mass,
+                )?;
+            }
+            rolled_locks_to_transfer.push((netuid, hotkey, old_lock, dest_perpetual));
         }
 
         // Remove old locks and reduce old aggregate buckets before moving the
@@ -1508,22 +1600,24 @@ impl<T: Config> Pallet<T> {
             );
         }
 
+        // DecayingLock: destination wins on conflict. Only move source flags for
+        // netuids the destination does not already configure.
         for (netuid, _) in decaying_locks_to_transfer {
-            if let Some(decaying) = DecayingLock::<T>::take(old_coldkey, netuid) {
+            let Some(decaying) = DecayingLock::<T>::take(old_coldkey, netuid) else {
+                continue;
+            };
+            if !DecayingLock::<T>::contains_key(new_coldkey, netuid) {
                 DecayingLock::<T>::insert(new_coldkey, netuid, decaying);
             }
         }
 
-        let flags = AccountFlags::<T>::get(old_coldkey);
+        // AccountFlags are restored by the caller (dest wins on merge; source
+        // follows on rename onto a fresh key). Do not overwrite the destination
+        // here — only clear the source after locks move.
         AccountFlags::<T>::remove(old_coldkey);
-        if flags != 0 {
-            AccountFlags::<T>::insert(new_coldkey, flags);
-        } else {
-            AccountFlags::<T>::remove(new_coldkey);
-        }
 
         // Insert locks for the new coldkey and add to the destination aggregate
-        // buckets after the flags have moved.
+        // buckets. Aggregate selection uses the destination's DecayingLock.
         for (netuid, hotkey, old_lock, perpetual_lock) in rolled_locks_to_transfer {
             let new_lock = ConvictionModel::roll_forward_lock(
                 old_lock.clone(),
@@ -1940,6 +2034,12 @@ impl<T: Config> Pallet<T> {
         if origin_coldkey == destination_coldkey || amount.is_zero() {
             return Ok(());
         }
+
+        // Defense in depth: reserved swap destinations cannot receive locks from
+        // another coldkey during the announcement delay (same rule as stake
+        // transitions). Stake transitions already guard via
+        // `validate_stake_transition`; keep this path closed if called directly.
+        Self::ensure_account_not_reserved_as_coldkey_swap_destination(destination_coldkey)?;
 
         // Read total alpha of the coldkey on this netuid. Do not check if total alpha is
         // lower than amount transferred, this is responsibility of a higher level, this

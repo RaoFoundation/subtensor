@@ -137,7 +137,8 @@ mod errors {
         AlphaHighTooLow,
         /// Alpha low is out of range: alpha_low > 0 && alpha_low < 0.8
         AlphaLowOutOfRange,
-        /// The coldkey has already been swapped
+        /// Retired: coldkey swaps into an already-used destination now merge.
+        /// Kept for SCALE error-index stability; never returned by current runtimes.
         ColdKeyAlreadyAssociated,
         /// The coldkey balance is not enough to pay for the swap
         NotEnoughBalanceToPaySwapColdKey,
@@ -454,6 +455,14 @@ mod errors {
         MinerEmissionBelowMinimum,
         /// `set_subnet_emission_weights`: the root subnet has no emission vector.
         EmissionWeightsNotSettableOnRoot,
+        /// This account is reserved as the destination of an in-flight coldkey-swap
+        /// announcement, so it cannot be registered as a hotkey (and another coldkey
+        /// cannot announce to it) until that announcement is executed, cleared,
+        /// released by the destination, reset, or the reservation TTL expires.
+        /// Prevents recovery-delay griefing after announce reveals the dest.
+        ColdkeySwapDestinationReserved,
+        /// No live coldkey-swap destination reservation exists for this account.
+        ColdkeySwapDestinationReservationNotFound,
         /// Third-party stake onto the lending custody hotkey is rejected (§14).
         CustodyHotkey,
     }

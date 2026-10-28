@@ -1721,7 +1721,7 @@ def swap_check(
         None, address_cli_name("coldkey_ss58"), help=ss58_param_help("coldkey_ss58")
     ),
 ):
-    """Check pending coldkey swap announcement."""
+    """Check pending coldkey swap announcement and recovery lock."""
     app_ctx: AppContext = ctx_of(ctx)
     owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
 
@@ -1734,6 +1734,16 @@ def swap_check(
     announcement, current_block = app_ctx.run(_status)
     if announcement is None:
         app_ctx.output.detail("coldkey swap status", {"status": "none"})
+        return
+    if announcement["execute_block"] is None:
+        app_ctx.output.detail(
+            "coldkey swap status",
+            {
+                "status": "recovery locked (no announcement)",
+                "recovery_locked": True,
+                "allowed": "announce, execute, or dispute a coldkey swap; shielded submission",
+            },
+        )
         return
 
     blocks_remaining = announcement["execute_block"] - current_block
@@ -1758,6 +1768,7 @@ def swap_check(
             "new_coldkey_hash": announcement["new_coldkey_hash"],
             "disputed": announcement["disputed"],
             "dispute_block": announcement["dispute_block"],
+            "recovery_locked": announcement["recovery_locked"],
         },
     )
 

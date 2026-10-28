@@ -8,7 +8,9 @@ description: "Revoke every proxy delegation for the signing account at once."
 A cleanup/panic switch: all delegates lose access in one call and all proxy
 deposits are returned. Careful if this account spawned pure proxies — they
 are controlled *through* delegations, so removing everything can strand them
-permanently (there is no key to recover a pure proxy with).
+permanently (there is no key to recover a pure proxy with). `Validate` and
+`Weights` grants are keyed by the hotkey, so revoking those needs a second
+call with `from_hotkey` set.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
@@ -16,7 +18,9 @@ permanently (there is no key to recover a pure proxy with).
 
 ## Parameters
 
-This operation takes no parameters.
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `from_hotkey` | boolean | no | Sign with the hotkey to revoke its Validate/Weights grants. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

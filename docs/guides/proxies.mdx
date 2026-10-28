@@ -63,6 +63,26 @@ Prefer the narrowest type that covers the job:
   [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
 * **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945);
   **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939) and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970).
+  A staking service that also needs to claim root dividends grants both
+  `Staking` and `RootClaim` to the same delegate. Set `Proxy.proxy`'s
+  `force_proxy_type` to `Staking` for staking calls and `RootClaim` for root
+  claims; omitting it selects the first matching delegation, not whichever
+  grant covers the call.
+* **BasketTrading** — `swap_basket` and `swap_basket_many` only: rebalance a
+  root validator's basket without being able to deposit, withdraw, or claim.
+* **Validate** — run a validator *hotkey* from an operations key:
+  every weights call (`set_weights`, `commit_weights`, `reveal_weights`,
+  their mechanism, timelocked, CRv3 and batch variants), `serve_axon`,
+  `serve_axon_tls`, `serve_prometheus`, `associate_evm_key`, and
+  `Commitments.set_commitment`. No stake, transfer, registration, key swap,
+  child-key, or take call, and no `Utility` / `Proxy` / `Multisig` wrapper.
+  The real is the hotkey, so the hotkey signs `add_proxy`. A leaked
+  `Validate` key can set bad weights and re-point the axon or EVM key; it
+  cannot move TAO or alpha.
+* **Weights** — the weights calls only. Strictly inside `Validate`: use it
+  for a third-party weight setter (auditor model) that must not be able to
+  change where the subnet reaches or pays the neuron.
+  See [validator operators](#validator-operators-specifically) for setup.
 * **Owner** — subnet-owner admin calls; **NonCritical** — everything except
   registrations, coldkey swaps, and subnet dissolution;
   **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.
@@ -372,6 +392,58 @@ single key on an operational machine. The layering:
 Crowd-funded subnets get a chain-native version of this model for free: a
 crowdloan lease creates the lease-owner account itself and grants the
 beneficiary a scoped `SubnetLeaseBeneficiary` proxy.
+
+### Validator operators specifically
+
+Weights, serving, commitments, and EVM-key association are signed by the
+validator **hotkey**, so for `Validate` and `Weights` the real account is the
+hotkey, not the coldkey. Neither type can stake, transfer, register, swap
+keys, or touch child keys or take, so the operations box never holds a key
+that can move value.
+
+1. **Fund the hotkey.** It pays the 0.093 TAO proxy deposit (returned on
+   removal) and the grant's fee:
+
+   ```bash
+   btcli tx transfer --dest 5F...validator-hotkey --amount-tao 0.1 -w validator
+   ```
+
+2. **Grant from the hotkey.** `btcli proxy add` and `btcli proxy remove` sign
+   `Validate` and `Weights` grants with the wallet's hotkey (`-H`). The
+   delegate is the *hotkey* of the operations wallet, because the weights,
+   serving, and EVM commands sign with the wallet's hotkey:
+
+   ```bash
+   btcli proxy add --delegate 5F...ops-hotkey --proxy-type Validate \
+     -w validator -H default
+   ```
+
+3. **Operate with `--proxy-for`.** The operations wallet signs; the call
+   dispatches as the validator hotkey. Preflight, commit-reveal encryption,
+   and the EVM association proof all target the real hotkey:
+
+   ```bash
+   btcli weights set --netuid 1 --uids 0,1,2 --weights 0.5,0.3,0.2 \
+     -w ops -H default --proxy-for 5F...validator-hotkey
+   btcli axon set --netuid 1 --ip 203.0.113.7 --port 8091 \
+     -w ops -H default --proxy-for 5F...validator-hotkey
+   ```
+
+   ```python
+   result = await client.execute(
+       bt.SetWeights(netuid=1, weights={0: 0.5, 1: 0.3, 2: 0.2}),
+       ops,
+       proxy_for="5F...validator-hotkey",
+   )
+   ```
+
+Grant `Weights` instead of `Validate` to a third party that should only set
+weights: it cannot re-point the axon, the EVM key the subnet may pay, or the
+commitment. One delegate can serve several validators; each validator hotkey
+grants it separately, and each call names its real with `--proxy-for`.
+Batch several validators outside the proxy
+(`Utility.batch([Proxy.proxy(real_a, call), Proxy.proxy(real_b, call)])`),
+since neither type admits `Utility` calls.
 
 ## Deposits and limits
 

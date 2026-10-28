@@ -142,7 +142,11 @@ def remove_proxy(
     ),
     proxy_type: ProxyTypeChoice = _proxy_type_option(),
     delay: int = typer.Option(0, "--delay", help=DELAY_HELP),
-    all_proxies: bool = typer.Option(False, "--all", help="Remove every proxy at once."),
+    all_proxies: bool = typer.Option(
+        False,
+        "--all",
+        help="Remove every proxy at once, including the hotkey's Validate/Weights grants.",
+    ),
 ):
     """Remove a proxy delegate."""
     app_ctx: AppContext = ctx_of(ctx)
@@ -159,7 +163,20 @@ def remove_proxy(
             if answer.strip().lower() != "remove all":
                 app_ctx.output.message("aborted.")
                 raise typer.Exit(1)
-        app_ctx.submit(RemoveProxies())
+        # Resolve once: when acting for another account (--proxy-for or the
+        # proxy_for config), only that account's proxies are in scope.
+        dispatch_as = app_ctx.resolve_dispatch_proxy()
+        app_ctx.submit(RemoveProxies(), proxy_for=dispatch_as or "self")
+        if dispatch_as is not None:
+            return
+        # Validate/Weights grants are keyed by the hotkey, which the coldkey
+        # call cannot revoke.
+        hotkey_ss58 = _local_hotkey_ss58(app_ctx)
+        if (
+            hotkey_ss58 is not None
+            and app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=hotkey_ss58))["proxies"]
+        ):
+            app_ctx.submit(RemoveProxies(from_hotkey=True), proxy_for="self")
         return
     if delegate_ss58 is None:
         answers: dict[str, Any] = {"delegate_ss58": None}
@@ -167,6 +184,19 @@ def remove_proxy(
         delegate_ss58 = answers["delegate_ss58"]
     delegate = app_ctx.resolve_address("coldkey_ss58", delegate_ss58)
     app_ctx.submit(RemoveProxy(delegate_ss58=delegate, proxy_type=proxy_type.value, delay=delay))
+
+
+def _local_hotkey_ss58(app_ctx: AppContext) -> Optional[str]:
+    """Address of the wallet's hotkey, or None when no local hotkey is available."""
+    if app_ctx.uses_external_signer():
+        return None
+    wallet = app_ctx.wallet()
+    for attr in ("hotkeypub", "hotkey"):
+        try:
+            return getattr(wallet, attr).ss58_address
+        except Exception:
+            continue
+    return None
 
 
 @app.command("kill")

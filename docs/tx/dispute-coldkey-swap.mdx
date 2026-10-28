@@ -18,7 +18,7 @@ you made yourself.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.dispute_coldkey_swap`](/code/pallets/subtensor/src/macros/dispatches.rs#L2485-L2504) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.dispute_coldkey_swap`](/code/pallets/subtensor/src/macros/dispatches.rs#L2597-L2617) |
 
 ## Parameters
 
@@ -63,7 +63,7 @@ result = sub.execute_tool("dispute_coldkey_swap", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.dispute_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2487`](/code/pallets/subtensor/src/macros/dispatches.rs#L2485-L2504):
+`SubtensorModule.dispute_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2599`](/code/pallets/subtensor/src/macros/dispatches.rs#L2597-L2617):
 
 ```rust
 #[pallet::call_index(127)]
@@ -76,12 +76,13 @@ pub fn dispute_coldkey_swap(origin: OriginFor<T>) -> DispatchResult {
         Error::<T>::ColdkeySwapAnnouncementNotFound
     );
     ensure!(
-        !ColdkeySwapDisputes::<T>::contains_key(&coldkey),
+        !ColdkeySwapDisputes::<T>::get(&coldkey).is_some_and(|when| !when.is_zero()),
         Error::<T>::ColdkeySwapAlreadyDisputed
     );
 
     let now = <frame_system::Pallet<T>>::block_number();
-    ColdkeySwapDisputes::<T>::insert(&coldkey, now);
+    // Zero is reserved for a root reset that retains the recovery lock.
+    ColdkeySwapDisputes::<T>::insert(&coldkey, now.max(1u32.into()));
 
     Self::deposit_event(Event::ColdkeySwapDisputed { coldkey });
     Ok(())

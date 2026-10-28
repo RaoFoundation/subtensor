@@ -473,7 +473,7 @@ fn too_heavy_swap_coldkey_pays_the_scan_it_did() {
         let (done, error) =
             SubtensorModule::do_swap_coldkey_tracked(&old, &new).expect_err("too heavy");
         assert_eq!(error, Error::<Test>::ColdkeySwapTooHeavy.into());
-        let work = SubtensorModule::coldkey_swap_work(&old);
+        let work = SubtensorModule::coldkey_swap_work(&old, &new);
         assert!(work.hotkeys > crate::MAX_COLDKEY_SWAP_HOTKEYS);
         // Never below the scan: one StakingHotkeys read plus one read per hotkey and
         // per position, at the real (over-cap) counts.

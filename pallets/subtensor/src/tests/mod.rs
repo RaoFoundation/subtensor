@@ -41,6 +41,7 @@ mod staking2;
 mod subnet;
 mod subnet_emissions;
 mod subnet_info;
+mod subnet_lifecycle;
 mod swap_basket;
 mod swap_basket_liquidity_cap;
 mod swap_basket_stale_ema;

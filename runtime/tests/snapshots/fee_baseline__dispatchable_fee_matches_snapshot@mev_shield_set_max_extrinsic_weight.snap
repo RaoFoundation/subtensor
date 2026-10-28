@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: mev_shield_set_max_extrinsic_weight
+expression: fee
+---
+68146

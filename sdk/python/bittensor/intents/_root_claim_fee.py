@@ -1,7 +1,7 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
 Coldkey-wide claims declare ``MAX_ROOT_CLAIM_WORK`` (256) weight units for
-admission. Single-hotkey claims declare one basket's 129-unit envelope. Since
+admission. Single-hotkey claims declare one basket's 130-unit envelope. Since
 spec 467 the fee wrapper charges either call as if only
 ``ROOT_CLAIM_FEE_ALLOWANCE`` (4) units were declared; the rest of the envelope
 is a fee subsidy. Both still refund down to the work actually done when that is
@@ -23,7 +23,8 @@ from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi
 from ..balance import Balance
 from ..sp_core import ss58_decode
 
-# Mirrors of the runtime's claim pricing (spec 467). Sources:
+# Mirrors of the runtime's claim pricing (fee allowance from spec 467; single-hotkey
+# admission envelope raised to 130 in spec 484). Sources:
 # ``pallets/subtensor/src/weights.rs`` (``claim_root``, ``claim_root_scan``),
 # ``pallets/subtensor/src/staking/claim_root.rs`` (``basket_nav_sweep_weight``,
 # ``root_claim_weight_for_work``), ``basket_flush.rs`` (flush bound) and
@@ -35,7 +36,7 @@ _ROCKSDB_WRITE_PS = 100_000_000
 _WEIGHT_FEE_PARTS = 250_000
 _PERBILL = 1_000_000_000
 _MAX_ROOT_CLAIM_WORK = 256
-_MAX_ROOT_CLAIM_HOTKEY_WORK = 129
+_MAX_ROOT_CLAIM_HOTKEY_WORK = 130
 # ``MAX_BASKET_ROWS`` and the flat flush allowance every claim declares:
 # ``10 * MAX_BASKET_ROWS`` quotes and ``2 * MAX_BASKET_ROWS`` rows.
 _MAX_BASKET_ROWS = 256

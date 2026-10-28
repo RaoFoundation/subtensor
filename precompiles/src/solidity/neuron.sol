@@ -239,7 +239,12 @@ interface INeuron {
         uint64 blockNumber,
         bytes calldata signature
     ) external;
+    /// @notice Legacy announce: `newColdkeyHash` is BlakeTwo256 of the destination.
+    ///         Prefer `announceColdkeySwapV2` for cleartext validation + reservation.
     function announceColdkeySwap(bytes32 newColdkeyHash) external;
+    /// @notice Cleartext announce: `newColdkey` is the destination account.
+    ///         Validated and reserved before the announcement fee is charged.
+    function announceColdkeySwapV2(bytes32 newColdkey) external;
     function executeAnnouncedColdkeySwap(bytes32 newColdkey) external;
     function disputeColdkeySwap() external;
     function clearColdkeySwapAnnouncement() external;

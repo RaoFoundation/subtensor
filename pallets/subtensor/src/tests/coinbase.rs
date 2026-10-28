@@ -4650,6 +4650,105 @@ fn test_null_epoch_cap_matches_reveal_deferral_and_emission_drain() {
     });
 }
 
+// A due Null subnet settles alone in its block. A subnet earlier in `NetworksAdded` order
+// that is due in every block must not keep that slot: the Null subnet would stay due, the
+// cap would stay at 1, and every later subnet would starve.
+#[test]
+fn test_due_null_epoch_takes_slot_before_earlier_due_subnets() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_max_epochs_per_block(8);
+        let front = NetUid::from(1);
+        let null = NetUid::from(2);
+        let later = NetUid::from(3);
+        add_network(front, 1, 0);
+        add_network(null, 100, 0);
+        add_network(later, 100, 0);
+        SubtensorModule::set_epoch_consensus(null, EpochConsensus::Null);
+        // All three are due in block 1; `front` (tempo 1) is due again in every block.
+        for &netuid in &[front, null, later] {
+            PendingEpochAt::<Test>::insert(netuid, 1);
+        }
+        let subnets = vec![front, null, later];
+
+        // Block 1: the Null epoch runs alone and the others wait one block.
+        System::set_block_number(1);
+        assert_eq!(
+            SubtensorModule::epochs_deferred_this_block(&subnets, 1),
+            [front, later].into_iter().collect()
+        );
+        let drained = SubtensorModule::drain_pending(&subnets, 1);
+        assert_eq!(drained.keys().copied().collect::<Vec<_>>(), vec![null]);
+        assert!(SubtensorModule::ensure_admin_window_open(null).is_ok());
+
+        // Block 2: no Null epoch is due, so the configured cap applies again.
+        System::set_block_number(2);
+        assert!(SubtensorModule::epochs_deferred_this_block(&subnets, 2).is_empty());
+        let drained = SubtensorModule::drain_pending(&subnets, 2);
+        assert_eq!(
+            drained.keys().copied().collect::<Vec<_>>(),
+            vec![front, later]
+        );
+
+        // Every subnet keeps stepping, no due epoch waits more than one block, and the
+        // reveal path predicts every deferral.
+        for block in 3..=1_000u64 {
+            System::set_block_number(block);
+            let predicted = SubtensorModule::epochs_deferred_this_block(&subnets, block);
+            SubtensorModule::drain_pending(&subnets, block);
+            let deferred: alloc::collections::BTreeSet<NetUid> = subnets
+                .iter()
+                .copied()
+                .filter(|netuid| PendingEpochAt::<Test>::get(*netuid) == block + 1)
+                .collect();
+            assert_eq!(predicted, deferred, "block {block}");
+            // An epoch deferred once has waited `tempo` blocks; a second deferral would exceed it.
+            for &netuid in &subnets {
+                let waited = block - LastEpochBlock::<Test>::get(netuid);
+                assert!(
+                    waited <= u64::from(SubtensorModule::get_tempo(netuid)),
+                    "netuid {netuid} at block {block}"
+                );
+            }
+        }
+        // `null` ran in blocks 1, 101, ..., 901 and `later` one block after each of them;
+        // `front` ran in all remaining blocks.
+        assert_eq!(SubnetEpochIndex::<Test>::get(null), 10);
+        assert_eq!(SubnetEpochIndex::<Test>::get(later), 10);
+        assert_eq!(SubnetEpochIndex::<Test>::get(front), 990);
+    });
+}
+
+// Due Null subnets each settle alone, in consecutive blocks, ahead of the Yuma subnets that
+// were due with them.
+#[test]
+fn test_due_null_epochs_settle_in_consecutive_blocks() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_max_epochs_per_block(8);
+        let subnets: Vec<NetUid> = (1..=4u16).map(NetUid::from).collect();
+        for &netuid in &subnets {
+            add_network(netuid, 100, 0);
+            PendingEpochAt::<Test>::insert(netuid, 1);
+        }
+        SubtensorModule::set_epoch_consensus(subnets[1], EpochConsensus::Null);
+        SubtensorModule::set_epoch_consensus(subnets[3], EpochConsensus::Null);
+
+        let expected = [
+            vec![subnets[1]],
+            vec![subnets[3]],
+            vec![subnets[0], subnets[2]],
+        ];
+        for (block, ran) in (1u64..).zip(expected) {
+            System::set_block_number(block);
+            let drained = SubtensorModule::drain_pending(&subnets, block);
+            assert_eq!(
+                drained.keys().copied().collect::<Vec<_>>(),
+                ran,
+                "block {block}"
+            );
+        }
+    });
+}
+
 #[test]
 fn test_epochs_deferred_this_block_respects_cap() {
     new_test_ext(1).execute_with(|| {

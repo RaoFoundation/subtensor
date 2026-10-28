@@ -9,7 +9,6 @@ import {
     addStake,
     announceColdkeySwap,
     clearColdkeySwapAnnouncement,
-    coldkeyHashBinary,
     disputeColdkeySwap,
     forceSetBalance,
     generateKeyringPair,
@@ -80,8 +79,8 @@ describeSuite({
                 log(`Before swap — stake: ${stakeBefore}, balance: ${balanceBefore}`);
 
                 // Announce
-                const announceTx = api.tx.SubtensorModule.announce_coldkey_swap({
-                    new_coldkey_hash: coldkeyHashBinary(newColdkey),
+                const announceTx = api.tx.SubtensorModule.announce_coldkey_swap_v2({
+                    new_coldkey: newColdkey.address,
                 });
                 const announceResult = await sendTransaction(announceTx, oldColdkey);
                 expect(announceResult.success, "announce should succeed").toBe(true);
@@ -95,7 +94,9 @@ describeSuite({
                     new_coldkey: newColdkey.address,
                 });
                 const swapResult = await sendTransaction(swapTx, oldColdkey);
-                expect(swapResult.success, "swap should succeed").toBe(true);
+                expect(swapResult.success, `swap should succeed: ${swapResult.errorMessage ?? "unknown error"}`).toBe(
+                    true
+                );
                 log("Swap executed");
 
                 // Verify stake migrated
@@ -150,7 +151,7 @@ describeSuite({
                 const newColdkey = generateKeyringPair("sr25519");
                 await forceSetBalance(api, oldColdkey.address);
 
-                await announceColdkeySwap(api, oldColdkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, oldColdkey, newColdkey);
 
                 // Immediately try swap without waiting
                 const swapTx = api.tx.SubtensorModule.swap_coldkey_announced({
@@ -172,12 +173,12 @@ describeSuite({
                 await forceSetBalance(api, oldColdkey.address);
 
                 // First announcement
-                await announceColdkeySwap(api, oldColdkey, coldkeyHashBinary(newColdkey1));
+                await announceColdkeySwap(api, oldColdkey, newColdkey1);
                 log("First announce ok");
 
                 // Reannounce immediately (should fail)
-                const earlyAnnounceTx = api.tx.SubtensorModule.announce_coldkey_swap({
-                    new_coldkey_hash: coldkeyHashBinary(newColdkey2),
+                const earlyAnnounceTx = api.tx.SubtensorModule.announce_coldkey_swap_v2({
+                    new_coldkey: newColdkey2.address,
                 });
                 const earlyResult = await sendTransaction(earlyAnnounceTx, oldColdkey);
                 expect(earlyResult.success, "early reannounce should fail").toBe(false);
@@ -187,7 +188,7 @@ describeSuite({
                 await waitForBlocks(api, ANNOUNCEMENT_DELAY + REANNOUNCEMENT_DELAY + 1);
 
                 // Reannounce (should succeed)
-                await announceColdkeySwap(api, oldColdkey, coldkeyHashBinary(newColdkey2));
+                await announceColdkeySwap(api, oldColdkey, newColdkey2);
                 log("Reannounced to new key");
 
                 // Wait for announcement delay
@@ -215,7 +216,7 @@ describeSuite({
                 const newColdkey = generateKeyringPair("sr25519");
                 await forceSetBalance(api, oldColdkey.address);
 
-                await announceColdkeySwap(api, oldColdkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, oldColdkey, newColdkey);
 
                 // Dispute
                 const disputeTx = api.tx.SubtensorModule.dispute_coldkey_swap();
@@ -243,7 +244,7 @@ describeSuite({
                 const newColdkey = generateKeyringPair("sr25519");
                 await forceSetBalance(api, oldColdkey.address);
 
-                await announceColdkeySwap(api, oldColdkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, oldColdkey, newColdkey);
                 await disputeColdkeySwap(api, oldColdkey);
 
                 // Second dispute should fail
@@ -261,8 +262,8 @@ describeSuite({
                 const poorKey = generateKeyringPair("sr25519");
                 // Intentionally NOT funded
 
-                const announceTx = api.tx.SubtensorModule.announce_coldkey_swap({
-                    new_coldkey_hash: coldkeyHashBinary(generateKeyringPair("sr25519")),
+                const announceTx = api.tx.SubtensorModule.announce_coldkey_swap_v2({
+                    new_coldkey: generateKeyringPair("sr25519").address,
                 });
                 const result = await sendTransaction(announceTx, poorKey);
                 expect(result.success, "announce should fail (no balance)").toBe(false);
@@ -279,7 +280,7 @@ describeSuite({
                 const wrongKey = generateKeyringPair("sr25519");
                 await forceSetBalance(api, oldColdkey.address);
 
-                await announceColdkeySwap(api, oldColdkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, oldColdkey, newColdkey);
                 await waitForBlocks(api, ANNOUNCEMENT_DELAY + 1);
 
                 // Swap with wrong address
@@ -314,7 +315,7 @@ describeSuite({
                 const newColdkey = generateKeyringPair("sr25519");
                 await forceSetBalance(api, coldkey.address);
 
-                await announceColdkeySwap(api, coldkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, coldkey, newColdkey);
                 expect(
                     await getColdkeySwapAnnouncement(api, coldkey.address),
                     "announcement should exist"
@@ -342,7 +343,7 @@ describeSuite({
                 const newColdkey = generateKeyringPair("sr25519");
                 await forceSetBalance(api, coldkey.address);
 
-                await announceColdkeySwap(api, coldkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, coldkey, newColdkey);
 
                 const clearTx = api.tx.SubtensorModule.clear_coldkey_swap_announcement();
                 const result = await sendTransaction(clearTx, coldkey);
@@ -378,7 +379,7 @@ describeSuite({
                 const newColdkey = generateKeyringPair("sr25519");
                 await forceSetBalance(api, coldkey.address);
 
-                await announceColdkeySwap(api, coldkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, coldkey, newColdkey);
                 await disputeColdkeySwap(api, coldkey);
                 log("Announced + disputed");
 
@@ -407,7 +408,7 @@ describeSuite({
                 await startCall(api, netuid, coldkey);
 
                 // Announce swap
-                await announceColdkeySwap(api, coldkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, coldkey, newColdkey);
                 log("Announced coldkey swap");
 
                 // add_stake should be blocked
@@ -431,8 +432,8 @@ describeSuite({
 
                 // swap-related calls should still go through the guard
                 // (reannounce will fail because of reannouncement delay, but NOT because of the guard)
-                const reannounceTx = api.tx.SubtensorModule.announce_coldkey_swap({
-                    new_coldkey_hash: coldkeyHashBinary(newColdkey),
+                const reannounceTx = api.tx.SubtensorModule.announce_coldkey_swap_v2({
+                    new_coldkey: newColdkey.address,
                 });
                 const reannounceResult = await sendTransaction(reannounceTx, coldkey);
                 // Fails with ReannounceBeforeDelay, not ColdkeySwapAnnounced — meaning the guard allowed it through
@@ -465,7 +466,7 @@ describeSuite({
                 await startCall(api, netuid, coldkey);
 
                 // Announce + dispute
-                await announceColdkeySwap(api, coldkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, coldkey, newColdkey);
                 await disputeColdkeySwap(api, coldkey);
                 log("Announced + disputed");
 
@@ -497,8 +498,8 @@ describeSuite({
                 log("swap_coldkey_announced blocked");
 
                 // announce should also be blocked
-                const announceTx = api.tx.SubtensorModule.announce_coldkey_swap({
-                    new_coldkey_hash: coldkeyHashBinary(newColdkey),
+                const announceTx = api.tx.SubtensorModule.announce_coldkey_swap_v2({
+                    new_coldkey: newColdkey.address,
                 });
                 const announceResult = await sendTransaction(announceTx, coldkey);
                 expect(announceResult.success, "announce should be blocked (disputed)").toBe(false);

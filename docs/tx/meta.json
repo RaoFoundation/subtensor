@@ -64,6 +64,7 @@
     "pow-register",
     "register-leased-network",
     "register-subnet",
+    "release-own-coldkey-swap-destination-reservation",
     "remove-stake",
     "remove-stake-limit",
     "reset-axon",

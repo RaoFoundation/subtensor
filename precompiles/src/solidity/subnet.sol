@@ -200,6 +200,14 @@ interface ISubnet {
 
     function getLiquidAlphaEnabled(uint16 netuid) external view returns (bool);
 
+    /**
+     * @dev Returns the liquid-alpha consensus source: 0 Current, 1 Previous,
+     * 2 Auto.
+     */
+    function getLiquidAlphaConsensusMode(
+        uint16 netuid
+    ) external view returns (uint8);
+
     function isSubnetDissolving(uint16 netuid) external view returns (bool);
 
     /**
@@ -233,6 +241,15 @@ interface ISubnet {
     function setLiquidAlphaEnabled(
         uint16 netuid,
         bool liquidAlphaEnabled
+    ) external payable;
+
+    /**
+     * @dev Sets the liquid-alpha consensus source: 0 Current, 1 Previous,
+     * 2 Auto. Reverts for any other value.
+     */
+    function setLiquidAlphaConsensusMode(
+        uint16 netuid,
+        uint8 mode
     ) external payable;
 
     function getYuma3Enabled(uint16 netuid) external view returns (bool);

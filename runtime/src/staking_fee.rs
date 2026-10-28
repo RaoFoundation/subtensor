@@ -25,7 +25,7 @@ pub const STAKING_HOTKEYS_FEE_ALLOWANCE: u32 = 4;
 
 /// Fee allowance for root claims, in claim units (hotkeys plus basket holding rows), the
 /// same count the admission envelope uses. Admission and execution keep the full 256-unit
-/// (coldkey-wide) or 129-unit (single hotkey) envelope plus the flat flush allowance.
+/// (coldkey-wide) or 130-unit (single hotkey) envelope plus the flat flush allowance.
 pub const ROOT_CLAIM_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
 
 /// Weight a claim is charged for: `units` claim units plus the flush work one hotkey with
@@ -406,7 +406,7 @@ mod tests {
         new_test_ext().execute_with(|| {
             let fee_weight = root_claim_fee_weight(ROOT_CLAIM_FEE_ALLOWANCE);
             assert_eq!(SubtensorModule::root_claim_declared_work(), 256);
-            assert_eq!(SubtensorModule::root_claim_hotkey_declared_work(), 129);
+            assert_eq!(SubtensorModule::root_claim_hotkey_declared_work(), 130);
             for (call, declared) in claim_cases() {
                 assert!(fee_weight.all_lt(declared));
                 let info = call.get_dispatch_info();

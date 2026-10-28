@@ -14,8 +14,8 @@ A failed `execute` returns an `ExtrinsicResult` whose `error` has a semantic `co
 | [`rate_limited`](/docs/errors/rate-limited) | 17 | Wait for the rate-limit window to pass, then retry |
 | [`not_registered`](/docs/errors/not-registered) | 4 | Register the hotkey on this subnet first with `btcli subnets register` |
 | [`not_authorized`](/docs/errors/not-authorized) | 22 | Sign with the key or origin that owns the target object, then retry |
-| [`already_exists`](/docs/errors/already-exists) | 28 | The object or state already exists; treat the goal as met or pick a different target |
-| [`not_found`](/docs/errors/not-found) | 22 | The referenced object is not on-chain; check the identifier |
+| [`already_exists`](/docs/errors/already-exists) | 29 | The object or state already exists; treat the goal as met or pick a different target |
+| [`not_found`](/docs/errors/not-found) | 23 | The referenced object is not on-chain; check the identifier |
 | [`subnet_not_exists`](/docs/errors/subnet-not-exists) | 5 | Use an existing netuid; `btcli subnets list` shows valid ones |
 | [`subtoken_disabled`](/docs/errors/subtoken-disabled) | 1 | The subnet is not active yet; wait for start_call |
 | [`disabled`](/docs/errors/disabled) | 23 | This call or feature is switched off on this network |

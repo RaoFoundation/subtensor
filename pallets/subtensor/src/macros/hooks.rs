@@ -232,9 +232,10 @@ mod hooks {
             // The beta-baseline seed (`migrate_stamp_beta_baselines`), the root pot
             // reconciliation (`migrate_fix_root_pot_shortfall`), the TotalStake resync
             // (`migrate_resync_total_stake`, issue #3156), the share-pool reconciliation,
-            // and the root-weights removal (`migrate_remove_root_weights`) run from the
-            // runtime `Migrations` tuple instead of this hook, so try-runtime validates
-            // their pre/post-upgrade invariants against real network state.
+            // the subnet lifecycle backfill, and the root-weights removal
+            // (`migrate_remove_root_weights`) run from the runtime `Migrations` tuple instead
+            // of this hook, so try-runtime validates their pre/post-upgrade invariants against
+            // real network state.
             weight
         }
 
@@ -242,7 +243,7 @@ mod hooks {
         fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
             // Disabled: https://github.com/RaoFoundation/subtensor/pull/1166
             // Self::check_total_stake()?;
-            Ok(())
+            migrations::migrate_subnet_state::subnet_state::try_state::<T>()
         }
 
         fn on_idle(_block: BlockNumberFor<T>, limit: Weight) -> Weight {

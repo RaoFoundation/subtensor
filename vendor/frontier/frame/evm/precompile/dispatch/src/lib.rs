@@ -59,27 +59,45 @@ where
 	DecodeLimit: Get<u32>,
 {
 	fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
-		let input = handle.input();
-		let target_gas = handle.gas_limit();
-		let context = handle.context();
+		if handle.is_static() {
+			return Err(PrecompileFailure::Error {
+				exit_status: ExitError::Other("cannot dispatch in static frame".into()),
+			});
+		}
 
+		let input_len = handle.input().len();
+		let max_len = *T::BlockLength::get().max.get(DispatchClass::Normal) as usize;
+		if input_len > max_len {
+			return Err(PrecompileFailure::Error {
+				exit_status: ExitError::Other("call input exceeds normal block length".into()),
+			});
+		}
+		// Prepay every SCALE byte, including zeros, before decoding or walking dispatch
+		// info. This also covers the linear traversal of the decoded call tree. This is
+		// a tariff based on the EVM config, not a reference-hardware weight measurement.
+		handle.record_cost(
+			(input_len as u64).saturating_mul(T::config().gas_transaction_non_zero_data),
+		)?;
+		let input = handle.input();
 		let call = T::RuntimeCall::decode_with_depth_limit(DecodeLimit::get(), &mut &*input)
 			.map_err(|_| PrecompileFailure::Error {
 				exit_status: ExitError::Other("decode failed".into()),
 			})?;
 		let info = call.get_dispatch_info();
 
-		if let Some(gas) = target_gas {
-			let valid_weight = info.total_weight().ref_time()
-				<= T::GasWeightMapping::gas_to_weight(gas, false).ref_time();
-			if !valid_weight {
-				return Err(PrecompileFailure::Error {
-					exit_status: ExitError::OutOfGas,
-				});
-			}
+		let remaining_gas = handle.remaining_gas();
+		if info.total_weight().ref_time()
+			> T::GasWeightMapping::gas_to_weight(remaining_gas, false).ref_time()
+		{
+			// Fail only this precompile frame; the caller may handle the failure, but
+			// cannot repeat expensive processing without paying for it.
+			handle.record_cost(remaining_gas)?;
+			return Err(PrecompileFailure::Error {
+				exit_status: ExitError::OutOfGas,
+			});
 		}
 
-		let origin = T::AddressMapping::into_account_id(context.caller);
+		let origin = T::AddressMapping::into_account_id(handle.context().caller);
 
 		if let Some(err) = DispatchValidator::validate_before_dispatch(&origin, &call) {
 			return Err(err);

@@ -54,7 +54,7 @@ impl<T: Config> Pallet<T> {
     /// * `Vec<Vec<Compact<u64>>>`: A vector of vectors containing the emission history for each hotkey across all subnets.
     pub fn get_emissions_history(hotkeys: Vec<T::AccountId>) -> Vec<Vec<Compact<AlphaBalance>>> {
         let mut result: Vec<Vec<Compact<AlphaBalance>>> = vec![];
-        for netuid in Self::get_all_subnet_netuids() {
+        for netuid in Self::get_all_reportable_subnet_netuids() {
             let mut hotkeys_emissions: Vec<Compact<AlphaBalance>> = vec![];
             for hotkey in hotkeys.clone() {
                 let last_emission: Compact<AlphaBalance> =
@@ -82,7 +82,7 @@ impl<T: Config> Pallet<T> {
     /// * `Option<SubnetState<T::AccountId>>`: An optional `SubnetState` struct containing the collected data for the subnet.
     ///   Returns `None` if the subnet does not exist.
     pub fn get_subnet_state(netuid: NetUid) -> Option<SubnetState<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             return None;
         }
         let n: u16 = Self::get_subnetwork_n(netuid);
@@ -128,7 +128,7 @@ impl<T: Config> Pallet<T> {
             Vec<I64F64>,
             Vec<I64F64>,
             Vec<I64F64>,
-        ) = Self::get_stake_weights_for_network(netuid);
+        ) = Self::get_reported_stake_weights_for_network(netuid);
         let alpha_stake: Vec<Compact<AlphaBalance>> = alpha_stake_fl
             .iter()
             .map(|xi| Compact::from(AlphaBalance::from(fixed64_to_u64(*xi))))

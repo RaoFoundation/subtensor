@@ -516,6 +516,7 @@ def srtool_recipe(manifest: Optional[dict]) -> list[str]:
         "  -e PACKAGE=node-subtensor-runtime \\",
         '  -e BUILD_OPTS="--features=metadata-hash" \\',
         "  -e PROFILE=production \\",
+        "  -e CONST_RANDOM_SEED=subtensor-runtime \\",
         '  -v "$(pwd)":/build \\',
         f"  {image} /srtool/build --app",
     ]

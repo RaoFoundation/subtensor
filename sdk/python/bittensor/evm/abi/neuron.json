@@ -269,6 +269,19 @@
   {
     "inputs": [
       {
+        "internalType": "bytes32",
+        "name": "newColdkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "announceColdkeySwapV2",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint16",
         "name": "netuid",
         "type": "uint16"

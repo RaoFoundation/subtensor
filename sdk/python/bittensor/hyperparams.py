@@ -372,11 +372,11 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "subnet_emission_enabled": Hyperparam(
         "bool",
-        "Root-controlled pool-side TAO emission switch. False means the subnet "
-        "earns no TAO emission share — the pool-side alpha_in/tao_in/excess_tao "
-        "chain-buy paths are zeroed — even when subnet_is_active is true. Only "
-        "root (the chain sudo key) can flip it, via the "
-        "set_subnet_emission_enabled intent.",
+        "Root-controlled pool-side TAO emission switch. New registrations "
+        "start true. False means the subnet earns no TAO emission share — the "
+        "pool-side alpha_in/tao_in/excess_tao chain-buy paths are zeroed — "
+        "even when subnet_is_active is true. Only root (the chain sudo key) "
+        "can flip it, via the set_subnet_emission_enabled intent.",
         short="root switch for TAO emission share",
     ),
     "user_liquidity_enabled": Hyperparam(

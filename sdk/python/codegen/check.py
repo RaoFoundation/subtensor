@@ -94,9 +94,12 @@ RAW_ONLY: dict[str, set[str]] = {
         "batch_reveal_weights",
         # PoW registration — out of scope by design
         "register",
-        # coldkey swap: announce/execute/clear/dispute are wrapped by intents; these
-        # remain raw — deprecated (schedule) or root-only (reset, arbitrary swap)
+        # coldkey swap: V2 announce/execute/clear/dispute/release are wrapped by
+        # intents; these remain raw — legacy hash announce, deprecated schedule,
+        # or root-only (reset, arbitrary swap)
+        "announce_coldkey_swap",
         "reset_coldkey_swap",
+        "reset_coldkey_swap_keep_locked",
         "schedule_swap_coldkey",
         "swap_coldkey",
         "swap_hotkey_v2",

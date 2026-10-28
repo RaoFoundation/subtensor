@@ -234,6 +234,44 @@ fn test_register_network_min_burn_at_default() {
     });
 }
 
+/// New registrations start with pool-side TAO emission enabled so owners need
+/// only `start_call` (after `StartCallDelay`) — not a root sudo — before the
+/// subnet can earn its TAO emission share. Existing explicitly-disabled
+/// subnets are left alone (no migration).
+#[test]
+fn test_register_network_starts_with_subnet_emission_enabled() {
+    new_test_ext(1).execute_with(|| {
+        let sn_owner_coldkey = U256::from(0);
+        let sn_owner_hotkey = U256::from(1);
+        let cost = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&sn_owner_coldkey, ExistentialDeposit::get() + cost.into());
+
+        // Pre-existing subnet left disabled by root must stay disabled.
+        let existing = NetUid::from(7);
+        add_network(existing, 13, 0);
+        SubnetEmissionEnabled::<Test>::insert(existing, false);
+        assert!(!SubnetEmissionEnabled::<Test>::get(existing));
+
+        assert_ok!(SubtensorModule::register_network(
+            <<Test as Config>::RuntimeOrigin>::signed(sn_owner_coldkey),
+            sn_owner_hotkey
+        ));
+        let netuid = match last_event() {
+            RuntimeEvent::SubtensorModule(Event::<Test>::NetworkAdded(netuid, _)) => netuid,
+            _ => panic!("Expected NetworkAdded event"),
+        };
+
+        assert!(
+            SubnetEmissionEnabled::<Test>::get(netuid),
+            "fresh registration must start with SubnetEmissionEnabled = true"
+        );
+        // Owner still must call start_call before epochs / subtoken / emission schedule.
+        assert!(FirstEmissionBlockNumber::<Test>::get(netuid).is_none());
+        assert!(!SubtokenEnabled::<Test>::get(netuid));
+        assert!(!SubnetEmissionEnabled::<Test>::get(existing));
+    });
+}
+
 #[test]
 fn test_register_network_use_symbol_for_subnet_if_available() {
     new_test_ext(1).execute_with(|| {

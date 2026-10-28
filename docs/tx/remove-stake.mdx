@@ -28,7 +28,7 @@ not a slice of the amount you unstake.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L591-L610), [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1561-L1589), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2188-L2217), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L591-L610), [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1563-L1591), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2190-L2219), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -89,8 +89,8 @@ result = sub.execute_tool("remove_stake", {...}, wallet)
 | Chain call | Source |
 | --- | --- |
 | `SubtensorModule.remove_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L598`](/code/pallets/subtensor/src/macros/dispatches.rs#L591-L610) |
-| `SubtensorModule.remove_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1568`](/code/pallets/subtensor/src/macros/dispatches.rs#L1561-L1589) |
-| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2192`](/code/pallets/subtensor/src/macros/dispatches.rs#L2188-L2217) |
+| `SubtensorModule.remove_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1570`](/code/pallets/subtensor/src/macros/dispatches.rs#L1563-L1591) |
+| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2194`](/code/pallets/subtensor/src/macros/dispatches.rs#L2190-L2219) |
 | `Utility.batch_all` | [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

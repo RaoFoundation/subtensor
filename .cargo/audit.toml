@@ -18,9 +18,22 @@ ignore = [
     # is not compiled. Revisit if executor features or the SDK fork change.
     # https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-jqpg-j7w6-42pr
     "RUSTSEC-2026-0316",
+    # RUSTSEC-2026-0344 (added 2026-10-20): ruzstd 0.4/0.6 decompression bomb.
+    # Only pulled by smoldot (light-client sync helpers). `cargo tree -p
+    # node-subtensor -i smoldot` / `-i ruzstd` print nothing — neither crate
+    # is in the node binary's build graph. Fix needs >=0.9.1 (semver break);
+    # revisit when smoldot consumers move.
+    "RUSTSEC-2026-0344",
+    # RUSTSEC-2026-0363 (added 2026-10-20): wasmtime 8.0.1 component-model
+    # handle tables uncapped. Same pin and feature set as 0316 above — the
+    # executor resolves wasmtime without `component-model`, so the affected
+    # tables are not compiled into the node. Fix needs wasmtime >=36.
+    "RUSTSEC-2026-0363",
     # RUSTSEC-2026-0379/0380 (added 2026-10-20): Cranelift aarch64 br_table
     # misjump and bit-packing overflow in wasmtime 8.0.1. Same sc-executor
-    # pin as above; fixes need much newer wasmtime majors.
+    # pin as above; fixes need much newer wasmtime majors. Accepted as a
+    # known SDK-pin exception (identical class to the other wasmtime
+    # entries); revisit on the next polkadot-sdk bump.
     "RUSTSEC-2026-0379",
     "RUSTSEC-2026-0380",
     # RUSTSEC-2026-0381/0382/0383 (added 2026-10-20): leaked emSign
@@ -36,18 +49,4 @@ ignore = [
     # 0383 webpki-root-certs: only a wasm32 / FreeBSD-dev dependency of
     #   rustls-platform-verifier; not part of the node build.
     "RUSTSEC-2026-0383",
-    # RUSTSEC-2026-0338 (added 2026-10-20): quinn-proto 0.11.15 via the fork QUIC/libp2p stack; fix needs >=0.11.17 — revisit on SDK bump.
-    "RUSTSEC-2026-0338",
-    # RUSTSEC-2026-0339 (added 2026-10-20): quinn-proto (same cluster as 0338).
-    "RUSTSEC-2026-0339",
-    # RUSTSEC-2026-0340 (added 2026-10-20): quinn-proto (same cluster as 0338).
-    "RUSTSEC-2026-0340",
-    # RUSTSEC-2026-0341 (added 2026-10-20): quinn-proto (same cluster as 0338).
-    "RUSTSEC-2026-0341",
-    # RUSTSEC-2026-0342 (added 2026-10-20): quinn-proto (same cluster as 0338).
-    "RUSTSEC-2026-0342",
-    # RUSTSEC-2026-0344 (added 2026-10-20): ruzstd 0.4/0.6 decompression bomb; fix needs >=0.9.1.
-    "RUSTSEC-2026-0344",
-    # RUSTSEC-2026-0363 (added 2026-10-20): wasmtime 8.0.1 component-model handle tables; same pin as other wasmtime exceptions.
-    "RUSTSEC-2026-0363",
 ]

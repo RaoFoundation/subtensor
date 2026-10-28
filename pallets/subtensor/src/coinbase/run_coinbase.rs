@@ -372,29 +372,39 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Subnets whose epoch slot is due *this* block but is deferred by the per-block
-    /// cap (`MaxEpochsPerBlock`).
+    /// Per-block epoch cap (`MaxEpochsPerBlock`) and the order in which due subnets
+    /// take its slots.
     /// A large Null epoch settles in the same block, using one scheduler slot
-    /// for the block. Pure Yuma blocks retain the configured epoch cap.
-    fn epoch_cap_for_block(subnets: &[NetUid], current_block: u64) -> u32 {
+    /// for the block, so the due Null subnet that lowers the cap takes that slot
+    /// first. In `subnets` order, an earlier due subnet could take it in every block
+    /// while the Null subnet stays due and keeps the cap at 1.
+    /// Pure Yuma blocks retain the configured epoch cap and the order of `subnets`.
+    fn epoch_schedule_for_block(subnets: &[NetUid], current_block: u64) -> (u32, Vec<NetUid>) {
         let configured = u32::from(Self::get_max_epochs_per_block());
-        if subnets.iter().any(|netuid| {
+        let due_null = subnets.iter().copied().find(|netuid| {
             !netuid.is_root()
                 && Self::get_epoch_consensus(*netuid) == EpochConsensus::Null
                 && Self::should_run_epoch(*netuid, current_block)
-        }) {
-            configured.min(1)
-        } else {
-            configured
+        });
+        match due_null {
+            Some(due_null) => {
+                let mut order = Vec::with_capacity(subnets.len());
+                order.push(due_null);
+                order.extend(subnets.iter().copied().filter(|netuid| *netuid != due_null));
+                (configured.min(1), order)
+            }
+            None => (configured, subnets.to_vec()),
         }
     }
 
+    /// Subnets whose epoch slot is due *this* block but is deferred by the per-block
+    /// cap. Mirrors `drain_pending`, including its slot order.
     pub fn epochs_deferred_this_block(subnets: &[NetUid], current_block: u64) -> BTreeSet<NetUid> {
-        let cap = Self::epoch_cap_for_block(subnets, current_block);
+        let (cap, slot_order) = Self::epoch_schedule_for_block(subnets, current_block);
         let mut deferred: BTreeSet<NetUid> = BTreeSet::new();
         let mut epochs_run_this_block: u32 = 0;
 
-        for &netuid in subnets.iter() {
+        for netuid in slot_order {
             if !Self::should_run_epoch(netuid, current_block) {
                 continue;
             }
@@ -421,9 +431,10 @@ impl<T: Config> Pallet<T> {
         > = BTreeMap::new();
         // Per-block cap on number of epochs that may run; the rest are deferred 1 block forward
         // by setting `PendingEpochAt`.
-        let max_epochs_per_block = Self::epoch_cap_for_block(subnets, current_block);
+        let (max_epochs_per_block, slot_order) =
+            Self::epoch_schedule_for_block(subnets, current_block);
         let mut epochs_run_this_block: u32 = 0;
-        for &netuid in subnets.iter() {
+        for netuid in slot_order {
             // Keep the scheduler age bounded per subnet. `tempo + 1` is enough to
             // record that a due epoch missed its slot while avoiding an unbounded
             // public counter when the epoch is repeatedly deferred or its input

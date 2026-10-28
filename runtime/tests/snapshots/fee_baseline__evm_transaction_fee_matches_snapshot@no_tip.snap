@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: no_tip
+expression: fee_rao
+---
+210000

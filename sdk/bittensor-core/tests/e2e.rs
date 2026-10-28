@@ -16,6 +16,7 @@ use bittensor_core::client::{as_str, as_u128, field, value_bytes};
 use bittensor_core::codec::Value;
 use bittensor_core::transaction::{Executor, IntentCall, Policy, SignerRole, Spend, Wallet};
 use bittensor_core::CoreError;
+use codec::Encode;
 use e2e_support::*;
 
 fn value_list(value: &Value) -> &[Value] {
@@ -685,15 +686,17 @@ fn test_coldkey_swap_announcement_flow() {
         .expect("fund swapper");
     assert_success(&funded);
 
-    let hash = bittensor_core::keys::public_key_from_ss58(&new_cold)
-        .map(|public| sp_core::hashing::blake2_256(&public))
-        .expect("new coldkey public key");
+    let public =
+        bittensor_core::keys::public_key_from_ss58(&new_cold).expect("new coldkey public key");
+    let hash = sp_core::hashing::blake2_256(&(b"coldkey-swap-v2-policy", public, true).encode());
+    // Intent path uses cleartext V2; on-chain announcement stores the
+    // destination-and-policy commitment.
     let announce = IntentCall::new(
         "announce_coldkey_swap",
         SignerRole::Coldkey,
         "SubtensorModule",
-        "announce_coldkey_swap",
-        record([("new_coldkey_hash", bytes(hash.to_vec()))]),
+        "announce_coldkey_swap_v2",
+        record([("new_coldkey", s(new_cold.clone()))]),
     );
     let result = Executor::new(&ctx.client)
         .execute(&announce, &swapper)
