@@ -4303,29 +4303,20 @@ pub mod pallet {
                             book.held_alpha = book.held_alpha.saturating_sub(position.lift_alpha);
                         });
                     }
-                    // Pay remainder atomically with alpha destruction. If the pot
-                    // cannot cover, forfeit the unpaid TAO as dust (same pattern as
-                    // short terminal_split) rather than destroying collateral unpaid.
+                    // Pay remainder before destroying custody alpha. A pot miss
+                    // must revert the whole transactional settle so collateral is
+                    // not destroyed and the claim is not removed; expiry keeps the
+                    // queue entry for retry. Below-ED transfer dust is reported.
                     let mut paid_remainder = 0u64;
                     if remainder > 0 {
-                        match T::Pool::pay_from_pot(netuid, owner, remainder.into()) {
-                            Ok(paid) => {
-                                paid_remainder = paid.to_u64();
-                                if paid_remainder < remainder {
-                                    Self::deposit_event(Event::DustForfeited {
-                                        netuid,
-                                        recipient: owner.clone(),
-                                        tao: remainder.saturating_sub(paid_remainder),
-                                    });
-                                }
-                            }
-                            Err(_) => {
-                                Self::deposit_event(Event::DustForfeited {
-                                    netuid,
-                                    recipient: owner.clone(),
-                                    tao: remainder,
-                                });
-                            }
+                        let paid = T::Pool::pay_from_pot(netuid, owner, remainder.into())?;
+                        paid_remainder = paid.to_u64();
+                        if paid_remainder < remainder {
+                            Self::deposit_event(Event::DustForfeited {
+                                netuid,
+                                recipient: owner.clone(),
+                                tao: remainder.saturating_sub(paid_remainder),
+                            });
                         }
                     }
                     if alpha > 0 {

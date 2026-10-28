@@ -2283,6 +2283,64 @@ fn fixed_term_expiry_restores_long_held_alpha() {
 }
 
 #[test]
+fn long_expiry_preserves_collateral_when_pot_payout_fails() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            hotkey.clone(),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let escrow = position.custody.clone();
+        let custody = Lending::custody_hotkey().unwrap();
+        // Zero the coupon so Due / final interest do not move collateral before settle.
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.annual_interest = 0;
+                p.interest_remainder = 0;
+                p.last_accrued = position.expires_at;
+            }
+        });
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let alpha_before = alpha(&escrow, &custody, netuid());
+        assert!(alpha_before > 0);
+        // (A+C)·r ≫ pool TAO → pay_from_pot fails; settle must fully roll back.
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = U64F64::from_num(100u64);
+            }
+        });
+        set_pool(1, pool_alpha());
+        System::set_block_number(snap.expires_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(snap.expires_at, Weight::MAX);
+        let still = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(still.collateral, snap.collateral);
+        assert_eq!(still.escrow_alpha, snap.escrow_alpha);
+        assert_eq!(alpha(&escrow, &custody, netuid()), alpha_before);
+        assert!(Expiry::<Test>::contains_key(
+            snap.expires_at,
+            (&owner, netuid())
+        ));
+        assert!(
+            System::events()
+                .into_iter()
+                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. }))),
+            "must not emit Expired after a failed payout"
+        );
+    });
+}
+
+#[test]
 fn coldkey_swap_rewinds_expiry_cursor_so_due_loan_still_settles() {
     new_test_ext().execute_with(|| {
         let owner_a = account(1);
