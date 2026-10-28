@@ -1180,6 +1180,7 @@ export class BrowserChainClient {
   }
   estimate_weight(call: CallLike, address: string, block?: number | string | null): Promise<{ ref_time: bigint; proof_size: bigint }> { return this.estimateWeight(call, address, block) }
 
+  /** Quote with invalid authorization; never request a signature or reserve a nonce. */
   async estimateFee(
     call: CallLike,
     signer: SignerLike,
@@ -1187,13 +1188,17 @@ export class BrowserChainClient {
   ): Promise<Balance> {
     const snapshot = await this.signingSnapshot()
     const { runtime } = snapshot
+    const { callData } = this.prepareCallForSigning(call, runtime, options)
     const account = await this.resolveSigner(signer, runtime)
-    const signed = await this.signExtrinsicWithSnapshot(call, signer, {
-      ...options,
+    // Both supported schemes use 64-byte signatures. A zero-filled signature
+    // preserves the encoded length without granting the RPC signing authority.
+    const quoted = runtime.encodeSignedExtrinsic(callData, account.publicKey, Buffer.alloc(64), account.cryptoType, {
+      era: '00',
       nonce: await this.peekNextIndex(account.ss58Address),
-      period: null,
-    }, snapshot)
-    const info = await this.rpc('payment_queryInfo', [hex(signed.bytes)])
+      tip: 0n,
+      metadataHashEnabled: account.requiresMetadataProof,
+    })
+    const info = await this.rpc('payment_queryInfo', [hex(quoted.bytes), snapshot.blockHash])
     const fields = recordValue(info)
     const partialFee = decimalAmount(fields?.partialFee ?? fields?.partial_fee)
     if (partialFee == null) {

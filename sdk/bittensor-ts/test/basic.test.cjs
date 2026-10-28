@@ -2825,16 +2825,12 @@ test('Client submit uses the Rust signing plan for external signers', async () =
   assert.equal(calls[2].cryptoType, core.CRYPTO_SR25519)
 })
 
-test('Client estimateFee peeks the chain nonce without reserving it', async () => {
+test('BrowserChainClient estimateFee peeks the chain nonce without signing or reserving it', async () => {
   const callData = Buffer.from([9, 8, 7])
   const { runtime, captures } = fakeSigningRuntime()
   const client = fakeSigningClient(runtime, callData)
   const publicKey = Buffer.alloc(32, 8)
   const address = core.ss58FromPublic(publicKey, 42)
-  const typedSignature = Buffer.concat([
-    Buffer.from([core.CRYPTO_SR25519]),
-    Buffer.alloc(64, 4),
-  ])
   const nonceReads = []
   let paymentQueryInfoParams
   client.rpc = async (method, params = []) => {
@@ -2862,7 +2858,7 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
     address,
     publicKey,
     signRaw() {
-      return { signature: `0x${typedSignature.toString('hex')}` }
+      assert.fail('fee estimation must not request a signature')
     },
   }
 
@@ -2871,11 +2867,60 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
   const secondRealNonce = await client.accountNextIndex(address)
 
   assert.equal(fee.rao, 123n)
-  assert.equal(captures.payloadParams.nonce, 7)
+  assert.equal(captures.payloadParams, undefined)
+  assert.equal(captures.encoded.params.nonce, 7)
+  assert.deepEqual(captures.encoded.signature, Buffer.alloc(64))
   assert.equal(firstRealNonce, 7)
   assert.equal(secondRealNonce, 7)
   assert.deepEqual(nonceReads, [address, address, address])
-  assert.deepEqual(paymentQueryInfoParams, ['0x010404'])
+  assert.deepEqual(paymentQueryInfoParams, ['0x010000', await client.blockHash()])
+})
+
+test('BrowserChainClient fee quotes contain invalid authorization for every supported signing mode', async () => {
+  const runtime = new core.Runtime(goldenMetadataBytes(), 419, 1, 42)
+  for (const cryptoType of [core.CRYPTO_ED25519, core.CRYPTO_SR25519]) {
+    for (const requiresMetadataProof of [false, true]) {
+      const key = core.Keypair.fromSeed(Buffer.alloc(32, 8), cryptoType)
+      const callData = runtime.composeCall('Balances', 'transfer_keep_alive', { dest: key.ss58Address, value: 123n })
+      const client = fakeSigningClient(runtime, callData)
+      const signer = {
+        getAccount: async () => ({ address: key.ss58Address, publicKey: key.publicKey, cryptoType, requiresMetadataProof }),
+      }
+      for (const method of ['sign', 'signBytes', 'signRaw', 'signPayload']) {
+        signer[method] = () => assert.fail(`fee estimation called ${method}`)
+      }
+      let quoted = false
+      client.rpc = async (method, params) => {
+        if (method === 'system_accountNextIndex') return 7
+        assert.equal(method, 'payment_queryInfo')
+        assert.equal(params[1], await client.blockHash())
+        const decoded = runtime.decodeExtrinsic(Buffer.from(params[0].slice(2), 'hex'))
+        assert.equal(decoded.address, key.ss58Address)
+        assert.equal(decoded.call.call_function, 'transfer_keep_alive')
+        assert.equal(decoded.nonce, 7)
+        assert.equal(decoded.mode.mode, requiresMetadataProof ? 'Enabled' : 'Disabled')
+        const scheme = cryptoType === core.CRYPTO_ED25519 ? 'Ed25519' : 'Sr25519'
+        assert.equal(decoded.signature[scheme], `0x${'00'.repeat(64)}`)
+        const payload = runtime.signaturePayload(callData, {
+          era: '00', nonce: 7, tip: 0n,
+          genesisHash: Buffer.from((await client.genesisHash()).slice(2), 'hex'),
+          eraBlockHash: Buffer.from((await client.genesisHash()).slice(2), 'hex'),
+          metadataHash: requiresMetadataProof ? Buffer.alloc(32, 1) : null,
+        })
+        assert.equal(key.verify(payload, Buffer.alloc(64)), false)
+        quoted = true
+        return { partialFee: '123' }
+      }
+      assert.equal((await client.estimateFee(callData, signer, { allowRawCall: true })).rao, 123n)
+      assert.equal(quoted, true)
+      // Address-only callers must be able to quote without any signing methods.
+      assert.equal((await client.estimateFee(callData, {
+        address: key.ss58Address, cryptoType, requiresMetadataProof,
+      }, { allowRawCall: true })).rao, 123n)
+      await assert.rejects(client.estimateFee(callData, signer), /explicit raw-call permission/)
+      await client.close()
+    }
+  }
 })
 
 test('Client submit without inclusion reports pool submission, not execution success', async () => {
