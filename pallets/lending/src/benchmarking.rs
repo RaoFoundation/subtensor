@@ -3,7 +3,7 @@
 //! Extrinsic bodies are invoked so the frame-benchmarking CLI can measure them
 //! on reference hardware. Until that run lands, committed `SubstrateWeight`
 //! values are conservative R/W-derived placeholders (see `weights.rs`).
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
 use frame_benchmarking::v2::*;
@@ -213,13 +213,22 @@ mod benchmarks {
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
-        let now = frame_system::Pallet::<T>::block_number();
+        // Interest is due at open_block + InterestPeriod — advance so collect_due
+        // actually charges and reschedules (not a no-op skip).
+        let due = Positions::<T>::get(&caller, netuid)
+            .expect("fixture opened a short")
+            .due;
+        frame_system::Pallet::<T>::set_block_number(due);
         #[block]
         {
             let _ = <Pallet<T> as Hooks<BlockNumberFor<T>>>::on_idle(
-                now,
+                due,
                 Weight::from_parts(u64::MAX, u64::MAX),
             );
+        }
+        // Outside measured block: interest path must have run (reschedule or forfeit).
+        if let Some(position) = Positions::<T>::get(&caller, netuid) {
+            assert!(position.due > due, "collect must reschedule the due bucket");
         }
     }
 
@@ -229,10 +238,34 @@ mod benchmarks {
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         seed_lending_ready::<T>(netuid, &caller, &hotkey);
+        // Advance one block and clear last_updated so on_finalize performs the
+        // full per-subnet path (TAO EMA + G EMA + price reference), not a
+        // read-only ensure_tao_ema hit.
+        let now = frame_system::Pallet::<T>::block_number().saturating_add(1u32.into());
+        frame_system::Pallet::<T>::set_block_number(now);
+        References::<T>::mutate(netuid, |r| {
+            if let Some(r) = r {
+                r.last_updated = Zero::zero();
+            }
+        });
+        let g_before = Lifts::<T>::get(netuid).last;
         #[block]
         {
-            let _ = Pallet::<T>::ensure_tao_ema(netuid);
+            <Pallet<T> as Hooks<BlockNumberFor<T>>>::on_finalize(now);
         }
+        let reference = References::<T>::get(netuid).expect("reference must remain seeded");
+        assert!(
+            reference.last_updated >= now,
+            "on_finalize must refresh the price reference"
+        );
+        assert!(
+            Lifts::<T>::get(netuid).last >= g_before,
+            "on_finalize must age G_ema"
+        );
+        assert!(
+            TaoEma::<T>::contains_key(netuid),
+            "on_finalize must maintain TaoEma"
+        );
     }
 
     #[benchmark]

@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 #[cfg(feature = "try-runtime")]
 use alloc::vec::Vec;
 #[cfg(feature = "try-runtime")]
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeAll, Encode};
 #[cfg(feature = "try-runtime")]
 use frame_support::ensure;
 use frame_support::{BoundedVec, traits::OnRuntimeUpgrade, weights::Weight};
@@ -81,10 +81,13 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
         // layout. `LiftParamsStore::get()` cannot see the old encoding and would
         // substitute Default, invalidating the preservation check.
         let raw = frame_support::storage::unhashed::get_raw(&LiftParamsStore::<T>::hashed_key());
+        // DecodeAll: LiftParamsBeforeEmaBand is a SCALE prefix of LiftParams, so
+        // plain Decode would accept current-layout values as "pre-band" and leave
+        // trailing ema_band_bps unread — breaking the already-run no-op check.
         let snapshot = match raw.as_deref() {
             None => None,
             Some(bytes) => {
-                if let Ok(old) = LiftParamsBeforeEmaBand::decode(&mut &bytes[..]) {
+                if let Ok(old) = LiftParamsBeforeEmaBand::decode_all(&mut &bytes[..]) {
                     Some(LiftParams {
                         floor_bps: old.floor_bps,
                         thin_floor_bps: old.thin_floor_bps,
@@ -106,7 +109,7 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
                         new_subnet_ramp: old.new_subnet_ramp,
                         ema_band_bps: 0,
                     })
-                } else if let Ok(cur) = LiftParams::decode(&mut &bytes[..]) {
+                } else if let Ok(cur) = LiftParams::decode_all(&mut &bytes[..]) {
                     Some(cur)
                 } else {
                     return Err("LiftParamsStore must decode as pre-band or current layout".into());

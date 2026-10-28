@@ -1,6 +1,7 @@
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::unwrap_used,
+    clippy::expect_used,
     clippy::indexing_slicing
 )]
 
@@ -9,6 +10,8 @@
 use super::*;
 use crate::weights::WeightInfo;
 use codec::{Decode, Encode};
+#[cfg(feature = "try-runtime")]
+use frame_support::traits::OnRuntimeUpgrade;
 use frame_support::{
     BoundedVec, assert_err, assert_ok, construct_runtime, derive_impl, ensure, parameter_types,
     traits::{ConstU32, ConstU64, Get, Hooks},
@@ -2181,6 +2184,57 @@ fn migration_appends_ema_band_from_pre_band_layout() {
         // Idempotent: second run preserves the widened value.
         let _ = migrations::migrate_lift_params_ema_band::<Test>();
         assert_eq!(LiftParamsStore::<Test>::get(), after);
+    });
+}
+
+#[test]
+fn lift_params_current_layout_rejects_prefix_decode_as_pre_band() {
+    // SCALE Decode accepts trailing bytes, so a current-layout blob would
+    // wrongly decode as LiftParamsBeforeEmaBand; DecodeAll must reject it.
+    use codec::DecodeAll;
+    let params = LiftParams {
+        ema_band_bps: 1_500,
+        floor_bps: 3_300,
+        ..LiftParams::default()
+    };
+    let bytes = params.encode();
+    assert!(
+        LiftParamsBeforeEmaBand::decode(&mut &bytes[..]).is_ok(),
+        "plain Decode must accept current layout as a pre-band prefix"
+    );
+    assert!(
+        LiftParamsBeforeEmaBand::decode_all(&mut &bytes[..]).is_err(),
+        "DecodeAll must reject trailing ema_band_bps"
+    );
+    assert!(LiftParams::decode_all(&mut &bytes[..]).is_ok());
+}
+
+#[cfg(feature = "try-runtime")]
+#[test]
+fn ema_band_migration_try_runtime_noop_when_already_stamped() {
+    new_test_ext().execute_with(|| {
+        // Current-layout storage with a stamped guard — pre_upgrade must not
+        // mis-read it as pre-band (DecodeAll), and post_upgrade must accept
+        // the unchanged value.
+        let params = LiftParams {
+            ema_band_bps: 1_500,
+            floor_bps: 3_300,
+            apr_bps: 10_000,
+            ..LiftParams::default()
+        };
+        LiftParamsStore::<Test>::put(params);
+        HasMigrationRun::<Test>::insert(ema_band_migration_key(), true);
+
+        let state =
+            <migrations::LiftParamsEmaBandMigration<Test> as OnRuntimeUpgrade>::pre_upgrade()
+                .expect("pre_upgrade must accept current layout");
+        let _ =
+            <migrations::LiftParamsEmaBandMigration<Test> as OnRuntimeUpgrade>::on_runtime_upgrade(
+            );
+        assert_ok!(
+            <migrations::LiftParamsEmaBandMigration<Test> as OnRuntimeUpgrade>::post_upgrade(state)
+        );
+        assert_eq!(LiftParamsStore::<Test>::get(), params);
     });
 }
 
