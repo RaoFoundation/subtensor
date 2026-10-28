@@ -7,34 +7,56 @@
 
 use super::*;
 use frame_benchmarking::v2::*;
-use frame_support::traits::Hooks;
+use frame_support::{assert_ok, traits::Hooks};
 use frame_system::RawOrigin;
+use sp_runtime::traits::Zero;
 
 #[benchmarks]
 mod benchmarks {
     use super::*;
 
-    /// Enable lending, init custody, and seed a warm reference so measured
-    /// calls exercise real lending work rather than early-exit errors.
-    fn seed_lending_ready<T: Config>(netuid: NetUid) {
+    /// Fund accounts, deep-pool the subnet, init custody, and seed a reference
+    /// that is already past `valid_after` so measured opens succeed.
+    fn seed_lending_ready<T: Config>(netuid: NetUid, caller: &T::AccountId, hotkey: &T::AccountId) {
         Enabled::<T>::put(true);
         LiftParamsStore::<T>::put(LiftParams {
             new_subnet_min_age: 0,
             new_subnet_ramp: 1,
             ..LiftParams::default()
         });
-        let _ = Pallet::<T>::initialize_custody();
-        let _ = Pallet::<T>::try_seed_reference(netuid);
+        T::Pool::benchmark_seed_pool(netuid, 1_000_000_000_000_000, 1_000_000_000_000_000);
+        T::Pool::benchmark_mint_tao(caller, 50_000_000_000_000);
+        T::Pool::benchmark_mint_alpha(caller, hotkey, netuid, 50_000_000_000_000);
+        assert_ok!(Pallet::<T>::initialize_custody());
+        assert!(
+            Pallet::<T>::try_seed_reference(netuid),
+            "benchmark fixture must seed a lending reference"
+        );
+        // try_seed_reference sets valid_after into the future; open requires now.
+        References::<T>::mutate(netuid, |r| {
+            if let Some(r) = r {
+                r.valid_after = Zero::zero();
+                r.last_updated = Zero::zero();
+            }
+        });
+        assert!(
+            References::<T>::contains_key(netuid),
+            "benchmark fixture must seed a lending reference"
+        );
         ActiveNets::<T>::insert(netuid, ());
         if ActiveNetCount::<T>::get() == 0 {
             ActiveNetCount::<T>::put(1);
         }
+        Lifts::<T>::mutate(netuid, |book| {
+            book.g_ema = T::Pool::pool_tao(netuid).to_u64();
+            book.last = LiftParams::default().settle_ema_blocks;
+        });
     }
 
     fn open_short_fixture<T: Config>(caller: &T::AccountId, hotkey: &T::AccountId, netuid: NetUid) {
-        seed_lending_ready::<T>(netuid);
+        seed_lending_ready::<T>(netuid, caller, hotkey);
         let now = frame_system::Pallet::<T>::block_number();
-        let _ = Pallet::<T>::open(
+        assert_ok!(Pallet::<T>::open(
             RawOrigin::Signed(caller.clone()).into(),
             netuid,
             Side::Short,
@@ -44,6 +66,10 @@ mod benchmarks {
             0u64,
             0u64,
             now.saturating_add(100u32.into()),
+        ));
+        assert!(
+            Positions::<T>::contains_key(caller, netuid),
+            "benchmark fixture must open a short position"
         );
     }
 
@@ -52,7 +78,7 @@ mod benchmarks {
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid);
+        seed_lending_ready::<T>(netuid, &caller, &hotkey);
         let now = frame_system::Pallet::<T>::block_number();
         #[extrinsic_call]
         _(
@@ -73,7 +99,7 @@ mod benchmarks {
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid);
+        seed_lending_ready::<T>(netuid, &caller, &hotkey);
         let now = frame_system::Pallet::<T>::block_number();
         #[extrinsic_call]
         _(
@@ -94,7 +120,7 @@ mod benchmarks {
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid);
+        seed_lending_ready::<T>(netuid, &caller, &hotkey);
         let now = frame_system::Pallet::<T>::block_number();
         #[extrinsic_call]
         _(
@@ -172,9 +198,9 @@ mod benchmarks {
     #[benchmark]
     fn warm_reference() {
         let caller: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid);
-        // Clear so the extrinsic re-seeds under measurement.
+        seed_lending_ready::<T>(netuid, &caller, &hotkey);
         References::<T>::remove(netuid);
         ActiveNets::<T>::remove(netuid);
         #[extrinsic_call]
@@ -199,8 +225,10 @@ mod benchmarks {
 
     #[benchmark]
     fn update_reference() {
+        let caller: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid);
+        seed_lending_ready::<T>(netuid, &caller, &hotkey);
         #[block]
         {
             let _ = Pallet::<T>::ensure_tao_ema(netuid);
@@ -213,7 +241,7 @@ mod benchmarks {
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
-        let _ = Pallet::<T>::start_dissolution(netuid);
+        assert_ok!(Pallet::<T>::start_dissolution(netuid));
         #[block]
         {
             let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));

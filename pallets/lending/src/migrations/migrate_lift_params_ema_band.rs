@@ -77,13 +77,48 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
     #[cfg(feature = "try-runtime")]
     fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
         let already_run = HasMigrationRun::<T>::get(migration_key());
-        let stored = LiftParamsStore::<T>::get();
-        Ok((already_run, stored).encode())
+        // Decode the on-disk blob as either the pre-band layout or the current
+        // layout. `LiftParamsStore::get()` cannot see the old encoding and would
+        // substitute Default, invalidating the preservation check.
+        let raw = frame_support::storage::unhashed::get_raw(&LiftParamsStore::<T>::hashed_key());
+        let snapshot = match raw.as_deref() {
+            None => None,
+            Some(bytes) => {
+                if let Ok(old) = LiftParamsBeforeEmaBand::decode(&mut &bytes[..]) {
+                    Some(LiftParams {
+                        floor_bps: old.floor_bps,
+                        thin_floor_bps: old.thin_floor_bps,
+                        ref_tao: old.ref_tao,
+                        move_bps: old.move_bps,
+                        ceiling_bps: old.ceiling_bps,
+                        split_short_bps: old.split_short_bps,
+                        rebalance_target_bps: old.rebalance_target_bps,
+                        rebalance_rate_bps: old.rebalance_rate_bps,
+                        thin_tao: old.thin_tao,
+                        ltv_short_bps: old.ltv_short_bps,
+                        ltv_long_bps: old.ltv_long_bps,
+                        thin_ltv_long_bps: old.thin_ltv_long_bps,
+                        apr_bps: old.apr_bps,
+                        slice_bps: old.slice_bps,
+                        crash_guard_bps: old.crash_guard_bps,
+                        settle_ema_blocks: old.settle_ema_blocks,
+                        new_subnet_min_age: old.new_subnet_min_age,
+                        new_subnet_ramp: old.new_subnet_ramp,
+                        ema_band_bps: 0,
+                    })
+                } else if let Ok(cur) = LiftParams::decode(&mut &bytes[..]) {
+                    Some(cur)
+                } else {
+                    return Err("LiftParamsStore must decode as pre-band or current layout".into());
+                }
+            }
+        };
+        Ok((already_run, snapshot).encode())
     }
 
     #[cfg(feature = "try-runtime")]
     fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
-        let (already_run, before): (bool, LiftParams) =
+        let (already_run, before): (bool, Option<LiftParams>) =
             Decode::decode(&mut &state[..]).map_err(|_| "pre_upgrade state must decode")?;
         ensure!(
             HasMigrationRun::<T>::get(migration_key()),
@@ -91,21 +126,25 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
         );
         let after = LiftParamsStore::<T>::get();
         if already_run {
-            ensure!(
-                after == before,
-                "already-run ema-band migration must be a no-op"
-            );
+            if let Some(before) = before {
+                ensure!(
+                    after == before,
+                    "already-run ema-band migration must be a no-op"
+                );
+            }
         } else {
             ensure!(
                 after.ema_band_bps == 1_500,
                 "ema_band_bps must be the default after first run"
             );
-            ensure!(
-                after.floor_bps == before.floor_bps
-                    && after.apr_bps == before.apr_bps
-                    && after.new_subnet_ramp == before.new_subnet_ramp,
-                "ema-band migration must preserve existing LiftParams fields"
-            );
+            if let Some(before) = before {
+                ensure!(
+                    after.floor_bps == before.floor_bps
+                        && after.apr_bps == before.apr_bps
+                        && after.new_subnet_ramp == before.new_subnet_ramp,
+                    "ema-band migration must preserve existing LiftParams fields"
+                );
+            }
         }
         Ok(())
     }

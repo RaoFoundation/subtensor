@@ -17,7 +17,7 @@ extern crate alloc;
 pub use pallet::*;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
-pub(crate) mod migrations;
+pub mod migrations;
 #[cfg(test)]
 mod tests;
 pub mod weights;
@@ -30,9 +30,7 @@ pub const MAX_ACTIVE_NET_UPDATES: u64 = 4_096;
 type MigrationKeyMaxLen = frame_support::traits::ConstU32<128>;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_support::{
-    PalletId, pallet_prelude::*, traits::OnRuntimeUpgrade, transactional, weights::WeightMeter,
-};
+use frame_support::{PalletId, pallet_prelude::*, transactional, weights::WeightMeter};
 use frame_system::pallet_prelude::*;
 use scale_info::TypeInfo;
 use sp_runtime::traits::{AccountIdConversion, Hash, SaturatedConversion, Saturating};
@@ -270,6 +268,18 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn network_alive(netuid: NetUid) -> bool {
         Self::subnet_exists(netuid)
     }
+
+    /// Benchmark-only: deep-pool `netuid` so lift / depth checks pass.
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_seed_pool(_netuid: NetUid, _tao: u64, _alpha: u64) {}
+
+    /// Benchmark-only: fund free TAO on `who`.
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_mint_tao(_who: &AccountId, _amount: u64) {}
+
+    /// Benchmark-only: fund staked alpha for `(who, hotkey, netuid)`.
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_mint_alpha(_who: &AccountId, _hotkey: &AccountId, _netuid: NetUid, _amount: u64) {}
 }
 
 /// Subtensor dissolution / hotkey integration.
@@ -1035,10 +1045,10 @@ pub mod pallet {
         }
 
         fn on_runtime_upgrade() -> Weight {
-            let weight = <migrations::WarmReferencesMigration<T> as OnRuntimeUpgrade>::on_runtime_upgrade()
-                .saturating_add(
-                    <migrations::LiftParamsEmaBandMigration<T> as OnRuntimeUpgrade>::on_runtime_upgrade(),
-                );
+            // Warm-reference and LiftParams ema-band migrations live in the
+            // runtime `Migrations` tuple so try-runtime runs their pre/post
+            // checks. This hook only repairs in-place derived indexes.
+            let weight = Weight::zero();
 
             // Initialize missing TaoEma entries to the current settlement basis.
             let mut writes = 0u64;
@@ -3926,9 +3936,10 @@ pub mod pallet {
                 }
                 let x = T::Pool::pool_alpha(netuid).to_u64();
                 // Cap slice by slice_bps spot move: Δx_max ≈ x * ((1/(1-ε))^wq - 1); approximate ε*x for small.
+                // Take the full pending backlog up to that cap — do not divide by
+                // InterestPeriod (that stranded coupons worth ≫ 0.01 τ forever).
                 let max_slice = Self::mul_bps(x, params.slice_bps).unwrap_or(0).max(1);
-                let period: u64 = T::InterestPeriod::get().saturated_into();
-                let slice = (pending / period.max(1)).max(1).min(pending).min(max_slice);
+                let slice = pending.min(max_slice).max(1);
                 // Reference-derived floor: EMA value × crash_guard_bps (default 95%).
                 // Defer (do not revert idle) when the live quote misses the floor —
                 // crash guard alone does not protect against an adverse fill.

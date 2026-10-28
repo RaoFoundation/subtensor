@@ -1794,6 +1794,11 @@ type Migrations = (
     // try-runtime compares the complete result with a pre-upgrade snapshot and checks the
     // one-shot marker.
     pallet_subtensor::migrations::migrate_subnet_state::subnet_state::Migration<Runtime>,
+    // Lending: one-shot warm of References/G_ema for live subnets, then widen LiftParams
+    // with ema_band_bps. Registered here (not the pallet hook) so try-runtime executes
+    // pre/post-upgrade validation against real network state.
+    pallet_lending::migrations::WarmReferencesMigration<Runtime>,
+    pallet_lending::migrations::LiftParamsEmaBandMigration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.

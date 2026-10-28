@@ -490,6 +490,42 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         // Registration-time seed: do not require start-call / subtoken yet.
         !netuid.is_root() && Self::if_subnet_exist(netuid) && SubnetMechanism::<T>::get(netuid) == 1
     }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_seed_pool(netuid: NetUid, tao: u64, alpha: u64) {
+        use frame_support::traits::Currency;
+        if !Self::if_subnet_exist(netuid) {
+            NetworksAdded::<T>::insert(netuid, true);
+            SubtokenEnabled::<T>::insert(netuid, true);
+            SubnetMechanism::<T>::insert(netuid, 1u16);
+            NetworkRegisteredAt::<T>::insert(netuid, 0u64);
+        }
+        SubnetTAO::<T>::set(netuid, tao.into());
+        SubnetAlphaIn::<T>::set(netuid, alpha.into());
+        TotalStake::<T>::mutate(|total| *total = total.saturating_add(tao.into()));
+        if let Some(subnet) = Self::get_subnet_account_id(netuid) {
+            let _ = <T as Config>::Currency::make_free_balance_be(&subnet, tao.into());
+        }
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_mint_tao(who: &T::AccountId, amount: u64) {
+        use frame_support::traits::Currency;
+        let _ = <T as Config>::Currency::make_free_balance_be(who, amount.into());
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_mint_alpha(
+        who: &T::AccountId,
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        amount: u64,
+    ) {
+        let alpha: AlphaBalance = amount.into();
+        let _ = Self::try_increase_stake_for_hotkey_and_coldkey_on_subnet(hotkey, netuid, alpha);
+        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(hotkey, who, netuid, alpha);
+        SubnetAlphaOut::<T>::mutate(netuid, |out| *out = out.saturating_add(alpha));
+    }
 }
 
 impl<T: Config> Pallet<T> {

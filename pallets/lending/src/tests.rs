@@ -245,6 +245,22 @@ impl LendingPoolInterface<Account> for MockPool {
         true
     }
 
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_seed_pool(netuid: NetUid, tao: u64, alpha: u64) {
+        write(&key(b"test/pool_tao", netuid), tao);
+        write(&key(b"test/pool_alpha", netuid), alpha);
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_mint_tao(who: &Account, amount: u64) {
+        mint_tao(who, amount);
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_mint_alpha(who: &Account, hotkey: &Account, netuid: NetUid, amount: u64) {
+        mint_alpha(who, hotkey, netuid, amount);
+    }
+
     fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> Result<TaoBalance, DispatchError> {
         let y = Self::pool_tao(netuid).to_u64();
         let x = Self::pool_alpha(netuid).to_u64();
@@ -2092,7 +2108,7 @@ fn migration_warms_existing_subnets_and_is_idempotent() {
         assert!(!HasMigrationRun::<Test>::get(warm_migration_key()));
         assert!(References::<Test>::get(netuid()).is_none());
 
-        let _w1 = <Lending as Hooks<_>>::on_runtime_upgrade();
+        let _w1 = migrations::migrate_warm_references::<Test>();
         assert!(HasMigrationRun::<Test>::get(warm_migration_key()));
         assert!(References::<Test>::get(netuid()).is_some());
         assert!(Lifts::<Test>::get(netuid()).g_ema > 0);
@@ -2102,7 +2118,7 @@ fn migration_warms_existing_subnets_and_is_idempotent() {
         let active = ActiveNetCount::<Test>::get();
 
         // Second upgrade is a no-op for the warm migration (state unchanged).
-        let _w2 = <Lending as Hooks<_>>::on_runtime_upgrade();
+        let _w2 = migrations::migrate_warm_references::<Test>();
         assert!(HasMigrationRun::<Test>::get(warm_migration_key()));
         assert_eq!(
             References::<Test>::get(netuid()).unwrap().valid_after,
@@ -2118,7 +2134,7 @@ fn migration_skips_zero_price_subnet_cleanly() {
     cold_lending_ext().execute_with(|| {
         // Empty pool → zero price; migration must not panic or mark a half seed.
         set_pool(0, 0);
-        let _ = <Lending as Hooks<_>>::on_runtime_upgrade();
+        let _ = migrations::migrate_warm_references::<Test>();
         assert!(HasMigrationRun::<Test>::get(warm_migration_key()));
         assert!(References::<Test>::get(netuid()).is_none());
         assert_eq!(Lifts::<Test>::get(netuid()).g_ema, 0);
@@ -3212,15 +3228,15 @@ fn convert_pending_defers_when_quote_misses_ema_floor() {
     new_test_ext().execute_with(|| {
         let custody = Lending::custody_hotkey().unwrap();
         let reserve = Lending::reserve_account(netuid());
-        // Raise slice_bps so the period slice (not the 1-bps spot cap) binds.
+        // Full backlog up to the spot-move cap (no / InterestPeriod).
         LiftParamsStore::<Test>::mutate(|p| p.slice_bps = 10_000);
         let pending = 10_000_000_000_000u64;
-        let period = <<Test as Config>::InterestPeriod as Get<u64>>::get();
-        let slice = (pending / period.max(1)).max(1);
+        // Thin TAO, alpha ≈ 2·pending → CP impact makes quote < 0.95·spot·slice.
+        // With slice_bps = 10_000, max_slice = pool alpha, so slice = pending.
+        set_pool(pending, pending.saturating_mul(2));
+        let slice = pending;
         mint_alpha(&reserve, &custody, netuid(), pending);
         LongInterestPending::<Test>::insert(netuid(), pending);
-        // Thin TAO, alpha ≈ 2·slice → CP impact makes quote < 0.95·spot·slice.
-        set_pool(slice, slice.saturating_mul(2));
         Lifts::<Test>::mutate(netuid(), |book| book.g_ema = pool_tao());
         let spot = MockPool::price();
         References::<Test>::mutate(netuid(), |r| {
@@ -3257,6 +3273,58 @@ fn convert_pending_defers_when_quote_misses_ema_floor() {
             )
         });
         assert!(!sold);
+    });
+}
+
+#[test]
+fn convert_pending_clears_when_period_slice_would_strand() {
+    new_test_ext().execute_with(|| {
+        let custody = Lending::custody_hotkey().unwrap();
+        let reserve = Lending::reserve_account(netuid());
+        // Deep 1:1 pool (fixture default). pending quotes ≫ 0.01τ, but
+        // pending/InterestPeriod quotes below the dust gate — the old slice
+        // math stranded that coupon forever.
+        let period = <<Test as Config>::InterestPeriod as Get<u64>>::get().max(1);
+        let pending = 50_000_000u64; // ~0.05τ at 1:1
+        let period_slice = (pending / period).max(1);
+        let period_quote = MockPool::quote_sell(netuid(), period_slice.into())
+            .unwrap()
+            .to_u64();
+        assert!(
+            period_quote < 10_000_000,
+            "precondition: period-divided slice must be dust (quote={period_quote})"
+        );
+        let full_quote = MockPool::quote_sell(netuid(), pending.into())
+            .unwrap()
+            .to_u64();
+        assert!(
+            full_quote >= 10_000_000,
+            "precondition: full pending must clear dust (quote={full_quote})"
+        );
+
+        mint_alpha(&reserve, &custody, netuid(), pending);
+        LongInterestPending::<Test>::insert(netuid(), pending);
+        let spot = MockPool::price();
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = spot;
+            }
+        });
+
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(System::block_number(), Weight::MAX);
+        assert_eq!(
+            LongInterestPending::<Test>::get(netuid()),
+            0,
+            "full pending must convert in one idle when it clears dust"
+        );
+        let sold = System::events().into_iter().any(|e| {
+            matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::LongInterestSold { .. })
+            )
+        });
+        assert!(sold);
     });
 }
 
