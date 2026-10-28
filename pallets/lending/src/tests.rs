@@ -788,11 +788,13 @@ fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
         let owner = account(1);
         let hotkey = account(2);
         mint_tao(&owner, 100_000_000_000_000);
+        // Small short so Cap_short = 7.5%·G_ema can be set equal to its lift
+        // while G_ema stays under the thin threshold.
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
-            5_000_000_000_000,
+            100_000_000_000, // 0.1 τ collateral
             hotkey.clone(),
             1,
             0,
@@ -800,12 +802,21 @@ fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
             deadline(),
         ));
         let opened = Positions::<Test>::get(&owner, netuid()).unwrap();
-        // Fill Cap_short so a fresh open would fail without releasing this loan.
+        let lift = opened.lift_tao;
+        assert!(lift > 0);
+        // Cap_short = 15%·50%·G_ema = 3/40·G_ema (thin). Set G_ema so Cap_short
+        // equals this loan's lift; headroom is 0 until forfeit.
+        let g_ema = lift.saturating_mul(40) / 3;
+        assert!(
+            g_ema < LiftParams::default().thin_tao,
+            "g_ema={g_ema} must stay thin for 7.5% Cap_short"
+        );
         Lifts::<Test>::mutate(netuid(), |book| {
-            book.l_s = u64::MAX / 2;
+            book.g_ema = g_ema.max(1);
+            book.l_s = lift;
         });
         assert_err!(
-            Lending::quote_open(netuid(), Side::Short, 1_000_000_000_000),
+            Lending::quote_open(netuid(), Side::Short, 50_000_000_000),
             Error::<Test>::SideCapacity
         );
         // Exhaust collateral on the next interest charge → forfeit on open path.
@@ -819,13 +830,13 @@ fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
         });
         System::set_block_number(now.saturating_add(520));
         mint_tao(&owner, 10_000_000_000_000);
-        let add = 2_000_000_000_000u64;
+        let add = 50_000_000_000u64;
         let quoted = Lending::quote_open_for(&owner, netuid(), Side::Short, add, &hotkey)
             .expect("quote must see post-forfeit capacity");
         assert!(quoted.principal > 0);
-        // Quote rolled back: position and stuffed Cap still present.
+        // Quote rolled back: position and full Cap still present.
         assert!(Positions::<Test>::contains_key(&owner, netuid()));
-        assert_eq!(Lifts::<Test>::get(netuid()).l_s, u64::MAX / 2);
+        assert_eq!(Lifts::<Test>::get(netuid()).l_s, lift);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
