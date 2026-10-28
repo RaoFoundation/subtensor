@@ -1833,6 +1833,11 @@ pub mod pallet {
         }
 
         /// Max additional principal for collateral under LTV·V_dyn and side caps.
+        ///
+        /// Side-cap headroom (`Cap_side − L_side`) is always in **TAO lift legs**.
+        /// Long principal is already TAO, so that headroom is the principal bound.
+        /// Short principal is **alpha**; invert `ΔL = floor(y·P/x) ≤ headroom_tao`
+        /// before searching so a cheap subnet is not capped at `headroom_tao` alpha.
         fn max_principal_for_collateral(
             netuid: NetUid,
             side: Side,
@@ -1848,20 +1853,33 @@ pub mod pallet {
             let ltv = Self::ltv_tier_bps(netuid, side, params);
             let (_cap, cap_short, cap_long) = Self::side_caps(netuid, params)?;
             let book = Lifts::<T>::get(netuid);
-            let headroom = match side {
+            let headroom_tao = match side {
                 Side::Short => cap_short.saturating_sub(book.l_s),
                 Side::Long => cap_long.saturating_sub(book.l_l),
             };
-            if headroom == 0 || total_collateral == 0 {
+            if headroom_tao == 0 || total_collateral == 0 {
                 return Ok(0);
             }
-            // Bisection on additional principal.
-            let mut lo = 0u64;
-            let mut hi = headroom;
-            // For shorts, principal is alpha; lift delta uses τ_L ≈ P_alpha * p.
-            // Capacity is in TAO lift legs. Approximate ΔL_S ≈ quote of selling P, or P*p.
-            // Spec: open short iff L_S + ΔL ≤ Cap_short where ΔL = τ_L from lift g=P/x.
-            // So ΔL = floor(y * P / x). Bound hi by that invertibility.
+            let y = T::Pool::pool_tao(netuid).to_u64();
+            let x = T::Pool::pool_alpha(netuid).to_u64();
+            if y == 0 || x == 0 {
+                return Ok(0);
+            }
+            // Additional principal upper bound in the side's native units.
+            let add_cap = match side {
+                Side::Short => {
+                    // floor(y·P/x) ≤ headroom_tao  ⇒  P ≤ floor(headroom_tao · x / y).
+                    let p = ((u128::from(headroom_tao) * u128::from(x)) / u128::from(y)) as u64;
+                    p.min(x.saturating_sub(1))
+                }
+                Side::Long => headroom_tao.min(y.saturating_sub(1)),
+            };
+            if add_cap == 0 {
+                return Ok(0);
+            }
+            // Bisection over *total* principal in [old, old+add_cap].
+            let mut lo = old_principal;
+            let mut hi = Self::add(old_principal, add_cap)?;
             for _ in 0..BISECTION_STEPS {
                 if lo + 1 >= hi {
                     break;
@@ -1899,7 +1917,7 @@ pub mod pallet {
             } else {
                 lo
             };
-            Ok(candidate.saturating_sub(old_principal).min(headroom))
+            Ok(candidate.saturating_sub(old_principal).min(add_cap))
         }
 
         fn principal_feasible(
@@ -1919,6 +1937,15 @@ pub mod pallet {
             let incremental = total_principal.saturating_sub(old_principal);
             if incremental == 0 {
                 return Ok(true);
+            }
+            // Principal past the pool reserve is infeasible for a search; an
+            // empty pool is still a hard EmptyPool from lift_tao_for_principal.
+            let y = T::Pool::pool_tao(netuid).to_u64();
+            let x = T::Pool::pool_alpha(netuid).to_u64();
+            match side {
+                Side::Short if x > 0 && incremental >= x => return Ok(false),
+                Side::Long if y > 0 && incremental >= y => return Ok(false),
+                _ => {}
             }
             let delta_l = Self::lift_tao_for_principal(netuid, side, incremental)?;
             if Self::ensure_side_capacity(netuid, side, delta_l).is_err() {
@@ -4564,12 +4591,13 @@ pub mod pallet {
                     &params,
                 )?
             };
+            // Collateral-only sizing that rounds to zero principal (LTV / capacity):
+            // report AmountTooSmall for both sides — not a depth / pool error.
+            ensure!(principal > 0, Error::<T>::AmountTooSmall);
             // Post-trade EMA band for both exact and collateral-only sizing
             // (same gate as `do_open`; catches OpenLoan / quote_open without amount).
-            if principal > 0 {
-                let spot_after = Self::simulate_open_spot_after(netuid, side, principal)?;
-                Self::ensure_open_ema_band(side, spot_after, reference.price, &params)?;
-            }
+            let spot_after = Self::simulate_open_spot_after(netuid, side, principal)?;
+            Self::ensure_open_ema_band(side, spot_after, reference.price, &params)?;
             let price = reference.price.min(T::Pool::current_alpha_price(netuid));
             let total_p = Self::add(
                 existing.as_ref().map(|p| p.principal).unwrap_or(0),

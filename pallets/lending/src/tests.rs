@@ -4034,6 +4034,96 @@ fn quote_open_matches_open_gate_and_empty_pool_errors() {
 }
 
 #[test]
+fn short_collateral_quote_uses_alpha_not_tao_headroom_on_cheap_subnet() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        // Cheap subnet: 1,000 τ / 1,000,000 α → price 0.001. Cap_short is in TAO;
+        // the old bug capped alpha principal at that TAO headroom count.
+        let y = 1_000_000_000_000u64;
+        let x = 1_000_000_000_000_000u64;
+        set_pool(y, x);
+        let spot = MockPool::price();
+        References::<Test>::insert(
+            netuid(),
+            LendingReference {
+                price: spot,
+                last_updated: 1u64,
+                valid_after: 1u64,
+            },
+        );
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.g_ema = y;
+            book.last = LiftParams::default().settle_ema_blocks;
+        });
+        set_tao_ema(Lending::settlement_tao_basis(netuid()));
+
+        // Thin-tier Cap_short ≈ 7.5% of G (the live bug's TAO-as-alpha figure).
+        let bogus_tao_as_alpha = y * 15 / 100 / 2;
+        let capacity_alpha =
+            ((u128::from(bogus_tao_as_alpha) * u128::from(x)) / u128::from(y)) as u64;
+        assert!(capacity_alpha > bogus_tao_as_alpha);
+
+        mint_tao(&owner, 50_000_000_000_000);
+        // 10 τ collateral; LTV 25% → 2.5 τ debt ≈ 2_500 α at price 0.001,
+        // well above the bogus TAO-as-alpha cap and below capacity_alpha.
+        let collateral = 10_000_000_000u64;
+        let quoted = Lending::quote_open(netuid(), Side::Short, collateral).unwrap();
+        assert!(
+            quoted.principal > bogus_tao_as_alpha,
+            "principal {} must not equal TAO headroom {}",
+            quoted.principal,
+            bogus_tao_as_alpha
+        );
+        assert!(
+            quoted.principal <= capacity_alpha,
+            "principal {} exceeds inverted capacity {}",
+            quoted.principal,
+            capacity_alpha
+        );
+
+        // Extrinsic path must size the same way (not the TAO-as-alpha cap).
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            collateral,
+            hotkey,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let opened = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert!(opened.principal > bogus_tao_as_alpha);
+        assert_eq!(opened.principal, quoted.principal);
+    });
+}
+
+#[test]
+fn long_zero_borrowable_quote_is_amount_too_small_not_depth() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        // 1 rao of alpha cannot support any positive long principal under LTV.
+        assert_err!(
+            Lending::quote_open(netuid(), Side::Long, 1),
+            Error::<Test>::AmountTooSmall
+        );
+        assert_err!(
+            Lending::quote_open_for(&owner, netuid(), Side::Long, 1, &hotkey),
+            Error::<Test>::AmountTooSmall
+        );
+        // Shorts with dust TAO collateral match the same economic error.
+        assert_err!(
+            Lending::quote_open(netuid(), Side::Short, 1),
+            Error::<Test>::AmountTooSmall
+        );
+    });
+}
+
+#[test]
 fn gema_warming_up_is_distinct_from_subnet_too_new() {
     cold_lending_ext().execute_with(|| {
         let owner = account(1);
