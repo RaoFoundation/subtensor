@@ -71,7 +71,8 @@ type ValidateAllowed = (WeightCalls, NeuronServingCalls, CommitmentCalls);
 /// gamma spending (which need the explicit `BasketTrading` and `GammaSpend`
 /// grants). Sudo is excluded because a sudo-key principal would otherwise hand
 /// the delegate root, including forced transfers.
-/// `SudoCalls` is inventory-only: no restricted proxy grants it.
+/// `SudoCalls` and `TaoUsdPriceFeedCalls` are inventory-only: no restricted
+/// proxy grants them.
 type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -359,6 +360,7 @@ mod tests {
         let denied =
             &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls, GammaCreditCalls)>();
         let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -379,6 +381,7 @@ mod tests {
         let denied =
             &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls, GammaCreditCalls)>();
         let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -572,6 +575,7 @@ mod tests {
         let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls)>();
         let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied

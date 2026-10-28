@@ -567,7 +567,6 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::enable_voting_power_tracking),
         RuntimeCall::SubtensorModule(SubtensorCall::disable_voting_power_tracking),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_voting_power_ema_alpha),
-        RuntimeCall::SubtensorModule(SubtensorCall::feed_tao_usd_price),
     ]
 );
 
@@ -701,6 +700,15 @@ call_filter_group!(
     ),]
 );
 
+// The oracle's TAO/USD price feed, which every gamma mint reads. Kept off every
+// restricted proxy grant, as for Sudo (inventory-only, `Any` still reaches it).
+call_filter_group!(
+    TaoUsdPriceFeedCalls,
+    [RuntimeCall::SubtensorModule(
+        SubtensorCall::feed_tao_usd_price
+    ),]
+);
+
 // ============================================================================
 // Conditional, proxy-specific groups
 //
@@ -804,6 +812,7 @@ type SubtensorSplitCalls = (
     WeightCalls,
     NeuronServingCalls,
     SubtensorCommonCalls,
+    TaoUsdPriceFeedCalls,
 );
 
 // AdminUtils calls and deprecated owner-call shims, split for owner proxies.
