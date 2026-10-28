@@ -9,7 +9,7 @@ use super::*;
 use frame_benchmarking::v2::*;
 use frame_support::{assert_ok, traits::Hooks};
 use frame_system::RawOrigin;
-use sp_runtime::traits::Zero;
+use sp_runtime::traits::{SaturatedConversion, Zero};
 
 #[benchmarks]
 mod benchmarks {
@@ -238,17 +238,17 @@ mod benchmarks {
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         seed_lending_ready::<T>(netuid, &caller, &hotkey);
-        // Advance one block and clear last_updated so on_finalize performs the
-        // full per-subnet path (TAO EMA + G EMA + price reference), not a
-        // read-only ensure_tao_ema hit.
-        let now = frame_system::Pallet::<T>::block_number().saturating_add(1u32.into());
+        // seed_lending_ready ages G_ema to settle_ema_blocks; advance past that
+        // and clear last_updated so on_finalize runs the full path (TAO EMA +
+        // G EMA fixed-point update + price reference), not the early returns.
+        let g_seeded = Lifts::<T>::get(netuid).last;
+        let now: BlockNumberFor<T> = g_seeded.saturating_add(1).saturated_into();
         frame_system::Pallet::<T>::set_block_number(now);
         References::<T>::mutate(netuid, |r| {
             if let Some(r) = r {
                 r.last_updated = Zero::zero();
             }
         });
-        let g_before = Lifts::<T>::get(netuid).last;
         #[block]
         {
             <Pallet<T> as Hooks<BlockNumberFor<T>>>::on_finalize(now);
@@ -258,9 +258,15 @@ mod benchmarks {
             reference.last_updated >= now,
             "on_finalize must refresh the price reference"
         );
+        let g_after = Lifts::<T>::get(netuid).last;
         assert!(
-            Lifts::<T>::get(netuid).last >= g_before,
-            "on_finalize must age G_ema"
+            g_after > g_seeded,
+            "on_finalize must age G_ema past the seeded timestamp"
+        );
+        assert_eq!(
+            g_after,
+            now.saturated_into::<u64>(),
+            "G_ema last must advance to the measured block"
         );
         assert!(
             TaoEma::<T>::contains_key(netuid),
