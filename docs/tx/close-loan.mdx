@@ -27,7 +27,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close`](/code/pallets/lending/src/lib.rs#L1197-L1217) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close`](/code/pallets/lending/src/lib.rs#L1199-L1219) |
 
 ## Parameters
 
@@ -82,7 +82,7 @@ result = sub.execute_tool("close_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.close` — [`pallets/lending/src/lib.rs#L1200`](/code/pallets/lending/src/lib.rs#L1197-L1217):
+`Lending.close` — [`pallets/lending/src/lib.rs#L1202`](/code/pallets/lending/src/lib.rs#L1199-L1219):
 
 ```rust
 #[pallet::call_index(2)]

@@ -461,7 +461,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 24): ErrorInfo('Lending', 'InvalidLiftParams', ''),
     (33, 25): ErrorInfo('Lending', 'PositionSideMismatch', ''),
     (33, 26): ErrorInfo('Lending', 'HotkeyMismatch', ''),
-    (33, 27): ErrorInfo('Lending', 'HotkeyNotOwned', 'Short open/increase named a hotkey the caller does not own. Prevents indexing unsolicited shorts onto a third-party hotkey and blocking its rotation via swap weight (§14.3).'),
+    (33, 27): ErrorInfo('Lending', 'HotkeyNotOwned', 'Fresh open named a hotkey the caller does not own. Prevents indexing unsolicited loans onto a third-party hotkey and blocking its rotation via swap weight (§14.3). Applies to both sides: longs can stake onto a foreign hotkey without ownership consent.'),
     (33, 28): ErrorInfo('Lending', 'SubnetTooNew', 'Subnet age is below `new_subnet_min_age` (§2.3).'),
     (33, 29): ErrorInfo('Lending', 'CustodyHotkey', 'Third-party stake onto the lending custody hotkey is rejected (§14).'),
     (33, 30): ErrorInfo('Lending', 'EscrowInUse', 'Derived position escrow is still assigned (e.g. after a coldkey swap that kept the old custody account). Refuse a fresh open so two loans cannot share one escrow (§14).'),

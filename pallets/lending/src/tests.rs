@@ -617,13 +617,15 @@ fn lift_readd_preserves_price() {
 }
 
 #[test]
-fn short_open_rejects_unsolicited_third_party_hotkey() {
+fn open_rejects_unsolicited_third_party_hotkey_on_both_sides() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let victim = account(9);
         let victim_hotkey = account(10);
         set_hotkey_owner(&victim_hotkey, &victim);
         mint_tao(&owner, 50_000_000_000_000);
+        mint_alpha(&owner, &victim_hotkey, netuid(), 100_000_000_000_000);
+        // Short: TAO collateral, no stake association required without this gate.
         assert_err!(
             Lending::quote_open_for(
                 &owner,
@@ -648,9 +650,46 @@ fn short_open_rejects_unsolicited_third_party_hotkey() {
             ),
             Error::<Test>::HotkeyNotOwned
         );
+        // Long: delegated stake on a foreign hotkey also cannot index LoanHotkeys.
+        assert_err!(
+            Lending::quote_open_for(
+                &owner,
+                netuid(),
+                Side::Long,
+                50_000_000_000_000,
+                &victim_hotkey
+            ),
+            Error::<Test>::HotkeyNotOwned
+        );
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Long,
+                50_000_000_000_000,
+                victim_hotkey.clone(),
+                1,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::HotkeyNotOwned
+        );
+        assert_err!(
+            Lending::quote_raise(
+                &owner,
+                netuid(),
+                &victim_hotkey,
+                None,
+                Some(50_000_000_000_000),
+                None
+            ),
+            Error::<Test>::HotkeyNotOwned
+        );
         assert_eq!(LoanHotkeys::<Test>::get(&victim_hotkey), 0);
         let own_hotkey = account(2);
         set_hotkey_owner(&own_hotkey, &owner);
+        mint_alpha(&owner, &own_hotkey, netuid(), 100_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),

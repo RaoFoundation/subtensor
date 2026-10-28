@@ -50,9 +50,10 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn owner_allowed(_owner: &AccountId) -> bool {
         true
     }
-    /// Whether `coldkey` owns `hotkey` (subtensor `Owner` map). Short opens
-    /// require this so an unsolicited loan cannot index a third-party hotkey
-    /// and inflate its swap-hotkey weight past the block limit (§14.3).
+    /// Whether `coldkey` owns `hotkey` (subtensor `Owner` map). Fresh opens on
+    /// either side require this so an unsolicited loan cannot index a
+    /// third-party hotkey and inflate its swap-hotkey weight past the block
+    /// limit (§14.3).
     fn coldkey_owns_hotkey(_coldkey: &AccountId, _hotkey: &AccountId) -> bool {
         true
     }
@@ -995,9 +996,10 @@ pub mod pallet {
         InvalidLiftParams,
         PositionSideMismatch,
         HotkeyMismatch,
-        /// Short open/increase named a hotkey the caller does not own. Prevents
-        /// indexing unsolicited shorts onto a third-party hotkey and blocking
-        /// its rotation via swap weight (§14.3).
+        /// Fresh open named a hotkey the caller does not own. Prevents indexing
+        /// unsolicited loans onto a third-party hotkey and blocking its
+        /// rotation via swap weight (§14.3). Applies to both sides: longs can
+        /// stake onto a foreign hotkey without ownership consent.
         HotkeyNotOwned,
         /// Subnet age is below `new_subnet_min_age` (§2.3).
         SubnetTooNew,
@@ -1810,21 +1812,16 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Shorts index `LoanHotkeys` / `OpenByHotkey` and charge that count into
-        /// every hotkey swap's weight. Require coldkey ownership so a borrower
-        /// cannot attach unsolicited shorts to a victim's hotkey and push its
-        /// declared swap weight past the block limit. Longs associate via stake.
-        fn ensure_short_hotkey_owned(
-            side: Side,
-            owner: &T::AccountId,
-            hotkey: &T::AccountId,
-        ) -> DispatchResult {
-            if side == Side::Short {
-                ensure!(
-                    T::Pool::coldkey_owns_hotkey(owner, hotkey),
-                    Error::<T>::HotkeyNotOwned
-                );
-            }
+        /// Both sides index `LoanHotkeys` / `OpenByHotkey`, and that count is
+        /// charged into every hotkey swap's weight. Require coldkey ownership
+        /// on fresh opens so a borrower cannot attach unsolicited loans to a
+        /// victim's hotkey (via short TAO collateral or long stake onto a
+        /// third-party key) and push declared swap weight past the block limit.
+        fn ensure_hotkey_owned(owner: &T::AccountId, hotkey: &T::AccountId) -> DispatchResult {
+            ensure!(
+                T::Pool::coldkey_owns_hotkey(owner, hotkey),
+                Error::<T>::HotkeyNotOwned
+            );
             Ok(())
         }
 
@@ -2258,10 +2255,10 @@ pub mod pallet {
             if let Some(ref position) = existing {
                 Self::ensure_matching_position(position, side, &hotkey)?;
             } else {
-                // Fresh short: require hotkey ownership before LoanHotkeys /
-                // OpenByHotkey index the key (Skeptic: unsolicited shorts DoS
-                // hotkey rotation). Longs already associate via stake on hotkey.
-                Self::ensure_short_hotkey_owned(side, &owner, &hotkey)?;
+                // Fresh open: require hotkey ownership before LoanHotkeys /
+                // OpenByHotkey index the key (Skeptic: unsolicited loans DoS
+                // hotkey rotation on either side).
+                Self::ensure_hotkey_owned(&owner, &hotkey)?;
             }
             if let Some(mut position) = existing.take() {
                 Self::charge_interest(&owner, netuid, &mut position, now, false)?;
@@ -4871,7 +4868,7 @@ pub mod pallet {
             };
             if existing.is_none() {
                 if let (Some(o), Some(hk)) = (owner, hotkey) {
-                    Self::ensure_short_hotkey_owned(side, o, hk)?;
+                    Self::ensure_hotkey_owned(o, hk)?;
                 }
             }
             if existing.is_none() && owner.is_some() {
@@ -5106,6 +5103,9 @@ pub mod pallet {
             // and free Cap_long) before sizing / sale simulation.
             let existing =
                 Self::accrue_existing_before_size(owner, netuid, Side::Long, Some(hotkey), now)?;
+            if existing.is_none() {
+                Self::ensure_hotkey_owned(owner, hotkey)?;
+            }
             let price_before = T::Pool::current_alpha_price(netuid);
             let (c, p) = if let Some(col) = collateral {
                 ensure!(col > 0, Error::<T>::CollateralZero);

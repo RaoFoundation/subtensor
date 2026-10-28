@@ -142,8 +142,9 @@ DESCRIPTIONS: dict[str, str] = {
         "saved hotkey."
     ),
     "HotkeyNotOwned": (
-        "A short open must name a hotkey owned by the signing coldkey. Third-party hotkeys "
-        "are rejected so unsolicited shorts cannot inflate another account's hotkey-swap weight."
+        "A fresh long or short open must name a hotkey owned by the signing coldkey. "
+        "Third-party hotkeys are rejected so unsolicited loans cannot inflate another "
+        "account's hotkey-swap weight."
     ),
     "InvalidQuote": (
         "A required executable-depth quote or repayment swap is unavailable. Check curve "
