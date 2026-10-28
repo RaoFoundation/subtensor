@@ -282,6 +282,7 @@ jobs:
         run: |
           npm --prefix sdk/bittensor-ts ci --omit=dev --ignore-scripts
           pnpm --dir ts-tests install --frozen-lockfile
+          node ts-tests/scripts/prepare-ci-harness.mjs ts-tests
 
       - name: Package harness and dependencies
         run: |
