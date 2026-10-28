@@ -4655,6 +4655,126 @@ fn short_top_up_near_capacity_is_side_capacity_in_quote_and_open() {
     });
 }
 
+/// μ SN29 repro: cheap pool (~τ0.00279), ~800 τ short collateral in 4×200 τ
+/// steps. Thin-tier Cap_short = 15%×50%×G_ema is only ~100 τ of lift, so LTV
+/// 25% (~50 τ lift per step) binds mid-sequence. Remaining headroom must either
+/// clamp to a still-executable lift or refuse with SideCapacity — never
+/// AmountTooSmall, and quote must match the call.
+#[test]
+fn sn29_style_short_raises_report_side_capacity_not_amount_too_small() {
+    new_test_ext().execute_with(|| {
+        // Live-ish SN29 reserves (9-decimal rao / α).
+        let tao_in = 8_332_312_063_472u64;
+        let alpha_in = 2_985_694_839_137_648u64;
+        set_pool(tao_in, alpha_in);
+        let spot = MockPool::price();
+        // price ≈ tao_in/alpha_in ≈ 0.00279
+        assert!(spot < U64F64::from_num(1) / U64F64::from_num(300));
+        assert!(spot > U64F64::from_num(1) / U64F64::from_num(400));
+        References::<Test>::insert(
+            netuid(),
+            LendingReference {
+                price: spot,
+                last_updated: 1u64,
+                valid_after: 1u64,
+            },
+        );
+        // Thin G_ema so Cap = 15%·G and Cap_short = 7.5%·G ≈ 100 τ.
+        // Each 200 τ collateral add wants ~50 τ of lift under 25% LTV.
+        let g_ema = 1_333_000_000_000u64;
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.g_ema = g_ema;
+            book.last = LiftParams::default().settle_ema_blocks;
+            book.l_s = 0;
+        });
+        set_tao_ema(Lending::settlement_tao_basis(netuid()));
+
+        let params = Lending::lift_params();
+        assert!(g_ema < params.thin_tao);
+        let floor = g_ema * u64::from(params.thin_floor_bps) / 10_000;
+        let cap_short = floor * u64::from(params.split_short_bps) / 10_000;
+        assert!(
+            (90_000_000_000..110_000_000_000).contains(&cap_short),
+            "expected ~100 τ Cap_short, got {cap_short}"
+        );
+
+        let owner = account(1);
+        let hotkey = account(2);
+        let step = 200_000_000_000u64; // 200 τ
+        mint_tao(&owner, step.saturating_mul(6));
+
+        let mut principals: Vec<u64> = Vec::new();
+        let mut saw_side_capacity = false;
+        for i in 0..4u32 {
+            let quote = Lending::quote_open_for(&owner, netuid(), Side::Short, step, &hotkey);
+            let dispatch = Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                step,
+                hotkey.clone(),
+                1,
+                0,
+                0,
+                deadline(),
+            );
+            match (quote, dispatch) {
+                (Ok(q), Ok(_)) => {
+                    assert!(q.principal > 0, "step {i}: quote Ok with zero principal");
+                    principals.push(q.principal);
+                }
+                (Err(q_err), Err(d_err)) => {
+                    assert_eq!(
+                        q_err, d_err,
+                        "step {i}: quote and open must agree on the error"
+                    );
+                    assert_ne!(
+                        q_err,
+                        Error::<Test>::AmountTooSmall.into(),
+                        "step {i}: capacity binder must not look like AmountTooSmall"
+                    );
+                    assert_eq!(
+                        q_err,
+                        Error::<Test>::SideCapacity.into(),
+                        "step {i}: expected SideCapacity, got {q_err:?}"
+                    );
+                    saw_side_capacity = true;
+                }
+                (Ok(q), Err(e)) => panic!("step {i}: quote Ok ({q:?}) but open Err ({e:?})"),
+                (Err(e), Ok(_)) => panic!("step {i}: quote Err ({e:?}) but open Ok"),
+            }
+        }
+
+        assert!(
+            !principals.is_empty(),
+            "at least the first 200 τ step should open under ~100 τ Cap_short"
+        );
+        // Capacity binds: later steps shrink (clamp) and/or refuse SideCapacity.
+        let bound = saw_side_capacity
+            || principals
+                .windows(2)
+                .any(|w| w[1] < w[0].saturating_mul(50) / 100);
+        assert!(
+            bound,
+            "expected clamp or SideCapacity across 4×200 τ; principals={principals:?} side_capacity={saw_side_capacity}"
+        );
+        let book = Lifts::<Test>::get(netuid());
+        assert!(
+            book.l_s <= cap_short,
+            "l_s={} must not exceed Cap_short≈{}",
+            book.l_s,
+            cap_short
+        );
+        // Near the cap after ~800 τ of attempts.
+        assert!(
+            book.l_s + 5_000_000_000 >= cap_short || saw_side_capacity,
+            "l_s={} should sit near Cap_short≈{} once capacity binds",
+            book.l_s,
+            cap_short
+        );
+    });
+}
+
 #[test]
 fn quote_raise_ok_implies_open_long_and_sell_ok() {
     new_test_ext().execute_with(|| {

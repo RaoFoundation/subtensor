@@ -1867,7 +1867,13 @@ pub mod pallet {
             Ok(Some(next))
         }
 
-        /// True when side capacity cannot fit a MinimumLoanValue-sized borrow.
+        /// True when side capacity cannot fit a MinimumLoanValue borrow that
+        /// also produces a non-zero lift (`ΔL ≥ 1`).
+        ///
+        /// On cheap pools `floor(H·x/y)` can sit below `ceil(x/y)` (the smallest
+        /// executable short principal) while `H > 0`. That leftover rao of
+        /// headroom is not a usable borrow — report it as capacity-exhausted
+        /// rather than `AmountTooSmall`.
         fn capacity_blocks_minimum_loan(
             netuid: NetUid,
             side: Side,
@@ -1879,15 +1885,37 @@ pub mod pallet {
                 return Ok(true);
             }
             let min_value = T::MinimumLoanValue::get();
-            let min_principal = match side {
-                Side::Long => min_value,
-                // Short opening value is TAO; need enough alpha that ⌈P·price⌉ ≥ min.
-                Side::Short => Self::alpha_for_tao(min_value, price, true)?.max(1),
-            };
-            match Self::lift_tao_for_principal(netuid, side, min_principal) {
-                Ok(delta_l) => Ok(delta_l > headroom),
-                Err(_) => Ok(true),
+            let y = T::Pool::pool_tao(netuid).to_u64();
+            let x = T::Pool::pool_alpha(netuid).to_u64();
+            if y == 0 || x == 0 {
+                return Ok(true);
             }
+            // Smallest principal that meets the economic floor *and* lifts ≥1 rao.
+            let min_principal = match side {
+                Side::Long => min_value.max(1),
+                Side::Short => {
+                    let for_value = Self::alpha_for_tao(min_value, price, true)?.max(1);
+                    // floor(y·P/x) ≥ 1  ⇒  P ≥ ceil(x/y).
+                    let for_lift = ((u128::from(x).saturating_add(u128::from(y).saturating_sub(1)))
+                        / u128::from(y))
+                    .min(u128::from(u64::MAX)) as u64;
+                    for_value.max(for_lift).max(1)
+                }
+            };
+            let delta_l = match Self::lift_tao_for_principal(netuid, side, min_principal) {
+                Ok(d) => d,
+                Err(_) => return Ok(true),
+            };
+            if delta_l == 0 || delta_l > headroom {
+                return Ok(true);
+            }
+            // Honest search bound (no ceil padding). If it cannot reach the
+            // minimum executable principal, the leftover headroom is unusable.
+            let floor_add_cap = match side {
+                Side::Short => ((u128::from(headroom) * u128::from(x)) / u128::from(y)) as u64,
+                Side::Long => headroom,
+            };
+            Ok(floor_add_cap < min_principal)
         }
 
         /// Map a zero / dust additional principal to SideCapacity when the side
@@ -1906,10 +1934,10 @@ pub mod pallet {
 
         /// Shared open-size gate for quotes and extrinsics.
         ///
-        /// Zero principal or an `opening_quote` economic-floor miss becomes
-        /// `SideCapacity` when the side cannot fit a MinimumLoanValue borrow,
-        /// else `AmountTooSmall`. Keeps quote Ok ⇒ dispatch Ok for the same
-        /// sized principal.
+        /// Zero principal, zero-lift principal, or an `opening_quote` economic
+        /// floor miss becomes `SideCapacity` when the side cannot fit a
+        /// MinimumLoanValue borrow with `ΔL ≥ 1`, else `AmountTooSmall`.
+        /// Keeps quote Ok ⇒ dispatch Ok for the same sized principal.
         fn validate_sized_principal(
             netuid: NetUid,
             side: Side,
@@ -1922,6 +1950,15 @@ pub mod pallet {
         ) -> Result<OpeningQuote, DispatchError> {
             if principal == 0 {
                 return Err(Self::refuse_dust_or_capacity(netuid, side, price, params));
+            }
+            // `lift_and_debit` requires both legs > 0; a capacity-clamped dust
+            // principal with ΔL = 0 must not quote Ok.
+            match Self::lift_tao_for_principal(netuid, side, principal) {
+                Ok(0) => {
+                    return Err(Self::refuse_dust_or_capacity(netuid, side, price, params));
+                }
+                Ok(_) => {}
+                Err(e) => return Err(e),
             }
             match Self::opening_quote(
                 side,
@@ -1992,7 +2029,18 @@ pub mod pallet {
             let add_cap = match side {
                 Side::Short => {
                     // floor(y·P/x) ≤ headroom_tao  ⇒  P ≤ floor(headroom_tao · x / y).
-                    let p = ((u128::from(headroom_tao) * u128::from(x)) / u128::from(y)) as u64;
+                    let mut p = ((u128::from(headroom_tao) * u128::from(x)) / u128::from(y)) as u64;
+                    // On cheap pools floor(H·x/y) can sit below the smallest P
+                    // with ΔL ≥ 1 (ceil(x/y)). Include that P in the search when
+                    // headroom ≥ 1; principal_feasible still enforces ΔL ≤ H so
+                    // the bisection clamps to remaining capacity instead of
+                    // returning a zero-lift dust principal.
+                    if headroom_tao > 0 {
+                        let min_lift_p = (u128::from(x)
+                            .saturating_add(u128::from(y).saturating_sub(1)))
+                            / u128::from(y);
+                        p = p.max(min_lift_p.min(u128::from(u64::MAX)) as u64);
+                    }
                     p.min(x.saturating_sub(1))
                 }
                 Side::Long => headroom_tao.min(y.saturating_sub(1)),
@@ -2040,7 +2088,16 @@ pub mod pallet {
             } else {
                 lo
             };
-            Ok(candidate.saturating_sub(old_principal).min(add_cap))
+            let additional = candidate.saturating_sub(old_principal).min(add_cap);
+            if additional == 0 {
+                // Capacity leftover that cannot express a minimum executable
+                // borrow must not look like an LTV / dust refusal.
+                let price = T::Pool::current_alpha_price(netuid);
+                if Self::capacity_blocks_minimum_loan(netuid, side, price, params)? {
+                    return Err(Error::<T>::SideCapacity.into());
+                }
+            }
+            Ok(additional)
         }
 
         fn principal_feasible(
@@ -2071,6 +2128,10 @@ pub mod pallet {
                 _ => {}
             }
             let delta_l = Self::lift_tao_for_principal(netuid, side, incremental)?;
+            // Zero-lift increments are not executable and must not win bisection.
+            if delta_l == 0 {
+                return Ok(false);
+            }
             if Self::ensure_side_capacity(netuid, side, delta_l).is_err() {
                 return Ok(false);
             }
