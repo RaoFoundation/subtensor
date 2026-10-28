@@ -333,6 +333,7 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         escrow_cold: &T::AccountId,
         netuid: NetUid,
         alpha: AlphaBalance,
+        min_tao_out: TaoBalance,
     ) -> Result<TaoBalance, DispatchError> {
         // Sell from custody into the pool, then move free TAO onto the escrow coldkey.
         let tao = <Self as subtensor_swap_interface::OrderSwapInterface<T::AccountId>>::sell_alpha(
@@ -343,6 +344,7 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
             TaoBalance::ZERO,
             false,
         )?;
+        ensure!(tao >= min_tao_out, Error::<T>::SlippageTooHigh);
         if *custody_cold != *escrow_cold && !tao.is_zero() {
             Self::transfer_tao(custody_cold, escrow_cold, tao)?;
         }

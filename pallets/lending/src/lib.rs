@@ -200,12 +200,14 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     ) -> Result<AlphaBalance, DispatchError>;
 
     /// Forced sell of custody alpha into escrow TAO on `escrow_cold`.
+    /// Fails if the realised TAO is below `min_tao_out` (pass zero to disable).
     fn forced_sell_into_escrow(
         custody_cold: &AccountId,
         custody_hot: &AccountId,
         escrow_cold: &AccountId,
         netuid: NetUid,
         alpha: AlphaBalance,
+        min_tao_out: TaoBalance,
     ) -> Result<TaoBalance, DispatchError>;
 
     /// Unlocked stake available for collateral / raise sale (excludes locks).
@@ -2102,6 +2104,7 @@ pub mod pallet {
                         &escrow,
                         netuid,
                         sell.into(),
+                        0u64.into(),
                     )?;
                     ensure!(e_s.to_u64() >= min_proceeds, Error::<T>::SlippageExceeded);
                     // Hold remaining lift TAO; alpha principal was sold (lift_alpha may exceed
@@ -2389,6 +2392,7 @@ pub mod pallet {
                                 &escrow,
                                 netuid,
                                 position.escrow_alpha.into(),
+                                0u64.into(),
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                         }
@@ -2403,6 +2407,7 @@ pub mod pallet {
                                 &escrow,
                                 netuid,
                                 sell.into(),
+                                0u64.into(),
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             coll_left = 0;
@@ -2661,6 +2666,7 @@ pub mod pallet {
                                 &escrow,
                                 netuid,
                                 slice_a.into(),
+                                0u64.into(),
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                         }
@@ -2673,6 +2679,7 @@ pub mod pallet {
                                 &escrow,
                                 netuid,
                                 sell.into(),
+                                0u64.into(),
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             coll_left = 0;
@@ -3628,15 +3635,31 @@ pub mod pallet {
                 let max_slice = Self::mul_bps(x, params.slice_bps).unwrap_or(0).max(1);
                 let period: u64 = T::InterestPeriod::get().saturated_into();
                 let slice = (pending / period.max(1)).max(1).min(pending).min(max_slice);
-                // Skip dust below ~0.01 τ
-                if let Ok(tao_est) = T::Pool::quote_sell(netuid, slice.into()) {
-                    if tao_est.to_u64() < 10_000_000 {
-                        last_done = Some(netuid);
-                        continue;
+                // Reference-derived floor: EMA value × crash_guard_bps (default 95%).
+                // Defer (do not revert idle) when the live quote misses the floor —
+                // crash guard alone does not protect against an adverse fill.
+                let min_out = if let Some(reference) = References::<T>::get(netuid) {
+                    match Self::tao_for_alpha(slice, reference.price, false)
+                        .and_then(|fair| Self::mul_bps(fair, params.crash_guard_bps))
+                    {
+                        Ok(v) => v,
+                        Err(_) => {
+                            last_done = Some(netuid);
+                            continue;
+                        }
                     }
                 } else {
                     last_done = Some(netuid);
                     continue;
+                };
+                // Skip dust below ~0.01 τ or when quote misses the EMA floor.
+                match T::Pool::quote_sell(netuid, slice.into()) {
+                    Ok(tao_est)
+                        if tao_est.to_u64() >= 10_000_000 && tao_est.to_u64() >= min_out => {}
+                    _ => {
+                        last_done = Some(netuid);
+                        continue;
+                    }
                 }
                 let custody = match Self::custody_hotkey() {
                     Ok(c) => c,
@@ -3652,6 +3675,7 @@ pub mod pallet {
                     &reserve,
                     netuid,
                     slice.into(),
+                    min_out.into(),
                 ) {
                     Ok(t) => t,
                     Err(_) => {
@@ -4107,6 +4131,26 @@ pub mod pallet {
             }
             let params = Self::lift_params();
             let principal = if let Some(p) = requested {
+                // Exact-principal path: same collateral / LTV / capacity feasibility
+                // as `do_open`. Return `InsufficientCollateral` (not
+                // `DynamicCollateral`) so `lending_required_collateral` can
+                // search higher without treating capacity/EMA refusals as soft.
+                let old_p = existing.as_ref().map(|x| x.principal).unwrap_or(0);
+                let total_p = Self::add(old_p, p)?;
+                let total_c = Self::add(
+                    existing.as_ref().map(|x| x.collateral).unwrap_or(0),
+                    collateral,
+                )?;
+                let ltv = Self::ltv_tier_bps(netuid, side, &params);
+                ensure!(
+                    Self::principal_feasible(
+                        netuid, side, total_p, total_c, old_p, owner, &reference, ltv, &params,
+                    )?,
+                    Error::<T>::InsufficientCollateral
+                );
+                // Post-trade EMA band (same gate as `do_open`).
+                let spot_after = Self::simulate_open_spot_after(netuid, side, p)?;
+                Self::ensure_open_ema_band(side, spot_after, reference.price, &params)?;
                 p
             } else {
                 Self::max_principal_for_collateral(
@@ -4136,6 +4180,49 @@ pub mod pallet {
             Self::opening_quote(side, principal, price, collateral, v, 0, &params)
         }
 
+        /// Approximate post-forced-trade spot after a proportional lift + buy/sell.
+        /// Price is assumed ∝ reserve ratio (equal-weight Balancer / MockPool).
+        fn simulate_open_spot_after(
+            netuid: NetUid,
+            side: Side,
+            principal: u64,
+        ) -> Result<U64F64, DispatchError> {
+            let spot_before = T::Pool::current_alpha_price(netuid);
+            let y = T::Pool::pool_tao(netuid).to_u64();
+            let x = T::Pool::pool_alpha(netuid).to_u64();
+            ensure!(y > 0 && x > 0, Error::<T>::DepthBelowThreshold);
+            let w = T::Pool::quote_weight_parts(netuid);
+            let (g_numer, g_denom) = Self::lift_fraction(netuid, side, principal)?;
+            let lift_tao =
+                ((u128::from(y) * u128::from(g_numer)) / u128::from(g_denom.max(1))) as u64;
+            let lift_alpha =
+                ((u128::from(x) * u128::from(g_numer)) / u128::from(g_denom.max(1))) as u64;
+            let y1 = y.saturating_sub(lift_tao);
+            let x1 = x.saturating_sub(lift_alpha);
+            ensure!(y1 > 0 && x1 > 0, Error::<T>::DepthBelowThreshold);
+            let (y2, x2) = match side {
+                Side::Long => {
+                    let a_out =
+                        T::Pool::quote_buy_on(y1.into(), x1.into(), w, principal.into()).to_u64();
+                    (y1.saturating_add(principal), x1.saturating_sub(a_out))
+                }
+                Side::Short => {
+                    let t_out =
+                        T::Pool::quote_sell_on(y1.into(), x1.into(), w, principal.into()).to_u64();
+                    (y1.saturating_sub(t_out), x1.saturating_add(principal))
+                }
+            };
+            ensure!(y2 > 0 && x2 > 0, Error::<T>::Arithmetic);
+            let before_ratio = U64F64::from_num(y1) / U64F64::from_num(x1);
+            let after_ratio = U64F64::from_num(y2) / U64F64::from_num(x2);
+            let factor = after_ratio
+                .checked_div(before_ratio)
+                .ok_or(Error::<T>::Arithmetic)?;
+            spot_before
+                .checked_mul(factor)
+                .ok_or_else(|| Error::<T>::Arithmetic.into())
+        }
+
         pub fn quote_close(
             owner: &T::AccountId,
             netuid: NetUid,
@@ -4159,9 +4246,12 @@ pub mod pallet {
                             escrow_return: position.proceeds,
                         })
                     } else {
+                        // Escrow buyback: payment ≈ TAO to buy P alpha; refund is leftover.
+                        let payment = Self::tao_to_buy_alpha(netuid, position.principal)?;
+                        ensure!(payment <= pot, Error::<T>::InsufficientEscrow);
                         Ok(ClosingQuote {
-                            payment: pot.min(position.principal.saturating_mul(2)), // approx
-                            refund: 0,
+                            payment,
+                            refund: pot.saturating_sub(payment),
                             escrow_return: 0,
                         })
                     }

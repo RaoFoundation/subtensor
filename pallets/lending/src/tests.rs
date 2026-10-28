@@ -10,7 +10,7 @@ use super::*;
 use crate::weights::WeightInfo;
 use codec::{Decode, Encode};
 use frame_support::{
-    BoundedVec, assert_err, assert_ok, construct_runtime, derive_impl, parameter_types,
+    BoundedVec, assert_err, assert_ok, construct_runtime, derive_impl, ensure, parameter_types,
     traits::{ConstU32, ConstU64, Get, Hooks},
     weights::{Weight, WeightMeter, constants::RocksDbWeight},
 };
@@ -369,6 +369,7 @@ impl LendingPoolInterface<Account> for MockPool {
         escrow_cold: &Account,
         netuid: NetUid,
         alpha_in: AlphaBalance,
+        min_tao_out: TaoBalance,
     ) -> Result<TaoBalance, DispatchError> {
         let t = Self::sell_alpha(
             custody_cold,
@@ -378,6 +379,7 @@ impl LendingPoolInterface<Account> for MockPool {
             0u64.into(),
             false,
         )?;
+        ensure!(t >= min_tao_out, "slippage");
         if custody_cold != escrow_cold {
             Self::transfer_tao(custody_cold, escrow_cold, t)?;
         }
@@ -2601,4 +2603,189 @@ fn set_and_band_floor() -> U64F64 {
     let band = u32::from(LiftParamsStore::<Test>::get().ema_band_bps);
     ema.saturating_mul(U64F64::from_num(10_000u32.saturating_sub(band)))
         / U64F64::from_num(10_000u32)
+}
+
+#[test]
+fn quote_open_exact_insufficient_collateral_search_matches_open() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        let principal = 1_000_000_000_000u64; // 1 τ long
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+
+        // Binary search the minimum collateral the exact quote accepts.
+        let mut lo = 0u64;
+        let mut hi = 20_000_000_000_000u64;
+        for _ in 0..64 {
+            if lo + 1 >= hi {
+                break;
+            }
+            let mid = lo + (hi - lo) / 2;
+            match Lending::quote_open_exact_for(
+                &owner,
+                netuid(),
+                Side::Long,
+                mid,
+                &hotkey,
+                principal,
+            ) {
+                Ok(_) => hi = mid,
+                Err(e) => {
+                    assert_eq!(e, Error::<Test>::InsufficientCollateral.into());
+                    lo = mid;
+                }
+            }
+        }
+        let min_c = hi;
+        assert!(min_c > 1, "search must find a positive minimum");
+
+        assert_err!(
+            Lending::quote_open_exact_for(
+                &owner,
+                netuid(),
+                Side::Long,
+                min_c - 1,
+                &hotkey,
+                principal
+            ),
+            Error::<Test>::InsufficientCollateral
+        );
+        assert_ok!(Lending::quote_open_exact_for(
+            &owner,
+            netuid(),
+            Side::Long,
+            min_c,
+            &hotkey,
+            principal
+        ));
+
+        // One unit less fails the real open; the returned minimum succeeds.
+        assert_err!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Long,
+                min_c - 1,
+                hotkey.clone(),
+                principal,
+                1,
+                1,
+                deadline(),
+            ),
+            Error::<Test>::DynamicCollateral
+        );
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            min_c,
+            hotkey,
+            principal,
+            1,
+            1,
+            deadline(),
+        ));
+        let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(pos.principal, principal);
+        assert_eq!(pos.collateral, min_c);
+    });
+}
+
+#[test]
+fn convert_pending_defers_when_quote_misses_ema_floor() {
+    new_test_ext().execute_with(|| {
+        let custody = Lending::custody_hotkey().unwrap();
+        let reserve = Lending::reserve_account(netuid());
+        // Raise slice_bps so the period slice (not the 1-bps spot cap) binds.
+        LiftParamsStore::<Test>::mutate(|p| p.slice_bps = 10_000);
+        let pending = 10_000_000_000_000u64;
+        let period = <<Test as Config>::InterestPeriod as Get<u64>>::get();
+        let slice = (pending / period.max(1)).max(1);
+        mint_alpha(&reserve, &custody, netuid(), pending);
+        LongInterestPending::<Test>::insert(netuid(), pending);
+        // Thin TAO, alpha ≈ 2·slice → CP impact makes quote < 0.95·spot·slice.
+        set_pool(slice, slice.saturating_mul(2));
+        Lifts::<Test>::mutate(netuid(), |book| book.g_ema = pool_tao());
+        let spot = MockPool::price();
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = spot; // crash guard passes (spot == EMA)
+            }
+        });
+        let quote = MockPool::quote_sell(netuid(), slice.into())
+            .unwrap()
+            .to_u64();
+        let fair = (spot * U64F64::from_num(slice))
+            .floor()
+            .saturating_to_num::<u64>();
+        let min_out = fair.saturating_mul(9_500) / 10_000;
+        assert!(
+            quote >= 10_000_000,
+            "fixture must clear the dust gate (quote={quote})"
+        );
+        assert!(
+            quote < min_out,
+            "fixture must miss the EMA floor (quote={quote}, min_out={min_out})"
+        );
+
+        let before = LongInterestPending::<Test>::get(netuid());
+        let pool_tao_before = pool_tao();
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(System::block_number(), Weight::MAX);
+        assert_eq!(LongInterestPending::<Test>::get(netuid()), before);
+        assert_eq!(pool_tao(), pool_tao_before, "no adverse fill may execute");
+        let sold = System::events().into_iter().any(|e| {
+            matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::LongInterestSold { .. })
+            )
+        });
+        assert!(!sold);
+    });
+}
+
+#[test]
+fn quote_close_escrowed_short_refund_matches_execution() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 20_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            hotkey,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let quoted = Lending::quote_close(&owner, netuid(), false).unwrap();
+        assert!(
+            quoted.refund > 0,
+            "escrow buyback should leave a TAO refund"
+        );
+
+        let bal_before = tao(&owner);
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        let refunded = tao(&owner).saturating_sub(bal_before);
+        // Quote and execution should agree within 1% (fees / rounding).
+        let diff = quoted.refund.abs_diff(refunded);
+        assert!(
+            diff <= quoted.refund / 100 + 1,
+            "quote refund {} vs executed {} (diff {})",
+            quoted.refund,
+            refunded,
+            diff
+        );
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
 }
