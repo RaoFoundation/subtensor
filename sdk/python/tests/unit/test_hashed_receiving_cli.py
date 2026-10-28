@@ -140,6 +140,83 @@ def test_local_picker_and_wallet_list_share_complete_public_addresses(wallet_pat
     assert details["coldkey_mnemonic"] not in listed.output
 
 
+@pytest.mark.parametrize("code", [0, 1, 4, 6, 7, 8, 9, 10, 11, 12])
+@pytest.mark.parametrize("numeric_string", [False, True])
+def test_picker_validates_public_keys_and_keeps_external_sender_registration_guard(
+    wallet_path, monkeypatch, code, numeric_string
+):
+    from bittensor.intents import Transfer
+    from bittensor.sp_core import requires_registration
+
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_coldkey(
+        seed=bytes([41]) * 32, crypto_type=code, use_password=False, suppress=True
+    )
+    public = wallet.coldkeypub
+    public_path = wallet_path / "recipient" / "coldkeypub.txt"
+    data = json.loads(public_path.read_text())
+    data["cryptoType"] = f" {code} " if numeric_string else code
+    public_path.write_text(json.dumps(data))
+    (wallet_path / "recipient" / "coldkey").unlink()
+    monkeypatch.setattr(Keyfile, "get_keypair", lambda *_: pytest.fail("must not unlock keys"))
+    context = _context(wallet_path)
+    context.wallet_name = "external-sender"
+    choice = next(row for row in _dest_choices(context) if row.name == "recipient")
+    expected = receiving_address(public) if requires_registration(public) else public.ss58_address
+    assert choice.ss58 == expected
+
+    # A direct signer has no wallet path from which to recover a lost descriptor.
+    sender = Keypair.create_from_seed(bytes([42]) * 32, CRYPTO_SR25519)
+    substrate = FakeSubstrate()
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], True)
+    substrate.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
+    substrate.seed_constant("HashedAccounts", "MlDsaRegistrationDeposit", 200_000_000)
+    substrate.seed_constant("HashedAccounts", "MldsaAccountProfiles", "0x0405")
+    substrate.seed_constant("HashedAccounts", "FalconAccountProfiles", "0x06070809")
+    substrate.block_hash = _finney_hash
+    plan = asyncio.run(Executor(substrate).plan(Transfer(choice.ss58, 1), sender, shielded=False))
+    if requires_registration(public):
+        assert (plan.call.module, plan.call.function) == ("Utility", "batch_all")
+        registration, transfer = plan.call.params["calls"]
+        assert registration.function == "register"
+        assert registration.params["descriptor"] == registration_descriptor_value(
+            bytes(public.hashed_descriptor)
+        )
+        assert transfer.params["dest"] == public.ss58_address
+    else:
+        assert plan.call.module == "Balances"
+        assert plan.call.params["dest"] == public.ss58_address
+
+
+@pytest.mark.parametrize("failure", ["descriptor", "missing", "encrypted", "non_object"])
+def test_picker_omits_invalid_public_wallets_without_bare_address_fallback(
+    wallet_path, monkeypatch, failure
+):
+    for name in ("recipient", "healthy"):
+        wallet = Wallet(name, path=str(wallet_path))
+        wallet.regenerate_coldkey(
+            seed=bytes([43 if name == "recipient" else 44]) * 32,
+            crypto_type=CRYPTO_HASHED,
+            use_password=False,
+            suppress=True,
+        )
+    public_path = wallet_path / "recipient" / "coldkeypub.txt"
+    if failure == "descriptor":
+        data = json.loads(public_path.read_text())
+        data.update(cryptoType="4", hashedDescriptor="0x00")
+        public_path.write_text(json.dumps(data))
+    elif failure == "missing":
+        public_path.unlink()
+    elif failure == "encrypted":
+        public_path.write_bytes(b"$NACL\xffinvalid encrypted public keyfile")
+    else:
+        public_path.write_text("[]")
+    monkeypatch.setattr(Keyfile, "get_keypair", lambda *_: pytest.fail("must not unlock keys"))
+    context = _context(wallet_path)
+    context.wallet_name = "external-sender"
+    assert [choice.name for choice in _dest_choices(context)] == ["healthy"]
+
+
 @pytest.mark.parametrize("code", [4, 6, 7, 8])
 @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
 @pytest.mark.parametrize("failure", ["descriptor", "missing", "encrypted", "non_object"])

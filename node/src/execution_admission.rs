@@ -108,10 +108,8 @@ fn read_only(method: &str) -> bool {
             | "SubnetInfoRuntimeApi_get_all_metagraphs"
             | "SubnetInfoRuntimeApi_get_all_mechagraphs"
             | "SubnetInfoRuntimeApi_get_all_dynamic_info"
-            | "SubnetInfoRuntimeApi_get_selective_metagraph"
             | "SubnetInfoRuntimeApi_get_subnet_to_prune"
             | "SubnetInfoRuntimeApi_get_coldkey_auto_stake_hotkey"
-            | "SubnetInfoRuntimeApi_get_selective_mechagraph"
             | "SubnetInfoRuntimeApi_get_subnet_account_id"
             | "SubnetInfoRuntimeApi_get_next_epoch_start_block"
             | "SubnetInfoRuntimeApi_get_block_emission"
@@ -569,6 +567,8 @@ mod tests {
             "ContractsApi_call",
             "TryRuntime_execute_block",
             "Benchmark_dispatch_benchmark",
+            "SubnetInfoRuntimeApi_get_selective_metagraph",
+            "SubnetInfoRuntimeApi_get_selective_mechagraph",
             "FutureApi_unknown",
         ] {
             assert!(
@@ -599,6 +599,27 @@ mod tests {
                 CallContext::Offchain
             ));
         }
+    }
+
+    #[test]
+    fn selective_graph_calls_share_admission_and_reject_before_execution() {
+        let (executor, _) = executor();
+        let permit = executor.acquire(Service::Other, 1).unwrap();
+        for method in [
+            "SubnetInfoRuntimeApi_get_selective_metagraph",
+            "SubnetInfoRuntimeApi_get_selective_mechagraph",
+        ] {
+            assert!(execute(&executor.clone(), method, &[], CallContext::Offchain).is_err());
+            assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 0);
+        }
+        drop(permit);
+        for method in [
+            "SubnetInfoRuntimeApi_get_selective_metagraph",
+            "SubnetInfoRuntimeApi_get_selective_mechagraph",
+        ] {
+            execute(&executor, method, &[], CallContext::Offchain).unwrap();
+        }
+        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 2);
     }
 
     #[test]

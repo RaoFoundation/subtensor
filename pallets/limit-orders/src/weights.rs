@@ -268,8 +268,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `4164`
 		// Minimum execution time: 33_010_000 picoseconds.
 		Weight::from_parts(33_751_000, 4164)
-			.saturating_add(T::DbWeight::get().reads(6_u64))
-			.saturating_add(T::DbWeight::get().writes(2_u64))
+			.saturating_add(T::DbWeight::get().reads(7_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `System::BlockHash` (r:1 w:0)
 	/// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
@@ -285,8 +285,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `3561`
 		// Minimum execution time: 22_964_000 picoseconds.
 		Weight::from_parts(23_706_000, 3561)
-			.saturating_add(T::DbWeight::get().reads(3_u64))
-			.saturating_add(T::DbWeight::get().writes(3_u64))
+			.saturating_add(T::DbWeight::get().reads(2_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:1 w:0)
 	/// Proof: `LimitOrders::LimitOrdersEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
@@ -709,8 +709,8 @@ impl WeightInfo for () {
 		//  Estimated: `4164`
 		// Minimum execution time: 33_010_000 picoseconds.
 		Weight::from_parts(33_751_000, 4164)
-			.saturating_add(RocksDbWeight::get().reads(6_u64))
-			.saturating_add(RocksDbWeight::get().writes(2_u64))
+			.saturating_add(RocksDbWeight::get().reads(7_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `System::BlockHash` (r:1 w:0)
 	/// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
@@ -726,8 +726,8 @@ impl WeightInfo for () {
 		//  Estimated: `3561`
 		// Minimum execution time: 22_964_000 picoseconds.
 		Weight::from_parts(23_706_000, 3561)
-			.saturating_add(RocksDbWeight::get().reads(3_u64))
-			.saturating_add(RocksDbWeight::get().writes(3_u64))
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:1 w:0)
 	/// Proof: `LimitOrders::LimitOrdersEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)

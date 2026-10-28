@@ -98,7 +98,7 @@ class FundEvmKey(Intent):
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         recipient = await resolve_evm_recipient(substrate, self.evm_address)
-        if recipient.descriptor is not None:
+        if recipient.account != self.mirror_ss58:
             return ["this EVM alias credits its registered hashed native account directly"]
         return [
             "only the EVM private key for this address can move the funds afterwards",
@@ -116,11 +116,10 @@ class EvmWithdraw(Intent):
     """Claim TAO deposited to the coldkey's truncated EVM mirror.
 
     Every native account controls one EVM address: the first 20 bytes of its
-    public key (the *truncated* mapping). TAO sent from MetaMask to that
-    address's mirror can be pulled into the native account with this call —
-    the EVM-to-substrate path that needs no EVM gas. The flow: send TAO from
-    the EVM wallet to the address shown by ``btcli evm deposit-address``, then
-    claim it with ``btcli evm claim-deposit`` (or ``btcli tx evm-withdraw``).
+    AccountId (the *truncated* mapping). For an unbound address, EVM deposits
+    arrive at its legacy mirror and can be claimed without EVM gas. A registered
+    alias credits the native account directly; this call only recovers any
+    separate balance left at its legacy mirror, such as a delayed payout.
     This is not ``btcli evm send-to-ss58``, which spends from a stored EVM key
     via the balance-transfer precompile. Fails if the mirror holds less than
     the amount. Pass ``all`` to claim the entire deposit.
@@ -139,19 +138,17 @@ class EvmWithdraw(Intent):
         self.amount_tao = tao_amount(self.amount_tao, allow_all=True)
 
     async def build(self, substrate, wallet: Any):
-        truncated, recipient = await resolve_evm_deposit(substrate, self.coldkey_address(wallet))
-        if recipient.descriptor is not None:
-            raise BittensorError(
-                "EVM deposits are already credited to this native account; "
-                "no claim transaction is needed"
-            )
+        truncated, _ = await resolve_evm_deposit(substrate, self.coldkey_address(wallet))
+        # Runtime withdrawal always debits the legacy mirror, including when
+        # new EVM deposits already credit a registered native alias directly.
+        mirror = h160_to_ss58(truncated)
         if self.amount_tao == ALL:
             rao = await approved_amount("EVM", "withdraw", "value")
             if rao is None:
-                account = await substrate.query(*st.System.Account, [recipient.account])
+                account = await substrate.query(*st.System.Account, [mirror])
                 rao = int(((account or {}).get("data") or {}).get("free") or 0)
             if rao <= 0:
-                raise BittensorError("nothing to claim: the EVM deposit address is empty")
+                raise BittensorError("nothing to claim: the legacy EVM mirror is empty")
         else:
             rao = self.amount_tao.rao
         return await compose_pinned_call(

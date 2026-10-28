@@ -1289,9 +1289,9 @@
         "container": "SubnetInfoRuntimeApi",
         "name": "get_metagraph",
         "path": "pallets/subtensor/src/rpc_info/metagraph.rs",
-        "line": 653,
-        "end_line": 828,
-        "url": "/code/pallets/subtensor/src/rpc_info/metagraph.rs#L653-L828",
+        "line": 667,
+        "end_line": 842,
+        "url": "/code/pallets/subtensor/src/rpc_info/metagraph.rs#L667-L842",
         "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/metagraph.rs"
       }
     ]
