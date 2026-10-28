@@ -26,19 +26,39 @@ DESCRIPTIONS: dict[str, str] = {
         "account."
     ),
     "AmountTooSmall": (
-        "The collateral or loan opening value is below the runtime minimum. Borrow at least "
-        "0.001 TAO of opening value and quote its collateral requirement."
+        "The loan opening value (or remaining dust after a partial repay) is below the runtime "
+        "minimum (~0.001 TAO). Increase collateral / principal, or close the remainder fully."
+    ),
+    "PrincipalZero": (
+        "Principal, principal_part, or borrow amount is zero. Pass a positive amount; a young "
+        "or disabled subnet reports its gate error before this one."
+    ),
+    "CollateralZero": (
+        "Collateral is zero. Pass a positive collateral amount (alpha for longs, TAO for shorts)."
     ),
     "SideCapacity": (
         "This loan would exceed the short or long side capacity for the subnet. Reduce size or "
         "wait for repayment; inspect lending_reserves for headroom."
     ),
     "DepthBelowThreshold": (
-        "This open would lift more than the pool can spare: principal must be strictly less "
-        "than the relevant reserve (TAO for longs, alpha for shorts), and both reserves must "
-        "be non-zero. On mainnet the swap MinimumReserve is also 0.001 τ, so tiny loans "
-        "(e.g. ~10 alpha on a thin subnet) often fail here — try a larger principal (100+ "
-        "alpha is a practical floor on deep pools) or wait for deeper reserves."
+        "Legacy depth refusal. Prefer EmptyPool / PrincipalExceedsAlphaIn / "
+        "PrincipalExceedsTaoIn for the specific reserve failure."
+    ),
+    "EmptyPool": (
+        "The subnet AMM has zero TAO or zero alpha in reserve, so a lift cannot be sized. "
+        "Wait for liquidity or pick another subnet."
+    ),
+    "PrincipalExceedsAlphaIn": (
+        "Short principal must be strictly less than pool alpha in. Reduce principal or wait "
+        "for deeper alpha reserves."
+    ),
+    "PrincipalExceedsTaoIn": (
+        "Long principal must be strictly less than pool TAO in. Reduce principal or wait for "
+        "deeper TAO reserves."
+    ),
+    "CollateralExceedsMax": (
+        "Collateral exceeds the caller's max_collateral_alpha (or that max is zero). Raise "
+        "the cap or lower collateral."
     ),
     "DynamicCollateral": (
         "Collateral is below the Karl dynamic valuation requirement at the current LTV tier. "
@@ -80,8 +100,17 @@ DESCRIPTIONS: dict[str, str] = {
         "The extrinsic's valid_until block has passed. Resubmit with a later deadline."
     ),
     "SubnetTooNew": (
-        "The subnet has not cleared the new-subnet gate (start call, minimum age, warm_reference "
-        "plus G_ema age, then capacity ramp)."
+        "Subnet age is below new_subnet_min_age (default ~7 days). Wait until "
+        "now − NetworkRegisteredAt clears that floor; start call and warm_reference are "
+        "separate errors (SubnetNotStarted / Reference* / GemaWarmingUp)."
+    ),
+    "SubnetNotStarted": (
+        "Subtoken trading is not enabled on this subnet (owner has not made the start call). "
+        "Opens and quotes refuse until SubtokenEnabled is true."
+    ),
+    "GemaWarmingUp": (
+        "Lending G_ema is missing or has not aged one full EMA window after seeding. Warm the "
+        "reference and wait settle_ema_blocks before opening."
     ),
     "CustodyHotkey": ("Third-party stake onto the lending custody hotkey is rejected."),
     "EscrowInUse": (

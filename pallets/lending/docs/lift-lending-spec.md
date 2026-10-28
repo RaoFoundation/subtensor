@@ -111,11 +111,11 @@ always:  y − ΔL ≥ MinimumReserve
 * **Future parameter (off by default):** `rebalance_target` (for example 60/40 toward the busier side) with `rebalance_rate` (at most a few % of `Cap` per day). It moves `split_short` slowly, and only within the unused headroom of the side being reduced.
 
 ### 2.3 New subnets: minimum age, then a capacity ramp
-* **Gate.** No `open`, `open_exact`, `open_long_and_sell` or increase on a subnet until **all** of these hold:
-  * subtoken trading is enabled on it (`SubtokenEnabled`, the owner's start call);
-  * its age `now − NetworkRegisteredAt ≥ new_subnet_min_age` (default **50,400 blocks ≈ 7 days**);
-  * the lending reference is warm (`ReferenceWarmup`, 24 h) and `G_ema` has been initialised for at least one full EMA window (24 h).
-  * Otherwise opens fail with `SubnetTooNew`.
+* **Gate.** No `open`, `open_exact`, `open_long_and_sell` or increase on a subnet until **all** of these hold (checked before amount/depth; quote APIs use the same errors):
+  * subtoken trading is enabled (`SubtokenEnabled`) — else `SubnetNotStarted`;
+  * age `now − NetworkRegisteredAt ≥ new_subnet_min_age` (default **50,400 blocks ≈ 7 days**) — else `SubnetTooNew`;
+  * lending reference exists — else `ReferenceUnavailable`; past `valid_after` — else `ReferenceWarmingUp`;
+  * `G_ema` initialised and aged one full EMA window — else `GemaWarmingUp`.
 * **Ramp.** After the gate, `ramp(age) = min(1, (age − new_subnet_min_age) / new_subnet_ramp)`, default `new_subnet_ramp` = **216,000 blocks ≈ 30 days**, linear. It multiplies the whole of `Cap` (both sides, floor and thin floor included), so the 50/50 split, no cross-borrow and the thin tier are unchanged. A subnet registered 37 days or more ago has `ramp = 1`. The §10 numbers assume `ramp = 1` for every live pool; this was not checked per subnet against registration blocks.
 * **Why.** A new pool starts at the 1,000 τ lock (thin tier). Its first days have no meaningful EMA price, `G_ema` or `SubnetMovingPrice`. These are exactly the inputs that protect `V_dyn` (§5), capacity smoothing (§2.2) and dissolution (§13.2). The owner also holds most of the float, so day-0 borrowing would mostly mean the owner trading against seed liquidity. The ramp spreads the forced-trade impact over the period when the EMA references become meaningful.
 * **Unchanged:** the formula itself (§2.2), the thin floor, LTVs, and shorts staying open-able up to the dissolving flag. Network immunity is not used as the gate, since that would mean no lending for the whole immunity period (runtime default 1,296,000 blocks ≈ 180 days).
@@ -362,7 +362,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
   * new `LongEscrowed{position, tao_in, alpha_escrowed}` and `Raised{…}` (§12.4);
   * new `Settled{position, side, r, paid_to_pot, paid_to_borrower, burned}` and `LendingSettled{netuid, r, positions, to_pot, to_borrowers, burned, shortfall}` (§13.3).
 * Errors:
-  * `SideCapacity`, `DepthBelowThreshold`, `DynamicCollateral`, plus #3211's `Disabled`, `SubnetUnavailable`, `ReferenceWarmingUp`, `AmountTooSmall`, `InsufficientCollateral`;
+  * `SideCapacity`, `EmptyPool` / `PrincipalExceedsAlphaIn` / `PrincipalExceedsTaoIn`, `DynamicCollateral`, plus `Disabled`, `SubnetUnavailable`, `SubnetNotStarted`, `SubnetTooNew`, `ReferenceUnavailable` / `ReferenceWarmingUp`, `GemaWarmingUp`, `PrincipalZero` / `CollateralZero`, `AmountTooSmall`, `InsufficientCollateral`;
   * new `InsufficientSellStake`, `ConflictingSizing` (§12.3), `SlippageExceeded`, `DeadlinePassed` (§5.2; these replace `RaiseSlippage`/`RaiseDeadlinePassed`), `SubnetTooNew` (§2.3), `InsufficientEscrow` (§4.4).
 
 **subtensor:**

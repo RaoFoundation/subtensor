@@ -1628,7 +1628,7 @@ fn new_subnet_gate_and_capacity_ramp() {
         let hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         set_subtoken_enabled(false);
-        assert!(
+        assert_err!(
             Lending::open(
                 RuntimeOrigin::signed(owner.clone()),
                 netuid(),
@@ -1639,13 +1639,13 @@ fn new_subnet_gate_and_capacity_ramp() {
                 0,
                 0,
                 deadline(),
-            )
-            .is_err()
+            ),
+            Error::<Test>::SubnetNotStarted
         );
         set_subtoken_enabled(true);
         // Age below min_age.
         set_registered_at(System::block_number());
-        assert!(
+        assert_err!(
             Lending::open(
                 RuntimeOrigin::signed(owner.clone()),
                 netuid(),
@@ -1656,8 +1656,8 @@ fn new_subnet_gate_and_capacity_ramp() {
                 0,
                 0,
                 deadline(),
-            )
-            .is_err()
+            ),
+            Error::<Test>::SubnetTooNew
         );
         // Past gate: age just over min_age so ramp factor is tiny; a large open
         // must hit SideCapacity under the partial Cap.
@@ -1968,7 +1968,7 @@ fn open_before_warm_reference_fails_without_stuck_state() {
                 0,
                 deadline(),
             ),
-            Error::<Test>::SubnetTooNew
+            Error::<Test>::ReferenceUnavailable
         );
 
         // Transactional open must not leave a half-seeded book.
@@ -2023,7 +2023,7 @@ fn warm_reference_then_open_after_warmup_succeeds() {
                 0,
                 deadline(),
             ),
-            Error::<Test>::SubnetTooNew
+            Error::<Test>::ReferenceWarmingUp
         );
         assert!(References::<Test>::get(netuid()).is_some());
         assert!(Lifts::<Test>::get(netuid()).g_ema > 0);
@@ -3894,6 +3894,184 @@ fn long_amm_close_minimal_sale_when_max_sell_quote_hits_slippage() {
             quoted.refund,
             alpha_refunded,
             diff
+        );
+    });
+}
+
+#[test]
+fn principal_zero_is_distinct_from_amount_too_small() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_err!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                10_000_000_000_000,
+                hotkey.clone(),
+                0,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::PrincipalZero
+        );
+        assert_err!(
+            Lending::quote_open_exact_for(
+                &owner,
+                netuid(),
+                Side::Short,
+                10_000_000_000_000,
+                &hotkey,
+                0,
+            ),
+            Error::<Test>::PrincipalZero
+        );
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                0,
+                hotkey,
+                1,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::CollateralZero
+        );
+    });
+}
+
+#[test]
+fn young_subnet_reports_gate_before_zero_principal() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        set_subtoken_enabled(false);
+        // Zero principal must not mask SubnetNotStarted.
+        assert_err!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                0,
+                hotkey.clone(),
+                0,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SubnetNotStarted
+        );
+        assert_err!(
+            Lending::quote_open_exact_for(&owner, netuid(), Side::Short, 0, &hotkey, 0,),
+            Error::<Test>::SubnetNotStarted
+        );
+        set_subtoken_enabled(true);
+        LiftParamsStore::<Test>::put(LiftParams::default());
+        set_registered_at(System::block_number());
+        assert_err!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                0,
+                hotkey.clone(),
+                0,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SubnetTooNew
+        );
+        assert_err!(
+            Lending::quote_open(netuid(), Side::Short, 0),
+            Error::<Test>::SubnetTooNew
+        );
+    });
+}
+
+#[test]
+fn quote_open_matches_open_gate_and_empty_pool_errors() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        // Empty pool → EmptyPool on both extrinsic and quote after gates pass.
+        set_pool(0, 0);
+        Lifts::<Test>::mutate(netuid(), |book| book.g_ema = 1);
+        assert_err!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                1_000_000_000_000,
+                hotkey.clone(),
+                1_000_000_000,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::EmptyPool
+        );
+        assert_err!(
+            Lending::quote_open_exact_for(
+                &owner,
+                netuid(),
+                Side::Short,
+                1_000_000_000_000,
+                &hotkey,
+                1_000_000_000,
+            ),
+            Error::<Test>::EmptyPool
+        );
+    });
+}
+
+#[test]
+fn gema_warming_up_is_distinct_from_subnet_too_new() {
+    cold_lending_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        let params = LiftParams::default();
+        // Past min age and reference warm, but G_ema never aged.
+        let ready = params.new_subnet_min_age.saturating_add(10);
+        System::set_block_number(ready);
+        assert_ok!(Lending::warm_reference(
+            RuntimeOrigin::signed(account(9)),
+            netuid()
+        ));
+        let warmup: u64 = <<Test as Config>::ReferenceWarmup as Get<_>>::get();
+        System::set_block_number(ready.saturating_add(warmup).saturating_add(1));
+        // Force G_ema "unaged": last == registered (0).
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.g_ema = 1;
+            book.last = 0;
+        });
+        set_registered_at(0);
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                10_000_000_000_000,
+                hotkey.clone(),
+                1,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::GemaWarmingUp
+        );
+        assert_err!(
+            Lending::quote_open_for(&owner, netuid(), Side::Short, 10_000_000_000_000, &hotkey,),
+            Error::<Test>::GemaWarmingUp
         );
     });
 }

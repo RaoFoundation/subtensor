@@ -957,8 +957,12 @@ pub mod pallet {
         ReferenceWarmingUp,
         PositionExists,
         PositionMissing,
+        /// Opening value or accrued interest is below the runtime minimum
+        /// (non-zero principal that still fails economic floors).
         AmountTooSmall,
         SideCapacity,
+        /// Legacy depth refusal; prefer [`EmptyPool`] /
+        /// [`PrincipalExceedsAlphaIn`] / [`PrincipalExceedsTaoIn`].
         DepthBelowThreshold,
         DynamicCollateral,
         TooManyPositions,
@@ -970,6 +974,7 @@ pub mod pallet {
         Arithmetic,
         CustodyUnavailable,
         AlreadyDissolving,
+        /// Requested principal needs more collateral under V_dyn / LTV.
         InsufficientCollateral,
         InsufficientSellStake,
         /// Forced trade missed the user limit (§5.2). Replaces RaiseSlippage /
@@ -981,7 +986,7 @@ pub mod pallet {
         InvalidLiftParams,
         PositionSideMismatch,
         HotkeyMismatch,
-        /// Subnet has not cleared the new-subnet gate (§2.3).
+        /// Subnet age is below `new_subnet_min_age` (§2.3).
         SubnetTooNew,
         /// Third-party stake onto the lending custody hotkey is rejected (§14).
         CustodyHotkey,
@@ -993,6 +998,22 @@ pub mod pallet {
         /// exploitable side (§5.4). Longs: spot > EMA·(1+band); shorts:
         /// spot < EMA·(1−band). Closes and repays are never blocked by this.
         PriceTooFarFromEma,
+        /// Principal, principal_part, or borrow amount is zero.
+        PrincipalZero,
+        /// Collateral amount is zero.
+        CollateralZero,
+        /// Subtoken trading has not been started on this subnet (§2.3).
+        SubnetNotStarted,
+        /// `G_ema` is missing or has not aged one full EMA window (§2.3).
+        GemaWarmingUp,
+        /// Pool TAO or alpha reserve is zero; cannot size a lift.
+        EmptyPool,
+        /// Short principal is not strictly less than pool alpha in.
+        PrincipalExceedsAlphaIn,
+        /// Long principal is not strictly less than pool TAO in.
+        PrincipalExceedsTaoIn,
+        /// Raise / open collateral exceeds the caller’s max collateral cap.
+        CollateralExceedsMax,
     }
 
     #[pallet::hooks]
@@ -1142,7 +1163,9 @@ pub mod pallet {
             valid_until: BlockNumberFor<T>,
         ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
-            ensure!(principal > 0, Error::<T>::AmountTooSmall);
+            // PrincipalZero is checked inside `do_open` after lending/subnet
+            // gates so a young subnet reports SubnetTooNew / SubnetNotStarted
+            // rather than a zero-amount error.
             Self::do_open(
                 owner,
                 netuid,
@@ -1332,24 +1355,30 @@ pub mod pallet {
         }
 
         /// §2.3: subtoken started, age ≥ min_age, reference warm, G_ema aged one EMA window.
+        ///
+        /// Each failed condition has its own error so callers can tell *why*
+        /// the gate refused (not a single umbrella `SubnetTooNew`).
         fn ensure_new_subnet_gate(netuid: NetUid) -> DispatchResult {
-            ensure!(T::Pool::subtoken_enabled(netuid), Error::<T>::SubnetTooNew);
+            ensure!(
+                T::Pool::subtoken_enabled(netuid),
+                Error::<T>::SubnetNotStarted
+            );
             let params = Self::lift_params();
             let now: u64 = frame_system::Pallet::<T>::block_number().saturated_into();
             let registered = T::Pool::network_registered_at(netuid);
             let age = now.saturating_sub(registered);
             ensure!(age >= params.new_subnet_min_age, Error::<T>::SubnetTooNew);
             // Reference must be warm (valid_after reached).
-            let reference = References::<T>::get(netuid).ok_or(Error::<T>::SubnetTooNew)?;
+            let reference = References::<T>::get(netuid).ok_or(Error::<T>::ReferenceUnavailable)?;
             ensure!(
                 frame_system::Pallet::<T>::block_number() >= reference.valid_after,
-                Error::<T>::SubnetTooNew
+                Error::<T>::ReferenceWarmingUp
             );
             // G_ema initialised and updated for at least one EMA window.
             let book = Lifts::<T>::get(netuid);
             ensure!(
                 book.g_ema > 0 && book.last.saturating_sub(registered) >= params.settle_ema_blocks,
-                Error::<T>::SubnetTooNew
+                Error::<T>::GemaWarmingUp
             );
             Ok(())
         }
@@ -1529,7 +1558,10 @@ pub mod pallet {
         /// Prefer automatic seeding via registration / start-call / migration.
         pub fn do_warm_reference(netuid: NetUid) -> DispatchResult {
             Self::ensure_lending_live(netuid)?;
-            ensure!(T::Pool::subtoken_enabled(netuid), Error::<T>::SubnetTooNew);
+            ensure!(
+                T::Pool::subtoken_enabled(netuid),
+                Error::<T>::SubnetNotStarted
+            );
             ensure!(
                 Self::try_seed_reference(netuid),
                 Error::<T>::ReferenceUnavailable
@@ -1649,10 +1681,9 @@ pub mod pallet {
             let p_ref = reference.price;
             let y = T::Pool::pool_tao(netuid).to_u64();
             let x = T::Pool::pool_alpha(netuid).to_u64();
-            ensure!(
-                y > principal_tao && principal_tao > 0,
-                Error::<T>::DepthBelowThreshold
-            );
+            ensure!(principal_tao > 0, Error::<T>::PrincipalZero);
+            ensure!(y > 0, Error::<T>::EmptyPool);
+            ensure!(y > principal_tao, Error::<T>::PrincipalExceedsTaoIn);
             // pool' after lift: (y - P, x * (1 - P/y))
             let y_prime = y.saturating_sub(principal_tao);
             let x_prime = {
@@ -1786,8 +1817,9 @@ pub mod pallet {
                     Self::mul_bps(alpha, params.apr_bps)?
                 }
             };
+            ensure!(principal > 0, Error::<T>::PrincipalZero);
             ensure!(
-                principal > 0 && annual_interest > 0 && opening_value >= T::MinimumLoanValue::get(),
+                annual_interest > 0 && opening_value >= T::MinimumLoanValue::get(),
                 Error::<T>::AmountTooSmall
             );
             Ok(OpeningQuote {
@@ -1920,16 +1952,16 @@ pub mod pallet {
         ) -> Result<u64, DispatchError> {
             let y = T::Pool::pool_tao(netuid).to_u64();
             let x = T::Pool::pool_alpha(netuid).to_u64();
-            ensure!(y > 0 && x > 0, Error::<T>::DepthBelowThreshold);
+            ensure!(y > 0 && x > 0, Error::<T>::EmptyPool);
             match side {
                 // g = P/x → τ_L = floor(y * P / x)
                 Side::Short => {
-                    ensure!(principal < x, Error::<T>::DepthBelowThreshold);
+                    ensure!(principal < x, Error::<T>::PrincipalExceedsAlphaIn);
                     Ok(((u128::from(y) * u128::from(principal)) / u128::from(x)) as u64)
                 }
                 // g = P/y → τ_L = P
                 Side::Long => {
-                    ensure!(principal < y, Error::<T>::DepthBelowThreshold);
+                    ensure!(principal < y, Error::<T>::PrincipalExceedsTaoIn);
                     Ok(principal)
                 }
             }
@@ -1942,19 +1974,15 @@ pub mod pallet {
         ) -> Result<(u64, u64), DispatchError> {
             let y = T::Pool::pool_tao(netuid).to_u64();
             let x = T::Pool::pool_alpha(netuid).to_u64();
+            ensure!(principal > 0, Error::<T>::PrincipalZero);
+            ensure!(y > 0 && x > 0, Error::<T>::EmptyPool);
             match side {
                 Side::Short => {
-                    ensure!(
-                        principal > 0 && principal < x,
-                        Error::<T>::DepthBelowThreshold
-                    );
+                    ensure!(principal < x, Error::<T>::PrincipalExceedsAlphaIn);
                     Ok((principal, x))
                 }
                 Side::Long => {
-                    ensure!(
-                        principal > 0 && principal < y,
-                        Error::<T>::DepthBelowThreshold
-                    );
+                    ensure!(principal < y, Error::<T>::PrincipalExceedsTaoIn);
                     Ok((principal, y))
                 }
             }
@@ -1975,13 +2003,17 @@ pub mod pallet {
         ) -> DispatchResult {
             let now = frame_system::Pallet::<T>::block_number();
             ensure!(now <= valid_until, Error::<T>::DeadlinePassed);
+            // Subnet / lending gates before any amount or depth check.
             Self::ensure_lending_live(netuid)?;
             Self::ensure_new_subnet_gate(netuid)?;
             ensure!(
                 T::Pool::owner_allowed(&owner),
                 Error::<T>::SubnetUnavailable
             );
-            ensure!(collateral > 0, Error::<T>::AmountTooSmall);
+            ensure!(collateral > 0, Error::<T>::CollateralZero);
+            if let Some(p) = requested_principal {
+                ensure!(p > 0, Error::<T>::PrincipalZero);
+            }
             // Gate already requires a warm reference; re-check for a clear error.
             let reference = Self::ensure_or_init_reference(netuid)?;
 
@@ -2538,7 +2570,7 @@ pub mod pallet {
                 !Dissolutions::<T>::contains_key(netuid),
                 Error::<T>::SubnetUnavailable
             );
-            ensure!(principal_part > 0, Error::<T>::AmountTooSmall);
+            ensure!(principal_part > 0, Error::<T>::PrincipalZero);
             let existing =
                 Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
             ensure!(
@@ -3152,6 +3184,7 @@ pub mod pallet {
                 collateral_alpha.is_some() ^ borrow_tao.is_some(),
                 Error::<T>::ConflictingSizing
             );
+            // Lending/subnet gates before amount or depth checks.
             Self::ensure_lending_live(netuid)?;
             Self::ensure_new_subnet_gate(netuid)?;
             let reference = Self::ensure_or_init_reference(netuid)?;
@@ -3159,10 +3192,8 @@ pub mod pallet {
             let price_before = T::Pool::current_alpha_price(netuid);
 
             let (collateral, principal) = if let Some(c) = collateral_alpha {
-                ensure!(
-                    c > 0 && c <= max_collateral_alpha,
-                    Error::<T>::InsufficientCollateral
-                );
+                ensure!(c > 0, Error::<T>::CollateralZero);
+                ensure!(c <= max_collateral_alpha, Error::<T>::CollateralExceedsMax);
                 let p = Self::max_principal_for_collateral(
                     netuid,
                     Side::Long,
@@ -3176,11 +3207,11 @@ pub mod pallet {
                 (c, p)
             } else {
                 let p = borrow_tao.ok_or(Error::<T>::ConflictingSizing)?;
-                ensure!(p > 0, Error::<T>::AmountTooSmall);
+                ensure!(p > 0, Error::<T>::PrincipalZero);
                 // Solve minimal collateral via bisection under max_collateral_alpha.
                 let mut lo = 1u64;
                 let mut hi = max_collateral_alpha;
-                ensure!(hi > 0, Error::<T>::InsufficientCollateral);
+                ensure!(hi > 0, Error::<T>::CollateralExceedsMax);
                 let mut found = None;
                 for _ in 0..BISECTION_STEPS {
                     if lo > hi {
@@ -4490,7 +4521,13 @@ pub mod pallet {
             hotkey: Option<&T::AccountId>,
             requested: Option<u64>,
         ) -> Result<OpeningQuote, DispatchError> {
+            // Same gate order as `do_open`: live + §2.3 before amount/depth.
             Self::ensure_lending_live(netuid)?;
+            Self::ensure_new_subnet_gate(netuid)?;
+            ensure!(collateral > 0, Error::<T>::CollateralZero);
+            if let Some(p) = requested {
+                ensure!(p > 0, Error::<T>::PrincipalZero);
+            }
             let reference = Self::ensure_reference_warm(netuid)?;
             let existing = owner.and_then(|o| Positions::<T>::get(o, netuid));
             if let (Some(pos), Some(hk)) = (&existing, hotkey) {
@@ -4560,7 +4597,7 @@ pub mod pallet {
             let spot_before = T::Pool::current_alpha_price(netuid);
             let y = T::Pool::pool_tao(netuid).to_u64();
             let x = T::Pool::pool_alpha(netuid).to_u64();
-            ensure!(y > 0 && x > 0, Error::<T>::DepthBelowThreshold);
+            ensure!(y > 0 && x > 0, Error::<T>::EmptyPool);
             let w = T::Pool::quote_weight_parts(netuid);
             let (g_numer, g_denom) = Self::lift_fraction(netuid, side, principal)?;
             let lift_tao =
@@ -4569,7 +4606,7 @@ pub mod pallet {
                 ((u128::from(x) * u128::from(g_numer)) / u128::from(g_denom.max(1))) as u64;
             let y1 = y.saturating_sub(lift_tao);
             let x1 = x.saturating_sub(lift_alpha);
-            ensure!(y1 > 0 && x1 > 0, Error::<T>::DepthBelowThreshold);
+            ensure!(y1 > 0 && x1 > 0, Error::<T>::EmptyPool);
             let (y2, x2) = match side {
                 Side::Long => {
                     let a_out =
@@ -4598,10 +4635,8 @@ pub mod pallet {
             netuid: NetUid,
             repay_from_wallet: bool,
         ) -> Result<ClosingQuote, DispatchError> {
-            ensure!(
-                !Dissolutions::<T>::contains_key(netuid),
-                Error::<T>::SubnetUnavailable
-            );
+            // Match `do_close`: disabled / dissolving before position work.
+            Self::ensure_lending_live(netuid)?;
             let position = Positions::<T>::get(owner, netuid).ok_or(Error::<T>::PositionMissing)?;
             let (interest, _) =
                 Self::interest_due(&position, frame_system::Pallet::<T>::block_number(), true)?;
@@ -4685,11 +4720,14 @@ pub mod pallet {
                 amount.is_some() ^ collateral.is_some(),
                 Error::<T>::ConflictingSizing
             );
+            // Same gate order as `do_open_long_and_sell`.
             Self::ensure_lending_live(netuid)?;
+            Self::ensure_new_subnet_gate(netuid)?;
             let reference = Self::ensure_reference_warm(netuid)?;
             let params = Self::lift_params();
             let price_before = T::Pool::current_alpha_price(netuid);
             let (c, p) = if let Some(col) = collateral {
+                ensure!(col > 0, Error::<T>::CollateralZero);
                 let p = Self::max_principal_for_collateral(
                     netuid,
                     Side::Long,
@@ -4702,6 +4740,7 @@ pub mod pallet {
                 (col, p)
             } else {
                 let p = amount.ok_or(Error::<T>::ConflictingSizing)?;
+                ensure!(p > 0, Error::<T>::PrincipalZero);
                 // Estimate collateral at LTV * V_dyn ≈ need C such that LTV*V_dyn(C)>=P
                 let ltv = Self::ltv_tier_bps(netuid, Side::Long, &params);
                 let mut lo = 1u64;
