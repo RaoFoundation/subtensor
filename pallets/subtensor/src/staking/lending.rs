@@ -432,6 +432,11 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
             Error::<T>::InsufficientLiquidity
         );
         Self::decrease_provided_tao_reserve(netuid, amount);
+        // Live expiry/settle payouts leave the pool; keep TotalStake aligned with
+        // SubnetTAO. Dissolved pots already dropped out of TotalStake earlier.
+        if Self::if_subnet_exist(netuid) {
+            TotalStake::<T>::mutate(|total| *total = total.saturating_sub(amount));
+        }
         Self::transfer_lending_tao_or_recycle_dust(&subnet, to, amount)
     }
 
@@ -446,6 +451,9 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
             Error::<T>::InsufficientLiquidity
         );
         Self::decrease_provided_tao_reserve(netuid, amount);
+        if Self::if_subnet_exist(netuid) {
+            TotalStake::<T>::mutate(|total| *total = total.saturating_sub(amount));
+        }
         Self::burn_interest_tao(&subnet, amount)
     }
 

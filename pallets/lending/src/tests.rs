@@ -2082,6 +2082,9 @@ fn warm_reference_ages_g_ema_via_on_finalize_before_min_age() {
 fn warm_migration_key() -> BoundedVec<u8, ConstU32<128>> {
     BoundedVec::truncate_from(b"migrate_warm_references_v1".to_vec())
 }
+fn ema_band_migration_key() -> BoundedVec<u8, ConstU32<128>> {
+    BoundedVec::truncate_from(b"migrate_lift_params_ema_band_v1".to_vec())
+}
 
 #[test]
 fn migration_warms_existing_subnets_and_is_idempotent() {
@@ -2120,6 +2123,48 @@ fn migration_skips_zero_price_subnet_cleanly() {
         assert!(References::<Test>::get(netuid()).is_none());
         assert_eq!(Lifts::<Test>::get(netuid()).g_ema, 0);
         assert!(!ActiveNets::<Test>::contains_key(netuid()));
+    });
+}
+
+#[test]
+fn migration_appends_ema_band_from_pre_band_layout() {
+    new_test_ext().execute_with(|| {
+        HasMigrationRun::<Test>::remove(ema_band_migration_key());
+        let before = LiftParamsBeforeEmaBand {
+            floor_bps: 3_300,
+            thin_floor_bps: 1_500,
+            ref_tao: 1_000_000_000_000,
+            move_bps: 1_000,
+            ceiling_bps: 5_000,
+            split_short_bps: 5_000,
+            rebalance_target_bps: 0,
+            rebalance_rate_bps: 0,
+            thin_tao: 3_000_000_000_000,
+            ltv_short_bps: 2_500,
+            ltv_long_bps: 2_500,
+            thin_ltv_long_bps: 1_500,
+            apr_bps: 10_000,
+            slice_bps: 1,
+            crash_guard_bps: 9_500,
+            settle_ema_blocks: 7_200,
+            new_subnet_min_age: 50_400,
+            new_subnet_ramp: 216_000,
+        };
+        // Write the pre-band encoding so translate must widen it.
+        frame_support::storage::unhashed::put_raw(
+            &LiftParamsStore::<Test>::hashed_key(),
+            &before.encode(),
+        );
+        let _ = migrations::migrate_lift_params_ema_band::<Test>();
+        assert!(HasMigrationRun::<Test>::get(ema_band_migration_key()));
+        let after = LiftParamsStore::<Test>::get();
+        assert_eq!(after.ema_band_bps, 1_500);
+        assert_eq!(after.floor_bps, before.floor_bps);
+        assert_eq!(after.apr_bps, before.apr_bps);
+        assert_eq!(after.new_subnet_ramp, before.new_subnet_ramp);
+        // Idempotent: second run preserves the widened value.
+        let _ = migrations::migrate_lift_params_ema_band::<Test>();
+        assert_eq!(LiftParamsStore::<Test>::get(), after);
     });
 }
 

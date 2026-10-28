@@ -572,6 +572,40 @@ fn test_recycle_tao_cannot_cross_preserve_threshold_in_high_ed_runtime() {
     });
 }
 
+/// Live-subnet expiry/settle payouts must debit TotalStake with SubnetTAO.
+/// Dissolution already drops the reserve from TotalStake earlier; expiry does not.
+#[test]
+fn test_pay_from_pot_decreases_total_stake_on_live_subnet() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10, 0);
+        let pot = 1_000_000u64;
+        let pay = 250_000u64;
+        SubnetTAO::<Test>::set(netuid, pot.into());
+        TotalStake::<Test>::put(TaoBalance::from(pot));
+        let subnet = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet, pot.into());
+        let recipient = U256::from(42);
+        add_balance_to_coldkey_account(&recipient, ExistentialDeposit::get());
+
+        let paid = <SubtensorModule as LendingPoolInterface<U256>>::pay_from_pot(
+            netuid,
+            &recipient,
+            pay.into(),
+        )
+        .expect("live pot payout must succeed");
+        assert_eq!(paid, pay.into());
+        assert_eq!(SubnetTAO::<Test>::get(netuid), (pot - pay).into());
+        assert_eq!(
+            TotalStake::<Test>::get(),
+            TaoBalance::from(pot - pay),
+            "live expiry payout must keep TotalStake aligned with SubnetTAO"
+        );
+    });
+}
+
 /// Regression for short dissolution settlement: recovery + below-ED refund must
 /// leave the escrow via one credit split. Separate Expendable transfers would
 /// reap the refund remainder after recovery and strand the position.

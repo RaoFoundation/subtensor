@@ -30,7 +30,9 @@ pub const MAX_ACTIVE_NET_UPDATES: u64 = 4_096;
 type MigrationKeyMaxLen = frame_support::traits::ConstU32<128>;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_support::{PalletId, pallet_prelude::*, transactional, weights::WeightMeter};
+use frame_support::{
+    PalletId, pallet_prelude::*, traits::OnRuntimeUpgrade, transactional, weights::WeightMeter,
+};
 use frame_system::pallet_prelude::*;
 use scale_info::TypeInfo;
 use sp_runtime::traits::{AccountIdConversion, Hash, SaturatedConversion, Saturating};
@@ -451,7 +453,7 @@ impl Default for LiftParams {
 
 /// Pre-`ema_band_bps` layout for the one-shot LiftParams migration.
 #[derive(Encode, Decode, MaxEncodedLen, TypeInfo, Clone, Copy, PartialEq, Eq)]
-struct LiftParamsBeforeEmaBand {
+pub(crate) struct LiftParamsBeforeEmaBand {
     floor_bps: u16,
     thin_floor_bps: u16,
     ref_tao: u64,
@@ -1033,8 +1035,10 @@ pub mod pallet {
         }
 
         fn on_runtime_upgrade() -> Weight {
-            let weight = migrations::migrate_warm_references::<T>()
-                .saturating_add(migrations::migrate_lift_params_ema_band::<T>());
+            let weight = <migrations::WarmReferencesMigration<T> as OnRuntimeUpgrade>::on_runtime_upgrade()
+                .saturating_add(
+                    <migrations::LiftParamsEmaBandMigration<T> as OnRuntimeUpgrade>::on_runtime_upgrade(),
+                );
 
             // Initialize missing TaoEma entries to the current settlement basis.
             let mut writes = 0u64;
