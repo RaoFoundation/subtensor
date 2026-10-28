@@ -2400,12 +2400,12 @@ pub mod pallet {
                         let mut coll_left = position.collateral;
                         if raised < position.principal && coll_left > 0 {
                             let need = position.principal.saturating_sub(raised);
-                            let (sell, floor) = match Self::alpha_to_raise_tao(netuid, need) {
-                                Ok(a) if a <= coll_left => (a, need),
-                                Ok(a) => (coll_left.min(a), 0u64),
-                                Err(_) => (coll_left, 0u64),
-                            };
+                            // Never fall back to dumping all C on a quote error —
+                            // propagate so the call reverts instead of liquidating.
+                            let needed_alpha = Self::alpha_to_raise_tao(netuid, need)?;
+                            let sell = needed_alpha.min(coll_left);
                             ensure!(sell > 0, Error::<T>::InsufficientEscrow);
+                            let floor = if sell >= needed_alpha { need } else { 0u64 };
                             let out = T::Pool::forced_sell_into_escrow(
                                 &escrow,
                                 &custody,
@@ -2682,12 +2682,10 @@ pub mod pallet {
                         let mut coll_left = slice_c;
                         if raised < slice_p && coll_left > 0 {
                             let need = slice_p.saturating_sub(raised);
-                            let (sell, floor) = match Self::alpha_to_raise_tao(netuid, need) {
-                                Ok(a) if a <= coll_left => (a, need),
-                                Ok(a) => (coll_left.min(a), 0u64),
-                                Err(_) => (coll_left, 0u64),
-                            };
+                            let needed_alpha = Self::alpha_to_raise_tao(netuid, need)?;
+                            let sell = needed_alpha.min(coll_left);
                             ensure!(sell > 0, Error::<T>::InsufficientEscrow);
+                            let floor = if sell >= needed_alpha { need } else { 0u64 };
                             let out = T::Pool::forced_sell_into_escrow(
                                 &escrow,
                                 &custody,
@@ -2777,76 +2775,203 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Largest buy input in `1..=cap` for which `quote_buy` succeeds.
+        fn max_fillable_buy(netuid: NetUid, cap: u64) -> Result<u64, DispatchError> {
+            if cap == 0 {
+                return Err(Error::<T>::InsufficientEscrow.into());
+            }
+            if T::Pool::quote_buy(netuid, cap.into()).is_ok() {
+                return Ok(cap);
+            }
+            let mut lo = 1u64;
+            let mut hi = cap.saturating_sub(1);
+            let mut best = 0u64;
+            for _ in 0..64 {
+                if lo > hi {
+                    break;
+                }
+                let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
+                match T::Pool::quote_buy(netuid, mid.into()) {
+                    Ok(_) => {
+                        best = mid;
+                        lo = mid.saturating_add(1);
+                    }
+                    Err(_) => {
+                        hi = mid.saturating_sub(1);
+                    }
+                }
+            }
+            ensure!(best > 0, Error::<T>::InsufficientEscrow);
+            Ok(best)
+        }
+
         /// Conservative TAO input that quotes to at least `alpha_wanted`.
+        /// Seeds from a CP invert rather than probing `max_buy_input` (which
+        /// fails with `SlippageTooHigh` on real Balancer pools at reserve×1000).
         fn tao_to_buy_alpha(netuid: NetUid, alpha_wanted: u64) -> Result<u64, DispatchError> {
             if alpha_wanted == 0 {
                 return Ok(0);
             }
-            let mut lo = 1u64;
-            let mut hi = T::Pool::max_buy_input(netuid).to_u64().max(1);
-            // Grow the upper bound until the quote covers the remaining debt.
+            let y = T::Pool::pool_tao(netuid).to_u64();
+            let x = T::Pool::pool_alpha(netuid).to_u64();
+            ensure!(y > 0 && x > 0, Error::<T>::InsufficientEscrow);
+            let max_in = T::Pool::max_buy_input(netuid).to_u64().max(1);
+            // CP invert: t ≥ want·y / (x − want), then ×2 headroom.
+            let mut hi = if alpha_wanted >= x {
+                max_in
+            } else {
+                let numer = u128::from(alpha_wanted).saturating_mul(u128::from(y));
+                let denom = u128::from(x.saturating_sub(alpha_wanted)).max(1);
+                ((numer / denom).saturating_add(1) as u64)
+                    .saturating_mul(2)
+                    .max(1)
+                    .min(max_in)
+            };
+            let mut fillable_cap = max_in;
             for _ in 0..64 {
-                let got = T::Pool::quote_buy(netuid, hi.into())?.to_u64();
-                if got >= alpha_wanted {
-                    break;
+                match T::Pool::quote_buy(netuid, hi.into()) {
+                    Ok(got) if got.to_u64() >= alpha_wanted => break,
+                    Ok(_) => {
+                        let next = hi.saturating_mul(2).min(fillable_cap);
+                        if next == hi {
+                            return Err(Error::<T>::InsufficientEscrow.into());
+                        }
+                        hi = next;
+                    }
+                    Err(_) => {
+                        fillable_cap = Self::max_fillable_buy(netuid, hi)?;
+                        hi = fillable_cap;
+                        let got = T::Pool::quote_buy(netuid, hi.into())?.to_u64();
+                        ensure!(got >= alpha_wanted, Error::<T>::InsufficientEscrow);
+                        break;
+                    }
                 }
-                let next = hi.saturating_mul(2);
-                if next == hi {
-                    break;
-                }
-                hi = next;
             }
             ensure!(
                 T::Pool::quote_buy(netuid, hi.into())?.to_u64() >= alpha_wanted,
                 Error::<T>::InsufficientEscrow
             );
+            let mut lo = 1u64;
             for _ in 0..64 {
                 if lo >= hi {
                     break;
                 }
                 let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
-                if T::Pool::quote_buy(netuid, mid.into())?.to_u64() >= alpha_wanted {
-                    hi = mid;
-                } else {
-                    lo = mid.saturating_add(1);
+                match T::Pool::quote_buy(netuid, mid.into()) {
+                    Ok(got) if got.to_u64() >= alpha_wanted => hi = mid,
+                    Ok(_) => lo = mid.saturating_add(1),
+                    Err(_) => {
+                        hi = mid.saturating_sub(1).max(lo);
+                    }
                 }
             }
+            ensure!(
+                T::Pool::quote_buy(netuid, hi.into())?.to_u64() >= alpha_wanted,
+                Error::<T>::InsufficientEscrow
+            );
             Ok(hi)
         }
 
+        /// Largest sell input in `1..=cap` for which `quote_sell` succeeds.
+        /// Production `quote_sell` returns `SlippageTooHigh` when `sim_swap`
+        /// cannot consume the full input (e.g. probing `max_sell_input` =
+        /// reserve×1000), so callers must not assume the cap is fillable.
+        fn max_fillable_sell(netuid: NetUid, cap: u64) -> Result<u64, DispatchError> {
+            if cap == 0 {
+                return Err(Error::<T>::InsufficientEscrow.into());
+            }
+            if T::Pool::quote_sell(netuid, cap.into()).is_ok() {
+                return Ok(cap);
+            }
+            let mut lo = 1u64;
+            let mut hi = cap.saturating_sub(1);
+            let mut best = 0u64;
+            for _ in 0..64 {
+                if lo > hi {
+                    break;
+                }
+                let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
+                match T::Pool::quote_sell(netuid, mid.into()) {
+                    Ok(_) => {
+                        best = mid;
+                        lo = mid.saturating_add(1);
+                    }
+                    Err(_) => {
+                        hi = mid.saturating_sub(1);
+                    }
+                }
+            }
+            ensure!(best > 0, Error::<T>::InsufficientEscrow);
+            Ok(best)
+        }
+
         /// Minimal alpha that quotes to at least `tao_wanted` on the live pool.
+        ///
+        /// Does **not** start by quoting `max_sell_input` (reserve×1000), which
+        /// fails with `SlippageTooHigh` on real Balancer pools. Seeds `hi` from
+        /// a constant-product invert, grows only while quotes succeed, and
+        /// shrinks on quote errors to the fillable bound.
         fn alpha_to_raise_tao(netuid: NetUid, tao_wanted: u64) -> Result<u64, DispatchError> {
             if tao_wanted == 0 {
                 return Ok(0);
             }
-            let mut lo = 1u64;
-            let mut hi = T::Pool::max_sell_input(netuid).to_u64().max(1);
+            let y = T::Pool::pool_tao(netuid).to_u64();
+            let x = T::Pool::pool_alpha(netuid).to_u64();
+            ensure!(y > 0 && x > 0, Error::<T>::InsufficientEscrow);
+            let max_in = T::Pool::max_sell_input(netuid).to_u64().max(1);
+            // CP invert: a ≥ need·x / (y − need), then ×2 headroom; cap at max_in.
+            let mut hi = if tao_wanted >= y {
+                max_in
+            } else {
+                let numer = u128::from(tao_wanted).saturating_mul(u128::from(x));
+                let denom = u128::from(y.saturating_sub(tao_wanted)).max(1);
+                ((numer / denom).saturating_add(1) as u64)
+                    .saturating_mul(2)
+                    .max(1)
+                    .min(max_in)
+            };
+            let mut fillable_cap = max_in;
             for _ in 0..64 {
-                let got = T::Pool::quote_sell(netuid, hi.into())?.to_u64();
-                if got >= tao_wanted {
-                    break;
+                match T::Pool::quote_sell(netuid, hi.into()) {
+                    Ok(got) if got.to_u64() >= tao_wanted => break,
+                    Ok(_) => {
+                        let next = hi.saturating_mul(2).min(fillable_cap);
+                        if next == hi {
+                            return Err(Error::<T>::InsufficientEscrow.into());
+                        }
+                        hi = next;
+                    }
+                    Err(_) => {
+                        fillable_cap = Self::max_fillable_sell(netuid, hi)?;
+                        hi = fillable_cap;
+                        let got = T::Pool::quote_sell(netuid, hi.into())?.to_u64();
+                        ensure!(got >= tao_wanted, Error::<T>::InsufficientEscrow);
+                        break;
+                    }
                 }
-                let next = hi.saturating_mul(2);
-                if next == hi {
-                    break;
-                }
-                hi = next;
             }
             ensure!(
                 T::Pool::quote_sell(netuid, hi.into())?.to_u64() >= tao_wanted,
                 Error::<T>::InsufficientEscrow
             );
+            let mut lo = 1u64;
             for _ in 0..64 {
                 if lo >= hi {
                     break;
                 }
                 let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
-                if T::Pool::quote_sell(netuid, mid.into())?.to_u64() >= tao_wanted {
-                    hi = mid;
-                } else {
-                    lo = mid.saturating_add(1);
+                match T::Pool::quote_sell(netuid, mid.into()) {
+                    Ok(got) if got.to_u64() >= tao_wanted => hi = mid,
+                    Ok(_) => lo = mid.saturating_add(1),
+                    Err(_) => {
+                        hi = mid.saturating_sub(1).max(lo);
+                    }
                 }
             }
+            ensure!(
+                T::Pool::quote_sell(netuid, hi.into())?.to_u64() >= tao_wanted,
+                Error::<T>::InsufficientEscrow
+            );
             Ok(hi)
         }
 
@@ -4417,10 +4542,8 @@ pub mod pallet {
                         let mut coll_left = remaining;
                         if raised < position.principal && coll_left > 0 {
                             let need = position.principal.saturating_sub(raised);
-                            let sell = match Self::alpha_to_raise_tao_on(y, x, w, need) {
-                                Ok(a) => a.min(coll_left),
-                                Err(_) => coll_left,
-                            };
+                            let needed_alpha = Self::alpha_to_raise_tao_on(y, x, w, need)?;
+                            let sell = needed_alpha.min(coll_left);
                             ensure!(sell > 0, Error::<T>::InsufficientEscrow);
                             let out =
                                 T::Pool::quote_sell_on(y.into(), x.into(), w, sell.into()).to_u64();

@@ -87,6 +87,21 @@ fn set_pool(tao_r: u64, alpha_r: u64) {
     write(&key(b"test/pool_tao", netuid()), tao_r);
     write(&key(b"test/pool_alpha", netuid()), alpha_r);
 }
+/// Production-like fillable sell bound as a multiple of the alpha reserve.
+/// `max_sell_input` is reserve×1000; quotes above this multiple refuse like
+/// `SlippageTooHigh` on a real Balancer sim_swap partial fill.
+const FILLABLE_SELL_RESERVE_MULTIPLIER: u64 = 10;
+fn quote_weight_parts() -> u64 {
+    let v: u64 = read(&key(b"test/quote_weight_parts", netuid()));
+    if v == 0 {
+        500_000_000_000_000_000 // 50/50 default
+    } else {
+        v
+    }
+}
+fn set_quote_weight_parts(parts: u64) {
+    write(&key(b"test/quote_weight_parts", netuid()), parts);
+}
 fn alpha_out() -> u64 {
     read(&key(b"test/alpha_out", netuid()))
 }
@@ -233,6 +248,11 @@ impl LendingPoolInterface<Account> for MockPool {
         let y = Self::pool_tao(netuid).to_u64();
         let x = Self::pool_alpha(netuid).to_u64();
         let a = alpha.to_u64();
+        // Mirror production sim_swap: inputs above the fillable fraction of the
+        // alpha reserve do not fully fill → SlippageTooHigh. max_sell_input is
+        // reserve×1000, so probing it always fails on deep/realistic pools.
+        let fillable = x.saturating_mul(FILLABLE_SELL_RESERVE_MULTIPLIER);
+        ensure!(a <= fillable, "SlippageTooHigh");
         Ok(((u128::from(y) * u128::from(a) / u128::from(x.saturating_add(a))) as u64).into())
     }
 
@@ -240,7 +260,21 @@ impl LendingPoolInterface<Account> for MockPool {
         let y = Self::pool_tao(netuid).to_u64();
         let x = Self::pool_alpha(netuid).to_u64();
         let t = tao_in.to_u64();
+        let fillable = y.saturating_mul(FILLABLE_SELL_RESERVE_MULTIPLIER);
+        ensure!(t <= fillable, "SlippageTooHigh");
         Ok(((u128::from(x) * u128::from(t) / u128::from(y.saturating_add(t))) as u64).into())
+    }
+
+    fn max_sell_input(netuid: NetUid) -> AlphaBalance {
+        // Production: alpha_reserve × MAX_SWAP_INPUT_RESERVE_MULTIPLIER (1000).
+        Self::pool_alpha(netuid)
+            .to_u64()
+            .saturating_mul(1_000)
+            .into()
+    }
+
+    fn max_buy_input(netuid: NetUid) -> TaoBalance {
+        Self::pool_tao(netuid).to_u64().saturating_mul(1_000).into()
     }
 
     fn burn_interest_tao(from: &Account, amount: TaoBalance) -> DispatchResult {
@@ -256,8 +290,8 @@ impl LendingPoolInterface<Account> for MockPool {
     }
 
     fn quote_weight_parts(_: NetUid) -> u64 {
-        // 50/50 Balancer quote weight parts.
-        500_000_000_000_000_000
+        // Configurable; default 50/50. Uneven weights exercise Balancer-shaped pools.
+        quote_weight_parts()
     }
 
     fn buy_depth_threshold(_: NetUid, ref_tao: TaoBalance, move_bps: u16) -> TaoBalance {
@@ -2941,5 +2975,86 @@ fn coldkey_swap_refused_while_subnet_dissolving() {
         assert!(Positions::<Test>::get(&new_owner, netuid()).is_none());
         assert!(OpenByNetuid::<Test>::contains_key(netuid(), &owner));
         assert!(!OpenByNetuid::<Test>::contains_key(netuid(), &new_owner));
+    });
+}
+
+#[test]
+fn long_amm_close_minimal_sale_when_max_sell_quote_hits_slippage() {
+    new_test_ext().execute_with(|| {
+        // Mainnet-shaped shallow Balancer pool with uneven quote weights.
+        // max_sell_input = alpha_reserve×1000; quote_sell refuses above ×10 —
+        // the old alpha_to_raise_tao probed max and fell back to dumping all C.
+        set_pool(50_000_000_000_000, 800_000_000_000_000); // 50τ / 800kα
+        set_quote_weight_parts(200_000_000_000_000_000); // 20% TAO weight parts
+        Lifts::<Test>::mutate(netuid(), |book| book.g_ema = pool_tao());
+        set_tao_ema(Lending::settlement_tao_basis(netuid()));
+        set_reference_price(MockPool::price());
+
+        let max_in = MockPool::max_sell_input(netuid()).to_u64();
+        assert!(
+            MockPool::quote_sell(netuid(), max_in.into()).is_err(),
+            "precondition: quoting max_sell_input must hit SlippageTooHigh"
+        );
+
+        let owner = account(1);
+        let hotkey = account(2);
+        let collateral = 40_000_000_000_000u64; // 40kα
+        mint_alpha(&owner, &hotkey, netuid(), collateral.saturating_mul(3));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            collateral,
+            hotkey.clone(),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let a_alone = MockPool::quote_sell(netuid(), position.escrow_alpha.into())
+            .unwrap()
+            .to_u64();
+        assert!(
+            a_alone < position.principal,
+            "need A sale short of P so collateral is tapped"
+        );
+
+        let quoted = Lending::quote_close(&owner, netuid(), false).unwrap();
+        assert!(
+            quoted.refund > 0 && quoted.refund < position.collateral,
+            "quote must leave leftover alpha, got refund={} collateral={}",
+            quoted.refund,
+            position.collateral
+        );
+
+        let alpha_before = alpha(&owner, &hotkey, netuid());
+        let coll_before = position.collateral;
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            false,
+            u64::MAX,
+            quoted.refund.saturating_mul(99) / 100,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        let alpha_refunded = alpha(&owner, &hotkey, netuid()).saturating_sub(alpha_before);
+        assert!(
+            alpha_refunded > 0,
+            "must refund leftover collateral as alpha, not dump it all"
+        );
+        assert!(
+            alpha_refunded < coll_before,
+            "must sell only the shortfall, not the full collateral book"
+        );
+        let diff = quoted.refund.abs_diff(alpha_refunded);
+        assert!(
+            diff <= quoted.refund / 100 + 1,
+            "quote alpha refund {} vs executed {} (diff {})",
+            quoted.refund,
+            alpha_refunded,
+            diff
+        );
     });
 }
