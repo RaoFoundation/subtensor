@@ -26,6 +26,12 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
             && !ColdkeySwapDisputes::<T>::contains_key(owner)
     }
 
+    fn coldkey_owns_hotkey(coldkey: &T::AccountId, hotkey: &T::AccountId) -> bool {
+        // Same predicate as `Pallet::coldkey_owns_hotkey` (Owner map); call the
+        // storage check directly so the trait method does not recurse on itself.
+        Owner::<T>::contains_key(hotkey) && Owner::<T>::get(hotkey) == *coldkey
+    }
+
     fn fast_alpha_price(netuid: NetUid) -> Option<U64F64> {
         SubnetFastMovingPrice::<T>::get(netuid).filter(|price| *price > U64F64::from_num(0))
     }

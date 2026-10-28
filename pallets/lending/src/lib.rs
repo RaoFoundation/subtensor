@@ -50,6 +50,12 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn owner_allowed(_owner: &AccountId) -> bool {
         true
     }
+    /// Whether `coldkey` owns `hotkey` (subtensor `Owner` map). Short opens
+    /// require this so an unsolicited loan cannot index a third-party hotkey
+    /// and inflate its swap-hotkey weight past the block limit (§14.3).
+    fn coldkey_owns_hotkey(_coldkey: &AccountId, _hotkey: &AccountId) -> bool {
+        true
+    }
     fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> Result<TaoBalance, DispatchError>;
     fn quote_buy(netuid: NetUid, tao: TaoBalance) -> Result<AlphaBalance, DispatchError>;
     fn fast_alpha_price(_netuid: NetUid) -> Option<U64F64> {
@@ -989,6 +995,10 @@ pub mod pallet {
         InvalidLiftParams,
         PositionSideMismatch,
         HotkeyMismatch,
+        /// Short open/increase named a hotkey the caller does not own. Prevents
+        /// indexing unsolicited shorts onto a third-party hotkey and blocking
+        /// its rotation via swap weight (§14.3).
+        HotkeyNotOwned,
         /// Subnet age is below `new_subnet_min_age` (§2.3).
         SubnetTooNew,
         /// Third-party stake onto the lending custody hotkey is rejected (§14).
@@ -1800,6 +1810,24 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Shorts index `LoanHotkeys` / `OpenByHotkey` and charge that count into
+        /// every hotkey swap's weight. Require coldkey ownership so a borrower
+        /// cannot attach unsolicited shorts to a victim's hotkey and push its
+        /// declared swap weight past the block limit. Longs associate via stake.
+        fn ensure_short_hotkey_owned(
+            side: Side,
+            owner: &T::AccountId,
+            hotkey: &T::AccountId,
+        ) -> DispatchResult {
+            if side == Side::Short {
+                ensure!(
+                    T::Pool::coldkey_owns_hotkey(owner, hotkey),
+                    Error::<T>::HotkeyNotOwned
+                );
+            }
+            Ok(())
+        }
+
         fn opening_quote(
             side: Side,
             principal: u64,
@@ -2229,6 +2257,11 @@ pub mod pallet {
             let mut existing = Positions::<T>::get(&owner, netuid);
             if let Some(ref position) = existing {
                 Self::ensure_matching_position(position, side, &hotkey)?;
+            } else {
+                // Fresh short: require hotkey ownership before LoanHotkeys /
+                // OpenByHotkey index the key (Skeptic: unsolicited shorts DoS
+                // hotkey rotation). Longs already associate via stake on hotkey.
+                Self::ensure_short_hotkey_owned(side, &owner, &hotkey)?;
             }
             if let Some(mut position) = existing.take() {
                 Self::charge_interest(&owner, netuid, &mut position, now, false)?;
@@ -4836,6 +4869,11 @@ pub mod pallet {
             } else {
                 None
             };
+            if existing.is_none() {
+                if let (Some(o), Some(hk)) = (owner, hotkey) {
+                    Self::ensure_short_hotkey_owned(side, o, hk)?;
+                }
+            }
             if existing.is_none() && owner.is_some() {
                 ensure!(
                     PositionCount::<T>::get(netuid) < T::MaxPositionsPerSubnet::get(),

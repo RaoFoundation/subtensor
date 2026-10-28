@@ -527,6 +527,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidLiftParams": _C.INVALID_ARGUMENT,
     "PositionSideMismatch": _C.INVALID_ARGUMENT,
     "HotkeyMismatch": _C.INVALID_ARGUMENT,
+    "HotkeyNotOwned": _C.INVALID_ARGUMENT,
     "InvalidQuote": _C.INSUFFICIENT_LIQUIDITY,
     "Arithmetic": _C.INTERNAL,  # Lending arithmetic overflow / underrepresentation
     "CustodyUnavailable": _C.INTERNAL,

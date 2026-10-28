@@ -75,6 +75,11 @@ fn alpha(who: &Account, hotkey: &Account, netuid: NetUid) -> u64 {
 fn mint_tao(who: &Account, amount: u64) {
     write(&key(b"test/tao", who), tao(who).saturating_add(amount));
 }
+/// Pin `Owner[hotkey] = owner` for short-open ownership checks. Unset hotkeys
+/// stay permitted in the mock so existing fixtures keep working.
+fn set_hotkey_owner(hotkey: &Account, owner: &Account) {
+    write(&key(b"test/hotkey_owner", hotkey), owner.clone());
+}
 fn mint_alpha(who: &Account, hotkey: &Account, netuid: NetUid, amount: u64) {
     write(
         &key(b"test/alpha", (who, hotkey, netuid)),
@@ -242,6 +247,16 @@ impl OrderSwapInterface<Account> for MockPool {
 impl LendingPoolInterface<Account> for MockPool {
     fn subnet_exists(_: NetUid) -> bool {
         true
+    }
+
+    fn coldkey_owns_hotkey(coldkey: &Account, hotkey: &Account) -> bool {
+        let owned: Option<Account> = sp_io::storage::get(&key(b"test/hotkey_owner", hotkey))
+            .and_then(|bytes| Account::decode(&mut &bytes[..]).ok());
+        match owned {
+            Some(owner) => owner == *coldkey,
+            // Unset → permit (keeps existing short fixtures green).
+            None => true,
+        }
     }
 
     fn network_alive(_: NetUid) -> bool {
@@ -598,6 +613,57 @@ fn lift_readd_preserves_price() {
             a
         ));
         assert_eq!(MockPool::price(), price_before);
+    });
+}
+
+#[test]
+fn short_open_rejects_unsolicited_third_party_hotkey() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let victim = account(9);
+        let victim_hotkey = account(10);
+        set_hotkey_owner(&victim_hotkey, &victim);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_err!(
+            Lending::quote_open_for(
+                &owner,
+                netuid(),
+                Side::Short,
+                5_000_000_000_000,
+                &victim_hotkey
+            ),
+            Error::<Test>::HotkeyNotOwned
+        );
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                5_000_000_000_000,
+                victim_hotkey.clone(),
+                1,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::HotkeyNotOwned
+        );
+        assert_eq!(LoanHotkeys::<Test>::get(&victim_hotkey), 0);
+        let own_hotkey = account(2);
+        set_hotkey_owner(&own_hotkey, &owner);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            own_hotkey.clone(),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        assert_eq!(LoanHotkeys::<Test>::get(&own_hotkey), 1);
+        assert_eq!(LoanHotkeys::<Test>::get(&victim_hotkey), 0);
     });
 }
 
