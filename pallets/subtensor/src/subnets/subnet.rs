@@ -94,7 +94,8 @@ impl<T: Config> Pallet<T> {
                     DissolveCleanupPhase::SubnetBasketHoldingsToRoot
                     | DissolveCleanupPhase::SubnetRootDividendsRootClaimable
                     | DissolveCleanupPhase::SubnetRootDividendsRootClaimed
-                    | DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue => true,
+                    | DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue
+                    | DissolveCleanupPhase::LendingSettle => true,
                     DissolveCleanupPhase::AlphaInOutStakesSettleStakes => {
                         let Some(last_key) = status.last_key else {
                             return true;
