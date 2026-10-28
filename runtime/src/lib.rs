@@ -1446,7 +1446,9 @@ impl pallet_crowdloan::Config for Runtime {
 parameter_types! {
     pub const LendingPalletId: PalletId = PalletId(*b"bt/lends");
     pub const LendingMinimumLoanValue: u64 = 1_000_000; // 0.001 τ
-    pub const LendingInterestPeriod: BlockNumber = 100;
+    // Spec §6: weekly coupon collection. 100 was a fork-test remnant (~20 min);
+    // 50_400 ≈ 7 days at 12 s blocks.
+    pub const LendingInterestPeriod: BlockNumber = 50_400;
     pub const LendingBlocksPerYear: u64 = 2_628_000; // ~12s blocks
     pub const LendingReferenceWarmup: BlockNumber = 7_200; // ~24h
     pub const LendingMaxPositionsPerSubnet: u32 = 10_000;
