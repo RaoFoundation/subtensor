@@ -47,6 +47,9 @@ describeSuite({
                     await client.assertDescriptorSchema();
                     const includedPromise = client.submit(call, signer, {
                         allowRawCall: true,
+                        // Ordinary dev builds omit the embedded hash. Only this known
+                        // fixture opts out; metadata-hash builds exercise the SDK default.
+                        metadataHash: process.env.BT_TS_METADATA_HASH === "1" ? undefined : null,
                         waitForInclusion: true,
                         timeoutMs: 30_000,
                     });

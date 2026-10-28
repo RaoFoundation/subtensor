@@ -79,6 +79,7 @@ runs:
       env:
         MOONWALL_TEST: ${{ inputs.test }}
         MOONWALL_ADDITIONAL_TEST: ${{ inputs.additional-test }}
+        BT_TS_METADATA_HASH: ${{ endsWith(inputs.binary, '-metadata-hash') && '1' || '0' }}
       run: |
         # The checked-in Moonwall file contains only canonical environments.
         # Generate shard environments from the data manifest in this disposable
