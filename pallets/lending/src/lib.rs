@@ -3701,20 +3701,29 @@ pub mod pallet {
                     }
                     Side::Long => {
                         let custody = Self::custody_hotkey()?;
-                        let reserve = Self::reserve_account(netuid);
-                        T::Pool::transfer_staked_alpha(
-                            &escrow,
-                            &custody,
-                            &reserve,
-                            &custody,
-                            netuid,
-                            paid.into(),
-                            false,
-                            false,
-                        )?;
-                        LongInterestPending::<T>::mutate(netuid, |pending| {
-                            *pending = pending.saturating_add(paid);
-                        });
+                        // Live path: move interest alpha to the reserve for the
+                        // paced sell schedule. Dissolution clears NetworksAdded
+                        // before metered settle, so transfer_staked_alpha would
+                        // fail with SubnetNotExists and roll the whole settle
+                        // back — destroy interest alpha in place instead (§13).
+                        if Dissolutions::<T>::contains_key(netuid) {
+                            T::Pool::destroy_custody_alpha(&escrow, &custody, netuid, paid.into())?;
+                        } else {
+                            let reserve = Self::reserve_account(netuid);
+                            T::Pool::transfer_staked_alpha(
+                                &escrow,
+                                &custody,
+                                &reserve,
+                                &custody,
+                                netuid,
+                                paid.into(),
+                                false,
+                                false,
+                            )?;
+                            LongInterestPending::<T>::mutate(netuid, |pending| {
+                                *pending = pending.saturating_add(paid);
+                            });
+                        }
                         Lifts::<T>::mutate(netuid, |book| {
                             book.long_collateral_alpha =
                                 book.long_collateral_alpha.saturating_sub(paid);

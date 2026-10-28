@@ -239,7 +239,7 @@ INTENT_SAMPLES: dict[str, dict] = {
         "netuid": 1,
         "side": "short",
         "collateral": 10.0,
-        "hotkey_ss58": ALICE_HOT,
+        # Shorts are TAO-only; omit hotkey_ss58 (source_hotkey=None).
         "min_borrow": 0,
         "min_proceeds": 0,
         "min_escrow_alpha": 0,
@@ -258,6 +258,7 @@ INTENT_SAMPLES: dict[str, dict] = {
     },
     "close_loan": {
         "netuid": 1,
+        "hotkey_ss58": ALICE_HOT,
         "max_payment": 10.0,
         "min_refund": 0,
         # Wallet alpha repay is not free-TAO spend; use collateral buyback so
@@ -325,7 +326,6 @@ READ_SAMPLES: dict[str, dict] = {
         "side": "short",
         "collateral": "10",
         "coldkey_ss58": ALICE,
-        "hotkey_ss58": ALICE_HOT,
         "amount": "1",
     },
     "lending_position": {"coldkey_ss58": ALICE, "netuid": 1},
@@ -341,7 +341,6 @@ READ_SAMPLES: dict[str, dict] = {
         "side": "short",
         "amount": "1",
         "coldkey_ss58": ALICE,
-        "hotkey_ss58": ALICE_HOT,
     },
     "lending_reserves": {"netuid": 1},
     "locks_for_coldkey": {"coldkey_ss58": ALICE},

@@ -59,7 +59,6 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     # CloseLoan.build resolves side/units from the stored position.
     ("Lending", "Positions"): {
         "side": "Short",
-        "hotkey": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
         "custody": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
         "principal": 10**9,
         "collateral": 10**10,

@@ -217,6 +217,13 @@ impl OrderSwapInterface<Account> for MockPool {
         _: bool,
         _: bool,
     ) -> DispatchResult {
+        // Mirror production: after NetworksAdded is cleared at dissolve, stake
+        // transfers fail with SubnetNotExists. Dissolution settle must not rely
+        // on this path for long interest.
+        ensure!(
+            !Dissolutions::<Test>::contains_key(netuid),
+            "SubnetNotExists"
+        );
         let a = amount.to_u64();
         ensure!(
             alpha(from_cold, from_hot, netuid) >= a,
@@ -1671,6 +1678,46 @@ fn dissolution_interest_does_not_forfeit_after_readd() {
         // Must complete without stalling on a double-readd forfeit.
         assert!(Lending::settle_lending(netuid(), &mut meter));
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
+/// Accrued long interest at dissolve must not stall settle: stake transfers
+/// reject once NetworksAdded is cleared, so interest alpha is destroyed in place.
+#[test]
+fn dissolution_settles_long_with_accrued_interest() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 1);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        // Accrue a non-trivial coupon so settle's final charge_interest moves alpha.
+        Positions::<Test>::mutate(&owner, netuid(), |maybe| {
+            if let Some(p) = maybe {
+                p.annual_interest = p.collateral / 10;
+                p.last_accrued = 0u64;
+            }
+        });
+        System::set_block_number(System::block_number().saturating_add(50_400));
+        assert_ok!(Lending::start_dissolution(netuid()));
+        assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
+        let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(
+            Lending::settle_lending(netuid(), &mut meter),
+            "long interest at dissolve must not roll back settle"
+        );
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        assert_eq!(LongInterestPending::<Test>::get(netuid()), 0);
     });
 }
 
