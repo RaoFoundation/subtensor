@@ -421,19 +421,21 @@ async def lending_required_collateral(
         "coldkey_ss58": "Position owner.",
         "netuid": "Subnet of the position.",
         "repay_from_wallet": (
-            "Repay short alpha from its saved hotkey (default); false buys with collateral."
+            "False (default): quote the escrow AMM buyback for a short. "
+            "True: repay short alpha from its saved hotkey."
         ),
     },
 )
 async def lending_close_quote(
-    view, coldkey_ss58: str, netuid: int, repay_from_wallet: bool = True
+    view, coldkey_ss58: str, netuid: int, repay_from_wallet: bool = False
 ) -> dict:
     """Runtime quote of the combined debt repayment and refund, after accrued interest.
 
     Payment is TAO except for a wallet-repaid short, which returns its fixed
-    alpha principal. Refund is TAO for a short and alpha for a long. A short
-    AMM buyback must fit within the curve's remaining buy range and remaining
-    TAO collateral after interest. Borrowed alpha need not have been sold.
+    alpha principal. Refund is TAO for a short and alpha for a long. Default
+    ``repay_from_wallet=False`` quotes the escrow buyback path used by
+    escrowed shorts (sale proceeds + collateral buy P alpha; leftover is the
+    refund). Set True to quote a wallet-alpha repayment instead.
     """
     view = await view.at()
     position = await lending_position(view, coldkey_ss58, netuid)

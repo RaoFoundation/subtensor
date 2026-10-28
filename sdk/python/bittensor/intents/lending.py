@@ -60,7 +60,7 @@ async def _available_alpha(
             block_hash=block_hash,
         ),
         substrate.query(
-            "SubtensorModule", "MinerCollateral", [(netuid, hotkey, owner)], block_hash=block_hash
+            "SubtensorModule", "MinerCollateral", [netuid, hotkey, owner], block_hash=block_hash
         ),
     )
     if info is not None and not isinstance(info, dict):
@@ -122,13 +122,14 @@ def _contextual_amount(value: Money) -> Money:
 class OpenLoan(Intent):
     """Open or increase a fixed-principal subnet loan at up to 25% LTV.
 
-    A short locks TAO collateral and receives freely usable alpha on its
-    selected hotkey. Opening does not sell that alpha or lock sale proceeds.
-    A long locks existing free alpha stake and receives transferable TAO.
-    Borrowed assets may be sold, transferred or pledged elsewhere. Debt stays in the
-    borrowed currency. Interest is 100% annually on opening loan value,
-    charged in fixed collateral units and collected weekly. There are no
-    price-triggered liquidations; exhausted collateral forfeits the position.
+    A short locks TAO collateral, lifts borrowed alpha, and immediately sells
+    that alpha into escrow TAO (`proceeds`) on the position's custody account.
+    A long locks existing free alpha stake, lifts TAO, and buys escrow alpha
+    with the borrowed TAO (no free TAO payout). Debt stays in the borrowed
+    currency. Interest is 100% annually on opening loan value, charged in fixed
+    collateral units and collected every ``InterestPeriod`` blocks (runtime
+    constant; 50_400 ≈ 7 days at 12 s). There are no price-triggered
+    liquidations; exhausted collateral forfeits the position.
 
     Alpha debt must also fit 25% of collateral at a conservative immediate
     funded-redemption valuation, including payout rounding. TAO debt requires
@@ -145,11 +146,14 @@ class OpenLoan(Intent):
     ``amount`` selects exact additional principal: alpha for shorts and TAO
     for longs. With no amount, the collateral determines the borrowing limit.
     The runtime transfers exactly the requested amount or refuses the call.
-    ``min_borrow`` is a floor on additional principal. The legacy wire field
-    ``min_proceeds`` bounds the additional short's opening value in TAO,
-    marked at the lending EMA; it does not describe an actual sale.
+    ``min_borrow`` is a floor on additional principal. ``min_proceeds`` is the
+    short's minimum escrow TAO from the forced sale (slippage floor);
+    ``min_escrow_alpha`` is the long's minimum escrow alpha from the forced buy.
     The call is atomic and refuses a smaller loan or opening value. There remains one
     position per coldkey and subnet; closing repays its total principal.
+
+    On fork / clone chains without a live MEV decryptor, submit with
+    ``--no-mev-shield`` (encrypted submission will never be decrypted).
     """
 
     op = "open_loan"
@@ -448,18 +452,22 @@ class RaiseLoan(Intent):
 class CloseLoan(Intent):
     """Repay total principal and return remaining collateral on a subnet.
 
-    A short normally repays its fixed alpha debt from the saved hotkey.
-    ``repay_from_wallet=False`` instead buys that alpha through the AMM using
-    only remaining TAO collateral, after accrued interest. Opening created no
-    locked sale proceeds, and an optional buyback cannot spend external funds.
-    A long always repays TAO from the owner's free balance. Both charge
-    accrued interest through the closing block and then refund the remainder.
-    A failed repayment, payment ceiling or refund floor rolls back the call.
+    By default (``repay_from_wallet=False``) an escrowed short buys its alpha
+    debt back through the AMM using escrow sale proceeds plus remaining TAO
+    collateral, then refunds any leftover TAO. Set ``repay_from_wallet=True``
+    to repay short alpha from the saved hotkey instead and receive the full
+    escrow pot. A long with the default sells escrow (then collateral) for
+    principal TAO; ``repay_from_wallet=True`` pays TAO from free balance and
+    returns escrow alpha. Both charge accrued interest through the closing
+    block. A failed repayment, payment ceiling or refund floor rolls back.
 
     ``max_payment`` is TAO for AMM short closes and long repayment, or alpha
     for a wallet-repaid short. ``min_refund`` is TAO for shorts and alpha for
     longs. Units are checked against the owner's actual stored position.
     Closing remains available when new borrowing is disabled.
+
+    On fork / clone chains without a live MEV decryptor, submit with
+    ``--no-mev-shield``.
     """
 
     op = "close_loan"
@@ -476,8 +484,13 @@ class CloseLoan(Intent):
         metadata={"help": "Minimum returned collateral: TAO for shorts, alpha for longs."},
     )
     repay_from_wallet: bool = field(
-        default=True,
-        metadata={"help": "Repay short alpha from its saved hotkey; false buys with collateral."},
+        default=False,
+        metadata={
+            "help": (
+                "False (default): buy short alpha back from escrow / sell long escrow. "
+                "True: repay short alpha from the saved hotkey, or pay long TAO from wallet."
+            )
+        },
     )
     valid_until: int = field(
         default=2**32 - 1,
