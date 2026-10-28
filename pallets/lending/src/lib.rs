@@ -2255,14 +2255,7 @@ pub mod pallet {
                 }
             };
             let quote = Self::validate_sized_principal(
-                netuid,
-                side,
-                principal,
-                price,
-                collateral,
-                v,
-                0,
-                &params,
+                netuid, side, principal, price, collateral, v, 0, &params,
             )?;
             ensure!(principal >= min_borrow, Error::<T>::BelowMinimumBorrow);
 
@@ -4973,10 +4966,7 @@ pub mod pallet {
             // Same gate order as `do_open_long_and_sell`.
             Self::ensure_lending_live(netuid)?;
             Self::ensure_new_subnet_gate(netuid)?;
-            ensure!(
-                T::Pool::owner_allowed(owner),
-                Error::<T>::SubnetUnavailable
-            );
+            ensure!(T::Pool::owner_allowed(owner), Error::<T>::SubnetUnavailable);
             let reference = Self::ensure_reference_warm(netuid)?;
             let params = Self::lift_params();
             let price_before = T::Pool::current_alpha_price(netuid);
