@@ -86,6 +86,12 @@ DESCRIPTIONS: dict[str, str] = {
         "(usually after a coldkey swap that kept the original custody account). Close or "
         "wait for that loan to settle before opening a new position on this subnet."
     ),
+    "PriceTooFarFromEma": (
+        "The post-trade spot would leave the directional EMA band on the exploitable side "
+        "(longs above EMA·(1+band), shorts below EMA·(1−band); default band 15%). Wait for "
+        "spot to mean-revert, open the other side, or close/repay an existing position "
+        "(exits are never blocked by this check)."
+    ),
     "ConflictingSizing": (
         "Provide exactly one of collateral or borrow amount for a raise, not both and not neither."
     ),

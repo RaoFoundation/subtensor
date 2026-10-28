@@ -2357,3 +2357,248 @@ fn dissolution_before_expiry_wins() {
         assert!(!saw_expired);
     });
 }
+
+fn set_reference_price(price: U64F64) {
+    References::<Test>::mutate(netuid(), |r| {
+        if let Some(r) = r {
+            r.price = price;
+        }
+    });
+}
+
+#[test]
+fn ema_band_blocks_long_above_ceiling_but_allows_short() {
+    new_test_ext().execute_with(|| {
+        // Spot ≈ 1. EMA low so spot is already > EMA·1.15; any long buy stays above.
+        let ema = U64F64::from_num(1u64) / U64F64::from_num(2u64); // 0.5
+        set_reference_price(ema);
+        assert!(
+            MockPool::price()
+                > ema.saturating_mul(U64F64::from_num(115u64)) / U64F64::from_num(100u64)
+        );
+
+        let long_owner = account(1);
+        let short_owner = account(3);
+        let hotkey = account(2);
+        mint_alpha(&long_owner, &hotkey, netuid(), 50_000_000_000_000);
+        mint_tao(&short_owner, 50_000_000_000_000);
+
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(long_owner.clone()),
+                netuid(),
+                Side::Long,
+                5_000_000_000_000,
+                hotkey.clone(),
+                1,
+                0,
+                1,
+                deadline(),
+            ),
+            Error::<Test>::PriceTooFarFromEma
+        );
+        assert!(Positions::<Test>::get(&long_owner, netuid()).is_none());
+
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(short_owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            hotkey,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&short_owner, netuid()).is_some());
+    });
+}
+
+#[test]
+fn ema_band_blocks_short_below_floor_but_allows_long() {
+    new_test_ext().execute_with(|| {
+        // Spot ≈ 1. EMA high so spot is already < EMA·0.85; any short sale stays below.
+        let ema = U64F64::from_num(2u64);
+        set_reference_price(ema);
+        assert!(
+            MockPool::price()
+                < ema.saturating_mul(U64F64::from_num(85u64)) / U64F64::from_num(100u64)
+        );
+
+        let short_owner = account(1);
+        let long_owner = account(3);
+        let hotkey = account(2);
+        mint_tao(&short_owner, 50_000_000_000_000);
+        mint_alpha(&long_owner, &hotkey, netuid(), 50_000_000_000_000);
+
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(short_owner.clone()),
+                netuid(),
+                Side::Short,
+                10_000_000_000_000,
+                hotkey.clone(),
+                1,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::PriceTooFarFromEma
+        );
+        assert!(Positions::<Test>::get(&short_owner, netuid()).is_none());
+
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(long_owner.clone()),
+            netuid(),
+            Side::Long,
+            5_000_000_000_000,
+            hotkey,
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&long_owner, netuid()).is_some());
+    });
+}
+
+#[test]
+fn ema_band_rejects_one_large_trade_that_would_cross() {
+    new_test_ext().execute_with(|| {
+        // Tight band so a single medium long crosses it from EMA == spot.
+        LiftParamsStore::<Test>::mutate(|p| p.ema_band_bps = 100); // 1%
+        set_reference_price(MockPool::price());
+        // Shallower pool → more price impact per τ.
+        set_pool(100_000_000_000_000, 100_000_000_000_000);
+        Lifts::<Test>::mutate(netuid(), |book| book.g_ema = pool_tao());
+        set_tao_ema(Lending::settlement_tao_basis(netuid()));
+        set_reference_price(MockPool::price());
+
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 200_000_000_000_000);
+        // ~10% of pool TAO as principal → CP price move ≫ 1%.
+        assert_err!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Long,
+                80_000_000_000_000,
+                hotkey,
+                10_000_000_000_000,
+                1,
+                1,
+                deadline(),
+            ),
+            Error::<Test>::PriceTooFarFromEma
+        );
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
+#[test]
+fn ema_band_many_small_opens_cannot_cross_in_one_block() {
+    new_test_ext().execute_with(|| {
+        LiftParamsStore::<Test>::mutate(|p| p.ema_band_bps = 500); // 5%
+        set_pool(50_000_000_000_000, 50_000_000_000_000);
+        Lifts::<Test>::mutate(netuid(), |book| book.g_ema = pool_tao());
+        set_tao_ema(Lending::settlement_tao_basis(netuid()));
+        let ema = MockPool::price();
+        set_reference_price(ema);
+        // EMA is frozen until on_finalize; spot climbs with each long.
+
+        let mut opened = 0u32;
+        let mut blocked = false;
+        for i in 0u8..16 {
+            let owner = account(20 + i);
+            let hotkey = account(40 + i);
+            mint_alpha(&owner, &hotkey, netuid(), 20_000_000_000_000);
+            let res = Lending::open_exact(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Long,
+                8_000_000_000_000,
+                hotkey,
+                1_000_000_000_000,
+                1,
+                1,
+                deadline(),
+            );
+            match res {
+                Ok(()) => opened = opened.saturating_add(1),
+                Err(e) => {
+                    assert_eq!(e, Error::<Test>::PriceTooFarFromEma.into());
+                    blocked = true;
+                    break;
+                }
+            }
+        }
+        assert!(
+            opened > 0,
+            "at least one small open should fit under the band"
+        );
+        assert!(
+            blocked,
+            "further opens in the same block must hit PriceTooFarFromEma"
+        );
+        let spot = MockPool::price();
+        let ceiling = ema.saturating_mul(U64F64::from_num(10_500u32)) / U64F64::from_num(10_000u32);
+        assert!(spot <= ceiling || blocked);
+    });
+}
+
+#[test]
+fn ema_band_never_blocks_close_or_repay() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 100_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            20_000_000_000_000,
+            hotkey.clone(),
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let before = Positions::<Test>::get(&owner, netuid()).unwrap();
+        // Push EMA far away so the position sits outside the open band.
+        set_reference_price(U64F64::from_num(10u64));
+        assert!(MockPool::price() < set_and_band_floor());
+
+        let half = before.principal / 2;
+        mint_alpha(&owner, &hotkey, netuid(), half);
+        assert_ok!(Lending::repay(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            half,
+            true,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_some());
+
+        let left = Positions::<Test>::get(&owner, netuid()).unwrap().principal;
+        mint_alpha(&owner, &hotkey, netuid(), left);
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            true,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
+fn set_and_band_floor() -> U64F64 {
+    let ema = References::<Test>::get(netuid()).unwrap().price;
+    let band = u32::from(LiftParamsStore::<Test>::get().ema_band_bps);
+    ema.saturating_mul(U64F64::from_num(10_000u32.saturating_sub(band)))
+        / U64F64::from_num(10_000u32)
+}

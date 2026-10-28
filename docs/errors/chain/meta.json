@@ -317,6 +317,7 @@
     "PreLogExists",
     "PriceConditionNotMet",
     "PriceLimitExceeded",
+    "PriceTooFarFromEma",
     "ProportionOverflow",
     "PulseVerificationError",
     "RandomSubjectTooLong",

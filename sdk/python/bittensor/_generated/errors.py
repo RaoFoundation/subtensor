@@ -462,4 +462,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 27): ErrorInfo('Lending', 'SubnetTooNew', 'Subnet has not cleared the new-subnet gate (§2.3).'),
     (33, 28): ErrorInfo('Lending', 'CustodyHotkey', 'Third-party stake onto the lending custody hotkey is rejected (§14).'),
     (33, 29): ErrorInfo('Lending', 'EscrowInUse', 'Derived position escrow is still assigned (e.g. after a coldkey swap that kept the old custody account). Refuse a fresh open so two loans cannot share one escrow (§14).'),
+    (33, 30): ErrorInfo('Lending', 'PriceTooFarFromEma', 'Post-trade spot is outside the directional EMA band on the exploitable side (§5.4). Longs: spot > EMA·(1+band); shorts: spot < EMA·(1−band). Closes and repays are never blocked by this.'),
 }

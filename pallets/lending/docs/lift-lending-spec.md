@@ -1,5 +1,5 @@
-# Lift-based lending on main's Balancer pools: final spec (v5.4: one-year fixed term + auto-settle at smoothed price)
-**Version:** v5.4, 2026-10-27. Encodes Jacob's locked decisions as of 2026-10-20 (term locked that day; shipped in this revision). Supersedes v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
+# Lift-based lending on main's Balancer pools: final spec (v5.4: one-year term + directional EMA band on opens)
+**Version:** v5.4, 2026-10-28. Encodes Jacob's locked decisions as of 2026-10-20 (term locked that day; EMA band added 2026-10-28). Supersedes v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
 **Target:** RaoFoundation/subtensor `main` @ 7ba9601d (2026-10-15 15:53 CT). PR #3211 is a parts bin only (§11).
 **Numbers:** live chain state at block 9,298,539 (2026-10-16), with real `Swap.SwapBalancer` weights; P&L uses the same 117-subnet bootstrap paths as before.
 **Files:** scripts `lending-pnl/{final,final2,final3,sim_final2,pnl_final2,plot11}.py`; data `data/final*.{json,csv}` (floor sweep: `data/final3.json`, `data/final3_pnl.csv`), `data/balancer_now.json`; figure `fig11_final.png`. v5 additions: `lift-lending-raise/calc.py` + `res.json` (escrowed-long impacts, raise example); companion implementer notes `lift-lending-raise-cli.md`; v5.1: `lift-lending-dereg/calc.py` + `res.json` (dereg settlement examples); why not zero-loss LTV: `zero-loss-ltv-example.md`; v5.2: `sn29-analysis.md` + `sn29/calc.py` → `res.json` (`r`-pump attack and fix numbers); v5.3: `lending-pnl/sim_final4.py` (escrowed-long books, same seeds and paths as `sim_final2.py`) + `lending-pnl/final4.py` → `data/final4.json`, `data/final4_pnl.csv`, `data/final4_long_default.csv` (thin floor on, tier LTV, escrowed-long P&L); `lift-lending-raise/calc.py` → `res.json` key `v53_raise_table` (raise tables, thin-tier mirrors).
@@ -9,8 +9,9 @@
 * **Every lending position (long and short) expires one year after it is opened** and is then settled automatically at the smoothed lending reference (EMA) price, using the same settlement math as dissolution smoothed settles (§13.3), with **no liquidations** (§15).
 * Storage shape: `Position.expires_at`, plus an expiry due-index / sorted bucket queue (`Expiry` / `ExpiryIndex` / `NextExpiry` / …) processed in `on_idle` with bounded per-block weight (resume via `ExpiryBucketCursor`).
 * **Top-ups / adds keep the original `expires_at`.** Partial repay leaves `expires_at` unchanged. If subnet dissolution starts before expiry, **dissolution settle wins** and clears the expiry queue entry.
+* **2026-10-28: directional EMA band on opens (§5.4).** New opens (and increases) that buy alpha reject if post-trade spot > `EMA · (1 + ema_band_bps)`; opens that sell alpha reject if post-trade spot < `EMA · (1 − ema_band_bps)`. Default `ema_band_bps = 1_500` (15%). Opposite-side opens always allowed; closes / repays / settles / expiries never blocked. Makes trade-splitting pointless (limit is on price state). Error: `PriceTooFarFromEma`.
 * Economics unchanged: 25% LTV / 15% thin, 100% APR burn-all interest, escrowed longs and shorts, pro-rata partial repay, custody earns no emissions, dissolution `r` protections, new-subnet gate and ramp.
-* Touched: header, §0, §8, §9, §15 (new).
+* Touched: header, §0, §5.4 (new), §8, §9, §15 (new).
 
 ## Changelog: v5.3 vs v5.2
 * **2026-10-20 (Oct 20, 2026): gap-closing release.**
@@ -66,6 +67,7 @@
   * **Not** return-until-whole (§6.1).
 * **No liquidations, no recall, no recourse.**
 * **One-year fixed term (locked).** Every long and short expires one year after open and auto-settles at the smoothed reference price (§15). Adds keep the original expiry; partial repay does not change it; dissolution settle wins if it comes first.
+* **Directional EMA band on opens (locked).** Longs (buys) cannot open if post-trade spot > EMA·1.15; shorts (sells) cannot if post-trade spot < EMA·0.85. Opposite side always allowed; exits never blocked (§5.4).
 * **User protections:** every trading extrinsic carries a min-out / max-price limit and a block deadline (§5.2). Partial repay is supported on both sides (§4.4). Escrow and collateral sit in lending custody on a non-validating hotkey and earn no emissions (§14).
 * **Shorters make money on deregistration (core requirement, §13).** Shorting a subnet down to dereg pays the shorter: at dissolution a short's debt is `P` alpha valued at the low dissolution rate `r` (smoothed and capped at the EMA price so it can't be pumped at the flag, §13.2). They keep `E_S + C − P·r`. Their escrow is **never** confiscated or swept into the pot. New shorts are **not** blocked near the dereg threshold, only once the subnet is actually flagged dissolving. All loans settle inside the dissolution flow, before the staker pot is paid.
 
@@ -253,6 +255,7 @@ require P ≤ LTV_tier · V_dyn
 * The runtime only enforces limits. The CLI computes every limit from the runtime quote APIs and `--max-slippage` (default 1%) and shows them in the review. Submission goes through the MEV-shield flow.
 * The old raise-only errors `RaiseSlippage` and `RaiseDeadlinePassed` become the general `SlippageExceeded` and `DeadlinePassed`.
 
+
 ### 5.3 What counts as long collateral (outside alpha)
 * **Only locked collateral `C` counts.** `V_dyn` (§5) values `C` and nothing else. Alpha the borrower holds outside lending custody is **never** counted toward LTV, `V_dyn`, interest backing or settlement. That includes other stake on the same or other hotkeys, other coldkeys, the raise's sold `S`, and alpha received after open. There is no cross-margin, and no lien on outside alpha.
   * Rationale: with no liquidations and no recourse (locked), the protocol can't seize outside alpha. Counting alpha that can be unstaked or moved the next block would be an LTV the protocol can't enforce, and keys are sybil-cheap.
@@ -261,6 +264,19 @@ require P ≤ LTV_tier · V_dyn
 * **Unlocked stake for the raise** (`C + S` check, §12.3) is stake on `(hotkey, coldkey, netuid)` minus lending collateral, minus miner/hotkey locks (`HotkeyLock`, `DecayingHotkeyLock`, miner collateral), minus anything else main treats as locked.
 * **At dereg** the borrower's outside alpha is paid by main's 2.2 like any stake, and it never offsets a long's `P − V` shortfall (§13.3.4). On default it isn't touched.
 * To borrow more against more alpha, the borrower increases `C` (an increase re-runs `V_dyn` on the whole position).
+
+### 5.4 Directional EMA band on opens (anti trade-splitting)
+> **Locked (Jacob):** a new open (including an increase and the raise's buy leg) cannot leave the spot price more than **15%** away from the lending EMA on the **exploitable** side. The check uses **post-trade** spot so one large trade cannot jump the band, and so splitting into many small trades in the same block cannot get past it either (the EMA only updates in `on_finalize`).
+
+* **Longs / buy legs** (`open` long, `open_exact` long, increase long, `open_long_and_sell`'s forced buy): reject with `PriceTooFarFromEma` if `spot_after > EMA · (1 + ema_band_bps/10_000)`.
+* **Shorts / sell legs** (`open` short, `open_exact` short, increase short): reject if `spot_after < EMA · (1 − ema_band_bps/10_000)`.
+* **Opposite side always allowed.** If spot is already above the long ceiling, shorts may still open (they push price down). If spot is already below the short floor, longs may still open.
+* **Never blocks:** `close`, `repay` (partial or full), dissolution settle, fixed-term expiry settle, interest collection, paced long-interest sales.
+* **Parameter:** `LiftParams.ema_band_bps`, default **1_500** (15%), root-settable via `set_lift_params`, validated `≤ 10_000` like the other bps fields.
+* **Why not a per-trade impact cap.** A size/impact cap per extrinsic can be bypassed by splitting. A band on **price state vs EMA** cannot: after the first fills that walk spot to the edge, further same-side opens fail until the EMA catches up or the other side / ordinary flow mean-reverts spot.
+* **Relation to capacity `move_bps` / `ref_tao`.** Those size `Cap` ("a 1k τ buy moves price 10%") and are unchanged. They are not a per-open trade limit.
+* **Relation to §5.2 user slippage limits.** `min_proceeds` / `min_escrow_alpha` / `max_payment` remain: they protect the caller against sandwiches. The EMA band is a protocol policy on opens only.
+* **#3211 `MinPriceImpactBps`.** Already dropped from this pallet (only dead weight stubs remain). Do not revive it; the EMA band replaces the anti-splitting purpose that a protocol-side per-trade impact dial would have served.
 
 ## 6. Interest: 100% APR, burn all, with paced long sales
 * **Short TAO interest:** burned immediately (#3211 `burn_interest_tao`).
@@ -316,6 +332,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
 * **Execution limits (§5.2):** every trading extrinsic fails with `DeadlinePassed` after `valid_until`; each forced trade fails with `SlippageExceeded` / `BelowMinimumRefund` when a sandwich moves the price past the user's limit; all state rolls back.
 * **Partial repay (§4.4):** after `repay(k)`, every position field equals `(1 − k)×` the old value (to rounding), `L_S`/`L_L`/`B_L` fall by the slice, the pool's reserves change exactly as a `k`-sized close would, accrued interest to the block is charged once (no double charge on a later close), dust remainders are rejected, and a sequence of partial repays summing to `P` leaves the same end state as one `close`.
 * **Outside alpha (§5.3):** `V_dyn` is unchanged by any amount of the borrower's unlocked stake; the raise's `C + S` check excludes collateral, escrow and miner/hotkey locks.
+* **EMA band (§5.4):** same-side opens that would leave post-trade spot outside EMA±`ema_band_bps` fail with `PriceTooFarFromEma`; opposite side and all exits succeed.
 * **Fixed term (§15):** every position carries `expires_at = open + BlocksPerYear`; adds keep it; expiry auto-settles at the reference EMA with bounded `on_idle` weight; dissolution wins if earlier.
 * **Custody (§14):** escrow and collateral alpha sit on the lending custody hotkey and earn no emissions; the custody hotkey can't register, set children or take; coldkey swap re-keys positions to the new coldkey and later payouts go there; hotkey swap updates `position.hotkey`; the raise and all lending calls dispatch only under proxy types that already allow staking management.
 
@@ -333,7 +350,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
   * `Positions` (add `lift_tao`, `lift_alpha`; `proceeds` = short escrow TAO; new `escrow_alpha` = long escrow `A`; `custody` = the position's custody coldkey, stored rather than re-derived, so a coldkey swap doesn't move funds, §14), `OpenByNetuid`, `PositionCount`, `TotalPositions`, `LoanHotkeys`, `EscrowOwner`, `References`, `Due`, `NextDue`, `Expiry`, `NextExpiry`, `PalletHotkey`;
   * new: `Lifts: NetUid → {L_S, L_L, B_L, held_tao, held_alpha, escrow_tao, escrow_alpha, long_collateral_alpha, g_ema, t_ema, last}`, `LongInterestPending`, `LiftParams`, `SettleSnapshot: NetUid → {t_flag, t_ema_flag, moving_price}` (§13.2; `Δ0` and `T_settle` are computed at the start of `LendingSettlement`).
   * `t_ema` (§13.2): EMA of the subnet's pot TAO, updated once per block in `on_finalize` for every **live, non-dissolving** subnet, next to `g_ema`. It is frozen once the dissolving flag is set. The migration initialises it to the current `SubnetTAO` on every subnet; a newly registered subnet starts at its `SubnetTAO` at registration.
-* `LiftParams` (defaults in brackets): `floor` [3,300 bps], `thin_floor` [**1,500 bps, on**], `ref_tao`, `move_bps`, `ceiling`, `split_short`, `rebalance_target` (off), `rebalance_rate`, `thin_tao`, `ltv_short`, `ltv_long`, `thin_ltv_long`, `apr`, `slice_bps`, `crash_guard`, `settle_ema_blocks` (root-settable EMA window for `t_ema`, default 7,200 blocks = 24 h; changing it keeps the current `t_ema` value), `thin_tao` [3,000 τ], `thin_ltv_long` [1,500 bps], `new_subnet_min_age` [50,400 blocks], `new_subnet_ramp` [216,000 blocks] (§2.3).
+* `LiftParams` (defaults in brackets): `floor` [3,300 bps], `thin_floor` [**1,500 bps, on**], `ref_tao`, `move_bps`, `ceiling`, `split_short`, `rebalance_target` (off), `rebalance_rate`, `thin_tao`, `ltv_short`, `ltv_long`, `thin_ltv_long`, `apr`, `slice_bps`, `crash_guard`, `settle_ema_blocks` (root-settable EMA window for `t_ema`, default 7,200 blocks = 24 h; changing it keeps the current `t_ema` value), `thin_tao` [3,000 τ], `thin_ltv_long` [1,500 bps], `new_subnet_min_age` [50,400 blocks], `new_subnet_ramp` [216,000 blocks] (§2.3), `ema_band_bps` [**1,500 bps**, §5.4].
 * Calls:
   * `open`, `open_exact`, `close`; the short path always sells, and **the long path always buys and escrows** (no TAO payout);
   * **new `repay`** (partial repay, §4.4);

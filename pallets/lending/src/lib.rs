@@ -365,7 +365,7 @@ pub enum Side {
 }
 
 /// Root-settable capacity / LTV / interest / pacing parameters (bps where noted).
-#[freeze_struct("7c5d5c7cf10ec375")]
+#[freeze_struct("9a49f40a29bbd017")]
 #[derive(
     Encode,
     Decode,
@@ -415,6 +415,10 @@ pub struct LiftParams {
     pub new_subnet_min_age: u64,
     /// Blocks after the gate over which Cap ramps 0→1 (§2.3; default 216_000 ≈ 30 days).
     pub new_subnet_ramp: u64,
+    /// Max post-trade spot deviation from the lending EMA on the exploitable
+    /// side (§5.4; default 1500 = 15%). Longs reject if spot > EMA·(1+band);
+    /// shorts reject if spot < EMA·(1−band). Closes / repays / settles ignore it.
+    pub ema_band_bps: u16,
 }
 
 impl Default for LiftParams {
@@ -438,8 +442,32 @@ impl Default for LiftParams {
             settle_ema_blocks: 7_200,
             new_subnet_min_age: 50_400,
             new_subnet_ramp: 216_000,
+            ema_band_bps: 1_500,
         }
     }
+}
+
+/// Pre-`ema_band_bps` layout for the one-shot LiftParams migration.
+#[derive(Encode, Decode, MaxEncodedLen, TypeInfo, Clone, Copy, PartialEq, Eq)]
+struct LiftParamsBeforeEmaBand {
+    floor_bps: u16,
+    thin_floor_bps: u16,
+    ref_tao: u64,
+    move_bps: u16,
+    ceiling_bps: u16,
+    split_short_bps: u16,
+    rebalance_target_bps: u16,
+    rebalance_rate_bps: u16,
+    thin_tao: u64,
+    ltv_short_bps: u16,
+    ltv_long_bps: u16,
+    thin_ltv_long_bps: u16,
+    apr_bps: u16,
+    slice_bps: u16,
+    crash_guard_bps: u16,
+    settle_ema_blocks: u64,
+    new_subnet_min_age: u64,
+    new_subnet_ramp: u64,
 }
 
 #[freeze_struct("d323ee362fafacc9")]
@@ -939,6 +967,10 @@ pub mod pallet {
         /// that kept the old custody account). Refuse a fresh open so two loans
         /// cannot share one escrow (§14).
         EscrowInUse,
+        /// Post-trade spot is outside the directional EMA band on the
+        /// exploitable side (§5.4). Longs: spot > EMA·(1+band); shorts:
+        /// spot < EMA·(1−band). Closes and repays are never blocked by this.
+        PriceTooFarFromEma,
     }
 
     #[pallet::hooks]
@@ -991,7 +1023,8 @@ pub mod pallet {
         }
 
         fn on_runtime_upgrade() -> Weight {
-            let weight = migrations::migrate_warm_references::<T>();
+            let weight = migrations::migrate_warm_references::<T>()
+                .saturating_add(migrations::migrate_lift_params_ema_band::<T>());
 
             // Initialize missing TaoEma entries to the current settlement basis.
             let mut writes = 0u64;
@@ -1232,12 +1265,45 @@ pub mod pallet {
                     && p.thin_ltv_long_bps <= 10_000
                     && p.apr_bps <= 10_000
                     && p.crash_guard_bps <= 10_000
+                    && p.ema_band_bps <= 10_000
                     && p.move_bps > 0
                     && p.ref_tao > 0
                     && p.settle_ema_blocks > 0
                     && p.new_subnet_ramp > 0,
                 Error::<T>::InvalidLiftParams
             );
+            Ok(())
+        }
+
+        /// §5.4: directional EMA band on opens. Checked against **post-trade**
+        /// spot so one large trade cannot jump past the band; splitting cannot
+        /// either, because the limit is on price state, not per-trade size.
+        /// Opposite-side opens are always allowed. Closes / repays / settles
+        /// never call this.
+        fn ensure_open_ema_band(
+            side: Side,
+            spot_after: U64F64,
+            ema: U64F64,
+            params: &LiftParams,
+        ) -> DispatchResult {
+            let band = u32::from(params.ema_band_bps);
+            let denom = U64F64::from_num(10_000u32);
+            match side {
+                Side::Long => {
+                    // Reject if spot_after > EMA * (1 + band).
+                    let ceiling = ema
+                        .saturating_mul(U64F64::from_num(10_000u32.saturating_add(band)))
+                        / denom;
+                    ensure!(spot_after <= ceiling, Error::<T>::PriceTooFarFromEma);
+                }
+                Side::Short => {
+                    // Reject if spot_after < EMA * (1 − band).
+                    let floor = ema
+                        .saturating_mul(U64F64::from_num(10_000u32.saturating_sub(band)))
+                        / denom;
+                    ensure!(spot_after >= floor, Error::<T>::PriceTooFarFromEma);
+                }
+            }
             Ok(())
         }
 
@@ -2089,6 +2155,14 @@ pub mod pallet {
                     (0u64, a.to_u64())
                 }
             };
+
+            // §5.4: post-trade spot vs lending EMA (transactional → rolls back on Err).
+            Self::ensure_open_ema_band(
+                side,
+                T::Pool::current_alpha_price(netuid),
+                reference.price,
+                &params,
+            )?;
 
             position.principal = Self::add(position.principal, principal)?;
             position.collateral = Self::add(position.collateral, collateral)?;
