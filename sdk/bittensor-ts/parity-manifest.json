@@ -82,7 +82,7 @@
     "sdk/bittensor-core/src/transaction/operations.rs": "c80d3809a361114820b755f6f8fc9bb91424401dcc797ba1eaddd4c8505f2ef9",
     "sdk/python/bittensor/__init__.py": "28fc1a93c067b68c996f50ac12d1ec72e607590bf98e7d23d2bc4d72b42e858f",
     "sdk/python/bittensor/_generated/__init__.py": "3a3051da2738a370350e7706e788462e2f392da784190656676ac5f50baae0e8",
-    "sdk/python/bittensor/_generated/calls.py": "38bfafe86166fceff8576074b1391b448c546439103ea7bf087f22317bfa7200",
+    "sdk/python/bittensor/_generated/calls.py": "0b11cff1c797429d22d87a47380c31d4ce1131113cd3c2a280982f0c55c42b83",
     "sdk/python/bittensor/_generated/constants.py": "f86e2842e56ea9fbb072666c398ace93867123d83d66ad2ae978336f24bbbb40",
     "sdk/python/bittensor/_generated/errors.py": "ec56b5a682c622a084f43791da0ae3f369f9b001f89a7c0072acec10d7db7c75",
     "sdk/python/bittensor/_generated/runtime_apis.py": "a1427342360fead4ef5790ebca6b4c98953f0c4d25b18c2c70ac9ebad60105a6",
