@@ -633,7 +633,7 @@
   {
     "name": "close_loan",
     "summary": "Repay total principal and return remaining collateral on a subnet.",
-    "description": "Repay total principal and return remaining collateral on a subnet.\n\nBy default (`repay_from_wallet=False`) an escrowed short buys its alpha\ndebt back through the AMM using escrow sale proceeds plus remaining TAO\ncollateral, then refunds any leftover TAO. Set `repay_from_wallet=True`\nto repay short alpha from the saved hotkey instead and receive the full\nescrow pot. A long with the default sells escrow (then collateral) for\nprincipal TAO (selling only enough collateral to cover any shortfall,\nreturning leftover collateral as alpha); `repay_from_wallet=True` pays\nTAO from free balance and returns escrow alpha. Both charge accrued\ninterest through the closing block. A failed repayment, payment ceiling\nor refund floor rolls back.\n\n`max_payment` is TAO for AMM short closes and long repayment, or alpha\nfor a wallet-repaid short. `min_refund` is TAO for shorts and alpha for\nlongs (matching the refund asset on each path). Units are checked against\nthe owner's actual stored position. Closing remains available when new\nborrowing is disabled.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield`.",
+    "description": "Repay total principal and return remaining collateral on a subnet.\n\nBy default (`repay_from_wallet=False`) an escrowed short buys its alpha\ndebt back through the AMM using escrow sale proceeds plus remaining TAO\ncollateral, then refunds any leftover TAO. Set `repay_from_wallet=True`\nto repay short alpha from stake on `hotkey_ss58` instead and receive the\nfull escrow pot. A long with the default sells escrow (then collateral) for\nprincipal TAO (selling only enough collateral to cover any shortfall,\nreturning leftover collateral as alpha to `hotkey_ss58`);\n`repay_from_wallet=True` pays TAO from free balance and returns escrow\nalpha to `hotkey_ss58`. Both charge accrued interest through the closing\nblock. A failed repayment, payment ceiling or refund floor rolls back.\n\nPositions do not store a hotkey; `hotkey_ss58` is required whenever alpha\nmoves to or from the caller's stake (wallet alpha repay, or alpha refund).\n`max_payment` is TAO for AMM short closes and long repayment, or alpha\nfor a wallet-repaid short. `min_refund` is TAO for shorts and alpha for\nlongs (matching the refund asset on each path). Units are checked against\nthe owner's actual stored position. Closing remains available when new\nborrowing is disabled.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -677,9 +677,13 @@
           ],
           "description": "Minimum returned collateral: TAO for shorts, alpha for longs."
         },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey for alpha repay (short wallet path) or alpha refund (long close / short buyback surplus). Defaults to the wallet hotkey."
+        },
         "repay_from_wallet": {
           "type": "boolean",
-          "description": "False (default): buy short alpha back from escrow / sell long escrow. True: repay short alpha from the saved hotkey, or pay long TAO from wallet."
+          "description": "False (default): buy short alpha back from escrow / sell long escrow. True: repay short alpha from hotkey stake, or pay long TAO from wallet."
         },
         "valid_until": {
           "type": "integer",
@@ -700,9 +704,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1209,
-        "end_line": 1226,
-        "url": "/code/pallets/lending/src/lib.rs#L1206-L1226",
+        "line": 1178,
+        "end_line": 1197,
+        "url": "/code/pallets/lending/src/lib.rs#L1175-L1197",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1960,7 +1964,7 @@
   {
     "name": "open_loan",
     "summary": "Open or increase a fixed-principal subnet loan at up to 25% LTV.",
-    "description": "Open or increase a fixed-principal subnet loan at up to 25% LTV.\n\nA short locks TAO collateral, lifts borrowed alpha, and immediately sells\nthat alpha into escrow TAO (`proceeds`) on the position's custody account.\nA long locks existing free alpha stake, lifts TAO, and buys escrow alpha\nwith the borrowed TAO (no free TAO payout). Debt stays in the borrowed\ncurrency. Interest is 100% annually on opening loan value, charged in fixed\ncollateral units and collected every `InterestPeriod` blocks (runtime\nconstant; 50_400 \u2248 7 days at 12 s). There are no price-triggered\nliquidations; exhausted collateral forfeits the position.\n\nAlpha debt must also fit 25% of collateral at a conservative immediate\nfunded-redemption valuation, including payout rounding. TAO debt requires\nconservative funded collateral backing. New borrowing must preserve each\nother same-side loan's individual coverage after accrued interest. These\nopening checks do not guarantee future repayment.\n\nAn existing position must have the same side and hotkey. `collateral`\nadds to its remaining collateral after accrued interest; borrowed principal,\nand the new fixed coupon add to the saved position.\nThe old coupon is not repriced. The combined position must pass current\nopening guards, and an already exhausted position cannot be increased.\n\n`amount` selects exact additional principal: alpha for shorts and TAO\nfor longs. With no amount, the collateral determines the borrowing limit.\nThe runtime transfers exactly the requested amount or refuses the call.\n`min_borrow` is a floor on additional principal. `min_proceeds` is the\nshort's minimum escrow TAO from the forced sale (slippage floor);\n`min_escrow_alpha` is the long's minimum escrow alpha from the forced buy.\nThe call is atomic and refuses a smaller loan or opening value. There remains one\nposition per coldkey and subnet; closing repays its total principal.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield` (encrypted submission will never be decrypted).",
+    "description": "Open or increase a fixed-principal subnet loan at up to 25% LTV.\n\nA short locks TAO collateral, lifts borrowed alpha, and immediately sells\nthat alpha into escrow TAO (`proceeds`) on the position's custody account.\nA long locks existing free alpha stake, lifts TAO, and buys escrow alpha\nwith the borrowed TAO (no free TAO payout). Debt stays in the borrowed\ncurrency. Interest is 100% annually on opening loan value, charged in fixed\ncollateral units and collected every `InterestPeriod` blocks (runtime\nconstant; 50_400 \u2248 7 days at 12 s). There are no price-triggered\nliquidations; exhausted collateral forfeits the position.\n\nAlpha debt must also fit 25% of collateral at a conservative immediate\nfunded-redemption valuation, including payout rounding. TAO debt requires\nconservative funded collateral backing. New borrowing must preserve each\nother same-side loan's individual coverage after accrued interest. These\nopening checks do not guarantee future repayment.\n\nPositions are keyed by `(coldkey, netuid)`. An existing position must\nhave the same side. `collateral` adds to its remaining collateral after\naccrued interest; borrowed principal and the new fixed coupon add to the\nsaved position. The old coupon is not repriced. The combined position must\npass current opening guards, and an already exhausted position cannot be\nincreased.\n\nShorts are TAO-only and must omit `hotkey_ss58` (the call passes\n`source_hotkey=None`). Longs require `hotkey_ss58` as the stake that\nsupplies collateral alpha. `amount` selects exact additional principal:\nalpha for shorts and TAO for longs. With no amount, the collateral\ndetermines the borrowing limit. The runtime transfers exactly the\nrequested amount or refuses the call. `min_borrow` is a floor on\nadditional principal. `min_proceeds` is the short's minimum escrow TAO\nfrom the forced sale (slippage floor); `min_escrow_alpha` is the long's\nminimum escrow alpha from the forced buy. The call is atomic and refuses a\nsmaller loan or opening value. There remains one position per coldkey and\nsubnet; closing repays its total principal.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield` (encrypted submission will never be decrypted).",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2001,7 +2005,7 @@
         },
         "hotkey_ss58": {
           "type": "string",
-          "description": "Hotkey receiving short alpha or holding long collateral and repayment alpha."
+          "description": "Long only: hotkey whose free alpha supplies collateral. Omit for shorts (TAO-only; no hotkey on open)."
         },
         "min_borrow": {
           "anyOf": [
@@ -2075,18 +2079,18 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1147,
-        "end_line": 1171,
-        "url": "/code/pallets/lending/src/lib.rs#L1145-L1171",
+        "line": 1113,
+        "end_line": 1137,
+        "url": "/code/pallets/lending/src/lib.rs#L1111-L1137",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
         "pallet": "Lending",
         "call": "open_exact",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1176,
-        "end_line": 1203,
-        "url": "/code/pallets/lending/src/lib.rs#L1174-L1203",
+        "line": 1142,
+        "end_line": 1169,
+        "url": "/code/pallets/lending/src/lib.rs#L1140-L1169",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2305,9 +2309,9 @@
         "pallet": "Lending",
         "call": "open_long_and_sell",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1232,
-        "end_line": 1260,
-        "url": "/code/pallets/lending/src/lib.rs#L1229-L1260",
+        "line": 1203,
+        "end_line": 1231,
+        "url": "/code/pallets/lending/src/lib.rs#L1200-L1231",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

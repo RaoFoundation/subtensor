@@ -185,11 +185,12 @@ def open_loan(
     1%) and the old coupon's conservative submission window. Use 0 to provide
     exactly the calculated minimum. Borrowed principal stays exact.
 
-    Shorts force-sell borrowed alpha into escrowed TAO. Longs force-buy with
-    borrowed TAO into escrowed alpha. No free borrowed assets are delivered.
-    An existing position must
-    use the same side and hotkey. btcli quotes additional debt after checking
-    the combined position and refuses to submit when a quote is unavailable.
+    Shorts force-sell borrowed alpha into escrowed TAO and take no hotkey
+    (TAO-only). Longs force-buy with borrowed TAO into escrowed alpha and
+    require --hotkey as the collateral source. No free borrowed assets are
+    delivered. An existing position must use the same side. btcli quotes
+    additional debt after checking the combined position and refuses to
+    submit when a quote is unavailable.
     """
     context = ctx_of(ctx)
     if amount is not None and collateral is not None:
@@ -203,7 +204,11 @@ def open_loan(
     if owner is None:
         context.output.error("select the account that owns this loan before borrowing")
         raise typer.Exit(2)
-    hotkey = context.resolve_address("hotkey_ss58", hotkey_ss58)
+    # Shorts omit hotkey; longs resolve the collateral source.
+    hotkey = None if side == Side.short else context.resolve_address("hotkey_ss58", hotkey_ss58)
+    if side == Side.short and hotkey_ss58 is not None:
+        context.output.error("short open is TAO-only; omit --hotkey")
+        raise typer.Exit(2)
     requested = None
     minimum_collateral = None
     if amount is not None:
@@ -221,7 +226,7 @@ def open_loan(
                 side=side.value,
                 amount=requested,
                 coldkey_ss58=owner,
-                hotkey_ss58=hotkey,
+                **({"hotkey_ss58": hotkey} if hotkey is not None else {}),
             )
             minimum = required["collateral"]
             provided = await _provided_collateral(client, minimum, netuid, owner, max_slippage)
@@ -247,7 +252,7 @@ def open_loan(
                 side=side.value,
                 collateral=intent.collateral,
                 coldkey_ss58=owner,
-                hotkey_ss58=hotkey,
+                **({"hotkey_ss58": hotkey} if hotkey is not None else {}),
                 **({"amount": requested} if requested is not None else {}),
             )
         )
@@ -258,31 +263,27 @@ def open_loan(
     )
     if side == Side.short:
         intent.min_proceeds = _bound(quote["opening_value"], max_slippage)
+    loan_rows = [
+        ("loan owner", owner),
+        *([("collateral hotkey", hotkey)] if hotkey is not None else []),
+        *(
+            [("calculated minimum collateral", str(minimum_collateral))]
+            if minimum_collateral is not None
+            else []
+        ),
+        ("provided collateral", str(intent.collateral)),
+        (
+            "exact amount to borrow" if requested is not None else "borrowing limit",
+            str(quote["principal"]),
+        ),
+        ("minimum additional principal", str(intent.min_borrow)),
+        ("minimum additional opening value", str(intent.min_proceeds)),
+        ("additional interest per year", str(quote["annual_interest"])),
+    ]
     context.submit(
         intent,
         proxy_for=proxy or "self",
-        card_sections=[
-            (
-                "Loan",
-                [
-                    ("loan owner", owner),
-                    ("hotkey", hotkey),
-                    *(
-                        [("calculated minimum collateral", str(minimum_collateral))]
-                        if minimum_collateral is not None
-                        else []
-                    ),
-                    ("provided collateral", str(intent.collateral)),
-                    (
-                        "exact amount to borrow" if requested is not None else "borrowing limit",
-                        str(quote["principal"]),
-                    ),
-                    ("minimum additional principal", str(intent.min_borrow)),
-                    ("minimum additional opening value", str(intent.min_proceeds)),
-                    ("additional interest per year", str(quote["annual_interest"])),
-                ],
-            )
-        ],
+        card_sections=[("Loan", loan_rows)],
     )
 
 
@@ -291,10 +292,18 @@ def open_loan(
 def close_loan(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", min=1, max=65535, help="Subnet of your position."),
+    hotkey_ss58: Optional[str] = typer.Option(
+        None,
+        address_cli_name("hotkey_ss58"),
+        help=CloseLoan.field_help("hotkey_ss58"),
+    ),
     repay_from_wallet: bool = typer.Option(
         True,
         "--repay-from-wallet/--no-repay-from-wallet",
-        help="Repay short alpha from its saved hotkey; disable to buy with remaining collateral.",
+        help=(
+            "Repay short alpha from --hotkey stake; disable to buy with remaining collateral. "
+            "Longs always name --hotkey for alpha refund."
+        ),
     ),
     max_slippage: float = typer.Option(
         1.0,
@@ -306,16 +315,19 @@ def close_loan(
 ):
     """Repay fixed principal and return remaining collateral.
 
-    A short normally supplies alpha from its saved hotkey. Opt out to buy
-    that alpha using only remaining TAO collateral. A long repays
-    TAO from your wallet. The full runtime quote sets a payment ceiling and
-    refund floor; a failed quote stops submission.
+    Positions store no hotkey. Pass --hotkey for alpha repay (short wallet
+    path) or alpha refund (long close / short buyback surplus). A short
+    normally supplies alpha from that hotkey; opt out to buy with remaining
+    TAO collateral. A long repays TAO from your wallet and refunds alpha to
+    --hotkey. The full runtime quote sets a payment ceiling and refund floor;
+    a failed quote stops submission.
     """
     context = ctx_of(ctx)
     owner = context.review_account()
     if owner is None:
         context.output.error("select the account that owns this position before closing")
         raise typer.Exit(2)
+    hotkey = context.resolve_address("hotkey_ss58", hotkey_ss58)
     with context.output.activity("quoting the repayment…"):
         quote = context.run(
             lambda client: client.read(
@@ -327,6 +339,7 @@ def close_loan(
         )
     intent = CloseLoan(
         netuid=netuid,
+        hotkey_ss58=hotkey,
         repay_from_wallet=repay_from_wallet,
         max_payment=_bound(quote["payment"], max_slippage, ceiling=True),
         min_refund=_bound(quote["refund"], max_slippage),
@@ -337,6 +350,7 @@ def close_loan(
             (
                 "Repayment",
                 [
+                    ("alpha hotkey", hotkey),
                     ("quoted payment", str(quote["payment"])),
                     ("maximum payment", str(intent.max_payment)),
                     ("quoted refund", str(quote["refund"])),

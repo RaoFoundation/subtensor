@@ -18,8 +18,9 @@ DESCRIPTIONS: dict[str, str] = {
         "valid_after block."
     ),
     "PositionExists": (
-        "This coldkey's existing subnet loan has a different side or hotkey. Use its saved side "
-        "and hotkey to increase it, or repay and close before opening a different position."
+        "This coldkey already has a subnet loan (or a coldkey-swap target already holds one). "
+        "Use the same side to increase it, or repay and close before opening a different "
+        "position. Positions are keyed by (coldkey, netuid) only."
     ),
     "PositionMissing": (
         "This coldkey has no open loan on the subnet. Check lending_position and the signing "
@@ -143,14 +144,11 @@ DESCRIPTIONS: dict[str, str] = {
     "PositionSideMismatch": (
         "The existing position's side does not match this call. Close first or use the saved side."
     ),
-    "HotkeyMismatch": (
-        "The existing position's hotkey does not match this call. Close first or reuse the "
-        "saved hotkey."
-    ),
-    "HotkeyNotOwned": (
-        "A fresh long or short open must name a hotkey owned by the signing coldkey. "
-        "Third-party hotkeys are rejected so unsolicited loans cannot inflate another "
-        "account's hotkey-swap weight."
+    "InvalidSourceHotkey": (
+        "Long open / increase / raise requires a source_hotkey (alpha is locked from that "
+        "stake). Short open / top-up is TAO-only and must omit source_hotkey (pass None). "
+        "Close and repay take a per-call hotkey only when alpha moves to or from the "
+        "caller's stake."
     ),
     "InvalidQuote": (
         "A required executable-depth quote or repayment swap is unavailable. Check curve "

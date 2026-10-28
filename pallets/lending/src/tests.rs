@@ -605,14 +605,14 @@ fn lift_readd_preserves_price() {
 fn short_escrows_tao_not_free_alpha() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -642,7 +642,7 @@ fn long_escrows_alpha_not_free_tao() {
             netuid(),
             Side::Long,
             10_000_000_000_000,
-            hotkey.clone(),
+            Some(hotkey.clone()),
             1,
             0,
             0,
@@ -786,7 +786,7 @@ fn raise_after_interest_forfeit_sells_full_new_escrow() {
 fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 100_000_000_000_000);
         // Small short so Cap_short = 7.5%·G_ema can be set equal to its lift
         // while G_ema stays under the thin threshold.
@@ -794,8 +794,8 @@ fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
-            100_000_000_000, // 0.1 τ collateral
-            hotkey.clone(),
+            100_000_000_000,
+            None,
             1,
             0,
             0,
@@ -831,7 +831,7 @@ fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
         System::set_block_number(now.saturating_add(520));
         mint_tao(&owner, 10_000_000_000_000);
         let add = 50_000_000_000u64;
-        let quoted = Lending::quote_open_for(&owner, netuid(), Side::Short, add, &hotkey)
+        let quoted = Lending::quote_open_for(&owner, netuid(), Side::Short, add, None)
             .expect("quote must see post-forfeit capacity");
         assert!(quoted.principal > 0);
         // Quote rolled back: position and full Cap still present.
@@ -842,7 +842,7 @@ fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
             netuid(),
             Side::Short,
             add,
-            hotkey,
+            None,
             quoted.principal,
             0,
             0,
@@ -1054,14 +1054,14 @@ fn capacity_floor_ceiling_and_side_split() {
 fn dynamic_valuation_tracks_spot_after_warmup() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -1092,7 +1092,7 @@ fn dynamic_valuation_tracks_spot_after_warmup() {
 fn section13_legacy_dump_short_gets_positive_refund() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 80_000_000_000_000);
         // Open short while price is ~1.
         assert_ok!(Lending::open(
@@ -1100,7 +1100,7 @@ fn section13_legacy_dump_short_gets_positive_refund() {
             netuid(),
             Side::Short,
             20_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -1183,14 +1183,14 @@ fn section132_one_block_pump_changes_short_settlement_under_1pct() {
             Lending::on_finalize(b);
         }
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 80_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             20_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -1259,14 +1259,14 @@ fn section132_one_block_pump_changes_short_settlement_under_1pct() {
 fn section132_no_pump_matches_spot_when_ema_equals_basis() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -1292,14 +1292,14 @@ fn section132_no_pump_matches_spot_when_ema_equals_basis() {
 fn section132_moving_price_cap_binds() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -1345,7 +1345,7 @@ fn section132_tao_ema_inits_to_current_basis() {
 fn dissolving_blocks_new_opens_only_when_flagged() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         // Near-dereg is NOT modeled; only Dissolutions flag blocks opens.
         assert_ok!(Lending::start_dissolution(netuid()));
@@ -1355,7 +1355,7 @@ fn dissolving_blocks_new_opens_only_when_flagged() {
                 netuid(),
                 Side::Short,
                 1_000_000_000_000,
-                hotkey,
+                None,
                 1,
                 1,
                 0,
@@ -1381,7 +1381,7 @@ fn short_ltv_values_tao_collateral_directly() {
             },
         );
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         let collateral = 100_000_000_000u64; // 100 TAO
         mint_tao(&owner, collateral * 2);
         // At 25% LTV, max TAO debt = 25 TAO. At price 10 that is 2.5 alpha.
@@ -1392,7 +1392,7 @@ fn short_ltv_values_tao_collateral_directly() {
                 netuid(),
                 Side::Short,
                 collateral,
-                hotkey.clone(),
+                None,
                 25_000_000_000, // 25 alpha ≈ 250 TAO debt
                 1,
                 0,
@@ -1407,7 +1407,7 @@ fn short_ltv_values_tao_collateral_directly() {
             netuid(),
             Side::Short,
             collateral,
-            hotkey,
+            None,
             2_000_000_000, // 2 alpha ≈ 20 TAO debt < 25 TAO max
             1,
             0,
@@ -1611,7 +1611,7 @@ fn short_buyback_bounds_input_to_remaining_principal() {
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey.clone(),
+            None,
             100_000_000_000, // small principal
             1,
             0,
@@ -1643,14 +1643,14 @@ fn short_buyback_bounds_input_to_remaining_principal() {
 fn dissolution_interest_does_not_forfeit_after_readd() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -1678,14 +1678,14 @@ fn dissolution_interest_does_not_forfeit_after_readd() {
 fn settle_phase0_subtracts_delta0_and_emits_settle_rate_fixed() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -1739,7 +1739,7 @@ fn deadline_passed_rejects_open_close_and_raise() {
                 netuid(),
                 Side::Short,
                 1_000_000_000_000,
-                hotkey.clone(),
+                None,
                 1,
                 0,
                 0,
@@ -1753,7 +1753,7 @@ fn deadline_passed_rejects_open_close_and_raise() {
                 netuid(),
                 Side::Long,
                 1_000_000_000_000,
-                hotkey.clone(),
+                Some(hotkey.clone()),
                 1_000_000_000,
                 0,
                 0,
@@ -1783,7 +1783,7 @@ fn deadline_passed_rejects_open_close_and_raise() {
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey,
+            None,
             1,
             0,
             0,
@@ -1817,7 +1817,7 @@ fn long_open_enforces_min_escrow_alpha_short_uses_min_proceeds_only() {
                 netuid(),
                 Side::Long,
                 5_000_000_000_000,
-                hotkey.clone(),
+                Some(hotkey.clone()),
                 1,
                 0,        // min_proceeds ignored for longs
                 u64::MAX, // min_escrow_alpha
@@ -1833,7 +1833,7 @@ fn long_open_enforces_min_escrow_alpha_short_uses_min_proceeds_only() {
                 netuid(),
                 Side::Short,
                 5_000_000_000_000,
-                hotkey,
+                None,
                 1,
                 u64::MAX, // min_proceeds
                 0,        // min_escrow_alpha ignored for shorts
@@ -1855,7 +1855,7 @@ fn partial_repay_scales_position_pro_rata() {
             netuid(),
             Side::Short,
             40_000_000_000_000,
-            hotkey.clone(),
+            None,
             4_000_000_000_000,
             1,
             0,
@@ -1903,14 +1903,14 @@ fn coldkey_swap_rekeys_position_without_moving_custody() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let new_owner = account(11);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -1938,7 +1938,7 @@ fn new_subnet_gate_and_capacity_ramp() {
         // Restore production defaults.
         LiftParamsStore::<Test>::put(LiftParams::default());
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         set_subtoken_enabled(false);
         assert_err!(
@@ -1947,7 +1947,7 @@ fn new_subnet_gate_and_capacity_ramp() {
                 netuid(),
                 Side::Short,
                 1_000_000_000_000,
-                hotkey.clone(),
+                None,
                 1,
                 0,
                 0,
@@ -1964,7 +1964,7 @@ fn new_subnet_gate_and_capacity_ramp() {
                 netuid(),
                 Side::Short,
                 1_000_000_000_000,
-                hotkey.clone(),
+                None,
                 1,
                 0,
                 0,
@@ -1989,7 +1989,7 @@ fn new_subnet_gate_and_capacity_ramp() {
             book.g_ema = pool_tao();
         });
         assert_err!(
-            Lending::quote_open_for(&owner, netuid(), Side::Short, 20_000_000_000_000, &hotkey),
+            Lending::quote_open_for(&owner, netuid(), Side::Short, 20_000_000_000_000, None),
             Error::<Test>::SideCapacityRamping
         );
         assert_err!(
@@ -1998,7 +1998,7 @@ fn new_subnet_gate_and_capacity_ramp() {
                 netuid(),
                 Side::Short,
                 20_000_000_000_000,
-                hotkey,
+                None,
                 1,
                 0,
                 0,
@@ -2016,7 +2016,7 @@ fn side_capacity_ramping_when_only_ramp_binds_quote_matches_open() {
         // fraction of full. Full Cap still dwarfs a modest short.
         LiftParamsStore::<Test>::put(LiftParams::default());
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 100_000_000_000_000);
         let params = LiftParams::default();
         let now = System::block_number().max(params.new_subnet_min_age + 2);
@@ -2029,7 +2029,7 @@ fn side_capacity_ramping_when_only_ramp_binds_quote_matches_open() {
         });
         let collateral = 5_000_000_000_000u64;
         assert_err!(
-            Lending::quote_open_for(&owner, netuid(), Side::Short, collateral, &hotkey),
+            Lending::quote_open_for(&owner, netuid(), Side::Short, collateral, None),
             Error::<Test>::SideCapacityRamping
         );
         assert_err!(
@@ -2038,7 +2038,7 @@ fn side_capacity_ramping_when_only_ramp_binds_quote_matches_open() {
                 netuid(),
                 Side::Short,
                 collateral,
-                hotkey.clone(),
+                None,
                 1,
                 0,
                 0,
@@ -2063,14 +2063,14 @@ fn side_capacity_ramping_when_only_ramp_binds_quote_matches_open() {
             netuid(),
             Side::Short,
             collateral,
-            &hotkey
+            None
         ));
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner),
             netuid(),
             Side::Short,
             collateral,
-            hotkey,
+            None,
             1,
             0,
             0,
@@ -2096,14 +2096,14 @@ fn coldkey_swap_interest_debits_stored_custody() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let new_owner = account(11);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             1,
             0,
@@ -2138,7 +2138,7 @@ fn open_after_coldkey_swap_rejects_escrow_in_use() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let new_owner = account(11);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         mint_tao(&new_owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
@@ -2146,7 +2146,7 @@ fn open_after_coldkey_swap_rejects_escrow_in_use() {
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             1,
             0,
@@ -2166,7 +2166,7 @@ fn open_after_coldkey_swap_rejects_escrow_in_use() {
                 netuid(),
                 Side::Short,
                 10_000_000_000_000,
-                hotkey,
+                None,
                 1,
                 1,
                 0,
@@ -2187,8 +2187,8 @@ fn coldkey_swap_rejects_destination_with_existing_loan() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let dest = account(11);
-        let hotkey_a = account(2);
-        let hotkey_b = account(3);
+        let _hotkey_a = account(2);
+        let _hotkey_b = account(3);
         mint_tao(&owner, 50_000_000_000_000);
         mint_tao(&dest, 50_000_000_000_000);
         assert_ok!(Lending::open(
@@ -2196,7 +2196,7 @@ fn coldkey_swap_rejects_destination_with_existing_loan() {
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey_a,
+            None,
             1,
             1,
             0,
@@ -2207,7 +2207,7 @@ fn coldkey_swap_rejects_destination_with_existing_loan() {
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey_b,
+            None,
             1,
             1,
             0,
@@ -2232,14 +2232,14 @@ fn coldkey_swap_rejects_destination_with_existing_loan() {
 fn short_settlement_uses_terminal_split_for_recovery_and_refund() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -2303,7 +2303,7 @@ fn cold_lending_ext() -> sp_io::TestExternalities {
 fn open_before_warm_reference_fails_without_stuck_state() {
     cold_lending_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         let params = LiftParams::default();
         // Past min age so the only missing piece is the reference / G_ema seed.
@@ -2315,7 +2315,7 @@ fn open_before_warm_reference_fails_without_stuck_state() {
                 netuid(),
                 Side::Short,
                 10_000_000_000_000,
-                hotkey,
+                None,
                 1,
                 1,
                 0,
@@ -2338,7 +2338,7 @@ fn warm_reference_then_open_after_warmup_succeeds() {
     cold_lending_ext().execute_with(|| {
         let owner = account(1);
         let warmer = account(9);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         let params = LiftParams::default();
         let warmup: u64 = <<Test as Config>::ReferenceWarmup as Get<_>>::get();
@@ -2370,7 +2370,7 @@ fn warm_reference_then_open_after_warmup_succeeds() {
                 netuid(),
                 Side::Short,
                 10_000_000_000_000,
-                hotkey.clone(),
+                None,
                 1,
                 1,
                 0,
@@ -2397,7 +2397,7 @@ fn warm_reference_then_open_after_warmup_succeeds() {
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -2440,7 +2440,7 @@ fn warm_reference_ages_g_ema_via_on_finalize_before_min_age() {
                 netuid(),
                 Side::Short,
                 10_000_000_000_000,
-                account(2),
+                None,
                 1,
                 1,
                 0,
@@ -2726,7 +2726,7 @@ fn registration_hook_seeds_without_manual_warm_and_open_succeeds_after_gate() {
         );
 
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         let params = LiftParams::default();
         // Past min age + Cap ramp + reference warmup. Finalize once so G_ema
@@ -2745,7 +2745,7 @@ fn registration_hook_seeds_without_manual_warm_and_open_succeeds_after_gate() {
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -2766,14 +2766,14 @@ fn max_active_net_updates_covers_global_subnet_cap() {
 fn fixed_term_expiry_settles_at_smoothed_reference_price() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -2845,7 +2845,7 @@ fn fixed_term_expiry_restores_long_held_alpha() {
             netuid(),
             Side::Long,
             10_000_000_000_000,
-            hotkey,
+            Some(hotkey),
             1,
             0,
             1,
@@ -2875,7 +2875,7 @@ fn long_expiry_preserves_collateral_when_pot_payout_fails() {
             netuid(),
             Side::Long,
             10_000_000_000_000,
-            hotkey.clone(),
+            Some(hotkey.clone()),
             1,
             0,
             1,
@@ -2939,7 +2939,7 @@ fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
             netuid(),
             Side::Long,
             10_000_000_000_000,
-            hotkey,
+            Some(hotkey),
             1,
             0,
             1,
@@ -3004,14 +3004,14 @@ fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
 fn expiry_stops_after_interest_forfeits_short() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             1,
@@ -3063,7 +3063,7 @@ fn expiry_stops_after_interest_forfeits_long() {
             netuid(),
             Side::Long,
             10_000_000_000_000,
-            hotkey,
+            Some(hotkey),
             1,
             0,
             1,
@@ -3101,14 +3101,14 @@ fn failed_expiry_does_not_block_later_bucket() {
         let owner_fail = account(1);
         let owner_ok = account(3);
         let hotkey_fail = account(2);
-        let hotkey_ok = account(4);
+        let _hotkey_ok = account(4);
         mint_alpha(&owner_fail, &hotkey_fail, netuid(), 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner_fail.clone()),
             netuid(),
             Side::Long,
             10_000_000_000_000,
-            hotkey_fail,
+            Some(hotkey_fail),
             1,
             0,
             1,
@@ -3125,7 +3125,7 @@ fn failed_expiry_does_not_block_later_bucket() {
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey_ok,
+            None,
             1,
             1,
             1,
@@ -3207,8 +3207,8 @@ fn coldkey_swap_rewinds_expiry_cursor_so_due_loan_still_settles() {
         let owner_a = account(1);
         let owner_b = account(2);
         let dest = account(99);
-        let hotkey_a = account(10);
-        let hotkey_b = account(11);
+        let _hotkey_a = account(10);
+        let _hotkey_b = account(11);
         mint_tao(&owner_a, 50_000_000_000_000);
         mint_tao(&owner_b, 50_000_000_000_000);
         assert_ok!(Lending::open(
@@ -3216,7 +3216,7 @@ fn coldkey_swap_rewinds_expiry_cursor_so_due_loan_still_settles() {
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey_a,
+            None,
             1,
             1,
             0,
@@ -3227,7 +3227,7 @@ fn coldkey_swap_rewinds_expiry_cursor_so_due_loan_still_settles() {
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey_b,
+            None,
             1,
             1,
             0,
@@ -3277,7 +3277,7 @@ fn fixed_term_partial_repay_keeps_expiry_after_increase_restart() {
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             1,
             0,
@@ -3291,7 +3291,7 @@ fn fixed_term_partial_repay_keeps_expiry_after_increase_restart() {
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             1,
             0,
@@ -3331,7 +3331,7 @@ fn long_collateral_top_up_restarts_fixed_term() {
             netuid(),
             Side::Long,
             5_000_000_000_000,
-            hotkey.clone(),
+            Some(hotkey.clone()),
             1,
             0,
             1,
@@ -3351,7 +3351,7 @@ fn long_collateral_top_up_restarts_fixed_term() {
             netuid(),
             Side::Long,
             2_000_000_000_000,
-            hotkey,
+            Some(hotkey),
             1,
             0,
             1,
@@ -3382,14 +3382,14 @@ fn long_collateral_top_up_restarts_fixed_term() {
 fn short_increase_restarts_fixed_term() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 100_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             0,
             0,
@@ -3405,7 +3405,7 @@ fn short_increase_restarts_fixed_term() {
             netuid(),
             Side::Short,
             2_000_000_000_000,
-            hotkey,
+            None,
             1,
             0,
             0,
@@ -3457,8 +3457,11 @@ fn long_expiry_caps_collateral_at_amm_not_ema_dump() {
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Long,
-            900_000_000_000, // 900 α collateral
-            hotkey,
+            900_000_000_000,
+            Some(
+                // 900 α collateral
+                hotkey
+            ),
             1_000_000_000, // 1 τ principal
             0,
             1,
@@ -3508,14 +3511,14 @@ fn fixed_term_expiry_is_bounded_by_weight() {
         let n = 4u8;
         for i in 0..n {
             let owner = account(10 + i);
-            let hotkey = account(50 + i);
+            let _hotkey = account(50 + i);
             mint_tao(&owner, 50_000_000_000_000);
             assert_ok!(Lending::open(
                 RuntimeOrigin::signed(owner),
                 netuid(),
                 Side::Short,
                 5_000_000_000_000,
-                hotkey,
+                None,
                 1,
                 1,
                 0,
@@ -3556,14 +3559,14 @@ fn fixed_term_expiry_is_bounded_by_weight() {
 fn dissolution_before_expiry_wins() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -3625,7 +3628,7 @@ fn ema_band_blocks_long_above_ceiling_but_allows_short() {
                 netuid(),
                 Side::Long,
                 5_000_000_000_000,
-                hotkey.clone(),
+                Some(hotkey.clone()),
                 1,
                 0,
                 1,
@@ -3640,7 +3643,7 @@ fn ema_band_blocks_long_above_ceiling_but_allows_short() {
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -3673,7 +3676,7 @@ fn ema_band_blocks_short_below_floor_but_allows_long() {
                 netuid(),
                 Side::Short,
                 10_000_000_000_000,
-                hotkey.clone(),
+                None,
                 1,
                 1,
                 0,
@@ -3688,7 +3691,7 @@ fn ema_band_blocks_short_below_floor_but_allows_long() {
             netuid(),
             Side::Long,
             5_000_000_000_000,
-            hotkey,
+            Some(hotkey),
             1,
             0,
             1,
@@ -3720,7 +3723,7 @@ fn ema_band_rejects_one_large_trade_that_would_cross() {
                 netuid(),
                 Side::Long,
                 80_000_000_000_000,
-                hotkey,
+                Some(hotkey),
                 10_000_000_000_000,
                 1,
                 1,
@@ -3754,7 +3757,7 @@ fn ema_band_many_small_opens_cannot_cross_in_one_block() {
                 netuid(),
                 Side::Long,
                 8_000_000_000_000,
-                hotkey,
+                Some(hotkey),
                 1_000_000_000_000,
                 1,
                 1,
@@ -3794,7 +3797,7 @@ fn ema_band_never_blocks_close_or_repay() {
             netuid(),
             Side::Short,
             20_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             1,
             0,
@@ -3862,7 +3865,7 @@ fn quote_open_exact_insufficient_collateral_search_matches_open() {
                 netuid(),
                 Side::Long,
                 mid,
-                &hotkey,
+                Some(&hotkey),
                 principal,
             ) {
                 Ok(_) => hi = mid,
@@ -3881,7 +3884,7 @@ fn quote_open_exact_insufficient_collateral_search_matches_open() {
                 netuid(),
                 Side::Long,
                 min_c - 1,
-                &hotkey,
+                Some(&hotkey),
                 principal
             ),
             Error::<Test>::InsufficientCollateral
@@ -3891,7 +3894,7 @@ fn quote_open_exact_insufficient_collateral_search_matches_open() {
             netuid(),
             Side::Long,
             min_c,
-            &hotkey,
+            Some(&hotkey),
             principal
         ));
 
@@ -3902,7 +3905,7 @@ fn quote_open_exact_insufficient_collateral_search_matches_open() {
                 netuid(),
                 Side::Long,
                 min_c - 1,
-                hotkey.clone(),
+                Some(hotkey.clone()),
                 principal,
                 1,
                 1,
@@ -3915,7 +3918,7 @@ fn quote_open_exact_insufficient_collateral_search_matches_open() {
             netuid(),
             Side::Long,
             min_c,
-            hotkey,
+            Some(hotkey),
             principal,
             1,
             1,
@@ -4036,14 +4039,14 @@ fn convert_pending_clears_when_period_slice_would_strand() {
 fn quote_close_escrowed_short_refund_matches_execution() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 20_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -4085,14 +4088,14 @@ fn close_stops_after_interest_forfeits_short() {
         // Second short keeps shared reserve funded so a buggy double-readd
         // would succeed and corrupt PositionCount rather than Err-masking.
         let other = account(3);
-        let other_hk = account(4);
+        let _other_hk = account(4);
         mint_tao(&other, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(other.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            other_hk,
+            None,
             1,
             1,
             0,
@@ -4107,7 +4110,7 @@ fn close_stops_after_interest_forfeits_short() {
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             1,
             0,
@@ -4173,14 +4176,14 @@ fn close_stops_after_interest_forfeits_short() {
 fn partial_repay_stops_after_interest_forfeits_short() {
     new_test_ext().execute_with(|| {
         let other = account(3);
-        let other_hk = account(4);
+        let _other_hk = account(4);
         mint_tao(&other, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(other.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            other_hk,
+            None,
             1,
             1,
             0,
@@ -4195,7 +4198,7 @@ fn partial_repay_stops_after_interest_forfeits_short() {
             netuid(),
             Side::Short,
             8_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             1,
             0,
@@ -4253,7 +4256,7 @@ fn short_wallet_close_rejects_when_max_payment_below_principal() {
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             1,
             0,
@@ -4332,7 +4335,7 @@ fn long_close_refunds_alpha_to_the_named_destination_hotkey() {
             netuid(),
             Side::Long,
             collateral,
-            source.clone(),
+            Some(source.clone()),
             1,
             0,
             1,
@@ -4368,7 +4371,7 @@ fn short_wallet_repay_pulls_alpha_from_the_named_hotkey() {
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            account(2),
+            None,
             1,
             1,
             0,
@@ -4402,7 +4405,7 @@ fn long_amm_close_sells_minimal_collateral_and_refunds_alpha() {
             netuid(),
             Side::Long,
             collateral,
-            hotkey.clone(),
+            Some(hotkey.clone()),
             1,
             0,
             1,
@@ -4480,7 +4483,13 @@ fn quote_open_collateral_only_applies_ema_band() {
         mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
 
         assert_err!(
-            Lending::quote_open_for(&owner, netuid(), Side::Long, 5_000_000_000_000, &hotkey,),
+            Lending::quote_open_for(
+                &owner,
+                netuid(),
+                Side::Long,
+                5_000_000_000_000,
+                Some(&hotkey),
+            ),
             Error::<Test>::PriceTooFarFromEma
         );
         // Exact path: size under V_dyn/LTV so EMA (not collateral) is the refusal.
@@ -4490,7 +4499,7 @@ fn quote_open_collateral_only_applies_ema_band() {
                 netuid(),
                 Side::Long,
                 5_000_000_000_000,
-                &hotkey,
+                Some(&hotkey),
                 100_000_000_000, // 0.1 τ ≪ LTV·V_dyn at p_ref=0.5
             ),
             Error::<Test>::PriceTooFarFromEma
@@ -4501,7 +4510,7 @@ fn quote_open_collateral_only_applies_ema_band() {
                 netuid(),
                 Side::Long,
                 5_000_000_000_000,
-                hotkey,
+                Some(hotkey),
                 1,
                 0,
                 1,
@@ -4517,14 +4526,14 @@ fn coldkey_swap_refused_while_subnet_dissolving() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let new_owner = account(11);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             10_000_000_000_000,
-            hotkey,
+            None,
             1,
             1,
             0,
@@ -4572,7 +4581,7 @@ fn long_amm_close_minimal_sale_when_max_sell_quote_hits_slippage() {
             netuid(),
             Side::Long,
             collateral,
-            hotkey.clone(),
+            Some(hotkey.clone()),
             1,
             0,
             1,
@@ -4631,7 +4640,7 @@ fn long_amm_close_minimal_sale_when_max_sell_quote_hits_slippage() {
 fn principal_zero_is_distinct_from_amount_too_small() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_err!(
             Lending::open_exact(
@@ -4639,7 +4648,7 @@ fn principal_zero_is_distinct_from_amount_too_small() {
                 netuid(),
                 Side::Short,
                 10_000_000_000_000,
-                hotkey.clone(),
+                None,
                 0,
                 0,
                 0,
@@ -4653,7 +4662,7 @@ fn principal_zero_is_distinct_from_amount_too_small() {
                 netuid(),
                 Side::Short,
                 10_000_000_000_000,
-                &hotkey,
+                None,
                 0,
             ),
             Error::<Test>::PrincipalZero
@@ -4664,7 +4673,7 @@ fn principal_zero_is_distinct_from_amount_too_small() {
                 netuid(),
                 Side::Short,
                 0,
-                hotkey,
+                None,
                 1,
                 0,
                 0,
@@ -4679,7 +4688,7 @@ fn principal_zero_is_distinct_from_amount_too_small() {
 fn young_subnet_reports_gate_before_zero_principal() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         set_subtoken_enabled(false);
         // Zero principal must not mask SubnetNotStarted.
@@ -4689,7 +4698,7 @@ fn young_subnet_reports_gate_before_zero_principal() {
                 netuid(),
                 Side::Short,
                 0,
-                hotkey.clone(),
+                None,
                 0,
                 0,
                 0,
@@ -4698,7 +4707,7 @@ fn young_subnet_reports_gate_before_zero_principal() {
             Error::<Test>::SubnetNotStarted
         );
         assert_err!(
-            Lending::quote_open_exact_for(&owner, netuid(), Side::Short, 0, &hotkey, 0,),
+            Lending::quote_open_exact_for(&owner, netuid(), Side::Short, 0, None, 0,),
             Error::<Test>::SubnetNotStarted
         );
         set_subtoken_enabled(true);
@@ -4710,7 +4719,7 @@ fn young_subnet_reports_gate_before_zero_principal() {
                 netuid(),
                 Side::Short,
                 0,
-                hotkey.clone(),
+                None,
                 0,
                 0,
                 0,
@@ -4729,7 +4738,7 @@ fn young_subnet_reports_gate_before_zero_principal() {
 fn quote_open_matches_open_gate_and_empty_pool_errors() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         // Empty pool → EmptyPool on both extrinsic and quote after gates pass.
         set_pool(0, 0);
@@ -4740,7 +4749,7 @@ fn quote_open_matches_open_gate_and_empty_pool_errors() {
                 netuid(),
                 Side::Short,
                 1_000_000_000_000,
-                hotkey.clone(),
+                None,
                 1_000_000_000,
                 0,
                 0,
@@ -4754,7 +4763,7 @@ fn quote_open_matches_open_gate_and_empty_pool_errors() {
                 netuid(),
                 Side::Short,
                 1_000_000_000_000,
-                &hotkey,
+                None,
                 1_000_000_000,
             ),
             Error::<Test>::EmptyPool
@@ -4766,7 +4775,7 @@ fn quote_open_matches_open_gate_and_empty_pool_errors() {
 fn short_collateral_quote_uses_alpha_not_tao_headroom_on_cheap_subnet() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         // Cheap subnet: 1,000 τ / 1,000,000 α → price 0.001. Cap_short is in TAO;
         // the old bug capped alpha principal at that TAO headroom count.
         let y = 1_000_000_000_000u64;
@@ -4817,7 +4826,7 @@ fn short_collateral_quote_uses_alpha_not_tao_headroom_on_cheap_subnet() {
             netuid(),
             Side::Short,
             collateral,
-            hotkey,
+            None,
             1,
             0,
             0,
@@ -4841,7 +4850,7 @@ fn long_zero_borrowable_quote_is_amount_too_small_not_depth() {
             Error::<Test>::AmountTooSmall
         );
         assert_err!(
-            Lending::quote_open_for(&owner, netuid(), Side::Long, 1, &hotkey),
+            Lending::quote_open_for(&owner, netuid(), Side::Long, 1, Some(&hotkey)),
             Error::<Test>::AmountTooSmall
         );
         // Shorts with dust TAO collateral match the same economic error.
@@ -4856,7 +4865,7 @@ fn long_zero_borrowable_quote_is_amount_too_small_not_depth() {
 fn gema_warming_up_is_distinct_from_subnet_too_new() {
     cold_lending_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         let params = LiftParams::default();
         // Past min age and reference warm, but G_ema never aged.
@@ -4880,7 +4889,7 @@ fn gema_warming_up_is_distinct_from_subnet_too_new() {
                 netuid(),
                 Side::Short,
                 10_000_000_000_000,
-                hotkey.clone(),
+                None,
                 1,
                 1,
                 0,
@@ -4889,8 +4898,60 @@ fn gema_warming_up_is_distinct_from_subnet_too_new() {
             Error::<Test>::GemaWarmingUp
         );
         assert_err!(
-            Lending::quote_open_for(&owner, netuid(), Side::Short, 10_000_000_000_000, &hotkey,),
+            Lending::quote_open_for(&owner, netuid(), Side::Short, 10_000_000_000_000, None,),
             Error::<Test>::GemaWarmingUp
+        );
+    });
+}
+
+#[test]
+fn invalid_source_hotkey_short_rejects_some_and_long_rejects_none() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                1_000_000_000_000,
+                Some(hotkey.clone()),
+                1,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::InvalidSourceHotkey
+        );
+        assert_err!(
+            Lending::quote_open_for(
+                &owner,
+                netuid(),
+                Side::Short,
+                1_000_000_000_000,
+                Some(&hotkey),
+            ),
+            Error::<Test>::InvalidSourceHotkey
+        );
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Long,
+                1_000_000_000_000,
+                None,
+                1,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::InvalidSourceHotkey
+        );
+        assert_err!(
+            Lending::quote_open_for(&owner, netuid(), Side::Long, 1_000_000_000_000, None),
+            Error::<Test>::InvalidSourceHotkey
         );
     });
 }
@@ -4916,7 +4977,12 @@ fn quote_ok_implies_open_ok_for_random_sizes_and_interest() {
             if side == Side::Long {
                 mint_alpha(&owner, &hotkey, netuid(), collateral.saturating_mul(4));
             }
-            match Lending::quote_open_for(&owner, netuid(), side, collateral, &hotkey) {
+            let source = if side == Side::Long {
+                Some(hotkey.clone())
+            } else {
+                None
+            };
+            match Lending::quote_open_for(&owner, netuid(), side, collateral, source.as_ref()) {
                 Ok(quoted) => {
                     assert!(quoted.principal > 0);
                     assert_ok!(Lending::open(
@@ -4924,7 +4990,7 @@ fn quote_ok_implies_open_ok_for_random_sizes_and_interest() {
                         netuid(),
                         side,
                         collateral,
-                        hotkey.clone(),
+                        source.clone(),
                         quoted.principal,
                         0,
                         0,
@@ -4941,7 +5007,7 @@ fn quote_ok_implies_open_ok_for_random_sizes_and_interest() {
                             netuid(),
                             side,
                             collateral,
-                            hotkey,
+                            source,
                             1,
                             0,
                             0,
@@ -4957,14 +5023,14 @@ fn quote_ok_implies_open_ok_for_random_sizes_and_interest() {
         // Existing short + accrued interest: quote must size post-interest so
         // min_borrow = quoted.principal cannot hit BelowMinimumBorrow.
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 100_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             5_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             0,
             0,
@@ -4973,14 +5039,13 @@ fn quote_ok_implies_open_ok_for_random_sizes_and_interest() {
         System::set_block_number(System::block_number().saturating_add(400));
         let top_up = 2_000_000_000_000u64;
         mint_tao(&owner, top_up);
-        let quoted =
-            Lending::quote_open_for(&owner, netuid(), Side::Short, top_up, &hotkey).unwrap();
+        let quoted = Lending::quote_open_for(&owner, netuid(), Side::Short, top_up, None).unwrap();
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             top_up,
-            hotkey,
+            None,
             quoted.principal,
             0,
             0,
@@ -4995,14 +5060,14 @@ fn quote_ok_implies_open_ok_for_random_sizes_and_interest() {
 fn short_top_up_near_capacity_is_side_capacity_in_quote_and_open() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Short,
             1_000_000_000_000,
-            hotkey.clone(),
+            None,
             1,
             0,
             0,
@@ -5014,7 +5079,7 @@ fn short_top_up_near_capacity_is_side_capacity_in_quote_and_open() {
         });
         let add = 200_000_000_000u64; // ~200 τ — large relative to a dust binder
         assert_err!(
-            Lending::quote_open_for(&owner, netuid(), Side::Short, add, &hotkey),
+            Lending::quote_open_for(&owner, netuid(), Side::Short, add, None),
             Error::<Test>::SideCapacity
         );
         assert_err!(
@@ -5023,7 +5088,7 @@ fn short_top_up_near_capacity_is_side_capacity_in_quote_and_open() {
                 netuid(),
                 Side::Short,
                 add,
-                hotkey,
+                None,
                 1,
                 0,
                 0,
@@ -5078,20 +5143,20 @@ fn sn29_style_short_raises_report_side_capacity_not_amount_too_small() {
         );
 
         let owner = account(1);
-        let hotkey = account(2);
+        let _hotkey = account(2);
         let step = 200_000_000_000u64; // 200 τ
         mint_tao(&owner, step.saturating_mul(6));
 
         let mut principals: Vec<u64> = Vec::new();
         let mut saw_side_capacity = false;
         for i in 0..4u32 {
-            let quote = Lending::quote_open_for(&owner, netuid(), Side::Short, step, &hotkey);
+            let quote = Lending::quote_open_for(&owner, netuid(), Side::Short, step, None);
             let dispatch = Lending::open(
                 RuntimeOrigin::signed(owner.clone()),
                 netuid(),
                 Side::Short,
                 step,
-                hotkey.clone(),
+                None,
                 1,
                 0,
                 0,

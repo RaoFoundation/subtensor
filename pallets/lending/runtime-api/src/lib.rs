@@ -13,11 +13,13 @@ sp_api::decl_runtime_apis! {
         fn quote_open(netuid: u16, side: Side, collateral: u64) -> Result<OpeningQuote, DispatchError>;
 
         /// Additional principal and coupon after checking the owner's combined position.
-        fn quote_open_for(owner: AccountId, netuid: u16, side: Side, collateral: u64, source_hotkey: AccountId) -> Result<OpeningQuote, DispatchError>;
+        /// `source_hotkey` is required for Long and must be `None` for Short.
+        fn quote_open_for(owner: AccountId, netuid: u16, side: Side, collateral: u64, source_hotkey: Option<AccountId>) -> Result<OpeningQuote, DispatchError>;
 
         /// Exactly the requested additional debt, with its actual fixed coupon.
+        /// `source_hotkey` is required for Long and must be `None` for Short.
         #[allow(clippy::too_many_arguments)]
-        fn quote_open_exact_for(owner: AccountId, netuid: u16, side: Side, collateral: u64, source_hotkey: AccountId, principal: u64) -> Result<OpeningQuote, DispatchError>;
+        fn quote_open_exact_for(owner: AccountId, netuid: u16, side: Side, collateral: u64, source_hotkey: Option<AccountId>, principal: u64) -> Result<OpeningQuote, DispatchError>;
 
         /// Full close payment and collateral refund after interest accrued to this block.
         fn quote_close(owner: AccountId, netuid: u16, hotkey: AccountId, repay_from_wallet: bool) -> Result<ClosingQuote, DispatchError>;

@@ -10,7 +10,8 @@ alpha principal. Refund is TAO for a short and alpha for a long. Default
 `repay_from_wallet=False` quotes the escrow AMM path: shorts buy P alpha
 from escrow+collateral (leftover TAO refund); longs sell escrow A then
 only enough collateral to cover any shortfall to P (leftover alpha refund).
-Set True to quote a wallet repayment instead.
+Set True to quote a wallet repayment instead. The close extrinsic names
+a per-call hotkey when alpha is repaid or refunded; positions store none.
 
 **Category:** Prices & swaps
 
@@ -20,7 +21,7 @@ Set True to quote a wallet repayment instead.
 | --- | --- | --- |
 | `coldkey_ss58` | string | Position owner. |
 | `netuid` | integer | Subnet of the position. |
-| `repay_from_wallet` | boolean | False (default): quote the escrow AMM buyback for a short. True: repay short alpha from its saved hotkey. |
+| `repay_from_wallet` | boolean | False (default): quote the escrow AMM buyback for a short. True: repay short alpha from a call-supplied hotkey stake. |
 
 ## CLI
 

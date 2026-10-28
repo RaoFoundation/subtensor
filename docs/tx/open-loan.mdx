@@ -20,27 +20,31 @@ conservative funded collateral backing. New borrowing must preserve each
 other same-side loan's individual coverage after accrued interest. These
 opening checks do not guarantee future repayment.
 
-An existing position must have the same side and hotkey. `collateral`
-adds to its remaining collateral after accrued interest; borrowed principal,
-and the new fixed coupon add to the saved position.
-The old coupon is not repriced. The combined position must pass current
-opening guards, and an already exhausted position cannot be increased.
+Positions are keyed by `(coldkey, netuid)`. An existing position must
+have the same side. `collateral` adds to its remaining collateral after
+accrued interest; borrowed principal and the new fixed coupon add to the
+saved position. The old coupon is not repriced. The combined position must
+pass current opening guards, and an already exhausted position cannot be
+increased.
 
-`amount` selects exact additional principal: alpha for shorts and TAO
-for longs. With no amount, the collateral determines the borrowing limit.
-The runtime transfers exactly the requested amount or refuses the call.
-`min_borrow` is a floor on additional principal. `min_proceeds` is the
-short's minimum escrow TAO from the forced sale (slippage floor);
-`min_escrow_alpha` is the long's minimum escrow alpha from the forced buy.
-The call is atomic and refuses a smaller loan or opening value. There remains one
-position per coldkey and subnet; closing repays its total principal.
+Shorts are TAO-only and must omit `hotkey_ss58` (the call passes
+`source_hotkey=None`). Longs require `hotkey_ss58` as the stake that
+supplies collateral alpha. `amount` selects exact additional principal:
+alpha for shorts and TAO for longs. With no amount, the collateral
+determines the borrowing limit. The runtime transfers exactly the
+requested amount or refuses the call. `min_borrow` is a floor on
+additional principal. `min_proceeds` is the short's minimum escrow TAO
+from the forced sale (slippage floor); `min_escrow_alpha` is the long's
+minimum escrow alpha from the forced buy. The call is atomic and refuses a
+smaller loan or opening value. There remains one position per coldkey and
+subnet; closing repays its total principal.
 
 On fork / clone chains without a live MEV decryptor, submit with
 `--no-mev-shield` (encrypted submission will never be decrypted).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1145-L1171), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L1174-L1203) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1111-L1137), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L1140-L1169) |
 
 ## Parameters
 
@@ -49,7 +53,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 | `netuid` | integer | yes | Subnet to borrow against. |
 | `side` | string | yes | short: lock TAO; long: lock subnet alpha. |
 | `collateral` | number \| `"all"` | yes | Additional collateral to lock: TAO for a short, alpha for a long. |
-| `hotkey_ss58` | string | no | Hotkey receiving short alpha or holding long collateral and repayment alpha. |
+| `hotkey_ss58` | string | no | Long only: hotkey whose free alpha supplies collateral. Omit for shorts (TAO-only; no hotkey on open). |
 | `min_borrow` | number \| `"all"` | no | Minimum additional principal: alpha for a short, TAO for a long. |
 | `min_proceeds` | number \| `"all"` | no | Minimum additional short opening value in TAO; unused for longs. |
 | `min_escrow_alpha` | number \| `"all"` | no | Minimum escrowed alpha after a long's forced buy; unused for shorts. |
@@ -101,7 +105,7 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open` — [`pallets/lending/src/lib.rs#L1147`](/code/pallets/lending/src/lib.rs#L1145-L1171):
+`Lending.open` — [`pallets/lending/src/lib.rs#L1113`](/code/pallets/lending/src/lib.rs#L1111-L1137):
 
 ```rust
 #[pallet::call_index(0)]
@@ -111,7 +115,7 @@ pub fn open(
     netuid: NetUid,
     side: Side,
     collateral: u64,
-    hotkey: T::AccountId,
+    source_hotkey: Option<T::AccountId>,
     min_borrow: u64,
     min_proceeds: u64,
     min_escrow_alpha: u64,
@@ -123,7 +127,7 @@ pub fn open(
         netuid,
         side,
         collateral,
-        hotkey,
+        source_hotkey,
         None,
         min_borrow,
         min_proceeds,
@@ -133,7 +137,7 @@ pub fn open(
 }
 ```
 
-`Lending.open_exact` — [`pallets/lending/src/lib.rs#L1176`](/code/pallets/lending/src/lib.rs#L1174-L1203):
+`Lending.open_exact` — [`pallets/lending/src/lib.rs#L1142`](/code/pallets/lending/src/lib.rs#L1140-L1169):
 
 ```rust
 #[pallet::call_index(1)]
@@ -143,7 +147,7 @@ pub fn open_exact(
     netuid: NetUid,
     side: Side,
     collateral: u64,
-    hotkey: T::AccountId,
+    source_hotkey: Option<T::AccountId>,
     principal: u64,
     min_proceeds: u64,
     min_escrow_alpha: u64,
@@ -158,7 +162,7 @@ pub fn open_exact(
         netuid,
         side,
         collateral,
-        hotkey,
+        source_hotkey,
         Some(principal),
         principal,
         min_proceeds,

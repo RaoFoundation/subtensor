@@ -195,7 +195,7 @@ Notation: `C` = collateral, `P` = principal, `(α_L, τ_L)` = the lift legs, `E_
 * **Long, slice `k`:**
   * Either the borrower supplies `k·P` TAO and takes `k·A`, or (`repay_from_wallet = false`) `k·A` is sold, then the minimal slice of `k·C` needed to cover any shortfall to `k·P`; leftover slice collateral returns as alpha (≥ `min_refund`, alpha units);
   * `readd(k·P, k·α_L)`; `L_L −= k·P`; `B_L −= k·P`;
-  * release remaining slice `C` (and `k·A` if repaid from the wallet) as stake to `(position.hotkey, owner)`.
+  * release remaining slice `C` (and `k·A` if repaid from the wallet) as stake to `(call hotkey, owner)`.
 * **Pro-rata release, not "release down to LTV".** Every position field (`P`, `τ_L`/`α_L`, `E_S`/`A`, `C`, `annual_interest`) scales by `(1 − k)`. The remaining position therefore keeps exactly the LTV, `V_dyn` headroom and interest backing it was opened with, and no revaluation is needed on a non-open path, consistent with no re-check and no liquidation (§5). **Jacob's call (optional):** also allow releasing extra collateral down to the tier LTV against a fresh `V_dyn`. This is more capital-efficient but adds a valuation step to repay.
 * **Dust:** the remainder must be either 0 or have opening value `≥ MinimumLoanValue` (1 τ), else `AmountTooSmall` (close in full instead). A later increase re-runs `V_dyn` on the whole position, as now.
 * Capacity frees up immediately (`L_side` falls). Dissolution settles whatever remains (§13.3). Once dissolving, `repay` fails with `SubnetUnavailable`, like `close`.
@@ -336,7 +336,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
 * **Outside alpha (§5.3):** `V_dyn` is unchanged by any amount of the borrower's unlocked stake; the raise's `C + S` check excludes collateral, escrow and miner/hotkey locks.
 * **EMA band (§5.4):** same-side opens that would leave post-trade spot outside EMA±`ema_band_bps` fail with `PriceTooFarFromEma`; opposite side and all exits succeed.
 * **Fixed term (§15):** every position carries `expires_at = open + BlocksPerYear`; increases restart it; expiry auto-settles at the reference EMA with bounded `on_idle` weight; dissolution wins if earlier.
-* **Custody (§14):** escrow and collateral alpha sit on the lending custody hotkey and earn no emissions; the custody hotkey can't register, set children or take; coldkey swap re-keys positions to the new coldkey and later payouts go there; hotkey swap updates `position.hotkey`; the raise and all lending calls dispatch only under proxy types that already allow staking management.
+* **Custody (§14):** escrow and collateral alpha sit on the lending custody hotkey and earn no emissions; the custody hotkey can't register, set children or take; coldkey swap re-keys positions to the new coldkey and later payouts go there; positions store no hotkey (per-call only); auto-settle pays TAO to the owner coldkey; the raise and all lending calls dispatch only under proxy types that already allow staking management.
 
 ## 9. Code changes vs main
 **swap pallet:**
@@ -349,7 +349,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
 
 **New `pallet-lending`** (from #3211 minus the vault):
 * Storage:
-  * `Positions` (add `lift_tao`, `lift_alpha`; `proceeds` = short escrow TAO; new `escrow_alpha` = long escrow `A`; `custody` = the position's custody coldkey, stored rather than re-derived, so a coldkey swap doesn't move funds, §14), `OpenByNetuid`, `PositionCount`, `TotalPositions`, `LoanHotkeys`, `EscrowOwner`, `References`, `Due`, `NextDue`, `Expiry`, `NextExpiry`, `PalletHotkey`;
+  * `Positions` (add `lift_tao`, `lift_alpha`; `proceeds` = short escrow TAO; new `escrow_alpha` = long escrow `A`; `custody` = the position's custody coldkey, stored rather than re-derived, so a coldkey swap doesn't move funds; **no stored hotkey**, §14), `OpenByNetuid`, `PositionCount`, `TotalPositions`, `EscrowOwner`, `References`, `Due`, `NextDue`, `Expiry`, `NextExpiry`, `PalletHotkey`;
   * new: `Lifts: NetUid → {L_S, L_L, B_L, held_tao, held_alpha, escrow_tao, escrow_alpha, long_collateral_alpha, g_ema, t_ema, last}`, `LongInterestPending`, `LiftParams`, `SettleSnapshot: NetUid → {t_flag, t_ema_flag, moving_price}` (§13.2; `Δ0` and `T_settle` are computed at the start of `LendingSettlement`).
   * `t_ema` (§13.2): EMA of the subnet's pot TAO, updated once per block in `on_finalize` for every **live, non-dissolving** subnet, next to `g_ema`. It is frozen once the dissolving flag is set. The migration initialises it to the current `SubnetTAO` on every subnet; a newly registered subnet starts at its `SubnetTAO` at registration.
 * `LiftParams` (defaults in brackets): `floor` [3,300 bps], `thin_floor` [**1,500 bps, on**], `ref_tao`, `move_bps`, `ceiling`, `split_short`, `rebalance_target` (off), `rebalance_rate`, `thin_tao`, `ltv_short`, `ltv_long`, `thin_ltv_long`, `apr`, `slice_bps`, `crash_guard`, `settle_ema_blocks` (root-settable EMA window for `t_ema`, default 7,200 blocks = 24 h; changing it keeps the current `t_ema` value), `thin_tao` [3,000 τ], `thin_ltv_long` [1,500 bps], `new_subnet_min_age` [50,400 blocks], `new_subnet_ramp` [216,000 blocks] (§2.3), `ema_band_bps` [**1,500 bps**, §5.4].
@@ -379,7 +379,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
   * main's 2.1/2.2 loops skip lending custody rows via `LendingInterface::is_custody`;
   * lending custody accounts are never the subnet account, so phase 2.7's recycle can't touch `E_S`/`C`;
   * `SubnetUnavailable` on every open/close once dissolving;
-* hotkey/coldkey swap hooks (§14: hotkey swap rewrites `position.hotkey`; coldkey swap re-keys `Positions`/`OpenByNetuid`/`EscrowOwner` to the new coldkey and keeps the stored custody account); proxy filters (§14: `repay` joins `open`/`close`; `open_long_and_sell` gets the stricter of `open`'s and `remove_stake`'s filters); custody hotkey guards (§14); new-subnet gate reads `NetworkRegisteredAt` and `SubtokenEnabled` (§2.3); runtime API (`lending_raise_quote`, §12.6, plus `lending_quote` for open/close/repay limits, §5.2).
+* coldkey swap hooks (§14: re-key `Positions`/`OpenByNetuid`/`EscrowOwner` to the new coldkey and keep the stored custody account; hotkey swap does not touch lending); proxy filters (§14: `repay` joins `open`/`close`; `open_long_and_sell` gets the stricter of `open`'s and `remove_stake`'s filters); custody hotkey guards (§14); new-subnet gate reads `NetworkRegisteredAt` and `SubtokenEnabled` (§2.3); runtime API (`lending_raise_quote`, §12.6, plus `lending_quote` for open/close/repay limits, §5.2).
 * **No coinbase change.**
 
 **Reuse from #3211:**
@@ -775,7 +775,8 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 | lift legs `held_tao` / `held_alpha` | free TAO / alpha stake | `PalletId.sub(("lift", netuid))` | `PalletHotkey` |
 | `LongInterestPending` | alpha stake until sold | pallet account | `PalletHotkey` |
 
-* Opening moves collateral alpha from the borrower's `(hotkey, owner)` stake to `(PalletHotkey, custody)` with `transfer_staked_alpha` (no swap, no unstake). Close, repay and settlement return alpha to `(position.hotkey, owner)` and TAO to `owner`. **Payouts only ever go to the position owner's coldkey**, never to a proxy, a delegate or the source hotkey's owner.
+* **Positions are keyed by `(coldkey, netuid)` only.** No hotkey is stored on the position. Short open / increase is TAO-only and takes **no** hotkey argument. A hotkey is passed only on calls that move alpha to or from the caller's stake: long open / increase / raise (`source_hotkey`), alpha repay, and alpha refund at close.
+* Opening a long moves collateral alpha from the borrower's `(source_hotkey, owner)` stake to `(PalletHotkey, custody)` with `transfer_staked_alpha` (no swap, no unstake). Close / repay that return alpha stake it to the **call-supplied** destination hotkey; TAO always goes to `owner`. Auto-settle (dissolution / fixed-term expiry) pays **TAO to the owner coldkey** and destroys custody alpha (no hotkey to stake onto). **Payouts only ever go to the position owner's coldkey**, never to a proxy, a delegate or a hotkey's owner.
 * Custody accounts are never the subnet account (phase 2.7 recycles that, §13.4). Main's 2.1/2.2 skip `(PalletHotkey, custody)` rows via `is_custody` (§13.4), and lending counts them once in `D`.
 * Custody alpha remains outstanding alpha (`SubnetAlphaOut`/`TotalStake` bookkeeping unchanged by the move).
 
@@ -788,8 +789,8 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 * Interest on long collateral is taken from custody stake and sold on the paced schedule (§6). Escrow `A` is never sold for interest.
 
 ### 14.3 Hotkey and coldkey swaps
-* **Hotkey ownership on fresh opens:** a fresh long or short must name a hotkey the opening coldkey owns (`Owner[hotkey] == owner`). Both sides index `LoanHotkeys` / `OpenByHotkey`, and that count is charged into every `swap_hotkey` weight. Without ownership, a borrower could attach many small loans to a third-party hotkey — shorts with TAO collateral, or longs by staking onto an existing hotkey from other coldkeys — and inflate declared rotation weight past the block limit (the victim cannot close those positions). Increases reuse the stored hotkey (`HotkeyMismatch` otherwise). Quotes that take `(owner, hotkey)` apply the same gate so quote Ok ⇒ open Ok.
-* **Hotkey swap** of the borrower's source hotkey: `on_hotkey_swap` rewrites `position.hotkey` (and `LoanHotkeys`), so returns go to the new hotkey. Custody rows don't move, because they are on `PalletHotkey`.
+* **No stored position hotkey.** Lending does not index loans by hotkey (`LoanHotkeys` / `OpenByHotkey` retired). Hotkey rotation weight is unaffected by open loans. Long opens name a per-call `source_hotkey`; shorts pass `None` (`InvalidSourceHotkey` otherwise). Close / repay name a per-call hotkey when alpha is repaid from or refunded to the caller's stake.
+* **Hotkey swap** of a borrower hotkey does not touch lending state (custody rows sit on `PalletHotkey`). The next close / repay that returns alpha simply names whatever destination hotkey the owner chooses.
 * **Coldkey swap** of the owner: re-key `Positions`, `OpenByNetuid`, `EscrowOwner` and the `Due` index from the old to the new coldkey, and keep `Position.custody` as stored, so no funds move. Every later close, repay or settlement payout goes to the new coldkey. A coldkey swap is how a user escapes a compromised key, so leaving positions on the old key would send dereg payouts to the attacker. **While a subnet is dissolving** (`Dissolutions` set), coldkey migration of a loan on that netuid fails with `SubnetUnavailable`: re-keying `OpenByNetuid` past `DissolutionCursor` would skip settlement and strand custody.
 * Neither swap is allowed to change `Position.custody`, `PalletHotkey` or the lift accounts.
 

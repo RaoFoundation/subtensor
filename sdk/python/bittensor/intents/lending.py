@@ -137,20 +137,24 @@ class OpenLoan(Intent):
     other same-side loan's individual coverage after accrued interest. These
     opening checks do not guarantee future repayment.
 
-    An existing position must have the same side and hotkey. ``collateral``
-    adds to its remaining collateral after accrued interest; borrowed principal,
-    and the new fixed coupon add to the saved position.
-    The old coupon is not repriced. The combined position must pass current
-    opening guards, and an already exhausted position cannot be increased.
+    Positions are keyed by ``(coldkey, netuid)``. An existing position must
+    have the same side. ``collateral`` adds to its remaining collateral after
+    accrued interest; borrowed principal and the new fixed coupon add to the
+    saved position. The old coupon is not repriced. The combined position must
+    pass current opening guards, and an already exhausted position cannot be
+    increased.
 
-    ``amount`` selects exact additional principal: alpha for shorts and TAO
-    for longs. With no amount, the collateral determines the borrowing limit.
-    The runtime transfers exactly the requested amount or refuses the call.
-    ``min_borrow`` is a floor on additional principal. ``min_proceeds`` is the
-    short's minimum escrow TAO from the forced sale (slippage floor);
-    ``min_escrow_alpha`` is the long's minimum escrow alpha from the forced buy.
-    The call is atomic and refuses a smaller loan or opening value. There remains one
-    position per coldkey and subnet; closing repays its total principal.
+    Shorts are TAO-only and must omit ``hotkey_ss58`` (the call passes
+    ``source_hotkey=None``). Longs require ``hotkey_ss58`` as the stake that
+    supplies collateral alpha. ``amount`` selects exact additional principal:
+    alpha for shorts and TAO for longs. With no amount, the collateral
+    determines the borrowing limit. The runtime transfers exactly the
+    requested amount or refuses the call. ``min_borrow`` is a floor on
+    additional principal. ``min_proceeds`` is the short's minimum escrow TAO
+    from the forced sale (slippage floor); ``min_escrow_alpha`` is the long's
+    minimum escrow alpha from the forced buy. The call is atomic and refuses a
+    smaller loan or opening value. There remains one position per coldkey and
+    subnet; closing repays its total principal.
 
     On fork / clone chains without a live MEV decryptor, submit with
     ``--no-mev-shield`` (encrypted submission will never be decrypted).
@@ -169,7 +173,10 @@ class OpenLoan(Intent):
     hotkey_ss58: Optional[str] = field(
         default=None,
         metadata={
-            "help": "Hotkey receiving short alpha or holding long collateral and repayment alpha."
+            "help": (
+                "Long only: hotkey whose free alpha supplies collateral. "
+                "Omit for shorts (TAO-only; no hotkey on open)."
+            )
         },
     )
     min_borrow: Money = field(
@@ -218,16 +225,23 @@ class OpenLoan(Intent):
                 raise BittensorError("amount to borrow must be greater than zero")
             if cast(Balance, self.min_borrow).rao > requested.rao:
                 raise BittensorError("min_borrow cannot exceed the exact amount to borrow")
+        if self.side == "Short" and self.hotkey_ss58 is not None:
+            raise BittensorError("short open is TAO-only; omit hotkey_ss58")
 
     async def build(self, substrate, wallet: Any):
         collateral = cast(Balance, self.collateral)
-        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        self._built_hotkey = hotkey
+        # Shorts pass None; longs resolve the collateral source hotkey.
+        if self.side == "Short":
+            source_hotkey = None
+            self._built_hotkey = None
+        else:
+            source_hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+            self._built_hotkey = source_hotkey
         params = {
             "netuid": self.netuid,
             "side": self.side,
             "collateral": collateral.rao,
-            "hotkey": hotkey,
+            "source_hotkey": source_hotkey,
             "min_proceeds": cast(Balance, self.min_proceeds).rao,
             "min_escrow_alpha": cast(Balance, self.min_escrow_alpha).rao,
             "valid_until": self.valid_until,
@@ -266,10 +280,13 @@ class OpenLoan(Intent):
                 raise BittensorError("composed lending call is unavailable for fee estimation")
             block_hash = await substrate.block_hash()
             collateral = cast(Balance, self.collateral)
-            hotkey = getattr(self, "_built_hotkey", None) or self.hotkey_ss58
-            if hotkey is None:
-                raise BittensorError("selected collateral hotkey is unavailable")
-            quote_args = [dispatch_origin, self.netuid, self.side, collateral.rao, hotkey]
+            hotkey = getattr(self, "_built_hotkey", None)
+            if self.side == "Long":
+                hotkey = hotkey or self.hotkey_ss58
+                if hotkey is None:
+                    raise BittensorError("long open requires a collateral source hotkey")
+            source = None if self.side == "Short" else hotkey
+            quote_args = [dispatch_origin, self.netuid, self.side, collateral.rao, source]
             method = "quote_open_for"
             if self.amount is not None:
                 method = "quote_open_exact_for"
@@ -455,14 +472,16 @@ class CloseLoan(Intent):
     By default (``repay_from_wallet=False``) an escrowed short buys its alpha
     debt back through the AMM using escrow sale proceeds plus remaining TAO
     collateral, then refunds any leftover TAO. Set ``repay_from_wallet=True``
-    to repay short alpha from the saved hotkey instead and receive the full
-    escrow pot. A long with the default sells escrow (then collateral) for
+    to repay short alpha from stake on ``hotkey_ss58`` instead and receive the
+    full escrow pot. A long with the default sells escrow (then collateral) for
     principal TAO (selling only enough collateral to cover any shortfall,
-    returning leftover collateral as alpha); ``repay_from_wallet=True`` pays
-    TAO from free balance and returns escrow alpha. Both charge accrued
-    interest through the closing block. A failed repayment, payment ceiling
-    or refund floor rolls back.
+    returning leftover collateral as alpha to ``hotkey_ss58``);
+    ``repay_from_wallet=True`` pays TAO from free balance and returns escrow
+    alpha to ``hotkey_ss58``. Both charge accrued interest through the closing
+    block. A failed repayment, payment ceiling or refund floor rolls back.
 
+    Positions do not store a hotkey; ``hotkey_ss58`` is required whenever alpha
+    moves to or from the caller's stake (wallet alpha repay, or alpha refund).
     ``max_payment`` is TAO for AMM short closes and long repayment, or alpha
     for a wallet-repaid short. ``min_refund`` is TAO for shorts and alpha for
     longs (matching the refund asset on each path). Units are checked against
@@ -486,12 +505,21 @@ class CloseLoan(Intent):
         default=0,
         metadata={"help": "Minimum returned collateral: TAO for shorts, alpha for longs."},
     )
+    hotkey_ss58: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": (
+                "Hotkey for alpha repay (short wallet path) or alpha refund "
+                "(long close / short buyback surplus). Defaults to the wallet hotkey."
+            )
+        },
+    )
     repay_from_wallet: bool = field(
         default=False,
         metadata={
             "help": (
                 "False (default): buy short alpha back from escrow / sell long escrow. "
-                "True: repay short alpha from the saved hotkey, or pay long TAO from wallet."
+                "True: repay short alpha from hotkey stake, or pay long TAO from wallet."
             )
         },
     )
@@ -538,12 +566,14 @@ class CloseLoan(Intent):
         # TAO spend policy runs. Wallet alpha repayment is not free-TAO spend.
         self.max_payment = payment
         self.min_refund = refund
+        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
         return await substrate.compose(
             Call(
                 "Lending",
                 "close",
                 {
                     "netuid": self.netuid,
+                    "hotkey": hotkey,
                     "repay_from_wallet": self.repay_from_wallet,
                     "max_payment": payment.rao,
                     "min_refund": refund.rao,

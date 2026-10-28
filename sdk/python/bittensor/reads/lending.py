@@ -65,7 +65,6 @@ def _position_record(
         "coldkey": owner,
         "netuid": netuid,
         "side": side,
-        "hotkey": str(raw["hotkey"]),
         "principal": view.balance(int(raw["principal"]), principal_unit),
         "collateral": view.balance(collateral, collateral_unit),
         "proceeds": Balance.from_rao(int(raw["proceeds"])),
@@ -238,8 +237,11 @@ async def lending_raise_quote(
         "netuid": "Subnet to borrow against.",
         "side": "short or long.",
         "collateral": "Additional collateral amount: TAO for a short, alpha for a long.",
-        "coldkey_ss58": "Owner to quote an opening or increase for; supply its hotkey too.",
-        "hotkey_ss58": "Alpha delivery, collateral or repayment hotkey; supply the owner too.",
+        "coldkey_ss58": "Owner to quote an opening or increase for.",
+        "hotkey_ss58": (
+            "Long only: collateral source hotkey. Omit for shorts (TAO-only; "
+            "source_hotkey is None)."
+        ),
         "amount": "Exact additional principal: alpha for a short, TAO for a long; optional.",
     },
 )
@@ -254,20 +256,19 @@ async def lending_open_quote(
 ) -> dict:
     """Quote additional fixed debt, opening value and collateral coupon.
 
-    Supply the owner and hotkey together to quote a new position or increase
-    an existing position with the same side and hotkey. The runtime accrues old
-    interest and checks the combined position. Alpha loans require conservative
-    funded-claim coverage; TAO loans require conservative funded collateral
-    backing. Both protect each other same-side loan after accrued interest.
-    Returned principal, annual_interest and opening_value
-    are additions, not totals. Short opening_value is the loan's TAO value at
-    the lending EMA, rounded up, and fixes its annual TAO coupon. A simulated
-    buy limits alpha principal but opening makes no AMM swap and pays no sale
-    proceeds. Omitting both addresses quotes a fresh loan only.
-    A refusal is an error; it never becomes a zero-protection quote. The result
-    is indicative until the transaction executes. Supply ``amount`` with both
-    addresses to quote exactly that additional principal instead of the
-    maximum supported by the collateral.
+    Supply ``coldkey_ss58`` to quote a new position or increase an existing
+    one on the same side (positions are keyed by coldkey and netuid). Longs
+    also need ``hotkey_ss58`` as the collateral source; shorts must omit it
+    (TAO-only). The runtime accrues old interest and checks the combined
+    position. Alpha loans require conservative funded-claim coverage; TAO
+    loans require conservative funded collateral backing. Both protect each
+    other same-side loan after accrued interest. Returned principal,
+    annual_interest and opening_value are additions, not totals. Short
+    opening_value is the loan's TAO value at the lending EMA, rounded up,
+    and fixes its annual TAO coupon. Omitting the owner quotes a fresh loan
+    only. A refusal is an error; it never becomes a zero-protection quote.
+    The result is indicative until the transaction executes. Supply
+    ``amount`` with an owner to quote exactly that additional principal.
     """
     view = await view.at()
     side = check_side(side)
@@ -275,17 +276,22 @@ async def lending_open_quote(
     collateral_amount = cast(
         Balance, tao_amount(collateral) if side == "Short" else alpha_amount(collateral, netuid)
     )
-    if (coldkey_ss58 is None) != (hotkey_ss58 is None):
-        raise BittensorError("an owner-aware lending quote requires both coldkey and hotkey")
+    if side == "Short" and hotkey_ss58 is not None:
+        raise BittensorError("short open quote is TAO-only; omit hotkey_ss58")
+    if side == "Long" and coldkey_ss58 is not None and hotkey_ss58 is None:
+        raise BittensorError("a long owner-aware quote requires hotkey_ss58")
+    source_hotkey = None if side == "Short" else hotkey_ss58
     method = QUOTE_OPEN if coldkey_ss58 is None else QUOTE_OPEN_FOR
     params = (
         [netuid, side, collateral_amount.rao]
         if coldkey_ss58 is None
-        else [coldkey_ss58, netuid, side, collateral_amount.rao, hotkey_ss58]
+        else [coldkey_ss58, netuid, side, collateral_amount.rao, source_hotkey]
     )
     if amount is not None:
-        if coldkey_ss58 is None or hotkey_ss58 is None:
-            raise BittensorError("an exact lending quote requires both coldkey and hotkey")
+        if coldkey_ss58 is None:
+            raise BittensorError("an exact lending quote requires coldkey_ss58")
+        if side == "Long" and hotkey_ss58 is None:
+            raise BittensorError("an exact long quote requires hotkey_ss58")
         principal = cast(
             Balance, alpha_amount(amount, netuid) if side == "Short" else tao_amount(amount)
         )
@@ -297,7 +303,7 @@ async def lending_open_quote(
             netuid,
             side,
             collateral_amount.rao,
-            hotkey_ss58,
+            source_hotkey,
             principal.rao,
         ]
     raw = _ok(await view.runtime(method, params))
@@ -326,7 +332,7 @@ async def lending_open_quote(
         "side": "short or long.",
         "amount": "Exact additional principal: alpha for a short, TAO for a long.",
         "coldkey_ss58": "Owner of the new or increased loan.",
-        "hotkey_ss58": "Delivery or collateral hotkey; must match an existing loan.",
+        "hotkey_ss58": "Long only: collateral source hotkey. Omit for shorts.",
     },
 )
 async def lending_required_collateral(
@@ -335,7 +341,7 @@ async def lending_required_collateral(
     side: str,
     amount: str,
     coldkey_ss58: str,
-    hotkey_ss58: str,
+    hotkey_ss58: Optional[str] = None,
 ) -> dict:
     """Minimum additional collateral for exactly the requested borrowed amount.
 
@@ -422,7 +428,7 @@ async def lending_required_collateral(
         "netuid": "Subnet of the position.",
         "repay_from_wallet": (
             "False (default): quote the escrow AMM buyback for a short. "
-            "True: repay short alpha from its saved hotkey."
+            "True: repay short alpha from a call-supplied hotkey stake."
         ),
     },
 )
@@ -436,7 +442,8 @@ async def lending_close_quote(
     ``repay_from_wallet=False`` quotes the escrow AMM path: shorts buy P alpha
     from escrow+collateral (leftover TAO refund); longs sell escrow A then
     only enough collateral to cover any shortfall to P (leftover alpha refund).
-    Set True to quote a wallet repayment instead.
+    Set True to quote a wallet repayment instead. The close extrinsic names
+    a per-call hotkey when alpha is repaid or refunded; positions store none.
     """
     view = await view.at()
     position = await lending_position(view, coldkey_ss58, netuid)

@@ -2806,14 +2806,14 @@ impl_runtime_apis! {
             netuid: u16,
             side: pallet_lending::Side,
             collateral: u64,
-            hotkey: AccountId,
+            source_hotkey: Option<AccountId>,
         ) -> Result<pallet_lending::OpeningQuote, sp_runtime::DispatchError> {
             pallet_lending::Pallet::<Runtime>::quote_open_for(
                 &owner,
                 netuid.into(),
                 side,
                 collateral,
-                &hotkey,
+                source_hotkey.as_ref(),
             )
         }
 
@@ -2822,7 +2822,7 @@ impl_runtime_apis! {
             netuid: u16,
             side: pallet_lending::Side,
             collateral: u64,
-            hotkey: AccountId,
+            source_hotkey: Option<AccountId>,
             principal: u64,
         ) -> Result<pallet_lending::OpeningQuote, sp_runtime::DispatchError> {
             pallet_lending::Pallet::<Runtime>::quote_open_exact_for(
@@ -2830,7 +2830,7 @@ impl_runtime_apis! {
                 netuid.into(),
                 side,
                 collateral,
-                &hotkey,
+                source_hotkey.as_ref(),
                 principal,
             )
         }

@@ -965,6 +965,9 @@ pub mod pallet {
         /// Extrinsic `valid_until` has passed (§5.2). Replaces RaiseDeadlinePassed.
         DeadlinePassed,
         ConflictingSizing,
+        /// Long open/increase requires `source_hotkey`; short open must omit it
+        /// (TAO-only — no stake moves on open).
+        InvalidSourceHotkey,
         InvalidLiftParams,
         PositionSideMismatch,
         /// Subnet age is below `new_subnet_min_age` (§2.3).
@@ -1102,8 +1105,9 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// Open or increase a loan. Shorts force-sell; longs force-buy into escrow.
         ///
-        /// Longs lock collateral alpha staked on `source_hotkey`; shorts ignore it.
-        /// The hotkey is not stored on the position.
+        /// Longs require `source_hotkey` (collateral alpha is locked from that
+        /// stake). Shorts are TAO-only and must pass `None` — no hotkey is
+        /// stored on the position either way.
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::open())]
         pub fn open(
@@ -1111,7 +1115,7 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            source_hotkey: T::AccountId,
+            source_hotkey: Option<T::AccountId>,
             min_borrow: u64,
             min_proceeds: u64,
             min_escrow_alpha: u64,
@@ -1140,7 +1144,7 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            source_hotkey: T::AccountId,
+            source_hotkey: Option<T::AccountId>,
             principal: u64,
             min_proceeds: u64,
             min_escrow_alpha: u64,
@@ -2261,7 +2265,7 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            source_hotkey: T::AccountId,
+            source_hotkey: Option<T::AccountId>,
             requested_principal: Option<u64>,
             min_borrow: u64,
             min_proceeds: u64,
@@ -2280,6 +2284,11 @@ pub mod pallet {
             ensure!(collateral > 0, Error::<T>::CollateralZero);
             if let Some(p) = requested_principal {
                 ensure!(p > 0, Error::<T>::PrincipalZero);
+            }
+            // Longs lock stake on source_hotkey; shorts are TAO-only (§14).
+            match side {
+                Side::Long => ensure!(source_hotkey.is_some(), Error::<T>::InvalidSourceHotkey),
+                Side::Short => ensure!(source_hotkey.is_none(), Error::<T>::InvalidSourceHotkey),
             }
             // Gate already requires a warm reference; re-check for a clear error.
             let reference = Self::ensure_or_init_reference(netuid)?;
@@ -2447,9 +2456,12 @@ pub mod pallet {
                     (e_s.to_u64(), 0u64)
                 }
                 Side::Long => {
+                    let source_hotkey = source_hotkey
+                        .as_ref()
+                        .ok_or(Error::<T>::InvalidSourceHotkey)?;
                     T::Pool::lock_alpha_collateral(
                         &owner,
-                        &source_hotkey,
+                        source_hotkey,
                         &escrow,
                         &custody,
                         netuid,
@@ -3587,7 +3599,7 @@ pub mod pallet {
                 netuid,
                 Side::Long,
                 collateral,
-                hotkey.clone(),
+                Some(hotkey.clone()),
                 Some(principal),
                 principal,
                 0,
@@ -4818,8 +4830,13 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            _source_hotkey: &T::AccountId,
+            source_hotkey: Option<&T::AccountId>,
         ) -> Result<OpeningQuote, DispatchError> {
+            // Match `do_open`: Long requires a source hotkey; Short must omit it.
+            match (side, source_hotkey) {
+                (Side::Long, Some(_)) | (Side::Short, None) => {}
+                _ => return Err(Error::<T>::InvalidSourceHotkey.into()),
+            }
             Self::quote_open_for_inner(Some(owner), netuid, side, collateral, None)
         }
 
@@ -4828,9 +4845,13 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
-            _source_hotkey: &T::AccountId,
+            source_hotkey: Option<&T::AccountId>,
             principal: u64,
         ) -> Result<OpeningQuote, DispatchError> {
+            match (side, source_hotkey) {
+                (Side::Long, Some(_)) | (Side::Short, None) => {}
+                _ => return Err(Error::<T>::InvalidSourceHotkey.into()),
+            }
             Self::quote_open_for_inner(Some(owner), netuid, side, collateral, Some(principal))
         }
 

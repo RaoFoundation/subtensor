@@ -27,7 +27,7 @@ transaction rechecks admission without borrowing extra if state changes.
 | `side` | string | short or long. |
 | `amount` | string | Exact additional principal: alpha for a short, TAO for a long. |
 | `coldkey_ss58` | string | Owner of the new or increased loan. |
-| `hotkey_ss58` | string | Delivery or collateral hotkey; must match an existing loan. |
+| `hotkey_ss58` | string | Long only: collateral source hotkey. Omit for shorts. |
 
 ## CLI
 
