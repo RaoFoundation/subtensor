@@ -118,7 +118,7 @@ always:  y − ΔL ≥ MinimumReserve
   * age `now − NetworkRegisteredAt ≥ new_subnet_min_age` (default **50,400 blocks ≈ 7 days**) — else `SubnetTooNew`;
   * lending reference exists — else `ReferenceUnavailable`; past `valid_after` — else `ReferenceWarmingUp`;
   * `G_ema` initialised and aged one full EMA window — else `GemaWarmingUp`.
-* **Ramp.** After the gate, `ramp(age) = min(1, (age − new_subnet_min_age) / new_subnet_ramp)`, default `new_subnet_ramp` = **216,000 blocks ≈ 30 days**, linear. It multiplies the whole of `Cap` (both sides, floor and thin floor included), so the 50/50 split, no cross-borrow and the thin tier are unchanged. A subnet registered 37 days or more ago has `ramp = 1`. The §10 numbers assume `ramp = 1` for every live pool; this was not checked per subnet against registration blocks.
+* **Ramp.** After the gate, `ramp(age) = min(1, (age − new_subnet_min_age) / new_subnet_ramp)`, default `new_subnet_ramp` = **216,000 blocks ≈ 30 days**, linear. It multiplies the whole of `Cap` (both sides, floor and thin floor included), so the 50/50 split, no cross-borrow and the thin tier are unchanged. A subnet registered 37 days or more ago has `ramp = 1`. The §10 numbers assume `ramp = 1` for every live pool; this was not checked per subnet against registration blocks. When a side open/raise fails only because `ramp < 1` (full Cap would still fit), the pallet returns **`SideCapacityRamping`** instead of `SideCapacity` — "try again later" as the ramp rises. Quotes use the same check so quote Ok ⇒ extrinsic Ok.
 * **Why.** A new pool starts at the 1,000 τ lock (thin tier). Its first days have no meaningful EMA price, `G_ema` or `SubnetMovingPrice`. These are exactly the inputs that protect `V_dyn` (§5), capacity smoothing (§2.2) and dissolution (§13.2). The owner also holds most of the float, so day-0 borrowing would mostly mean the owner trading against seed liquidity. The ramp spreads the forced-trade impact over the period when the EMA references become meaningful.
 * **Unchanged:** the formula itself (§2.2), the thin floor, LTVs, and shorts staying open-able up to the dissolving flag. Network immunity is not used as the gate, since that would mean no lending for the whole immunity period (runtime default 1,296,000 blocks ≈ 180 days).
 * Lowering `ramp` (or the age falling back under the gate after a netuid is reused) blocks opens only; it never recalls anything (§7). A reused netuid starts its age again at its new `NetworkRegisteredAt`.
@@ -302,7 +302,7 @@ require P ≤ LTV_tier · V_dyn
 
 ## 7. Below threshold
 If `L_side ≥ Cap_side`:
-* new opens on that side (including raises, which count against the long side) are blocked. The same holds when `Cap` falls because a pool drops into the thin tier (§2.2) or a new subnet's ramp is lowered (§2.3);
+* new opens on that side (including raises, which count against the long side) are blocked (`SideCapacity`, or `SideCapacityRamping` when only the §2.3 ramp is what binds). The same holds when `Cap` falls because a pool drops into the thin tier (§2.2) or a new subnet's ramp is lowered (§2.3);
 * there is no recall and no forced action;
 * repays and defaults re-add normally;
 * capacity reopens once `L_side < Cap_side` on `G_ref`.

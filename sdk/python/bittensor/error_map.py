@@ -502,6 +502,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PrincipalZero": _C.INVALID_ARGUMENT,
     "CollateralZero": _C.INVALID_ARGUMENT,
     "SideCapacity": _C.LIMIT_EXCEEDED,
+    "SideCapacityRamping": _C.LIMIT_EXCEEDED,
     "DepthBelowThreshold": _C.INSUFFICIENT_LIQUIDITY,
     "EmptyPool": _C.INSUFFICIENT_LIQUIDITY,
     "PrincipalExceedsAlphaIn": _C.INSUFFICIENT_LIQUIDITY,

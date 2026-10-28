@@ -2074,15 +2074,26 @@ fn new_subnet_gate_and_capacity_ramp() {
             Error::<Test>::SubnetTooNew
         );
         // Past gate: age just over min_age so ramp factor is tiny; a large open
-        // must hit SideCapacity under the partial Cap.
+        // must hit SideCapacityRamping (full Cap would still fit).
         let params = LiftParams::default();
-        let now = System::block_number();
-        set_registered_at(now.saturating_sub(params.new_subnet_min_age + 1));
+        let now = params.new_subnet_min_age.saturating_add(2);
+        System::set_block_number(now);
+        set_registered_at(0);
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(reference) = r {
+                reference.valid_after = 1;
+                reference.last_updated = now;
+            }
+        });
         Lifts::<Test>::mutate(netuid(), |book| {
             book.last = now;
             book.g_ema = pool_tao();
         });
-        assert!(
+        assert_err!(
+            Lending::quote_open_for(&owner, netuid(), Side::Short, 20_000_000_000_000, &hotkey),
+            Error::<Test>::SideCapacityRamping
+        );
+        assert_err!(
             Lending::open(
                 RuntimeOrigin::signed(owner.clone()),
                 netuid(),
@@ -2093,10 +2104,79 @@ fn new_subnet_gate_and_capacity_ramp() {
                 0,
                 0,
                 deadline(),
-            )
-            .is_err()
+            ),
+            Error::<Test>::SideCapacityRamping
         );
-        let _ = params;
+    });
+}
+
+#[test]
+fn side_capacity_ramping_when_only_ramp_binds_quote_matches_open() {
+    new_test_ext().execute_with(|| {
+        // Production ramp defaults; age just past the gate so Cap is a tiny
+        // fraction of full. Full Cap still dwarfs a modest short.
+        LiftParamsStore::<Test>::put(LiftParams::default());
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 100_000_000_000_000);
+        let params = LiftParams::default();
+        let now = System::block_number().max(params.new_subnet_min_age + 2);
+        System::set_block_number(now);
+        set_registered_at(now.saturating_sub(params.new_subnet_min_age + 1));
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.last = now;
+            book.g_ema = pool_tao();
+            book.l_s = 0;
+        });
+        let collateral = 5_000_000_000_000u64;
+        assert_err!(
+            Lending::quote_open_for(&owner, netuid(), Side::Short, collateral, &hotkey),
+            Error::<Test>::SideCapacityRamping
+        );
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                collateral,
+                hotkey.clone(),
+                1,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SideCapacityRamping
+        );
+        // After the ramp completes, the same size is not ramp-bound (may still
+        // open or fail for unrelated reasons — here it should open).
+        let ready = params
+            .new_subnet_min_age
+            .saturating_add(params.new_subnet_ramp)
+            .saturating_add(10);
+        System::set_block_number(ready);
+        set_registered_at(0);
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.last = ready;
+            book.g_ema = pool_tao();
+        });
+        assert_ok!(Lending::quote_open_for(
+            &owner,
+            netuid(),
+            Side::Short,
+            collateral,
+            &hotkey
+        ));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner),
+            netuid(),
+            Side::Short,
+            collateral,
+            hotkey,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
     });
 }
 

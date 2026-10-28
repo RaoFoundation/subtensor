@@ -967,10 +967,17 @@ pub mod pallet {
         PositionMissing,
         /// Opening value or accrued interest is below the runtime minimum
         /// (non-zero principal that still fails economic floors). Prefer
-        /// [`SideCapacity`] when the side cap is what blocks a minimum loan.
+        /// [`SideCapacity`] / [`SideCapacityRamping`] when the side cap is what
+        /// blocks a minimum loan.
         AmountTooSmall,
-        /// Side-cap headroom cannot fit this (or any MinimumLoanValue) borrow.
+        /// Side-cap headroom cannot fit this (or any MinimumLoanValue) borrow
+        /// even at full (post-ramp) Cap. Prefer [`SideCapacityRamping`] when only
+        /// the new-subnet ramp is what binds.
         SideCapacity,
+        /// Side capacity is binding only because the subnet is still inside the
+        /// §2.3 Cap ramp (`ramp(age) < 1`). Full Cap would allow this borrow —
+        /// try again later as the ramp rises. Quotes use the same check.
+        SideCapacityRamping,
         /// Legacy depth refusal; prefer [`EmptyPool`] /
         /// [`PrincipalExceedsAlphaIn`] / [`PrincipalExceedsTaoIn`].
         DepthBelowThreshold,
@@ -1622,9 +1629,12 @@ pub mod pallet {
             });
         }
 
-        fn side_caps(
+        /// `(Cap, Cap_short, Cap_long)` at `ramp_bps` (≤ 10_000). `None` uses the
+        /// live §2.3 ramp. Pass `Some(10_000)` for the post-ramp full Cap.
+        fn side_caps_at(
             netuid: NetUid,
             params: &LiftParams,
+            ramp_bps: Option<u64>,
         ) -> Result<(u64, u64, u64), DispatchError> {
             let book = Lifts::<T>::get(netuid);
             let g_ref = Self::g_ref(netuid, &book);
@@ -1641,30 +1651,82 @@ pub mod pallet {
             let impact_cap = g_ref.saturating_sub(y_star);
             let raw_cap = floor_cap.max(impact_cap.min(ceiling_cap));
             // §2.3: Cap *= ramp(age) in bps of full Cap.
-            let ramp_bps = Self::capacity_ramp(netuid, params).min(10_000);
-            let cap = Self::mul_bps(raw_cap, ramp_bps as u16)?;
+            let ramp = ramp_bps
+                .unwrap_or_else(|| Self::capacity_ramp(netuid, params))
+                .min(10_000);
+            let cap = Self::mul_bps(raw_cap, ramp as u16)?;
             let cap_short = Self::mul_bps(cap, params.split_short_bps)?;
             let cap_long = cap.saturating_sub(cap_short);
             Ok((cap, cap_short, cap_long))
         }
 
+        fn side_caps(
+            netuid: NetUid,
+            params: &LiftParams,
+        ) -> Result<(u64, u64, u64), DispatchError> {
+            Self::side_caps_at(netuid, params, None)
+        }
+
+        /// Cap_side for `side` from a `(Cap, Cap_short, Cap_long)` triple.
+        fn cap_for_side(side: Side, caps: (u64, u64, u64)) -> u64 {
+            match side {
+                Side::Short => caps.1,
+                Side::Long => caps.2,
+            }
+        }
+
+        /// L_side currently booked on `side`.
+        fn side_lift_tao(netuid: NetUid, side: Side) -> u64 {
+            let book = Lifts::<T>::get(netuid);
+            match side {
+                Side::Short => book.l_s,
+                Side::Long => book.l_l,
+            }
+        }
+
+        /// When live (ramped) Cap_side rejects `used + delta_l`, prefer
+        /// [`SideCapacityRamping`] if full Cap would still fit — else
+        /// [`SideCapacity`].
+        fn side_capacity_error(
+            netuid: NetUid,
+            side: Side,
+            delta_l: u64,
+            params: &LiftParams,
+        ) -> Result<Error<T>, DispatchError> {
+            let used = Self::side_lift_tao(netuid, side);
+            let need = used.saturating_add(delta_l);
+            let full = Self::cap_for_side(side, Self::side_caps_at(netuid, params, Some(10_000))?);
+            Ok(if need <= full {
+                Error::<T>::SideCapacityRamping
+            } else {
+                Error::<T>::SideCapacity
+            })
+        }
+
+        /// Zero / unusable headroom under the live ramp: Ramping if full Cap
+        /// still has usable headroom for a MinimumLoanValue borrow, else
+        /// SideCapacity.
+        fn refuse_capacity(
+            netuid: NetUid,
+            side: Side,
+            price: U64F64,
+            params: &LiftParams,
+        ) -> DispatchError {
+            if Self::capacity_ramp(netuid, params) >= 10_000 {
+                return Error::<T>::SideCapacity.into();
+            }
+            match Self::capacity_blocks_minimum_loan_at(netuid, side, price, params, Some(10_000)) {
+                Ok(false) => Error::<T>::SideCapacityRamping.into(),
+                _ => Error::<T>::SideCapacity.into(),
+            }
+        }
+
         fn ensure_side_capacity(netuid: NetUid, side: Side, delta_l: u64) -> DispatchResult {
             let params = Self::lift_params();
-            let book = Lifts::<T>::get(netuid);
-            let (_cap, cap_short, cap_long) = Self::side_caps(netuid, &params)?;
-            match side {
-                Side::Short => {
-                    ensure!(
-                        book.l_s.saturating_add(delta_l) <= cap_short,
-                        Error::<T>::SideCapacity
-                    );
-                }
-                Side::Long => {
-                    ensure!(
-                        book.l_l.saturating_add(delta_l) <= cap_long,
-                        Error::<T>::SideCapacity
-                    );
-                }
+            let cap_side = Self::cap_for_side(side, Self::side_caps(netuid, &params)?);
+            let used = Self::side_lift_tao(netuid, side);
+            if used.saturating_add(delta_l) > cap_side {
+                return Err(Self::side_capacity_error(netuid, side, delta_l, &params)?.into());
             }
             Ok(())
         }
@@ -1866,12 +1928,17 @@ pub mod pallet {
             side: Side,
             params: &LiftParams,
         ) -> Result<u64, DispatchError> {
-            let (_cap, cap_short, cap_long) = Self::side_caps(netuid, params)?;
-            let book = Lifts::<T>::get(netuid);
-            Ok(match side {
-                Side::Short => cap_short.saturating_sub(book.l_s),
-                Side::Long => cap_long.saturating_sub(book.l_l),
-            })
+            Self::side_headroom_tao_at(netuid, side, params, None)
+        }
+
+        fn side_headroom_tao_at(
+            netuid: NetUid,
+            side: Side,
+            params: &LiftParams,
+            ramp_bps: Option<u64>,
+        ) -> Result<u64, DispatchError> {
+            let caps = Self::side_caps_at(netuid, params, ramp_bps)?;
+            Ok(Self::cap_for_side(side, caps).saturating_sub(Self::side_lift_tao(netuid, side)))
         }
 
         /// Accrue pending interest on an existing position the same way
@@ -1915,7 +1982,17 @@ pub mod pallet {
             price: U64F64,
             params: &LiftParams,
         ) -> Result<bool, DispatchError> {
-            let headroom = Self::side_headroom_tao(netuid, side, params)?;
+            Self::capacity_blocks_minimum_loan_at(netuid, side, price, params, None)
+        }
+
+        fn capacity_blocks_minimum_loan_at(
+            netuid: NetUid,
+            side: Side,
+            price: U64F64,
+            params: &LiftParams,
+            ramp_bps: Option<u64>,
+        ) -> Result<bool, DispatchError> {
+            let headroom = Self::side_headroom_tao_at(netuid, side, params, ramp_bps)?;
             if headroom == 0 {
                 return Ok(true);
             }
@@ -1953,8 +2030,9 @@ pub mod pallet {
             Ok(floor_add_cap < min_principal)
         }
 
-        /// Map a zero / dust additional principal to SideCapacity when the side
-        /// cap is what prevents a MinimumLoanValue borrow; otherwise AmountTooSmall.
+        /// Map a zero / dust additional principal to SideCapacity /
+        /// SideCapacityRamping when the side cap is what prevents a
+        /// MinimumLoanValue borrow; otherwise AmountTooSmall.
         fn refuse_dust_or_capacity(
             netuid: NetUid,
             side: Side,
@@ -1962,7 +2040,7 @@ pub mod pallet {
             params: &LiftParams,
         ) -> DispatchError {
             match Self::capacity_blocks_minimum_loan(netuid, side, price, params) {
-                Ok(true) => Error::<T>::SideCapacity.into(),
+                Ok(true) => Self::refuse_capacity(netuid, side, price, params),
                 _ => Error::<T>::AmountTooSmall.into(),
             }
         }
@@ -2019,9 +2097,10 @@ pub mod pallet {
         /// Short principal is **alpha**; invert `ΔL = floor(y·P/x) ≤ headroom_tao`
         /// before searching so a cheap subnet is not capped at `headroom_tao` alpha.
         ///
-        /// Returns `Err(SideCapacity)` when the side has no TAO headroom (or the
-        /// headroom cannot size any principal). Returns `Ok(0)` only when
-        /// collateral/LTV cannot support a positive borrow despite capacity.
+        /// Returns `Err(SideCapacity)` / `Err(SideCapacityRamping)` when the side
+        /// has no TAO headroom (or the headroom cannot size any principal).
+        /// Returns `Ok(0)` only when collateral/LTV cannot support a positive
+        /// borrow despite capacity.
         fn max_principal_for_collateral(
             netuid: NetUid,
             side: Side,
@@ -2036,8 +2115,9 @@ pub mod pallet {
             let total_collateral = Self::add(old_collateral, collateral)?;
             let ltv = Self::ltv_tier_bps(netuid, side, params);
             let headroom_tao = Self::side_headroom_tao(netuid, side, params)?;
+            let price = T::Pool::current_alpha_price(netuid);
             if headroom_tao == 0 {
-                return Err(Error::<T>::SideCapacity.into());
+                return Err(Self::refuse_capacity(netuid, side, price, params));
             }
             if total_collateral == 0 {
                 return Ok(0);
@@ -2068,7 +2148,7 @@ pub mod pallet {
                 Side::Long => headroom_tao.min(y.saturating_sub(1)),
             };
             if add_cap == 0 {
-                return Err(Error::<T>::SideCapacity.into());
+                return Err(Self::refuse_capacity(netuid, side, price, params));
             }
             // Bisection over *total* principal in [old, old+add_cap].
             let mut lo = old_principal;
@@ -2114,9 +2194,8 @@ pub mod pallet {
             if additional == 0 {
                 // Capacity leftover that cannot express a minimum executable
                 // borrow must not look like an LTV / dust refusal.
-                let price = T::Pool::current_alpha_price(netuid);
                 if Self::capacity_blocks_minimum_loan(netuid, side, price, params)? {
-                    return Err(Error::<T>::SideCapacity.into());
+                    return Err(Self::refuse_capacity(netuid, side, price, params));
                 }
             }
             Ok(additional)

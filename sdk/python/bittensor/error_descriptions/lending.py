@@ -39,9 +39,15 @@ DESCRIPTIONS: dict[str, str] = {
         "Collateral is zero. Pass a positive collateral amount (alpha for longs, TAO for shorts)."
     ),
     "SideCapacity": (
-        "Side-cap headroom cannot fit this borrow (or any MinimumLoanValue-sized borrow). "
-        "A large top-up can still hit this when remaining capacity is exhausted. Reduce size "
-        "or wait for repayment; inspect lending_reserves for headroom."
+        "Side-cap headroom cannot fit this borrow (or any MinimumLoanValue-sized borrow) even "
+        "at full Cap. A large top-up can still hit this when remaining capacity is exhausted. "
+        "Reduce size or wait for repayment; inspect lending_reserves for headroom. When only "
+        "the new-subnet Cap ramp is binding, the call returns SideCapacityRamping instead."
+    ),
+    "SideCapacityRamping": (
+        "Side capacity is binding only because this subnet is still inside the ~30-day Cap "
+        "ramp after the new-subnet gate. Full Cap would allow the borrow — try again later "
+        "as the ramp rises, or reduce size to fit the current ramped headroom."
     ),
     "DepthBelowThreshold": (
         "Legacy depth refusal. Prefer EmptyPool / PrincipalExceedsAlphaIn / "
