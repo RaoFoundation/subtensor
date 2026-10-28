@@ -77,19 +77,10 @@ runs:
       with:
         node-version-file: ts-tests/.nvmrc
 
-    - name: Setup pnpm
-      uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      with:
-        version: 10
-
-    - name: Install SDK runtime dependencies
+    # pnpm and all locked dependencies travel with the prepared harness.
+    - name: Use prepared package manager
       shell: bash
-      working-directory: sdk/bittensor-ts
-      run: npm ci --omit=dev --ignore-scripts
-    - name: Install e2e dependencies
-      shell: bash
-      working-directory: ts-tests
-      run: pnpm install --frozen-lockfile
+      run: echo "$GITHUB_WORKSPACE/ts-tests/node_modules/.bin" >> "$GITHUB_PATH"
 
     - name: Install lsof (dev foundation RPC port discovery)
       if: inputs.test == 'dev'
