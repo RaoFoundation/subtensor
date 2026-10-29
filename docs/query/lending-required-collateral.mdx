@@ -9,13 +9,13 @@ The search uses exact-principal runtime quotes at one block. It includes
 existing principal, accrued interest, market depth and funded-redemption
 guards. Only the owner's `InsufficientCollateral` response means to
 search higher; unavailable references, inventory, borrowing caps and
-other positions' uncovered debt remain hard refusals. The requested
-opening value must meet the runtime's minimum, currently 0.1 TAO.
+other positions' uncovered debt remain hard refusals. For longs, probes
+are capped by unlocked alpha on `hotkey_ss58` so the owner-aware stake
+gate cannot abort an otherwise affordable search. The requested opening
+value must meet the runtime's minimum, currently 0.1 TAO.
 
-Returns collateral and its opening quote. This read does not promise
-that the wallet owns the collateral or can pay transaction fees. Wallet
-affordability is checked before review and signing. The exact-principal
-transaction rechecks admission without borrowing extra if state changes.
+Returns collateral and its opening quote. The exact-principal transaction
+rechecks admission without borrowing extra if state changes.
 
 **Category:** Prices & swaps
 
