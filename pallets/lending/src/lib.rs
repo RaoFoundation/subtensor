@@ -213,6 +213,25 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     /// Unlocked stake available for collateral / raise sale (excludes locks).
     fn unlocked_stake(hotkey: &AccountId, coldkey: &AccountId, netuid: NetUid) -> AlphaBalance;
 
+    /// Require `hotkey` to be a registered on-chain hotkey account.
+    ///
+    /// Used by close/open quotes so quote Ok ⇒ extrinsic Ok when alpha moves
+    /// to or from the caller's stake. Production maps to
+    /// `HotKeyAccountNotExists`.
+    fn ensure_hotkey_account(hotkey: &AccountId) -> DispatchResult;
+
+    /// Require unlocked stake on `(hotkey, coldkey, netuid)` to cover `amount`.
+    ///
+    /// Mirrors the stake gates inside [`Self::lock_alpha_collateral`] so a long
+    /// open quote cannot say Ok when the extrinsic would fail with
+    /// `StakeUnavailable`.
+    fn ensure_collateral_stake(
+        hotkey: &AccountId,
+        coldkey: &AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> DispatchResult;
+
     /// Raise sale leg: unstake `alpha` to `coldkey` free TAO (`allow_partial = false`).
     fn unstake_for_raise(
         hotkey: &AccountId,
@@ -1519,8 +1538,12 @@ pub mod pallet {
 
         fn ensure_lending_live(netuid: NetUid) -> DispatchResult {
             ensure!(Enabled::<T>::get(), Error::<T>::Disabled);
+            // Use `network_alive` (registration + dynamic mechanism) — not
+            // `subnet_exists`, which also requires SubtokenEnabled. Otherwise a
+            // registered-but-unstarted subnet fails here as SubnetUnavailable
+            // and `ensure_new_subnet_gate`'s SubnetNotStarted never fires.
             ensure!(
-                T::Pool::subnet_exists(netuid) && !Dissolutions::<T>::contains_key(netuid),
+                T::Pool::network_alive(netuid) && !Dissolutions::<T>::contains_key(netuid),
                 Error::<T>::SubnetUnavailable
             );
             Ok(())
@@ -2673,6 +2696,7 @@ pub mod pallet {
                             position.principal <= max_payment,
                             Error::<T>::SlippageExceeded
                         );
+                        T::Pool::ensure_hotkey_account(&hotkey)?;
                         T::Pool::repay_alpha(
                             &owner,
                             &hotkey,
@@ -2721,6 +2745,9 @@ pub mod pallet {
                             T::Pool::transfer_tao(&escrow, &owner, refund.into())?;
                         }
                         // Return any surplus alpha from overshoot before readd.
+                        // Escrow buyback is a TAO-refund path: do not require the
+                        // destination hotkey to already exist (validate_receiver
+                        // = false). Quote parity treats this path as hotkey-free.
                         let excess = bought.saturating_sub(position.principal);
                         if excess > 0 {
                             T::Pool::transfer_staked_alpha(
@@ -2731,7 +2758,7 @@ pub mod pallet {
                                 netuid,
                                 excess.into(),
                                 false,
-                                true,
+                                false,
                             )?;
                         }
                         // Move bought principal alpha to reserve and readd.
@@ -2771,6 +2798,7 @@ pub mod pallet {
                         // Return A + remaining C to owner.
                         let alpha_out = Self::add(position.escrow_alpha, position.collateral)?;
                         if alpha_out > 0 {
+                            T::Pool::ensure_hotkey_account(&hotkey)?;
                             T::Pool::transfer_staked_alpha(
                                 &escrow,
                                 &custody,
@@ -2852,6 +2880,7 @@ pub mod pallet {
                             T::Pool::transfer_tao(&escrow, &owner, surplus.into())?;
                         }
                         if coll_left > 0 {
+                            T::Pool::ensure_hotkey_account(&hotkey)?;
                             T::Pool::transfer_staked_alpha(
                                 &escrow,
                                 &custody,
@@ -2975,6 +3004,7 @@ pub mod pallet {
                     if repay_from_wallet {
                         // §5.2: max_payment caps alpha repaid on the slice.
                         ensure!(slice_p <= max_payment, Error::<T>::SlippageExceeded);
+                        T::Pool::ensure_hotkey_account(&hotkey)?;
                         T::Pool::repay_alpha(
                             &owner,
                             &hotkey,
@@ -3022,6 +3052,8 @@ pub mod pallet {
                         }
                         let excess = bought.saturating_sub(slice_p);
                         if excess > 0 {
+                            // Same as full close: short escrow buyback does not
+                            // require a pre-existing destination hotkey.
                             T::Pool::transfer_staked_alpha(
                                 &escrow,
                                 &custody,
@@ -3030,7 +3062,7 @@ pub mod pallet {
                                 netuid,
                                 excess.into(),
                                 false,
-                                true,
+                                false,
                             )?;
                         }
                         T::Pool::transfer_staked_alpha(
@@ -3065,6 +3097,7 @@ pub mod pallet {
                         // Return k·A + k·C to owner stake.
                         let alpha_out = Self::add(slice_a, slice_c)?;
                         if alpha_out > 0 {
+                            T::Pool::ensure_hotkey_account(&hotkey)?;
                             T::Pool::transfer_staked_alpha(
                                 &escrow,
                                 &custody,
@@ -3135,6 +3168,7 @@ pub mod pallet {
                             T::Pool::transfer_tao(&escrow, &owner, surplus.into())?;
                         }
                         if coll_left > 0 {
+                            T::Pool::ensure_hotkey_account(&hotkey)?;
                             T::Pool::transfer_staked_alpha(
                                 &escrow,
                                 &custody,
@@ -5206,7 +5240,7 @@ pub mod pallet {
             side: Side,
             collateral: u64,
         ) -> Result<OpeningQuote, DispatchError> {
-            Self::quote_open_for_inner(None, netuid, side, collateral, None)
+            Self::quote_open_for_inner(None, netuid, side, collateral, None, None)
         }
 
         pub fn quote_open_for(
@@ -5221,7 +5255,7 @@ pub mod pallet {
                 (Side::Long, Some(_)) | (Side::Short, None) => {}
                 _ => return Err(Error::<T>::InvalidSourceHotkey.into()),
             }
-            Self::quote_open_for_inner(Some(owner), netuid, side, collateral, None)
+            Self::quote_open_for_inner(Some(owner), netuid, side, collateral, source_hotkey, None)
         }
 
         pub fn quote_open_exact_for(
@@ -5236,7 +5270,14 @@ pub mod pallet {
                 (Side::Long, Some(_)) | (Side::Short, None) => {}
                 _ => return Err(Error::<T>::InvalidSourceHotkey.into()),
             }
-            Self::quote_open_for_inner(Some(owner), netuid, side, collateral, Some(principal))
+            Self::quote_open_for_inner(
+                Some(owner),
+                netuid,
+                side,
+                collateral,
+                source_hotkey,
+                Some(principal),
+            )
         }
 
         fn quote_open_for_inner(
@@ -5244,6 +5285,7 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
+            source_hotkey: Option<&T::AccountId>,
             requested: Option<u64>,
         ) -> Result<OpeningQuote, DispatchError> {
             // Accrual / forfeit mutates pool + capacity; always roll back so a
@@ -5251,7 +5293,12 @@ pub mod pallet {
             use frame_support::storage::{TransactionOutcome, with_transaction};
             with_transaction(|| {
                 TransactionOutcome::Rollback(Self::quote_open_for_inner_after_accrual(
-                    owner, netuid, side, collateral, requested,
+                    owner,
+                    netuid,
+                    side,
+                    collateral,
+                    source_hotkey,
+                    requested,
                 ))
             })
         }
@@ -5261,6 +5308,7 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             collateral: u64,
+            source_hotkey: Option<&T::AccountId>,
             requested: Option<u64>,
         ) -> Result<OpeningQuote, DispatchError> {
             // Same gate order as `do_open`: live + §2.3 before amount/depth.
@@ -5272,6 +5320,11 @@ pub mod pallet {
             ensure!(collateral > 0, Error::<T>::CollateralZero);
             if let Some(p) = requested {
                 ensure!(p > 0, Error::<T>::PrincipalZero);
+            }
+            // Long owner-aware quotes check source stake like `lock_alpha_collateral`.
+            if let (Side::Long, Some(o), Some(hk)) = (side, owner, source_hotkey) {
+                T::Pool::ensure_hotkey_account(hk)?;
+                T::Pool::ensure_collateral_stake(hk, o, netuid, collateral.into())?;
             }
             let reference = Self::ensure_reference_warm(netuid)?;
             let now = frame_system::Pallet::<T>::block_number();
@@ -5399,7 +5452,7 @@ pub mod pallet {
         pub fn quote_close(
             owner: &T::AccountId,
             netuid: NetUid,
-            _hotkey: &T::AccountId,
+            hotkey: &T::AccountId,
             repay_from_wallet: bool,
         ) -> Result<ClosingQuote, DispatchError> {
             // Match `do_close`: disabled / dissolving before position work.
@@ -5408,33 +5461,33 @@ pub mod pallet {
             let (interest, _) =
                 Self::interest_due(&position, frame_system::Pallet::<T>::block_number(), true)?;
             let remaining = position.collateral.saturating_sub(interest);
-            match position.side {
+            let quoted = match position.side {
                 Side::Short => {
                     let pot = Self::add(remaining, position.proceeds)?;
                     if repay_from_wallet {
-                        Ok(ClosingQuote {
+                        ClosingQuote {
                             payment: position.principal,
                             refund: pot,
                             escrow_return: position.proceeds,
-                        })
+                        }
                     } else {
                         // Escrow buyback: payment ≈ TAO to buy P alpha; refund is leftover.
                         let payment = Self::tao_to_buy_alpha(netuid, position.principal)?;
                         ensure!(payment <= pot, Error::<T>::InsufficientEscrow);
-                        Ok(ClosingQuote {
+                        ClosingQuote {
                             payment,
                             refund: pot.saturating_sub(payment),
                             escrow_return: 0,
-                        })
+                        }
                     }
                 }
                 Side::Long => {
                     if repay_from_wallet {
-                        Ok(ClosingQuote {
+                        ClosingQuote {
                             payment: position.principal,
                             refund: remaining.saturating_add(position.escrow_alpha),
                             escrow_return: position.escrow_alpha,
-                        })
+                        }
                     } else {
                         // Sell A, then minimal C for the shortfall; refund leftover C as alpha.
                         let w = T::Pool::quote_weight_parts(netuid);
@@ -5465,13 +5518,34 @@ pub mod pallet {
                             coll_left = coll_left.saturating_sub(sell);
                         }
                         ensure!(raised >= position.principal, Error::<T>::InsufficientEscrow);
-                        Ok(ClosingQuote {
+                        ClosingQuote {
                             payment: position.principal,
                             refund: coll_left,
                             escrow_return: 0,
-                        })
+                        }
                     }
                 }
+            };
+            // Hotkey is required when alpha is repaid from or refunded to stake.
+            // Short escrow buyback refunds TAO only (overshoot dust does not
+            // require a registered destination — see `do_close`).
+            if Self::close_requires_hotkey(position.side, repay_from_wallet, &quoted) {
+                T::Pool::ensure_hotkey_account(hotkey)?;
+            }
+            Ok(quoted)
+        }
+
+        /// Whether close moves alpha via the call-supplied hotkey.
+        fn close_requires_hotkey(
+            side: Side,
+            repay_from_wallet: bool,
+            quoted: &ClosingQuote,
+        ) -> bool {
+            match side {
+                // Wallet alpha repay always draws from the hotkey.
+                Side::Short => repay_from_wallet,
+                // Long refund is alpha; only required when some alpha returns.
+                Side::Long => quoted.refund > 0 || quoted.escrow_return > 0,
             }
         }
 

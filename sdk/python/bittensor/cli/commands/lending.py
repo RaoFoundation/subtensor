@@ -328,12 +328,33 @@ def close_loan(
         context.output.error("select the account that owns this position before closing")
         raise typer.Exit(2)
     hotkey = context.resolve_address("hotkey_ss58", hotkey_ss58)
+    position = context.run(
+        lambda client: client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
+    )
+    if position is None:
+        context.output.error(f"no lending position on netuid {netuid}")
+        raise typer.Exit(2)
+    side = position["side"]
+    # Longs refund alpha; short wallet repay draws alpha — both need --hotkey.
+    # Short escrow buyback is TAO-only and may omit it (quote still needs some
+    # AccountId for the 4-param runtime API; use the owner as a placeholder).
+    if side == "Long" and hotkey is None:
+        context.output.error("pass --hotkey to receive the long's alpha refund")
+        raise typer.Exit(2)
+    if side == "Short" and repay_from_wallet and hotkey is None:
+        context.output.error(
+            "pass --hotkey when repaying short alpha from stake "
+            "(or use --no-repay-from-wallet for escrow buyback)"
+        )
+        raise typer.Exit(2)
+    quote_hotkey = hotkey or owner
     with context.output.activity("quoting the repayment…"):
         quote = context.run(
             lambda client: client.read(
                 "lending_close_quote",
                 coldkey_ss58=owner,
                 netuid=netuid,
+                hotkey_ss58=quote_hotkey,
                 repay_from_wallet=repay_from_wallet,
             )
         )

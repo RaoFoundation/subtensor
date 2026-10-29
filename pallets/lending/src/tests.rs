@@ -253,8 +253,10 @@ impl OrderSwapInterface<Account> for MockPool {
 }
 
 impl LendingPoolInterface<Account> for MockPool {
-    fn subnet_exists(_: NetUid) -> bool {
-        true
+    /// Mirror production: requires subtoken/start-call. Live checks use
+    /// [`Self::network_alive`] so SubnetNotStarted can fire from the gate.
+    fn subnet_exists(netuid: NetUid) -> bool {
+        Self::network_alive(netuid) && Self::subtoken_enabled(netuid)
     }
 
     fn network_alive(_: NetUid) -> bool {
@@ -455,6 +457,49 @@ impl LendingPoolInterface<Account> for MockPool {
 
     fn unlocked_stake(hotkey: &Account, coldkey: &Account, netuid: NetUid) -> AlphaBalance {
         alpha(coldkey, hotkey, netuid).into()
+    }
+
+    fn ensure_hotkey_account(hotkey: &Account) -> DispatchResult {
+        // `account(255)` stands in for an unregistered hotkey in parity tests.
+        ensure!(*hotkey != account(255), "HotKeyAccountNotExists");
+        Ok(())
+    }
+
+    fn ensure_collateral_stake(
+        hotkey: &Account,
+        coldkey: &Account,
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> DispatchResult {
+        Self::ensure_hotkey_account(hotkey)?;
+        ensure!(
+            Self::unlocked_stake(hotkey, coldkey, netuid) >= amount,
+            "StakeUnavailable"
+        );
+        Ok(())
+    }
+
+    fn lock_alpha_collateral(
+        from: &Account,
+        source_hotkey: &Account,
+        escrow: &Account,
+        custody: &Account,
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> DispatchResult {
+        // Match production: stake gates before the transfer so open and quote
+        // share StakeUnavailable / HotKeyAccountNotExists.
+        Self::ensure_collateral_stake(source_hotkey, from, netuid, amount)?;
+        Self::transfer_staked_alpha(
+            from,
+            source_hotkey,
+            escrow,
+            custody,
+            netuid,
+            amount,
+            false,
+            false,
+        )
     }
 
     fn unstake_for_raise(
@@ -5035,6 +5080,8 @@ fn long_zero_borrowable_quote_is_amount_too_small_not_depth() {
         let owner = account(1);
         let hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
+        // Fund the source hotkey so the new stake gate does not mask dust sizing.
+        mint_alpha(&owner, &hotkey, netuid(), 1);
         // 1 rao of alpha cannot support any positive long principal under LTV.
         assert_err!(
             Lending::quote_open(netuid(), Side::Long, 1),
@@ -5435,5 +5482,151 @@ fn quote_raise_ok_implies_open_long_and_sell_ok() {
         ));
         let opened = Positions::<Test>::get(&owner, netuid()).unwrap();
         assert_eq!(opened.principal, quoted.principal_tao);
+    });
+}
+
+#[test]
+fn quote_close_requires_hotkey_only_when_alpha_moves() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        let missing = account(255);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        // Escrow buyback refunds TAO only — unregistered hotkey is fine.
+        assert_ok!(Lending::quote_close(&owner, netuid(), &missing, false));
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            missing.clone(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+
+        // Re-open and wallet-repay: missing hotkey must fail quote and call.
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let principal = Positions::<Test>::get(&owner, netuid()).unwrap().principal;
+        mint_alpha(&owner, &hotkey, netuid(), principal.saturating_mul(2));
+        assert_err!(
+            Lending::quote_close(&owner, netuid(), &missing, true),
+            "HotKeyAccountNotExists"
+        );
+        assert_err!(
+            Lending::close(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                missing,
+                true,
+                u64::MAX,
+                0,
+                deadline(),
+            ),
+            "HotKeyAccountNotExists"
+        );
+        // Registered hotkey: quote Ok ⇒ close Ok.
+        assert_ok!(Lending::quote_close(&owner, netuid(), &hotkey, true));
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner),
+            netuid(),
+            hotkey,
+            true,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+    });
+}
+
+#[test]
+fn quote_open_long_checks_source_hotkey_stake() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        let missing = account(255);
+        let collateral = 1_000_000_000_000u64;
+        // No alpha minted — stake check must refuse before sizing.
+        assert_err!(
+            Lending::quote_open_for(&owner, netuid(), Side::Long, collateral, Some(&hotkey),),
+            "StakeUnavailable"
+        );
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Long,
+                collateral,
+                Some(hotkey.clone()),
+                1,
+                0,
+                0,
+                deadline(),
+            ),
+            "StakeUnavailable"
+        );
+        // Unregistered hotkey fails existence before stake.
+        assert_err!(
+            Lending::quote_open_for(&owner, netuid(), Side::Long, collateral, Some(&missing),),
+            "HotKeyAccountNotExists"
+        );
+        mint_alpha(&owner, &hotkey, netuid(), collateral);
+        assert_ok!(Lending::quote_open_for(
+            &owner,
+            netuid(),
+            Side::Long,
+            collateral,
+            Some(&hotkey),
+        ));
+    });
+}
+
+#[test]
+fn unstarted_subnet_reports_subnet_not_started_not_unavailable() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        // Production-shaped: subnet_exists requires subtoken; network_alive does
+        // not. ensure_lending_live must use network_alive so this is NotStarted.
+        set_subtoken_enabled(false);
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                1_000_000_000_000,
+                None,
+                1,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SubnetNotStarted
+        );
+        assert_err!(
+            Lending::quote_open_for(&owner, netuid(), Side::Short, 1_000_000_000_000, None),
+            Error::<Test>::SubnetNotStarted
+        );
     });
 }

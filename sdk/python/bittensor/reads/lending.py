@@ -421,11 +421,21 @@ async def lending_required_collateral(
 
 @read(
     "lending_close_quote",
-    {"coldkey_ss58": "string", "netuid": "integer", "repay_from_wallet": "boolean"},
+    {
+        "coldkey_ss58": "string",
+        "netuid": "integer",
+        "hotkey_ss58": "string",
+        "repay_from_wallet": "boolean",
+    },
     category="Prices & swaps",
     param_docs={
         "coldkey_ss58": "Position owner.",
         "netuid": "Subnet of the position.",
+        "hotkey_ss58": (
+            "Per-call hotkey for alpha repay (short wallet path) or alpha refund "
+            "(long close). Required by the runtime API even when a short escrow "
+            "buyback refunds only TAO."
+        ),
         "repay_from_wallet": (
             "False (default): quote the escrow AMM buyback for a short. "
             "True: repay short alpha from a call-supplied hotkey stake."
@@ -433,7 +443,11 @@ async def lending_required_collateral(
     },
 )
 async def lending_close_quote(
-    view, coldkey_ss58: str, netuid: int, repay_from_wallet: bool = False
+    view,
+    coldkey_ss58: str,
+    netuid: int,
+    hotkey_ss58: str,
+    repay_from_wallet: bool = False,
 ) -> dict:
     """Runtime quote of the combined debt repayment and refund, after accrued interest.
 
@@ -444,12 +458,16 @@ async def lending_close_quote(
     only enough collateral to cover any shortfall to P (leftover alpha refund).
     Set True to quote a wallet repayment instead. The close extrinsic names
     a per-call hotkey when alpha is repaid or refunded; positions store none.
+    Pass the same ``hotkey_ss58`` the close call will use so quote and call
+    share hotkey-existence checks.
     """
     view = await view.at()
     position = await lending_position(view, coldkey_ss58, netuid)
     if position is None:
         raise BittensorError(f"no lending position on netuid {netuid}")
-    raw = _ok(await view.runtime(QUOTE_CLOSE, [coldkey_ss58, netuid, repay_from_wallet]))
+    raw = _ok(
+        await view.runtime(QUOTE_CLOSE, [coldkey_ss58, netuid, hotkey_ss58, repay_from_wallet])
+    )
     short = position["side"] == "Short"
     return {
         "payment": view.balance(int(raw["payment"]), netuid if short and repay_from_wallet else 0),

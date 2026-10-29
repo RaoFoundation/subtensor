@@ -514,7 +514,8 @@ class CloseLoan(Intent):
         metadata={
             "help": (
                 "Hotkey for alpha repay (short wallet path) or alpha refund "
-                "(long close / short buyback surplus). Defaults to the wallet hotkey."
+                "(long close). Required whenever alpha moves; short escrow "
+                "buyback (repay_from_wallet=False) may omit it."
             )
         },
     )
@@ -570,7 +571,18 @@ class CloseLoan(Intent):
         # TAO spend policy runs. Wallet alpha repayment is not free-TAO spend.
         self.max_payment = payment
         self.min_refund = refund
-        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        # Do not silently default to the wallet hotkey: an unregistered wallet
+        # hotkey made short wallet-repay / long refund closes fail after fees.
+        # Short escrow buyback is TAO-only and may omit the hotkey (pass owner).
+        needs_hotkey = side == "Long" or self.repay_from_wallet
+        if needs_hotkey:
+            if not self.hotkey_ss58:
+                raise BittensorError(
+                    "close_loan requires hotkey_ss58 when alpha is repaid or refunded"
+                )
+            hotkey = self.hotkey_ss58
+        else:
+            hotkey = self.hotkey_ss58 or owner
         return await substrate.compose(
             Call(
                 "Lending",

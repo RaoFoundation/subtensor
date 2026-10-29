@@ -361,6 +361,26 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         stake.min(available)
     }
 
+    fn ensure_hotkey_account(hotkey: &T::AccountId) -> DispatchResult {
+        ensure!(
+            Self::hotkey_account_exists(hotkey),
+            Error::<T>::HotKeyAccountNotExists
+        );
+        Ok(())
+    }
+
+    fn ensure_collateral_stake(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> DispatchResult {
+        Self::ensure_hotkey_account(hotkey)?;
+        Self::ensure_available_to_unstake(coldkey, netuid, amount)?;
+        Self::ensure_hotkey_covers_collateral(coldkey, hotkey, netuid, amount)?;
+        Ok(())
+    }
+
     #[transactional]
     fn unstake_for_raise(
         hotkey: &T::AccountId,

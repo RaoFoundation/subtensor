@@ -319,6 +319,7 @@ READ_SAMPLES: dict[str, dict] = {
     "lending_close_quote": {
         "coldkey_ss58": ALICE,
         "netuid": 1,
+        "hotkey_ss58": ALICE_HOT,
         "repay_from_wallet": True,
     },
     "lending_open_quote": {
