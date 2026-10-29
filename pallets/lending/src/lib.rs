@@ -780,6 +780,10 @@ pub mod pallet {
     >;
     #[pallet::storage]
     pub type NextInterestRetry<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
+    /// Live [`InterestRetry`] entry count — `NextInterestRetry` clears only at zero
+    /// (Skeptic fid:1c6bb1dc).
+    #[pallet::storage]
+    pub type InterestRetryPending<T: Config> = StorageValue<_, u32, ValueQuery>;
     #[pallet::storage]
     pub type InterestRetryCursor<T: Config> = StorageValue<_, (T::AccountId, NetUid), OptionQuery>;
     /// Failed expiry settles awaiting retry — same shape as [`InterestRetry`].
@@ -795,6 +799,9 @@ pub mod pallet {
     >;
     #[pallet::storage]
     pub type NextExpiryRetry<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
+    /// Live [`ExpiryRetry`] entry count — `NextExpiryRetry` clears only at zero.
+    #[pallet::storage]
+    pub type ExpiryRetryPending<T: Config> = StorageValue<_, u32, ValueQuery>;
     #[pallet::storage]
     pub type ExpiryRetryCursor<T: Config> = StorageValue<_, (T::AccountId, NetUid), OptionQuery>;
     #[pallet::storage]
@@ -3880,11 +3887,11 @@ pub mod pallet {
             if Due::<T>::take(position.due, (owner, netuid)).is_some() {
                 Self::note_due_removed(position.due);
             }
-            let _ = InterestRetry::<T>::take(position.due, (owner, netuid));
+            let _ = Self::take_interest_retry(position.due, owner, netuid);
             if Expiry::<T>::take(position.expiry_due, (owner, netuid)).is_some() {
                 Self::note_expiry_removed(position.expiry_due);
             }
-            let _ = ExpiryRetry::<T>::take(position.expiry_due, (owner, netuid));
+            let _ = Self::take_expiry_retry(position.expiry_due, owner, netuid);
             PositionCount::<T>::mutate(netuid, |count| *count = count.saturating_sub(1));
             let remaining = TotalPositions::<T>::mutate(|count| {
                 *count = count.saturating_sub(1);
@@ -3896,8 +3903,10 @@ pub mod pallet {
                 NextExpiry::<T>::kill();
                 ExpiryBucketCursor::<T>::kill();
                 NextInterestRetry::<T>::kill();
+                InterestRetryPending::<T>::kill();
                 InterestRetryCursor::<T>::kill();
                 NextExpiryRetry::<T>::kill();
+                ExpiryRetryPending::<T>::kill();
                 ExpiryRetryCursor::<T>::kill();
             }
         }
@@ -3908,6 +3917,9 @@ pub mod pallet {
             netuid: NetUid,
             retry_at: BlockNumberFor<T>,
         ) {
+            if !InterestRetry::<T>::contains_key(retry_at, (owner, netuid)) {
+                InterestRetryPending::<T>::mutate(|c| *c = c.saturating_add(1));
+            }
             InterestRetry::<T>::insert(retry_at, (owner, netuid), ());
             match NextInterestRetry::<T>::get() {
                 Some(n) if n <= retry_at => {}
@@ -3915,12 +3927,51 @@ pub mod pallet {
             }
         }
 
+        fn take_interest_retry(
+            at: BlockNumberFor<T>,
+            owner: &T::AccountId,
+            netuid: NetUid,
+        ) -> bool {
+            if InterestRetry::<T>::take(at, (owner, netuid)).is_some() {
+                let left = InterestRetryPending::<T>::mutate(|c| {
+                    *c = c.saturating_sub(1);
+                    *c
+                });
+                if left == 0 {
+                    NextInterestRetry::<T>::kill();
+                    InterestRetryCursor::<T>::kill();
+                }
+                true
+            } else {
+                false
+            }
+        }
+
         /// O(1) enqueue onto the expiry-retry side queue (Skeptic fid:0776a829).
         fn enqueue_expiry_retry(owner: &T::AccountId, netuid: NetUid, retry_at: BlockNumberFor<T>) {
+            if !ExpiryRetry::<T>::contains_key(retry_at, (owner, netuid)) {
+                ExpiryRetryPending::<T>::mutate(|c| *c = c.saturating_add(1));
+            }
             ExpiryRetry::<T>::insert(retry_at, (owner, netuid), ());
             match NextExpiryRetry::<T>::get() {
                 Some(n) if n <= retry_at => {}
                 _ => NextExpiryRetry::<T>::put(retry_at),
+            }
+        }
+
+        fn take_expiry_retry(at: BlockNumberFor<T>, owner: &T::AccountId, netuid: NetUid) -> bool {
+            if ExpiryRetry::<T>::take(at, (owner, netuid)).is_some() {
+                let left = ExpiryRetryPending::<T>::mutate(|c| {
+                    *c = c.saturating_sub(1);
+                    *c
+                });
+                if left == 0 {
+                    NextExpiryRetry::<T>::kill();
+                    ExpiryRetryCursor::<T>::kill();
+                }
+                true
+            } else {
+                false
             }
         }
 
@@ -4129,8 +4180,10 @@ pub mod pallet {
                 NextExpiry::<T>::kill();
                 ExpiryBucketCursor::<T>::kill();
                 NextInterestRetry::<T>::kill();
+                InterestRetryPending::<T>::kill();
                 InterestRetryCursor::<T>::kill();
                 NextExpiryRetry::<T>::kill();
+                ExpiryRetryPending::<T>::kill();
                 ExpiryRetryCursor::<T>::kill();
                 return;
             }
@@ -4255,6 +4308,7 @@ pub mod pallet {
                 NextExpiry::<T>::kill();
                 ExpiryBucketCursor::<T>::kill();
                 NextExpiryRetry::<T>::kill();
+                ExpiryRetryPending::<T>::kill();
                 ExpiryRetryCursor::<T>::kill();
                 return;
             }
@@ -4410,7 +4464,7 @@ pub mod pallet {
                             Self::charge_interest(&owner, netuid, &mut position, now, false)?;
                             if Positions::<T>::contains_key(&owner, netuid) {
                                 let next = now.saturating_add(T::InterestPeriod::get());
-                                let _ = InterestRetry::<T>::take(position.due, (&owner, netuid));
+                                let _ = Self::take_interest_retry(position.due, &owner, netuid);
                                 position.due = next;
                                 Due::<T>::insert(next, (&owner, netuid), ());
                                 Self::note_due_inserted(next);
@@ -4425,10 +4479,10 @@ pub mod pallet {
                     });
                     match outcome {
                         Ok(()) => {
-                            let _ = InterestRetry::<T>::take(at, (&owner, netuid));
+                            let _ = Self::take_interest_retry(at, &owner, netuid);
                         }
                         Err(_) => {
-                            let _ = InterestRetry::<T>::take(at, (&owner, netuid));
+                            let _ = Self::take_interest_retry(at, &owner, netuid);
                             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                                 let retry_at = now.saturating_add(T::InterestRetryDelay::get());
                                 Self::enqueue_interest_retry(&owner, netuid, retry_at);
@@ -4440,6 +4494,9 @@ pub mod pallet {
                     last_done = Some((owner, netuid));
                 }
                 InterestRetryCursor::<T>::kill();
+                if InterestRetryPending::<T>::get() == 0 {
+                    return;
+                }
                 if saw_entry {
                     // More entries may remain under `at` if we stopped early; if
                     // the prefix is drained, advance past this bucket.
@@ -4453,6 +4510,8 @@ pub mod pallet {
                 } else {
                     empty_bumps = empty_bumps.saturating_add(1);
                     if empty_bumps >= MAX_EMPTY_BUMPS {
+                        // Resumable pointer — never kill while pending > 0
+                        // (Skeptic fid:1c6bb1dc; production delay is 100 > 64).
                         NextInterestRetry::<T>::put(at.saturating_add(1u32.into()));
                         return;
                     }
@@ -4460,28 +4519,10 @@ pub mod pallet {
                     NextInterestRetry::<T>::put(at);
                 }
             }
-            // Caught up past `now`: clear the cursor if nothing is queued at/after.
-            if InterestRetry::<T>::iter_prefix(at).next().is_none()
-                && NextInterestRetry::<T>::get() == Some(at)
-            {
-                // Peek a few future slots for a live retry before killing Next.
-                let mut probe = at;
-                let mut found = false;
-                for _ in 0..MAX_EMPTY_BUMPS {
-                    if meter.try_consume(T::DbWeight::get().reads(1)).is_err() {
-                        NextInterestRetry::<T>::put(probe);
-                        return;
-                    }
-                    if InterestRetry::<T>::iter_prefix(probe).next().is_some() {
-                        NextInterestRetry::<T>::put(probe);
-                        found = true;
-                        break;
-                    }
-                    probe = probe.saturating_add(1u32.into());
-                }
-                if !found {
-                    NextInterestRetry::<T>::kill();
-                }
+            // Caught up past `now` with live pending entries still ahead of the
+            // production retry delay: keep the resumable pointer at `at`.
+            if InterestRetryPending::<T>::get() > 0 {
+                NextInterestRetry::<T>::put(at);
             }
         }
 
@@ -4554,10 +4595,10 @@ pub mod pallet {
                     });
                     match outcome {
                         Ok(()) => {
-                            let _ = ExpiryRetry::<T>::take(at, (&owner, netuid));
+                            let _ = Self::take_expiry_retry(at, &owner, netuid);
                         }
                         Err(_) => {
-                            let _ = ExpiryRetry::<T>::take(at, (&owner, netuid));
+                            let _ = Self::take_expiry_retry(at, &owner, netuid);
                             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                                 let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
                                 Self::enqueue_expiry_retry(&owner, netuid, retry_at);
@@ -4569,6 +4610,9 @@ pub mod pallet {
                     last_done = Some((owner, netuid));
                 }
                 ExpiryRetryCursor::<T>::kill();
+                if ExpiryRetryPending::<T>::get() == 0 {
+                    return;
+                }
                 if saw_entry {
                     if ExpiryRetry::<T>::iter_prefix(at).next().is_none() {
                         at = at.saturating_add(1u32.into());
@@ -4587,26 +4631,8 @@ pub mod pallet {
                     NextExpiryRetry::<T>::put(at);
                 }
             }
-            if ExpiryRetry::<T>::iter_prefix(at).next().is_none()
-                && NextExpiryRetry::<T>::get() == Some(at)
-            {
-                let mut probe = at;
-                let mut found = false;
-                for _ in 0..MAX_EMPTY_BUMPS {
-                    if meter.try_consume(T::DbWeight::get().reads(1)).is_err() {
-                        NextExpiryRetry::<T>::put(probe);
-                        return;
-                    }
-                    if ExpiryRetry::<T>::iter_prefix(probe).next().is_some() {
-                        NextExpiryRetry::<T>::put(probe);
-                        found = true;
-                        break;
-                    }
-                    probe = probe.saturating_add(1u32.into());
-                }
-                if !found {
-                    NextExpiryRetry::<T>::kill();
-                }
+            if ExpiryRetryPending::<T>::get() > 0 {
+                NextExpiryRetry::<T>::put(at);
             }
         }
 
@@ -5654,16 +5680,16 @@ pub mod pallet {
                     Due::<T>::insert(position.due, (new, netuid), ());
                     rekeyed_due = true;
                 }
-                if InterestRetry::<T>::take(position.due, (old, netuid)).is_some() {
-                    InterestRetry::<T>::insert(position.due, (new, netuid), ());
+                if Self::take_interest_retry(position.due, old, netuid) {
+                    Self::enqueue_interest_retry(new, netuid, position.due);
                     rekeyed_due = true;
                 }
                 if Expiry::<T>::take(position.expiry_due, (old, netuid)).is_some() {
                     Expiry::<T>::insert(position.expiry_due, (new, netuid), ());
                     rekeyed_expiry = true;
                 }
-                if ExpiryRetry::<T>::take(position.expiry_due, (old, netuid)).is_some() {
-                    ExpiryRetry::<T>::insert(position.expiry_due, (new, netuid), ());
+                if Self::take_expiry_retry(position.expiry_due, old, netuid) {
+                    Self::enqueue_expiry_retry(new, netuid, position.expiry_due);
                     rekeyed_expiry = true;
                 }
             }
