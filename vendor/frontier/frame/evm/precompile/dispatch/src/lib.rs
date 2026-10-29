@@ -97,6 +97,7 @@ where
 			});
 		}
 
+		pallet_evm::account_cost::record_precompile_mapping_cost::<T>(handle)?;
 		let origin = T::AddressMapping::into_account_id(handle.context().caller);
 
 		if let Some(err) = DispatchValidator::validate_before_dispatch(&origin, &call) {

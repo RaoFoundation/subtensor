@@ -20,6 +20,7 @@ codec = { workspace = true, features = ["max-encoded-len"] }
 frame = { workspace = true, features = ["runtime"] }
 scale-info = { workspace = true, features = ["derive"] }
 subtensor-macros.workspace = true
+subtensor-hashed.workspace = true
 frame-system.workspace = true
 frame-support.workspace = true
 
@@ -35,6 +36,7 @@ std = [
 	"scale-info/std",
 	"frame-support/std",
 	"frame-system/std",
+	"subtensor-hashed/std",
 ]
 runtime-benchmarks = [
 	"frame/runtime-benchmarks",

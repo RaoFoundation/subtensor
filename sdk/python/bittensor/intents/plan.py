@@ -48,7 +48,9 @@ class Policy:
             return []
         return ["raw call submission is disabled by policy (set allow_raw_calls=True)"]
 
-    def check(self, intent: Intent, fee: Optional[Balance]) -> list[str]:
+    def check(
+        self, intent: Intent, fee: Optional[Balance], *, additional_spend: Optional[Balance] = None
+    ) -> list[str]:
         intent = intent.semantic_intent()
         violations: list[str] = []
         if self.max_fee_tao is not None:
@@ -63,6 +65,8 @@ class Policy:
                 violations.append(f"fee {fee} exceeds max_fee_tao {self.max_fee_tao}")
         if self.max_spend_tao is not None:
             spend = intent.spend()
+            if spend is not UNBOUNDED and additional_spend is not None:
+                spend = (spend or Balance.from_rao(0)) + additional_spend
             if spend is UNBOUNDED:
                 violations.append(
                     f"{intent.op} spends an amount that cannot be bounded before "
@@ -101,7 +105,7 @@ class Plan:
     summary: str
     signer: str
     signer_address: Optional[str]
-    fee: Optional[Balance]
+    fee: Optional[Balance]  # total estimate, including Shield's carrier when selected
     effects: list[str]
     warnings: list[str]
     violations: list[str] = field(default_factory=list)
@@ -115,6 +119,8 @@ class Plan:
     # preview has a fixed shape (e.g. a before/after vector). Empty when the
     # intent only produces prose.
     preview: dict[str, Any] = field(default_factory=dict)
+    # Route selected before quoting; execute must retain it.
+    shielded: bool = False
 
     @property
     def ok(self) -> bool:
@@ -129,6 +135,7 @@ class Plan:
             "signer_address": self.signer_address,
             "args": self.args,
             "fee_tao": self.fee.tao if self.fee is not None else None,
+            "shielded": self.shielded,
             "spend_tao": self.spend.tao if isinstance(self.spend, Balance) else None,
             "spend_unbounded": self.spend is UNBOUNDED,
             "effects": self.effects,

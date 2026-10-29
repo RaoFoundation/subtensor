@@ -19,6 +19,12 @@ on:
   schedule:
     - cron: "0 3 * * *" # nightly full-suite drift check on the default branch
   workflow_dispatch:
+    inputs:
+      pallet_dirs:
+        description: "Pallet directories, space-separated (e.g. hashed-accounts); blank uses the existing default selection"
+        type: string
+        required: false
+        default: ""
 
 # This workflow only builds the node and validates benchmark weights; it never
 # pushes commits or edits the PR. The apply-benchmark-patch workflow is what
@@ -99,11 +105,14 @@ jobs:
 
       - name: Build node with benchmarks + weight tools
         run: |
+          python3 -m unittest discover -s scripts/tests -p 'test_benchmark_action.py'
           cargo build --profile production -p node-subtensor --features runtime-benchmarks
           cargo build --profile production -p subtensor-weight-tools --bin weight-compare
 
       - name: Run & validate benchmarks
         timeout-minutes: 180
+        env:
+          PALLET_DIRS: ${{ inputs.pallet_dirs || '' }}
         run: |
           mkdir -p .bench_patch
           chmod +x scripts/benchmark_action.sh

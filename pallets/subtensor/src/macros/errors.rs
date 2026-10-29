@@ -465,6 +465,8 @@ mod errors {
         ColdkeySwapDestinationReserved,
         /// No live coldkey-swap destination reservation exists for this account.
         ColdkeySwapDestinationReservationNotFound,
+        /// An ownership change would weaken a protected account's authorization.
+        HotkeyOwnerPolicyViolation,
         /// `set_subnet_emission_weights`: burn (slot 0) and recycle (slot 1) together may be
         /// at most 33% of emission.
         BurnRecycleEmissionAboveMaximum,

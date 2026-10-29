@@ -92,7 +92,7 @@
         },
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -112,9 +112,9 @@
         "pallet": "Proxy",
         "call": "add_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 284,
-        "end_line": 293,
-        "url": "/code/pallets/proxy/src/lib.rs#L282-L293",
+        "line": 334,
+        "end_line": 343,
+        "url": "/code/pallets/proxy/src/lib.rs#L332-L343",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -303,6 +303,10 @@
         "new_coldkey_ss58": {
           "type": "string",
           "description": "Coldkey that will take over everything this coldkey owns once the swap executes; validated and reserved before the announcement fee is charged."
+        },
+        "hashed_descriptor": {
+          "type": "string",
+          "description": "Public descriptor hex for a remote hashed destination's registration."
         }
       },
       "required": [
@@ -423,6 +427,57 @@
     ]
   },
   {
+    "name": "authorize_order",
+    "summary": "Authorize every economic term of a order through the account's origin.",
+    "description": "Authorize every economic term of a order through the account's origin.\n\nSupports direct post-quantum owners, proxies, derivatives, and multisigs. This\ngrants relayers the complete specified trade; funds move only on execution.\nCancel with the same nonce and complete order to revoke its unfilled part.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "authorize_order"
+      ]
+    ],
+    "docs_url": "/docs/tx/authorize-order",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "nonce": {
+          "type": "integer",
+          "description": "Permanent owner-local u64 order nonce."
+        },
+        "order": {
+          "type": "object",
+          "description": "Complete V1 or V2 VersionedOrder, including every economic term."
+        },
+        "order_data": {
+          "type": "string",
+          "description": "Optional pinned canonical VersionedOrder SCALE bytes as hex."
+        }
+      },
+      "required": [
+        "nonce",
+        "order"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx authorize-order --nonce <int> --order '<json>'",
+    "python_class": "AuthorizeOrder",
+    "markdown_url": "/llms.mdx/docs/tx/authorize-order/content.md",
+    "sources": [
+      {
+        "pallet": "LimitOrders",
+        "call": "authorize_order",
+        "path": "pallets/limit-orders/src/lib.rs",
+        "line": 773,
+        "end_line": 797,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L770-L797",
+        "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "batch",
     "summary": "Execute several intents atomically in one extrinsic (all-or-nothing).",
     "description": "Execute several intents atomically in one extrinsic (all-or-nothing).\n\nWraps the child calls in `Utility.batch_all`: they run in order and if\nany one fails the whole extrinsic reverts, so there is never a\npartially-applied result. Use it for multi-step operations that must land\ntogether (e.g. move funds then act on them) instead of submitting the\nsteps separately and risking a half-done state. All children must share\none signer \u2014 an extrinsic has a single signature \u2014 and batches cannot\ncontain other batches. Spend limits and policy checks aggregate across\nevery child, and the transaction plan lists each child's effects.",
@@ -457,9 +512,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 351,
+        "end_line": 399,
+        "url": "/code/pallets/utility/src/lib.rs#L345-L399",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
@@ -507,6 +562,57 @@
         "end_line": 847,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L839-L847",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "cancel_order",
+    "summary": "Cancel a order and any unfilled remainder using its complete terms.",
+    "description": "Cancel a order and any unfilled remainder using its complete terms.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "cancel_order"
+      ]
+    ],
+    "docs_url": "/docs/tx/cancel-order",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "nonce": {
+          "type": "integer",
+          "description": "Permanent owner-local u64 order nonce."
+        },
+        "order": {
+          "type": "object",
+          "description": "Complete V1 or V2 VersionedOrder, including every economic term."
+        },
+        "order_data": {
+          "type": "string",
+          "description": "Optional pinned canonical VersionedOrder SCALE bytes as hex."
+        }
+      },
+      "required": [
+        "nonce",
+        "order"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx cancel-order --nonce <int> --order '<json>'",
+    "python_class": "CancelOrder",
+    "markdown_url": "/llms.mdx/docs/tx/cancel-order/content.md",
+    "sources": [
+      {
+        "pallet": "LimitOrders",
+        "call": "cancel_order",
+        "path": "pallets/limit-orders/src/lib.rs",
+        "line": 690,
+        "end_line": 714,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L688-L714",
+        "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
       }
     ]
   },
@@ -867,6 +973,14 @@
       [
         "Proxy",
         "create_pure"
+      ],
+      [
+        "Proxy",
+        "create_protected_pure"
+      ],
+      [
+        "Proxy",
+        "create_safe_pure"
       ]
     ],
     "docs_url": "/docs/tx/create-pure-proxy",
@@ -875,7 +989,7 @@
       "properties": {
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -884,6 +998,10 @@
         "index": {
           "type": "integer",
           "description": "Disambiguator so one signer can create several pure proxies in one block; also part of the derived address. Keep 0 unless batching."
+        },
+        "account_mode": {
+          "type": "string",
+          "description": "Account derivation: legacy or safe; MS wallets default to safe."
         }
       },
       "required": [],
@@ -897,9 +1015,27 @@
         "pallet": "Proxy",
         "call": "create_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 349,
-        "end_line": 381,
-        "url": "/code/pallets/proxy/src/lib.rs#L347-L381",
+        "line": 399,
+        "end_line": 411,
+        "url": "/code/pallets/proxy/src/lib.rs#L397-L411",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      },
+      {
+        "pallet": "Proxy",
+        "call": "create_protected_pure",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 771,
+        "end_line": 783,
+        "url": "/code/pallets/proxy/src/lib.rs#L768-L783",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      },
+      {
+        "pallet": "Proxy",
+        "call": "create_safe_pure",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 792,
+        "end_line": 800,
+        "url": "/code/pallets/proxy/src/lib.rs#L789-L800",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1034,7 +1170,7 @@
   {
     "name": "evm_withdraw",
     "summary": "Claim TAO deposited to the coldkey's truncated EVM mirror.",
-    "description": "Claim TAO deposited to the coldkey's truncated EVM mirror.\n\nEvery native account controls one EVM address: the first 20 bytes of its\npublic key (the *truncated* mapping). TAO sent from MetaMask to that\naddress's mirror can be pulled into the native account with this call \u2014\nthe EVM-to-substrate path that needs no EVM gas. The flow: send TAO from\nthe EVM wallet to the address shown by `btcli evm deposit-address`, then\nclaim it with `btcli evm claim-deposit` (or `btcli tx evm-withdraw`).\nThis is not `btcli evm send-to-ss58`, which spends from a stored EVM key\nvia the balance-transfer precompile. Fails if the mirror holds less than\nthe amount. Pass `all` to claim the entire deposit.",
+    "description": "Claim TAO deposited to the coldkey's truncated EVM mirror.\n\nEvery native account controls one EVM address: the first 20 bytes of its\nAccountId (the *truncated* mapping). For an unbound address, EVM deposits\narrive at its legacy mirror and can be claimed without EVM gas. A registered\nalias credits the native account directly; this call only recovers any\nseparate balance left at its legacy mirror, such as a delayed payout.\nThis is not `btcli evm send-to-ss58`, which spends from a stored EVM key\nvia the balance-transfer precompile. Fails if the mirror holds less than\nthe amount. Pass `all` to claim the entire deposit.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1076,6 +1212,102 @@
     "cli": "btcli tx evm-withdraw --amount-tao <amount|all>",
     "python_class": "EvmWithdraw",
     "markdown_url": "/llms.mdx/docs/tx/evm-withdraw/content.md"
+  },
+  {
+    "name": "execute_batched_orders",
+    "summary": "Relay a bounded order batch through the atomic subnet netting engine.",
+    "description": "Relay a bounded order batch through the atomic subnet netting engine.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "execute_batched_orders"
+      ]
+    ],
+    "docs_url": "/docs/tx/execute-batched-orders",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "orders": {
+          "type": "array",
+          "description": "Complete SignedOrder objects."
+        },
+        "should_fail": {
+          "type": "boolean",
+          "description": "Revert the batch if any order fails."
+        },
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet shared by all orders in the atomic netted batch."
+        }
+      },
+      "required": [
+        "orders"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx execute-batched-orders --orders <a,b,c>",
+    "python_class": "ExecuteBatchedOrders",
+    "markdown_url": "/llms.mdx/docs/tx/execute-batched-orders/content.md",
+    "sources": [
+      {
+        "pallet": "LimitOrders",
+        "call": "execute_batched_orders",
+        "path": "pallets/limit-orders/src/lib.rs",
+        "line": 668,
+        "end_line": 681,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L666-L681",
+        "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "execute_orders",
+    "summary": "Relay classical orders and up to eight account-approved orders.",
+    "description": "Relay classical orders and up to eight account-approved orders.\n\nEach signed order includes complete terms, its signature, and an optional\npartial fill. Authorized terms also bind an owner-local nonce. With\nshould_fail true, any failed order reverts the whole batch.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "execute_orders"
+      ]
+    ],
+    "docs_url": "/docs/tx/execute-orders",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "orders": {
+          "type": "array",
+          "description": "Complete SignedOrder objects."
+        },
+        "should_fail": {
+          "type": "boolean",
+          "description": "Revert the batch if any order fails."
+        }
+      },
+      "required": [
+        "orders"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx execute-orders --orders <a,b,c>",
+    "python_class": "ExecuteOrders",
+    "markdown_url": "/llms.mdx/docs/tx/execute-orders/content.md",
+    "sources": [
+      {
+        "pallet": "LimitOrders",
+        "call": "execute_orders",
+        "path": "pallets/limit-orders/src/lib.rs",
+        "line": 616,
+        "end_line": 641,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L614-L641",
+        "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "execute_proxy_announced",
@@ -1131,9 +1363,9 @@
         "pallet": "Proxy",
         "call": "proxy_announced",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 566,
-        "end_line": 592,
-        "url": "/code/pallets/proxy/src/lib.rs#L557-L592",
+        "line": 596,
+        "end_line": 623,
+        "url": "/code/pallets/proxy/src/lib.rs#L587-L623",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1183,7 +1415,7 @@
   {
     "name": "fund_evm_key",
     "summary": "Fund an EVM (h160) address with TAO from the signing coldkey.",
-    "description": "Fund an EVM (h160) address with TAO from the signing coldkey.\n\nAn EVM account's native balance lives at its ss58 *mirror* address\n(`blake2_256(\"evm:\" ++ h160)`). This intent computes the mirror and\ntransfers TAO to it; the funds then appear as the EVM account's balance\nin MetaMask or any Ethereum tool (displayed with 18 decimals there:\n1 TAO = 1e18). Like any transfer this is irreversible \u2014 and only the\nholder of the EVM private key can move the funds afterwards, so\ndouble-check the address.",
+    "description": "Fund an EVM (h160) address with TAO from the signing coldkey.\n\nAn ordinary EVM account's native balance lives at its legacy ss58 mirror.\nRegistered hashed aliases instead share their full native account's balance.\nOn supported runtimes the transaction resolves the active mapping during\nexecution, so an alias change cannot redirect funds to an obsolete mirror;\nthe funds then appear as the EVM account's balance\nin MetaMask or any Ethereum tool (displayed with 18 decimals there:\n1 TAO = 1e18). Like any transfer this is irreversible, so double-check\nthe address. Protected aliases require their native hashed authorization.\nOn older runtimes, when hashed aliases are enabled, native funding of unprotected aliases is\nrefused: their mapping cannot be guarded against a concurrent registration.\nSend to those H160 addresses from an EVM wallet instead.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1191,6 +1423,10 @@
       [
         "Balances",
         "transfer_keep_alive"
+      ],
+      [
+        "EVM",
+        "deposit"
       ]
     ],
     "docs_url": "/docs/tx/fund-evm-key",
@@ -1292,6 +1528,10 @@
       [
         "Proxy",
         "kill_pure"
+      ],
+      [
+        "Proxy",
+        "kill_safe_pure"
       ]
     ],
     "docs_url": "/docs/tx/kill-pure-proxy",
@@ -1317,6 +1557,10 @@
         "ext_index": {
           "type": "integer",
           "description": "Extrinsic index of the creating call within that block."
+        },
+        "account_mode": {
+          "type": "string",
+          "description": "Derivation mode used when the pure proxy was created."
         }
       },
       "required": [
@@ -1332,9 +1576,18 @@
         "pallet": "Proxy",
         "call": "kill_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 401,
-        "end_line": 427,
-        "url": "/code/pallets/proxy/src/lib.rs#L399-L427",
+        "line": 431,
+        "end_line": 457,
+        "url": "/code/pallets/proxy/src/lib.rs#L429-L457",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      },
+      {
+        "pallet": "Proxy",
+        "call": "kill_safe_pure",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 809,
+        "end_line": 831,
+        "url": "/code/pallets/proxy/src/lib.rs#L806-L831",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1573,9 +1826,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 351,
+        "end_line": 399,
+        "url": "/code/pallets/utility/src/lib.rs#L345-L399",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
@@ -1697,9 +1950,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 351,
+        "end_line": 399,
+        "url": "/code/pallets/utility/src/lib.rs#L345-L399",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
@@ -1718,7 +1971,15 @@
       ],
       [
         "Multisig",
+        "as_multi_safe"
+      ],
+      [
+        "Multisig",
         "approve_as_multi"
+      ],
+      [
+        "Multisig",
+        "approve_as_multi_safe"
       ]
     ],
     "docs_url": "/docs/tx/multisig-approve",
@@ -1736,6 +1997,10 @@
         "call": {
           "type": "object",
           "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call \u2014 it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
+        },
+        "account_mode": {
+          "type": "string",
+          "description": "Account derivation mode: legacy or safe; must match every approval."
         },
         "timepoint": {
           "type": "object",
@@ -1764,6 +2029,10 @@
       [
         "Multisig",
         "cancel_as_multi"
+      ],
+      [
+        "Multisig",
+        "cancel_as_multi_safe"
       ]
     ],
     "docs_url": "/docs/tx/multisig-cancel",
@@ -1781,6 +2050,10 @@
         "call": {
           "type": "object",
           "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call \u2014 it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
+        },
+        "account_mode": {
+          "type": "string",
+          "description": "Account derivation mode: legacy or safe; must match every approval."
         },
         "timepoint": {
           "type": "object",
@@ -1810,6 +2083,10 @@
       [
         "Multisig",
         "as_multi"
+      ],
+      [
+        "Multisig",
+        "as_multi_safe"
       ]
     ],
     "docs_url": "/docs/tx/multisig-execute",
@@ -1827,6 +2104,10 @@
         "call": {
           "type": "object",
           "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call \u2014 it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
+        },
+        "account_mode": {
+          "type": "string",
+          "description": "Account derivation mode: legacy or safe; must match every approval."
         },
         "timepoint": {
           "type": "object",
@@ -1855,6 +2136,10 @@
       [
         "Multisig",
         "as_multi_threshold_1"
+      ],
+      [
+        "Multisig",
+        "as_multi_threshold_1_safe"
       ]
     ],
     "docs_url": "/docs/tx/multisig-threshold-1",
@@ -1868,6 +2153,10 @@
         "call": {
           "type": "object",
           "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call \u2014 it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
+        },
+        "account_mode": {
+          "type": "string",
+          "description": "Account derivation mode: legacy or safe; must match every approval."
         }
       },
       "required": [
@@ -2156,9 +2445,9 @@
         "pallet": "Proxy",
         "call": "remove_proxies",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 323,
-        "end_line": 327,
-        "url": "/code/pallets/proxy/src/lib.rs#L321-L327",
+        "line": 373,
+        "end_line": 377,
+        "url": "/code/pallets/proxy/src/lib.rs#L371-L377",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -2206,9 +2495,9 @@
         "pallet": "Proxy",
         "call": "remove_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 304,
-        "end_line": 313,
-        "url": "/code/pallets/proxy/src/lib.rs#L302-L313",
+        "line": 354,
+        "end_line": 363,
+        "url": "/code/pallets/proxy/src/lib.rs#L352-L363",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -2324,9 +2613,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 351,
+        "end_line": 399,
+        "url": "/code/pallets/utility/src/lib.rs#L345-L399",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
@@ -2443,9 +2732,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 351,
+        "end_line": 399,
+        "url": "/code/pallets/utility/src/lib.rs#L345-L399",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
@@ -3163,288 +3452,288 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_epoch_consensus",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1516,
-        "end_line": 1538,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1511-L1538",
+        "line": 1526,
+        "end_line": 1548,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1521-L1548",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_tempo",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1193,
-        "end_line": 1197,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1182-L1197",
+        "line": 1203,
+        "end_line": 1207,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1192-L1207",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_immunity_period",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 559,
-        "end_line": 585,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L557-L585",
+        "line": 569,
+        "end_line": 595,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L567-L595",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_allowed_weights",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 592,
-        "end_line": 618,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L590-L618",
+        "line": 602,
+        "end_line": 628,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L600-L628",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_weights_version_key",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 444,
-        "end_line": 472,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L442-L472",
+        "line": 454,
+        "end_line": 482,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L452-L482",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_activity_cutoff_factor",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 768,
-        "end_line": 782,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L766-L782",
+        "line": 778,
+        "end_line": 792,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L776-L792",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_burn",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 903,
-        "end_line": 935,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L901-L935",
+        "line": 913,
+        "end_line": 945,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L911-L945",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_burn",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 942,
-        "end_line": 974,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L940-L974",
+        "line": 952,
+        "end_line": 984,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L950-L984",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_moving_average",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1058,
-        "end_line": 1090,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1056-L1090",
+        "line": 1068,
+        "end_line": 1100,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1066-L1100",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_penalty",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1097,
-        "end_line": 1121,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1095-L1121",
+        "line": 1107,
+        "end_line": 1131,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1105-L1131",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_serving_rate_limit",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 343,
-        "end_line": 362,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L341-L362",
+        "line": 353,
+        "end_line": 372,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L351-L372",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_reveal_weights_interval",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1590,
-        "end_line": 1617,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1588-L1617",
+        "line": 1600,
+        "end_line": 1627,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1598-L1627",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 625,
-        "end_line": 672,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L623-L672",
+        "line": 635,
+        "end_line": 682,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L633-L682",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_increase_mult",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2464,
-        "end_line": 2502,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2462-L2502",
+        "line": 2474,
+        "end_line": 2512,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2472-L2512",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_half_life",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2422,
-        "end_line": 2458,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2420-L2458",
+        "line": 2432,
+        "end_line": 2468,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2430-L2468",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_lock_share",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2578,
-        "end_line": 2611,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2576-L2611",
+        "line": 2588,
+        "end_line": 2621,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2586-L2621",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_drain_ratio",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2621,
-        "end_line": 2660,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2619-L2660",
+        "line": 2631,
+        "end_line": 2670,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2629-L2670",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_adjustment_alpha",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 528,
-        "end_line": 552,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L526-L552",
+        "line": 538,
+        "end_line": 562,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L536-L562",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_rho",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 695,
-        "end_line": 715,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L693-L715",
+        "line": 705,
+        "end_line": 725,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L703-L725",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_difficulty",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 411,
-        "end_line": 437,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L409-L437",
+        "line": 421,
+        "end_line": 447,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L419-L447",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_alpha_sigmoid_steepness",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1844,
-        "end_line": 1876,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1842-L1876",
+        "line": 1854,
+        "end_line": 1886,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1852-L1886",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_childkey_take_per_subnet",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1361,
-        "end_line": 1393,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1359-L1393",
+        "line": 1371,
+        "end_line": 1403,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1369-L1403",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_immune_neuron_limit",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2030,
-        "end_line": 2048,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2028-L2048",
+        "line": 2040,
+        "end_line": 2058,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2038-L2058",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_alpha_values",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1462,
-        "end_line": 1485,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1460-L1485",
+        "line": 1472,
+        "end_line": 1495,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1470-L1495",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_reveal_weights_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1400,
-        "end_line": 1425,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1398-L1425",
+        "line": 1410,
+        "end_line": 1435,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1408-L1435",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_liquid_alpha_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1438,
-        "end_line": 1457,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1436-L1457",
+        "line": 1448,
+        "end_line": 1467,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1446-L1467",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_network_registration_allowed",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 789,
-        "end_line": 831,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L787-L831",
+        "line": 799,
+        "end_line": 841,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L797-L841",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_network_pow_registration_allowed",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 838,
-        "end_line": 869,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L836-L869",
+        "line": 848,
+        "end_line": 879,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L846-L879",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_yuma3_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1889,
-        "end_line": 1910,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1887-L1910",
+        "line": 1899,
+        "end_line": 1920,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1897-L1920",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_reset_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1923,
-        "end_line": 1944,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1921-L1944",
+        "line": 1933,
+        "end_line": 1954,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1931-L1954",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_toggle_transfer",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1682,
-        "end_line": 1702,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1680-L1702",
+        "line": 1692,
+        "end_line": 1712,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1690-L1712",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_cut_auto_lock_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2522,
-        "end_line": 2540,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2520-L2540",
+        "line": 2532,
+        "end_line": 2550,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2530-L2550",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -3555,9 +3844,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_mechanism_count",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2091,
-        "end_line": 2111,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2088-L2111",
+        "line": 2101,
+        "end_line": 2121,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2098-L2121",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -3855,9 +4144,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_emission_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2550,
-        "end_line": 2568,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2548-L2568",
+        "line": 2560,
+        "end_line": 2578,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2558-L2578",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -3924,9 +4213,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_emission_weights",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2695,
-        "end_line": 2716,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2693-L2716",
+        "line": 2705,
+        "end_line": 2726,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2703-L2726",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -4739,6 +5028,10 @@
         "keep_alive": {
           "type": "boolean",
           "description": "Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it."
+        },
+        "hashed_descriptor": {
+          "type": "string",
+          "description": "Public descriptor hex for initial registration of a remote hashed wallet."
         }
       },
       "required": [
@@ -4775,6 +5068,10 @@
         "keep_alive": {
           "type": "boolean",
           "description": "Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it."
+        },
+        "hashed_descriptor": {
+          "type": "string",
+          "description": "Public descriptor hex for initial registration of a remote hashed wallet."
         }
       },
       "required": [
@@ -4920,9 +5217,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_trim_null_uids_batch",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2176,
-        "end_line": 2200,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2174-L2200",
+        "line": 2186,
+        "end_line": 2210,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2184-L2210",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -4967,9 +5264,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_trim_to_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2149,
-        "end_line": 2169,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2143-L2169",
+        "line": 2159,
+        "end_line": 2179,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2153-L2179",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -5039,9 +5336,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 351,
+        "end_line": 399,
+        "url": "/code/pallets/utility/src/lib.rs#L345-L399",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]

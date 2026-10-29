@@ -17,4 +17,5 @@ pub type HostFunctions = (
     sp_crypto_ec_utils::bls12_381::host_calls::HostFunctions,
     ProofSize,
 );
-pub type RuntimeExecutor = WasmExecutor<HostFunctions>;
+pub type RuntimeExecutor =
+    crate::execution_admission::AdmissionExecutor<WasmExecutor<HostFunctions>>;

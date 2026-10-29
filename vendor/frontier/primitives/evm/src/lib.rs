@@ -46,7 +46,7 @@ pub use self::{
 		Precompile, PrecompileFailure, PrecompileHandle, PrecompileOutput, PrecompileResult,
 		PrecompileSet, Transfer,
 	},
-	storage_oog::{handle_storage_oog, set_storage_oog},
+	storage_oog::{handle_storage_oog, is_storage_oog, set_storage_oog},
 	validation::{
 		CheckEvmTransaction, CheckEvmTransactionConfig, CheckEvmTransactionInput,
 		TransactionValidationError, MAX_AUTHORIZATION_LIST_SIZE,
@@ -118,7 +118,10 @@ impl WeightInfo {
 	}
 
 	fn try_consume(&self, cost: u64, limit: u64, usage: u64) -> Result<u64, ExitError> {
-		let usage = usage.checked_add(cost).ok_or(ExitError::OutOfGas)?;
+		let usage = usage.checked_add(cost).ok_or_else(|| {
+			storage_oog::set_storage_oog();
+			ExitError::OutOfGas
+		})?;
 		if usage > limit {
 			storage_oog::set_storage_oog();
 			return Err(ExitError::OutOfGas);

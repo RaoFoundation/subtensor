@@ -6,9 +6,11 @@ import pytest
 
 from bittensor.balance import Balance
 from bittensor.client import Client
+from bittensor.intents import Policy
 from bittensor.intents import _root_claim_fee as fees
 from bittensor.intents.registration import ClaimRoot
 from bittensor.result import PolicyError
+from bittensor.sp_core import Keypair
 from tests.harness.fake_substrate import FakeSubstrate
 from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, dev_wallet
 
@@ -213,6 +215,51 @@ def _seed_claim_quote(
     )
 
 
+@pytest.mark.parametrize("crypto", [7, 8])
+@pytest.mark.parametrize("shielded", [False, True])
+async def test_ms_root_claim_reserve_and_policy_quote_the_actual_signer(
+    monkeypatch, crypto, shielded
+):
+    from unittest.mock import AsyncMock
+
+    substrate = FakeSubstrate()
+    signer = Keypair.create_from_seed(bytes([91]) * 32, crypto)
+    _seed_claim_quote(
+        substrate, hotkeys=[ALICE_HOT], payouts={ALICE_HOT: 10**6}, holdings={ALICE_HOT: 1}
+    )
+    substrate.seed("SubtensorModule", "StakingHotkeys", [signer.ss58_address], [ALICE_HOT])
+    substrate.seed("System", "Account", [signer.ss58_address], {"data": {"free": 10**9}})
+    seen = []
+
+    async def estimate(call, keypair, **kwargs):
+        seen.append(keypair)
+        return Balance.from_rao(100 if keypair.crypto_type == crypto else 20)
+
+    monkeypatch.setattr(substrate, "estimate_fee", estimate)
+    monkeypatch.setattr(
+        substrate, "estimate_shielded_carrier_fee", AsyncMock(return_value=Balance.from_rao(10))
+    )
+    client = Client("local", substrate=substrate)
+    expected = 110 if shielded else 100
+    preview = await client.preflight(ClaimRoot(), signer, shielded=shielded)
+    assert preview.estimated_fee.rao == preview.required_free.rao == expected
+    assert seen and all(key.crypto_type == crypto for key in seen)
+    assert all(key.ss58_address == signer.ss58_address for key in seen)
+    assert all(bytes(key.hashed_descriptor) == bytes(signer.hashed_descriptor) for key in seen)
+
+    policy = Policy(max_fee_tao=Balance.from_rao(50))
+    plan = await client.plan(ClaimRoot(), signer, shielded=shielded, policy=policy)
+    assert not plan.ok and any("max_fee_tao" in value for value in plan.violations)
+    with pytest.raises(PolicyError, match="max_fee_tao"):
+        await client.execute(ClaimRoot(), signer, shielded=shielded, policy=policy)
+    assert substrate.submissions == []
+
+    substrate.seed("System", "Account", [signer.ss58_address], {"data": {"free": 99}})
+    preview = await client.preflight(ClaimRoot(), signer, shielded=shielded)
+    assert preview.required_free.rao == expected
+    assert any("reserved claim fee" in value for value in preview.blocks)
+
+
 @pytest.mark.asyncio
 async def test_coldkey_threshold_is_applied_per_hotkey_not_to_aggregate():
     substrate = FakeSubstrate()
@@ -361,6 +408,32 @@ async def test_shielded_claim_reserves_free_tao_for_inner_and_carrier():
         await Client("local", substrate=substrate).submit_shielded(ClaimRoot(), dev_wallet())
 
     assert not substrate.submissions
+
+
+@pytest.mark.asyncio
+async def test_affordable_small_shielded_claim_is_not_rejected_by_large_tier_quote(monkeypatch):
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate, hotkeys=[ALICE_HOT], payouts={ALICE_HOT: 1_000_000}, holdings={ALICE_HOT: 1}
+    )
+    substrate.seed("System", "Account", [ALICE], {"data": {"free": 2 * substrate.fee.rao}})
+    substrate.mev_key = bytes(1184)
+    sizes = []
+
+    async def estimate(call, keypair, **kwargs):
+        if call.module == "MevShield":
+            size = len(call.params["ciphertext"])
+            sizes.append(size)
+            if size > 8192:
+                return Balance.from_rao(10**18)
+        return substrate.fee
+
+    monkeypatch.setattr(substrate, "estimate_fee", estimate)
+    result = await Client("local", substrate=substrate).submit_shielded(ClaimRoot(), dev_wallet())
+    assert result.success
+    assert sizes and all(size <= 8192 for size in sizes)
+    assert substrate.last_call.module == "MevShield"
+    assert len(substrate.last_call.params["ciphertext"]) == sizes[-1]
 
 
 @pytest.mark.asyncio
@@ -563,9 +636,9 @@ async def test_proxy_claim_reads_dispatch_state_checks_delegate_and_prices_wrapp
     priced_calls = []
     original_estimate = substrate.estimate_fee
 
-    async def capture_estimate(call, keypair):
+    async def capture_estimate(call, keypair, **kwargs):
         priced_calls.append(call)
-        return await original_estimate(call, keypair)
+        return await original_estimate(call, keypair, **kwargs)
 
     monkeypatch.setattr(substrate, "estimate_fee", capture_estimate)
     intent = ClaimRoot()

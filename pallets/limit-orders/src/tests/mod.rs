@@ -5,3 +5,5 @@ pub mod linked;
 pub mod migration;
 pub mod mock;
 pub mod readable;
+
+mod authorization;

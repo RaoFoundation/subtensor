@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional
 
 from .._generated import calls
+from .._pinned import approved_staking_amount, compose_staking_call
 from ._money import ALL, Money, alpha_amount
 from .base import Intent
 from .registry import register
@@ -55,11 +56,13 @@ class LockStake(Intent):
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
         if self.amount_alpha == ALL:
-            rao = await _lockable_rao(substrate, self.coldkey_address(wallet), self.netuid)
+            rao = await approved_staking_amount("lock_stake", "amount")
+            if rao is None:
+                rao = await _lockable_rao(substrate, self.coldkey_address(wallet), self.netuid)
         else:
             rao = self.amount_alpha.rao
-        return await substrate.compose(
-            calls.SubtensorModule.lock_stake(hotkey=hotkey, netuid=self.netuid, amount=rao)
+        return await compose_staking_call(
+            substrate, "lock_stake", dict(hotkey=hotkey, netuid=self.netuid, amount=rao)
         )
 
     def summary(self) -> str:

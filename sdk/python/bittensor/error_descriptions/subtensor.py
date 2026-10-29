@@ -10,6 +10,11 @@ DESCRIPTIONS: dict[str, str] = {
         "can check getRejectStakingHotkeyGrowth before transferring to avoid a refused "
         "precompile call."
     ),
+    "HotkeyOwnerPolicyViolation": (
+        "This ownership change would weaken a protected hotkey's authorization. "
+        "Use a coldkey account with a compatible authorization policy before registering, "
+        "associating or moving ownership of the hotkey."
+    ),
     "AccountRejectsLockedAlpha": (
         "Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the "
         "accept-locked-alpha bit set, e.g. during a lock transfer or coldkey swap of locks. "

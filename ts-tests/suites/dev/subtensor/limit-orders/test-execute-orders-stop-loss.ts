@@ -1,3 +1,4 @@
+import type { AccountInfo } from "@polkadot/types/interfaces";
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
 import type { ApiPromise } from "@polkadot/api";
 import type { KeyringPair } from "@moonwall/util";
@@ -67,7 +68,9 @@ describeSuite({
             title: "StopLoss executes when price <= limit_price",
             test: async () => {
                 const stakeBefore = await devGetAlphaStake(polkadotJs, aliceHotKey.address, alice.address, netuid);
-                const taoBalanceBefore = (await polkadotJs.query.system.account(alice.address)).data.free.toBigInt();
+                const taoBalanceBefore = (
+                    await polkadotJs.query.system.account<AccountInfo>(alice.address)
+                ).data.free.toBigInt();
 
                 // limit_price = 100_000_000_000 (100.0 TAO/alpha in ×10⁹ scale) — safely above the
                 // actual pool price on the freshly registered dynamic subnet after devAddStake(tao(1000)).
@@ -97,7 +100,9 @@ describeSuite({
                 const stakeAfter = await devGetAlphaStake(polkadotJs, aliceHotKey.address, alice.address, netuid);
                 expect(stakeAfter).toBeLessThan(stakeBefore);
 
-                const taoBalanceAfter = (await polkadotJs.query.system.account(alice.address)).data.free.toBigInt();
+                const taoBalanceAfter = (
+                    await polkadotJs.query.system.account<AccountInfo>(alice.address)
+                ).data.free.toBigInt();
                 expect(taoBalanceAfter).toBeGreaterThan(taoBalanceBefore);
             },
         });
