@@ -1,0 +1,198 @@
+{
+  "pool": {
+    "y": 8000.0,
+    "price": 0.00279,
+    "w1": 0.47,
+    "w2": 0.53,
+    "fee": 0.000503547722590982
+  },
+  "note": "Stake/unstake always Balancer at fixed w. Designs differ only on lending readd. F_cyc>1 = attacker profit.",
+  "by_design": {
+    "buggy": {
+      "n": 154,
+      "max_F_cyc": 1.3697555165590307,
+      "max_profit": 3805.7609780776766,
+      "at": {
+        "side": "short",
+        "close": "buyback",
+        "h": 0.165,
+        "pump_or_dump": 1.25,
+        "w1_after": 0.6377327388653438,
+        "L_ratio": 2.077465582346422
+      },
+      "n_profitable": 75,
+      "profitable_examples": [
+        {
+          "side": "short",
+          "close": "buyback",
+          "h": 0.165,
+          "pump_or_dump": 1.25,
+          "F_cyc": 1.3697555165590307,
+          "profit": 3805.7609780776766,
+          "w1_after": 0.6377327388653438,
+          "L_ratio": 2.077465582346422
+        },
+        {
+          "side": "short",
+          "close": "wallet",
+          "h": 0.165,
+          "pump_or_dump": 1.25,
+          "F_cyc": 1.3697555165590307,
+          "profit": 3805.7609780776766,
+          "w1_after": 0.6377327388653438,
+          "L_ratio": 2.077465582346422
+        },
+        {
+          "side": "short",
+          "close": "buyback",
+          "h": 0.165,
+          "pump_or_dump": 1.0,
+          "F_cyc": 1.30277238754937,
+          "profit": 2510.7828689023318,
+          "w1_after": 0.6012639455736808,
+          "L_ratio": 1.8316640877496386
+        },
+        {
+          "side": "short",
+          "close": "wallet",
+          "h": 0.165,
+          "pump_or_dump": 1.0,
+          "F_cyc": 1.30277238754937,
+          "profit": 2510.7828689023318,
+          "w1_after": 0.6012639455736808,
+          "L_ratio": 1.8316640877496386
+        },
+        {
+          "side": "short",
+          "close": "buyback",
+          "h": 0.165,
+          "pump_or_dump": 0.75,
+          "F_cyc": 1.2309374621562101,
+          "profit": 1453.2066604475021,
+          "w1_after": 0.5675877736216841,
+          "L_ratio": 1.6079672072296862
+        },
+        {
+          "side": "short",
+          "close": "wallet",
+          "h": 0.165,
+          "pump_or_dump": 0.75,
+          "F_cyc": 1.2309374621562101,
+          "profit": 1453.2066604475021,
+          "w1_after": 0.5675877736216841,
+          "L_ratio": 1.6079672072296862
+        },
+        {
+          "side": "short",
+          "close": "buyback",
+          "h": 0.125,
+          "pump_or_dump": 1.25,
+          "F_cyc": 1.2035962074220041,
+          "profit": 2081.0989692617113,
+          "w1_after": 0.574208910098982,
+          "L_ratio": 1.6019706020863924
+        },
+        {
+          "side": "short",
+          "close": "wallet",
+          "h": 0.125,
+          "pump_or_dump": 1.25,
+          "F_cyc": 1.2035962074220037,
+          "profit": 2081.0989692617077,
+          "w1_after": 0.574208910098982,
+          "L_ratio": 1.6019706020863924
+        }
+      ]
+    },
+    "a": {
+      "n": 154,
+      "max_F_cyc": 0.9990807852802274,
+      "max_profit": -1.2133634300998892,
+      "at": {
+        "side": "long",
+        "close": "buyback",
+        "h": 0.165,
+        "pump_or_dump": 0.0,
+        "w1_after": 0.47,
+        "L_ratio": 1.0000000005240466
+      },
+      "n_profitable": 0,
+      "profitable_examples": []
+    },
+    "b": {
+      "n": 154,
+      "max_F_cyc": 0.9992556089390943,
+      "max_profit": -7.457113016553194,
+      "at": {
+        "side": "short",
+        "close": "buyback",
+        "h": 0.01,
+        "pump_or_dump": 1.25,
+        "w1_after": 0.47,
+        "L_ratio": 0.9999999999999997
+      },
+      "n_profitable": 0,
+      "profitable_examples": []
+    }
+  },
+  "a13_like": {
+    "buggy": {
+      "F_cyc": 1.1036200716911204,
+      "profit": 949.1207547768172,
+      "w1_after": 0.528064014853554,
+      "L_ratio": 1.3156170669037637
+    },
+    "a": {
+      "F_cyc": 0.9116371708280027,
+      "profit": -809.3701707516575,
+      "w1_after": 0.47,
+      "L_ratio": 1.0518080123959752
+    },
+    "b": {
+      "F_cyc": 0.9989738968332613,
+      "profit": -9.398717798583675,
+      "w1_after": 0.47,
+      "L_ratio": 1.0
+    }
+  },
+  "a15_like": {
+    "buggy": {
+      "F_cyc": 1.0638931067467885,
+      "profit": 455.75073595515823,
+      "w1_after": 0.506044315861863,
+      "L_ratio": 1.195099849494685
+    },
+    "a": {
+      "F_cyc": 0.942647926581884,
+      "profit": -409.0934218060138,
+      "w1_after": 0.47,
+      "L_ratio": 1.026327056571819
+    },
+    "b": {
+      "F_cyc": 0.9990023417155408,
+      "profit": -7.116315366788513,
+      "w1_after": 0.47,
+      "L_ratio": 0.9999999999999999
+    }
+  },
+  "expanded_grid": {
+    "buggy": {
+      "max_F_over_grid": 1.883866379604049,
+      "any_profitable": true,
+      "total_profitable_cells": 318,
+      "total_cells": 672
+    },
+    "a": {
+      "max_F_over_grid": 0.9991060765777886,
+      "any_profitable": false,
+      "total_profitable_cells": 0,
+      "total_cells": 672
+    },
+    "b": {
+      "max_F_over_grid": 0.9992865599640633,
+      "any_profitable": false,
+      "total_profitable_cells": 0,
+      "total_cells": 672
+    }
+  }
+}

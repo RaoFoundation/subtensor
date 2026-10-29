@@ -72,11 +72,14 @@ pub trait SwapHandler {
         g_denom: u64,
     ) -> Result<(AlphaBalance, TaoBalance), DispatchError>;
 
-    /// Re-add liquidity after a repay/default. **Exact Balancer inverse of
-    /// [`Self::lift_protocol_liquidity`]:** credits reserves without updating
-    /// weights or reservoirs. Do **not** route through
-    /// [`Self::adjust_protocol_liquidity`] — reweighting at a post-swap ratio
-    /// is the SN29 drain (w1/L rewrite → extractive unstake).
+    /// Re-add liquidity after a repay/default.
+    ///
+    /// Exact lift inverse on the Balancer side (design (a)): credit the
+    /// snapshot reserve deltas with **weights untouched**. Stake/unstake keep
+    /// using the weighted pool; only this path skips
+    /// `update_weights_for_added_liquidity`. Do **not** route through
+    /// [`Self::adjust_protocol_liquidity`] — that reweight-at-skew path is the
+    /// SN29 drain.
     fn readd_protocol_liquidity(
         netuid: NetUid,
         tao: TaoBalance,

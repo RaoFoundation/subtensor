@@ -12,7 +12,7 @@
 \title{No-arbitrage for lift lending\\
 \large Bounded TAO-cycles, $\mu$'s $F$, and the lift/readd inverse}
 \author{Subtensor lending (PR \#3268)\\
-Working note --- increment 3 (clone drain + root fix)}
+Working note --- increment 3b (Balancer coherence + cycle search)}
 \date{2026-10-29}
 
 \newtheorem{theorem}{Theorem}
@@ -36,14 +36,15 @@ function of LP state $(y,x,w_1)$ and lending parameters. Then minimise /
 maximise that factor over the parameter space and ask whether any region
 has expected value $>1$ (attacker profit).
 
-Increments 1--2 recorded $\mu$'s $F$, Cycle~A, the $h$-sweep, and the
-failure of EMA/capacity protections under weight-updating re-add.
-\textbf{Increment 3} records the clone reproduction (spec~493 tip
-\texttt{4d3dc1585}): short$\to$pump$\to$close drains SubnetTAO via a
-$w_1$/$L$ jump on readd; proves that weight-preserving readd is the
-exact Balancer inverse of lift; and states the root fix
-(\texttt{readd\_protocol\_liquidity} must not call
-\texttt{adjust\_protocol\_liquidity}).
+Increments 1--2 recorded $\mu$'s $F$, Cycle~A, and the failure of
+EMA/capacity protections under weight-updating re-add.
+\textbf{Increment 3/3b} records the clone drain, answers $\mu$'s
+``abandon Balancer?'' (no: stake/unstake stay weighted; only lending
+lift/readd bypasses the asymmetric-join weight update), compares
+design~(a) exact-delta restore vs design~(b) $\Delta L$ join, and
+reports a bounded cycle search: buggy profitable, (a) and (b) not on
+the grid. Full closed-form proof remains open; we ship (a) after the
+search clears it.
 \end{abstract}
 
 \tableofcontents
@@ -96,7 +97,7 @@ $F_{\mathrm{cyc}} = 1/F$ up to fee placement.
         $L=\sqrt{xy}$ (``$\sqrt{k}$'').
   \item Swap fee: protocol default $\phi_{\mathrm{swap}} = 33/65535
         \approx 5.03\cdot 10^{-4}$. In $\mu$'s formula the fee symbol is
-        $\varphi$; see §\ref{sec:mu-map}.
+        $\varphi$; see Section~\ref{sec:mu-map}.
 \end{itemize}
 
 \subsection{Lending book (per subnet)}
@@ -203,7 +204,7 @@ Under the \textbf{buggy} design (readd via \texttt{adjust\_protocol\_liquidity})
   \item \textbf{Wallet-path close} returns $E_S+C$ for alpha repaid from
         outside, then re-adds $(\tau_L,P)$ with the same weight update
         --- a \textbf{weight-ratchet} $\mu$'s fee-only $F$ misses
-        (see §\ref{sec:gap}, §\ref{sec:clone}).
+        (see Section~\ref{sec:gap}, Section~\ref{sec:clone}).
 \end{itemize}
 
 Under the \textbf{fixed} design (Proposition~\ref{prop:inverse}), both
@@ -264,7 +265,7 @@ where $w'$ is the reweighted pair. With \emph{fixed} weights,
 \]
 reduces to a fee-free identity $F_A^{\mathrm{keep}}<1$ once the forced-buy
 $A$ is substituted (exact algebra in increment~2). Numerics already show
-the sign split (§\ref{sec:numeric}).
+the sign split (Section~\ref{sec:numeric}).
 
 \subsection{Cycle B --- short wallet mirror}
 Open short to the EMA band floor, wallet-repay with owned alpha, rebuy
@@ -308,7 +309,7 @@ even when the September $F$ satisfies $F\ge 1$.
 \begin{remark}[Fix direction, not yet the proof]
 Re-adding wallet-repay legs \emph{without} updating weights restores
 the market-buy residual $(+P,-A)$ under fixed $(w_1,w_2)$. Numerics
-(§\ref{sec:numeric}) show that change flips Cycle~A from $F_A>1$ to
+(Section~\ref{sec:numeric}) show that change flips Cycle~A from $F_A>1$ to
 $F_A<1$ on SN29-like pools. A full proof that $F_A\le 1$ under
 preserve-weights is deferred to a later increment.
 \end{remark}
@@ -388,18 +389,17 @@ zero-size limit.
   \item Under \textbf{buggy} re-add (weight-updating via
         \texttt{adjust\_protocol\_liquidity}),
         Conjecture~\ref{conj:main} is \textbf{false}: Cycle~A and the
-        clone short$\to$pump$\to$close sequences (§\ref{sec:clone}) are
+        clone short$\to$pump$\to$close sequences (Section~\ref{sec:clone}) are
         counterexamples with $F_{\mathrm{cyc}}>1$ and durable $w_1$/$L$
         corruption.
   \item $\mu$'s fee-only $F\ge 1$ does \textbf{not} imply
         $F_{\mathrm{cyc}}\le 1$ on that path, because $F$ omits the
         weight ratchet.
-  \item Under the \textbf{root fix} (Proposition~\ref{prop:inverse}:
-        readd $=$ weight-preserving credit), $w_1$ is invariant across
-        open$\to$swap$\to$close and the clone regressions assert
-        $F_{\mathrm{cyc}}\le 1$. Full closed-form proof of
-        Conjecture~\ref{conj:main} for every TAO-pure cycle remains
-        \textbf{open}; the clone sequences are covered.
+  \item Under design~(a) (Proposition~\ref{prop:inverse} /
+        Theorem~\ref{thm:search}): bounded cycle search finds no
+        $F_{\mathrm{cyc}}>1$; clone regressions assert no attacker
+        profit and unchanged $w_1$. Full closed-form proof of
+        Conjecture~\ref{conj:main} remains \textbf{open}.
 \end{enumerate}
 \end{theorem}
 
@@ -479,7 +479,7 @@ but does not zero EV:
         $N=10$).
   \item A pre-dump that pushes spot below the EMA, then one long up to
         $\mathrm{EMA}\cdot 1.15$, realises a \emph{much} larger effective
-        $h$ and the $10^2$--$10^3\,\tau$ profits of §\ref{sec:numeric}.
+        $h$ and the $10^2$--$10^3\,\tau$ profits of Section~\ref{sec:numeric}.
   \item Multiple coldkeys in one block still serialize; they share the
         same post-trade spot/EMA constraint, but can alternate sides or
         wait for EMA catch-up.
@@ -539,50 +539,133 @@ This is $\mu$'s open$\to$swap$\to$close framing with $F_{\mathrm{cyc}}>1$
 driven by the weight ratchet, not by fee-only $F<1$.
 
 %----------------------------------------------------------------------
-\section{Root fix: lift and readd are inverses}
-\label{sec:inverse}
+\section{Answer to mu: we do not abandon Balancer}
+\label{sec:balancer-coherence}
 
-\begin{proposition}[Weight-preserving readd is the Balancer inverse of lift]
-\label{prop:inverse}
-Let the Balancer state be $(y,x,w_1,w_2)$ with invariant
-$L=x^{w_1}y^{w_2}$ and spot $p=(w_1/w_2)(y/x)$. Lift of fraction
-$g\in(0,1)$ yields
+\begin{remark}[Scope of the bypass]
+Ordinary \textbf{stake / unstake} (and every other AMM swap) still execute
+on the Balancer weighted pool with the stored $(w_1,w_2)$:
 \[
-  (y',x',w_1',w_2')=\bigl((1-g)y,(1-g)x,w_1,w_2\bigr),
+  p=\frac{w_1}{w_2}\frac{y}{x},\qquad
+  L=x^{w_1}y^{w_2}.
 \]
-so $p'=p$ and $L'=(1-g)\,L$. Credit of the same legs
-$(\Delta y,\Delta x)=(gy,gx)$ \textbf{without} changing weights restores
-\[
-  (y'',x'',w_1'',w_2'')=(y,x,w_1,w_2),\qquad L''=L.
-\]
-If any sequence of swaps is applied between lift and credit, the
-reserve ratio may differ from the lift-time ratio, but
-weight-preserving credit still leaves $(w_1,w_2)$ unchanged and adds
-the legs to reserves only. In particular it does \emph{not} solve for
-new weights that keep post-credit spot equal to the skewed mark.
+Emissions still call \texttt{adjust\_protocol\_liquidity}, which may
+\texttt{update\_weights\_for\_added\_liquidity} so a one-sided injection
+keeps spot. \textbf{Only} lending's \texttt{lift}/\texttt{readd} pair
+bypasses that weight update. The bypass is not ``leave Balancer'' --- it is
+``use the proportional remove/add inverse, not the
+asymmetric-join reweight.''
+\end{remark}
+
+\begin{proposition}[Coherence while a position is open]
+\label{prop:open-coherent}
+After a lift of fraction $g$, the live pool is
+$((1-g)y,(1-g)x,w_1,w_2)$. Spot is unchanged, $L\mapsto(1-g)L$, and
+every subsequent stake/unstake is a standard Balancer swap on that
+thinner book. Custody holds the removed legs; they are not part of the
+AMM state. So pricing during the open interval is exactly Balancer.
 \end{proposition}
 
-\begin{proof}[Sketch]
-Lift is a proportional remove: $w$ fixed $\Rightarrow$ $p$ fixed and
-$L\mapsto(1-g)L$ by homogeneity of degree $1$. The inverse operation on
-the Balancer side is the proportional credit of the same vector at the
-same $w$. Re-deriving $w$ from
-$\mathtt{update\_weights\_for\_added\_liquidity}(y_{\mathrm{skew}},
-x_{\mathrm{skew}},\Delta y,\Delta x)$ after swaps yields a different
-$w^\star$ with $L^\star>L$ whenever $(\Delta y/\Delta x)\ne y/x$ at the
-skewed mark --- exactly the a13/a15 jump. Therefore any readd that
-routes through that update is \textbf{not} the inverse of lift.
-\end{proof}
+%----------------------------------------------------------------------
+\section{Two readd designs}
+\label{sec:designs}
+
+Lift always snapshots the removed legs $(\Delta y,\Delta x)=(gy,gx)$ and
+the invariant slice $\Delta L = g\,L$. After intervening swaps the live
+ratio may differ. Two ways to close the Balancer side:
+
+\paragraph{(a) Snapshot / restore exact reserve deltas (weights untouched).}
+Credit exactly $(\Delta y,\Delta x)$ into current reserves; leave
+$(w_1,w_2)$ alone.
+\begin{itemize}
+  \item No intervening swaps: exact inverse --- $p$ and $L$ restored.
+  \item With intervening swaps: $w$ unchanged; $L$ after credit is
+        \emph{not} generally $L_0$ (homogeneous add of a stale-ratio
+        vector into a skewed book). Spot may jump on the credit.
+  \item This is an unbalanced join \emph{without} the Balancer
+        price-preserving weight rewrite (and without an extra join fee).
+\end{itemize}
+
+\paragraph{(b) Settle in invariant units (L-conserving proportional join).}
+Treat the position as owning $\Delta L$ LP shares. On readd, join
+proportionally at the \emph{current} ratio,
+$(sy_{\mathrm{skew}},sx_{\mathrm{skew}})$ with $s=\Delta L/L_{\mathrm{skew}}$,
+so spot is preserved and $L$ rises by $\Delta L$. Custody holds
+$(\Delta y,\Delta x)\ne(sy,sx)$; the residual must be mark-to-market
+(one Balancer swap). That residual swap is a new surface.
+
+\begin{proposition}[Buggy readd is neither (a) nor (b)]
+\label{prop:buggy}
+\texttt{adjust\_protocol\_liquidity}$\to$\texttt{update\_weights\_for\_added\_liquidity}
+credits $(\Delta y,\Delta x)$ \emph{and} solves for new weights that keep
+post-credit spot equal to the skewed mark. That is the asymmetric-join
+tool for emissions, not the inverse of a proportional lift. Empirically
+it inflates $L$ and unlocks extractive unstake (a13/a15).
+\end{proposition}
+
+%----------------------------------------------------------------------
+\section{Root fix = design (a)}
+\label{sec:inverse}
+
+\begin{proposition}[Design (a) is the Balancer inverse of lift]
+\label{prop:inverse}
+Lift of fraction $g$ yields
+$((1-g)y,(1-g)x,w_1,w_2)$. Crediting the same legs $(\Delta y,\Delta x)$
+\textbf{without} changing weights is the set-theoretic inverse on the
+no-swap path. With intervening swaps, (a) still leaves $(w_1,w_2)$
+invariant (the property stake/unstake need); it does \emph{not} claim
+$L=L_0$ after credit.
+\end{proposition}
 
 \begin{corollary}[Implementation]
 \label{cor:impl}
-\texttt{SwapInterface::readd\_protocol\_liquidity} must be identical in
-Balancer effect to a pure reserve credit (no weight write, no
-reservoir). Emissions that \emph{intend} to reweight continue to call
-\texttt{adjust\_protocol\_liquidity} directly. Lending
-\texttt{readd\_and\_credit} / \texttt{\_preserve\_weights} both use the
-weight-preserving path.
+\texttt{readd\_protocol\_liquidity} $=$ pure reserve credit (no weight
+write, no reservoir). Emissions keep calling
+\texttt{adjust\_protocol\_liquidity}. Lending
+\texttt{readd\_and\_credit} / \texttt{\_preserve\_weights} both use (a).
 \end{corollary}
+
+%----------------------------------------------------------------------
+\section{Bounded cycle search}
+\label{sec:search}
+
+Script: \texttt{scripts/no\_arbitrage\_cycle\_search.py}. Enumerates
+short/long $\times$ buyback/wallet-close $\times$ pump/dump sizes on
+SN29-like and expanded $(w_1,y)$ grids. Stake/unstake always Balancer at
+fixed $w$; only the readd design varies.
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+design & cells & profitable ($F_{\mathrm{cyc}}>1$) & $\max F_{\mathrm{cyc}}$ \\
+\midrule
+buggy (weight update) & $672$ & $318$ & $1.88$ \\
+(a) exact deltas, keep $w$ & $672$ & $0$ & $0.999$ \\
+(b) $\Delta L$ join + residual MTM & $672$ & $0$ & $0.999$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent a13/a15-like points: buggy $F>1$ with $w_1$/$L$ jump; (a) and
+(b) both $F<1$ with $w_1$ fixed ((b) also keeps $L$-ratio $=1$).
+
+\begin{theorem}[Status after search]
+\label{thm:search}
+\begin{enumerate}
+  \item We do \textbf{not} abandon Balancer: swaps stay weighted;
+        only lending readd skips \texttt{update\_weights\_for\_added\_liquidity}.
+  \item Design (a) is coherent while a position is open
+        (Proposition~\ref{prop:open-coherent}).
+  \item On the enumerated TAO-pure cycles, (a) and (b) both have
+        $\max F_{\mathrm{cyc}}<1$; buggy does not.
+  \item This is a \textbf{bounded search}, not a closed-form proof over
+        all cycles / continuous sizes / multi-block EMA games. A full
+        proof of Conjecture~\ref{conj:main} remains open. We ship (a)
+        because it matches the lift inverse, kills the reproduced
+        drain, and clears the search; (b) also clears the search but
+        needs residual-swap accounting we are not adding in this fix.
+\end{enumerate}
+\end{theorem}
 
 Regression coverage (pallet tests):
 \begin{itemize}
@@ -590,15 +673,12 @@ Regression coverage (pallet tests):
   \item \texttt{sn29\_short\_self\_pump\_buyback\_close\_\ldots} (a15);
   \item \texttt{sn29\_short\_foreign\_pump\_wallet\_repay\_\ldots} (a13).
 \end{itemize}
-Each asserts: no attacker profit on full unwind, $w_1$ unchanged, $L$
-conserved within fee noise, and a counterfactual that adjust-at-skew
-\emph{would} have moved $w_1$.
 
 \section{Next increments}
 \begin{itemize}
-  \item Closed forms for $F_B,F_C,F_D$ and grid extrema over
-        $(w_1,\varphi,\beta)$ under the fixed readd.
-  \item Bounded $\le 6$-step search with runtime differential.
+  \item Closed-form proof (or counterexample) for (a) beyond the grid.
+  \item If a counterexample appears, evaluate shipping (b) with explicit
+        residual MTM.
   \item Call-flow diagram (read state once / validate / derive / act).
 \end{itemize}
 
