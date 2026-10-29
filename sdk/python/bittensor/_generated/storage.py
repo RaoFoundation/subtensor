@@ -490,6 +490,7 @@ class Lending:
     LiftParamsStore = Item('Lending', 'LiftParamsStore', 'LiftParams')
     Lifts = Item('Lending', 'Lifts', 'LiftBook')
     LongInterestPending = Item('Lending', 'LongInterestPending', 'u64')
+    LongInterestSince = Item('Lending', 'LongInterestSince', 'u32')
     Positions = Item('Lending', 'Positions', 'Position')
     OpenByNetuid = Item('Lending', 'OpenByNetuid', '()')
     PositionCount = Item('Lending', 'PositionCount', 'u32')
