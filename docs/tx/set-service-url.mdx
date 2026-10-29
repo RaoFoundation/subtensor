@@ -12,7 +12,7 @@ An empty url clears it. Updates wait out the subnet's `serving_rate_limit`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_service_url`](/code/pallets/subtensor/src/macros/dispatches.rs#L3244-L3252) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_service_url`](/code/pallets/subtensor/src/macros/dispatches.rs#L3245-L3253) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("set_service_url", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_service_url` — [`pallets/subtensor/src/macros/dispatches.rs#L3246`](/code/pallets/subtensor/src/macros/dispatches.rs#L3244-L3252):
+`SubtensorModule.set_service_url` — [`pallets/subtensor/src/macros/dispatches.rs#L3247`](/code/pallets/subtensor/src/macros/dispatches.rs#L3245-L3253):
 
 ```rust
 #[pallet::call_index(165)]

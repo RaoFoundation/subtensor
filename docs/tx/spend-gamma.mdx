@@ -8,19 +8,21 @@ description: "Spend gamma from the deposits you are the spender of."
 Spends, in order, up to each entry's `amount_gamma` from the deposit at
 its `hotkey_ss58`, within the deposit's balance and daily spend cap.
 Entries whose hotkey has no deposit, or whose deposit you are not the
-spender of, are skipped. Spent gamma is destroyed. Sign as the spender, or
-as its `GammaSpend` proxy.
+spender of, are skipped. Spent gamma is destroyed. Each entry's optional
+`reference`, 32 bytes as hex, is repeated in its `GammaSpent` event;
+by convention it is the sha256 of the `btauth/1` payload of the request
+it pays for. Sign as the spender, or as its `GammaSpend` proxy.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.spend_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3231-L3239) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.spend_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3232-L3240) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet of the deposits. |
-| `spends` | array of object | yes | One to 512 objects of hotkey_ss58 and amount_gamma, spent in order. |
+| `spends` | array of object | yes | One to 512 objects of hotkey_ss58, amount_gamma and an optional 32-byte hex reference, spent in order. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -65,7 +67,7 @@ result = sub.execute_tool("spend_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.spend_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3233`](/code/pallets/subtensor/src/macros/dispatches.rs#L3231-L3239):
+`SubtensorModule.spend_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3234`](/code/pallets/subtensor/src/macros/dispatches.rs#L3232-L3240):
 
 ```rust
 #[pallet::call_index(164)]
@@ -73,7 +75,7 @@ result = sub.execute_tool("spend_gamma", {...}, wallet)
 pub fn spend_gamma(
     origin: OriginFor<T>,
     netuid: NetUid,
-    spends: BoundedVec<(T::AccountId, GammaBalance), ConstU32<MAX_GAMMA_SPENDS>>,
+    spends: BoundedVec<(T::AccountId, GammaBalance, [u8; 32]), ConstU32<MAX_GAMMA_SPENDS>>,
 ) -> DispatchResult {
     Self::do_spend_gamma(origin, netuid, &spends)
 }

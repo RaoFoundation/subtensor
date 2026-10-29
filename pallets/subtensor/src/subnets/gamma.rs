@@ -388,13 +388,13 @@ impl<T: Config> Pallet<T> {
     pub fn do_spend_gamma(
         origin: OriginFor<T>,
         netuid: NetUid,
-        spends: &[(T::AccountId, GammaBalance)],
+        spends: &[(T::AccountId, GammaBalance, [u8; 32])],
     ) -> DispatchResult {
         let signer = ensure_signed(origin)?;
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(!spends.is_empty(), Error::<T>::InvalidValue);
         let now = Self::get_current_block_as_u64();
-        for (hotkey, amount) in spends {
+        for (hotkey, amount, reference) in spends {
             let Some(mut deposit) = GammaDeposits::<T>::get(netuid, hotkey) else {
                 continue;
             };
@@ -419,6 +419,7 @@ impl<T: Config> Pallet<T> {
                 coldkey,
                 hotkey: hotkey.clone(),
                 amount: spent,
+                reference: *reference,
             });
         }
         Ok(())

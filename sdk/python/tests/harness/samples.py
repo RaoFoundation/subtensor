@@ -206,7 +206,10 @@ INTENT_SAMPLES: dict[str, dict] = {
         "hotkey_ss58": BOB_HOT,
         "daily_spend_cap_gamma": 10,
     },
-    "spend_gamma": {"netuid": 1, "spends": [{"hotkey_ss58": BOB_HOT, "amount_gamma": 0.5}]},
+    "spend_gamma": {
+        "netuid": 1,
+        "spends": [{"hotkey_ss58": BOB_HOT, "amount_gamma": 0.5, "reference": "0x" + "ab" * 32}],
+    },
     "create_crowdloan": {
         "deposit_tao": 100,
         "min_contribution_tao": 1,
