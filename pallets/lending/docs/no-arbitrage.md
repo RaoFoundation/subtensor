@@ -41,3 +41,15 @@ After our derivation: μ’s $\varphi$ = lift fraction, $w_2=w_q$, fees ignored 
 ## Fix
 
 `readd_protocol_liquidity` = weight-preserving credit (design a). Not Uni v2.
+
+## Pass/fail (keep-weights)
+
+**PASS** iff no self-contained sequence of at most $N=8$ actions (multi-coldkey and trade-split variants included) yields attacker net TAO $\Delta>0$ for any lift fraction $\varphi$ up to the side-cap $\varphi_{\max}$ on live reserves.
+
+Live finney grid (SN29, SN64 Chutes, SN51, SN4, SN119 thin): keep-weights **PASS** ($20\,087$ cells, max $\Delta\approx -0.01\,\tau$); buggy profitable on $16\,619$ cells. Script: `scripts/no_arbitrage_cycle_search.py`.
+
+Theorem status: SN29 drain identity proved for observed clone books; general closed-form for every keep-weights cycle still open — the bounded search is the shipping criterion.
+
+## Slippage / volatility
+
+While a lift $\varphi$ is outstanding, reserves are scaled by $(1-\varphi)$ at unchanged spot, so small-trade slippage $\approx 1/(1-\varphi)$. Chart: [`no-arbitrage-slippage.pdf`](./no-arbitrage-slippage.pdf) (caps marked).

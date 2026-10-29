@@ -4,6 +4,7 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{booktabs}
+\usepackage{graphicx}
 \usepackage{lmodern}
 \usepackage[T1]{fontenc}
 \usepackage{hyperref}
@@ -37,6 +38,11 @@ zero in the base case. The lift fraction is denoted $\varphi$ and is
 \textbf{not} a fee. The buggy close path (readd via weight
 re-derivation at the post-pump mark) predicts the clone SN29 drains
 (+289\,TAO / +122\,TAO). Weight-preserving readd flips the sign.
+Under keep-weights we state an explicit bounded-search pass/fail
+criterion (no $\le N$-action self-contained sequence yields attacker
+net TAO $>0$ for $\varphi$ up to the side-cap) and report results on
+live reserves. Lifted liquidity deliberately shallows the book:
+slippage scales as $\approx 1/(1-\varphi)$ while a loan is open.
 $\mu$'s September~2026 note is cited only as a cross-check after our
 closed forms are in hand.
 \end{abstract}
@@ -279,6 +285,14 @@ $\Delta<0$ (fee-lossy). Fees are a small correction; the base-case
 ($\varepsilon=0$) buggy path is already profitable.
 \end{theorem}
 
+\begin{remark}[Theorem status]
+Theorem~\ref{thm:drain} is a closed-form / numeric identity on the
+observed SN29 clone books. A general closed-form
+$\Delta\le 0$ for \emph{every} keep-weights cycle is still open.
+Section~\ref{sec:criterion} supplies the operational pass/fail
+surrogate used for shipping.
+\end{remark}
+
 %----------------------------------------------------------------------
 \section{Root fix}
 \label{sec:fix}
@@ -291,10 +305,102 @@ This is not ``Uniswap~v2'': $w_q\neq\tfrac12$ stays a weighted
 Balancer CPMM; only lending readd skips asymmetric-join reweight
 (Section~\ref{sec:univ2}).
 
-Bounded search over short/long $\times$ close paths
-(\texttt{no\_arbitrage\_cycle\_search.py}, 672 cells): buggy profitable
-on 318 cells; keep-$w$ on 0. Closed-form proof for every cycle remains
-open; the SN29 sequences are covered by Theorem~\ref{thm:drain}.
+%----------------------------------------------------------------------
+\section{Pass/fail criterion (keep-weights)}
+\label{sec:criterion}
+
+\begin{definition}[Atomic action]
+An \emph{atomic action} is one of:
+\texttt{open\_short}, \texttt{open\_long},
+\texttt{buy}/\texttt{AddStake},
+\texttt{sell}/\texttt{RemoveStake},
+\texttt{close} (wallet repay or escrow buyback).
+Force-sell / force-buy inside open, and protocol readd on close, are
+not separate attacker actions. A $k$-way equal split of one buy or
+sell counts as $k$ actions.
+\end{definition}
+
+\begin{definition}[Self-contained sequence]
+A sequence is \emph{self-contained} if it starts and ends with no open
+loan on the subnet and with all attacker-controlled alpha inventory
+unwound to TAO. Multi-coldkey means the attacker may use several
+coldkeys (e.g.\ a dedicated pumper); attacker net TAO $\Delta$ is the
+sum of free-balance changes across those keys.
+\end{definition}
+
+\begin{definition}[Side-cap $\varphi_{\max}$]
+With no open book, $G=y$. Default \texttt{LiftParams} give
+\[
+  \mathrm{Cap}
+  =
+  \max\bigl(f\cdot G,\;\min(G-y^\star,\,0.5\,G)\bigr),
+  \qquad
+  \mathrm{Cap}_{\mathrm{short}}=0.5\cdot\mathrm{Cap},
+\]
+where $f=0.33$ if $G\ge 3000\,\tau$ else $f=0.15$, and
+$y^\star=\mathrm{ref}/((1.10)^{w_b}-1)$.
+Short $\varphi_{\max}=\mathrm{Cap}_{\mathrm{short}}/y$;
+long $\varphi_{\max}=\mathrm{Cap}_{\mathrm{long}}/y$.
+\end{definition}
+
+\begin{definition}[Bounded-search pass/fail]
+\label{def:pass}
+Fix $N\in\mathbb{N}$ (default $N=8$) and production fee
+$\varepsilon=33/65535$. On each live reserve snapshot, under
+\textbf{keep-weights} readd:
+\[
+  \textbf{PASS}
+  \iff
+  \nexists\text{ self-contained sequence of length }\le N
+  \text{ with }\varphi\in(0,\varphi_{\max}]
+  \text{ and attacker }\Delta > 0.
+\]
+The search \textbf{must} include multi-coldkey and trade-split
+variants. The same grid run against buggy readd must find
+$\Delta>0$ on at least one cell (sanity that the harness detects the
+known drain).
+\end{definition}
+
+\paragraph{Search status.}
+Script \texttt{scripts/no\_arbitrage\_cycle\_search.py} on live
+finney snapshots (SN29, SN64~Chutes, SN51, SN4, SN119 thin) with
+$N=8$, up to 3-way splits, multi-coldkey on/off, short and long,
+wallet and buyback closes, $\varphi$ up to each side-cap
+($\varphi_{\max}\in\{0.165,0.25,0.25,0.25,0.075\}$):
+keep-weights reports \textbf{PASS} on $20\,087$ live cells
+(max $\Delta\approx -0.01\,\tau$); buggy is profitable on
+$16\,619$ cells of the same grid (sanity). JSON:
+\texttt{no\_arbitrage\_cycle\_search.json}. Closed-form coverage
+beyond Theorem~\ref{thm:drain} remains open.
+
+%----------------------------------------------------------------------
+\section{Deliberate volatility: slippage $\approx 1/(1-\varphi)$}
+\label{sec:slippage}
+
+A short lift removes $(\varphi x,\varphi y)$ into custody at unchanged
+spot, leaving executable reserves $((1-\varphi)x,(1-\varphi)y)$.
+(The subsequent force-sell then moves the mark to
+$y_s=y(1-\varphi)^{1/w_q}$ at $\varepsilon=0$; that is a price move,
+not the depth claim.) Relative to the un-lifted book, a small trade of
+fixed TAO size therefore sees fractional price impact scaled by
+\begin{equation}
+\label{eq:slippage}
+M(\varphi)\;\approx\;\frac{1}{1-\varphi}.
+\end{equation}
+This is intentional: lending lifts liquidity out of the AMM for the
+life of the loan and makes the pool shallower. Figure~\ref{fig:slippage}
+plots $M(\varphi)$ up to each subnet's $\varphi_{\max}$ (side-cap),
+with the cap marked.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.92\textwidth]{no-arbitrage-slippage.pdf}
+\caption{Slippage multiplier $M(\varphi)=1/(1-\varphi)$ vs lift
+fraction for live SN29, SN64~(Chutes), SN51, SN4 and thin SN119, each
+truncated at its short side-cap $\varphi_{\max}=\mathrm{Cap}_{\mathrm{short}}/y$.
+Script: \texttt{no\_arbitrage\_slippage\_chart.py}.}
+\label{fig:slippage}
+\end{figure}
 
 %----------------------------------------------------------------------
 \section{Cross-check: $\mu$, September 2026}
