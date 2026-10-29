@@ -74,9 +74,7 @@ async def test_lending_close_quote_passes_hotkey_as_optional_param():
 async def test_lending_close_quote_allows_omitted_hotkey():
     view = _RecordingView()
     owner = "5Owner"
-    result = await lending_reads.lending_close_quote(
-        view, owner, 1, repay_from_wallet=False
-    )
+    result = await lending_reads.lending_close_quote(view, owner, 1, repay_from_wallet=False)
     assert result["payment"].rao == 10**9
     method, params = view.runtime_calls[0]
     assert method == lending_reads.QUOTE_CLOSE
