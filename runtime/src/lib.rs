@@ -1455,6 +1455,8 @@ parameter_types! {
     pub const LendingMaxTotalPositions: u32 = 1_000_000;
     // ~20 min at 12 s blocks: defer failed expiry settles without stalling the queue.
     pub const LendingExpiryRetryDelay: BlockNumber = 100;
+    // Same bound for failed interest collections (Auditor fid:2aff7381).
+    pub const LendingInterestRetryDelay: BlockNumber = 100;
 }
 
 impl pallet_lending::Config for Runtime {
@@ -1467,6 +1469,7 @@ impl pallet_lending::Config for Runtime {
     type MaxPositionsPerSubnet = LendingMaxPositionsPerSubnet;
     type MaxTotalPositions = LendingMaxTotalPositions;
     type ExpiryRetryDelay = LendingExpiryRetryDelay;
+    type InterestRetryDelay = LendingInterestRetryDelay;
     type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
 }
 

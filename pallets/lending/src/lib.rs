@@ -655,6 +655,10 @@ pub mod pallet {
         /// Failed claims stay covered but must not pin `NextExpiry` forever.
         #[pallet::constant]
         type ExpiryRetryDelay: Get<BlockNumberFor<Self>>;
+        /// Blocks to wait before retrying an interest collection that rolled back.
+        /// Surviving loans must not lose `Due` coverage (Auditor fid:2aff7381).
+        #[pallet::constant]
+        type InterestRetryDelay: Get<BlockNumberFor<Self>>;
         type WeightInfo: WeightInfo;
     }
 
@@ -1013,6 +1017,8 @@ pub mod pallet {
         fn integrity_test() {
             assert!(T::BlocksPerYear::get() > 0);
             assert!(T::InterestPeriod::get() > BlockNumberFor::<T>::default());
+            assert!(T::ExpiryRetryDelay::get() > BlockNumberFor::<T>::default());
+            assert!(T::InterestRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::MinimumLoanValue::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() <= T::MaxTotalPositions::get());
@@ -4092,7 +4098,7 @@ pub mod pallet {
                         NextDue::<T>::put(due);
                         return;
                     }
-                    let _ = with_transaction(|| {
+                    let outcome = with_transaction(|| {
                         let result = (|| {
                             let mut position = Positions::<T>::get(&owner, netuid)
                                 .ok_or(Error::<T>::PositionMissing)?;
@@ -4117,11 +4123,34 @@ pub mod pallet {
                             Err(e) => TransactionOutcome::Rollback(Err(e)),
                         }
                     });
-                    // Drop the processed due entry if charge_interest forfeited
-                    // (remove_position already cleared it) or left it for reschedule.
-                    if Due::<T>::contains_key(due, (&owner, netuid)) {
-                        Due::<T>::remove(due, (&owner, netuid));
-                        Self::note_due_removed(due);
+                    match outcome {
+                        Ok(()) => {
+                            // Forfeit / dissolve skips leave the queue row; drop it.
+                            // Successful charge already moved it onto the next period.
+                            if Due::<T>::contains_key(due, (&owner, netuid)) {
+                                Due::<T>::remove(due, (&owner, netuid));
+                                Self::note_due_removed(due);
+                            }
+                        }
+                        Err(_) => {
+                            // Preserve coverage without pinning NextDue on a
+                            // persistently failing loan (Auditor fid:2aff7381).
+                            // Drop the original claim; defer live positions onto
+                            // a bounded retry slot and update `position.due`.
+                            if Due::<T>::contains_key(due, (&owner, netuid)) {
+                                Due::<T>::remove(due, (&owner, netuid));
+                                Self::note_due_removed(due);
+                            }
+                            if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
+                                let retry_at = now.saturating_add(T::InterestRetryDelay::get());
+                                if !Due::<T>::contains_key(retry_at, (&owner, netuid)) {
+                                    Due::<T>::insert(retry_at, (&owner, netuid), ());
+                                    Self::note_due_inserted(retry_at);
+                                }
+                                position.due = retry_at;
+                                Positions::<T>::insert(&owner, netuid, position);
+                            }
+                        }
                     }
                     last_done = Some((owner, netuid));
                 }

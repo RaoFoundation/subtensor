@@ -46,6 +46,7 @@ impl Config for Test {
     type MaxPositionsPerSubnet = ConstU32<8>;
     type MaxTotalPositions = ConstU32<16>;
     type ExpiryRetryDelay = ConstU64<5>;
+    type InterestRetryDelay = ConstU64<5>;
     type WeightInfo = ();
 }
 
@@ -224,6 +225,9 @@ impl OrderSwapInterface<Account> for MockPool {
             !Dissolutions::<Test>::contains_key(netuid),
             "SubnetNotExists"
         );
+        // Mirror production `ensure_subtoken_enabled`: a disabled subtoken must
+        // roll interest collection back so `collect_due` can defer retry.
+        ensure!(Self::subtoken_enabled(netuid), "SubtokenDisabled");
         let a = amount.to_u64();
         ensure!(
             alpha(from_cold, from_hot, netuid) >= a,
@@ -2983,6 +2987,76 @@ fn long_expiry_preserves_collateral_when_pot_payout_fails() {
                 .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. }))),
             "must not emit Expired after a failed payout"
         );
+    });
+}
+
+/// Failed interest collection must defer onto a retry Due bucket, not drop
+/// coverage permanently (Auditor fid:2aff7381).
+#[test]
+fn failed_interest_collection_defers_onto_retry_bucket() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let open_block = System::block_number();
+        let period = <<Test as Config>::InterestPeriod as Get<u64>>::get();
+        let due_at = open_block.saturating_add(period);
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(snap.due, due_at);
+        assert!(Due::<Test>::contains_key(due_at, (&owner, netuid())));
+        let custody = Lending::custody_hotkey().unwrap();
+        let collateral_before = snap.collateral;
+        let alpha_before = alpha(&snap.custody, &custody, netuid());
+
+        // Disable subtoken so long interest's transfer_staked_alpha rolls back.
+        set_subtoken_enabled(false);
+        System::set_block_number(due_at);
+        let _ = <Lending as Hooks<_>>::on_idle(due_at, Weight::MAX);
+
+        let still = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(
+            still.collateral, collateral_before,
+            "failed charge must roll back"
+        );
+        assert_eq!(alpha(&still.custody, &custody, netuid()), alpha_before);
+        assert!(
+            !Due::<Test>::contains_key(due_at, (&owner, netuid())),
+            "original due bucket must not pin the queue"
+        );
+        let retry_at = due_at.saturating_add(5);
+        assert!(
+            Due::<Test>::contains_key(retry_at, (&owner, netuid())),
+            "surviving loan must land on the interest retry slot"
+        );
+        assert_eq!(still.due, retry_at);
+
+        // Recovery: re-enable trading and let the retry collect successfully.
+        set_subtoken_enabled(true);
+        System::set_block_number(retry_at);
+        let _ = <Lending as Hooks<_>>::on_idle(retry_at, Weight::MAX);
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert!(
+            after.collateral < collateral_before || after.collateral == 0,
+            "retry must charge interest once the subtoken is live again"
+        );
+        assert!(!Due::<Test>::contains_key(retry_at, (&owner, netuid())));
+        assert_eq!(
+            after.due,
+            retry_at.saturating_add(period),
+            "successful retry must reschedule onto the normal interest period"
+        );
+        assert!(Due::<Test>::contains_key(after.due, (&owner, netuid())));
     });
 }
 
