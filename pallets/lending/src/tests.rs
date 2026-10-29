@@ -166,26 +166,6 @@ fn update_mock_weights_for_add(y: u64, x: u64, dy: u64, dx: u64) {
     set_quote_weight_parts(new_w2.min(WEIGHT_ACCURACY as u64).max(1));
     bump_weight_update_count();
 }
-fn sqrt_k_approx() -> u128 {
-    // At equal weights L = √(x·y); with uneven weights use x^{w1} y^{w2} via
-    // log-free proxy √(x·y) still rises when a weight-updating readd ratchets
-    // reserves after a forced trade — good enough for exploit bounds.
-    let x = pool_alpha() as u128;
-    let y = pool_tao() as u128;
-    // Integer isqrt
-    let mut n = x.saturating_mul(y);
-    if n == 0 {
-        return 0;
-    }
-    let mut x0 = n;
-    let mut x1 = (x0 + n / x0) >> 1;
-    while x1 < x0 {
-        x0 = x1;
-        x1 = (x0 + n / x0) >> 1;
-    }
-    x0
-}
-
 pub struct MockPool;
 impl MockPool {
     fn price() -> U64F64 {
