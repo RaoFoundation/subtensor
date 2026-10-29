@@ -36,6 +36,17 @@ At $w_2=\tfrac12$, $\varphi=33/65535$: $F\in[1.00011,1.00049]$ for $f_h\in[0.01,
 | 50% | update | 1.0539 | +889 | 0.535 |
 | 50% | keep | 0.9297 | −1160 | 0.500 |
 
+## Increment 2 — $h$-sweep and protections
+
+### μ’s returns graph (eyeball verified)
+Return % vs pool size in units of trader TAO budget (log x, 10%–1000%): ≈+1% at 10%; peak ≈+4.5% near 100%; zero near ~300%; ≈−39% at 1000%. Profitable when budget ≳ ⅓ of pool TAO (large-trade regime).
+
+### Cycle A sweep (current design, production fee)
+On SN29-like pool, weight-**update** path breakeven at $h\approx 0.031$; above that $F_A>1$ (e.g. +0.43% at EMA cap $h\approx 0.072$, +2.71% at $h=0.165$). Weight-**keep** path is negative for every listed $h$. JSON: [`scripts/no_arbitrage_h_sweep.json`](./scripts/no_arbitrage_h_sweep.json).
+
+### Do protections force EV ≤ 0?
+**No.** EMA band (~7.2%), side caps (7.5–16.5%), and `PrincipalExceedsTaoIn/AlphaIn` only bound $h$. Inside the band, Cycle A still has +EV for $h\gtrsim 0.031$. Splits at $h=0.05$ earn ~+0.15% each while $w_1$ ratchets; a pre-dump then long-to-band realises the large $h$ profits of increment 1. Multi-coldkey does not remove the ratchet.
+
 ## Next increments
 
-Closed forms for remaining TAO-pure cycles; grid extrema; bounded ≤6-step search with runtime differential; call-flow doc.
+Closed forms for $F_B,F_C,F_D$; grid extrema; ≤6-step search; call-flow doc.
