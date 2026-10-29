@@ -1201,7 +1201,6 @@ impl<T: Config> Pallet<T> {
 
         // Calculate the hotkey's share of the validator emission based on its childkey take
         let validating_emission: U96F32 = U96F32::saturating_from_num(dividends);
-        let mut remaining_emission: U96F32 = validating_emission;
         let burn_take_proportion: U96F32 = Self::get_ck_burn();
         let child_take_proportion: U96F32 =
             U96F32::saturating_from_num(Self::get_childkey_take(hotkey, netuid))
@@ -1225,13 +1224,13 @@ impl<T: Config> Pallet<T> {
         let tao_weight: U96F32 = Self::get_tao_weight();
 
         // Get self contribution, removing any childkey proportions.
-        let self_contribution = Self::get_self_contribution(hotkey, netuid);
+        let self_contribution =
+            U96F32::saturating_from_num(Self::get_self_contribution(hotkey, netuid));
         log::debug!(
             "Self contribution for hotkey {hotkey:?} on netuid {netuid:?}: {self_contribution:?}"
         );
         // Add self contribution to total contribution but not to the parent contributions.
-        total_contribution =
-            total_contribution.saturating_add(U96F32::saturating_from_num(self_contribution));
+        total_contribution = total_contribution.saturating_add(self_contribution);
 
         // Calculate total root and alpha (subnet-specific) stakes from all parents
         for (proportion, parent) in Self::get_parents(hotkey, netuid) {
@@ -1280,8 +1279,6 @@ impl<T: Config> Pallet<T> {
 
             // Get the parent's portion of the validating emission based on their contribution.
             let mut parent_emission: U96F32 = validating_emission.saturating_mul(emission_factor);
-            // Remove this emission from the remaining emission.
-            remaining_emission = remaining_emission.saturating_sub(parent_emission);
 
             // Get the childkey take for this parent.
             let mut burn_take: U96F32 = U96F32::saturating_from_num(0);
@@ -1313,8 +1310,6 @@ impl<T: Config> Pallet<T> {
                 "child take sources: alpha {total_child_alpha_take:?}, root {total_child_root_take:?} for hotkey {hotkey:?}"
             );
 
-            log::debug!("remaining emission: {remaining_emission:?}");
-
             // Add the parent's emission to the distribution list
             dividend_tuples.push((
                 parent.clone(),
@@ -1330,13 +1325,26 @@ impl<T: Config> Pallet<T> {
                 "Parent contribution for parent {parent:?} with contribution: {contribution:?}, of total: {total_contribution:?} ({emission_factor:?}), of emission: {validating_emission:?} gets: {parent_emission:?}",
             );
         }
-        // Calculate the final emission for the hotkey itself.
-        // This includes the take left from the parents and the self contribution.
+        // Calculate self entitlement directly from self contribution. Deriving it by
+        // subtracting rounded parent shares leaves fixed-point residue; for a child
+        // without stake that residue would be untagged and could claim the alpha pool.
+        let self_emission = if total_contribution == U96F32::saturating_from_num(0) {
+            validating_emission
+        } else {
+            validating_emission.saturating_mul(
+                self_contribution
+                    .checked_div(total_contribution)
+                    .unwrap_or(U96F32::saturating_from_num(0)),
+            )
+        };
+
+        // Calculate the final emission for the hotkey itself. This includes its
+        // independently calculated self entitlement and source-tagged childkey take.
         // Add the hotkey's own emission to the distribution list
         dividend_tuples.push((
             hotkey.clone(),
             DividendParts {
-                untagged: remaining_emission,
+                untagged: self_emission,
                 alpha_take: total_child_alpha_take,
                 root_take: total_child_root_take,
             },

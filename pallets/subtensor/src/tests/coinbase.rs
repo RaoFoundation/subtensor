@@ -2564,6 +2564,61 @@ fn alpha_sourced_child_take_does_not_dilute_root_validators() {
 }
 
 #[test]
+fn root_only_parent_rounding_does_not_give_stake_free_child_alpha() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(100), &U256::from(101));
+        let child = U256::from(1);
+        let child_coldkey = U256::from(2);
+        let parents = [U256::from(3), U256::from(5), U256::from(7)];
+        let parent_coldkeys = [U256::from(4), U256::from(6), U256::from(8)];
+        SubtensorModule::set_tao_weight(u64::MAX / 100 * 18);
+        SubtensorModule::set_ck_burn(0);
+
+        Owner::<Test>::insert(child, child_coldkey);
+        ParentKeys::<Test>::insert(
+            child,
+            netuid,
+            parents
+                .iter()
+                .copied()
+                .map(|parent| (u64::MAX, parent))
+                .collect::<Vec<_>>(),
+        );
+        ChildkeyTake::<Test>::insert(child, netuid, PerU16::zero());
+
+        for (uid, (parent, coldkey)) in parents.into_iter().zip(parent_coldkeys).enumerate() {
+            Owner::<Test>::insert(parent, coldkey);
+            ChildKeys::<Test>::insert(parent, netuid, vec![(u64::MAX, child)]);
+            Uids::<Test>::insert(NetUid::ROOT, parent, uid as u16);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &parent,
+                &coldkey,
+                NetUid::ROOT,
+                10_000_000u64.into(),
+            );
+        }
+
+        let (_, (alpha, root)) = SubtensorModule::calculate_dividend_and_incentive_distribution(
+            netuid,
+            1_000_000u64.into(),
+            1_000_000u64.into(),
+            vec![(child, AlphaBalance::ZERO, 1_000_000u64.into())],
+            U96F32::from_num(0.18),
+        );
+
+        assert_eq!(
+            alpha.get(&child).copied().unwrap_or_default(),
+            U96F32::from_num(0)
+        );
+        assert!(
+            parents.iter().all(|parent| {
+                root.get(parent).copied().unwrap_or_default() > U96F32::from_num(0)
+            })
+        );
+    });
+}
+
+#[test]
 fn test_calculate_dividend_and_incentive_distribution() {
     new_test_ext(1).execute_with(|| {
         let sn_owner_hk = U256::from(0);
