@@ -12,6 +12,8 @@ from escrow+collateral (leftover TAO refund); longs sell escrow A then
 only enough collateral to cover any shortfall to P (leftover alpha refund).
 Set True to quote a wallet repayment instead. The close extrinsic names
 a per-call hotkey when alpha is repaid or refunded; positions store none.
+Pass the same `hotkey_ss58` the close call will use so quote and call
+share hotkey-existence checks.
 
 **Category:** Prices & swaps
 
@@ -21,12 +23,13 @@ a per-call hotkey when alpha is repaid or refunded; positions store none.
 | --- | --- | --- |
 | `coldkey_ss58` | string | Position owner. |
 | `netuid` | integer | Subnet of the position. |
+| `hotkey_ss58` | string | Per-call hotkey for alpha repay (short wallet path) or alpha refund (long close). Required by the runtime API even when a short escrow buyback refunds only TAO. |
 | `repay_from_wallet` | boolean | False (default): quote the escrow AMM buyback for a short. True: repay short alpha from a call-supplied hotkey stake. |
 
 ## CLI
 
 ```bash
-btcli query lending-close-quote --coldkey <ss58|name> --netuid <integer> --repay-from-wallet/--no-repay-from-wallet --json
+btcli query lending-close-quote --coldkey <ss58|name> --netuid <integer> --hotkey <ss58|name> --repay-from-wallet/--no-repay-from-wallet --json
 ```
 
 ## Python
@@ -37,13 +40,13 @@ Namespace method (autocomplete, signature help):
 import bittensor as bt
 
 sub = bt.Subtensor()
-result = sub.prices.lending_close_quote(coldkey_ss58="5F...", netuid=1, repay_from_wallet=True)
+result = sub.prices.lending_close_quote(coldkey_ss58="5F...", netuid=1, hotkey_ss58="5F...", repay_from_wallet=True)
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = sub.read("lending_close_quote", coldkey_ss58="5F...", netuid=1, repay_from_wallet=True)
+result = sub.read("lending_close_quote", coldkey_ss58="5F...", netuid=1, hotkey_ss58="5F...", repay_from_wallet=True)
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.

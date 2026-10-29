@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2878,
-        "end_line": 2888,
-        "url": "/code/runtime/src/lib.rs#L2878-L2888",
+        "line": 2881,
+        "end_line": 2891,
+        "url": "/code/runtime/src/lib.rs#L2881-L2891",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -932,9 +932,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2657,
-        "end_line": 2659,
-        "url": "/code/runtime/src/lib.rs#L2657-L2659",
+        "line": 2660,
+        "end_line": 2662,
+        "url": "/code/runtime/src/lib.rs#L2660-L2662",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1141,15 +1141,17 @@
   {
     "name": "lending_close_quote",
     "summary": "Runtime quote of the combined debt repayment and refund, after accrued interest.",
-    "description": "Runtime quote of the combined debt repayment and refund, after accrued interest.\n\nPayment is TAO except for a wallet-repaid short, which returns its fixed\nalpha principal. Refund is TAO for a short and alpha for a long. Default\n`repay_from_wallet=False` quotes the escrow AMM path: shorts buy P alpha\nfrom escrow+collateral (leftover TAO refund); longs sell escrow A then\nonly enough collateral to cover any shortfall to P (leftover alpha refund).\nSet True to quote a wallet repayment instead. The close extrinsic names\na per-call hotkey when alpha is repaid or refunded; positions store none.",
+    "description": "Runtime quote of the combined debt repayment and refund, after accrued interest.\n\nPayment is TAO except for a wallet-repaid short, which returns its fixed\nalpha principal. Refund is TAO for a short and alpha for a long. Default\n`repay_from_wallet=False` quotes the escrow AMM path: shorts buy P alpha\nfrom escrow+collateral (leftover TAO refund); longs sell escrow A then\nonly enough collateral to cover any shortfall to P (leftover alpha refund).\nSet True to quote a wallet repayment instead. The close extrinsic names\na per-call hotkey when alpha is repaid or refunded; positions store none.\nPass the same `hotkey_ss58` the close call will use so quote and call\nshare hotkey-existence checks.",
     "params": {
       "coldkey_ss58": "string",
       "netuid": "integer",
+      "hotkey_ss58": "string",
       "repay_from_wallet": "boolean"
     },
     "param_docs": {
       "coldkey_ss58": "Position owner.",
       "netuid": "Subnet of the position.",
+      "hotkey_ss58": "Per-call hotkey for alpha repay (short wallet path) or alpha refund (long close). Required by the runtime API even when a short escrow buyback refunds only TAO.",
       "repay_from_wallet": "False (default): quote the escrow AMM buyback for a short. True: repay short alpha from a call-supplied hotkey stake."
     },
     "category": "Prices & swaps",
@@ -1533,9 +1535,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2661,
-        "end_line": 2663,
-        "url": "/code/runtime/src/lib.rs#L2661-L2663",
+        "line": 2664,
+        "end_line": 2666,
+        "url": "/code/runtime/src/lib.rs#L2664-L2666",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1786,9 +1788,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2890,
-        "end_line": 2918,
-        "url": "/code/runtime/src/lib.rs#L2890-L2918",
+        "line": 2893,
+        "end_line": 2921,
+        "url": "/code/runtime/src/lib.rs#L2893-L2921",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1815,9 +1817,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2920,
-        "end_line": 2948,
-        "url": "/code/runtime/src/lib.rs#L2920-L2948",
+        "line": 2923,
+        "end_line": 2951,
+        "url": "/code/runtime/src/lib.rs#L2923-L2951",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1896,9 +1898,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2674,
-        "end_line": 2676,
-        "url": "/code/runtime/src/lib.rs#L2674-L2676",
+        "line": 2677,
+        "end_line": 2679,
+        "url": "/code/runtime/src/lib.rs#L2677-L2679",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1961,9 +1963,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2686,
-        "end_line": 2688,
-        "url": "/code/runtime/src/lib.rs#L2686-L2688",
+        "line": 2689,
+        "end_line": 2691,
+        "url": "/code/runtime/src/lib.rs#L2689-L2691",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2578,9 +2580,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2667,
-        "end_line": 2669,
-        "url": "/code/runtime/src/lib.rs#L2667-L2669",
+        "line": 2670,
+        "end_line": 2672,
+        "url": "/code/runtime/src/lib.rs#L2670-L2672",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2950,9 +2952,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2680,
-        "end_line": 2682,
-        "url": "/code/runtime/src/lib.rs#L2680-L2682",
+        "line": 2683,
+        "end_line": 2685,
+        "url": "/code/runtime/src/lib.rs#L2683-L2685",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

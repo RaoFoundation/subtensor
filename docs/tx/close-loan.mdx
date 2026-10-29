@@ -29,7 +29,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close`](/code/pallets/lending/src/lib.rs#L1175-L1197) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close`](/code/pallets/lending/src/lib.rs#L1249-L1271) |
 
 ## Parameters
 
@@ -38,7 +38,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 | `netuid` | integer | yes | Subnet of the position to repay. |
 | `max_payment` | number \| `"all"` | yes | Maximum repayment: TAO, or alpha for a wallet-repaid short. |
 | `min_refund` | number \| `"all"` | no | Minimum returned collateral: TAO for shorts, alpha for longs. |
-| `hotkey_ss58` | string | no | Hotkey for alpha repay (short wallet path) or alpha refund (long close / short buyback surplus). Defaults to the wallet hotkey. |
+| `hotkey_ss58` | string | no | Hotkey for alpha repay (short wallet path) or alpha refund (long close). Required whenever alpha moves; short escrow buyback (repay_from_wallet=False) may omit it. |
 | `repay_from_wallet` | boolean | no | False (default): buy short alpha back from escrow / sell long escrow. True: repay short alpha from hotkey stake, or pay long TAO from wallet. |
 | `valid_until` | integer | no | Latest block number that may include this close. |
 
@@ -85,7 +85,7 @@ result = sub.execute_tool("close_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.close` — [`pallets/lending/src/lib.rs#L1178`](/code/pallets/lending/src/lib.rs#L1175-L1197):
+`Lending.close` — [`pallets/lending/src/lib.rs#L1252`](/code/pallets/lending/src/lib.rs#L1249-L1271):
 
 ```rust
 #[pallet::call_index(2)]

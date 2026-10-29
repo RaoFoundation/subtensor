@@ -679,7 +679,7 @@
         },
         "hotkey_ss58": {
           "type": "string",
-          "description": "Hotkey for alpha repay (short wallet path) or alpha refund (long close / short buyback surplus). Defaults to the wallet hotkey."
+          "description": "Hotkey for alpha repay (short wallet path) or alpha refund (long close). Required whenever alpha moves; short escrow buyback (repay_from_wallet=False) may omit it."
         },
         "repay_from_wallet": {
           "type": "boolean",
@@ -704,9 +704,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1178,
-        "end_line": 1197,
-        "url": "/code/pallets/lending/src/lib.rs#L1175-L1197",
+        "line": 1252,
+        "end_line": 1271,
+        "url": "/code/pallets/lending/src/lib.rs#L1249-L1271",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2079,18 +2079,18 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1113,
-        "end_line": 1137,
-        "url": "/code/pallets/lending/src/lib.rs#L1111-L1137",
+        "line": 1187,
+        "end_line": 1211,
+        "url": "/code/pallets/lending/src/lib.rs#L1185-L1211",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
         "pallet": "Lending",
         "call": "open_exact",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1142,
-        "end_line": 1169,
-        "url": "/code/pallets/lending/src/lib.rs#L1140-L1169",
+        "line": 1216,
+        "end_line": 1243,
+        "url": "/code/pallets/lending/src/lib.rs#L1214-L1243",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2309,9 +2309,9 @@
         "pallet": "Lending",
         "call": "open_long_and_sell",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1203,
-        "end_line": 1231,
-        "url": "/code/pallets/lending/src/lib.rs#L1200-L1231",
+        "line": 1277,
+        "end_line": 1305,
+        "url": "/code/pallets/lending/src/lib.rs#L1274-L1305",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
