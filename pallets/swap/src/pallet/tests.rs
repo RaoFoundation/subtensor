@@ -11,7 +11,7 @@ use frame_support::{assert_noop, assert_ok};
 use sp_arithmetic::Perquintill;
 use sp_runtime::DispatchError;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{NetUid, Token};
+use subtensor_runtime_common::{NetUid, Token, TokenReserve};
 use subtensor_swap_interface::{Order as OrderT, SwapHandler};
 
 use super::*;
@@ -75,6 +75,75 @@ mod dispatchables {
     fn perquintill_to_f64(p: Perquintill) -> f64 {
         let parts = p.deconstruct() as f64;
         parts / 1_000_000_000_000_000_000_f64
+    }
+
+    /// SN29 drain regress: after intervening swaps skew the reserve ratio,
+    /// `readd_protocol_liquidity` must NOT rewrite Balancer weights (it is the
+    /// exact inverse of lift). Reweighting at the post-pump ratio was the
+    /// w1/L jump that let exit unstakes extract more TAO than deposited.
+    #[test]
+    fn test_readd_after_skew_preserves_weights() {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+            let tao = TaoBalance::from(10_000_000_000_000_u64);
+            let alpha = AlphaBalance::from(4_000_000_000_000_000_u64); // ~p=0.0025
+            TaoReserve::set_mock_reserve(netuid, tao);
+            AlphaReserve::set_mock_reserve(netuid, alpha);
+            let _ = Swap::maybe_initialize_palswap(netuid, Some(Swap::current_price(netuid)));
+            let w_before = SwapBalancer::<Test>::get(netuid).get_quote_weight();
+            let price_before = Swap::current_price(netuid);
+
+            let (lift_alpha, lift_tao) =
+                Swap::lift_protocol_liquidity(netuid, 1, 20).expect("lift");
+            TaoReserve::set_mock_reserve(netuid, tao - lift_tao);
+            AlphaReserve::set_mock_reserve(netuid, alpha - lift_alpha);
+
+            // Skew: large TAO injection / alpha removal (pump), weights untouched.
+            let pump = TaoBalance::from(7_000_000_000_000_u64);
+            let cur_t = <TaoReserve as TokenReserve<_>>::reserve(netuid);
+            let cur_a = <AlphaReserve as TokenReserve<_>>::reserve(netuid);
+            let pumped_a = AlphaBalance::from(
+                (u128::from(u64::from(cur_a)) * u128::from(u64::from(pump))
+                    / u128::from(u64::from(cur_t).saturating_add(u64::from(pump))))
+                    as u64,
+            );
+            TaoReserve::set_mock_reserve(netuid, cur_t + pump);
+            AlphaReserve::set_mock_reserve(netuid, cur_a - pumped_a);
+            assert_eq!(
+                SwapBalancer::<Test>::get(netuid).get_quote_weight(),
+                w_before,
+                "pump must not rewrite weights"
+            );
+
+            // Buggy path would call adjust_protocol_liquidity here and move w.
+            let skewed_t = <TaoReserve as TokenReserve<_>>::reserve(netuid);
+            let skewed_a = <AlphaReserve as TokenReserve<_>>::reserve(netuid);
+            let w_if_adjust = {
+                let mut b = SwapBalancer::<Test>::get(netuid);
+                let _ = b.update_weights_for_added_liquidity(
+                    u64::from(skewed_t),
+                    u64::from(skewed_a),
+                    u64::from(lift_tao),
+                    u64::from(lift_alpha),
+                );
+                b.get_quote_weight()
+            };
+            assert_ne!(
+                w_if_adjust, w_before,
+                "sanity: adjust-at-skewed-ratio would move weights (the drain)"
+            );
+
+            let (d_t, d_a) = Swap::readd_protocol_liquidity(netuid, lift_tao, lift_alpha);
+            assert_eq!(d_t, lift_tao);
+            assert_eq!(d_a, lift_alpha);
+            assert_eq!(
+                SwapBalancer::<Test>::get(netuid).get_quote_weight(),
+                w_before,
+                "readd must preserve weights after intervening skew"
+            );
+            // Price may differ from start (pump remains); weights must not.
+            let _ = price_before;
+        });
     }
 
     /// cargo test --package pallet-subtensor-swap --lib -- pallet::tests::dispatchables::test_lift_protocol_liquidity_preserves_price --exact --nocapture

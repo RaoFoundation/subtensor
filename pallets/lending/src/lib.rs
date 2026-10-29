@@ -182,8 +182,10 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         custody_hot: &AccountId,
     ) -> Result<(AlphaBalance, TaoBalance), DispatchError>;
 
-    /// Re-add lift legs and credit SubnetTAO/AlphaIn/TotalStake as appropriate.
-    /// Updates Balancer weights (sell-path / forfeit after reversing a trade).
+    /// Re-add lift legs and credit SubnetTAO/AlphaIn/TotalStake.
+    /// **Weight-preserving** (exact Balancer inverse of lift): never rewrites
+    /// `w1`/`w2` from the current reserve ratio. Routing through a weight
+    /// update after intervening swaps was the SN29 drain.
     fn readd_and_credit(
         netuid: NetUid,
         custody_cold: &AccountId,
@@ -192,9 +194,8 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         alpha: AlphaBalance,
     ) -> DispatchResult;
 
-    /// Like [`Self::readd_and_credit`] but **preserves** Balancer weights.
-    /// Required for wallet repay: the forced trade already moved spot; reweighting
-    /// would crystallize that move into `w1`/`√k` and let a later swap drain LPs.
+    /// Alias of [`Self::readd_and_credit`] (always weight-preserving). Kept so
+    /// call sites can document wallet-repay / asymmetric-residual intent.
     fn readd_and_credit_preserve_weights(
         netuid: NetUid,
         custody_cold: &AccountId,

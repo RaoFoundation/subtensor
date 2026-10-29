@@ -277,7 +277,7 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         tao: TaoBalance,
         alpha: AlphaBalance,
     ) -> DispatchResult {
-        Self::readd_and_credit_inner(netuid, custody_cold, custody_hot, tao, alpha, true)
+        Self::readd_and_credit_inner(netuid, custody_cold, custody_hot, tao, alpha)
     }
 
     #[transactional]
@@ -288,7 +288,9 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         tao: TaoBalance,
         alpha: AlphaBalance,
     ) -> DispatchResult {
-        Self::readd_and_credit_inner(netuid, custody_cold, custody_hot, tao, alpha, false)
+        // Identical to `readd_and_credit`: readd is always the weight-preserving
+        // lift inverse (SN29 drain fix).
+        Self::readd_and_credit_inner(netuid, custody_cold, custody_hot, tao, alpha)
     }
 
     #[transactional]
@@ -570,14 +572,13 @@ impl<T: Config> Pallet<T> {
         Ok(amount)
     }
 
-    /// Shared body for weight-updating and weight-preserving readd.
+    /// Shared body for lending readd (always weight-preserving).
     fn readd_and_credit_inner(
         netuid: NetUid,
         custody_cold: &T::AccountId,
         custody_hot: &T::AccountId,
         tao: TaoBalance,
         alpha: AlphaBalance,
-        update_weights: bool,
     ) -> DispatchResult {
         ensure!(
             Self::if_subnet_exist(netuid) || DissolveCleanupQueue::<T>::get().contains(&netuid),
@@ -601,11 +602,7 @@ impl<T: Config> Pallet<T> {
                 Ok(())
             })?;
         }
-        let (d_tao, d_alpha) = if update_weights {
-            T::SwapInterface::readd_protocol_liquidity(netuid, tao, alpha)
-        } else {
-            T::SwapInterface::credit_protocol_liquidity(netuid, tao, alpha)
-        };
+        let (d_tao, d_alpha) = T::SwapInterface::readd_protocol_liquidity(netuid, tao, alpha);
         Self::increase_provided_tao_reserve(netuid, d_tao);
         Self::increase_provided_alpha_reserve(netuid, d_alpha);
         // Live subnets keep TotalStake in sync; dissolved pots only track SubnetTAO.

@@ -137,34 +137,41 @@ fn clear_tao_ema() {
 fn weight_update_count() -> u64 {
     read(&key(b"test/weight_updates", netuid()))
 }
-fn bump_weight_update_count() {
-    write(
-        &key(b"test/weight_updates", netuid()),
-        weight_update_count().saturating_add(1),
-    );
+/// Integer √(x·y) proxy for the Balancer invariant at equal weights.
+fn sqrt_k_approx() -> u128 {
+    let n = (pool_alpha() as u128).saturating_mul(pool_tao() as u128);
+    if n == 0 {
+        return 0;
+    }
+    let mut x0 = n;
+    let mut x1 = (x0 + n / x0) >> 1;
+    while x1 < x0 {
+        x0 = x1;
+        x1 = (x0 + n / x0) >> 1;
+    }
+    x0
 }
 /// Perquintill accuracy (matches swap `ACCURACY` / `Perquintill` parts).
 const WEIGHT_ACCURACY: u128 = 1_000_000_000_000_000_000;
-/// Balancer-shaped weight update that preserves the pre-add spot:
-/// `new_w2 ∝ w2·x·(y+Δy)`, matching production `update_weights_for_added_liquidity`.
-fn update_mock_weights_for_add(y: u64, x: u64, dy: u64, dx: u64) {
-    let w2 = quote_weight_parts() as f64;
-    let w1 = (WEIGHT_ACCURACY as f64) - w2;
+/// Counterfactual: Balancer weight update that preserves the pre-add spot
+/// (`new_w2 ∝ w2·x·(y+Δy)`). Production `readd` must NOT call this after a
+/// skewed ratio — that was the SN29 drain. Kept for sanity asserts only.
+fn weights_if_adjusted_for_add(y: u64, x: u64, dy: u64, dx: u64, w2: u64) -> u64 {
+    let w1 = (WEIGHT_ACCURACY as f64) - (w2 as f64);
     let y0 = y as f64;
     let x0 = x as f64;
     let y1 = y0 + dy as f64;
     let x1 = x0 + dx as f64;
-    // f64 keeps the triple products in range; production uses U256.
     let q1 = w1 * y0 * x1;
-    let q2 = w2 * x0 * y1;
+    let q2 = (w2 as f64) * x0 * y1;
     let sum = q1 + q2;
-    let new_w2 = if sum > 0.0 {
+    if sum > 0.0 {
         ((q2 / sum) * (WEIGHT_ACCURACY as f64)).round() as u64
     } else {
         (WEIGHT_ACCURACY / 2) as u64
-    };
-    set_quote_weight_parts(new_w2.min(WEIGHT_ACCURACY as u64).max(1));
-    bump_weight_update_count();
+    }
+    .min(WEIGHT_ACCURACY as u64)
+    .max(1)
 }
 pub struct MockPool;
 impl MockPool {
@@ -224,9 +231,10 @@ impl MockPool {
                 pool_alpha().saturating_add(a),
             );
         }
-        if update_weights && (t > 0 || a > 0) {
-            update_mock_weights_for_add(y0, x0, t, a);
-        }
+        // Root fix: readd never rewrites weights (lift inverse). The
+        // `update_weights` flag is retained for API parity but ignored —
+        // calling `update_mock_weights_for_add` here was the mock drain.
+        let _ = (update_weights, y0, x0);
         Ok(())
     }
 }
@@ -5943,6 +5951,252 @@ fn unstarted_subnet_reports_subnet_not_started_not_unavailable() {
         assert_err!(
             Lending::quote_open_for(&owner, netuid(), Side::Short, 1_000_000_000_000, None),
             Error::<Test>::SubnetNotStarted
+        );
+    });
+}
+
+/// Shared SN29-like shallow book for clone drain regressions (a13 / a15).
+/// Syncs EMA/reference to the new spot — leaving the deep-pool reference (~1)
+/// would make every short fail `PriceTooFarFromEma` before the weight bug
+/// can be exercised. Cap uses full-depth `g_ema = y0` so Cap_short can host
+/// the REPORT collaterals.
+fn sn29_drain_fixture(y0: u64, w_parts: u64) {
+    let x0 = (y0 as f64 / 0.00279) as u64;
+    set_pool(y0, x0);
+    set_quote_weight_parts(w_parts);
+    let spot = MockPool::price();
+    References::<Test>::insert(
+        netuid(),
+        LendingReference {
+            price: spot,
+            last_updated: 1u64,
+            valid_after: 1u64,
+        },
+    );
+    Lifts::<Test>::mutate(netuid(), |book| {
+        book.g_ema = y0;
+        book.last = LiftParams::default().settle_ema_blocks;
+        book.l_s = 0;
+        book.l_l = 0;
+    });
+    set_tao_ema(Lending::settlement_tao_basis(netuid()));
+    // Equal-weight CP impact of a Cap-sized short on this shallow book is
+    // ~15% — at the default band edge. Widen slightly so the REPORT open
+    // sizes clear the band; the drain under test is the close/readd weight
+    // rewrite, which is orthogonal to the band.
+    LiftParamsStore::<Test>::mutate(|p| p.ema_band_bps = 2_500);
+}
+
+/// Clone a15: short → self-pump → escrow buyback close → unstake.
+/// Before the fix, close/readd rewrote w1 at the post-pump ratio and the
+/// exit unstake extracted net TAO. After: w1 unchanged, no attacker profit.
+#[test]
+fn sn29_short_self_pump_buyback_close_preserves_weights_no_profit() {
+    new_test_ext().execute_with(|| {
+        sn29_drain_fixture(8_000_000_000_000u64, 500_000_000_000_000_000);
+        let w_before = quote_weight_parts();
+        let l_before = sqrt_k_approx();
+
+        let owner = account(1);
+        let hotkey = account(2);
+        let coll = 1_200_000_000_000u64; // 1200 τ
+        let pump = 7_000_000_000_000u64; // 7000 τ
+        mint_tao(&owner, coll + pump + 50_000_000_000_000);
+
+        let free_before = tao(&owner);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            coll,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        assert_eq!(quote_weight_parts(), w_before, "open/lift must not move w");
+
+        // Self-pump: buy alpha with TAO (AddStake analogue).
+        assert_ok!(MockPool::buy_alpha(
+            &owner,
+            &hotkey,
+            netuid(),
+            pump.into(),
+            0u64.into(),
+            false,
+        ));
+        assert_eq!(
+            quote_weight_parts(),
+            w_before,
+            "pump must not rewrite weights"
+        );
+
+        let position = Positions::<Test>::get(&owner, netuid()).expect("open");
+        let y_skew = pool_tao();
+        let x_skew = pool_alpha();
+        let w_if_buggy = weights_if_adjusted_for_add(
+            y_skew,
+            x_skew,
+            position.lift_tao,
+            position.principal,
+            w_before,
+        );
+        assert_ne!(
+            w_if_buggy, w_before,
+            "sanity: adjust-at-post-pump ratio would move w1 (the drain)"
+        );
+
+        // Escrow buyback close (a15 path).
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert_eq!(
+            quote_weight_parts(),
+            w_before,
+            "buyback readd must preserve w1 (SN29 drain fix)"
+        );
+        assert_eq!(weight_update_count(), 0, "readd must not bump weight counter");
+
+        // Unstake leftover alpha from the pump.
+        let leftover = alpha(&owner, &hotkey, netuid());
+        if leftover > 0 {
+            assert_ok!(MockPool::sell_alpha(
+                &owner,
+                &hotkey,
+                netuid(),
+                leftover.into(),
+                0u64.into(),
+                false,
+            ));
+        }
+        let free_after = tao(&owner);
+        assert!(
+            free_after <= free_before,
+            "attacker must not profit: before={free_before} after={free_after}"
+        );
+        // Reserves returned near baseline ⇒ L near baseline with fixed w.
+        let l_after = sqrt_k_approx();
+        let drift = l_after.abs_diff(l_before) as f64 / (l_before as f64).max(1.0);
+        assert!(
+            drift < 0.05,
+            "L should be conserved within fee noise: before={l_before} after={l_after} drift={drift}"
+        );
+    });
+}
+
+/// Clone a13 shape: short → foreign pump → wallet repay close.
+/// Buyback may hit InsufficientEscrow; wallet repay must still preserve w1
+/// and leave the attacker no net TAO when both sides fully unwind.
+#[test]
+fn sn29_short_foreign_pump_wallet_repay_preserves_weights_no_profit() {
+    new_test_ext().execute_with(|| {
+        // Production-like quote weight (~0.4717 from REPORT baseline).
+        sn29_drain_fixture(8_000_000_000_000u64, 471_700_000_000_000_000);
+        let w_before = quote_weight_parts();
+        let l_before = sqrt_k_approx();
+
+        let attacker = account(1);
+        let hotkey_a = account(2);
+        let pumper = account(3);
+        let hotkey_b = account(4);
+        let coll = 1_500_000_000_000u64; // 1500 τ
+        let pump = 9_000_000_000_000u64; // 9000 τ
+        // All exogenous TAO up front (incl. generous post-pump buy budget).
+        // free_before is the REPORT-style combined free at cycle start.
+        let repay_budget = 20_000_000_000_000u64;
+        mint_tao(&attacker, coll + repay_budget);
+        mint_tao(&pumper, pump + 1_000_000_000_000);
+        let free_before = tao(&attacker).saturating_add(tao(&pumper));
+
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(attacker.clone()),
+            netuid(),
+            Side::Short,
+            coll,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        assert_eq!(quote_weight_parts(), w_before, "open/lift must not move w");
+
+        assert_ok!(MockPool::buy_alpha(
+            &pumper,
+            &hotkey_b,
+            netuid(),
+            pump.into(),
+            0u64.into(),
+            false,
+        ));
+        assert_eq!(
+            quote_weight_parts(),
+            w_before,
+            "foreign pump must not rewrite weights"
+        );
+
+        let position = Positions::<Test>::get(&attacker, netuid()).unwrap();
+        // Buy ~principal after pump from pre-funded repay_budget (a13).
+        let need = position.principal;
+        let y = pool_tao();
+        let x = pool_alpha();
+        let buy_tao = if need >= x {
+            repay_budget.min(tao(&attacker))
+        } else {
+            let est =
+                ((u128::from(need) * u128::from(y) / u128::from(x - need)) as u64).saturating_mul(2);
+            est.min(tao(&attacker)).min(repay_budget)
+        };
+        assert!(buy_tao > 0, "repay budget must cover principal buy");
+        assert_ok!(MockPool::buy_alpha(
+            &attacker,
+            &hotkey_a,
+            netuid(),
+            buy_tao.into(),
+            0u64.into(),
+            false,
+        ));
+
+        // Prefer wallet repay (a13): buyback may hit InsufficientEscrow after pump.
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(attacker.clone()),
+            netuid(),
+            hotkey_a.clone(),
+            true,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert_eq!(
+            quote_weight_parts(),
+            w_before,
+            "wallet-repay readd must preserve w1"
+        );
+        assert_eq!(weight_update_count(), 0, "readd must not bump weight counter");
+
+        for (ck, hk) in [(&attacker, &hotkey_a), (&pumper, &hotkey_b)] {
+            let left = alpha(ck, hk, netuid());
+            if left > 0 {
+                let _ = MockPool::sell_alpha(ck, hk, netuid(), left.into(), 0u64.into(), false);
+            }
+        }
+        let free_after = tao(&attacker).saturating_add(tao(&pumper));
+        assert!(
+            free_after <= free_before,
+            "combined attacker free must not rise: before={free_before} after={free_after}"
+        );
+        let l_after = sqrt_k_approx();
+        let drift = l_after.abs_diff(l_before) as f64 / (l_before as f64).max(1.0);
+        assert!(
+            drift < 0.05,
+            "L should be conserved within fee noise: before={l_before} after={l_after} drift={drift}"
         );
     });
 }

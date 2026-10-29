@@ -12,8 +12,9 @@
 * **2026-10-28: near-expiry long collateral drain closed.** Restart term on long collateral increases + impact-aware `C` redemption (Skeptic).
 * **2026-10-28: near-expiry short increase drain closed.** Restart term on short increases too — force-selling fresh principal at live spot then settling the enlarged debt at a lower EMA extracted pot value (Skeptic).
 * **2026-10-28: directional EMA band on opens (§5.4).** New opens (and increases) that buy alpha reject if post-trade spot > `EMA · (1 + ema_band_bps)`; opens that sell alpha reject if post-trade spot < `EMA · (1 − ema_band_bps)`. Default `ema_band_bps = 1_500` (15%). Opposite-side opens always allowed; closes / repays / settles / expiries never blocked. Makes trade-splitting pointless (limit is on price state). Error: `PriceTooFarFromEma`.
+* **2026-10-29: lift/readd inverse (SN29 drain).** `readd_protocol_liquidity` preserves Balancer weights (exact inverse of lift). Re-deriving `w1`/`w2` via `adjust_protocol_liquidity` after an intervening pump inflated `L` and let exit unstakes extract TAO (clone a13 +289 τ / a15 +122 τ). See `no-arbitrage.tex` §clone / §inverse.
 * Economics unchanged: 25% LTV / 15% thin, 100% APR burn-all interest, escrowed longs and shorts, pro-rata partial repay, custody earns no emissions, dissolution `r` protections, new-subnet gate and ramp.
-* Touched: header, §0, §5.4 (new), §8, §9, §15 (new).
+* Touched: header, §0, §3, §5.4 (new), §8, §9, §15 (new).
 
 ## Changelog: v5.3 vs v5.2
 * **2026-10-20 (Oct 20, 2026): gap-closing release.**
@@ -128,10 +129,7 @@ always:  y − ΔL ≥ MinimumReserve
 * **`lift(netuid, g)`:** reduce both reserves by the factor `g` with **weights unchanged**, so price is unchanged.
   * Move the amounts to lending custody, adjusting `SubnetTAO`/`SubnetAlphaIn`/`TotalStake` as #3211's `fund_unreachable_reserves` does.
   * It is called only from a loan open or increase. There is no standing allocation.
-* **`readd(netuid, τ, α)`:** reuse main's `adjust_protocol_liquidity`/`try_update_balancer`.
-  * Proportional amounts re-add with weights unchanged.
-  * One-sided amounts re-weight price-neutrally.
-  * Anything out of weight bounds waits in `BalancerTaoReservoir`/`BalancerAlphaReservoir`.
+* **`readd(netuid, τ, α)`:** exact Balancer inverse of `lift` — credit the legs into reserves **without** updating weights or touching reservoirs. Do **not** route through `adjust_protocol_liquidity` / `update_weights_for_added_liquidity`: reweighting at a post-swap ratio was the SN29 drain (`w1`/`L` rewrite → extractive unstake). Emissions that intend to reweight still call `adjust_protocol_liquidity` directly.
 * **`g`** is sized so that the lent leg equals the principal: `g = P/x` for a short (alpha principal), `g = P/y` for a long (TAO principal).
 
 ## 4. Flows
@@ -341,7 +339,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
 ## 9. Code changes vs main
 **swap pallet:**
 * add `lift_protocol_liquidity`;
-* add `readd_protocol_liquidity`, wrapping `adjust_protocol_liquidity`/`try_update_balancer` and the reservoirs;
+* add `readd_protocol_liquidity` as a weight-preserving reserve credit (exact lift inverse; **not** `adjust_protocol_liquidity`);
 * add `buy_depth_threshold(ref, bps) = ref/((1+bps)^{w_b} − 1)` via `SafeInt::pow_ratio_scaled`;
 * add `quote_sell_on(y, x, w, Δx)` and `quote_buy_on(y, x, w, Δy)` for hypothetical states.
 * Respect `MinimumReserve` and `MAX_SWAP_INPUT_RESERVE_MULTIPLIER`.

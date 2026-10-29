@@ -10,9 +10,9 @@
 \usepackage{microtype}
 
 \title{No-arbitrage for lift lending\\
-\large Bounded TAO-cycles, $\mu$'s $F$, and where the proof fails}
+\large Bounded TAO-cycles, $\mu$'s $F$, and the lift/readd inverse}
 \author{Subtensor lending (PR \#3268)\\
-Working note --- increment 2 ($h$-sweep + protections)}
+Working note --- increment 3 (clone drain + root fix)}
 \date{2026-10-29}
 
 \newtheorem{theorem}{Theorem}
@@ -36,13 +36,14 @@ function of LP state $(y,x,w_1)$ and lending parameters. Then minimise /
 maximise that factor over the parameter space and ask whether any region
 has expected value $>1$ (attacker profit).
 
-This increment records: (i)~state and action set; (ii)~$\mu$'s September
-$F$ formula (transcription checked against the hand derivation);
-(iii)~a provisional map of $(f_h,\varphi,w_2)$ into the current lift
-design; (iv)~the first TAO-pure cycles under forced-escrow longs/shorts;
-(v)~numeric $F$ on SN29-like reserves. Later increments add remaining
-cycles, closed-form extrema, the weight-ratchet counterexample, and a
-bounded search that mirrors pallet math.
+Increments 1--2 recorded $\mu$'s $F$, Cycle~A, the $h$-sweep, and the
+failure of EMA/capacity protections under weight-updating re-add.
+\textbf{Increment 3} records the clone reproduction (spec~493 tip
+\texttt{4d3dc1585}): short$\to$pump$\to$close drains SubnetTAO via a
+$w_1$/$L$ jump on readd; proves that weight-preserving readd is the
+exact Balancer inverse of lift; and states the root fix
+(\texttt{readd\_protocol\_liquidity} must not call
+\texttt{adjust\_protocol\_liquidity}).
 \end{abstract}
 
 \tableofcontents
@@ -194,22 +195,20 @@ escrow $E_S$), then close by buying $P$ back (escrow path) or by
 repaying $P$ alpha from wallet and taking $E_S$.
 \end{cycle}
 
-Under the \textbf{current} design:
+Under the \textbf{buggy} design (readd via \texttt{adjust\_protocol\_liquidity}):
 \begin{itemize}
-  \item \textbf{Sell-path / escrow close} reverses the forced sale on the
-        \emph{lifted} pool then re-adds $(\tau_L,P)$ with a weight update
-        that is nearly proportional. This is the intended fee-lossy
-        round trip; $F_{\mathrm{cyc}}<1$ (attacker) for $\phi>0$.
+  \item \textbf{Sell-path / escrow close} reverses the forced sale then
+        re-adds $(\tau_L,P)$. With an intervening pump the re-add still
+        reweights at the skewed ratio (a15 drain).
   \item \textbf{Wallet-path close} returns $E_S+C$ for alpha repaid from
-        outside, then re-adds $(\tau_L,P)$. If that re-add
-        \emph{updates Balancer weights to preserve the post-sale spot},
-        the September fee analysis is incomplete: an extra
-        \textbf{weight-ratchet} term appears (see §\ref{sec:gap}).
+        outside, then re-adds $(\tau_L,P)$ with the same weight update
+        --- a \textbf{weight-ratchet} $\mu$'s fee-only $F$ misses
+        (see §\ref{sec:gap}, §\ref{sec:clone}).
 \end{itemize}
 
-So the September cycle \emph{still exists}, but the current
-implementation adds a weight-update branch that $\mu$'s fee-only $F$ does
-not capture. That is the first place a proof from $F\ge 1$ alone fails.
+Under the \textbf{fixed} design (Proposition~\ref{prop:inverse}), both
+closes credit reserves without touching $w_1$/$w_2$, so intervening swaps
+cannot crystallize into $L$.
 
 %----------------------------------------------------------------------
 \section{TAO-pure cycles under the current design}
@@ -386,16 +385,21 @@ zero-size limit.
 \begin{theorem}[Status]
 \label{thm:status}
 \begin{enumerate}
-  \item Under \textbf{current} wallet re-add (weight-updating),
-        Conjecture~\ref{conj:main} is \textbf{false}: Cycle~A is a
-        counterexample with $F_A>1$ and unbounded $w_1$/$L$ under
-        repetition while the EMA lags (SN29-like numbers in
-        §\ref{sec:numeric}).
+  \item Under \textbf{buggy} re-add (weight-updating via
+        \texttt{adjust\_protocol\_liquidity}),
+        Conjecture~\ref{conj:main} is \textbf{false}: Cycle~A and the
+        clone short$\to$pump$\to$close sequences (§\ref{sec:clone}) are
+        counterexamples with $F_{\mathrm{cyc}}>1$ and durable $w_1$/$L$
+        corruption.
   \item $\mu$'s fee-only $F\ge 1$ does \textbf{not} imply
-        $F_{\mathrm{cyc}}\le 1$ for Cycle~A, because $F$ omits the
+        $F_{\mathrm{cyc}}\le 1$ on that path, because $F$ omits the
         weight ratchet.
-  \item Proof of Conjecture~\ref{conj:main} under preserve-weights:
-        \textbf{open} (this note).
+  \item Under the \textbf{root fix} (Proposition~\ref{prop:inverse}:
+        readd $=$ weight-preserving credit), $w_1$ is invariant across
+        open$\to$swap$\to$close and the clone regressions assert
+        $F_{\mathrm{cyc}}\le 1$. Full closed-form proof of
+        Conjecture~\ref{conj:main} for every TAO-pure cycle remains
+        \textbf{open}; the clone sequences are covered.
 \end{enumerate}
 \end{theorem}
 
@@ -490,10 +494,110 @@ weight-preserving wallet re-add flips the sign through the whole
 sweep.
 \end{theorem}
 
+%----------------------------------------------------------------------
+\section{Clone reproduction (spec 493)}
+\label{sec:clone}
+
+On a live clone tip \texttt{4d3dc1585} (shallow SN29-like book,
+$y\approx 7.5\cdot 10^3\,\tau$, $p\approx 0.00265$, $w_1\approx 0.47$):
+
+\begin{center}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+seq & path & attacker $\Delta$ & SubnetTAO $\Delta$ & $w_1$ jump \\
+\midrule
+a13 & short $1500$ $\to$ foreign pump $9000$ $\to$ wallet repay
+    & $+289\,\tau$ & $-298\,\tau$ & $0.4717\to 0.4506$ \\
+a15 & short $1200$ $\to$ self-pump $7000$ $\to$ buyback
+    & $+122\,\tau$ & $-128\,\tau$ & $0.4507\to 0.4389$ \\
+a14 & wallet repay, \emph{no} pump (control)
+    & $-0.61\,\tau$ & $+0.11\,\tau$ & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent On profitable closes, $L\approx x^{1-w_1}y^{w_1}$ jumps with $w_1$
+(a13: $174\mathrm{k}\to 203\mathrm{k}$) and \textbf{does not revert} after
+unstake. AlphaIn mean-reverts; the durable corruption is $w_1$/$L$, which
+lets the exit unstake extract more TAO than the pump deposited.
+
+\paragraph{Mechanism.}
+\begin{enumerate}
+  \item \texttt{lift\_protocol\_liquidity} removes $(g\,y,g\,x)$
+        \textbf{without} updating weights (proportional remove).
+  \item Intervening \texttt{AddStake}/swap skews the reserve ratio;
+        weights stay put.
+  \item Buggy \texttt{readd\_protocol\_liquidity} routed through
+        \texttt{adjust\_protocol\_liquidity} $\to$
+        \texttt{update\_weights\_for\_added\_liquidity} at the
+        \textbf{post-pump} ratio, rewriting $w_1$/$w_2$ and inflating
+        $L$.
+  \item Subsequent \texttt{RemoveStake} against corrupted weights is
+        extractive.
+\end{enumerate}
+This is $\mu$'s open$\to$swap$\to$close framing with $F_{\mathrm{cyc}}>1$
+driven by the weight ratchet, not by fee-only $F<1$.
+
+%----------------------------------------------------------------------
+\section{Root fix: lift and readd are inverses}
+\label{sec:inverse}
+
+\begin{proposition}[Weight-preserving readd is the Balancer inverse of lift]
+\label{prop:inverse}
+Let the Balancer state be $(y,x,w_1,w_2)$ with invariant
+$L=x^{w_1}y^{w_2}$ and spot $p=(w_1/w_2)(y/x)$. Lift of fraction
+$g\in(0,1)$ yields
+\[
+  (y',x',w_1',w_2')=\bigl((1-g)y,(1-g)x,w_1,w_2\bigr),
+\]
+so $p'=p$ and $L'=(1-g)\,L$. Credit of the same legs
+$(\Delta y,\Delta x)=(gy,gx)$ \textbf{without} changing weights restores
+\[
+  (y'',x'',w_1'',w_2'')=(y,x,w_1,w_2),\qquad L''=L.
+\]
+If any sequence of swaps is applied between lift and credit, the
+reserve ratio may differ from the lift-time ratio, but
+weight-preserving credit still leaves $(w_1,w_2)$ unchanged and adds
+the legs to reserves only. In particular it does \emph{not} solve for
+new weights that keep post-credit spot equal to the skewed mark.
+\end{proposition}
+
+\begin{proof}[Sketch]
+Lift is a proportional remove: $w$ fixed $\Rightarrow$ $p$ fixed and
+$L\mapsto(1-g)L$ by homogeneity of degree $1$. The inverse operation on
+the Balancer side is the proportional credit of the same vector at the
+same $w$. Re-deriving $w$ from
+$\mathtt{update\_weights\_for\_added\_liquidity}(y_{\mathrm{skew}},
+x_{\mathrm{skew}},\Delta y,\Delta x)$ after swaps yields a different
+$w^\star$ with $L^\star>L$ whenever $(\Delta y/\Delta x)\ne y/x$ at the
+skewed mark --- exactly the a13/a15 jump. Therefore any readd that
+routes through that update is \textbf{not} the inverse of lift.
+\end{proof}
+
+\begin{corollary}[Implementation]
+\label{cor:impl}
+\texttt{SwapInterface::readd\_protocol\_liquidity} must be identical in
+Balancer effect to a pure reserve credit (no weight write, no
+reservoir). Emissions that \emph{intend} to reweight continue to call
+\texttt{adjust\_protocol\_liquidity} directly. Lending
+\texttt{readd\_and\_credit} / \texttt{\_preserve\_weights} both use the
+weight-preserving path.
+\end{corollary}
+
+Regression coverage (pallet tests):
+\begin{itemize}
+  \item \texttt{test\_readd\_after\_skew\_preserves\_weights} (swap);
+  \item \texttt{sn29\_short\_self\_pump\_buyback\_close\_\ldots} (a15);
+  \item \texttt{sn29\_short\_foreign\_pump\_wallet\_repay\_\ldots} (a13).
+\end{itemize}
+Each asserts: no attacker profit on full unwind, $w_1$ unchanged, $L$
+conserved within fee noise, and a counterfactual that adjust-at-skew
+\emph{would} have moved $w_1$.
+
 \section{Next increments}
 \begin{itemize}
   \item Closed forms for $F_B,F_C,F_D$ and grid extrema over
-        $(w_1,\varphi,\beta)$.
+        $(w_1,\varphi,\beta)$ under the fixed readd.
   \item Bounded $\le 6$-step search with runtime differential.
   \item Call-flow diagram (read state once / validate / derive / act).
 \end{itemize}

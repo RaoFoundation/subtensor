@@ -226,19 +226,27 @@ impl<T: Config> Pallet<T> {
         Ok((AlphaBalance::from(lift_alpha), TaoBalance::from(lift_tao)))
     }
 
-    /// Re-add lifted liquidity after repay / default. Thin wrapper over
-    /// [`Self::adjust_protocol_liquidity`] (updates Balancer weights).
+    /// Re-add lifted liquidity after repay / default.
+    ///
+    /// **Exact inverse of [`Self::lift_protocol_liquidity`] on the Balancer
+    /// side:** credits the legs into reserves **without** updating weights or
+    /// touching reservoirs. Intervening swaps may have moved the reserve
+    /// ratio; re-deriving `w1`/`w2` from that ratio (via
+    /// [`Self::adjust_protocol_liquidity`]) was the SN29 drain — it rewrote
+    /// weights at the post-pump mark and inflated `L`, so a later unstake
+    /// extracted more TAO than was deposited. Emissions that *intend* to
+    /// reweight still call [`Self::adjust_protocol_liquidity`] directly.
     pub(super) fn readd_protocol_liquidity(
         netuid: NetUid,
         tao: TaoBalance,
         alpha: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance) {
-        Self::adjust_protocol_liquidity(netuid, tao, alpha)
+        Self::credit_protocol_liquidity(netuid, tao, alpha)
     }
 
     /// Credit lift legs without touching Balancer weights or reservoirs.
-    /// Used by lending wallet-repay so a forced-trade residual does not
-    /// crystallize into `w1` / `√k`.
+    /// Same semantics as [`Self::readd_protocol_liquidity`] (kept as a named
+    /// alias for lending call sites that document the invariant).
     pub(super) fn credit_protocol_liquidity(
         _netuid: NetUid,
         tao: TaoBalance,
