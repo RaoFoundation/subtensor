@@ -689,6 +689,14 @@ pub mod pallet {
     pub type Lifts<T: Config> = StorageMap<_, Identity, NetUid, LiftBook, ValueQuery>;
     #[pallet::storage]
     pub type LongInterestPending<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
+    /// Block when [`LongInterestPending`] first became non-zero on this subnet.
+    ///
+    /// Used by the §6 crash-guard backlog override: once pending has aged past
+    /// four [`Config::InterestPeriod`]s, paced sales resume even while spot is
+    /// below the EMA floor. Cleared when pending returns to zero.
+    #[pallet::storage]
+    pub type LongInterestSince<T: Config> =
+        StorageMap<_, Identity, NetUid, BlockNumberFor<T>, OptionQuery>;
     #[pallet::storage]
     pub type Positions<T: Config> = StorageDoubleMap<
         _,
@@ -3810,6 +3818,12 @@ pub mod pallet {
                                 false,
                             )?;
                             LongInterestPending::<T>::mutate(netuid, |pending| {
+                                if *pending == 0 {
+                                    LongInterestSince::<T>::insert(
+                                        netuid,
+                                        frame_system::Pallet::<T>::block_number(),
+                                    );
+                                }
                                 *pending = pending.saturating_add(paid);
                             });
                         }
@@ -4703,19 +4717,22 @@ pub mod pallet {
                 }
                 let spot = T::Pool::current_alpha_price(netuid);
                 let reference = References::<T>::get(netuid);
-                // Crash guard
-                if let Some(reference) = reference {
+                // §6 crash guard with 4-week backlog override. Seed `Since` for
+                // pre-existing pending so the clock starts at first observation.
+                let since = LongInterestSince::<T>::get(netuid).unwrap_or_else(|| {
+                    LongInterestSince::<T>::insert(netuid, now);
+                    now
+                });
+                // Four interest periods ≈ 4 weeks at the default 7-day period.
+                let backlog_age = T::InterestPeriod::get()
+                    .saturating_mul(4u32.into())
+                    .max(1u32.into());
+                let force = now.saturating_sub(since) >= backlog_age;
+                if let Some(reference) = reference.as_ref() {
                     let floor = reference
                         .price
                         .saturating_mul(U64F64::from_num(params.crash_guard_bps))
                         / U64F64::from_num(10_000u16);
-                    let backlog_weeks =
-                        4u64.saturating_mul(T::InterestPeriod::get().saturated_into::<u64>());
-                    let force = pending
-                        > (u128::from(pending) // placeholder: force if pending aged — use book timestamp
-                            .min(u128::from(u64::MAX))) as u64
-                        && Lifts::<T>::get(netuid).last + backlog_weeks
-                            < now.saturated_into::<u64>();
                     if spot < floor && !force {
                         last_done = Some(netuid);
                         continue;
@@ -4728,9 +4745,11 @@ pub mod pallet {
                 let max_slice = Self::mul_bps(x, params.slice_bps).unwrap_or(0).max(1);
                 let slice = pending.min(max_slice).max(1);
                 // Reference-derived floor: EMA value × crash_guard_bps (default 95%).
-                // Defer (do not revert idle) when the live quote misses the floor —
-                // crash guard alone does not protect against an adverse fill.
-                let min_out = if let Some(reference) = References::<T>::get(netuid) {
+                // Under the backlog override, drop the floor so the forced sale
+                // can clear (still subject to the 0.01 τ dust gate).
+                let min_out = if force {
+                    0u64
+                } else if let Some(reference) = reference.as_ref() {
                     match Self::tao_for_alpha(slice, reference.price, false)
                         .and_then(|fair| Self::mul_bps(fair, params.crash_guard_bps))
                     {
@@ -4776,7 +4795,12 @@ pub mod pallet {
                     }
                 };
                 let _ = T::Pool::burn_interest_tao(&reserve, sold);
-                LongInterestPending::<T>::mutate(netuid, |p| *p = p.saturating_sub(slice));
+                LongInterestPending::<T>::mutate(netuid, |p| {
+                    *p = p.saturating_sub(slice);
+                    if *p == 0 {
+                        LongInterestSince::<T>::remove(netuid);
+                    }
+                });
                 Self::deposit_event(Event::LongInterestSold {
                     netuid,
                     alpha: slice,
@@ -4985,6 +5009,7 @@ pub mod pallet {
             if pending > 0 {
                 let tao = Self::tao_for_alpha(pending, dissolution.rate, false).unwrap_or(0);
                 LongInterestPending::<T>::remove(netuid);
+                LongInterestSince::<T>::remove(netuid);
                 if tao > 0 {
                     // §13: pending long-interest alpha converts at r; burn the TAO from the pot.
                     let _ = T::Pool::burn_from_pot(netuid, tao.into());
@@ -5223,6 +5248,7 @@ pub mod pallet {
             References::<T>::remove(netuid);
             Lifts::<T>::remove(netuid);
             LongInterestPending::<T>::remove(netuid);
+            LongInterestSince::<T>::remove(netuid);
             Self::forget_active_net(netuid);
             TaoEma::<T>::remove(netuid);
             Ok(())

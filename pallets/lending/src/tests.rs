@@ -4220,6 +4220,86 @@ fn convert_pending_defers_when_quote_misses_ema_floor() {
 }
 
 #[test]
+fn convert_pending_defers_fresh_backlog_under_crash_guard() {
+    new_test_ext().execute_with(|| {
+        let custody = Lending::custody_hotkey().unwrap();
+        let reserve = Lending::reserve_account(netuid());
+        LiftParamsStore::<Test>::mutate(|p| {
+            p.slice_bps = 10_000;
+            p.crash_guard_bps = 9_500;
+        });
+        let pending = 10_000_000_000_000u64;
+        set_pool(pending.saturating_mul(2), pending.saturating_mul(2));
+        mint_alpha(&reserve, &custody, netuid(), pending);
+        LongInterestPending::<Test>::insert(netuid(), pending);
+        LongInterestSince::<Test>::insert(netuid(), System::block_number());
+        let spot = MockPool::price();
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = spot.saturating_mul(U64F64::from_num(2));
+            }
+        });
+        let before = LongInterestPending::<Test>::get(netuid());
+        let _ = <Lending as Hooks<_>>::on_idle(System::block_number(), Weight::MAX);
+        assert_eq!(
+            LongInterestPending::<Test>::get(netuid()),
+            before,
+            "fresh backlog must stay parked under the crash guard"
+        );
+    });
+}
+
+#[test]
+fn convert_pending_forces_sale_after_backlog_age_despite_crash_guard() {
+    new_test_ext().execute_with(|| {
+        let custody = Lending::custody_hotkey().unwrap();
+        let reserve = Lending::reserve_account(netuid());
+        LiftParamsStore::<Test>::mutate(|p| {
+            p.slice_bps = 10_000;
+            p.crash_guard_bps = 9_500;
+        });
+        let pending = 10_000_000_000_000u64;
+        set_pool(pending.saturating_mul(2), pending.saturating_mul(2));
+        mint_alpha(&reserve, &custody, netuid(), pending);
+        LongInterestPending::<Test>::insert(netuid(), pending);
+        // Backlog aged past 4 × InterestPeriod (test period = 10 → 40 blocks).
+        let period = <<Test as Config>::InterestPeriod as Get<u64>>::get();
+        let backlog_age = period.saturating_mul(4);
+        System::set_block_number(backlog_age.saturating_add(10));
+        LongInterestSince::<Test>::insert(netuid(), 1u64);
+        let spot = MockPool::price();
+        // Crash guard would skip: spot well below 95% of EMA.
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = spot.saturating_mul(U64F64::from_num(2));
+            }
+        });
+        let floor = References::<Test>::get(netuid()).unwrap().price * U64F64::from_num(9_500u16)
+            / U64F64::from_num(10_000u16);
+        assert!(
+            spot < floor,
+            "fixture must trip the crash guard (spot={spot}, floor={floor})"
+        );
+
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(System::block_number(), Weight::MAX);
+        assert_eq!(
+            LongInterestPending::<Test>::get(netuid()),
+            0,
+            "overdue backlog must convert despite the crash guard"
+        );
+        assert!(LongInterestSince::<Test>::get(netuid()).is_none());
+        let sold = System::events().into_iter().any(|e| {
+            matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::LongInterestSold { .. })
+            )
+        });
+        assert!(sold);
+    });
+}
+
+#[test]
 fn convert_pending_clears_when_period_slice_would_strand() {
     new_test_ext().execute_with(|| {
         let custody = Lending::custody_hotkey().unwrap();
