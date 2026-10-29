@@ -236,7 +236,12 @@ def attach_mldsa_proof(codec, prepared: PreparedMldsaExtrinsic, proof: bytes | s
         tip_asset_id=unsigned.tip_asset_id,
         metadata_hash_enabled=unsigned.metadata_hash is not None,
     )
-    return SignedExtrinsic(data=data, extrinsic_hash=extrinsic_hash)
+    return SignedExtrinsic(
+        data=data,
+        extrinsic_hash=extrinsic_hash,
+        signer_address=unsigned.address,
+        nonce=unsigned.nonce,
+    )
 
 
 # Generic names for new integrations; existing MS entrypoints remain compatible.
