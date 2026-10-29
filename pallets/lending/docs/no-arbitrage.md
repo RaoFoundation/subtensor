@@ -1,55 +1,44 @@
 # No-arbitrage for lift lending
 
-Companion to [`no-arbitrage.tex`](./no-arbitrage.tex) / [`no-arbitrage.pdf`](./no-arbitrage.pdf). **Pallet-first rewrite** (Sept 2026 cross-check only).
+Companion to [`no-arbitrage.tex`](./no-arbitrage.tex) / [`no-arbitrage.pdf`](./no-arbitrage.pdf).
 
-## Notation (own)
+## The shogting cycle
 
-| Symbol | Meaning |
+**Definition:** open short → stake/pump → close → unstake (single-wallet, TAO-pure). Budget $V=h\,y$ with $h=\mathrm{budget}/\texttt{tao\_in}$.
+
+## Fresh-fork base case (not contaminated $w_q\approx 0.47$)
+
+Finney SN29 at lending-clone fork block **#9,378,125**:
+
+| | |
 |--|--|
-| $\varphi$ | **Lift fraction** $P/x$ (short) — **not** a fee |
-| $w_q$, $w_b$ | Quote (TAO) / base (alpha) Balancer weights |
-| $\varepsilon$ | Swap fee on input; **base case $0$**; production $33/65535$ |
-| $L$ | $x^{w_b} y^{w_q}$ |
-| $\Delta$ | Combined attacker free PnL (profit if $>0$) |
+| $y$ | $7897.952\,\tau$ |
+| $x$ | $3\,153\,658\,\alpha$ |
+| $w_q$ | $\approx\tfrac12$ |
 
-Clone report’s printed `w1` is our $w_q$.
+Under **fixed** (keep-weights) readd, $w_q$ stays $\tfrac12$. Under **unfixed** readd, $w_q$ moves (e.g. $0.473$ at $h=0.5$).
 
-## Key identity (fee-free short open)
+Contaminated a13/a15 books ($w_q=0.4717$, $0.4507$) were sequential drains on one chain — appendix only.
 
-After lift $\varphi$ + force-sell principal $P=\varphi x$:
+## Closed-form ROI (fee-free, $w=\tfrac12$)
 
-$$
-y_s = y\,(1-\varphi)^{1/w_q},\qquad L_s=(1-\varphi)L.
-$$
+\[
+\mathrm{ROI}_{\mathrm{fix}}(h)=\frac{E-S-B+\Delta y^{\mathrm{fix}}}{V},\qquad
+\mathrm{ROI}_{\mathrm{unfix}}(h)=\frac{E-S-B+\Delta y^{\mathrm{unfix}}}{V}.
+\]
 
-## SN29 prediction (script: `scripts/no_arbitrage_derive.py`)
+At $h=0.5$ on the fork book: unfixed **+3.10%**, fixed **−2.94%**.
 
-**a13** ($y=7449.956$, $w_q=0.471657$, $\varphi\approx0.04493$, pump $9000$, buy $2363$):
+## ROI plot
 
-| model | $\Delta$ free | $w_q$ after |
-|--|--|--|
-| clone report | **+289.269** | 0.450646 |
-| pallet, $\varepsilon=33/65535$, buggy readd | **+289.304** | 0.450646 |
-| pallet, keep weights | −281.96 | 0.471657 |
+[`no-arbitrage-shogting-roi.png`](./no-arbitrage-shogting-roi.png) — % ROI vs $h\in[0.01,10]$ (log), unfixed/fixed × $\varepsilon=0$ / production fee.
 
-**a15** ($\varphi\approx0.033$, pump $7000$): report **+121.699**; fee-0 buggy **+121.794**; keep-weights **−117.8**.
+Script: `scripts/no_arbitrage_shogting.py`.
 
-## μ Sept 2026 cross-check
+## Relation to μ
 
-After our derivation: μ’s $\varphi$ = lift fraction, $w_2=w_q$, fees ignored ($\varepsilon=0$). The shared identity is $y_s/y=(1-\varphi)^{1/w_q}$. We do not import μ’s $F$ as an assumption; the SN29 drain is the post-pump weight re-derivation on readd, which that fee-free $F$ does not encode.
+Lift identity $y_s/y=(1-\varphi)^{1/w_q}$ **reduces to** μ’s $(1-\varphi)^{1/w_2}$. Shogting ROI **differs** from μ’s $F$ under unfixed readd (weight ratchet = SN29 drain). Under keep-weights + $\varepsilon=0$, $\mathrm{ROI}\le 0$ matches μ’s $F\ge 1$ (reciprocal conventions).
 
-## Fix
+## Root fix
 
-`readd_protocol_liquidity` = weight-preserving credit (design a). Not Uni v2.
-
-## Pass/fail (keep-weights)
-
-**PASS** iff no self-contained sequence of at most $N=8$ actions (multi-coldkey and trade-split variants included) yields attacker net TAO $\Delta>0$ for any lift fraction $\varphi$ up to the side-cap $\varphi_{\max}$ on live reserves.
-
-Live finney grid (SN29, SN64 Chutes, SN51, SN4, SN119 thin): keep-weights **PASS** ($20\,087$ cells, max $\Delta\approx -0.01\,\tau$); buggy profitable on $16\,619$ cells. Script: `scripts/no_arbitrage_cycle_search.py`.
-
-Theorem status: SN29 drain identity proved for observed clone books; general closed-form for every keep-weights cycle still open — the bounded search is the shipping criterion.
-
-## Slippage / volatility
-
-While a lift $\varphi$ is outstanding, reserves are scaled by $(1-\varphi)$ at unchanged spot, so small-trade slippage $\approx 1/(1-\varphi)$. Chart: [`no-arbitrage-slippage.pdf`](./no-arbitrage-slippage.pdf) (caps marked).
+Keep-weights readd (fixed shogting path). Optional proportional-join MTM hardening is separate. No undefined “ship (a)” / “design (b)” labels.

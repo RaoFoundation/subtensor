@@ -5955,11 +5955,11 @@ fn unstarted_subnet_reports_subnet_not_started_not_unavailable() {
     });
 }
 
-/// Shared SN29-like shallow book for clone drain regressions (a13 / a15).
-/// Syncs EMA/reference to the new spot — leaving the deep-pool reference (~1)
-/// would make every short fail `PriceTooFarFromEma` before the weight bug
-/// can be exercised. Cap uses full-depth `g_ema = y0` so Cap_short can host
-/// the REPORT collaterals.
+/// Shared SN29-like shallow book for shogting-cycle drain regressions
+/// (clone a13 / a15 shapes). Syncs EMA/reference to the new spot — leaving
+/// the deep-pool reference (~1) would make every short fail
+/// `PriceTooFarFromEma` before the weight bug can be exercised. Cap uses
+/// full-depth `g_ema = y0` so Cap_short can host the REPORT collaterals.
 fn sn29_drain_fixture(y0: u64, w_parts: u64) {
     let x0 = (y0 as f64 / 0.00279) as u64;
     set_pool(y0, x0);
@@ -5987,9 +5987,9 @@ fn sn29_drain_fixture(y0: u64, w_parts: u64) {
     LiftParamsStore::<Test>::mutate(|p| p.ema_band_bps = 2_500);
 }
 
-/// Clone a15: short → self-pump → escrow buyback close → unstake.
-/// Before the fix, close/readd rewrote w1 at the post-pump ratio and the
-/// exit unstake extracted net TAO. After: w1 unchanged, no attacker profit.
+/// Shogting cycle (a15 shape): short → stake/pump → escrow buyback close →
+/// unstake. Before the fix, close/readd rewrote w1 at the post-pump ratio
+/// and the exit unstake extracted net TAO. After: w1 unchanged, no profit.
 #[test]
 fn sn29_short_self_pump_buyback_close_preserves_weights_no_profit() {
     new_test_ext().execute_with(|| {
@@ -6091,7 +6091,7 @@ fn sn29_short_self_pump_buyback_close_preserves_weights_no_profit() {
     });
 }
 
-/// Clone a13 shape: short → foreign pump → wallet repay close.
+/// Shogting cycle (a13 shape): short → foreign pump → wallet repay close.
 /// Buyback may hit InsufficientEscrow; wallet repay must still preserve w1
 /// and leave the attacker no net TAO when both sides fully unwind.
 #[test]
