@@ -195,3 +195,4 @@ class Lending:
     MaxPositionsPerSubnet = Item('Lending', 'MaxPositionsPerSubnet')
     MaxTotalPositions = Item('Lending', 'MaxTotalPositions')
     ExpiryRetryDelay = Item('Lending', 'ExpiryRetryDelay')
+    InterestRetryDelay = Item('Lending', 'InterestRetryDelay')
