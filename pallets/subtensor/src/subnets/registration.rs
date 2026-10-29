@@ -420,8 +420,9 @@ impl<T: Config> Pallet<T> {
         );
 
         // --- 3. Ensure the supplied work passes the difficulty.
+        ensure!(work.len() == 32, Error::<T>::InvalidSeal);
         let difficulty: U256 = U256::from(1_000_000); // Base faucet difficulty.
-        let work_hash: H256 = Self::vec_to_hash(work.clone());
+        let work_hash = H256::from_slice(&work);
         ensure!(
             Self::hash_meets_difficulty(&work_hash, difficulty),
             Error::<T>::InvalidDifficulty
@@ -443,13 +444,6 @@ impl<T: Config> Pallet<T> {
 
         // --- 7. Ok and done.
         Ok(())
-    }
-
-    pub fn vec_to_hash(vec_hash: Vec<u8>) -> H256 {
-        let de_ref_hash = &vec_hash; // b: &Vec<u8>
-        let de_de_ref_hash: &[u8] = de_ref_hash; // c: &[u8]
-        let real_hash: H256 = H256::from_slice(de_de_ref_hash);
-        real_hash
     }
 
     fn get_immune_owner_hotkeys(netuid: NetUid, coldkey: &T::AccountId) -> Vec<T::AccountId> {

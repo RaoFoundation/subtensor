@@ -4188,6 +4188,40 @@ fn test_coldkey_swap_rejects_destination_conviction_only_lock() {
 }
 
 #[test]
+fn coldkey_lock_swap_is_rejected_during_subnet_cleanup() {
+    new_test_ext(1).execute_with(|| {
+        let old_coldkey = U256::from(1);
+        let new_coldkey = U256::from(2);
+        let hotkey = U256::from(3);
+        let netuid = subtensor_runtime_common::NetUid::from(1);
+        let state = LockState {
+            locked_mass: AlphaBalance::from(10_000u64),
+            conviction: U64F64::from_num(500),
+            last_update: SubtensorModule::get_current_block_as_u64(),
+        };
+        SubtensorModule::insert_lock_state(&old_coldkey, netuid, &hotkey, state.clone());
+        DecayingLock::<Test>::insert(old_coldkey, netuid, false);
+        DissolveCleanupQueue::<Test>::put(vec![netuid]);
+
+        assert_noop!(
+            SubtensorModule::swap_coldkey_locks(&old_coldkey, &new_coldkey),
+            Error::<Test>::WaitingForDissolvedSubnetCleanup
+        );
+        assert_eq!(
+            Lock::<Test>::get((old_coldkey, netuid, hotkey)),
+            Some(state)
+        );
+        assert!(
+            Lock::<Test>::iter_prefix((new_coldkey, netuid))
+                .next()
+                .is_none()
+        );
+        assert_eq!(DecayingLock::<Test>::get(old_coldkey, netuid), Some(false));
+        assert!(DecayingLock::<Test>::get(new_coldkey, netuid).is_none());
+    });
+}
+
+#[test]
 // Fully exhausted (dust) destination lock rows that sort before an incoming
 // active source lock must be purged on merge; otherwise get_current_locked can
 // report zero and alpha covered by the active lock becomes withdrawable.

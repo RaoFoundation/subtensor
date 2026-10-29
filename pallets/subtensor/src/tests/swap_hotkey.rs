@@ -747,6 +747,53 @@ fn test_swap_prometheus() {
     });
 }
 
+#[test]
+fn full_hotkey_swap_does_not_create_membership_on_unrelated_subnets() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let coldkey = U256::from(3);
+        let member_netuid = NetUid::from(21);
+        let unrelated_netuid = NetUid::from(22);
+        let mut weight = Weight::zero();
+        add_network(member_netuid, 1, 0);
+        add_network(unrelated_netuid, 1, 0);
+        IsNetworkMember::<Test>::insert(old_hotkey, member_netuid, true);
+        Uids::<Test>::insert(member_netuid, old_hotkey, 1);
+        Keys::<Test>::insert(member_netuid, 1, old_hotkey);
+
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
+            &old_hotkey,
+            &new_hotkey,
+            &coldkey,
+            &mut weight,
+            false,
+        ));
+
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, member_netuid));
+        assert!(!IsNetworkMember::<Test>::contains_key(
+            new_hotkey,
+            unrelated_netuid
+        ));
+        assert!(!SubtensorModule::is_hotkey_registered_on_specific_network(
+            &new_hotkey,
+            unrelated_netuid
+        ));
+    });
+}
+
+#[test]
+fn false_membership_rows_are_not_treated_as_registration() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1);
+        let netuid = NetUid::from(1);
+        IsNetworkMember::<Test>::insert(hotkey, netuid, false);
+        assert!(!SubtensorModule::is_hotkey_registered_on_specific_network(
+            &hotkey, netuid
+        ));
+    });
+}
+
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_axons --exact --nocapture
 #[test]
 fn test_swap_axons() {

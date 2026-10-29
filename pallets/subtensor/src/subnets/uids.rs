@@ -9,6 +9,29 @@ use subtensor_runtime_common::NetUid;
 pub const NULL_PRUNING_BATCH: u16 = 64;
 
 impl<T: Config> Pallet<T> {
+    /// Remove pending weight commits that belong to a neuron's old registration.
+    fn clear_weight_commits_for_hotkey(netuid: NetUid, hotkey: &T::AccountId) {
+        for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
+            let index = Self::get_mechanism_storage_index(netuid, mecid.into());
+            WeightCommits::<T>::remove(index, hotkey);
+
+            let epochs: Vec<u64> = TimelockedWeightCommits::<T>::iter_key_prefix(index).collect();
+            for epoch in epochs {
+                let mut commits = TimelockedWeightCommits::<T>::get(index, epoch);
+                let original_len = commits.len();
+                commits.retain(|(committer, _, _, _)| committer != hotkey);
+                if commits.len() == original_len {
+                    continue;
+                }
+                if commits.is_empty() {
+                    TimelockedWeightCommits::<T>::remove(index, epoch);
+                } else {
+                    TimelockedWeightCommits::<T>::insert(index, epoch, commits);
+                }
+            }
+        }
+    }
+
     /// Returns the number of filled slots on a network.
     pub fn get_subnetwork_n(netuid: NetUid) -> u16 {
         SubnetworkN::<T>::get(netuid)
@@ -101,6 +124,7 @@ impl<T: Config> Pallet<T> {
         }
 
         T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
+        Self::clear_weight_commits_for_hotkey(netuid, &old_hotkey);
 
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
@@ -776,6 +800,6 @@ impl<T: Config> Pallet<T> {
     /// Return true if a hotkey is registered on specific network.
     ///
     pub fn is_hotkey_registered_on_specific_network(hotkey: &T::AccountId, netuid: NetUid) -> bool {
-        IsNetworkMember::<T>::contains_key(hotkey, netuid)
+        IsNetworkMember::<T>::get(hotkey, netuid)
     }
 }

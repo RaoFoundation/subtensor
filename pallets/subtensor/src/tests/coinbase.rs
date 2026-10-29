@@ -2449,6 +2449,121 @@ fn test_calculate_dividend_distribution_no_root_uid_does_not_divert_to_alpha() {
 }
 
 #[test]
+fn root_sourced_child_take_does_not_dilute_alpha_validators() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(100), &U256::from(101));
+        let parent = U256::from(1);
+        let parent_coldkey = U256::from(2);
+        let child = U256::from(3);
+        let child_coldkey = U256::from(4);
+        let alpha_peer = U256::from(5);
+        let alpha_peer_coldkey = U256::from(6);
+        SubtensorModule::set_tao_weight(u64::MAX / 100 * 18);
+
+        Owner::<Test>::insert(parent, parent_coldkey);
+        Owner::<Test>::insert(child, child_coldkey);
+        Owner::<Test>::insert(alpha_peer, alpha_peer_coldkey);
+        ParentKeys::<Test>::insert(child, netuid, vec![(u64::MAX, parent)]);
+        ChildKeys::<Test>::insert(parent, netuid, vec![(u64::MAX, child)]);
+        Uids::<Test>::insert(NetUid::ROOT, parent, 0);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &parent,
+            &parent_coldkey,
+            NetUid::ROOT,
+            10_000_000u64.into(),
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &alpha_peer,
+            &alpha_peer_coldkey,
+            netuid,
+            10_000_000u64.into(),
+        );
+
+        let payout = |take| {
+            ChildkeyTake::<Test>::insert(child, netuid, PerU16::from_parts(take));
+            let (_, (alpha, _root)) =
+                SubtensorModule::calculate_dividend_and_incentive_distribution(
+                    netuid,
+                    1_000_000u64.into(),
+                    1_000_000u64.into(),
+                    vec![
+                        (child, AlphaBalance::ZERO, 1_000_000u64.into()),
+                        (alpha_peer, AlphaBalance::ZERO, 1_000_000u64.into()),
+                    ],
+                    U96F32::from_num(0.18),
+                );
+            (
+                alpha.get(&alpha_peer).copied().unwrap_or_default(),
+                alpha.get(&child).copied().unwrap_or_default(),
+            )
+        };
+
+        let without_take = payout(0);
+        let with_take = payout(11_796); // 18%
+        assert_eq!(with_take.0, without_take.0);
+        assert_eq!(with_take.1, U96F32::from_num(0));
+    });
+}
+
+#[test]
+fn alpha_sourced_child_take_does_not_dilute_root_validators() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(100), &U256::from(101));
+        let parent = U256::from(11);
+        let parent_coldkey = U256::from(12);
+        let child = U256::from(13);
+        let child_coldkey = U256::from(14);
+        let root_peer = U256::from(15);
+        let root_peer_coldkey = U256::from(16);
+        SubtensorModule::set_tao_weight(u64::MAX / 100 * 18);
+
+        Owner::<Test>::insert(parent, parent_coldkey);
+        Owner::<Test>::insert(child, child_coldkey);
+        Owner::<Test>::insert(root_peer, root_peer_coldkey);
+        ParentKeys::<Test>::insert(child, netuid, vec![(u64::MAX, parent)]);
+        ChildKeys::<Test>::insert(parent, netuid, vec![(u64::MAX, child)]);
+        Uids::<Test>::insert(NetUid::ROOT, child, 0);
+        Uids::<Test>::insert(NetUid::ROOT, root_peer, 1);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &parent,
+            &parent_coldkey,
+            netuid,
+            10_000_000u64.into(),
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &root_peer,
+            &root_peer_coldkey,
+            NetUid::ROOT,
+            10_000_000u64.into(),
+        );
+
+        let payout = |take| {
+            ChildkeyTake::<Test>::insert(child, netuid, PerU16::from_parts(take));
+            let (_, (_alpha, root)) =
+                SubtensorModule::calculate_dividend_and_incentive_distribution(
+                    netuid,
+                    1_000_000u64.into(),
+                    1_000_000u64.into(),
+                    vec![
+                        (child, AlphaBalance::ZERO, 1_000_000u64.into()),
+                        (root_peer, AlphaBalance::ZERO, 1_000_000u64.into()),
+                    ],
+                    U96F32::from_num(0.18),
+                );
+            (
+                root.get(&root_peer).copied().unwrap_or_default(),
+                root.get(&child).copied().unwrap_or_default(),
+            )
+        };
+
+        let without_take = payout(0);
+        let with_take = payout(11_796);
+        assert_eq!(with_take.0, without_take.0);
+        assert_eq!(with_take.1, U96F32::from_num(0));
+    });
+}
+
+#[test]
 fn test_calculate_dividend_and_incentive_distribution() {
     new_test_ext(1).execute_with(|| {
         let sn_owner_hk = U256::from(0);

@@ -2320,6 +2320,25 @@ fn test_faucet_ok() {
     });
 }
 
+#[test]
+fn malformed_faucet_work_returns_error_instead_of_panicking() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(123_561);
+        let block_number = SubtensorModule::get_current_block_as_u64();
+        for length in [0usize, 31, 33] {
+            assert_noop!(
+                SubtensorModule::do_faucet(
+                    RuntimeOrigin::signed(coldkey),
+                    block_number,
+                    0,
+                    vec![0; length],
+                ),
+                Error::<Test>::InvalidSeal
+            );
+        }
+    });
+}
+
 /// This test ensures that the clear_small_nominations function works as expected.
 /// It creates a network with two hotkeys and two coldkeys, and then registers a nominator account for each hotkey.
 /// When we call set_nominator_min_required_stake, it should clear all small nominations that are below the minimum required stake.

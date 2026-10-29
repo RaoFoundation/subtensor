@@ -646,8 +646,18 @@ impl<T: Config> Pallet<T> {
                         false,
                     )?;
                     ensure!(!bought.is_zero(), Error::<T>::AmountTooLow);
-                    Self::credit_miner_collateral(netuid, &hotkey, &coldkey, bought, false)?;
-                    added = added.saturating_add(bought);
+                    // The moving-price quote can differ from the live AMM price. Keep any
+                    // overfill as ordinary free stake, and fail atomically on an underfill:
+                    // a successful call must lock exactly the alpha the caller requested.
+                    ensure!(bought >= shortfall_alpha, Error::<T>::SlippageTooHigh);
+                    Self::credit_miner_collateral(
+                        netuid,
+                        &hotkey,
+                        &coldkey,
+                        shortfall_alpha,
+                        false,
+                    )?;
+                    added = added.saturating_add(shortfall_alpha);
                 }
 
                 ensure!(!added.is_zero(), Error::<T>::AmountTooLow);

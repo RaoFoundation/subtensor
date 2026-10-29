@@ -8,6 +8,7 @@ mod claim_root_dust;
 mod cleanup_tests;
 mod coinbase;
 mod coldkey_lineage;
+mod collateral;
 mod consensus;
 mod delegate_info;
 mod destroy_alpha_tests;

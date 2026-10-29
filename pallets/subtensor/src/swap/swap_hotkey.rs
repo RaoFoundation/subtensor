@@ -932,9 +932,10 @@ impl<T: Config> Pallet<T> {
 
         // 3.1 Remove the previous hotkey and insert the new hotkey from membership.
         // IsNetworkMember( hotkey, netuid ) -> bool -- is the hotkey a subnet member.
-        let is_network_member: bool = IsNetworkMember::<T>::get(old_hotkey, netuid);
-        IsNetworkMember::<T>::remove(old_hotkey, netuid);
-        IsNetworkMember::<T>::insert(new_hotkey, netuid, is_network_member);
+        let is_network_member = IsNetworkMember::<T>::take(old_hotkey, netuid);
+        if is_network_member {
+            IsNetworkMember::<T>::insert(new_hotkey, netuid, true);
+        }
         weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
 
         // 3.2 Swap Uids + Keys.

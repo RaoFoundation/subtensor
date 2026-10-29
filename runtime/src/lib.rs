@@ -276,23 +276,57 @@ parameter_types! {
 
 pub struct NoNestingCallFilter;
 
+impl NoNestingCallFilter {
+    /// Detect a Utility batch below another Utility batch, including when a
+    /// redispatching wrapper hides the inner call from the outer batch.
+    fn contains_nested_batch(root: &RuntimeCall) -> bool {
+        let mut pending = vec![(root, false)];
+        while let Some((call, inside_batch)) = pending.pop() {
+            match call {
+                RuntimeCall::Utility(inner) => match inner {
+                    pallet_utility::Call::batch { calls }
+                    | pallet_utility::Call::batch_all { calls }
+                    | pallet_utility::Call::force_batch { calls } => {
+                        if inside_batch {
+                            return true;
+                        }
+                        pending.extend(calls.iter().map(|call| (call, true)));
+                    }
+                    pallet_utility::Call::as_derivative { call, .. }
+                    | pallet_utility::Call::dispatch_as { call, .. }
+                    | pallet_utility::Call::with_weight { call, .. }
+                    | pallet_utility::Call::dispatch_as_fallible { call, .. } => {
+                        pending.push((call, inside_batch));
+                    }
+                    pallet_utility::Call::if_else { main, fallback } => {
+                        pending.push((main, inside_batch));
+                        pending.push((fallback, inside_batch));
+                    }
+                    _ => {}
+                },
+                RuntimeCall::Proxy(
+                    pallet_proxy::Call::proxy { call, .. }
+                    | pallet_proxy::Call::proxy_announced { call, .. },
+                ) => pending.push((call, inside_batch)),
+                RuntimeCall::Multisig(
+                    pallet_multisig::Call::as_multi_threshold_1 { call, .. }
+                    | pallet_multisig::Call::as_multi { call, .. },
+                ) => pending.push((call, inside_batch)),
+                RuntimeCall::Sudo(
+                    pallet_sudo::Call::sudo { call }
+                    | pallet_sudo::Call::sudo_unchecked_weight { call, .. }
+                    | pallet_sudo::Call::sudo_as { call, .. },
+                ) => pending.push((call, inside_batch)),
+                _ => {}
+            }
+        }
+        false
+    }
+}
+
 impl Contains<RuntimeCall> for NoNestingCallFilter {
     fn contains(call: &RuntimeCall) -> bool {
-        match call {
-            RuntimeCall::Utility(inner) => {
-                let calls = match inner {
-                    pallet_utility::Call::force_batch { calls } => calls,
-                    pallet_utility::Call::batch { calls } => calls,
-                    pallet_utility::Call::batch_all { calls } => calls,
-                    _ => &Vec::new(),
-                };
-
-                !calls.iter().any(|call| {
-					matches!(call, RuntimeCall::Utility(inner) if matches!(inner, pallet_utility::Call::force_batch { .. } | pallet_utility::Call::batch_all { .. } | pallet_utility::Call::batch { .. }))
-				})
-            }
-            _ => true,
-        }
+        !Self::contains_nested_batch(call)
     }
 }
 

@@ -4,8 +4,9 @@ use super::mock::*;
 use crate::*;
 use frame_support::{BoundedVec, assert_err, assert_ok};
 use pallet_commitments::{CommitmentInfo, Data};
-use sp_core::{H160, U256};
+use sp_core::{H160, H256, U256};
 use sp_runtime::PerU16;
+use sp_std::collections::vec_deque::VecDeque;
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
 
 /********************************************
@@ -215,6 +216,39 @@ fn test_replace_neuron() {
         assert!(
             Commitments::commitment_of(netuid, hotkey_account_id).is_none(),
             "deregistered neuron's commitment should be purged"
+        );
+    });
+}
+
+#[test]
+fn replace_neuron_clears_pending_weight_commits_from_old_registration() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let old_hotkey = U256::from(10);
+        let retained_hotkey = U256::from(11);
+        let new_hotkey = U256::from(12);
+        add_network(netuid, 13, 0);
+        register_ok_neuron(netuid, old_hotkey, U256::from(20), 0);
+
+        let index = NetUidStorageIndex::from(netuid);
+        WeightCommits::<Test>::insert(
+            index,
+            old_hotkey,
+            VecDeque::from([(H256::repeat_byte(1), 1, 1, 0)]),
+        );
+        let mut timelocked = VecDeque::new();
+        timelocked.push_back((old_hotkey, 1, Default::default(), 1));
+        timelocked.push_back((retained_hotkey, 1, Default::default(), 2));
+        TimelockedWeightCommits::<Test>::insert(index, 1, timelocked);
+
+        SubtensorModule::replace_neuron(netuid, 0, &new_hotkey, 2);
+
+        assert!(!WeightCommits::<Test>::contains_key(index, old_hotkey));
+        let remaining = TimelockedWeightCommits::<Test>::get(index, 1);
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(
+            remaining.front().map(|entry| entry.0),
+            Some(retained_hotkey)
         );
     });
 }
