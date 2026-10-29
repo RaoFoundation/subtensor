@@ -1,0 +1,390 @@
+% Lift lending: no-arbitrage notes (μ method)
+% Public review companion to PR #3268. Commit early; expand in increments.
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{microtype}
+
+\title{No-arbitrage for lift lending\\
+\large Bounded TAO-cycles, $\mu$'s $F$, and where the proof fails}
+\author{Subtensor lending (PR \#3268)\\
+Working note --- increment 1}
+\date{2026-10-29}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{conjecture}{Conjecture}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{cycle}{Cycle}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Following $\mu$'s method: for each non-trivial action cycle that
+\textbf{starts and ends holding only TAO}, write the terminal TAO as a
+factor of the initial holding, sized as a fraction $h$ of pool TAO, as a
+function of LP state $(y,x,w_1)$ and lending parameters. Then minimise /
+maximise that factor over the parameter space and ask whether any region
+has expected value $>1$ (attacker profit).
+
+This increment records: (i)~state and action set; (ii)~$\mu$'s September
+$F$ formula (transcription checked against the hand derivation);
+(iii)~a provisional map of $(f_h,\varphi,w_2)$ into the current lift
+design; (iv)~the first TAO-pure cycles under forced-escrow longs/shorts;
+(v)~numeric $F$ on SN29-like reserves. Later increments add remaining
+cycles, closed-form extrema, the weight-ratchet counterexample, and a
+bounded search that mirrors pallet math.
+\end{abstract}
+
+\tableofcontents
+
+%----------------------------------------------------------------------
+\section{Method (from $\mu$)}
+\label{sec:method}
+
+\begin{enumerate}
+  \item Enumerate every non-trivial finite sequence of stake/unstake swaps
+        and lending calls that \textbf{begins and ends with a pure-TAO
+        book} (no open position, no residual alpha inventory attributed
+        to the cycle).
+  \item Write terminal TAO $V'$ as
+        \[
+          V' = F_{\mathrm{cyc}}(h;\, y,x,w_1;\, \Theta)\, V,
+        \]
+        where $V$ is the initial TAO stake of the cycle, $h = V/y$ (or
+        another natural scale against pool TAO $y$), and $\Theta$ collects
+        lending parameters (LTV, thin LTV, swap fee, EMA band, APR, term,
+        capacity floors).
+  \item Over a compact parameter domain (including SN29-like and deep
+        equal-weight pools), compute
+        $\min F_{\mathrm{cyc}}$ and $\max F_{\mathrm{cyc}}$.
+  \item Positive EV for that cycle $\iff$ some feasible point has
+        $F_{\mathrm{cyc}} > 1$ after fees (attacker convention below).
+\end{enumerate}
+
+\begin{remark}[Sign convention]
+We take $F_{\mathrm{cyc}} > 1$ as \textbf{attacker profit} (ends with more
+TAO than started, marking-to-market any returned alpha at the exit swap).
+$\mu$'s September note used ``profitable when $F<1$'': that $F$ is a
+\textbf{cost / survival factor for the pool (or for the round-trip
+price)}, i.e.\ the reciprocal convention. We keep $\mu$'s symbol $F$ for
+the September formula unchanged, and write $F_{\mathrm{cyc}}$ for
+attacker-return factors. Relation when both apply to the same cycle:
+$F_{\mathrm{cyc}} = 1/F$ up to fee placement.
+\end{remark}
+
+%----------------------------------------------------------------------
+\section{State and parameters}
+\label{sec:state}
+
+\subsection{LP / Balancer state}
+\begin{itemize}
+  \item Reserves: TAO $y$, alpha $x$.
+  \item Weights: $w_1$ (base / alpha), $w_2 = 1-w_1$ (quote / TAO).
+        Spot $p = (w_1/w_2)\,(y/x)$.
+  \item Invariant (Balancer): $L = x^{w_1} y^{w_2}$. At $w_1=w_2=\tfrac12$,
+        $L=\sqrt{xy}$ (``$\sqrt{k}$'').
+  \item Swap fee: protocol default $\phi_{\mathrm{swap}} = 33/65535
+        \approx 5.03\cdot 10^{-4}$. In $\mu$'s formula the fee symbol is
+        $\varphi$; see §\ref{sec:mu-map}.
+\end{itemize}
+
+\subsection{Lending book (per subnet)}
+Lift book $(L_S,L_L,E_S,B_L,\ldots)$, positions keyed by
+$(\mathrm{coldkey},\mathrm{netuid})$, EMA reference for the open band,
+$G_{\mathrm{ema}}$ for capacity. One-year term and 100\% APR burn-all
+interest are part of $\Theta$ but are \textbf{idle} inside a same-block
+or few-block cycle (interest $\approx 0$).
+
+\subsection{Lending parameters $\Theta$ (defaults)}
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & Default \\
+\midrule
+$\lambda_S$ (short LTV) & $0.25$ \\
+$\lambda_L$ (long LTV) & $0.25$ ($0.15$ thin) \\
+$\phi_{\mathrm{swap}}$ & $33/65535$ \\
+$\beta$ (EMA band) & $0.15$ \\
+floor / thin floor / ceiling & $0.33$ / $0.15$ / $0.50$ \\
+side split & $50/50$ \\
+APR / term & $100\%$ / 1 year \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%----------------------------------------------------------------------
+\section{$\mu$'s September $F$ (earlier proposal)}
+\label{sec:mu-F}
+
+Transcription checked against the hand-derived image:
+
+\begin{equation}
+\label{eq:mu-F}
+F
+=
+(f_h+1)
+\left(
+\frac{(1-\varphi)^{1/w_2}}
+{(1-\varphi)^{1/w_2}+f_h-\varphi}
+\right)^{E},
+\end{equation}
+with exponent
+\begin{equation}
+\label{eq:mu-E}
+E
+=
+\frac{f_h+1}
+{(f_h+1+\varphi)
+\left(
+1-\dfrac{1-(1-\varphi)^{1/w_2}}{f_h-\varphi+1}
+\right)^{w_2/(1-w_2)}
+}.
+\end{equation}
+
+\begin{conjecture}[$\mu$, earlier design]
+Along the September shorting cycle, the pool (or round-trip) factor is
+$F$ above, and the cycle is attacker-profitable precisely when $F<1$.
+\end{conjecture}
+
+\subsection{Provisional variable map into current lift math}
+\label{sec:mu-map}
+
+The September proposal predated forced-escrow longs and pull-on-borrow
+lifts. A working identification used in this note (to be stress-tested
+against $\mu$'s full derivation when available):
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Symbol & September reading & Current lift reading \\
+\midrule
+$w_2$ & quote weight & Balancer quote weight $w_q$ (TAO leg) \\
+$\varphi$ & swap fee taken on the trade & $\phi_{\mathrm{swap}}$ (same order) \\
+$f_h$ & haircut / size as fraction of pool TAO
+      & candidate: $h = P/y$ after lift, or LTV-scaled
+        $h=\lambda\cdot C/y$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{remark}
+If $f_h$ is the \textbf{principal as a fraction of post-lift (or pre-trade)
+pool TAO}, then for a capacity-bound open $h\lesssim 0.075$--$0.165$ on a
+side (thin vs floor $\times$ split). For LTV-bound opens with collateral
+$C=\alpha y$, $P=\lambda C$ gives $f_h=\lambda\alpha$.
+\end{remark}
+
+%----------------------------------------------------------------------
+\section{Does the same cycle exist today?}
+\label{sec:applies}
+
+\begin{cycle}[September-style short round trip]
+Open a forced short of principal $P$ alpha (lift, sell $P$ into the pool,
+escrow $E_S$), then close by buying $P$ back (escrow path) or by
+repaying $P$ alpha from wallet and taking $E_S$.
+\end{cycle}
+
+Under the \textbf{current} design:
+\begin{itemize}
+  \item \textbf{Sell-path / escrow close} reverses the forced sale on the
+        \emph{lifted} pool then re-adds $(\tau_L,P)$ with a weight update
+        that is nearly proportional. This is the intended fee-lossy
+        round trip; $F_{\mathrm{cyc}}<1$ (attacker) for $\phi>0$.
+  \item \textbf{Wallet-path close} returns $E_S+C$ for alpha repaid from
+        outside, then re-adds $(\tau_L,P)$. If that re-add
+        \emph{updates Balancer weights to preserve the post-sale spot},
+        the September fee analysis is incomplete: an extra
+        \textbf{weight-ratchet} term appears (see §\ref{sec:gap}).
+\end{itemize}
+
+So the September cycle \emph{still exists}, but the current
+implementation adds a weight-update branch that $\mu$'s fee-only $F$ does
+not capture. That is the first place a proof from $F\ge 1$ alone fails.
+
+%----------------------------------------------------------------------
+\section{TAO-pure cycles under the current design}
+\label{sec:cycles}
+
+Notation: attacker starts with TAO budget $V=h\,y$ (and, where needed,
+an alpha inventory acquired inside the cycle by a swap that is part of
+the cycle accounting).
+
+\subsection{Cycle A --- long wallet ratchet (primary drain candidate)}
+\label{cyc:A}
+\begin{enumerate}
+  \item (Optional) Sell alpha inventory into the pool (dump), moving spot
+        down while the lending EMA lags.
+  \item Open long: post collateral $C$ alpha, lift $g=P/y$, forced-buy
+        escrow $A$ with $P$ TAO, subject to LTV, capacity, EMA band
+        $p'\le \mathrm{EMA}\,(1+\beta)$.
+  \item Close with $\mathtt{repay\_from\_wallet}=\mathsf{true}$: pay $P$
+        TAO, receive $A+C$, re-add $(P,\alpha_L)$.
+  \item Sell returned escrow $A$ for TAO.
+\end{enumerate}
+Mark-to-market: all alpha legs netted; terminal asset is TAO.
+We write $F_A(h;y,x,w_1;\Theta)$ for $V'/V$.
+
+\subsection{Cycle B --- short wallet mirror}
+Open short to the EMA band floor, wallet-repay with owned alpha, rebuy
+alpha (or equivalently value the free $E_S$ against replacing $P$).
+Factor $F_B$.
+
+\subsection{Cycle C --- raise then wallet-close}
+$\mathtt{open\_long\_and\_sell}$ with $S=A$ (near price-neutral by
+design), then wallet-close the long and sell residual. Factor $F_C$.
+
+\subsection{Cycle D --- escrow closes only}
+Open long or short, close on the escrow AMM path (no wallet repay).
+Fee-lossy by construction if re-add is the inverse of lift+trade.
+Factors $F_D^{\mathrm{L}}, F_D^{\mathrm{S}}$.
+
+\subsection{Cycle E --- partial repay interleaved with swaps}
+Slice $k\in(0,1]$, swap, repay remainder. Factor $F_E$.
+
+%----------------------------------------------------------------------
+\section{Where a fee-only proof fails}
+\label{sec:gap}
+
+\begin{proposition}[Weight update on asymmetric re-add]
+After a forced long buy the pool is at $(y,\,x-\alpha_L-A)$ with
+\textbf{unchanged} weights and elevated spot. Wallet repay credits
+$(P,\alpha_L)$ yielding reserves $(y+P,\,x-A)$. Calling
+$\mathtt{update\_weights\_for\_added\_liquidity}$ sets new weights so
+that the \emph{elevated} spot is preserved. Then $L=x^{w_1}y^{w_2}$
+(and $w_1$) move monotonically with repeated cycles --- matching the
+observed ``$w_1$ and $\sqrt{k}$ taking off''.
+\end{proposition}
+
+Consequently $\mu$'s $F$ (fees only, fixed weights) is a
+\textbf{lower bound on pool protection} only for cycles that never hit
+the weight-updating wallet re-add. For Cycle~A with weight update,
+\[
+  F_A \;\;\text{can exceed } 1
+\]
+even when the September $F$ satisfies $F\ge 1$.
+
+\begin{remark}[Fix direction, not yet the proof]
+Re-adding wallet-repay legs \emph{without} updating weights restores
+the market-buy residual $(+P,-A)$ under fixed $(w_1,w_2)$. Numerics
+(§\ref{sec:numeric}) show that change flips Cycle~A from $F_A>1$ to
+$F_A<1$ on SN29-like pools. A full proof that $F_A\le 1$ under
+preserve-weights is deferred to a later increment.
+\end{remark}
+
+%----------------------------------------------------------------------
+\section{Numerics: SN29-like and $\mu$'s $F$}
+\label{sec:numeric}
+
+Pool sketch: $y = 10^{5}$~TAO, $p\approx 0.00279$, $w_1=w_2=\tfrac12$,
+$\varphi = 33/65535$. Side capacity $\sim 0.075\,y$--$0.165\,y$.
+
+\subsection{$\mu$'s $F$ vs size}
+Evaluating \eqref{eq:mu-F}--\eqref{eq:mu-E} at $w_2=\tfrac12$,
+$\varphi=33/65535$ (\texttt{scripts/no\_arbitrage\_F.py}):
+
+\begin{center}
+\begin{tabular}{@{}rrr@{}}
+\toprule
+$f_h$ & $F$ (fee only) & $F<1$? (μ profit) \\
+\midrule
+$0.01$  & $1.000485$ & no \\
+$0.05$  & $1.000409$ & no \\
+$0.075$ & $1.000365$ & no \\
+$0.10$  & $1.000323$ & no \\
+$0.165$ & $1.000224$ & no \\
+$0.25$  & $1.000112$ & no \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent So on production fees, $\mu$'s fee-only $F$ stays \emph{just
+above} $1$ for all listed sizes: the September fee argument alone would
+\emph{rule out} attacker profit. The drain therefore cannot be explained
+by fees; it requires an extra mechanism (the weight ratchet).
+
+\subsection{Cycle A with weight update (counterexample)}
+Same pool ($y=10^5$~TAO, $p\approx 0.00279$), $P = 0.165\,y$,
+multiplicative swap tax $0.5\%$ per leg in the sketch model:
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+dump & weights & $F_A$ & profit (τ) & $w_1$ after \\
+\midrule
+$0\%$  & update & $1.0176$ & $+291$ & $0.515$ \\
+$0\%$  & keep   & $0.9631$ & $-609$ & $0.500$ \\
+$20\%$ & update & $1.0302$ & $+498$ & $0.522$ \\
+$20\%$ & keep   & $0.9513$ & $-804$ & $0.500$ \\
+$35\%$ & update & $1.0413$ & $+681$ & $0.528$ \\
+$35\%$ & keep   & $0.9411$ & $-972$ & $0.500$ \\
+$50\%$ & update & $1.0539$ & $+889$ & $0.535$ \\
+$50\%$ & keep   & $0.9297$ & $-1160$ & $0.500$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Counterexample:} with weight-updating wallet re-add,
+$F_A>1$ on every row; $w_1$ and $L$ rise. With weight-preserving re-add,
+$F_A<1$ on every row. JSON: \texttt{scripts/no\_arbitrage\_F.json}.
+
+%----------------------------------------------------------------------
+\section{Theorem status (increment 1)}
+\label{sec:status}
+
+\begin{conjecture}[No TAO-pure arb, preserve-weights wallet re-add]
+\label{conj:main}
+If wallet-repay re-adds lift legs without updating Balancer weights,
+and escrow closes re-add after reversing the forced trade, then for every
+TAO-pure cycle of length $\le N$ (fees on, EMA fixed or free within
+band), $F_{\mathrm{cyc}} \le 1$, with equality only in the zero-fee,
+zero-size limit.
+\end{conjecture}
+
+\begin{theorem}[Status]
+\label{thm:status}
+\begin{enumerate}
+  \item Under \textbf{current} wallet re-add (weight-updating),
+        Conjecture~\ref{conj:main} is \textbf{false}: Cycle~A is a
+        counterexample with $F_A>1$ and unbounded $w_1$/$L$ under
+        repetition while the EMA lags (SN29-like numbers in
+        §\ref{sec:numeric}).
+  \item $\mu$'s fee-only $F\ge 1$ does \textbf{not} imply
+        $F_{\mathrm{cyc}}\le 1$ for Cycle~A, because $F$ omits the
+        weight ratchet.
+  \item Proof of Conjecture~\ref{conj:main} under preserve-weights:
+        \textbf{open} (this note).
+\end{enumerate}
+\end{theorem}
+
+%----------------------------------------------------------------------
+\section{Next increments}
+\begin{itemize}
+  \item Closed forms for $F_A,F_B,F_C,F_D$ as functions of $h$.
+  \item Grid min/max over $(h,w_1,\varphi,\lambda,\beta)$.
+  \item Scripted evaluation of $\mu$'s $F$ table + Cycle~A, committed
+        under \texttt{pallets/lending/docs/scripts/}.
+  \item Bounded exhaustive / optimising search ($\le 6$ actions) with a
+        differential check against the runtime.
+  \item Call-flow diagram (read state once / validate / derive / act).
+\end{itemize}
+
+\begin{thebibliography}{9}
+\bibitem{mu-F}
+$\mu$, September 2025 hand derivation of fee factor $F$ (image on PR
+discussion). Profitability under the earlier proposal when $F<1$.
+\bibitem{spec}
+\emph{Lift-based lending on main's Balancer pools}, v5.4,
+\texttt{pallets/lending/docs/lift-lending-spec.md}.
+\end{thebibliography}
+
+\end{document}
