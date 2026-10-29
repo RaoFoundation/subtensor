@@ -229,7 +229,7 @@ require P ≤ LTV_tier · V_dyn
   * `MinimumLoanValue` (dust and weight).
 * The old per-position cap is removed. Its only remaining purposes were spreading forced-short price impact, which is unchanged by splitting, and splitting longs, which `A_ahead` now handles.
 * Keep `MaxPositionsPerSubnet`/`MaxTotalPositions` as storage and weight bounds only.
-* **APR 100%:** `annual_interest` = opening value, in collateral units, charged every `InterestPeriod` (runtime constant; production = 50_400 blocks ≈ 7 days at 12 s). Reuse #3211 `Due`/`NextDue`/`collect_due`. A rolled-back collection (e.g. subtoken disabled mid-period) drops the original `Due` claim and requeues the surviving loan onto `now + InterestRetryDelay`, updating `position.due` — same fail-closed pattern as expiry retries.
+* **APR 100%:** `annual_interest` = opening value, in collateral units, charged every `InterestPeriod` (runtime constant; production = 50_400 blocks ≈ 7 days at 12 s). Reuse #3211 `Due`/`NextDue`/`collect_due`. A rolled-back collection (e.g. subtoken disabled mid-period) drops the original `Due` claim and enqueues the surviving loan onto the O(1) `InterestRetry` side queue at `now + InterestRetryDelay` (updates `position.due`); drain is metered with a lazy `Next` bump so recovery never mid-inserts into a long overdue Due linked list. Expiry failures use the same `ExpiryRetry` shape.
 
 ### 5.1 Why not Karl's zero-loss floor LTV
 * Karl's floor sets LTV so the collateral's worst-case sale covers principal. The worst case is: full lift, full short book force-sold, **all** outstanding alpha plus 30 days of emissions dumped ahead of the collateral.

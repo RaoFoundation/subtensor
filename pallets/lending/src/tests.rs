@@ -2972,15 +2972,23 @@ fn long_expiry_preserves_collateral_when_pot_payout_fails() {
         assert_eq!(still.collateral, snap.collateral);
         assert_eq!(still.escrow_alpha, snap.escrow_alpha);
         assert_eq!(alpha(&escrow, &custody, netuid()), alpha_before);
-        // Failed claim is deferred, not left pinning the original bucket.
+        // Failed claim is deferred onto the O(1) expiry-retry side queue.
         assert!(!Expiry::<Test>::contains_key(
             snap.expires_at,
             (&owner, netuid())
         ));
         let retry_at = snap.expires_at.saturating_add(5);
-        assert!(Expiry::<Test>::contains_key(retry_at, (&owner, netuid())));
+        assert!(ExpiryRetry::<Test>::contains_key(
+            retry_at,
+            (&owner, netuid())
+        ));
+        assert!(
+            !Expiry::<Test>::contains_key(retry_at, (&owner, netuid())),
+            "retries must not mid-insert into the Expiry linked list"
+        );
         assert_eq!(still.expiry_due, retry_at);
         assert_eq!(still.expires_at, snap.expires_at);
+        assert_eq!(NextExpiryRetry::<Test>::get(), Some(retry_at));
         assert!(
             System::events()
                 .into_iter()
@@ -3036,10 +3044,15 @@ fn failed_interest_collection_defers_onto_retry_bucket() {
         );
         let retry_at = due_at.saturating_add(5);
         assert!(
-            Due::<Test>::contains_key(retry_at, (&owner, netuid())),
-            "surviving loan must land on the interest retry slot"
+            InterestRetry::<Test>::contains_key(retry_at, (&owner, netuid())),
+            "surviving loan must land on the O(1) interest-retry side queue"
+        );
+        assert!(
+            !Due::<Test>::contains_key(retry_at, (&owner, netuid())),
+            "retries must not mid-insert into the Due linked list"
         );
         assert_eq!(still.due, retry_at);
+        assert_eq!(NextInterestRetry::<Test>::get(), Some(retry_at));
 
         // Recovery: re-enable trading and let the retry collect successfully.
         set_subtoken_enabled(true);
@@ -3050,7 +3063,10 @@ fn failed_interest_collection_defers_onto_retry_bucket() {
             after.collateral < collateral_before || after.collateral == 0,
             "retry must charge interest once the subtoken is live again"
         );
-        assert!(!Due::<Test>::contains_key(retry_at, (&owner, netuid())));
+        assert!(!InterestRetry::<Test>::contains_key(
+            retry_at,
+            (&owner, netuid())
+        ));
         assert_eq!(
             after.due,
             retry_at.saturating_add(period),
@@ -3097,11 +3113,17 @@ fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
         let deferred = Positions::<Test>::get(&owner, netuid()).unwrap();
         let retry_at = deferred.expiry_due;
         assert!(retry_at > snap.expires_at);
-        assert!(Expiry::<Test>::contains_key(retry_at, (&owner, netuid())));
+        assert!(ExpiryRetry::<Test>::contains_key(
+            retry_at,
+            (&owner, netuid())
+        ));
         assert_ok!(Lending::on_coldkey_swap(&owner, &new_owner));
         assert!(!Positions::<Test>::contains_key(&owner, netuid()));
-        assert!(!Expiry::<Test>::contains_key(retry_at, (&owner, netuid())));
-        assert!(Expiry::<Test>::contains_key(
+        assert!(!ExpiryRetry::<Test>::contains_key(
+            retry_at,
+            (&owner, netuid())
+        ));
+        assert!(ExpiryRetry::<Test>::contains_key(
             retry_at,
             (&new_owner, netuid())
         ));
@@ -3310,12 +3332,21 @@ fn failed_expiry_does_not_block_later_bucket() {
         );
         assert_eq!(
             NextExpiry::<Test>::get(),
-            Some(retry_at),
-            "failed claim moves onto the bounded retry slot"
+            Some(ok_exp),
+            "main Expiry schedule must advance past the failed claim"
         );
+        assert_eq!(
+            NextExpiryRetry::<Test>::get(),
+            Some(retry_at),
+            "failed claim moves onto the O(1) expiry-retry side queue"
+        );
+        assert!(ExpiryRetry::<Test>::contains_key(
+            retry_at,
+            (&owner_fail, netuid())
+        ));
         assert!(retry_at < ok_exp);
         // Short settlement does not need pot TAO — it must clear once due,
-        // even though the deferred long is still ahead in the schedule.
+        // even though the deferred long is still ahead on the retry queue.
         System::set_block_number(ok_exp);
         System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(ok_exp, Weight::MAX);
