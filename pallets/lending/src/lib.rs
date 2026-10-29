@@ -183,7 +183,19 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     ) -> Result<(AlphaBalance, TaoBalance), DispatchError>;
 
     /// Re-add lift legs and credit SubnetTAO/AlphaIn/TotalStake as appropriate.
+    /// Updates Balancer weights (sell-path / forfeit after reversing a trade).
     fn readd_and_credit(
+        netuid: NetUid,
+        custody_cold: &AccountId,
+        custody_hot: &AccountId,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> DispatchResult;
+
+    /// Like [`Self::readd_and_credit`] but **preserves** Balancer weights.
+    /// Required for wallet repay: the forced trade already moved spot; reweighting
+    /// would crystallize that move into `w1`/`√k` and let a later swap drain LPs.
+    fn readd_and_credit_preserve_weights(
         netuid: NetUid,
         custody_cold: &AccountId,
         custody_hot: &AccountId,
@@ -1253,7 +1265,8 @@ pub mod pallet {
         /// Close a position. Shorts buy back (or repay alpha); longs repay TAO (or sell escrow).
         ///
         /// Wallet alpha repayment is drawn from stake on `hotkey`, and returned
-        /// alpha is staked to `hotkey`.
+        /// alpha is staked to `hotkey`. Short escrow buyback may pull extra free
+        /// TAO from the owner when `E_S + C` is underwater (≤ `max_payment`).
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::close())]
         #[transactional]
@@ -2719,8 +2732,9 @@ pub mod pallet {
                         let pot = Self::add(position.proceeds, position.collateral)?;
                         ensure!(pot >= min_refund, Error::<T>::BelowMinimumRefund);
                         T::Pool::transfer_tao(&escrow, &owner, pot.into())?;
-                        // Readd lift legs: (τ_L, P)
-                        T::Pool::readd_and_credit(
+                        // Wallet repay leaves an asymmetric residual — preserve
+                        // weights so the post-sale spot is not crystallized into w1.
+                        T::Pool::readd_and_credit_preserve_weights(
                             netuid,
                             &reserve,
                             &custody,
@@ -2739,8 +2753,18 @@ pub mod pallet {
                         });
                         (pot, position.proceeds)
                     } else {
-                        // Buy back P alpha with E_S + collateral.
-                        let budget = Self::add(position.proceeds, position.collateral)?;
+                        // Buy back P alpha with E_S + collateral. When the price
+                        // rose so pot < cost, the owner tops up free-balance TAO
+                        // (no liquidations — close must stay possible). Total
+                        // payment stays ≤ max_payment.
+                        let pot = Self::add(position.proceeds, position.collateral)?;
+                        let needed = Self::tao_to_buy_alpha(netuid, position.principal)?;
+                        let top_up = needed.saturating_sub(pot);
+                        if top_up > 0 {
+                            ensure!(needed <= max_payment, Error::<T>::SlippageExceeded);
+                            T::Pool::transfer_tao(&owner, &escrow, top_up.into())?;
+                        }
+                        let budget = Self::add(pot, top_up)?;
                         let (paid, bought) = Self::execute_buyback(
                             &escrow,
                             &custody,
@@ -2820,7 +2844,8 @@ pub mod pallet {
                                 true,
                             )?;
                         }
-                        T::Pool::readd_and_credit(
+                        // Wallet repay: preserve weights (see short wallet path).
+                        T::Pool::readd_and_credit_preserve_weights(
                             netuid,
                             &reserve,
                             &custody,
@@ -3032,7 +3057,7 @@ pub mod pallet {
                         if slice_c > 0 {
                             T::Pool::transfer_tao(&escrow, &owner, slice_c.into())?;
                         }
-                        T::Pool::readd_and_credit(
+                        T::Pool::readd_and_credit_preserve_weights(
                             netuid,
                             &reserve,
                             &custody,
@@ -3119,7 +3144,7 @@ pub mod pallet {
                                 true,
                             )?;
                         }
-                        T::Pool::readd_and_credit(
+                        T::Pool::readd_and_credit_preserve_weights(
                             netuid,
                             &reserve,
                             &custody,
@@ -5481,7 +5506,7 @@ pub mod pallet {
         pub fn quote_close(
             owner: &T::AccountId,
             netuid: NetUid,
-            hotkey: &T::AccountId,
+            hotkey: Option<&T::AccountId>,
             repay_from_wallet: bool,
         ) -> Result<ClosingQuote, DispatchError> {
             // Match `do_close`: disabled / dissolving before position work.
@@ -5500,9 +5525,11 @@ pub mod pallet {
                             escrow_return: position.proceeds,
                         }
                     } else {
-                        // Escrow buyback: payment ≈ TAO to buy P alpha; refund is leftover.
+                        // Escrow buyback: payment ≈ TAO to buy P alpha. When
+                        // payment > pot the short is underwater — refund is 0
+                        // and the shortfall (payment − pot) must come from the
+                        // owner's free balance; max_payment must cover payment.
                         let payment = Self::tao_to_buy_alpha(netuid, position.principal)?;
-                        ensure!(payment <= pot, Error::<T>::InsufficientEscrow);
                         ClosingQuote {
                             payment,
                             refund: pot.saturating_sub(payment),
@@ -5558,8 +5585,12 @@ pub mod pallet {
             // Hotkey is required when alpha is repaid from or refunded to stake.
             // Short escrow buyback refunds TAO only (overshoot dust does not
             // require a registered destination — see `do_close`).
+            // `None` skips the check (must not panic); callers that omit it
+            // accept that the extrinsic may still refuse an unregistered hotkey.
             if Self::close_requires_hotkey(position.side, repay_from_wallet, &quoted) {
-                T::Pool::ensure_hotkey_account(hotkey)?;
+                if let Some(hk) = hotkey {
+                    T::Pool::ensure_hotkey_account(hk)?;
+                }
             }
             Ok(quoted)
         }

@@ -74,7 +74,26 @@ pub trait SwapHandler {
 
     /// Re-add liquidity after a repay/default. Delegates to [`Self::adjust_protocol_liquidity`]
     /// (weights / reservoirs). Returns price-active deltas like adjust does.
+    ///
+    /// Updates Balancer weights to keep the **current** spot. Correct when the
+    /// readd is the inverse of a proportional lift (sell-path close / forfeit
+    /// after reversing a forced trade). **Do not** use after a wallet repay that
+    /// leaves an asymmetric residual — that crystallizes the post-trade price
+    /// into `w1`/`√k` and lets a subsequent swap extract LP value. Use
+    /// [`Self::credit_protocol_liquidity`] instead.
     fn readd_protocol_liquidity(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance);
+
+    /// Credit reserves after a wallet repay **without** updating Balancer weights.
+    ///
+    /// Wallet repay returns principal from outside the pool while escrow leaves
+    /// with the borrower, so the residual `(+P τ, −A α)` is a market buy — same
+    /// reserves change with **unchanged** weights. Reweighting would lock the
+    /// elevated/depressed post-trade spot into `w1` and ratchet `√k`.
+    fn credit_protocol_liquidity(
         netuid: NetUid,
         tao: TaoBalance,
         alpha: AlphaBalance,

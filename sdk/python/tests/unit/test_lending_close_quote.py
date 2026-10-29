@@ -1,4 +1,4 @@
-"""lending_close_quote must pass the runtime's 4-param quote_close signature."""
+"""lending_close_quote must pass optional hotkey into quote_close."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ class _RecordingView:
 
 
 @pytest.mark.asyncio
-async def test_lending_close_quote_passes_hotkey_as_fourth_param():
+async def test_lending_close_quote_passes_hotkey_as_optional_param():
     view = _RecordingView()
     owner = "5Owner"
     hotkey = "5Hotkey"
@@ -68,6 +68,19 @@ async def test_lending_close_quote_passes_hotkey_as_fourth_param():
     method, params = view.runtime_calls[0]
     assert method == lending_reads.QUOTE_CLOSE
     assert params == [owner, 1, hotkey, False]
+
+
+@pytest.mark.asyncio
+async def test_lending_close_quote_allows_omitted_hotkey():
+    view = _RecordingView()
+    owner = "5Owner"
+    result = await lending_reads.lending_close_quote(
+        view, owner, 1, repay_from_wallet=False
+    )
+    assert result["payment"].rao == 10**9
+    method, params = view.runtime_calls[0]
+    assert method == lending_reads.QUOTE_CLOSE
+    assert params == [owner, 1, None, False]
 
 
 class _Wallet:

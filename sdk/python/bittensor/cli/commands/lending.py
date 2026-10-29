@@ -338,8 +338,7 @@ def close_loan(
         raise typer.Exit(2)
     side = position["side"]
     # Longs refund alpha; short wallet repay draws alpha — both need --hotkey.
-    # Short escrow buyback is TAO-only and may omit it (quote still needs some
-    # AccountId for the 4-param runtime API; use the owner as a placeholder).
+    # Short escrow buyback is TAO-only and may omit it (quote accepts None).
     if side == "Long" and hotkey is None:
         context.output.error("pass --hotkey to receive the long's alpha refund")
         raise typer.Exit(2)
@@ -349,14 +348,13 @@ def close_loan(
             "(omit the flag for the default escrow buyback)"
         )
         raise typer.Exit(2)
-    quote_hotkey = hotkey or owner
     with context.output.activity("quoting the repayment…"):
         quote = context.run(
             lambda client: client.read(
                 "lending_close_quote",
                 coldkey_ss58=owner,
                 netuid=netuid,
-                hotkey_ss58=quote_hotkey,
+                hotkey_ss58=hotkey,
                 repay_from_wallet=repay_from_wallet,
             )
         )

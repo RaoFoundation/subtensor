@@ -500,9 +500,9 @@ async def lending_required_collateral(
         "coldkey_ss58": "Position owner.",
         "netuid": "Subnet of the position.",
         "hotkey_ss58": (
-            "Per-call hotkey for alpha repay (short wallet path) or alpha refund "
-            "(long close). Required by the runtime API even when a short escrow "
-            "buyback refunds only TAO."
+            "Optional per-call hotkey for alpha repay (short wallet path) or "
+            "alpha refund (long close). Omit for short escrow buyback (TAO "
+            "only). When omitted, the runtime skips the hotkey-existence check."
         ),
         "repay_from_wallet": (
             "False (default): quote the escrow AMM buyback for a short. "
@@ -514,7 +514,7 @@ async def lending_close_quote(
     view,
     coldkey_ss58: str,
     netuid: int,
-    hotkey_ss58: str,
+    hotkey_ss58: Optional[str] = None,
     repay_from_wallet: bool = False,
 ) -> dict:
     """Runtime quote of the combined debt repayment and refund, after accrued interest.
@@ -522,12 +522,13 @@ async def lending_close_quote(
     Payment is TAO except for a wallet-repaid short, which returns its fixed
     alpha principal. Refund is TAO for a short and alpha for a long. Default
     ``repay_from_wallet=False`` quotes the escrow AMM path: shorts buy P alpha
-    from escrow+collateral (leftover TAO refund); longs sell escrow A then
-    only enough collateral to cover any shortfall to P (leftover alpha refund).
-    Set True to quote a wallet repayment instead. The close extrinsic names
-    a per-call hotkey when alpha is repaid or refunded; positions store none.
-    Pass the same ``hotkey_ss58`` the close call will use so quote and call
-    share hotkey-existence checks.
+    from escrow+collateral (leftover TAO refund); when the buyback costs more
+    than the pot, payment is the TAO needed, refund is 0, and ``max_payment``
+    on close must cover the shortfall from free balance. Longs sell escrow A
+    then only enough collateral to cover any shortfall to P (leftover alpha
+    refund). Set True to quote a wallet repayment instead. Pass
+    ``hotkey_ss58`` when alpha is repaid or refunded so quote and call share
+    hotkey-existence checks; omit it on TAO-only short escrow buyback.
     """
     view = await view.at()
     position = await lending_position(view, coldkey_ss58, netuid)

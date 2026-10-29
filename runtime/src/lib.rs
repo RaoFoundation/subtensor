@@ -2841,13 +2841,13 @@ impl_runtime_apis! {
         fn quote_close(
             owner: AccountId,
             netuid: u16,
-            hotkey: AccountId,
+            hotkey: Option<AccountId>,
             repay_from_wallet: bool,
         ) -> Result<pallet_lending::ClosingQuote, sp_runtime::DispatchError> {
             pallet_lending::Pallet::<Runtime>::quote_close(
                 &owner,
                 netuid.into(),
-                &hotkey,
+                hotkey.as_ref(),
                 repay_from_wallet,
             )
         }

@@ -145,9 +145,9 @@ Notation: `C` = collateral, `P` = principal, `(α_L, τ_L)` = the lift legs, `E_
   4. `τ_L` is held.
   5. `L_S += τ_L`.
 * Repay:
-  1. By default (`repay_from_wallet=false` / `btcli lending close`) `E_S` plus collateral buys back `P` alpha through the pool; `--repay-from-wallet` supplies `P` alpha from stake and takes `E_S`.
+  1. By default (`repay_from_wallet=false` / `btcli lending close`) `E_S` plus collateral buys back `P` alpha through the pool. If the price rose so the pot cannot cover the buyback, the owner tops up free-balance TAO (capped by `max_payment`); there is no liquidation. `--repay-from-wallet` supplies `P` alpha from stake and takes `E_S`.
   2. `readd(τ_L, P)`.
-  3. Refund the remaining collateral.
+  3. Refund the remaining collateral (0 when the top-up is exact).
 * Default (collateral exhausted by interest): `readd(τ_L + E_S, 0)`. **The pool is quantity-whole**: the sold alpha is already in the pool, and the burned interest came from the borrower.
 
 ### 4.2 Forced long (borrow TAO, alpha collateral `C`, LTV 25% / 15% thin): escrowed, no free TAO

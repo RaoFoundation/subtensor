@@ -277,36 +277,18 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         tao: TaoBalance,
         alpha: AlphaBalance,
     ) -> DispatchResult {
-        ensure!(
-            Self::if_subnet_exist(netuid) || DissolveCleanupQueue::<T>::get().contains(&netuid),
-            Error::<T>::SubnetNotExists
-        );
-        let subnet = Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
-        if !tao.is_zero() {
-            Self::transfer_tao(custody_cold, &subnet, tao)?;
-        }
-        if !alpha.is_zero() {
-            let removed = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
-                custody_hot,
-                custody_cold,
-                netuid,
-                alpha,
-            );
-            ensure!(removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
-            SubnetAlphaOut::<T>::try_mutate(netuid, |out| -> DispatchResult {
-                ensure!(*out >= alpha, Error::<T>::NotEnoughStakeToWithdraw);
-                *out = out.saturating_sub(alpha);
-                Ok(())
-            })?;
-        }
-        let (d_tao, d_alpha) = T::SwapInterface::readd_protocol_liquidity(netuid, tao, alpha);
-        Self::increase_provided_tao_reserve(netuid, d_tao);
-        Self::increase_provided_alpha_reserve(netuid, d_alpha);
-        // Live subnets keep TotalStake in sync; dissolved pots only track SubnetTAO.
-        if Self::if_subnet_exist(netuid) && !d_tao.is_zero() {
-            TotalStake::<T>::mutate(|total| *total = total.saturating_add(d_tao));
-        }
-        Ok(())
+        Self::readd_and_credit_inner(netuid, custody_cold, custody_hot, tao, alpha, true)
+    }
+
+    #[transactional]
+    fn readd_and_credit_preserve_weights(
+        netuid: NetUid,
+        custody_cold: &T::AccountId,
+        custody_hot: &T::AccountId,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> DispatchResult {
+        Self::readd_and_credit_inner(netuid, custody_cold, custody_hot, tao, alpha, false)
     }
 
     #[transactional]
@@ -586,5 +568,50 @@ impl<T: Config> Pallet<T> {
         }
         Self::transfer_tao(from, to, amount)?;
         Ok(amount)
+    }
+
+    /// Shared body for weight-updating and weight-preserving readd.
+    fn readd_and_credit_inner(
+        netuid: NetUid,
+        custody_cold: &T::AccountId,
+        custody_hot: &T::AccountId,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+        update_weights: bool,
+    ) -> DispatchResult {
+        ensure!(
+            Self::if_subnet_exist(netuid) || DissolveCleanupQueue::<T>::get().contains(&netuid),
+            Error::<T>::SubnetNotExists
+        );
+        let subnet = Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
+        if !tao.is_zero() {
+            Self::transfer_tao(custody_cold, &subnet, tao)?;
+        }
+        if !alpha.is_zero() {
+            let removed = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                custody_hot,
+                custody_cold,
+                netuid,
+                alpha,
+            );
+            ensure!(removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
+            SubnetAlphaOut::<T>::try_mutate(netuid, |out| -> DispatchResult {
+                ensure!(*out >= alpha, Error::<T>::NotEnoughStakeToWithdraw);
+                *out = out.saturating_sub(alpha);
+                Ok(())
+            })?;
+        }
+        let (d_tao, d_alpha) = if update_weights {
+            T::SwapInterface::readd_protocol_liquidity(netuid, tao, alpha)
+        } else {
+            T::SwapInterface::credit_protocol_liquidity(netuid, tao, alpha)
+        };
+        Self::increase_provided_tao_reserve(netuid, d_tao);
+        Self::increase_provided_alpha_reserve(netuid, d_alpha);
+        // Live subnets keep TotalStake in sync; dissolved pots only track SubnetTAO.
+        if Self::if_subnet_exist(netuid) && !d_tao.is_zero() {
+            TotalStake::<T>::mutate(|total| *total = total.saturating_add(d_tao));
+        }
+        Ok(())
     }
 }

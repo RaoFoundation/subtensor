@@ -1141,7 +1141,7 @@
   {
     "name": "lending_close_quote",
     "summary": "Runtime quote of the combined debt repayment and refund, after accrued interest.",
-    "description": "Runtime quote of the combined debt repayment and refund, after accrued interest.\n\nPayment is TAO except for a wallet-repaid short, which returns its fixed\nalpha principal. Refund is TAO for a short and alpha for a long. Default\n`repay_from_wallet=False` quotes the escrow AMM path: shorts buy P alpha\nfrom escrow+collateral (leftover TAO refund); longs sell escrow A then\nonly enough collateral to cover any shortfall to P (leftover alpha refund).\nSet True to quote a wallet repayment instead. The close extrinsic names\na per-call hotkey when alpha is repaid or refunded; positions store none.\nPass the same `hotkey_ss58` the close call will use so quote and call\nshare hotkey-existence checks.",
+    "description": "Runtime quote of the combined debt repayment and refund, after accrued interest.\n\nPayment is TAO except for a wallet-repaid short, which returns its fixed\nalpha principal. Refund is TAO for a short and alpha for a long. Default\n`repay_from_wallet=False` quotes the escrow AMM path: shorts buy P alpha\nfrom escrow+collateral (leftover TAO refund); when the buyback costs more\nthan the pot, payment is the TAO needed, refund is 0, and `max_payment`\non close must cover the shortfall from free balance. Longs sell escrow A\nthen only enough collateral to cover any shortfall to P (leftover alpha\nrefund). Set True to quote a wallet repayment instead. Pass\n`hotkey_ss58` when alpha is repaid or refunded so quote and call share\nhotkey-existence checks; omit it on TAO-only short escrow buyback.",
     "params": {
       "coldkey_ss58": "string",
       "netuid": "integer",
@@ -1151,7 +1151,7 @@
     "param_docs": {
       "coldkey_ss58": "Position owner.",
       "netuid": "Subnet of the position.",
-      "hotkey_ss58": "Per-call hotkey for alpha repay (short wallet path) or alpha refund (long close). Required by the runtime API even when a short escrow buyback refunds only TAO.",
+      "hotkey_ss58": "Optional per-call hotkey for alpha repay (short wallet path) or alpha refund (long close). Omit for short escrow buyback (TAO only). When omitted, the runtime skips the hotkey-existence check.",
       "repay_from_wallet": "False (default): quote the escrow AMM buyback for a short. True: repay short alpha from a call-supplied hotkey stake."
     },
     "category": "Prices & swaps",

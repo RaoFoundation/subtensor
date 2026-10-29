@@ -134,16 +134,120 @@ fn clear_tao_ema() {
     TaoEma::<Test>::remove(netuid());
 }
 
+fn weight_update_count() -> u64 {
+    read(&key(b"test/weight_updates", netuid()))
+}
+fn bump_weight_update_count() {
+    write(
+        &key(b"test/weight_updates", netuid()),
+        weight_update_count().saturating_add(1),
+    );
+}
+/// Perquintill accuracy (matches swap `ACCURACY` / `Perquintill` parts).
+const WEIGHT_ACCURACY: u128 = 1_000_000_000_000_000_000;
+/// Balancer-shaped weight update that preserves the pre-add spot:
+/// `new_w2 ∝ w2·x·(y+Δy)`, matching production `update_weights_for_added_liquidity`.
+fn update_mock_weights_for_add(y: u64, x: u64, dy: u64, dx: u64) {
+    let w2 = quote_weight_parts() as f64;
+    let w1 = (WEIGHT_ACCURACY as f64) - w2;
+    let y0 = y as f64;
+    let x0 = x as f64;
+    let y1 = y0 + dy as f64;
+    let x1 = x0 + dx as f64;
+    // f64 keeps the triple products in range; production uses U256.
+    let q1 = w1 * y0 * x1;
+    let q2 = w2 * x0 * y1;
+    let sum = q1 + q2;
+    let new_w2 = if sum > 0.0 {
+        ((q2 / sum) * (WEIGHT_ACCURACY as f64)).round() as u64
+    } else {
+        (WEIGHT_ACCURACY / 2) as u64
+    };
+    set_quote_weight_parts(new_w2.min(WEIGHT_ACCURACY as u64).max(1));
+    bump_weight_update_count();
+}
+fn sqrt_k_approx() -> u128 {
+    // At equal weights L = √(x·y); with uneven weights use x^{w1} y^{w2} via
+    // log-free proxy √(x·y) still rises when a weight-updating readd ratchets
+    // reserves after a forced trade — good enough for exploit bounds.
+    let x = pool_alpha() as u128;
+    let y = pool_tao() as u128;
+    // Integer isqrt
+    let mut n = x.saturating_mul(y);
+    if n == 0 {
+        return 0;
+    }
+    let mut x0 = n;
+    let mut x1 = (x0 + n / x0) >> 1;
+    while x1 < x0 {
+        x0 = x1;
+        x1 = (x0 + n / x0) >> 1;
+    }
+    x0
+}
+
 pub struct MockPool;
 impl MockPool {
     fn price() -> U64F64 {
         let y = pool_tao();
         let x = pool_alpha();
-        if x == 0 {
+        let w2 = quote_weight_parts() as u128;
+        let w1 = WEIGHT_ACCURACY.saturating_sub(w2);
+        if x == 0 || w2 == 0 {
             U64F64::from_num(0)
         } else {
-            U64F64::from_num(y) / U64F64::from_num(x)
+            // p = (w1/w2)·(y/x) — saturating Fixed math like Balancer::calculate_price.
+            let w1_fixed = U64F64::saturating_from_num(w1);
+            let w2_fixed = U64F64::saturating_from_num(w2);
+            let y_fixed = U64F64::saturating_from_num(y);
+            let x_fixed = U64F64::saturating_from_num(x);
+            w1_fixed
+                .checked_div(w2_fixed)
+                .unwrap_or_else(|| U64F64::from_num(0))
+                .saturating_mul(
+                    y_fixed
+                        .checked_div(x_fixed)
+                        .unwrap_or_else(|| U64F64::from_num(0)),
+                )
         }
+    }
+
+    fn readd_and_credit_inner(
+        netuid: NetUid,
+        custody_cold: &Account,
+        custody_hot: &Account,
+        tao_in: TaoBalance,
+        alpha_in: AlphaBalance,
+        update_weights: bool,
+    ) -> DispatchResult {
+        let t = tao_in.to_u64();
+        let a = alpha_in.to_u64();
+        let y0 = pool_tao();
+        let x0 = pool_alpha();
+        if t > 0 {
+            ensure!(tao(custody_cold) >= t, "insufficient tao");
+            write(&key(b"test/tao", custody_cold), tao(custody_cold) - t);
+            write(&key(b"test/pool_tao", netuid), y0.saturating_add(t));
+        }
+        if a > 0 {
+            ensure!(
+                alpha(custody_cold, custody_hot, netuid) >= a,
+                "insufficient alpha"
+            );
+            write(
+                &key(b"test/alpha", (custody_cold, custody_hot, netuid)),
+                alpha(custody_cold, custody_hot, netuid) - a,
+            );
+            set_alpha_out(alpha_out().saturating_sub(a));
+            write(
+                &key(b"test/pool_alpha", netuid),
+                pool_alpha().saturating_add(a),
+            );
+        }
+        if update_weights && (t > 0 || a > 0) {
+            update_mock_weights_for_add(y0, x0, t, a);
+        }
+        Ok(())
     }
 }
 
@@ -391,29 +495,17 @@ impl LendingPoolInterface<Account> for MockPool {
         tao_in: TaoBalance,
         alpha_in: AlphaBalance,
     ) -> DispatchResult {
-        let t = tao_in.to_u64();
-        let a = alpha_in.to_u64();
-        if t > 0 {
-            ensure!(tao(custody_cold) >= t, "insufficient tao");
-            write(&key(b"test/tao", custody_cold), tao(custody_cold) - t);
-            write(&key(b"test/pool_tao", netuid), pool_tao().saturating_add(t));
-        }
-        if a > 0 {
-            ensure!(
-                alpha(custody_cold, custody_hot, netuid) >= a,
-                "insufficient alpha"
-            );
-            write(
-                &key(b"test/alpha", (custody_cold, custody_hot, netuid)),
-                alpha(custody_cold, custody_hot, netuid) - a,
-            );
-            set_alpha_out(alpha_out().saturating_sub(a));
-            write(
-                &key(b"test/pool_alpha", netuid),
-                pool_alpha().saturating_add(a),
-            );
-        }
-        Ok(())
+        Self::readd_and_credit_inner(netuid, custody_cold, custody_hot, tao_in, alpha_in, true)
+    }
+
+    fn readd_and_credit_preserve_weights(
+        netuid: NetUid,
+        custody_cold: &Account,
+        custody_hot: &Account,
+        tao_in: TaoBalance,
+        alpha_in: AlphaBalance,
+    ) -> DispatchResult {
+        Self::readd_and_credit_inner(netuid, custody_cold, custody_hot, tao_in, alpha_in, false)
     }
 
     fn forced_buy_into_custody(
@@ -4368,7 +4460,7 @@ fn quote_close_escrowed_short_refund_matches_execution() {
             0,
             deadline(),
         ));
-        let quoted = Lending::quote_close(&owner, netuid(), &account(2), false).unwrap();
+        let quoted = Lending::quote_close(&owner, netuid(), Some(&account(2)), false).unwrap();
         assert!(
             quoted.refund > 0,
             "escrow buyback should leave a TAO refund"
@@ -4395,6 +4487,69 @@ fn quote_close_escrowed_short_refund_matches_execution() {
             diff
         );
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
+#[test]
+fn underwater_short_escrow_close_with_extra_tao() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let pot = position.proceeds.saturating_add(position.collateral);
+        // Raise alpha price by shrinking the alpha reserve so buying P
+        // costs more than E_S + C (without overflowing fixed-point math).
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 10);
+        assert!(pool_alpha() > 0, "pool must still have alpha");
+
+        let quoted = Lending::quote_close(&owner, netuid(), None, false).unwrap();
+        assert_eq!(quoted.refund, 0, "underwater short quotes zero refund");
+        assert!(
+            quoted.payment > pot,
+            "precondition: quoted payment {} must exceed pot {}",
+            quoted.payment,
+            pot
+        );
+
+        // Fund free balance so the shortfall is coverable.
+        let shortfall = quoted.payment.saturating_sub(pot);
+        mint_tao(&owner, shortfall.saturating_mul(2));
+        let bal_before = tao(&owner);
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey,
+            false,
+            quoted.payment,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        let spent = bal_before.saturating_sub(tao(&owner));
+        // Owner pays roughly the shortfall (refund 0); allow 1% for stepwise buy.
+        let diff = spent.abs_diff(shortfall);
+        assert!(
+            diff <= shortfall / 100 + 1,
+            "spent {spent} vs shortfall {shortfall} (quoted payment {})",
+            quoted.payment
+        );
+        assert!(
+            spent <= quoted.payment,
+            "spent {spent} must not exceed max_payment (= quoted payment {})",
+            quoted.payment
+        );
     });
 }
 
@@ -4741,7 +4896,7 @@ fn long_amm_close_sells_minimal_collateral_and_refunds_alpha() {
             position.principal
         );
 
-        let quoted = Lending::quote_close(&owner, netuid(), &account(2), false).unwrap();
+        let quoted = Lending::quote_close(&owner, netuid(), Some(&account(2)), false).unwrap();
         assert_eq!(quoted.payment, position.principal);
         assert!(
             quoted.refund > 0 && quoted.refund < position.collateral,
@@ -4912,7 +5067,7 @@ fn long_amm_close_minimal_sale_when_max_sell_quote_hits_slippage() {
             "need A sale short of P so collateral is tapped"
         );
 
-        let quoted = Lending::quote_close(&owner, netuid(), &account(2), false).unwrap();
+        let quoted = Lending::quote_close(&owner, netuid(), Some(&account(2)), false).unwrap();
         assert!(
             quoted.refund > 0 && quoted.refund < position.collateral,
             "quote must leave leftover alpha, got refund={} collateral={}",
@@ -5675,8 +5830,14 @@ fn quote_close_requires_hotkey_only_when_alpha_moves() {
             0,
             deadline(),
         ));
-        // Escrow buyback refunds TAO only — unregistered hotkey is fine.
-        assert_ok!(Lending::quote_close(&owner, netuid(), &missing, false));
+        // Escrow buyback refunds TAO only — unregistered or omitted hotkey is fine.
+        assert_ok!(Lending::quote_close(
+            &owner,
+            netuid(),
+            Some(&missing),
+            false
+        ));
+        assert_ok!(Lending::quote_close(&owner, netuid(), None, false));
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
@@ -5689,6 +5850,8 @@ fn quote_close_requires_hotkey_only_when_alpha_moves() {
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
 
         // Re-open and wallet-repay: missing hotkey must fail quote and call.
+        // None skips the existence check (no panic) but the extrinsic still
+        // refuses an unregistered destination.
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
@@ -5702,8 +5865,9 @@ fn quote_close_requires_hotkey_only_when_alpha_moves() {
         ));
         let principal = Positions::<Test>::get(&owner, netuid()).unwrap().principal;
         mint_alpha(&owner, &hotkey, netuid(), principal.saturating_mul(2));
+        assert_ok!(Lending::quote_close(&owner, netuid(), None, true));
         assert_err!(
-            Lending::quote_close(&owner, netuid(), &missing, true),
+            Lending::quote_close(&owner, netuid(), Some(&missing), true),
             "HotKeyAccountNotExists"
         );
         assert_err!(
@@ -5719,7 +5883,7 @@ fn quote_close_requires_hotkey_only_when_alpha_moves() {
             "HotKeyAccountNotExists"
         );
         // Registered hotkey: quote Ok ⇒ close Ok.
-        assert_ok!(Lending::quote_close(&owner, netuid(), &hotkey, true));
+        assert_ok!(Lending::quote_close(&owner, netuid(), Some(&hotkey), true));
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner),
             netuid(),

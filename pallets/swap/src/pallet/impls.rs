@@ -227,13 +227,24 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Re-add lifted liquidity after repay / default. Thin wrapper over
-    /// [`Self::adjust_protocol_liquidity`].
+    /// [`Self::adjust_protocol_liquidity`] (updates Balancer weights).
     pub(super) fn readd_protocol_liquidity(
         netuid: NetUid,
         tao: TaoBalance,
         alpha: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance) {
         Self::adjust_protocol_liquidity(netuid, tao, alpha)
+    }
+
+    /// Credit lift legs without touching Balancer weights or reservoirs.
+    /// Used by lending wallet-repay so a forced-trade residual does not
+    /// crystallize into `w1` / `√k`.
+    pub(super) fn credit_protocol_liquidity(
+        _netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance) {
+        (tao, alpha)
     }
 
     fn update_tao_reservoir(netuid: NetUid, current: Option<TaoBalance>, new: TaoBalance) {
@@ -628,6 +639,14 @@ impl<T: Config> SwapHandler for Pallet<T> {
         alpha: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance) {
         Self::readd_protocol_liquidity(netuid, tao, alpha)
+    }
+
+    fn credit_protocol_liquidity(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance) {
+        Self::credit_protocol_liquidity(netuid, tao, alpha)
     }
 
     fn buy_depth_threshold(netuid: NetUid, ref_tao: TaoBalance, move_bps: u16) -> TaoBalance {
