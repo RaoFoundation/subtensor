@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Optional, cast
 
+from .._generated import runtime_apis as api
 from .._generated.runtime_apis import Method
 from .._generated.storage import Item
 from ..balance import Balance
@@ -15,11 +17,53 @@ from .base import read
 LIFTS = Item("Lending", "Lifts", "LiftBook")
 OPEN_BY_NETUID = Item("Lending", "OpenByNetuid")
 DISSOLUTIONS = Item("Lending", "Dissolutions", "Dissolution")
+MINER_COLLATERAL = Item("SubtensorModule", "MinerCollateral", "MinerCollateralState")
 QUOTE_OPEN = Method("LendingRuntimeApi", "quote_open")
 QUOTE_OPEN_FOR = Method("LendingRuntimeApi", "quote_open_for")
 QUOTE_OPEN_EXACT_FOR = Method("LendingRuntimeApi", "quote_open_exact_for")
 QUOTE_CLOSE = Method("LendingRuntimeApi", "quote_close")
 QUOTE_RAISE = Method("LendingRuntimeApi", "quote_raise")
+
+
+def _nonnegative(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise BittensorError(f"invalid {label} in stake response")
+    return value
+
+
+async def _unlocked_alpha(view, coldkey_ss58: str, hotkey_ss58: str, netuid: int) -> int:
+    """Unlocked alpha on ``hotkey_ss58`` usable as long collateral (rao).
+
+    Mirrors the open-path stake gate: per-hotkey stake, coldkey availability,
+    and miner-collateral lock on that hotkey.
+    """
+    info, availability, bond = await asyncio.gather(
+        view.runtime(
+            api.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
+            [hotkey_ss58, coldkey_ss58, netuid],
+        ),
+        view.runtime(
+            api.StakeInfoRuntimeApi.get_stake_availability_for_coldkeys,
+            [[coldkey_ss58], [netuid]],
+        ),
+        view.query(MINER_COLLATERAL, [netuid, hotkey_ss58, coldkey_ss58]),
+    )
+    if info is not None and not isinstance(info, dict):
+        raise BittensorError("wallet alpha stake is unavailable")
+    if not isinstance(availability, dict):
+        raise BittensorError("wallet alpha availability is unavailable")
+    per_owner = availability.get(coldkey_ss58, {})
+    if not isinstance(per_owner, dict):
+        raise BittensorError("invalid wallet alpha availability")
+    entry = per_owner.get(netuid, per_owner.get(str(netuid), {}))
+    if not isinstance(entry, dict):
+        raise BittensorError("invalid wallet alpha availability")
+    stake = _nonnegative(info.get("stake") if info is not None else 0, "alpha stake")
+    available = _nonnegative(entry.get("available", 0), "available alpha")
+    if bond is not None and not isinstance(bond, dict):
+        raise BittensorError("wallet miner collateral is unavailable")
+    locked = _nonnegative(bond.get("locked") if bond is not None else 0, "miner collateral")
+    return min(available, max(stake - locked, 0))
 
 
 def _ok(raw: Any) -> dict:
@@ -349,13 +393,13 @@ async def lending_required_collateral(
     existing principal, accrued interest, market depth and funded-redemption
     guards. Only the owner's ``InsufficientCollateral`` response means to
     search higher; unavailable references, inventory, borrowing caps and
-    other positions' uncovered debt remain hard refusals. The requested
-    opening value must meet the runtime's minimum, currently 0.1 TAO.
+    other positions' uncovered debt remain hard refusals. For longs, probes
+    are capped by unlocked alpha on ``hotkey_ss58`` so the owner-aware stake
+    gate cannot abort an otherwise affordable search. The requested opening
+    value must meet the runtime's minimum, currently 0.1 TAO.
 
-    Returns collateral and its opening quote. This read does not promise
-    that the wallet owns the collateral or can pay transaction fees. Wallet
-    affordability is checked before review and signing. The exact-principal
-    transaction rechecks admission without borrowing extra if state changes.
+    Returns collateral and its opening quote. The exact-principal transaction
+    rechecks admission without borrowing extra if state changes.
     """
     view = await view.at()
     side = check_side(side)
@@ -375,6 +419,15 @@ async def lending_required_collateral(
     if maximum <= 0:
         raise BittensorError("the position cannot accept additional collateral")
 
+    available: Optional[int] = None
+    if side == "Long":
+        if hotkey_ss58 is None:
+            raise BittensorError("a long required-collateral search needs hotkey_ss58")
+        available = await _unlocked_alpha(view, coldkey_ss58, hotkey_ss58, netuid)
+        if available <= 0:
+            raise BittensorError("no unlocked alpha on the source hotkey for collateral")
+        maximum = min(maximum, available)
+
     quotes: dict[int, Optional[dict]] = {}
 
     async def quote(collateral: int) -> Optional[dict]:
@@ -390,16 +443,31 @@ async def lending_required_collateral(
                     principal,
                 )
             except ChainError as error:
-                if error.name != "InsufficientCollateral":
+                if error.name == "InsufficientCollateral":
+                    quotes[collateral] = None
+                elif error.name == "StakeUnavailable" and available is not None:
+                    # Probe above unlocked stake — treat as out of search range.
+                    if collateral > available:
+                        quotes[collateral] = None
+                    else:
+                        raise
+                else:
                     raise
-                quotes[collateral] = None
         return quotes[collateral]
 
+    # Bound the geometric probe by unlocked stake so the first probe cannot
+    # overshoot available collateral and abort on StakeUnavailable.
     low, high = 0, min(1_000_000_000, maximum)
     for _ in range(64):
+        if high <= 0:
+            break
         if await quote(high) is not None:
             break
         if high == maximum:
+            if available is not None:
+                raise BittensorError(
+                    "the required collateral exceeds unlocked alpha on the source hotkey"
+                )
             raise BittensorError("the required collateral exceeds the chain's position limit")
         low, high = high, min(high * 2, maximum)
     else:
