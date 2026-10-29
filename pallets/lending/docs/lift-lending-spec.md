@@ -145,7 +145,7 @@ Notation: `C` = collateral, `P` = principal, `(α_L, τ_L)` = the lift legs, `E_
   4. `τ_L` is held.
   5. `L_S += τ_L`.
 * Repay:
-  1. `E_S` plus collateral buys back `P` alpha, or the borrower supplies `P` alpha and takes `E_S`.
+  1. By default (`repay_from_wallet=false` / `btcli lending close`) `E_S` plus collateral buys back `P` alpha through the pool; `--repay-from-wallet` supplies `P` alpha from stake and takes `E_S`.
   2. `readd(τ_L, P)`.
   3. Refund the remaining collateral.
 * Default (collateral exhausted by interest): `readd(τ_L + E_S, 0)`. **The pool is quantity-whole**: the sold alpha is already in the pool, and the burned interest came from the borrower.
@@ -158,7 +158,7 @@ Notation: `C` = collateral, `P` = principal, `(α_L, τ_L)` = the lift legs, `E_
   4. `α_L` is held.
   5. `L_L += P`; `B_L += P`.
 * Repay (mirror of the short):
-  1. The borrower supplies `P` TAO and takes `A`, **or** (`--no-repay-from-wallet`) `A` is sold, then only as much of `C` as needed to cover any shortfall to `P`; leftover `C` returns as alpha stake (`min_refund` is alpha). Dust TAO above `P` from rounding also returns free.
+  1. By default (`repay_from_wallet=false` / `btcli lending close`) `A` is sold, then only as much of `C` as needed to cover any shortfall to `P`; leftover `C` returns as alpha stake (`min_refund` is alpha). Dust TAO above `P` from rounding also returns free. `--repay-from-wallet` supplies `P` TAO and takes `A`.
   2. `readd(P, α_L)`; `B_L −= P`; `L_L −= P`.
   3. Refund the remaining collateral alpha (and `A`, if the borrower repaid from the wallet).
 * Default (collateral exhausted by interest; there is no liquidation):
@@ -553,7 +553,7 @@ pub fn open_long_and_sell(
 * **Weight:** `open_exact` long weight + `remove_stake_limit` weight + bisection bound (collateral mode ≤ 16 steps), benchmarked as one call.
 
 ### 12.4 Close
-* No special close. `btcli lending close` repays `P` from the wallet and returns `A` + remaining `C`. `--no-repay-from-wallet` sells `A` (then collateral, if needed) to cover `P` and refunds the rest (§4.2).
+* No special close. `btcli lending close` defaults to the TAO-refund / escrow path (`repay_from_wallet=False`, matching the SDK `CloseLoan` default): shorts buy back with escrow + collateral; longs sell `A` (then collateral if needed) to cover `P` and refund the rest (§4.1–4.2). Pass `--repay-from-wallet` to repay `P` from the wallet and return escrow + remaining collateral.
 * A team that wants to unwind the repo buys back with TAO and receives `A`.
 
 ### 12.5 Contrast: `open` (pure borrow) vs `open_long_and_sell` (raise)

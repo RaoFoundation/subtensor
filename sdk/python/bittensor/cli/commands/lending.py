@@ -298,10 +298,11 @@ def close_loan(
         help=CloseLoan.field_help("hotkey_ss58"),
     ),
     repay_from_wallet: bool = typer.Option(
-        True,
+        False,
         "--repay-from-wallet/--no-repay-from-wallet",
         help=(
-            "Repay short alpha from --hotkey stake; disable to buy with remaining collateral. "
+            "False (default): buy short alpha from escrow / sell long escrow (TAO-refund path). "
+            "True: repay short alpha from --hotkey stake, or pay long TAO from wallet. "
             "Longs always name --hotkey for alpha refund."
         ),
     ),
@@ -315,12 +316,13 @@ def close_loan(
 ):
     """Repay fixed principal and return remaining collateral.
 
-    Positions store no hotkey. Pass --hotkey for alpha repay (short wallet
-    path) or alpha refund (long close / short buyback surplus). A short
-    normally supplies alpha from that hotkey; opt out to buy with remaining
-    TAO collateral. A long repays TAO from your wallet and refunds alpha to
-    --hotkey. The full runtime quote sets a payment ceiling and refund floor;
-    a failed quote stops submission.
+    Positions store no hotkey. By default closes take the TAO-refund path
+    (escrow AMM buyback for shorts; sell escrow for longs) — matching the
+    SDK ``CloseLoan`` default. Pass ``--repay-from-wallet`` to repay short
+    alpha from ``--hotkey`` stake or pay long TAO from free balance. Pass
+    ``--hotkey`` for alpha repay (short wallet path) or alpha refund (long
+    close / short buyback surplus). The full runtime quote sets a payment
+    ceiling and refund floor; a failed quote stops submission.
     """
     context = ctx_of(ctx)
     owner = context.review_account()
@@ -343,8 +345,8 @@ def close_loan(
         raise typer.Exit(2)
     if side == "Short" and repay_from_wallet and hotkey is None:
         context.output.error(
-            "pass --hotkey when repaying short alpha from stake "
-            "(or use --no-repay-from-wallet for escrow buyback)"
+            "pass --hotkey when using --repay-from-wallet "
+            "(omit the flag for the default escrow buyback)"
         )
         raise typer.Exit(2)
     quote_hotkey = hotkey or owner

@@ -2415,6 +2415,10 @@ pub mod pallet {
                     collateral,
                 )?;
                 let ltv = Self::ltv_tier_bps(netuid, side, &params);
+                // Capacity before LTV/collateral sizing so an oversize principal
+                // reports SideCapacity / SideCapacityRamping (not DynamicCollateral).
+                let delta_l = Self::lift_tao_for_principal(netuid, side, p)?;
+                Self::ensure_side_capacity(netuid, side, delta_l)?;
                 ensure!(
                     Self::principal_feasible(
                         netuid,
@@ -2429,8 +2433,6 @@ pub mod pallet {
                     )?,
                     Error::<T>::DynamicCollateral
                 );
-                let delta_l = Self::lift_tao_for_principal(netuid, side, p)?;
-                Self::ensure_side_capacity(netuid, side, delta_l)?;
                 p
             } else {
                 Self::max_principal_for_collateral(
@@ -5373,10 +5375,11 @@ pub mod pallet {
             }
             let params = Self::lift_params();
             let principal = if let Some(p) = requested {
-                // Exact-principal path: same collateral / LTV / capacity feasibility
-                // as `do_open`. Return `InsufficientCollateral` (not
-                // `DynamicCollateral`) so `lending_required_collateral` can
-                // search higher without treating capacity/EMA refusals as soft.
+                // Exact-principal path: same order as `do_open` — side capacity
+                // first (hard), then LTV/collateral. Return
+                // `InsufficientCollateral` (not `DynamicCollateral`) so
+                // `lending_required_collateral` can search higher without
+                // treating capacity/EMA refusals as soft.
                 let old_p = existing.as_ref().map(|x| x.principal).unwrap_or(0);
                 let total_p = Self::add(old_p, p)?;
                 let total_c = Self::add(
@@ -5384,14 +5387,14 @@ pub mod pallet {
                     collateral,
                 )?;
                 let ltv = Self::ltv_tier_bps(netuid, side, &params);
+                let delta_l = Self::lift_tao_for_principal(netuid, side, p)?;
+                Self::ensure_side_capacity(netuid, side, delta_l)?;
                 ensure!(
                     Self::principal_feasible(
                         netuid, side, total_p, total_c, old_p, owner, &reference, ltv, &params,
                     )?,
                     Error::<T>::InsufficientCollateral
                 );
-                let delta_l = Self::lift_tao_for_principal(netuid, side, p)?;
-                Self::ensure_side_capacity(netuid, side, delta_l)?;
                 p
             } else {
                 Self::max_principal_for_collateral(

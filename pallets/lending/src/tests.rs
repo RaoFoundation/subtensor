@@ -5372,6 +5372,98 @@ fn quote_ok_implies_open_ok_for_random_sizes_and_interest() {
     });
 }
 
+/// Exact-amount short whose lift exceeds Cap_side: capacity must bind before
+/// LTV/collateral sizing. Clone repro (spec 493): quote used to return
+/// InsufficientCollateral while open_exact returned DynamicCollateral; both
+/// must report SideCapacity when collateral would otherwise clear LTV.
+#[test]
+fn exact_short_over_side_capacity_is_side_capacity_in_quote_and_open() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 500_000_000_000_000);
+        // Exhaust short-side TAO headroom so any positive lift fails capacity.
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.l_s = u64::MAX / 2;
+        });
+        // Principal ≈ 37 τ of lift at a 1:1 pool; 200 τ collateral clears 25% LTV.
+        let collateral = 200_000_000_000u64;
+        let principal = 37_000_000_000u64;
+        assert_err!(
+            Lending::quote_open_exact_for(
+                &owner,
+                netuid(),
+                Side::Short,
+                collateral,
+                None,
+                principal,
+            ),
+            Error::<Test>::SideCapacity
+        );
+        assert_err!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner),
+                netuid(),
+                Side::Short,
+                collateral,
+                None,
+                principal,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SideCapacity
+        );
+    });
+}
+
+/// Exact-amount short under a binding ramp: SideCapacityRamping from quote and
+/// open_exact (not InsufficientCollateral / DynamicCollateral).
+#[test]
+fn exact_short_ramp_bound_is_side_capacity_ramping_in_quote_and_open() {
+    new_test_ext().execute_with(|| {
+        LiftParamsStore::<Test>::put(LiftParams::default());
+        let owner = account(1);
+        mint_tao(&owner, 100_000_000_000_000);
+        let params = LiftParams::default();
+        let now = System::block_number().max(params.new_subnet_min_age + 2);
+        System::set_block_number(now);
+        set_registered_at(now.saturating_sub(params.new_subnet_min_age + 1));
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.last = now;
+            book.g_ema = pool_tao();
+            book.l_s = 0;
+        });
+        // Large exact principal: full Cap would fit, live ramp does not.
+        let collateral = 50_000_000_000_000u64;
+        let principal = 20_000_000_000_000u64;
+        assert_err!(
+            Lending::quote_open_exact_for(
+                &owner,
+                netuid(),
+                Side::Short,
+                collateral,
+                None,
+                principal,
+            ),
+            Error::<Test>::SideCapacityRamping
+        );
+        assert_err!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner),
+                netuid(),
+                Side::Short,
+                collateral,
+                None,
+                principal,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SideCapacityRamping
+        );
+    });
+}
+
 /// Near-full short capacity: a large TAO top-up must report SideCapacity (the
 /// binder), not AmountTooSmall — and the quote must match the extrinsic.
 #[test]
