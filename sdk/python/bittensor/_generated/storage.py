@@ -301,6 +301,7 @@ class SubtensorModule:
     StakeThreshold = Item('SubtensorModule', 'StakeThreshold', 'u64')
     WeightCommits = Item('SubtensorModule', 'WeightCommits', 'Vec<(H256, u64, u64, u64)>')
     TimelockedWeightCommits = Item('SubtensorModule', 'TimelockedWeightCommits', 'Vec<(AccountId32, u64, BoundedVec, u64)>')
+    TimelockedCommitInvalidatedAt = Item('SubtensorModule', 'TimelockedCommitInvalidatedAt', 'u64')
     CRV3WeightCommits = Item('SubtensorModule', 'CRV3WeightCommits', 'Vec<(AccountId32, BoundedVec, u64)>')
     CRV3WeightCommitsV2 = Item('SubtensorModule', 'CRV3WeightCommitsV2', 'Vec<(AccountId32, u64, BoundedVec, u64)>')
     RevealPeriodEpochs = Item('SubtensorModule', 'RevealPeriodEpochs', 'u64')
