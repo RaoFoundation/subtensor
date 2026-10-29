@@ -1736,7 +1736,7 @@ class Lending:
 
     @staticmethod
     def close(netuid: 'NetUid', hotkey: 'AccountId32', repay_from_wallet: 'bool', max_payment: 'u64', min_refund: 'u64', valid_until: 'u32') -> Call:
-        'Close a position. Shorts buy back (or repay alpha); longs repay TAO (or sell escrow).  Wallet alpha repayment is drawn from stake on `hotkey`, and returned alpha is staked to `hotkey`.'
+        'Close a position. Shorts buy back (or repay alpha); longs repay TAO (or sell escrow).  Wallet alpha repayment is drawn from stake on `hotkey`, and returned alpha is staked to `hotkey`. Short escrow buyback may pull extra free TAO from the owner when `E_S + C` is underwater (≤ `max_payment`).'
         return Call('Lending', 'close', {'netuid': netuid, 'hotkey': hotkey, 'repay_from_wallet': repay_from_wallet, 'max_payment': max_payment, 'min_refund': min_refund, 'valid_until': valid_until})
 
     @staticmethod
