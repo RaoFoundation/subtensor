@@ -1,5 +1,5 @@
-% Lift lending: no-arbitrage notes (mu method)
-% Public review companion to PR #3268. Commit early; expand in increments.
+% No-arbitrage for lift lending -- derived from pallet math.
+% PR #3268 companion. September 2026.
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb,amsthm}
@@ -10,13 +10,12 @@
 \usepackage{microtype}
 
 \title{No-arbitrage for lift lending\\
-\large Bounded TAO-cycles, $\mu$'s $F$, and the lift/readd inverse}
+\large First-principles cycles from pallet math}
 \author{Subtensor lending (PR \#3268)\\
-Working note --- increment 3c (fixed-weight vs Uni~v2 + Jacob rec)}
+Working note --- rewrite (pallet-first; Sept~2026 cross-check)}
 \date{2026-10-29}
 
 \newtheorem{theorem}{Theorem}
-\newtheorem{conjecture}{Conjecture}
 \newtheorem{proposition}{Proposition}
 \newtheorem{lemma}{Lemma}
 \newtheorem{corollary}{Corollary}
@@ -30,811 +29,337 @@ Working note --- increment 3c (fixed-weight vs Uni~v2 + Jacob rec)}
 \maketitle
 
 \begin{abstract}
-Following $\mu$'s method: for each non-trivial action cycle that
-\textbf{starts and ends holding only TAO}, write the terminal TAO as a
-factor of the initial holding, sized as a fraction $h$ of pool TAO, as a
-function of LP state $(y,x,w_1)$ and lending parameters. Then minimise /
-maximise that factor over the parameter space and ask whether any region
-has expected value $>1$ (attacker profit).
-
-Increments 1--2 recorded $\mu$'s $F$, Cycle~A, and the failure of
-EMA/capacity protections under weight-updating re-add.
-\textbf{Increment 3c} records the clone drain; answers $\mu$'s
-``abandon Balancer / just Uniswap~v2?'' (no: swaps were already
-fixed-weight weighted CPMM; Uni~v2 is only $w=\tfrac12$; only lending
-readd skips asymmetric-join reweight); compares designs
-(a)--(e); reports a bounded cycle search; and states a recommendation
-for Jacob (ship~(a); harden with~(b) if needed). Full closed-form
-proof remains open.
+We derive the TAO-pure lending cycle
+\textbf{open short $\to$ pump $\to$ close $\to$ unstake} from the
+implemented pallet math (lift fraction, Balancer weights, invariant,
+force-sell, readd). Fees are an explicit additive parameter, set to
+zero in the base case. The lift fraction is denoted $\varphi$ and is
+\textbf{not} a fee. The buggy close path (readd via weight
+re-derivation at the post-pump mark) predicts the clone SN29 drains
+(+289\,TAO / +122\,TAO). Weight-preserving readd flips the sign.
+$\mu$'s September~2026 note is cited only as a cross-check after our
+closed forms are in hand.
 \end{abstract}
 
 \tableofcontents
 
 %----------------------------------------------------------------------
-\section{Method (from $\mu$)}
-\label{sec:method}
+\section{Notation}
+\label{sec:notation}
 
-\begin{enumerate}
-  \item Enumerate every non-trivial finite sequence of stake/unstake swaps
-        and lending calls that \textbf{begins and ends with a pure-TAO
-        book} (no open position, no residual alpha inventory attributed
-        to the cycle).
-  \item Write terminal TAO $V'$ as
-        \[
-          V' = F_{\mathrm{cyc}}(h;\, y,x,w_1;\, \Theta)\, V,
-        \]
-        where $V$ is the initial TAO stake of the cycle, $h = V/y$ (or
-        another natural scale against pool TAO $y$), and $\Theta$ collects
-        lending parameters (LTV, thin LTV, swap fee, EMA band, APR, term,
-        capacity floors).
-  \item Over a compact parameter domain (including SN29-like and deep
-        equal-weight pools), compute
-        $\min F_{\mathrm{cyc}}$ and $\max F_{\mathrm{cyc}}$.
-  \item Positive EV for that cycle $\iff$ some feasible point has
-        $F_{\mathrm{cyc}} > 1$ after fees (attacker convention below).
-\end{enumerate}
+All symbols below are defined from the live pallet / swap code
+(\texttt{pallet-lending}, \texttt{pallet-subtensor-swap}), not from an
+external handout.
 
-\begin{remark}[Sign convention]
-We take $F_{\mathrm{cyc}} > 1$ as \textbf{attacker profit} (ends with more
-TAO than started, marking-to-market any returned alpha at the exit swap).
-$\mu$'s September note used ``profitable when $F<1$'': that $F$ is a
-\textbf{cost / survival factor for the pool (or for the round-trip
-price)}, i.e.\ the reciprocal convention. We keep $\mu$'s symbol $F$ for
-the September formula unchanged, and write $F_{\mathrm{cyc}}$ for
-attacker-return factors. Relation when both apply to the same cycle:
-$F_{\mathrm{cyc}} = 1/F$ up to fee placement.
-\end{remark}
-
-%----------------------------------------------------------------------
-\section{State and parameters}
-\label{sec:state}
-
-\subsection{LP / Balancer state}
-\begin{itemize}
-  \item Reserves: TAO $y$, alpha $x$.
-  \item Weights: $w_1$ (base / alpha), $w_2 = 1-w_1$ (quote / TAO).
-        Spot $p = (w_1/w_2)\,(y/x)$.
-  \item Invariant (Balancer): $L = x^{w_1} y^{w_2}$. At $w_1=w_2=\tfrac12$,
-        $L=\sqrt{xy}$ (``$\sqrt{k}$'').
-  \item Swap fee: protocol default $\phi_{\mathrm{swap}} = 33/65535
-        \approx 5.03\cdot 10^{-4}$. In $\mu$'s formula the fee symbol is
-        $\varphi$; see Section~\ref{sec:mu-map}.
-\end{itemize}
-
-\subsection{Lending book (per subnet)}
-Lift book $(L_S,L_L,E_S,B_L,\ldots)$, positions keyed by
-$(\mathrm{coldkey},\mathrm{netuid})$, EMA reference for the open band,
-$G_{\mathrm{ema}}$ for capacity. One-year term and 100\% APR burn-all
-interest are part of $\Theta$ but are \textbf{idle} inside a same-block
-or few-block cycle (interest $\approx 0$).
-
-\subsection{Lending parameters $\Theta$ (defaults)}
 \begin{center}
-\begin{tabular}{@{}ll@{}}
+\begin{tabular}{@{}llp{0.52\textwidth}@{}}
 \toprule
-Symbol & Default \\
+Symbol & Unit & Meaning \\
 \midrule
-$\lambda_S$ (short LTV) & $0.25$ \\
-$\lambda_L$ (long LTV) & $0.25$ ($0.15$ thin) \\
-$\phi_{\mathrm{swap}}$ & $33/65535$ \\
-$\beta$ (EMA band) & $0.15$ \\
-floor / thin floor / ceiling & $0.33$ / $0.15$ / $0.50$ \\
-side split & $50/50$ \\
-APR / term & $100\%$ / 1 year \\
+$x$ & $\alpha$ & \texttt{SubnetAlphaIn} (base reserve) \\
+$y$ & $\tau$ & \texttt{SubnetTAO} (quote reserve) \\
+$w_b$ & --- & Balancer \textbf{base} (alpha) weight \\
+$w_q$ & --- & Balancer \textbf{quote} (TAO) weight; $w_b+w_q=1$ \\
+$L$ & --- & Invariant $L=x^{w_b}y^{w_q}$ \\
+$p$ & $\tau/\alpha$ & Spot $p=(w_b/w_q)\,(y/x)$ \\
+$\varphi$ & --- & \textbf{Lift fraction}. Short:
+  $\varphi=P/x$ via \texttt{lift\_fraction}
+  (returns $(P,x)$). Long: $\varphi=P/y$. \\
+$P$ & $\alpha$ or $\tau$ & Principal (short: alpha; long: TAO) \\
+$\lambda$ & --- & LTV (short default $0.25$) \\
+$C$ & $\tau$ or $\alpha$ & Collateral \\
+$\beta$ & --- & EMA band (default $0.15$) \\
+$\varepsilon$ & --- & Swap fee on \textbf{input}
+  (production $33/65535$; \textbf{base case $\varepsilon=0$}) \\
+$S$ & $\tau$ & Pump size (\texttt{AddStake} / buy alpha) \\
+$B$ & $\tau$ & Post-pump TAO spent to buy repay alpha \\
+$E$ & $\tau$ & Short escrow proceeds from force-sell \\
+$F_{\mathrm{cyc}}$ & --- & Attacker terminal/initial TAO
+  (profit iff $F_{\mathrm{cyc}}>1$) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
+\begin{remark}[Clone report ``$w_1$'']
+The SN29 clone report prints a field \texttt{w1} with
+$L\approx x^{1-w_1}y^{w_1}$. That printed $w_1$ is our $w_q$
+(quote / TAO). We never use $w_1$ in this note.
+\end{remark}
+
 %----------------------------------------------------------------------
-\section{$\mu$'s September $F$ (earlier proposal)}
-\label{sec:mu-F}
+\section{Balancer and lift primitives}
+\label{sec:primitives}
 
-Transcription checked against the hand-derived image:
+\subsection{Swaps (stake / unstake)}
+At fixed $(w_b,w_q)$, fee $\varepsilon$ on input:
+\begin{align}
+\label{eq:sell}
+\text{sell }\Delta x:\quad
+\Delta y &= y\left(1-\Big(\frac{x}{x+\Delta x(1-\varepsilon)}\Big)^{w_b/w_q}\right),\\
+\label{eq:buy}
+\text{buy with }\Delta y:\quad
+\Delta x &= x\left(1-\Big(\frac{y}{y+\Delta y(1-\varepsilon)}\Big)^{w_q/w_b}\right).
+\end{align}
+Weights are \textbf{not} updated mid-swap.
 
+\subsection{Lift}
+\texttt{lift\_protocol\_liquidity}$(\varphi)$ removes
+$(\varphi x,\varphi y)$ with weights unchanged
+(\texttt{pallets/swap/.../lift\_protocol\_liquidity}):
+\[
+(x,y,L)\mapsto\bigl((1-\varphi)x,(1-\varphi)y,(1-\varphi)L\bigr),\qquad
+p\text{ unchanged}.
+\]
+For a short, pallet sets $\varphi=P/x$ so the alpha leg equals principal.
+
+\subsection{Force-sell (short open)}
+Sell $P=\varphi x$ into the post-lift book. At $\varepsilon=0$,
+$x$ returns to its pre-lift value and
 \begin{equation}
-\label{eq:mu-F}
-F
+\label{eq:ys}
+y_s
 =
-(f_h+1)
-\left(
-\frac{(1-\varphi)^{1/w_2}}
-{(1-\varphi)^{1/w_2}+f_h-\varphi}
-\right)^{E},
-\end{equation}
-with exponent
-\begin{equation}
-\label{eq:mu-E}
+y\,(1-\varphi)^{1/w_q},
+\qquad
 E
 =
-\frac{f_h+1}
-{(f_h+1+\varphi)
-\left(
-1-\dfrac{1-(1-\varphi)^{1/w_2}}{f_h-\varphi+1}
-\right)^{w_2/(1-w_2)}
-}.
+(1-\varphi)y-y_s
+=
+y\Bigl[(1-\varphi)-(1-\varphi)^{1/w_q}\Bigr].
 \end{equation}
+(Proof: post-lift reserves $((1-\varphi)x,(1-\varphi)y)$; sell
+$\varphi x$ gives
+$y_s=(1-\varphi)y\cdot(1-\varphi)^{w_b/w_q}
+=y(1-\varphi)^{1/w_q}$ since $1+w_b/w_q=1/w_q$.)
+The sell preserves $L$ at $\varepsilon=0$, so
+$L_s=(1-\varphi)L$.
 
-\begin{conjecture}[$\mu$, earlier design]
-Along the September shorting cycle, the pool (or round-trip) factor is
-$F$ above, and the cycle is attacker-profitable precisely when $F<1$.
-\end{conjecture}
+\subsection{EMA band and LTV (feasibility only)}
+Open rejects if post-trade spot exits
+$\mathrm{EMA}\cdot[1-\beta,1+\beta]$ on the trade's side
+(\texttt{ensure\_open\_ema\_band}). Short LTV requires
+$C\ge\lambda\cdot(\text{debt mark})$. Side capacity caps
+$\varphi y$ (lift TAO). These bound reachable $\varphi$; they do not
+appear inside the pool algebra of a feasible open.
 
-\subsection{Provisional variable map into current lift math}
-\label{sec:mu-map}
+\subsection{Readd}
+Custody returns $(\varphi y,P)=(\varphi y,\varphi x)$.
+\begin{itemize}
+  \item \textbf{Buggy} (pre-fix):
+    \texttt{adjust\_protocol\_liquidity}$\to$
+    \texttt{update\_weights\_for\_added\_liquidity} at the
+    \emph{current} reserves $(x_c,y_c)$:
+    \begin{equation}
+    \label{eq:reweight}
+    w_q'
+    =
+    \frac{w_q\,x_c\,(y_c+\varphi y)}
+         {w_b\,y_c\,(x_c+\varphi x)+w_q\,x_c\,(y_c+\varphi y)},
+    \qquad
+    w_b'=1-w_q'.
+    \end{equation}
+    Spot is held at the post-pump mark; $L$ generally jumps.
+  \item \textbf{Fixed} (design (a)): credit $(\varphi y,\varphi x)$
+    with $(w_b,w_q)$ untouched.
+\end{itemize}
 
-The September proposal predated forced-escrow longs and pull-on-borrow
-lifts. A working identification used in this note (to be stress-tested
-against $\mu$'s full derivation when available):
+%----------------------------------------------------------------------
+\section{Cycle: short $\to$ pump $\to$ wallet repay $\to$ unstake}
+\label{sec:cycle}
+
+\begin{cycle}[Two-wallet drain shape (clone a13)]
+\label{cyc:a13}
+Attacker posts collateral $C$, opens a short of lift fraction $\varphi$,
+receives escrow $E$. A pumper buys alpha with $S$ TAO. Attacker buys
+$B$ TAO of alpha (enough to cover $P$), closes with
+\texttt{repay\_from\_wallet}, then both unstake residual alpha.
+\end{cycle}
+
+\subsection{Base case $\varepsilon=0$}
+\begin{enumerate}
+  \item \textbf{Open.} Lift $\varphi$, force-sell $P=\varphi x$:
+        state $(x,y_s)$ with $y_s$ as in \eqref{eq:ys}; escrow $E$;
+        $L_s=(1-\varphi)L$; weights unchanged.
+  \item \textbf{Pump $S$.} Buy with $S$ via \eqref{eq:buy} at
+        $\varepsilon=0$:
+        \[
+          y_p=y_s+S,\qquad
+          x_p=x\left(\frac{y_s}{y_p}\right)^{w_q/w_b},\qquad
+          \alpha_{\mathrm{pump}}=x-x_p.
+        \]
+        $L$ unchanged ($L_p=L_s$).
+  \item \textbf{Buy $B$ for repay.}
+        $y_b=y_p+B$,
+        $x_b=x_p\cdot(y_p/y_b)^{w_q/w_b}$,
+        $\alpha_{\mathrm{buy}}=x_p-x_b$ (need $\alpha_{\mathrm{buy}}\ge P$).
+  \item \textbf{Wallet repay + readd.}
+        Burn $P$ alpha from wallet; refund $E+C$; credit
+        $(\varphi y,P)$ into $(x_b,y_b)$.
+        \begin{itemize}
+          \item Buggy: apply \eqref{eq:reweight}; get $(w_b',w_q')$,
+                reserves $(x_b+\varphi x,\,y_b+\varphi y)$, new
+                $L'= (x_b+\varphi x)^{w_b'}(y_b+\varphi y)^{w_q'}$.
+          \item Keep: same reserve credit, weights stay $(w_b,w_q)$.
+        \end{itemize}
+  \item \textbf{Unstake} residual alpha
+        $\alpha_{\mathrm{pump}}+(\alpha_{\mathrm{buy}}-P)$ via
+        \eqref{eq:sell} at the post-readd weights.
+\end{enumerate}
+
+\subsection{Attacker PnL}
+Combined free of attacker + pumper (collateral is internal):
+\begin{equation}
+\label{eq:pnl}
+\Delta
+=
+-S-B+E+\underbrace{\Delta y_{\mathrm{unstake}}}_{\text{sell residual }\alpha}.
+\end{equation}
+When the residual sell restores $x$ near baseline, empirically
+$\Delta\approx y_0-y_{\mathrm{end}}=-\Delta\texttt{SubnetTAO}$.
+Profit iff $\Delta>0$.
+
+\subsection{Production fee}
+Replace every swap with \eqref{eq:sell}--\eqref{eq:buy} at
+$\varepsilon=33/65535$. Lift / readd / weight update unchanged.
+No fee is charged on lift or on the weight update itself.
+
+%----------------------------------------------------------------------
+\section{Prediction of the SN29 clone}
+\label{sec:sn29}
+
+Inputs from the clone report (tip \texttt{4d3dc1585}). Script:
+\texttt{scripts/no\_arbitrage\_derive.py}.
+
+\subsection{Two-wallet (a13)}
+$y=7449.956$, $x=3\,153\,861$, $w_q=0.471657$, $C=1500$, $S=9000$,
+$B=2363$. Infer $\varphi$ from $y_s=6758.050$ via \eqref{eq:ys}:
+\[
+\varphi=1-(y_s/y)^{w_q}\approx 0.04493.
+\]
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+model & $\Delta$ free & $\Delta$ SubnetTAO & $w_q$ after readd \\
+\midrule
+report (clone) & $+289.269$ & $-297.594$ & $0.450646$ \\
+pallet math, $\varepsilon=0$, buggy & $+297.815$ & $-297.815$ & $0.450638$ \\
+pallet math, $\varepsilon=33/65535$, buggy & $+289.304$ & $-295.026$ & $0.450646$ \\
+pallet math, $\varepsilon=33/65535$, keep-$w$ & $-281.964$ & $+276.242$ & $0.471657$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Production-fee buggy path matches the clone free PnL to
+$<0.05\,\tau$. Keep-weights flips the sign.
+
+\subsection{Single-wallet (a15)}
+$y=7152.475$, $w_q=0.450710$, $C=1200$, $S=7000$, buyback close.
+Fit $\varphi\approx 0.033$ (LTV/capacity-feasible).
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+model & $\Delta$ free & $\Delta$ SubnetTAO & $w_q$ after \\
+\midrule
+report & $+121.699$ & $-127.946$ & $0.438945$ \\
+$\varepsilon=0$, buggy & $+121.794$ & $-121.794$ & $0.439474$ \\
+$\varepsilon=33/65535$, buggy & $+115.482$ & $-119.540$ & $0.439478$ \\
+$\varepsilon=0$, keep-$w$ & $-117.798$ & $+117.798$ & $0.450710$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{theorem}[Drain $=$ weight re-derivation on readd]
+\label{thm:drain}
+On the observed SN29 states, the open$\to$pump$\to$close$\to$unstake
+cycle has $\Delta>0$ if and only if readd uses
+\eqref{eq:reweight} at the post-pump mark. With weights held fixed,
+$\Delta<0$ (fee-lossy). Fees are a small correction; the base-case
+($\varepsilon=0$) buggy path is already profitable.
+\end{theorem}
+
+%----------------------------------------------------------------------
+\section{Root fix}
+\label{sec:fix}
+
+\texttt{readd\_protocol\_liquidity} credits $(\Delta y,\Delta x)$
+\textbf{without} calling \eqref{eq:reweight}. Emissions still use
+\texttt{adjust\_protocol\_liquidity}. Stake/unstake unchanged.
+
+This is not ``Uniswap~v2'': $w_q\neq\tfrac12$ stays a weighted
+Balancer CPMM; only lending readd skips asymmetric-join reweight
+(Section~\ref{sec:univ2}).
+
+Bounded search over short/long $\times$ close paths
+(\texttt{no\_arbitrage\_cycle\_search.py}, 672 cells): buggy profitable
+on 318 cells; keep-$w$ on 0. Closed-form proof for every cycle remains
+open; the SN29 sequences are covered by Theorem~\ref{thm:drain}.
+
+%----------------------------------------------------------------------
+\section{Cross-check: $\mu$, September 2026}
+\label{sec:mu}
+
+$\mu$'s note (September~\textbf{2026}, not 2025) writes a pool factor
+$F(f_h,\varphi,w_2)$ and states fees are ignored. After the derivation
+above we can map without guessing:
 
 \begin{center}
 \begin{tabular}{@{}lll@{}}
 \toprule
-Symbol & September reading & Current lift reading \\
+$\mu$ symbol & Our symbol & Reason \\
 \midrule
-$w_2$ & quote weight & Balancer quote weight $w_q$ (TAO leg) \\
-$\varphi$ & swap fee taken on the trade & $\phi_{\mathrm{swap}}$ (same order) \\
-$f_h$ & haircut / size as fraction of pool TAO
-      & candidate: $h = P/y$ after lift, or LTV-scaled
-        $h=\lambda\cdot C/y$ \\
+$\varphi$ & $\varphi$ (lift fraction) &
+  identity $y_s/y=(1-\varphi)^{1/w_q}$ at $\varepsilon=0$
+  is exactly $\mu$'s factor $(1-\varphi)^{1/w_2}$ once $w_2=w_q$ \\
+$w_2$ & $w_q$ & quote weight in that identity \\
+fee & $\varepsilon=0$ & $\mu$: fees ignored \\
+$f_h$ & size / haircut parameter in $\mu$'s extended model &
+  \textbf{not used} in our SN29 prediction; we size with
+  observed $(\varphi,S,B)$ from the clone \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \begin{remark}
-If $f_h$ is the \textbf{principal as a fraction of post-lift (or pre-trade)
-pool TAO}, then for a capacity-bound open $h\lesssim 0.075$--$0.165$ on a
-side (thin vs floor $\times$ split). For LTV-bound opens with collateral
-$C=\alpha y$, $P=\lambda C$ gives $f_h=\lambda\alpha$.
+We do \textbf{not} import $\mu$'s closed form as an assumption.
+Equation~\eqref{eq:ys} is proved from lift + force-sell in
+Section~\ref{sec:primitives}. That it coincides with $\mu$'s
+$(1-\varphi)^{1/w_2}$ term is the cross-check. Our profitability
+statement is $\Delta>0$ in \eqref{eq:pnl} under buggy readd --- an
+attacker convention --- whereas $\mu$'s $F<1$ is a pool-cost
+convention on a fee-free short cycle without the weight-ratchet term.
+The SN29 drain is the ratchet \eqref{eq:reweight}, which that
+September fee-free $F$ does not encode.
 \end{remark}
 
 %----------------------------------------------------------------------
-\section{Does the same cycle exist today?}
-\label{sec:applies}
-
-\begin{cycle}[September-style short round trip]
-Open a forced short of principal $P$ alpha (lift, sell $P$ into the pool,
-escrow $E_S$), then close by buying $P$ back (escrow path) or by
-repaying $P$ alpha from wallet and taking $E_S$.
-\end{cycle}
-
-Under the \textbf{buggy} design (readd via \texttt{adjust\_protocol\_liquidity}):
-\begin{itemize}
-  \item \textbf{Sell-path / escrow close} reverses the forced sale then
-        re-adds $(\tau_L,P)$. With an intervening pump the re-add still
-        reweights at the skewed ratio (a15 drain).
-  \item \textbf{Wallet-path close} returns $E_S+C$ for alpha repaid from
-        outside, then re-adds $(\tau_L,P)$ with the same weight update
-        --- a \textbf{weight-ratchet} $\mu$'s fee-only $F$ misses
-        (see Section~\ref{sec:gap}, Section~\ref{sec:clone}).
-\end{itemize}
-
-Under the \textbf{fixed} design (Proposition~\ref{prop:inverse}), both
-closes credit reserves without touching $w_1$/$w_2$, so intervening swaps
-cannot crystallize into $L$.
-
-%----------------------------------------------------------------------
-\section{TAO-pure cycles under the current design}
-\label{sec:cycles}
-
-Notation: attacker starts with TAO budget $V=h\,y$ (and, where needed,
-an alpha inventory acquired inside the cycle by a swap that is part of
-the cycle accounting).
-
-\subsection{Cycle A --- long wallet ratchet (primary drain candidate)}
-\label{cyc:A}
-\begin{enumerate}
-  \item (Optional) Sell alpha inventory into the pool (dump), moving spot
-        down while the lending EMA lags.
-  \item Open long: post collateral $C$ alpha, lift $g=P/y$, forced-buy
-        escrow $A$ with $P$ TAO, subject to LTV, capacity, EMA band
-        $p'\le \mathrm{EMA}\,(1+\beta)$.
-  \item Close with $\mathtt{repay\_from\_wallet}=\mathsf{true}$: pay $P$
-        TAO, receive $A+C$, re-add $(P,\alpha_L)$.
-  \item Sell returned escrow $A$ for TAO.
-\end{enumerate}
-Mark-to-market: all alpha legs netted; terminal asset is TAO.
-We write $F_A(h;y,x,w_1;\Theta)$ for $V'/V$.
-
-\paragraph{Closed form (fee-free sketch, equal weights).}
-Let $h=P/y\in(0,1)$, $w_1=w_2=\tfrac12$, ignore swap fees and EMA.
-Lift removes $(P, hx)$ from $(y,x)$ in the sense $\alpha_L = h x$ when
-$g=P/y=h$. Forced buy of $P$ on the lifted pool yields
-\[
-  A = (1-h)x\Bigl(1-\sqrt{\frac{1-h}{1-h+h}}\Bigr)
-    = (1-h)x\Bigl(1-\sqrt{1-h}\Bigr).
-\]
-Post-open reserves $(y,\,x-\alpha_L-A)=(y,\,x(1-h)\sqrt{1-h})$.
-Wallet repay + weight update $\to$ reserves $(y+P,\,x-A)$ with spot locked
-at the post-open price; selling $A$ then gives
-\[
-  F_A^{\mathrm{update}}(h)
-  =
-  \frac{\Delta y_{\mathrm{sell}}(A;\,y+P,\,x-A,\,w')}{P},
-\]
-where $w'$ is the reweighted pair. With \emph{fixed} weights,
-\[
-  F_A^{\mathrm{keep}}(h)
-  =
-  \frac{y+P}{P}
-  \left(
-  1-\left(\frac{x-A}{x-A+A}\right)^{w_1/w_2}
-  \right)
-  =
-  \frac{1+h}{h}
-  \left(1-\left(1-\frac{A}{x}\right)\right)
-  \quad\text{(for $w_1=w_2$)}
-\]
-reduces to a fee-free identity $F_A^{\mathrm{keep}}<1$ once the forced-buy
-$A$ is substituted (exact algebra in increment~2). Numerics already show
-the sign split (Section~\ref{sec:numeric}).
-
-\subsection{Cycle B --- short wallet mirror}
-Open short to the EMA band floor, wallet-repay with owned alpha, rebuy
-alpha (or equivalently value the free $E_S$ against replacing $P$).
-Factor $F_B$.
-
-\subsection{Cycle C --- raise then wallet-close}
-$\mathtt{open\_long\_and\_sell}$ with $S=A$ (near price-neutral by
-design), then wallet-close the long and sell residual. Factor $F_C$.
-
-\subsection{Cycle D --- escrow closes only}
-Open long or short, close on the escrow AMM path (no wallet repay).
-Fee-lossy by construction if re-add is the inverse of lift+trade.
-Factors $F_D^{\mathrm{L}}, F_D^{\mathrm{S}}$.
-
-\subsection{Cycle E --- partial repay interleaved with swaps}
-Slice $k\in(0,1]$, swap, repay remainder. Factor $F_E$.
-
-%----------------------------------------------------------------------
-\section{Where a fee-only proof fails}
-\label{sec:gap}
-
-\begin{proposition}[Weight update on asymmetric re-add]
-After a forced long buy the pool is at $(y,\,x-\alpha_L-A)$ with
-\textbf{unchanged} weights and elevated spot. Wallet repay credits
-$(P,\alpha_L)$ yielding reserves $(y+P,\,x-A)$. Calling
-$\mathtt{update\_weights\_for\_added\_liquidity}$ sets new weights so
-that the \emph{elevated} spot is preserved. Then $L=x^{w_1}y^{w_2}$
-(and $w_1$) move monotonically with repeated cycles --- matching the
-observed ``$w_1$ and $\sqrt{k}$ taking off''.
-\end{proposition}
-
-Consequently $\mu$'s $F$ (fees only, fixed weights) is a
-\textbf{lower bound on pool protection} only for cycles that never hit
-the weight-updating wallet re-add. For Cycle~A with weight update,
-\[
-  F_A \;\;\text{can exceed } 1
-\]
-even when the September $F$ satisfies $F\ge 1$.
-
-\begin{remark}[Fix direction, not yet the proof]
-Re-adding wallet-repay legs \emph{without} updating weights restores
-the market-buy residual $(+P,-A)$ under fixed $(w_1,w_2)$. Numerics
-(Section~\ref{sec:numeric}) show that change flips Cycle~A from $F_A>1$ to
-$F_A<1$ on SN29-like pools. A full proof that $F_A\le 1$ under
-preserve-weights is deferred to a later increment.
-\end{remark}
-
-%----------------------------------------------------------------------
-\section{Numerics: SN29-like and $\mu$'s $F$}
-\label{sec:numeric}
-
-Pool sketch: $y = 10^{5}$~TAO, $p\approx 0.00279$, $w_1=w_2=\tfrac12$,
-$\varphi = 33/65535$. Side capacity $\sim 0.075\,y$--$0.165\,y$.
-
-\subsection{$\mu$'s $F$ vs size}
-Evaluating \eqref{eq:mu-F}--\eqref{eq:mu-E} at $w_2=\tfrac12$,
-$\varphi=33/65535$ (\texttt{scripts/no\_arbitrage\_F.py}):
-
-\begin{center}
-\begin{tabular}{@{}rrr@{}}
-\toprule
-$f_h$ & $F$ (fee only) & $F<1$? ($\mu$ profit) \\
-\midrule
-$0.01$  & $1.000485$ & no \\
-$0.05$  & $1.000409$ & no \\
-$0.075$ & $1.000365$ & no \\
-$0.10$  & $1.000323$ & no \\
-$0.165$ & $1.000224$ & no \\
-$0.25$  & $1.000112$ & no \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent So on production fees, $\mu$'s fee-only $F$ stays \emph{just
-above} $1$ for all listed sizes: the September fee argument alone would
-\emph{rule out} attacker profit. The drain therefore cannot be explained
-by fees; it requires an extra mechanism (the weight ratchet).
-
-\subsection{Cycle A with weight update (counterexample)}
-Same pool ($y=10^5$~TAO, $p\approx 0.00279$), $P = 0.165\,y$,
-multiplicative swap tax $0.5\%$ per leg in the sketch model:
-
-\begin{center}
-\begin{tabular}{@{}lrrrr@{}}
-\toprule
-dump & weights & $F_A$ & profit ($\tau$) & $w_1$ after \\
-\midrule
-$0\%$  & update & $1.0176$ & $+291$ & $0.515$ \\
-$0\%$  & keep   & $0.9631$ & $-609$ & $0.500$ \\
-$20\%$ & update & $1.0302$ & $+498$ & $0.522$ \\
-$20\%$ & keep   & $0.9513$ & $-804$ & $0.500$ \\
-$35\%$ & update & $1.0413$ & $+681$ & $0.528$ \\
-$35\%$ & keep   & $0.9411$ & $-972$ & $0.500$ \\
-$50\%$ & update & $1.0539$ & $+889$ & $0.535$ \\
-$50\%$ & keep   & $0.9297$ & $-1160$ & $0.500$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent\textbf{Counterexample:} with weight-updating wallet re-add,
-$F_A>1$ on every row; $w_1$ and $L$ rise. With weight-preserving re-add,
-$F_A<1$ on every row. JSON: \texttt{scripts/no\_arbitrage\_F.json}.
-
-%----------------------------------------------------------------------
-\section{Theorem status (increment 1)}
-\label{sec:status}
-
-\begin{conjecture}[No TAO-pure arb, preserve-weights wallet re-add]
-\label{conj:main}
-If wallet-repay re-adds lift legs without updating Balancer weights,
-and escrow closes re-add after reversing the forced trade, then for every
-TAO-pure cycle of length $\le N$ (fees on, EMA fixed or free within
-band), $F_{\mathrm{cyc}} \le 1$, with equality only in the zero-fee,
-zero-size limit.
-\end{conjecture}
-
-\begin{theorem}[Status]
-\label{thm:status}
-\begin{enumerate}
-  \item Under \textbf{buggy} re-add (weight-updating via
-        \texttt{adjust\_protocol\_liquidity}),
-        Conjecture~\ref{conj:main} is \textbf{false}: Cycle~A and the
-        clone short$\to$pump$\to$close sequences (Section~\ref{sec:clone}) are
-        counterexamples with $F_{\mathrm{cyc}}>1$ and durable $w_1$/$L$
-        corruption.
-  \item $\mu$'s fee-only $F\ge 1$ does \textbf{not} imply
-        $F_{\mathrm{cyc}}\le 1$ on that path, because $F$ omits the
-        weight ratchet.
-  \item Under design~(a) (Proposition~\ref{prop:inverse} /
-        Theorem~\ref{thm:search}): bounded cycle search finds no
-        $F_{\mathrm{cyc}}>1$; clone regressions assert no attacker
-        profit and unchanged $w_1$. Full closed-form proof of
-        Conjecture~\ref{conj:main} remains \textbf{open}.
-\end{enumerate}
-\end{theorem}
-
-%----------------------------------------------------------------------
-\section{$h$-sweep and $\mu$'s returns graph}
-\label{sec:h-sweep}
-
-\subsection{$\mu$'s graph (September), eyeball check}
-Image: return (\%) vs pool size in units of the trader's TAO budget
-(log $x$, $10\%$--$1000\%$). Eyeball (verified against the figure):
-\begin{itemize}
-  \item $\approx{+}1\%$ at $10\%$ (pool $=0.1\times$ budget $\Rightarrow$
-        $h=\mathrm{budget}/\mathrm{pool}=10$ in that proposal's units);
-  \item peak $\approx{+}4.5\%$ near $100\%$;
-  \item crosses $0$ near $\sim 300\%$;
-  \item $\approx{-}39\%$ at $1000\%$.
-\end{itemize}
-So that sequence is profitable when the budget is at least about a
-third of pool TAO --- the \textbf{large-trade} regime, where lift/AMM
-curvature dominates fees.
-
-\subsection{Cycle~A under current lift (production fee)}
-Sweep $h=P/y$ on an SN29-like pool ($y=10^5\,\tau$, $p\approx 0.00279$,
-$\varphi=33/65535$), weight-update vs preserve-weights
-(\texttt{scripts/no\_arbitrage\_h\_sweep.json}):
-
-\begin{center}
-\begin{tabular}{@{}rrrrr@{}}
-\toprule
-$h$ & pool/budget & ret\% update & ret\% keep & $w_1$ (upd) \\
-\midrule
-$0.01$ & $10000\%$ & $-0.09$ & $-0.11$ & $\approx 0.500$ \\
-$0.03$ & $3333\%$ & $-0.01$ & $-0.19$ & $\approx 0.500$ \\
-$0.05$ & $2000\%$ & $+0.15$ & $-0.35$ & $0.501$ \\
-$0.072$ & $1381\%$ & $+0.43$ & $-0.62$ & $0.503$ \\
-$0.165$ & $606\%$ & $+2.71$ & $-2.81$ & $0.515$ \\
-$0.30$ & $333\%$ & $+9.75$ & $-9.08$ & $0.557$ \\
-$0.50$ & $200\%$ & $+31.1$ & $-25.1$ & $0.666$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Breakeven for the update path: $h_\star \approx 0.031$ (below:
-fee-dominated loss; above: ratchet profit). Qualitative agreement with
-$\mu$: \textbf{large $h$ is where EV flips positive}. The quantitative
-September curve is from the earlier proposal (different fee placement /
-no forced-escrow lift), so magnitudes differ; both point at the same
-regime.
-
-\section{Do existing protections keep $EV\le 0$?}
-\label{sec:protections}
-
-Reachable $h$ on a \textbf{single} open (equal weights):
-\begin{itemize}
-  \item EMA band $+15\%$: fee-free buy move
-        $p'/p=(1+h)^{1/w_1}=(1+h)^2\le 1.15$ $\Rightarrow$
-        $h\le \sqrt{1.15}-1 \approx 0.0724$.
-  \item Side capacity: $\approx 0.075$ (thin) to $\approx 0.165$
-        (floor $\times$ split).
-  \item $\mathtt{PrincipalExceedsTaoIn}$ / $\mathtt{AlphaIn}$:
-        $P<y$ (and symmetrically for shorts) --- far looser than the
-        band/capacity.
-\end{itemize}
-
-At the EMA cap ($h\approx 0.072$) with weight-update Cycle~A:
-$F_A-1 \approx {+}0.43\%$ --- \textbf{still positive EV}. At capacity
-$h=0.165$ (only reachable if spot was depressed or the EMA lagged):
-$\approx{+}2.7\%$. Preserve-weights is negative at both points.
-
-\paragraph{Splits and multiple coldkeys.}
-Same-side opens are gated by the \emph{sticky} EMA: after one long, spot
-is up and further longs hit the band sooner. That slows naive splitting,
-but does not zero EV:
-\begin{itemize}
-  \item $N$ sequential opens at $h=0.05$ (inside the band) each earn
-        $\approx{+}0.15\%$ while $w_1$ ratchets ($0.500\to 0.513$ by
-        $N=10$).
-  \item A pre-dump that pushes spot below the EMA, then one long up to
-        $\mathrm{EMA}\cdot 1.15$, realises a \emph{much} larger effective
-        $h$ and the $10^2$--$10^3\,\tau$ profits of Section~\ref{sec:numeric}.
-  \item Multiple coldkeys in one block still serialize; they share the
-        same post-trade spot/EMA constraint, but can alternate sides or
-        wait for EMA catch-up.
-\end{itemize}
-
-\begin{theorem}[Protections vs Cycle~A]
-\label{thm:prot}
-EMA band, side capacity, and principal-vs-reserve checks \textbf{bound}
-$h$ but \textbf{do not} imply $F_A\le 1$ on the weight-updating wallet
-path. Inside the reachable set, $F_A>1$ for all $h\gtrsim 0.031$. Only
-weight-preserving wallet re-add flips the sign through the whole
-sweep.
-\end{theorem}
-
-%----------------------------------------------------------------------
-\section{Clone reproduction (spec 493)}
-\label{sec:clone}
-
-On a live clone tip \texttt{4d3dc1585} (shallow SN29-like book,
-$y\approx 7.5\cdot 10^3\,\tau$, $p\approx 0.00265$, $w_1\approx 0.47$):
-
-\begin{center}
-\begin{tabular}{@{}llrrr@{}}
-\toprule
-seq & path & attacker $\Delta$ & SubnetTAO $\Delta$ & $w_1$ jump \\
-\midrule
-a13 & short $1500$ $\to$ foreign pump $9000$ $\to$ wallet repay
-    & $+289\,\tau$ & $-298\,\tau$ & $0.4717\to 0.4506$ \\
-a15 & short $1200$ $\to$ self-pump $7000$ $\to$ buyback
-    & $+122\,\tau$ & $-128\,\tau$ & $0.4507\to 0.4389$ \\
-a14 & wallet repay, \emph{no} pump (control)
-    & $-0.61\,\tau$ & $+0.11\,\tau$ & --- \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent On profitable closes, $L\approx x^{1-w_1}y^{w_1}$ jumps with $w_1$
-(a13: $174\mathrm{k}\to 203\mathrm{k}$) and \textbf{does not revert} after
-unstake. AlphaIn mean-reverts; the durable corruption is $w_1$/$L$, which
-lets the exit unstake extract more TAO than the pump deposited.
-
-\paragraph{Mechanism.}
-\begin{enumerate}
-  \item \texttt{lift\_protocol\_liquidity} removes $(g\,y,g\,x)$
-        \textbf{without} updating weights (proportional remove).
-  \item Intervening \texttt{AddStake}/swap skews the reserve ratio;
-        weights stay put.
-  \item Buggy \texttt{readd\_protocol\_liquidity} routed through
-        \texttt{adjust\_protocol\_liquidity} $\to$
-        \texttt{update\_weights\_for\_added\_liquidity} at the
-        \textbf{post-pump} ratio, rewriting $w_1$/$w_2$ and inflating
-        $L$.
-  \item Subsequent \texttt{RemoveStake} against corrupted weights is
-        extractive.
-\end{enumerate}
-This is $\mu$'s open$\to$swap$\to$close framing with $F_{\mathrm{cyc}}>1$
-driven by the weight ratchet, not by fee-only $F<1$.
-
-%----------------------------------------------------------------------
-\section{Answer to mu: we do not abandon Balancer}
-\label{sec:balancer-coherence}
-
-\begin{remark}[Scope of the bypass]
-Ordinary \textbf{stake / unstake} (and every other AMM swap) still execute
-on the Balancer weighted pool with the stored $(w_1,w_2)$:
-\[
-  p=\frac{w_1}{w_2}\frac{y}{x},\qquad
-  L=x^{w_1}y^{w_2}.
-\]
-Emissions still call \texttt{adjust\_protocol\_liquidity}, which may
-\texttt{update\_weights\_for\_added\_liquidity} so a one-sided injection
-keeps spot. \textbf{Only} lending's \texttt{lift}/\texttt{readd} pair
-bypasses that weight update. The bypass is not ``leave Balancer'' --- it is
-``use the proportional remove/add inverse, not the
-asymmetric-join reweight.''
-\end{remark}
-
-\begin{proposition}[Coherence while a position is open]
-\label{prop:open-coherent}
-After a lift of fraction $g$, the live pool is
-$((1-g)y,(1-g)x,w_1,w_2)$. Spot is unchanged, $L\mapsto(1-g)L$, and
-every subsequent stake/unstake is a standard Balancer swap on that
-thinner book. Custody holds the removed legs; they are not part of the
-AMM state. So pricing during the open interval is exactly Balancer.
-\end{proposition}
-
-%----------------------------------------------------------------------
-\section{Two readd designs}
-\label{sec:designs}
-
-Lift always snapshots the removed legs $(\Delta y,\Delta x)=(gy,gx)$ and
-the invariant slice $\Delta L = g\,L$. After intervening swaps the live
-ratio may differ. Two ways to close the Balancer side:
-
-\paragraph{(a) Snapshot / restore exact reserve deltas (weights untouched).}
-Credit exactly $(\Delta y,\Delta x)$ into current reserves; leave
-$(w_1,w_2)$ alone.
-\begin{itemize}
-  \item No intervening swaps: exact inverse --- $p$ and $L$ restored.
-  \item With intervening swaps: $w$ unchanged; $L$ after credit is
-        \emph{not} generally $L_0$ (homogeneous add of a stale-ratio
-        vector into a skewed book). Spot may jump on the credit.
-  \item This is an unbalanced join \emph{without} the Balancer
-        price-preserving weight rewrite (and without an extra join fee).
-\end{itemize}
-
-\paragraph{(b) Settle in invariant units (L-conserving proportional join).}
-Treat the position as owning $\Delta L$ LP shares. On readd, join
-proportionally at the \emph{current} ratio,
-$(sy_{\mathrm{skew}},sx_{\mathrm{skew}})$ with $s=\Delta L/L_{\mathrm{skew}}$,
-so spot is preserved and $L$ rises by $\Delta L$. Custody holds
-$(\Delta y,\Delta x)\ne(sy,sx)$; the residual must be mark-to-market
-(one Balancer swap). That residual swap is a new surface.
-
-\begin{proposition}[Buggy readd is neither (a) nor (b)]
-\label{prop:buggy}
-\texttt{adjust\_protocol\_liquidity}$\to$\texttt{update\_weights\_for\_added\_liquidity}
-credits $(\Delta y,\Delta x)$ \emph{and} solves for new weights that keep
-post-credit spot equal to the skewed mark. That is the asymmetric-join
-tool for emissions, not the inverse of a proportional lift. Empirically
-it inflates $L$ and unlocks extractive unstake (a13/a15).
-\end{proposition}
-
-%----------------------------------------------------------------------
-\section{Root fix = design (a)}
-\label{sec:inverse}
-
-\begin{proposition}[Design (a) is the Balancer inverse of lift]
-\label{prop:inverse}
-Lift of fraction $g$ yields
-$((1-g)y,(1-g)x,w_1,w_2)$. Crediting the same legs $(\Delta y,\Delta x)$
-\textbf{without} changing weights is the set-theoretic inverse on the
-no-swap path. With intervening swaps, (a) still leaves $(w_1,w_2)$
-invariant (the property stake/unstake need); it does \emph{not} claim
-$L=L_0$ after credit.
-\end{proposition}
-
-\begin{corollary}[Implementation]
-\label{cor:impl}
-\texttt{readd\_protocol\_liquidity} $=$ pure reserve credit (no weight
-write, no reservoir). Emissions keep calling
-\texttt{adjust\_protocol\_liquidity}. Lending
-\texttt{readd\_and\_credit} / \texttt{\_preserve\_weights} both use (a).
-\end{corollary}
-
-%----------------------------------------------------------------------
-\section{Bounded cycle search}
-\label{sec:search}
-
-Script: \texttt{scripts/no\_arbitrage\_cycle\_search.py}. Enumerates
-short/long $\times$ buyback/wallet-close $\times$ pump/dump sizes on
-SN29-like and expanded $(w_1,y)$ grids. Stake/unstake always Balancer at
-fixed $w$; only the readd design varies.
-
-\begin{center}
-\begin{tabular}{@{}lrrr@{}}
-\toprule
-design & cells & profitable ($F_{\mathrm{cyc}}>1$) & $\max F_{\mathrm{cyc}}$ \\
-\midrule
-buggy (weight update) & $672$ & $318$ & $1.88$ \\
-(a) exact deltas, keep $w$ & $672$ & $0$ & $0.999$ \\
-(b) $\Delta L$ join + residual MTM & $672$ & $0$ & $0.999$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent a13/a15-like points: buggy $F>1$ with $w_1$/$L$ jump; (a) and
-(b) both $F<1$ with $w_1$ fixed ((b) also keeps $L$-ratio $=1$).
-
-\begin{theorem}[Status after search]
-\label{thm:search}
-\begin{enumerate}
-  \item We do \textbf{not} abandon Balancer: swaps stay weighted;
-        only lending readd skips \texttt{update\_weights\_for\_added\_liquidity}.
-  \item Design (a) is coherent while a position is open
-        (Proposition~\ref{prop:open-coherent}).
-  \item On the enumerated TAO-pure cycles, (a) and (b) both have
-        $\max F_{\mathrm{cyc}}<1$; buggy does not.
-  \item This is a \textbf{bounded search}, not a closed-form proof over
-        all cycles / continuous sizes / multi-block EMA games. A full
-        proof of Conjecture~\ref{conj:main} remains open. We ship (a)
-        because it matches the lift inverse, kills the reproduced
-        drain, and clears the search; (b) also clears the search but
-        needs residual-swap accounting we are not adding in this fix.
-\end{enumerate}
-\end{theorem}
-
-Regression coverage (pallet tests):
-\begin{itemize}
-  \item \texttt{test\_readd\_after\_skew\_preserves\_weights} (swap);
-  \item \texttt{sn29\_short\_self\_pump\_buyback\_close\_\ldots} (a15);
-  \item \texttt{sn29\_short\_foreign\_pump\_wallet\_repay\_\ldots} (a13).
-\end{itemize}
-
-%----------------------------------------------------------------------
-\section{Follow-up: ``is this just Uniswap v2?''}
+\section{Fixed weights are not Uniswap v2}
 \label{sec:univ2}
 
-$\mu$: \emph{if you don't change (or re-derive) the weights, it's
-basically back to Uniswap~v2.}
+Main re-derives weights on \emph{asymmetric liquidity adds}
+(emissions), so those adds do not move spot. Swaps never re-derived
+weights. Uni~v2 is the special case $w_b=w_q=\tfrac12$. Holding
+$w_q\approx 0.47$ fixed is still weighted Balancer. Design~(a) loses
+only price-neutrality of \emph{lending readd after skew}; that is the
+intentional root fix.
 
-\subsection{What main actually re-derives}
-Main's Balancer has \textbf{two} distinct operations:
-\begin{enumerate}
-  \item \textbf{Swaps} (stake / unstake): reserves move on the curve
-        $L=x^{w_1}y^{w_2}$ at the \emph{stored} weights. Weights are
-        \textbf{not} re-derived mid-swap. This was already true before
-        lending existed.
-  \item \textbf{Asymmetric liquidity adds} (emissions via
-        \texttt{adjust\_protocol\_liquidity}): reserves receive an
-        arbitrary $(\mathrm{d}y,\mathrm{d}x)$; then
-        \texttt{update\_weights\_for\_added\_liquidity} solves for new
-        $(w_1,w_2)$ so that post-add spot equals pre-add spot. That is
-        the price-neutral join. It is \emph{not} part of the swap path.
-\end{enumerate}
-So ``Balancer behaviour'' on main $=$ fixed-weight weighted CPMM for
-trades, plus optional weight re-derivation on protocol/user
-\emph{liquidity adds} so those adds do not move price.
-
-\subsection{Fixed weights $\neq$ Uniswap v2}
-Uniswap~v2 is the \textbf{special case} $w_1=w_2=\tfrac12$ of the
-Balancer invariant ($L=\sqrt{xy}$, $p=y/x$). With $w_1\neq w_2$ held
-fixed, the pool is still a \textbf{weighted} Balancer CPMM:
-\[
-  p=\frac{w_1}{w_2}\frac{y}{x},\qquad
-  L=x^{w_1}y^{w_2},
-\]
-with the same swap closed forms main already uses. SN29-like books run
-near $w_1\approx 0.47$, not $\tfrac12$. Design~(a) does not force
-equal weights; it refuses to \emph{rewrite} them on lending readd.
-
-\subsection{What is true while a lift is outstanding}
-After lift, $(w_1,w_2)$ are unchanged (lift is proportional). Every
-swap against the thinner book is therefore a fixed-weight Balancer
-swap --- \textbf{exactly as every swap already was}. Lending did not
-``switch the AMM off Balancer''; swaps never consulted the asymmetric-join
-reweight. The only behavioural change under (a) is on the
-\textbf{readd after skew}: instead of a price-neutral asymmetric join
-(reweight to keep the post-pump spot), the protocol credits the
-snapshot legs at fixed $w$, which can move spot and need not restore
-$L_0$.
-
-\subsection{What is lost versus ``full'' Balancer join behaviour?}
-\begin{center}
-\begin{tabular}{@{}lp{0.62\textwidth}@{}}
-\toprule
-Surface & Under design~(a) \\
-\midrule
-Stake / unstake & Unchanged: weighted CPMM at stored $w$. \\
-Emissions / protocol adds & Unchanged: still
-  \texttt{adjust\_protocol\_liquidity} + weight re-derivation. \\
-User LP-style asymmetric adds & Unchanged (lending is not that path). \\
-Lending readd after skew & \textbf{Lost:} price-neutrality of the
-  asymmetric join. Readd may move spot; $L$ may drift from $L_0$. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent\textbf{Is that acceptable?} Yes, as an emergency root fix:
-readd is the protocol restoring its own previously removed inventory,
-not a third-party LP joining at the mark. The property we must not
-give attackers is ``crystallize a pumped spot into $w$ and inflate
-$L$.'' Giving up price-neutral readd for that one path is the cost.
-Bounded search (Section~\ref{sec:search}): no profitable cycle on the
-grid. Full proof still open.
-
-%----------------------------------------------------------------------
-\section{Designs that keep re-derivation elsewhere}
-\label{sec:keep-rederive}
-
-Goal: emissions / other asymmetric adds still re-derive weights;
-lending's open$\to$swap$\to$close cycle is non-extractable.
-
-\paragraph{(a) --- shipped.}
-Lending: fixed-$w$ credit of snapshot deltas. Elsewhere: re-derive as
-today. Pros: smallest diff; exact lift inverse on the quiet path;
-kills a13/a15; search-clean. Cons: readd can move spot; $L$ not
-restored after skew; proof open.
-
-\paragraph{(b) --- $\Delta L$ proportional join + residual MTM.}
-Lending readd never needs weight re-derivation (join is proportional at
-the \emph{current} ratio). Residual custody vs proportional basket is
-one Balancer swap (fees apply). Pros: spot preserved on join; $L$
-restored by construction; search-clean; closest to ``Balancer LP
-semantics.'' Cons: new residual-swap accounting; residual is a surface
-to audit; more code.
-
-\paragraph{(c) --- re-derive against the \emph{lift-time} ratio.}
-Idea: call \texttt{update\_weights\_for\_added\_liquidity} with the
-lift-time book (or the lift ratio) instead of the skewed mark.
-But the lift legs $(\Delta y,\Delta x)$ are \emph{proportional} to the
-lift-time reserves, so a weight update computed against that ratio is
-a \textbf{no-op} --- same $w$ as (a). If instead one reweights the
-\emph{skewed} post-credit reserves so that spot equals the
-\textbf{lift-time} spot, that forces price back to a historical level
-and is a different (likely more dangerous) policy. Verdict: ``re-derive
-at lift-time ratio'' for proportional lift legs collapses to (a); the
-force-price-to-lift-spot reading is not recommended.
-
-\paragraph{(d) --- charge / target the EMA ratio on readd.}
-Variant: proportional join aimed at the lending EMA price, or reweight
-so post-readd spot equals EMA. Pros: ties exit to the same oracle the
-band/settlement already use. Cons: EMA can lag (the band exists
-because of that); targeting EMA on readd can itself be gamed by
-pre-moving spot then waiting; does not by itself explain a13 (drain was
-weight crystallisation at the \emph{current} mark, not EMA). Useful as
-a settlement policy later; not the minimal drain fix.
-
-\paragraph{(e) --- keep current-mark reweight but haircut / fee the
-join.}
-Still rewrites $w$ toward the pumped mark; a fee may shrink but not
-remove the ratchet under repetition. Rejected as the primary fix.
-
-%----------------------------------------------------------------------
-\section{Recommendation for Jacob}
-\label{sec:jacob}
-
-\begin{enumerate}
-  \item \textbf{Ship design~(a) now} (already in the swap pallet):
-        lending lift/readd keep weights fixed; emissions keep
-        re-deriving. This does \emph{not} reduce the AMM to Uniswap~v2
-        unless weights were already $\tfrac12$; swaps remain weighted
-        Balancer. What is lost is only price-neutral lending readd after
-        skew --- acceptable against the reproduced drain.
-  \item \textbf{Do not} restore current-mark
-        \texttt{update\_weights\_for\_added\_liquidity} on lending
-        readd. That is the bug.
-  \item \textbf{Next hardening (optional, preferred if (a) ever shows a
-        counterexample):} design~(b) --- restore $\Delta L$ by a
-        current-ratio proportional join and mark-to-market the custody
-        residual with an explicit Balancer swap (fee on). Keeps
-        re-derivation for emissions; gives price-neutral lending readd
-        without crystallising the pump into $w$.
-  \item Treat (c) ``lift-time re-derive'' as equivalent to (a) for
-        proportional legs; do not chase (d)/(e) as the root fix.
-  \item Status: bounded cycle search clears (a) and (b); closed-form
-        no-arb proof remains open. Skeptic/Auditor should treat (a) as
-        ``search-backed emergency inverse,'' not ``theorem-closed.''
-\end{enumerate}
-
-\section{Next increments}
-\begin{itemize}
-  \item Closed-form proof (or counterexample) for (a) beyond the grid.
-  \item Spec + implementation sketch for (b) residual MTM if needed.
-  \item Call-flow diagram (read state once / validate / derive / act).
-\end{itemize}
+\paragraph{Recommendation (Jacob).}
+Ship~(a). Optional hardening: restore $\Delta L$ by a current-ratio
+proportional join and mark-to-market the custody residual (design~(b)).
+Do not restore current-mark \eqref{eq:reweight} on lending readd.
 
 \begin{thebibliography}{9}
-\bibitem{mu-F}
-$\mu$, September 2025 hand derivation of fee factor $F$ (image on PR
-discussion). Profitability under the earlier proposal when $F<1$.
+\bibitem{mu-2026}
+$\mu$, September 2026 hand derivation of the fee-free short-cycle
+factor $F(f_h,\varphi,w_2)$. $\varphi=$ lift fraction; fees ignored.
+Cited as cross-check only (Section~\ref{sec:mu}).
 \bibitem{spec}
 \emph{Lift-based lending on main's Balancer pools}, v5.4,
 \texttt{pallets/lending/docs/lift-lending-spec.md}.
+\bibitem{report}
+SN29 drain reproduction on clone tip \texttt{4d3dc1585}
+(two-wallet $+289\,\tau$, single-wallet $+122\,\tau$).
 \end{thebibliography}
 
 \end{document}

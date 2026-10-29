@@ -1,43 +1,43 @@
-# No-arbitrage for lift lending (working note)
+# No-arbitrage for lift lending
 
-Companion to [`no-arbitrage.tex`](./no-arbitrage.tex) / [`no-arbitrage.pdf`](./no-arbitrage.pdf). **Increment 3c** for public review on PR #3268.
+Companion to [`no-arbitrage.tex`](./no-arbitrage.tex) / [`no-arbitrage.pdf`](./no-arbitrage.pdf). **Pallet-first rewrite** (Sept 2026 cross-check only).
 
-## Answer to μ: we do not abandon Balancer / this is not Uni v2
+## Notation (own)
 
-**Stake / unstake** already run on fixed stored $(w_1,w_2)$ — they never re-derived weights. Main re-derives weights only on **asymmetric liquidity adds** (emissions via `adjust_protocol_liquidity`) so those adds do not move spot.
+| Symbol | Meaning |
+|--|--|
+| $\varphi$ | **Lift fraction** $P/x$ (short) — **not** a fee |
+| $w_q$, $w_b$ | Quote (TAO) / base (alpha) Balancer weights |
+| $\varepsilon$ | Swap fee on input; **base case $0$**; production $33/65535$ |
+| $L$ | $x^{w_b} y^{w_q}$ |
+| $\Delta$ | Combined attacker free PnL (profit if $>0$) |
 
-**Fixed weights ≠ Uniswap v2.** Uni v2 is the special case $w_1=w_2=\tfrac12$. With $w_1\neq w_2$ held fixed (SN29 ~0.47), the pool is still a weighted Balancer CPMM. Design (a) does not force 50/50.
+Clone report’s printed `w1` is our $w_q$.
 
-**While a lift is outstanding**, swaps are fixed-weight Balancer — same as every swap already was. What (a) changes is only **lending readd after skew**: no price-neutral asymmetric join.
+## Key identity (fee-free short open)
 
-**What is lost:** price-neutrality of lending readd (spot may jump; $L$ may drift). Emissions / stake / unstake unchanged. **Acceptable** as the emergency inverse: readd restores protocol inventory; crystallising a pumped mark into $w$ was the drain.
+After lift $\varphi$ + force-sell principal $P=\varphi x$:
 
-## Designs (keep re-derivation for emissions)
+$$
+y_s = y\,(1-\varphi)^{1/w_q},\qquad L_s=(1-\varphi)L.
+$$
 
-| | Readd rule | Emissions re-derive? | Notes |
-|--|--|--|--|
-| **(a) shipped** | exact snapshot deltas, keep $w$ | yes | quiet-path inverse; readd can move spot; search-clean |
-| **(b) next if needed** | restore $\Delta L$ at **current** ratio; MTM residual swap | yes (unused on readd) | price-neutral join; $L$ restored; more code |
-| (c) re-derive at lift-time ratio | proportional legs ⇒ weight update is a **no-op** (= a) | — | forcing spot back to lift-time price: do not |
-| (d) target EMA on readd | join/reweight toward EMA | yes | settlement policy later; not the drain root |
-| (e) keep current-mark reweight + fee | still rewrites $w$ | yes | rejected — ratchet remains |
+## SN29 prediction (script: `scripts/no_arbitrage_derive.py`)
 
-## Recommendation for Jacob
+**a13** ($y=7449.956$, $w_q=0.471657$, $\varphi\approx0.04493$, pump $9000$, buy $2363$):
 
-1. **Ship (a) now** — not Uni v2; kills a13/a15; emissions still re-derive.
-2. **Never** restore current-mark weight update on lending readd.
-3. **Optional hardening:** (b) if (a) ever counterexampled.
-4. (c)≈(a) for proportional legs; skip (d)/(e) as root fix.
-5. Search-backed, not theorem-closed.
+| model | $\Delta$ free | $w_q$ after |
+|--|--|--|
+| clone report | **+289.269** | 0.450646 |
+| pallet, $\varepsilon=33/65535$, buggy readd | **+289.304** | 0.450646 |
+| pallet, keep weights | −281.96 | 0.471657 |
 
-## Bounded cycle search
+**a15** ($\varphi\approx0.033$, pump $7000$): report **+121.699**; fee-0 buggy **+121.794**; keep-weights **−117.8**.
 
-[`scripts/no_arbitrage_cycle_search.py`](./scripts/no_arbitrage_cycle_search.py): 672 cells — buggy 318 profitable (max $F=1.88$); **(a)/(b) zero** profitable (max $F<1$).
+## μ Sept 2026 cross-check
 
-## Clone reproduction (spec 493 / tip `4d3dc1585`)
+After our derivation: μ’s $\varphi$ = lift fraction, $w_2=w_q$, fees ignored ($\varepsilon=0$). The shared identity is $y_s/y=(1-\varphi)^{1/w_q}$. We do not import μ’s $F$ as an assumption; the SN29 drain is the post-pump weight re-derivation on readd, which that fee-free $F$ does not encode.
 
-| seq | path | attacker | SubnetTAO | $w_1$ |
-|-----|------|----------|-----------|-------|
-| a13 | short 1500 → pump 9000 → wallet repay | +289 τ | −298 τ | 0.4717→0.4506 |
-| a15 | short 1200 → self-pump 7000 → buyback | +122 τ | −128 τ | 0.4507→0.4389 |
-| a14 | wallet repay, no pump | −0.61 τ | +0.11 τ | — |
+## Fix
+
+`readd_protocol_liquidity` = weight-preserving credit (design a). Not Uni v2.
