@@ -211,6 +211,8 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Uids::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            TimelockedCommitInvalidatedAt::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             VotingPower::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             BlockAtRegistration::<T>::clear_prefix(netuid, limit, None)

@@ -221,7 +221,7 @@ fn test_replace_neuron() {
 }
 
 #[test]
-fn replace_neuron_clears_pending_weight_commits_from_old_registration() {
+fn replace_neuron_invalidates_pending_weight_commits_without_scanning_epoch_queues() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
         let old_hotkey = U256::from(10);
@@ -236,20 +236,37 @@ fn replace_neuron_clears_pending_weight_commits_from_old_registration() {
             old_hotkey,
             VecDeque::from([(H256::repeat_byte(1), 1, 1, 0)]),
         );
-        let mut timelocked = VecDeque::new();
-        timelocked.push_back((old_hotkey, 1, Default::default(), 1));
-        timelocked.push_back((retained_hotkey, 1, Default::default(), 2));
-        TimelockedWeightCommits::<Test>::insert(index, 1, timelocked);
+        let timelocked = VecDeque::from([
+            (old_hotkey, 1, Default::default(), 1),
+            (retained_hotkey, 1, Default::default(), 2),
+        ]);
+        TimelockedWeightCommits::<Test>::insert(index, 1, timelocked.clone());
+        TimelockedWeightCommits::<Test>::insert(index, 2, timelocked.clone());
 
         SubtensorModule::replace_neuron(netuid, 0, &new_hotkey, 2);
 
         assert!(!WeightCommits::<Test>::contains_key(index, old_hotkey));
-        let remaining = TimelockedWeightCommits::<Test>::get(index, 1);
-        assert_eq!(remaining.len(), 1);
+        assert_eq!(TimelockedWeightCommits::<Test>::get(index, 1), timelocked);
+        assert_eq!(TimelockedWeightCommits::<Test>::get(index, 2), timelocked);
         assert_eq!(
-            remaining.front().map(|entry| entry.0),
-            Some(retained_hotkey)
+            TimelockedCommitInvalidatedAt::<Test>::get(netuid, old_hotkey),
+            Some(2)
         );
+        assert!(!SubtensorModule::timelocked_commit_is_current(
+            netuid,
+            &old_hotkey,
+            1
+        ));
+        assert!(!SubtensorModule::timelocked_commit_is_current(
+            netuid,
+            &old_hotkey,
+            2
+        ));
+        assert!(SubtensorModule::timelocked_commit_is_current(
+            netuid,
+            &old_hotkey,
+            3
+        ));
     });
 }
 

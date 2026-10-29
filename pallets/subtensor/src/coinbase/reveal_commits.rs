@@ -70,6 +70,16 @@ impl<T: Config> Pallet<T> {
             while let Some((who, commit_block, serialized_compresssed_commit, round_number)) =
                 entries.pop_front()
             {
+                // Pruning creates a new registration identity for a hotkey. Drop
+                // commits from the previous identity without scanning shared epoch
+                // queues during the registration extrinsic.
+                if !Self::timelocked_commit_is_current(netuid, &who, commit_block) {
+                    log::trace!(
+                        "Discarding timelocked commit for mechanism {netuid_index} submitted by {who:?} at block {commit_block} before its latest registration"
+                    );
+                    continue;
+                }
+
                 // Try to get the round number from pallet_drand.
                 let pulse = match pallet_drand::Pulses::<T>::get(round_number) {
                     Some(p) => p,

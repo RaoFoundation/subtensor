@@ -4,7 +4,7 @@ use ark_serialize::CanonicalDeserialize;
 use ark_serialize::CanonicalSerialize;
 use codec::Compact;
 use frame_support::{
-    assert_err, assert_ok,
+    assert_err, assert_noop, assert_ok,
     dispatch::{DispatchClass, DispatchResult, GetDispatchInfo, Pays},
 };
 use pallet_drand::types::Pulse;
@@ -5221,6 +5221,69 @@ fn test_multiple_commits_by_same_hotkey_within_limit() {
             10,
             "Expected 10 commits stored for the hotkey"
         );
+    });
+}
+
+#[test]
+fn timelocked_commit_must_follow_latest_registration_invalidation() {
+    new_test_ext(10).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        add_network(netuid, 5, 0);
+        register_ok_neuron(netuid, hotkey, U256::from(2), 0);
+        SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
+        SubtensorModule::set_weights_set_rate_limit(netuid, 0);
+        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, 10);
+
+        let commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>> =
+            vec![1u8; 5].try_into().expect("bounded commit");
+        assert_noop!(
+            SubtensorModule::do_commit_timelocked_weights(
+                RuntimeOrigin::signed(hotkey),
+                netuid,
+                commit.clone(),
+                1_000,
+                SubtensorModule::get_commit_reveal_weights_version(),
+            ),
+            Error::<Test>::CommittingWeightsTooFast
+        );
+
+        System::set_block_number(11);
+        assert_ok!(SubtensorModule::do_commit_timelocked_weights(
+            RuntimeOrigin::signed(hotkey),
+            netuid,
+            commit,
+            1_000,
+            SubtensorModule::get_commit_reveal_weights_version(),
+        ));
+    });
+}
+
+#[test]
+fn reveal_discards_timelocked_commit_from_previous_registration() {
+    new_test_ext(20).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        let index = NetUidStorageIndex::from(netuid);
+        add_network(netuid, 5, 0);
+        register_ok_neuron(netuid, hotkey, U256::from(2), 0);
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, 1));
+
+        let current_epoch = 10;
+        let reveal_epoch = current_epoch - 1;
+        SubnetEpochIndex::<Test>::insert(netuid, current_epoch);
+        LastEpochBlock::<Test>::insert(netuid, SubtensorModule::get_current_block_as_u64());
+        PendingEpochAt::<Test>::insert(netuid, 0);
+        TimelockedWeightCommits::<Test>::insert(
+            index,
+            reveal_epoch,
+            VecDeque::from([(hotkey, 5, Default::default(), 1_000)]),
+        );
+        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, 10);
+
+        assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
+
+        assert!(TimelockedWeightCommits::<Test>::get(index, reveal_epoch).is_empty());
     });
 }
 

@@ -35,6 +35,21 @@ impl<T: Config> Pallet<T> {
         weight.saturating_add(T::DbWeight::get().reads(1))
     }
 
+    /// Timelocked commits additionally read the registration invalidation cutoff.
+    pub fn timelock_commit_weight_for_mode(netuid: NetUid, yuma: Weight, null: Weight) -> Weight {
+        Self::timelock_weight_for_mode(netuid, yuma, null)
+            .saturating_add(T::DbWeight::get().reads(1))
+    }
+
+    pub(crate) fn timelocked_commit_is_current(
+        netuid: NetUid,
+        who: &T::AccountId,
+        commit_block: u64,
+    ) -> bool {
+        TimelockedCommitInvalidatedAt::<T>::get(netuid, who)
+            .is_none_or(|invalidated_at| commit_block > invalidated_at)
+    }
+
     /// Pre-dispatch weight of `batch_set_weights`: the batch overhead plus one full
     /// weight-setting unit per item, sized by that item's uid count. Every item runs a
     /// complete `do_set_weights`, so a constant per-batch weight would let one call book a
@@ -417,6 +432,10 @@ impl<T: Config> Pallet<T> {
         // 5. Check that the commit rate does not exceed the allowed frequency.
         let commit_block = Self::get_current_block_as_u64();
         let neuron_uid = Self::get_uid_for_net_and_hotkey(netuid, &who)?;
+        ensure!(
+            Self::timelocked_commit_is_current(netuid, &who, commit_block),
+            Error::<T>::CommittingWeightsTooFast
+        );
         ensure!(
             Self::check_rate_limit(netuid_index, neuron_uid, commit_block),
             Error::<T>::CommittingWeightsTooFast

@@ -9,27 +9,29 @@ use subtensor_runtime_common::NetUid;
 pub const NULL_PRUNING_BATCH: u16 = 64;
 
 impl<T: Config> Pallet<T> {
-    /// Remove pending weight commits that belong to a neuron's old registration.
-    fn clear_weight_commits_for_hotkey(netuid: NetUid, hotkey: &T::AccountId) {
+    /// Invalidate pending weight commits from a neuron's old registration.
+    ///
+    /// Manual commits are keyed by hotkey and can be removed directly. Timelocked
+    /// commits are shared per epoch, so scanning and rewriting those queues here
+    /// would make registration cost depend on every validator's pending payloads.
+    /// Record a constant-cost cutoff instead; reveal drops entries at or before it.
+    fn invalidate_weight_commits_for_hotkey(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        block_number: u64,
+    ) {
         for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
             let index = Self::get_mechanism_storage_index(netuid, mecid.into());
             WeightCommits::<T>::remove(index, hotkey);
-
-            let epochs: Vec<u64> = TimelockedWeightCommits::<T>::iter_key_prefix(index).collect();
-            for epoch in epochs {
-                let mut commits = TimelockedWeightCommits::<T>::get(index, epoch);
-                let original_len = commits.len();
-                commits.retain(|(committer, _, _, _)| committer != hotkey);
-                if commits.len() == original_len {
-                    continue;
-                }
-                if commits.is_empty() {
-                    TimelockedWeightCommits::<T>::remove(index, epoch);
-                } else {
-                    TimelockedWeightCommits::<T>::insert(index, epoch, commits);
-                }
-            }
         }
+        TimelockedCommitInvalidatedAt::<T>::insert(netuid, hotkey, block_number);
+    }
+
+    /// Worst-case storage charge for commit invalidation during UID replacement.
+    pub fn registration_commit_cleanup_weight() -> Weight {
+        let writes =
+            u64::from(crate::subnets::mechanism::MAX_MECHANISM_COUNT_PER_SUBNET).saturating_add(1);
+        T::DbWeight::get().writes(writes)
     }
 
     /// Returns the number of filled slots on a network.
@@ -124,7 +126,7 @@ impl<T: Config> Pallet<T> {
         }
 
         T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
-        Self::clear_weight_commits_for_hotkey(netuid, &old_hotkey);
+        Self::invalidate_weight_commits_for_hotkey(netuid, &old_hotkey, block_number);
 
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());

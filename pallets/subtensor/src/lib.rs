@@ -3189,6 +3189,13 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// Last block at which a hotkey's registration on a subnet was replaced.
+    /// Timelocked commits at or before this block belong to the old registration
+    /// and are discarded by the reveal path.
+    #[pallet::storage]
+    pub type TimelockedCommitInvalidatedAt<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Twox64Concat, T::AccountId, u64, OptionQuery>;
+
     /// MAP (netuid, epoch) → VecDeque<(who, ciphertext, reveal_round)>
     /// Deprecated: superseded by `CRV3WeightCommitsV2`.
     #[pallet::storage]
