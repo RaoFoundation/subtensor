@@ -198,6 +198,21 @@ def test_tx_dry_run_from_sample(op: str, fake: FakeSubstrate):
     assert fake.submissions == []
 
 
+@pytest.mark.parametrize("command", ["claim-root", "claim_root"])
+@pytest.mark.parametrize(
+    ("options", "expected_subnets"),
+    [([], [0]), (["--subnets", "0,1"], [0, 1]), (["--subnets", "[0, 2]"], [0, 2])],
+    ids=["default", "csv", "json"],
+)
+def test_tx_claim_root_subnets(command, options, expected_subnets, fake: FakeSubstrate):
+    result = invoke("--yes", "tx", command, "-w", _WALLET_NAME, *options)
+
+    assert result.exit_code == 0, result.exception or result.output
+    assert len(fake.submissions) == 1
+    assert (fake.last_call.module, fake.last_call.function) == ("SubtensorModule", "claim_root")
+    assert fake.last_call.params == {"subnets": expected_subnets}
+
+
 @pytest.mark.parametrize("name", sorted(READ_REGISTRY))
 def test_query_from_sample(name: str, fake_reads: FakeSubstrate):
     result = invoke(

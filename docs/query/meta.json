@@ -112,6 +112,8 @@
     "subnet-names",
     "subnet-registration-cost",
     "subnet-start-schedule",
+    "subnet-state",
+    "subnet-states",
     "subnet-tao-flows",
     "subnets",
     "token-symbols",

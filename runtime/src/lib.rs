@@ -239,7 +239,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 483,
+    spec_version: 487,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1758,6 +1758,11 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_remove_subnet_tao_weight::remove_subnet_tao_weight::Migration<
         Runtime,
     >,
+    // Spec 484: backfill the reporting-only lifecycle map from the active subnet set and
+    // dissolution queue before the first post-upgrade idle block can advance cleanup.
+    // try-runtime compares the complete result with a pre-upgrade snapshot and checks the
+    // one-shot marker.
+    pallet_subtensor::migrations::migrate_subnet_state::subnet_state::Migration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -2756,7 +2761,7 @@ impl_runtime_apis! {
         }
 
         fn current_alpha_price_all() -> Vec<SubnetPrice> {
-            pallet_subtensor::Pallet::<Runtime>::get_all_subnet_netuids()
+            pallet_subtensor::Pallet::<Runtime>::get_all_reportable_subnet_netuids()
                 .into_iter()
                 .map(|netuid| {
                     SubnetPrice {

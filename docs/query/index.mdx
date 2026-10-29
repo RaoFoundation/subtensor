@@ -168,6 +168,8 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`subnet-names`](/docs/query/subnet-names) | Registered name of every subnet that published an identity, keyed by netuid. |
 | [`subnet-registration-cost`](/docs/query/subnet-registration-cost) | Current cost to register a new subnet. |
 | [`subnet-start-schedule`](/docs/query/subnet-start-schedule) | When a registered subnet can call `start_call`. |
+| [`subnet-state`](/docs/query/subnet-state) | Reporting lifecycle for one subnet, or None after cleanup/nonexistence. |
+| [`subnet-states`](/docs/query/subnet-states) | Reporting lifecycle for every active or dissolving subnet. |
 | [`subnet-tao-flows`](/docs/query/subnet-tao-flows) | Per-subnet EMA of net TAO flow, in rao per block. |
 | [`subnets`](/docs/query/subnets) | Info for every subnet, fetched in four batched map queries rather than |
 | [`token-symbols`](/docs/query/token-symbols) | Chain-registered token symbol of every subnet, keyed by netuid. |

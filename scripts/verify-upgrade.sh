@@ -135,6 +135,7 @@ docker run --rm --user root --platform=linux/amd64 \
   -e PACKAGE=node-subtensor-runtime \
   -e BUILD_OPTS="--features=metadata-hash" \
   -e PROFILE=production \
+  -e CONST_RANDOM_SEED=subtensor-runtime \
   -v "$work/cargo-home":/cargo-home \
   -v "$src":/build \
   "$verify_image" bash -c "git config --global --add safe.directory /build && \

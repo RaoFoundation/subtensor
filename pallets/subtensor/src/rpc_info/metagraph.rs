@@ -651,7 +651,7 @@ impl SelectiveMetagraphIndex {
 }
 impl<T: Config> Pallet<T> {
     pub fn get_metagraph(netuid: NetUid) -> Option<Metagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             return None;
         }
 
@@ -686,7 +686,7 @@ impl<T: Config> Pallet<T> {
             Vec<I64F64>,
             Vec<I64F64>,
             Vec<I64F64>,
-        ) = Self::get_stake_weights_for_network(netuid);
+        ) = Self::get_reported_stake_weights_for_network(netuid);
 
         let subnet_volume = SubnetVolume::<T>::get(netuid);
         let (collateral_locked, collateral_min, collateral_earned) =
@@ -827,7 +827,7 @@ impl<T: Config> Pallet<T> {
         })
     }
     pub fn get_all_metagraphs() -> Vec<Option<Metagraph<T::AccountId>>> {
-        let netuids = Self::get_all_subnet_netuids();
+        let netuids = Self::get_all_reportable_subnet_netuids();
         let mut metagraphs = Vec::<Option<Metagraph<T::AccountId>>>::new();
         for netuid in netuids.clone().iter() {
             metagraphs.push(Self::get_metagraph(*netuid));
@@ -836,7 +836,9 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_mechagraph(netuid: NetUid, mecid: MechId) -> Option<Metagraph<T::AccountId>> {
-        if Self::ensure_mechanism_exists(netuid, mecid).is_err() {
+        // This is a reporting wrapper, so do not use `ensure_mechanism_exists`: that helper is
+        // intentionally operational and rejects a subnet as soon as `NetworksAdded` is cleared.
+        if !Self::is_subnet_reportable(netuid) || MechanismCountCurrent::<T>::get(netuid) <= mecid {
             return None;
         }
 
@@ -863,7 +865,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_all_mechagraphs() -> Vec<Option<Metagraph<T::AccountId>>> {
-        let netuids = Self::get_all_subnet_netuids();
+        let netuids = Self::get_all_reportable_subnet_netuids();
         let mut metagraphs = Vec::<Option<Metagraph<T::AccountId>>>::new();
         for netuid in netuids.clone().iter() {
             let mechanism_count = u8::from(MechanismCountCurrent::<T>::get(netuid));
@@ -878,7 +880,7 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             None
         } else {
             let mut result = SelectiveMetagraph::default();
@@ -895,7 +897,7 @@ impl<T: Config> Pallet<T> {
         mecid: MechId,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             None
         } else {
             let mut result = SelectiveMetagraph::default();
@@ -1372,7 +1374,7 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::AlphaStake) => {
                 let (_, alpha_stake_fl, _): (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) =
-                    Self::get_stake_weights_for_network(netuid);
+                    Self::get_reported_stake_weights_for_network(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     alpha_stake: Some(
@@ -1386,7 +1388,7 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::TaoStake) => {
                 let (_, _, tao_stake_fl): (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) =
-                    Self::get_stake_weights_for_network(netuid);
+                    Self::get_reported_stake_weights_for_network(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     tao_stake: Some(
@@ -1400,7 +1402,7 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::TotalStake) => {
                 let (total_stake_fl, _, _): (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) =
-                    Self::get_stake_weights_for_network(netuid);
+                    Self::get_reported_stake_weights_for_network(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     total_stake: Some(

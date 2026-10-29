@@ -34,7 +34,7 @@ pub struct DynamicInfo<AccountId: TypeInfo + Encode + Decode> {
 
 impl<T: Config> Pallet<T> {
     pub fn get_dynamic_info(netuid: NetUid) -> Option<DynamicInfo<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             return None;
         }
         let last_step: u64 = LastMechansimStepBlock::<T>::get(netuid);
@@ -73,7 +73,7 @@ impl<T: Config> Pallet<T> {
         })
     }
     pub fn get_all_dynamic_info() -> Vec<Option<DynamicInfo<T::AccountId>>> {
-        let netuids = Self::get_all_subnet_netuids();
+        let netuids = Self::get_all_reportable_subnet_netuids();
         let mut dynamic_info = Vec::<Option<DynamicInfo<T::AccountId>>>::new();
         for netuid in netuids.clone().iter() {
             dynamic_info.push(Self::get_dynamic_info(*netuid));

@@ -5,9 +5,9 @@ use crate::{
 };
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
-    dispatch::{DispatchExtension, DispatchInfo, PostDispatchInfo},
+    dispatch::{DispatchExtension, DispatchInfo, GetDispatchInfo, Pays, PostDispatchInfo},
     ensure,
-    traits::{IsSubType, IsType, OriginTrait},
+    traits::{Get, IsSubType, IsType, OriginTrait},
     weights::Weight,
 };
 use pallet_commitments::CanCommit;
@@ -16,6 +16,7 @@ use pallet_subtensor_utility as pallet_utility;
 use scale_info::TypeInfo;
 use sp_runtime::traits::{
     DispatchInfoOf, Dispatchable, Implication, StaticLookup, TransactionExtension, ValidateResult,
+    Zero,
 };
 use sp_runtime::{
     impl_tx_ext_default,
@@ -103,7 +104,18 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
         CheckColdkeySwap::<T>::check(who, call)?;
         Self::check_basket_calls(who, call)?;
+        Self::check_call_guards(who, call)
+    }
 
+    /// The per-call checks for `call` dispatched as `who`, other than the coldkey-swap gate.
+    fn check_call_guards(who: &T::AccountId, call: &CallOf<T>) -> Result<(), Error<T>>
+    where
+        T: pallet_commitments::Config,
+        CallOf<T>: Dispatchable<RuntimeOrigin = OriginOf<T>>
+            + IsSubType<Call<T>>
+            + IsSubType<pallet_commitments::Call<T>>,
+        CommitmentPolicy<T>: CanCommit<T::AccountId, Error = Error<T>>,
+    {
         if let Some(Call::pow_register {
             netuid,
             work_block,
@@ -137,6 +149,149 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
         }
 
         Ok(())
+    }
+
+    /// Validate the calls a fee-free wrapper dispatches.
+    ///
+    /// `Proxy::proxy` and the `Utility` batches are fee-free when every call they dispatch is
+    /// (weight calls are `Pays::No`), but transaction extensions only see the outer call. Without
+    /// this walk, a wrapped call that is certain to fail at dispatch would be included for free.
+    /// Each dispatched call must pass the runtime's base call filter and the checks it would face
+    /// as the outer call of the account it dispatches as, every proxy hop must resolve to a
+    /// zero-delay delegation whose type (and every outer hop's type) admits the dispatched calls,
+    /// and no two calls may share a pool tag (PoW solution or rate-limited commit). Returns those
+    /// tags for the pool.
+    fn check_fee_free_wrapped_calls(
+        who: &T::AccountId,
+        call: &CallOf<T>,
+    ) -> Result<Vec<Vec<u8>>, CustomTransactionError>
+    where
+        T: pallet_commitments::Config
+            + pallet_proxy::Config
+            + pallet_shield::Config
+            + pallet_utility::Config,
+        CallOf<T>: Dispatchable<RuntimeOrigin = OriginOf<T>>
+            + IsSubType<Call<T>>
+            + IsSubType<pallet_commitments::Call<T>>
+            + IsSubType<pallet_proxy::Call<T>>
+            + IsSubType<pallet_utility::Call<T>>
+            + IsSubType<pallet_shield::Call<T>>,
+        CommitmentPolicy<T>: CanCommit<T::AccountId, Error = Error<T>>,
+    {
+        use frame_support::traits::{Contains, InstanceFilter};
+
+        let mut pending = Vec::new();
+        if !Self::push_dispatched_calls(who, call, &[], &mut pending)? {
+            return Ok(Vec::new());
+        }
+        // Signed dispatch applies the runtime's base filter (safe mode, no nested batches) to
+        // the wrapper and to every call it dispatches.
+        ensure!(
+            <T as frame_system::Config>::BaseCallFilter::contains(call),
+            CustomTransactionError::BadRequest
+        );
+
+        let mut tags: Vec<Vec<u8>> = Vec::new();
+        while let Some((signer, call, filters)) = pending.pop() {
+            let proxied: &<T as pallet_proxy::Config>::RuntimeCall = IsType::from_ref(call);
+            ensure!(
+                <T as frame_system::Config>::BaseCallFilter::contains(call),
+                CustomTransactionError::BadRequest
+            );
+            ensure!(
+                filters.iter().all(|proxy_type| proxy_type.filter(proxied)),
+                CustomTransactionError::InvalidRealAccount
+            );
+            if Self::push_dispatched_calls(&signer, call, &filters, &mut pending)? {
+                continue;
+            }
+
+            CheckColdkeySwap::<T>::check(&signer, call)
+                .and_then(|()| Self::check_call_guards(&signer, call))
+                .map_err(CustomTransactionError::from)?;
+            for tag in Self::provides_tags(&signer, call) {
+                ensure!(
+                    !tags.contains(&tag),
+                    CustomTransactionError::RateLimitExceeded
+                );
+                tags.push(tag);
+            }
+        }
+        Ok(tags)
+    }
+
+    /// Queue the calls `call` dispatches, with the account and proxy filters each dispatches
+    /// under, if `call` is a `Proxy::proxy` or `Utility` wrapper. Returns whether it was one.
+    #[allow(clippy::type_complexity)]
+    fn push_dispatched_calls<'a>(
+        signer: &T::AccountId,
+        call: &'a CallOf<T>,
+        filters: &[<T as pallet_proxy::Config>::ProxyType],
+        pending: &mut Vec<(
+            T::AccountId,
+            &'a CallOf<T>,
+            Vec<<T as pallet_proxy::Config>::ProxyType>,
+        )>,
+    ) -> Result<bool, CustomTransactionError>
+    where
+        T: pallet_proxy::Config + pallet_utility::Config,
+        CallOf<T>: IsSubType<pallet_proxy::Call<T>> + IsSubType<pallet_utility::Call<T>>,
+    {
+        let utility_call: Option<&pallet_utility::Call<T>> = call.is_sub_type();
+        match utility_call {
+            Some(
+                pallet_utility::Call::batch { calls }
+                | pallet_utility::Call::batch_all { calls }
+                | pallet_utility::Call::force_batch { calls },
+            ) => {
+                pending.extend(
+                    calls
+                        .iter()
+                        .map(|inner| (signer.clone(), inner.into_ref(), filters.to_vec())),
+                );
+                return Ok(true);
+            }
+            Some(pallet_utility::Call::as_derivative { index, call }) => {
+                let derivative =
+                    pallet_utility::Pallet::<T>::derivative_account_id(signer.clone(), *index)
+                        .map_err(|_| CustomTransactionError::BadRequest)?;
+                pending.push((derivative, call.as_ref().into_ref(), filters.to_vec()));
+                return Ok(true);
+            }
+            Some(pallet_utility::Call::if_else { main, fallback }) => {
+                pending.push((signer.clone(), main.as_ref().into_ref(), filters.to_vec()));
+                pending.push((
+                    signer.clone(),
+                    fallback.as_ref().into_ref(),
+                    filters.to_vec(),
+                ));
+                return Ok(true);
+            }
+            _ => {}
+        }
+
+        let proxy_call: Option<&pallet_proxy::Call<T>> = call.is_sub_type();
+        if let Some(pallet_proxy::Call::proxy {
+            real,
+            force_proxy_type,
+            call: inner,
+        }) = proxy_call
+        {
+            let real = LookupOf::<T>::lookup(real.clone())
+                .map_err(|_| CustomTransactionError::InvalidRealAccount)?;
+            let def =
+                pallet_proxy::Pallet::<T>::find_proxy(&real, signer, force_proxy_type.clone())
+                    .map_err(|_| CustomTransactionError::InvalidRealAccount)?;
+            ensure!(
+                def.delay.is_zero(),
+                CustomTransactionError::InvalidRealAccount
+            );
+            let mut inner_filters = filters.to_vec();
+            inner_filters.push(def.proxy_type);
+            pending.push((real, inner.as_ref().into_ref(), inner_filters));
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     /// Validate basket trades nested in wrappers that can dispatch calls from a signed origin.
@@ -319,6 +474,118 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
         weight
     }
+
+    fn pow_registration_tag(call: &CallOf<T>) -> Option<Vec<u8>>
+    where
+        CallOf<T>: IsSubType<Call<T>>,
+    {
+        match call.is_sub_type() {
+            Some(Call::<T>::pow_register {
+                work_block, hotkey, ..
+            }) => Some((b"pow-registration", hotkey, work_block).encode()),
+            _ => None,
+        }
+    }
+
+    /// Pool tags for `call` dispatched as `who`: one PoW solution and one rate-limited weight
+    /// commit per tag.
+    fn provides_tags(who: &T::AccountId, call: &CallOf<T>) -> Vec<Vec<u8>>
+    where
+        CallOf<T>: IsSubType<Call<T>>,
+    {
+        let mut tags: Vec<Vec<u8>> = Self::pow_registration_tag(call).into_iter().collect();
+        if let Some(call) = applicable_call(call, CheckRateLimits::<T>::applies_to) {
+            tags.extend(CheckRateLimits::<T>::provides_tags(who, call));
+        }
+        tags
+    }
+
+    /// Weight of [`Self::check_call_guards`] plus the coldkey-swap gate for one call.
+    fn call_guards_weight(call: &CallOf<T>) -> Weight
+    where
+        T: pallet_commitments::Config + pallet_shield::Config,
+        CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+            + IsSubType<Call<T>>
+            + IsSubType<pallet_commitments::Call<T>>
+            + IsSubType<pallet_shield::Call<T>>,
+        OriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+    {
+        use DispatchExtension as DE;
+        let pow_weight = if matches!(call.is_sub_type(), Some(Call::<T>::pow_register { .. })) {
+            <T as Config>::WeightInfo::check_pow_registration()
+        } else {
+            Weight::zero()
+        };
+        <CheckColdkeySwap<T> as DE<CallOf<T>>>::weight(call)
+            .saturating_add(<CheckWeights<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckRateLimits<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckDelegateTake<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckServingEndpoints<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(Self::commitment_weight(call))
+            .saturating_add(pow_weight)
+    }
+
+    /// Weight of [`Self::check_fee_free_wrapped_calls`]: the per-call checks of every dispatched
+    /// call, plus one proxy lookup per `Proxy::proxy` hop. Zero unless the extrinsic is fee-free.
+    fn fee_free_wrapped_weight(call: &CallOf<T>) -> Weight
+    where
+        T: pallet_commitments::Config
+            + pallet_proxy::Config
+            + pallet_shield::Config
+            + pallet_utility::Config,
+        CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+            + GetDispatchInfo
+            + IsSubType<Call<T>>
+            + IsSubType<pallet_commitments::Call<T>>
+            + IsSubType<pallet_proxy::Call<T>>
+            + IsSubType<pallet_utility::Call<T>>
+            + IsSubType<pallet_shield::Call<T>>,
+        OriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+    {
+        if call.get_dispatch_info().pays_fee != Pays::No {
+            return Weight::zero();
+        }
+
+        let mut weight = Weight::zero();
+        let mut pending = Vec::from([(call, true)]);
+        while let Some((call, is_outer)) = pending.pop() {
+            let utility_call: Option<&pallet_utility::Call<T>> = call.is_sub_type();
+            match utility_call {
+                Some(
+                    pallet_utility::Call::batch { calls }
+                    | pallet_utility::Call::batch_all { calls }
+                    | pallet_utility::Call::force_batch { calls },
+                ) => {
+                    pending.extend(calls.iter().map(|inner| (inner.into_ref(), false)));
+                    continue;
+                }
+                Some(pallet_utility::Call::as_derivative { call, .. }) => {
+                    pending.push((call.as_ref().into_ref(), false));
+                    continue;
+                }
+                Some(pallet_utility::Call::if_else { main, fallback }) => {
+                    pending.push((main.as_ref().into_ref(), false));
+                    pending.push((fallback.as_ref().into_ref(), false));
+                    continue;
+                }
+                _ => {}
+            }
+
+            let proxy_call: Option<&pallet_proxy::Call<T>> = call.is_sub_type();
+            if let Some(pallet_proxy::Call::proxy { call, .. }) = proxy_call {
+                weight = weight.saturating_add(T::DbWeight::get().reads(1));
+                pending.push((call.as_ref().into_ref(), false));
+                continue;
+            }
+
+            // The outer call's own checks are already counted by `weight`.
+            if !is_outer {
+                weight = weight.saturating_add(Self::call_guards_weight(call));
+            }
+        }
+        weight
+    }
 }
 
 impl<T> TransactionExtension<CallOf<T>> for SubtensorTransactionExtension<T>
@@ -347,59 +614,46 @@ where
     type Pre = ();
 
     fn weight(&self, call: &CallOf<T>) -> Weight {
-        use DispatchExtension as DE;
-        let pow_weight = if matches!(call.is_sub_type(), Some(Call::<T>::pow_register { .. })) {
-            <T as Config>::WeightInfo::check_pow_registration()
-        } else {
-            Weight::zero()
-        };
-        <CheckColdkeySwap<T> as DE<CallOf<T>>>::weight(call)
-            .saturating_add(<CheckWeights<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckRateLimits<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckDelegateTake<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckServingEndpoints<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(Self::commitment_weight(call))
+        Self::call_guards_weight(call)
             .saturating_add(Self::basket_trade_weight(call))
-            .saturating_add(pow_weight)
+            .saturating_add(Self::fee_free_wrapped_weight(call))
     }
 
     fn validate(
         &self,
         origin: OriginOf<T>,
         call: &CallOf<T>,
-        _info: &DispatchInfoOf<CallOf<T>>,
+        info: &DispatchInfoOf<CallOf<T>>,
         _len: usize,
         _self_implicit: Self::Implicit,
         _inherited_implication: &impl Implication,
         _source: TransactionSource,
     ) -> ValidateResult<Self::Val, CallOf<T>> {
         Self::check(&origin, call)
-            .map(|()| {
+            .map_err(CustomTransactionError::from)
+            .and_then(|()| {
                 let mut validity = ValidTransaction::default();
-                if let Some(Call::<T>::pow_register {
-                    work_block, hotkey, ..
-                }) = call.is_sub_type()
-                {
+                if let Some(Call::<T>::pow_register { work_block, .. }) = call.is_sub_type() {
                     validity.longevity = crate::subnets::registration::POW_MAX_WORK_AGE_BLOCKS
                         .saturating_sub(
                             Pallet::<T>::get_current_block_as_u64().saturating_sub(*work_block),
                         )
                         .saturating_add(1);
-                    validity
-                        .provides
-                        .push((b"pow-registration", hotkey, work_block).encode());
                 }
-                if let Some(who) = origin.as_signer()
-                    && let Some(call) = applicable_call(call, CheckRateLimits::<T>::applies_to)
-                {
-                    validity
-                        .provides
-                        .extend(CheckRateLimits::<T>::provides_tags(who, call));
+                match origin.as_signer() {
+                    Some(who) => {
+                        validity.provides.extend(Self::provides_tags(who, call));
+                        if info.pays_fee == Pays::No {
+                            validity
+                                .provides
+                                .extend(Self::check_fee_free_wrapped_calls(who, call)?);
+                        }
+                    }
+                    None => validity.provides.extend(Self::pow_registration_tag(call)),
                 }
-                (validity, (), origin)
+                Ok((validity, (), origin))
             })
-            .map_err(|error| TransactionValidityError::from(CustomTransactionError::from(error)))
+            .map_err(TransactionValidityError::from)
     }
 
     impl_tx_ext_default!(CallOf<T>; prepare);

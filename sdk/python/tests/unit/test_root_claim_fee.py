@@ -54,18 +54,39 @@ def test_reserved_fallback_charges_the_fee_allowance_not_the_envelope():
     ) == fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
 
 
-# Recorded from the spec 467 CI release node (PR #3183, commit 546d26bd9), at genesis, for
-# fake-signed //Alice extrinsics: ``TransactionPaymentApi_query_info`` ``weight.ref_time``
-# and ``payment_queryFeeDetails`` ``adjustedWeightFee`` (rao). The 60_000_000 ref_time gap
-# between the node weight and the SDK's declared model is the folded dispatch-extension
-# weight, which the fee wrapper does not discount.
+def test_single_hotkey_admission_covers_full_subnet_limit_plus_root_basket():
+    admission = fees.RootClaimAdmission(
+        hotkeys=(ALICE_HOT,),
+        holding_counts=(129,),
+        networks=129,
+        limit=fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
+        selection_scans=0,
+    )
+    assert admission.limit == 130
+    assert not admission.too_heavy
+
+    overloaded = fees.RootClaimAdmission(
+        hotkeys=(ALICE_HOT,),
+        holding_counts=(130,),
+        networks=130,
+        limit=fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
+        selection_scans=0,
+    )
+    assert overloaded.too_heavy
+
+
+# Based on the spec 467 CI release-node quotes (PR #3183, commit 546d26bd9), adjusted in
+# spec 484 for the single-hotkey envelope increase from 129 to 130 units. The charged fee
+# stays fixed at the four-unit allowance. The 60_000_000 ref_time gap between the node
+# weight and the SDK's declared model is the folded dispatch-extension weight, which the
+# fee wrapper does not discount.
 _EXTENSION_REF_TIME = 60_000_000
 _NODE_QUOTES = [
-    ("claim_root_with_hotkey", 2_048_205_118_028, 8_224_263, [fees._MAX_ROOT_CLAIM_HOTKEY_WORK]),
+    ("claim_root_with_hotkey", 2_051_581_040_648, 8_224_263, [fees._MAX_ROOT_CLAIM_HOTKEY_WORK]),
     ("claim_root", 2_476_947_290_768, 8_224_263, [fees._MAX_ROOT_CLAIM_WORK]),
     (
         "batch_all[claim_root_with_hotkey, claim_root]",
-        4_525_285_010_166,
+        4_528_660_932_786,
         16_481_677,
         [fees._MAX_ROOT_CLAIM_HOTKEY_WORK, fees._MAX_ROOT_CLAIM_WORK],
     ),
@@ -73,7 +94,7 @@ _NODE_QUOTES = [
 
 
 @pytest.mark.parametrize(("name", "weight", "weight_fee", "limits"), _NODE_QUOTES)
-def test_discount_model_matches_the_467_release_node(name, weight, weight_fee, limits):
+def test_discount_model_matches_the_release_node_quotes(name, weight, weight_fee, limits):
     discount = sum(fees.root_claim_fee_discount_ref_time(limit) for limit in limits)
     assert fees._weight_fee_rao(weight - discount) == weight_fee, name
     if len(limits) == 1:
@@ -620,10 +641,14 @@ async def test_single_hotkey_quote_uses_the_dust_aware_preview_on_mixed_dust():
     # The work estimate prices two redeemed rows and one scanned row, not three redeemed.
     reserved = fees.Balance.from_rao(10**9)
     spent_all_sold = fees._spent_fee(
-        reserved, fees.RootClaimWork(hotkeys=1, redeem_holdings=3, scan_holdings=0), 129
+        reserved,
+        fees.RootClaimWork(hotkeys=1, redeem_holdings=3, scan_holdings=0),
+        fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
     )
     spent_dust_aware = fees._spent_fee(
-        reserved, fees.RootClaimWork(hotkeys=1, redeem_holdings=2, scan_holdings=1), 129
+        reserved,
+        fees.RootClaimWork(hotkeys=1, redeem_holdings=2, scan_holdings=1),
+        fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
     )
     assert spent_dust_aware.rao < spent_all_sold.rao
     assert quote.spent.rao <= quote.reserved.rao
@@ -773,10 +798,14 @@ async def test_quote_prices_consolidated_rows_as_full_claim_units():
     # 3 full units plus 5 scans: consolidation is swap work, not scans.
     uncapped = Balance.from_rao(10**9)
     full_units = fees._spent_fee(
-        uncapped, fees.RootClaimWork(hotkeys=1, redeem_holdings=9, scan_holdings=0), 129
+        uncapped,
+        fees.RootClaimWork(hotkeys=1, redeem_holdings=9, scan_holdings=0),
+        fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
     )
     scans_only = fees._spent_fee(
-        uncapped, fees.RootClaimWork(hotkeys=1, redeem_holdings=3, scan_holdings=5), 129
+        uncapped,
+        fees.RootClaimWork(hotkeys=1, redeem_holdings=3, scan_holdings=5),
+        fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
     )
     assert full_units.rao > scans_only.rao
 

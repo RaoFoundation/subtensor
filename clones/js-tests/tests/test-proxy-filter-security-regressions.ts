@@ -201,8 +201,23 @@ async function addProxyRelationships() {
   }
 }
 
+// Fee-free proxied calls (weights, serving, commitments) are validated in the
+// transaction pool: a proxy type that does not admit the call is rejected with
+// InvalidRealAccount (custom error 22) before inclusion; an admitted call may
+// still be rejected by its own checks (e.g. no stake on the real account).
+const INVALID_REAL_ACCOUNT = 22;
+
 async function expectProxyTypeDenied(label, proxyType, call) {
   const result = await proxyCall(proxyType, call, label);
+  if (result.poolError !== undefined) {
+    assert.equal(
+      result.poolError,
+      INVALID_REAL_ACCOUNT,
+      `${label}: expected pool rejection InvalidRealAccount (22), got custom error ${result.poolError}`
+    );
+    console.log(`${label}: denied by proxy type at validation`);
+    return;
+  }
   assert.equal(
     result.error,
     "system.CallFiltered",
@@ -213,16 +228,24 @@ async function expectProxyTypeDenied(label, proxyType, call) {
 
 async function expectProxyTypeAllowed(label, proxyType, call) {
   const result = await proxyCall(proxyType, call, label);
+  if (result.poolError !== undefined) {
+    assert.notEqual(result.poolError, INVALID_REAL_ACCOUNT, `${label}: proxy type unexpectedly rejected at validation`);
+    console.log(`${label}: passed proxy type check; call rejected by its own validation (custom error ${result.poolError})`);
+    return;
+  }
   assert.notEqual(result.error, "system.CallFiltered", `${label}: unexpectedly denied by proxy filter`);
   console.log(`${label}: passed proxy filter with inner result ${result.error ?? "Ok"}`);
 }
 
 async function proxyCall(proxyType, call, label) {
-  const result = await submitAndWait(
-    delegate,
-    api.tx.proxy.proxy(real.address, proxyType, call),
-    `proxy ${label}`
-  );
+  let result;
+  try {
+    result = await submitAndWait(delegate, api.tx.proxy.proxy(real.address, proxyType, call), `proxy ${label}`);
+  } catch (error) {
+    const match = /Invalid Transaction: Custom error: (\d+)/.exec(String(error?.message ?? error));
+    if (!match) throw error;
+    return { poolError: Number(match[1]) };
+  }
   const event = assertEvent(result.events, "proxy", "ProxyExecuted");
   const dispatchResult = event.event.data.result ?? event.event.data[0];
   if (dispatchResult.isOk) {

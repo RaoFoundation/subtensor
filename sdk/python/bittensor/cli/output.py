@@ -1243,8 +1243,15 @@ class Output:
         disagree on, so nothing that must stay column-aligned may come after
         one. ``footer`` is a human-only summary line; ``legend`` is a
         human-only list of ``(term, meaning)`` pairs explaining the columns."""
-        columns = ["price (τ)", "emission (τ/day)", "flow (τ/day)", "burn"]
-        keys = ["price", "emission", "flow", "burn"]
+        columns = [
+            "state",
+            "pool emission",
+            "price (τ)",
+            "emission (τ/day)",
+            "flow (τ/day)",
+            "burn",
+        ]
+        keys = ["state", "pool_emission", "price", "emission", "flow", "burn"]
         symbols = [self.unit(int(row["netuid"])) for row in rows]
         symbol_width = max((cell_len(symbol) for symbol in symbols), default=0)
         tails = []

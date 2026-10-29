@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: crowdloan_update_cap
+expression: fee
+---
+76288

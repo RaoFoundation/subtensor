@@ -1161,7 +1161,7 @@ impl<T: Config> Pallet<T> {
         Self::root_claim_declared_weight_for(Self::root_claim_declared_work())
     }
 
-    /// Single-hotkey declared weight: the 129-unit envelope plus the same flush allowance.
+    /// Single-hotkey declared weight: the 130-unit envelope plus the same flush allowance.
     pub(crate) fn root_claim_hotkey_declared_weight() -> Weight {
         Self::root_claim_declared_weight_for(Self::root_claim_hotkey_declared_work())
     }

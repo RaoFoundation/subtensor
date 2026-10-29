@@ -109,8 +109,20 @@ jobs:
 
           # The release train reserves this exact lightweight tag before
           # submitting the multisig. Never accept an ambiguously named branch.
-          tag_json=$(gh api \
-            "repos/$GITHUB_REPOSITORY/git/ref/tags/${release_tag}")
+          # A runtime deployed outside the train has no tag until
+          # publish-deployed-runtime.yml verifies and publishes it.
+          if ! tag_json=$(gh api \
+              "repos/$GITHUB_REPOSITORY/git/ref/tags/${release_tag}" 2>/tmp/release-tag.err); then
+            if grep -q 'HTTP 404' /tmp/release-tag.err; then
+              echo "No ${release_tag} tag: runtime ${chain_spec} was not deployed by the release train."
+              echo "Dispatch 'Publish Deployed Runtime' to publish it."
+              echo "release_needed=false" >> "$GITHUB_OUTPUT"
+              echo "python_needed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            cat /tmp/release-tag.err >&2
+            exit 1
+          fi
           tag_type=$(jq -er '.object.type' <<<"$tag_json")
           [ "$tag_type" = commit ] \
             || { echo "release tag must be a lightweight Git tag, found $tag_type"; exit 1; }

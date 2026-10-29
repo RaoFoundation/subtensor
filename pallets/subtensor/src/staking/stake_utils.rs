@@ -311,6 +311,79 @@ impl<T: Config> Pallet<T> {
         (total_stake, alpha_stake, tao_stake)
     }
 
+    /// Reporting-only stake weights that hide hotkeys after dissolution settlement pays them.
+    pub fn get_reported_stake_weights_for_network(
+        netuid: NetUid,
+    ) -> (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) {
+        let tao_weight = I64F64::saturating_from_num(Self::get_tao_weight());
+        let n = Self::get_subnetwork_n(netuid);
+
+        // Filter source balances before applying inheritance. Settlement pays one hotkey at a
+        // time but leaves its physical alpha in storage until the following cleanup phase; using
+        // the raw balance here would keep that paid alpha visible through an unpaid child.
+        let alpha_stake = (0..n)
+            .map(|uid| {
+                Keys::<T>::try_get(netuid, uid)
+                    .ok()
+                    .filter(|hotkey| Self::is_hotkey_stake_reportable(netuid, hotkey))
+                    .map(|hotkey| {
+                        I64F64::saturating_from_num(
+                            Self::get_reported_inherited_for_hotkey_on_subnet(&hotkey, netuid),
+                        )
+                    })
+                    .unwrap_or_else(|| I64F64::from_num(0))
+            })
+            .collect::<Vec<_>>();
+        let tao_stake = (0..n)
+            .map(|uid| {
+                Keys::<T>::try_get(netuid, uid)
+                    .ok()
+                    .filter(|hotkey| Self::is_hotkey_stake_reportable(netuid, hotkey))
+                    .map(|hotkey| {
+                        I64F64::saturating_from_num(Self::get_tao_inherited_for_hotkey_on_subnet(
+                            &hotkey, netuid,
+                        ))
+                    })
+                    .unwrap_or_else(|| I64F64::from_num(0))
+            })
+            .collect::<Vec<_>>();
+        let total_stake = alpha_stake
+            .iter()
+            .zip(&tao_stake)
+            .map(|(alpha, tao)| alpha.saturating_add(tao.saturating_mul(tao_weight)))
+            .collect();
+
+        (total_stake, alpha_stake, tao_stake)
+    }
+
+    /// Reporting-only hotkey stake, zeroed once dissolution settlement has paid the hotkey.
+    pub fn get_reported_stake_for_hotkey_on_subnet(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> AlphaBalance {
+        if Self::is_hotkey_stake_reportable(netuid, hotkey) {
+            Self::get_stake_for_hotkey_on_subnet(hotkey, netuid)
+        } else {
+            AlphaBalance::ZERO
+        }
+    }
+
+    /// Reporting-only coldkey total that follows the dissolution payout cursor.
+    pub fn get_reported_total_coldkey_alpha_on_subnet(
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> AlphaBalance {
+        StakingHotkeys::<T>::get(coldkey)
+            .into_iter()
+            .filter(|hotkey| Self::is_hotkey_stake_reportable(netuid, hotkey))
+            .map(|hotkey| {
+                Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, coldkey, netuid)
+            })
+            .fold(AlphaBalance::ZERO, |total, stake| {
+                total.saturating_add(stake)
+            })
+    }
+
     /// Null stake election uses the same inherited-stake arithmetic as Yuma,
     /// but loads registered balances once and shares delegation inputs between
     /// alpha and root stake. The cache is bounded by the registered population;
@@ -505,9 +578,30 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         netuid: NetUid,
     ) -> AlphaBalance {
+        Self::get_inherited_for_hotkey_on_subnet_with(hotkey, netuid, |hotkey, netuid| {
+            Self::get_stake_for_hotkey_on_subnet(hotkey, netuid)
+        })
+    }
+
+    fn get_reported_inherited_for_hotkey_on_subnet(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> AlphaBalance {
+        Self::get_inherited_for_hotkey_on_subnet_with(hotkey, netuid, |hotkey, netuid| {
+            Self::get_reported_stake_for_hotkey_on_subnet(hotkey, netuid)
+        })
+    }
+
+    fn get_inherited_for_hotkey_on_subnet_with<F>(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        stake_for_hotkey: F,
+    ) -> AlphaBalance
+    where
+        F: Fn(&T::AccountId, NetUid) -> AlphaBalance,
+    {
         // Step 1: Retrieve the initial total stake (alpha) for the hotkey on the specified subnet.
-        let initial_alpha: U96F32 =
-            U96F32::saturating_from_num(Self::get_stake_for_hotkey_on_subnet(hotkey, netuid));
+        let initial_alpha = U96F32::saturating_from_num(stake_for_hotkey(hotkey, netuid));
         log::debug!("Initial alpha for hotkey {hotkey:?} on subnet {netuid}: {initial_alpha:?}");
         if netuid.is_root() {
             return initial_alpha.saturating_to_num::<u64>().into();
@@ -543,8 +637,7 @@ impl<T: Config> Pallet<T> {
         // Step 4: Calculate the total alpha inherited from parents.
         for (proportion, parent) in parents {
             // Retrieve the parent's total stake on this subnet.
-            let parent_alpha: U96F32 =
-                U96F32::saturating_from_num(Self::get_stake_for_hotkey_on_subnet(&parent, netuid));
+            let parent_alpha = U96F32::saturating_from_num(stake_for_hotkey(&parent, netuid));
             log::trace!("Parent alpha for parent {parent:?} on subnet {netuid}: {parent_alpha:?}");
 
             // Convert the proportion to a normalized value between 0 and 1.

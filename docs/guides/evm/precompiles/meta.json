@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "bls12-381",
+    "dispatch",
     "extrinsic-coverage",
     "balance-transfer",
     "staking-v1",
