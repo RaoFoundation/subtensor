@@ -1,4 +1,4 @@
-% Lift lending: no-arbitrage notes (μ method)
+% Lift lending: no-arbitrage notes (mu method)
 % Public review companion to PR #3268. Commit early; expand in increments.
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
@@ -12,13 +12,14 @@
 \title{No-arbitrage for lift lending\\
 \large Bounded TAO-cycles, $\mu$'s $F$, and the lift/readd inverse}
 \author{Subtensor lending (PR \#3268)\\
-Working note --- increment 3b (Balancer coherence + cycle search)}
+Working note --- increment 3c (fixed-weight vs Uni~v2 + Jacob rec)}
 \date{2026-10-29}
 
 \newtheorem{theorem}{Theorem}
 \newtheorem{conjecture}{Conjecture}
 \newtheorem{proposition}{Proposition}
 \newtheorem{lemma}{Lemma}
+\newtheorem{corollary}{Corollary}
 \theoremstyle{definition}
 \newtheorem{definition}{Definition}
 \newtheorem{cycle}{Cycle}
@@ -38,13 +39,13 @@ has expected value $>1$ (attacker profit).
 
 Increments 1--2 recorded $\mu$'s $F$, Cycle~A, and the failure of
 EMA/capacity protections under weight-updating re-add.
-\textbf{Increment 3/3b} records the clone drain, answers $\mu$'s
-``abandon Balancer?'' (no: stake/unstake stay weighted; only lending
-lift/readd bypasses the asymmetric-join weight update), compares
-design~(a) exact-delta restore vs design~(b) $\Delta L$ join, and
-reports a bounded cycle search: buggy profitable, (a) and (b) not on
-the grid. Full closed-form proof remains open; we ship (a) after the
-search clears it.
+\textbf{Increment 3c} records the clone drain; answers $\mu$'s
+``abandon Balancer / just Uniswap~v2?'' (no: swaps were already
+fixed-weight weighted CPMM; Uni~v2 is only $w=\tfrac12$; only lending
+readd skips asymmetric-join reweight); compares designs
+(a)--(e); reports a bounded cycle search; and states a recommendation
+for Jacob (ship~(a); harden with~(b) if needed). Full closed-form
+proof remains open.
 \end{abstract}
 
 \tableofcontents
@@ -328,7 +329,7 @@ $\varphi=33/65535$ (\texttt{scripts/no\_arbitrage\_F.py}):
 \begin{center}
 \begin{tabular}{@{}rrr@{}}
 \toprule
-$f_h$ & $F$ (fee only) & $F<1$? (μ profit) \\
+$f_h$ & $F$ (fee only) & $F<1$? ($\mu$ profit) \\
 \midrule
 $0.01$  & $1.000485$ & no \\
 $0.05$  & $1.000409$ & no \\
@@ -352,7 +353,7 @@ multiplicative swap tax $0.5\%$ per leg in the sketch model:
 \begin{center}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
-dump & weights & $F_A$ & profit (τ) & $w_1$ after \\
+dump & weights & $F_A$ & profit ($\tau$) & $w_1$ after \\
 \midrule
 $0\%$  & update & $1.0176$ & $+291$ & $0.515$ \\
 $0\%$  & keep   & $0.9631$ & $-609$ & $0.500$ \\
@@ -674,11 +675,156 @@ Regression coverage (pallet tests):
   \item \texttt{sn29\_short\_foreign\_pump\_wallet\_repay\_\ldots} (a13).
 \end{itemize}
 
+%----------------------------------------------------------------------
+\section{Follow-up: ``is this just Uniswap v2?''}
+\label{sec:univ2}
+
+$\mu$: \emph{if you don't change (or re-derive) the weights, it's
+basically back to Uniswap~v2.}
+
+\subsection{What main actually re-derives}
+Main's Balancer has \textbf{two} distinct operations:
+\begin{enumerate}
+  \item \textbf{Swaps} (stake / unstake): reserves move on the curve
+        $L=x^{w_1}y^{w_2}$ at the \emph{stored} weights. Weights are
+        \textbf{not} re-derived mid-swap. This was already true before
+        lending existed.
+  \item \textbf{Asymmetric liquidity adds} (emissions via
+        \texttt{adjust\_protocol\_liquidity}): reserves receive an
+        arbitrary $(\mathrm{d}y,\mathrm{d}x)$; then
+        \texttt{update\_weights\_for\_added\_liquidity} solves for new
+        $(w_1,w_2)$ so that post-add spot equals pre-add spot. That is
+        the price-neutral join. It is \emph{not} part of the swap path.
+\end{enumerate}
+So ``Balancer behaviour'' on main $=$ fixed-weight weighted CPMM for
+trades, plus optional weight re-derivation on protocol/user
+\emph{liquidity adds} so those adds do not move price.
+
+\subsection{Fixed weights $\neq$ Uniswap v2}
+Uniswap~v2 is the \textbf{special case} $w_1=w_2=\tfrac12$ of the
+Balancer invariant ($L=\sqrt{xy}$, $p=y/x$). With $w_1\neq w_2$ held
+fixed, the pool is still a \textbf{weighted} Balancer CPMM:
+\[
+  p=\frac{w_1}{w_2}\frac{y}{x},\qquad
+  L=x^{w_1}y^{w_2},
+\]
+with the same swap closed forms main already uses. SN29-like books run
+near $w_1\approx 0.47$, not $\tfrac12$. Design~(a) does not force
+equal weights; it refuses to \emph{rewrite} them on lending readd.
+
+\subsection{What is true while a lift is outstanding}
+After lift, $(w_1,w_2)$ are unchanged (lift is proportional). Every
+swap against the thinner book is therefore a fixed-weight Balancer
+swap --- \textbf{exactly as every swap already was}. Lending did not
+``switch the AMM off Balancer''; swaps never consulted the asymmetric-join
+reweight. The only behavioural change under (a) is on the
+\textbf{readd after skew}: instead of a price-neutral asymmetric join
+(reweight to keep the post-pump spot), the protocol credits the
+snapshot legs at fixed $w$, which can move spot and need not restore
+$L_0$.
+
+\subsection{What is lost versus ``full'' Balancer join behaviour?}
+\begin{center}
+\begin{tabular}{@{}lp{0.62\textwidth}@{}}
+\toprule
+Surface & Under design~(a) \\
+\midrule
+Stake / unstake & Unchanged: weighted CPMM at stored $w$. \\
+Emissions / protocol adds & Unchanged: still
+  \texttt{adjust\_protocol\_liquidity} + weight re-derivation. \\
+User LP-style asymmetric adds & Unchanged (lending is not that path). \\
+Lending readd after skew & \textbf{Lost:} price-neutrality of the
+  asymmetric join. Readd may move spot; $L$ may drift from $L_0$. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Is that acceptable?} Yes, as an emergency root fix:
+readd is the protocol restoring its own previously removed inventory,
+not a third-party LP joining at the mark. The property we must not
+give attackers is ``crystallize a pumped spot into $w$ and inflate
+$L$.'' Giving up price-neutral readd for that one path is the cost.
+Bounded search (Section~\ref{sec:search}): no profitable cycle on the
+grid. Full proof still open.
+
+%----------------------------------------------------------------------
+\section{Designs that keep re-derivation elsewhere}
+\label{sec:keep-rederive}
+
+Goal: emissions / other asymmetric adds still re-derive weights;
+lending's open$\to$swap$\to$close cycle is non-extractable.
+
+\paragraph{(a) --- shipped.}
+Lending: fixed-$w$ credit of snapshot deltas. Elsewhere: re-derive as
+today. Pros: smallest diff; exact lift inverse on the quiet path;
+kills a13/a15; search-clean. Cons: readd can move spot; $L$ not
+restored after skew; proof open.
+
+\paragraph{(b) --- $\Delta L$ proportional join + residual MTM.}
+Lending readd never needs weight re-derivation (join is proportional at
+the \emph{current} ratio). Residual custody vs proportional basket is
+one Balancer swap (fees apply). Pros: spot preserved on join; $L$
+restored by construction; search-clean; closest to ``Balancer LP
+semantics.'' Cons: new residual-swap accounting; residual is a surface
+to audit; more code.
+
+\paragraph{(c) --- re-derive against the \emph{lift-time} ratio.}
+Idea: call \texttt{update\_weights\_for\_added\_liquidity} with the
+lift-time book (or the lift ratio) instead of the skewed mark.
+But the lift legs $(\Delta y,\Delta x)$ are \emph{proportional} to the
+lift-time reserves, so a weight update computed against that ratio is
+a \textbf{no-op} --- same $w$ as (a). If instead one reweights the
+\emph{skewed} post-credit reserves so that spot equals the
+\textbf{lift-time} spot, that forces price back to a historical level
+and is a different (likely more dangerous) policy. Verdict: ``re-derive
+at lift-time ratio'' for proportional lift legs collapses to (a); the
+force-price-to-lift-spot reading is not recommended.
+
+\paragraph{(d) --- charge / target the EMA ratio on readd.}
+Variant: proportional join aimed at the lending EMA price, or reweight
+so post-readd spot equals EMA. Pros: ties exit to the same oracle the
+band/settlement already use. Cons: EMA can lag (the band exists
+because of that); targeting EMA on readd can itself be gamed by
+pre-moving spot then waiting; does not by itself explain a13 (drain was
+weight crystallisation at the \emph{current} mark, not EMA). Useful as
+a settlement policy later; not the minimal drain fix.
+
+\paragraph{(e) --- keep current-mark reweight but haircut / fee the
+join.}
+Still rewrites $w$ toward the pumped mark; a fee may shrink but not
+remove the ratchet under repetition. Rejected as the primary fix.
+
+%----------------------------------------------------------------------
+\section{Recommendation for Jacob}
+\label{sec:jacob}
+
+\begin{enumerate}
+  \item \textbf{Ship design~(a) now} (already in the swap pallet):
+        lending lift/readd keep weights fixed; emissions keep
+        re-deriving. This does \emph{not} reduce the AMM to Uniswap~v2
+        unless weights were already $\tfrac12$; swaps remain weighted
+        Balancer. What is lost is only price-neutral lending readd after
+        skew --- acceptable against the reproduced drain.
+  \item \textbf{Do not} restore current-mark
+        \texttt{update\_weights\_for\_added\_liquidity} on lending
+        readd. That is the bug.
+  \item \textbf{Next hardening (optional, preferred if (a) ever shows a
+        counterexample):} design~(b) --- restore $\Delta L$ by a
+        current-ratio proportional join and mark-to-market the custody
+        residual with an explicit Balancer swap (fee on). Keeps
+        re-derivation for emissions; gives price-neutral lending readd
+        without crystallising the pump into $w$.
+  \item Treat (c) ``lift-time re-derive'' as equivalent to (a) for
+        proportional legs; do not chase (d)/(e) as the root fix.
+  \item Status: bounded cycle search clears (a) and (b); closed-form
+        no-arb proof remains open. Skeptic/Auditor should treat (a) as
+        ``search-backed emergency inverse,'' not ``theorem-closed.''
+\end{enumerate}
+
 \section{Next increments}
 \begin{itemize}
   \item Closed-form proof (or counterexample) for (a) beyond the grid.
-  \item If a counterexample appears, evaluate shipping (b) with explicit
-        residual MTM.
+  \item Spec + implementation sketch for (b) residual MTM if needed.
   \item Call-flow diagram (read state once / validate / derive / act).
 \end{itemize}
 
