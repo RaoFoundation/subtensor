@@ -136,14 +136,15 @@ class TestCliSpend:
         return intents
 
     def test_parses_repeated_hotkey_amount(self, submitted):
-        spends = ["--spend", f"{BOB_HOT}=0.5", "--spend", f"{ALICE_HOT}=3"]
+        reference = "0x" + "ab" * 32
+        spends = ["--spend", f"{BOB_HOT}=0.5", "--spend", f"{ALICE_HOT}=3:{reference}"]
         result = invoke("deposits", "spend", "--netuid", "2", *spends)
         assert result.exit_code == 0, result.output
         [intent] = submitted
         assert intent.netuid == 2
         assert intent.spends == [
-            {"hotkey_ss58": BOB_HOT, "amount_gamma": "0.5"},
-            {"hotkey_ss58": ALICE_HOT, "amount_gamma": "3"},
+            {"hotkey_ss58": BOB_HOT, "amount_gamma": "0.5", "reference": "0x" + "00" * 32},
+            {"hotkey_ss58": ALICE_HOT, "amount_gamma": "3", "reference": reference},
         ]
 
     @pytest.mark.parametrize("entry", [BOB_HOT, "=1"])
@@ -276,6 +277,20 @@ class TestDepositPreviews:
         assert await intent.warnings(sub, BOB_HOT) == [
             "nothing would be spent: no entry is a deposit you are the spender of"
         ]
+
+    def test_spend_reference_is_32_bytes_and_zero_by_default(self):
+        spends = [
+            {"hotkey_ss58": ALICE_HOT, "amount_gamma": 1},
+            {"hotkey_ss58": BOB_HOT, "amount_gamma": 2, "reference": "AB" * 32},
+        ]
+        intent = build("spend_gamma", {"netuid": 1, "spends": spends})
+        assert [spend["reference"] for spend in intent.spends] == [
+            "0x" + "00" * 32,
+            "0x" + "ab" * 32,
+        ]
+        for bad in ("0x1234", "zz" * 32):
+            with pytest.raises(BittensorError, match="32 bytes"):
+                build("spend_gamma", {"netuid": 1, "spends": [{**spends[0], "reference": bad}]})
 
 
 class TestResults:

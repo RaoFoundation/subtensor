@@ -285,7 +285,8 @@ def spend(
     spends: list[str] = typer.Option(
         ...,
         "--spend",
-        help="HOTKEY=AMOUNT, the gamma spent from the deposit at HOTKEY. Repeatable.",
+        help="HOTKEY=AMOUNT or HOTKEY=AMOUNT:REFERENCE, the gamma spent from the deposit at "
+        "HOTKEY, with an optional 32-byte hex reference. Repeatable.",
     ),
 ):
     """Spend gamma from the deposits you are the spender of.
@@ -300,10 +301,12 @@ def spend(
         if not separator or not hotkey:
             app_ctx.output.error(f"invalid value for `--spend`: {entry!r} is not HOTKEY=AMOUNT")
             raise typer.Exit(2)
+        amount, _, reference = amount.partition(":")
         entries.append(
             {
                 "hotkey_ss58": app_ctx.resolve_address("hotkey_ss58", hotkey),
                 "amount_gamma": _money(app_ctx, amount, "--spend"),
+                "reference": reference or None,
             }
         )
     app_ctx.submit(SpendGamma(netuid=netuid, spends=entries))

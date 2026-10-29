@@ -3779,7 +3779,7 @@ mod pallet_benchmarks {
         let spends: BoundedVec<_, _> = BoundedVec::truncate_from(
             hotkeys
                 .iter()
-                .map(|hotkey| (hotkey.clone(), GammaBalance::from(500_000_000_u64)))
+                .map(|hotkey| (hotkey.clone(), GammaBalance::from(500_000_000_u64), [1; 32]))
                 .collect(),
         );
 

@@ -142,15 +142,18 @@ btcli deposits set-cap --netuid 51 --hotkey API_KEY --daily-spend-cap 20
 ## Spending
 
 The spender spends many deposits in one [`spend-gamma`](/docs/tx/spend-gamma)
-call, up to 512 entries of a hotkey and an amount:
+call, up to 512 entries of a hotkey, an amount and a reference:
 
 ```bash
-btcli deposits spend --netuid 51 --spend API_KEY=0.25 --spend OTHER_KEY=1.5
+btcli deposits spend --netuid 51 --spend API_KEY=0.25:0xREFERENCE --spend OTHER_KEY=1.5
 ```
 
 ```python
 await client.execute(
-    bt.SpendGamma(netuid=51, spends=[{"hotkey_ss58": api_key, "amount_gamma": 0.25}]),
+    bt.SpendGamma(
+        netuid=51,
+        spends=[{"hotkey_ss58": api_key, "amount_gamma": 0.25, "reference": reference}],
+    ),
     spender,
 )
 ```
@@ -161,6 +164,12 @@ hotkey has no deposit, or whose deposit names another spender, are skipped.
 `spendable_gamma` in [`gamma-deposit`](/docs/query/gamma-deposit) is what an
 entry can spend now. The result's `spent` gives what each deposit spent, by
 hotkey.
+
+A reference is any 32 bytes, all zero when omitted. The chain repeats it in the
+entry's `GammaSpent` event and reads it nowhere else. By convention it is the
+sha256 of the [`btauth/1`](/docs/guides/signed-requests) payload the customer
+signed for the request the entry pays for, so the customer can match each spend
+to its own request. A service can use its own job or order id instead.
 
 Since the coldkey can change the spender or pause the deposit at any time, a
 service spends ahead: it spends what it is about to serve, and serves what was

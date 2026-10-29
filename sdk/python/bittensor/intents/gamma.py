@@ -50,6 +50,19 @@ def _min_out(gamma: int, tolerance: float) -> int:
     return int(gamma * (1 - tolerance))
 
 
+def _reference(value: Optional[str]) -> str:
+    """A spend entry's reference as 0x-hex: 32 bytes, all zero when none is given."""
+    if value is None:
+        return "0x" + "00" * 32
+    try:
+        raw = bytes.fromhex(str(value).removeprefix("0x"))
+    except ValueError:
+        raw = b""
+    if len(raw) != 32:
+        raise BittensorError(f"a spend reference is 32 bytes as hex, not {value!r}")
+    return "0x" + raw.hex()
+
+
 async def _deposit(substrate, netuid: int, hotkey_ss58: str) -> Optional[dict]:
     return await substrate.query(*st.SubtensorModule.GammaDeposits, [netuid, hotkey_ss58])
 
@@ -464,8 +477,10 @@ class SpendGamma(Intent):
     Spends, in order, up to each entry's ``amount_gamma`` from the deposit at
     its ``hotkey_ss58``, within the deposit's balance and daily spend cap.
     Entries whose hotkey has no deposit, or whose deposit you are not the
-    spender of, are skipped. Spent gamma is destroyed. Sign as the spender, or
-    as its ``GammaSpend`` proxy.
+    spender of, are skipped. Spent gamma is destroyed. Each entry's optional
+    ``reference``, 32 bytes as hex, is repeated in its ``GammaSpent`` event;
+    by convention it is the sha256 of the ``btauth/1`` payload of the request
+    it pays for. Sign as the spender, or as its ``GammaSpend`` proxy.
     """
 
     op = "spend_gamma"
@@ -475,8 +490,8 @@ class SpendGamma(Intent):
     netuid: int = field(metadata={"help": "Subnet of the deposits."})
     spends: list[dict] = field(
         metadata={
-            "help": f"One to {MAX_GAMMA_SPENDS} objects of hotkey_ss58 and amount_gamma, "
-            "spent in order."
+            "help": f"One to {MAX_GAMMA_SPENDS} objects of hotkey_ss58, amount_gamma and an "
+            "optional 32-byte hex reference, spent in order."
         }
     )
 
@@ -487,6 +502,7 @@ class SpendGamma(Intent):
             {
                 "hotkey_ss58": str(spend["hotkey_ss58"]),
                 "amount_gamma": gamma_amount(spend["amount_gamma"]),
+                "reference": _reference(spend.get("reference")),
             }
             for spend in self.spends
         ]
@@ -496,7 +512,7 @@ class SpendGamma(Intent):
             calls.SubtensorModule.spend_gamma(
                 netuid=self.netuid,
                 spends=[
-                    (spend["hotkey_ss58"], gamma_units(spend["amount_gamma"]))
+                    (spend["hotkey_ss58"], gamma_units(spend["amount_gamma"]), spend["reference"])
                     for spend in self.spends
                 ],
             )

@@ -3227,13 +3227,14 @@ mod dispatches {
 
         /// Spends, in order, up to each entry's amount from the gamma deposit at its hotkey,
         /// within the deposit's balance and daily spend cap. Entries whose hotkey has no
-        /// deposit, or whose deposit names another spender, are skipped.
+        /// deposit, or whose deposit names another spender, are skipped. Each entry's
+        /// reference is repeated in its `GammaSpent` event and not otherwise read.
         #[pallet::call_index(164)]
         #[pallet::weight((<T as Config>::WeightInfo::spend_gamma(spends.len() as u32), DispatchClass::Normal, Pays::Yes))]
         pub fn spend_gamma(
             origin: OriginFor<T>,
             netuid: NetUid,
-            spends: BoundedVec<(T::AccountId, GammaBalance), ConstU32<MAX_GAMMA_SPENDS>>,
+            spends: BoundedVec<(T::AccountId, GammaBalance, [u8; 32]), ConstU32<MAX_GAMMA_SPENDS>>,
         ) -> DispatchResult {
             Self::do_spend_gamma(origin, netuid, &spends)
         }

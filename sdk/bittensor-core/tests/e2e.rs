@@ -1196,7 +1196,11 @@ fn test_gamma_lifecycle() {
             .unwrap_or_else(|error| panic!("{method}: {error}"))
     };
     let spend = |netuid: u16, hotkey: &str, amount: u128| {
-        let spends = list([Value::Tuple(vec![s(hotkey), u128v(amount)])]);
+        let spends = list([Value::Tuple(vec![
+            s(hotkey),
+            u128v(amount),
+            Value::Bytes(vec![0; 32]),
+        ])]);
         let call = gamma(
             "spend_gamma",
             record([("netuid", u(netuid)), ("spends", spends)]),

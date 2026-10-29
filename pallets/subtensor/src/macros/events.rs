@@ -1012,6 +1012,8 @@ mod events {
             hotkey: T::AccountId,
             /// Gamma spent.
             amount: GammaBalance,
+            /// The spend entry's reference.
+            reference: [u8; 32],
         },
         /// A hotkey set its service url on a subnet.
         ServiceUrlSet {

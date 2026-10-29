@@ -81,11 +81,13 @@ fn mint(netuid: NetUid, coldkey: u64, hotkey: u64, tao: u64) -> GammaBalance {
         - before
 }
 
-fn spends(entries: &[(u64, u64)]) -> BoundedVec<(U256, GammaBalance), ConstU32<MAX_GAMMA_SPENDS>> {
+fn spends(
+    entries: &[(u64, u64)],
+) -> BoundedVec<(U256, GammaBalance, [u8; 32]), ConstU32<MAX_GAMMA_SPENDS>> {
     BoundedVec::truncate_from(
         entries
             .iter()
-            .map(|(hotkey, amount)| (U256::from(*hotkey), GammaBalance::from(*amount)))
+            .map(|(hotkey, amount)| (U256::from(*hotkey), GammaBalance::from(*amount), [0; 32]))
             .collect(),
     )
 }
@@ -1168,6 +1170,7 @@ fn spend_gamma_spends_the_smallest_of_amount_balance_and_allowance() {
             coldkey,
             hotkey: U256::from(hotkey),
             amount: amount.into(),
+            reference: [0; 32],
         };
         assert_eq!(
             gamma_events(),
@@ -1184,6 +1187,42 @@ fn spend_gamma_spends_the_smallest_of_amount_balance_and_allowance() {
             (GammaBalance::ZERO, System::block_number())
         );
         assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn gamma_spent_repeats_each_entry_reference() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        mint(netuid, COLDKEY, HOTKEY, TAO);
+        System::reset_events();
+
+        let entries = [(1, [1; 32]), (2, [2; 32])];
+        assert_ok!(SubtensorModule::spend_gamma(
+            RuntimeOrigin::signed(U256::from(OWNER_COLDKEY)),
+            netuid,
+            BoundedVec::truncate_from(
+                entries
+                    .iter()
+                    .map(|(amount, reference)| {
+                        (U256::from(HOTKEY), GammaBalance::from(*amount), *reference)
+                    })
+                    .collect(),
+            ),
+        ));
+        assert_eq!(
+            gamma_events(),
+            entries
+                .iter()
+                .map(|(amount, reference)| Event::GammaSpent {
+                    netuid,
+                    coldkey: U256::from(COLDKEY),
+                    hotkey: U256::from(HOTKEY),
+                    amount: GammaBalance::from(*amount),
+                    reference: *reference,
+                })
+                .collect::<Vec<_>>()
+        );
     });
 }
 
