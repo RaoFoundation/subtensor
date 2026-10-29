@@ -1966,6 +1966,10 @@ fn coldkey_swap_rekeys_position_without_moving_custody() {
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
         let custody = position.custody.clone();
         let escrow_tao_before = tao(&custody);
+        assert_eq!(
+            <Lending as LendingInterface<_>>::count_positions_bounded(&owner, 8),
+            1
+        );
         assert_ok!(Lending::on_coldkey_swap(&owner, &new_owner));
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
         let migrated = Positions::<Test>::get(&new_owner, netuid()).unwrap();
@@ -1974,7 +1978,15 @@ fn coldkey_swap_rekeys_position_without_moving_custody() {
         assert!(OpenByNetuid::<Test>::contains_key(netuid(), &new_owner));
         assert_eq!(
             EscrowOwner::<Test>::get(netuid(), &custody),
-            Some(new_owner)
+            Some(new_owner.clone())
+        );
+        assert_eq!(
+            <Lending as LendingInterface<_>>::count_positions_bounded(&owner, 8),
+            0
+        );
+        assert_eq!(
+            <Lending as LendingInterface<_>>::count_positions_bounded(&new_owner, 8),
+            1
         );
     });
 }

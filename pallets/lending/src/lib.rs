@@ -286,6 +286,14 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
 pub trait LendingInterface<AccountId> {
     fn custody_accounts(netuid: NetUid) -> Option<(AccountId, AccountId)>;
     fn has_positions(owner: &AccountId) -> bool;
+    /// Count open loans for `owner`, stopping at `limit` (admission sentinel).
+    ///
+    /// Coldkey-swap work folds this into the combined position bound so TAO-only
+    /// shorts (no stake rows) cannot bypass swap weight / admission.
+    fn count_positions_bounded(owner: &AccountId, limit: u32) -> u32 {
+        let _ = (owner, limit);
+        0
+    }
     fn max_positions() -> u32;
     /// Re-key positions from `old` to `new` without moving custody funds (§14).
     fn on_coldkey_swap(old: &AccountId, new: &AccountId) -> DispatchResult;
@@ -5331,6 +5339,19 @@ pub mod pallet {
         }
         fn has_positions(owner: &T::AccountId) -> bool {
             Positions::<T>::iter_prefix(owner).next().is_some()
+        }
+        fn count_positions_bounded(owner: &T::AccountId, limit: u32) -> u32 {
+            if limit == 0 {
+                return 0;
+            }
+            let mut count = 0u32;
+            for _ in Positions::<T>::iter_prefix(owner) {
+                count = count.saturating_add(1);
+                if count >= limit {
+                    break;
+                }
+            }
+            count
         }
         fn max_positions() -> u32 {
             T::MaxTotalPositions::get()

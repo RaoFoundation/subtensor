@@ -432,7 +432,7 @@ impl crate::Config for Test {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = pallet_subtensor_swap::Pallet<Self>;
-    type Lending = ();
+    type Lending = MockLending;
     type KeySwapOnSubnetCost = InitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = FakeProxier;
@@ -552,6 +552,64 @@ thread_local! {
     static BASKET_SWAP_OPS: Cell<u64> = const { Cell::new(0) };
     static BASKET_QUOTE_OPS: Cell<u64> = const { Cell::new(0) };
     static BASKET_WRITE_OPS: Cell<u64> = const { Cell::new(0) };
+    /// Injected lending-position counts for coldkey-swap admission tests
+    /// (fid:9c45c69e). Cleared in `new_test_ext`.
+    static MOCK_LENDING_POSITIONS: RefCell<sp_std::collections::btree_map::BTreeMap<U256, u32>> =
+        const { RefCell::new(sp_std::collections::btree_map::BTreeMap::new()) };
+}
+
+/// Set how many lending positions `coldkey` reports to coldkey-swap admission.
+pub fn set_mock_lending_positions(coldkey: U256, count: u32) {
+    MOCK_LENDING_POSITIONS.with(|m| {
+        m.borrow_mut().insert(coldkey, count);
+    });
+}
+
+pub fn clear_mock_lending_positions() {
+    MOCK_LENDING_POSITIONS.with(|m| m.borrow_mut().clear());
+}
+
+/// Test double for `LendingInterface`: injectable position counts, no-op swaps.
+pub struct MockLending;
+
+impl pallet_lending::LendingInterface<U256> for MockLending {
+    fn custody_accounts(_: NetUid) -> Option<(U256, U256)> {
+        None
+    }
+    fn has_positions(owner: &U256) -> bool {
+        MOCK_LENDING_POSITIONS.with(|m| m.borrow().get(owner).copied().unwrap_or(0) > 0)
+    }
+    fn count_positions_bounded(owner: &U256, limit: u32) -> u32 {
+        if limit == 0 {
+            return 0;
+        }
+        let count = MOCK_LENDING_POSITIONS.with(|m| m.borrow().get(owner).copied().unwrap_or(0));
+        count.min(limit)
+    }
+    fn max_positions() -> u32 {
+        0
+    }
+    fn on_coldkey_swap(_: &U256, _: &U256) -> DispatchResult {
+        Ok(())
+    }
+    fn start_dissolution(_: NetUid) -> DispatchResult {
+        Ok(())
+    }
+    fn readd_lifts_for_dissolution(_: NetUid) -> DispatchResult {
+        Ok(())
+    }
+    fn settle_lending(_: NetUid, _: &mut WeightMeter) -> bool {
+        true
+    }
+    fn finish_dissolution(_: NetUid) -> DispatchResult {
+        Ok(())
+    }
+    fn is_lending_custody(_: &U256, _: &U256, _: NetUid) -> bool {
+        false
+    }
+    fn is_custody_hotkey(_: &U256) -> bool {
+        false
+    }
 }
 
 /// Reset swap/quote/write counters used by pending-basket flush tests.
@@ -780,6 +838,7 @@ pub fn init_logs_for_tests() {
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext(block_number: BlockNumber) -> sp_io::TestExternalities {
     init_logs_for_tests();
+    clear_mock_lending_positions();
     let t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();

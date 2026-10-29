@@ -13,12 +13,14 @@ use sp_std::collections::btree_set::BTreeSet;
 use subtensor_runtime_common::TaoBalance;
 
 /// Stake work a coldkey swap moves: `StakingHotkeys` / basket-credit entries visited
-/// (combined across source and destination), positions moved from the source,
-/// destination lock rows scanned/purged, and network-registration queue work
-/// (total entries scanned plus owned rows rewritten).
+/// (combined across source and destination), positions moved from the source
+/// (ordinary stake rows plus lending loans re-keyed under §14), destination lock
+/// rows scanned/purged, and network-registration queue work (total entries
+/// scanned plus owned rows rewritten).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ColdkeySwapWork {
     pub hotkeys: u32,
+    /// Source stake transfers **plus** lending position re-keys (combined cap).
     pub positions: u32,
     pub pending_registrations: u32,
     /// Destination `Lock` rows scanned at admission (and purged when exhausted
@@ -43,8 +45,10 @@ pub(crate) enum ColdkeySwapPolicyImportMode {
 
 impl<T: Config> Pallet<T> {
     /// Weight of a coldkey swap over `base` (the benchmarked fixed part): one `transfer_stake`
-    /// per position moved plus the per-hotkey bookkeeping reads (watermark, unlock age,
-    /// root stake) for every admitted hotkey in the combined source∪destination set.
+    /// per combined source position (stake transfer or lending re-key) plus the per-hotkey
+    /// bookkeeping reads (watermark, unlock age, root stake) for every admitted hotkey in
+    /// the combined source∪destination set. Lending re-keys are cheaper than stake
+    /// transfers; charging `transfer_stake` keeps the envelope fail-closed (fid:9c45c69e).
     fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
         base.saturating_add(
             <T as crate::pallet::Config>::WeightInfo::transfer_stake()
@@ -289,9 +293,11 @@ impl<T: Config> Pallet<T> {
         .saturating_add(T::DbWeight::get().writes(2))
     }
 
-    /// Stake positions the swap has to move, plus the combined hotkey set of source and
-    /// destination. Positions only leave the source; hotkeys count the union so a merge
-    /// into an already-used coldkey cannot under-price bookkeeping or exceed the list cap.
+    /// Stake + lending positions the swap has to move, plus the combined hotkey set of
+    /// source and destination. Ordinary stake and lending loans only leave the source;
+    /// hotkeys count the union so a merge into an already-used coldkey cannot under-price
+    /// bookkeeping or exceed the list cap. Lending is folded into the same position bound
+    /// so TAO-only shorts (no Alpha rows) still pay admission / weight (fid:9c45c69e).
     ///
     /// Stops one entry past each admission limit so oversized accounts fail closed
     /// without scanning unbounded storage during announce/execute prechecks.
@@ -358,6 +364,14 @@ impl<T: Config> Pallet<T> {
                     return work;
                 }
             }
+        }
+
+        // Lending loans are keyed by (coldkey, netuid) with no Alpha stake rows for
+        // TAO-only shorts — count them toward the same combined position sentinel.
+        if work.positions < position_limit {
+            let remaining = position_limit.saturating_sub(work.positions);
+            let lending = T::Lending::count_positions_bounded(old_coldkey, remaining);
+            work.positions = work.positions.saturating_add(lending);
         }
         work
     }
