@@ -12,6 +12,7 @@ from bittensor._transport.errors import (
     MaxRetriesExceeded,
     SubstrateRequestException,
 )
+from bittensor._transport.extrinsics import NonceCache
 from bittensor._transport.interface import SubstrateConnection
 
 BUSY = "Local transaction admission capacity reached; retry later"
@@ -181,3 +182,81 @@ async def test_cancellation_during_backoff_stops_submission(transport):
     with pytest.raises(asyncio.CancelledError):
         await connection.submit_extrinsic(signed)
     connection._session.request.assert_awaited_once()
+
+
+@pytest.mark.parametrize("success", [True, False])
+@pytest.mark.parametrize("higher_pending", [False, True])
+async def test_inclusion_retires_nonce_without_dropping_concurrent_reservations(
+    transport, success, higher_pending
+):
+    connection, signed, _ = transport
+    signed.signer_address, signed.nonce = "account", 3
+    connection._nonces = NonceCache(connection._session)
+    connection._nonces.pin("account", 3)
+    if higher_pending:
+        # A concurrent transaction or Shield inner is still pending.
+        connection._nonces.pin("account", 4)
+    connection._session.subscribe.return_value = Watch({"inBlock": "0xabcd"})
+    connection._resolve_inclusion = AsyncMock(
+        return_value=InclusionReport(
+            extrinsic_hash=signed.extrinsic_hash, block_hash="0xabcd", is_success=success
+        )
+    )
+    await connection.submit_extrinsic(signed, wait_for_inclusion=True)
+    # Inclusion consumes the nonce even on dispatch failure. A reaped and
+    # refunded account can restart at zero once all reservations are consumed.
+    connection._session.request.return_value = 0
+    assert await connection._nonces.next_for("account") == (5 if higher_pending else 0)
+
+
+@pytest.mark.parametrize("mode", ["unwatched", "unknown", "unresolved"])
+async def test_unconfirmed_submission_keeps_nonce_reservation(transport, mode):
+    connection, signed, _ = transport
+    signed.signer_address, signed.nonce = "account", 3
+    connection._nonces = NonceCache(connection._session)
+    connection._nonces.pin("account", 3)
+    if mode == "unwatched":
+        connection._session.request.return_value = signed.extrinsic_hash
+        await connection.submit_extrinsic(signed)
+    else:
+        connection._session.subscribe.return_value = Watch(
+            {"inBlock": "0xabcd"}, error=TimeoutError() if mode == "unknown" else None
+        )
+        connection._resolve_inclusion = AsyncMock(side_effect=TimeoutError())
+        with pytest.raises(TimeoutError):
+            await connection.submit_extrinsic(signed, wait_for_inclusion=True)
+    connection._session.request.return_value = 0
+    assert await connection._nonces.next_for("account") == 4
+
+
+async def test_late_completion_cannot_erase_refunded_accounts_new_reservation():
+    session = SimpleNamespace(request=AsyncMock(return_value=3))
+    cache = NonceCache(session)
+    assert await cache.next_for("account") == 3
+    previous = cache.token("account")
+    await cache.included("account", 3, previous)
+    session.request.return_value = 0
+    assert await cache.next_for("account") == 0
+    await cache.included("account", 3, previous)
+    assert await cache.next_for("account") == 1
+
+
+async def test_inclusion_cannot_clear_reservation_during_an_older_nonce_lookup():
+    started, resume = asyncio.Event(), asyncio.Event()
+
+    async def sampled_before_inclusion(*args):
+        started.set()
+        await resume.wait()
+        return 3
+
+    cache = NonceCache(SimpleNamespace(request=sampled_before_inclusion))
+    cache.pin("account", 3)
+    token = cache.token("account")
+    reservation = asyncio.create_task(cache.next_for("account"))
+    await started.wait()
+    inclusion = asyncio.create_task(cache.included("account", 3, token))
+    await asyncio.sleep(0)
+    resume.set()
+    assert await reservation == 4
+    await inclusion
+    assert await cache.next_for("account") == 5

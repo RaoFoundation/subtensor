@@ -1125,6 +1125,8 @@ class SubstrateConnection:
     ) -> InclusionReport:
         """Submit; optionally watch until included/finalized and resolve the outcome."""
         data_hex, extrinsic_hash = extrinsic.data_hex, extrinsic.extrinsic_hash
+        signer_address, nonce = extrinsic.signer_address, extrinsic.nonce
+        nonce_token = self._nonces.token(signer_address) if signer_address is not None else None
         if not (wait_for_inclusion or wait_for_finalization):
             result = await _submit_with_admission_retry(
                 lambda: self._session.request("author_submitExtrinsic", [data_hex])
@@ -1157,7 +1159,10 @@ class SubstrateConnection:
             raise SubstrateRequestException(
                 f"extrinsic watch for {extrinsic_hash} ended without reaching the awaited state"
             )
-        return await self._resolve_inclusion(extrinsic_hash, block_hash, finalized)
+        report = await self._resolve_inclusion(extrinsic_hash, block_hash, finalized)
+        if signer_address is not None and nonce is not None:
+            await self._nonces.included(signer_address, nonce, nonce_token)
+        return report
 
     async def resolve_extrinsic(
         self, extrinsic_hash: str, block_hash: str, *, finalized: bool = False

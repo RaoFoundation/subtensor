@@ -91,6 +91,7 @@ class NonceCache:
         self._session = session
         self._nonces: dict[str, int] = {}
         self._released: dict[str, set[int]] = {}
+        self._tokens: dict[str, object] = {}
         self._lock = asyncio.Lock()
 
     async def next_for(self, address: str, *, use_cache: bool = True) -> int:
@@ -118,14 +119,17 @@ class NonceCache:
                     )
                 released.difference_update(range(first, first + count))
                 self._nonces[address] = max(last, first + count - 1)
+                self._tokens[address] = object()
                 return first
             first = max(observed, self._nonces.get(address, -1) + 1)
             self._nonces[address] = first + count - 1
+            self._tokens[address] = object()
             return first
 
     def pin(self, address: str, nonce: int) -> None:
         """Record an explicitly-chosen nonce as the account's latest."""
         self._nonces[address] = max(nonce, self._nonces.get(address, -1))
+        self._tokens[address] = object()
         self._released.get(address, set()).discard(nonce)
 
     def release(self, address: str, first: int, count: int) -> None:
@@ -135,6 +139,30 @@ class NonceCache:
     def clear(self, address: str) -> None:
         self._nonces.pop(address, None)
         self._released.pop(address, None)
+        self._tokens.pop(address, None)
+
+    def token(self, address: str) -> object | None:
+        return self._tokens.get(address)
+
+    async def included(self, address: str, nonce: int, token: object | None) -> None:
+        """Retire consumed reservations without dropping a later pending nonce.
+
+        A reaped account starts again at zero. Keeping a completed high-water
+        mark would strand its next transaction in the future pool after refunding.
+        Higher reservations (including a Shield inner) must remain protected.
+        The token also prevents a late duplicate watch from clearing a new
+        reservation after an account was reaped and restarted at nonce zero.
+        """
+        # Do not clear the high-water mark while reserve() is awaiting an RPC
+        # nonce sampled before this inclusion; that response may now be stale.
+        async with self._lock:
+            if token is None or self._tokens.get(address) is not token:
+                return
+            if self._nonces.get(address, -1) <= nonce:
+                self.clear(address)
+            else:
+                released = self._released.get(address, set())
+                released.difference_update(value for value in tuple(released) if value <= nonce)
 
 
 def signer_payload_json(
@@ -295,7 +323,12 @@ def attach_signature(
         tip_asset_id=unsigned.tip_asset_id,
         metadata_hash_enabled=unsigned.metadata_hash is not None,
     )
-    return SignedExtrinsic(data=data, extrinsic_hash=extrinsic_hash)
+    return SignedExtrinsic(
+        data=data,
+        extrinsic_hash=extrinsic_hash,
+        signer_address=unsigned.address,
+        nonce=unsigned.nonce,
+    )
 
 
 async def resolve_metadata_hash(
@@ -372,7 +405,12 @@ async def create_signed_extrinsic(
             tip=tip,
             tip_asset_id=tip_asset_id,
         )
-        return SignedExtrinsic(data=data, extrinsic_hash=extrinsic_hash)
+        return SignedExtrinsic(
+            data=data,
+            extrinsic_hash=extrinsic_hash,
+            signer_address=keypair.ss58_address,
+            nonce=nonce,
+        )
     unsigned = prepare_extrinsic(
         codec,
         call,
@@ -438,7 +476,12 @@ def create_hashed_extrinsic(
         tip=tip,
         tip_asset_id=tip_asset_id,
     )
-    return SignedExtrinsic(data=data, extrinsic_hash=extrinsic_hash)
+    return SignedExtrinsic(
+        data=data,
+        extrinsic_hash=extrinsic_hash,
+        signer_address=keypair.ss58_address,
+        nonce=nonce,
+    )
 
 
 async def sign_unsigned(unsigned: UnsignedExtrinsic, keypair: Any) -> bytes:

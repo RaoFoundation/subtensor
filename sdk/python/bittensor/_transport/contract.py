@@ -52,6 +52,9 @@ class SignedExtrinsic:
 
     data: bytes  # full SCALE-encoded extrinsic (length-prefixed)
     extrinsic_hash: str  # 0x-hex blake2b-256 of ``data``
+    # Local reservation bookkeeping, never encoded into the transaction.
+    signer_address: Optional[str] = None
+    nonce: Optional[int] = None
 
     @property
     def data_hex(self) -> str:
