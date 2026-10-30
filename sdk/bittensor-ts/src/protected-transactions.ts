@@ -139,6 +139,9 @@ export class ProtectedWalletClient {
       try {
         const result = await this.adapter.submitBytes(bytes, this.keypair.ss58Address, submissionOptions)
         if (result.data?.submission_rejected === true && !result.blockHash) restore()
+        // Fixed-key accounts can be reaped by a coldkey swap and restart at zero.
+        // Rotating keys still require finalized generation reconciliation.
+        if (count === 1 && result.blockHash && !isRotatingCrypto(this.keypair.cryptoType)) submitted.get(this.queueOwner)?.delete(account)
         return result
       } catch (error) {
         if (isDefiniteSubmissionRejection(error)) restore()
@@ -173,6 +176,8 @@ export class ProtectedWalletClient {
     if (carrier.data?.submission_rejected === true || carrier.data?.submission_uncertain === true) return carrier
     const result = await this.adapter.followShielded(carrier, typeof inner.hash === 'string' ? inner.hash : hex(inner.hash), signing.period, options)
     if (carrier.success === false && carrier.finalized || result.data?.inner_expiry_finalized === true) markSubmitted(1)
+    const innerHash = typeof inner.hash === 'string' ? inner.hash : hex(inner.hash)
+    if (!isRotatingCrypto(this.keypair.cryptoType) && result.blockHash && result.extrinsicHash === innerHash) submitted.get(this.queueOwner)?.delete(account)
     return result
   }
   async execute(intent: Intent, options: ProtectedWorkflowOptions = {}): Promise<any> {

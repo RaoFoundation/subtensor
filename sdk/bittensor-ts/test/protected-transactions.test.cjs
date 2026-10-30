@@ -281,3 +281,16 @@ test('protected Shield expiry releases the unused nonce and generation only afte
     }
   }
 })
+
+for (const crypto of [sdk.CRYPTO_MLDSA65_FIXED, sdk.CRYPTO_FALCON512, sdk.CRYPTO_FALCON1024]) {
+  test(`fixed protected wallet ${crypto} resets consumed nonce after reaping`, async () => {
+    const { session, state, adapter } = fixture(crypto)
+    adapter.submitBytes = async () => ({ success: true, blockHash: 'included', extrinsicHash: '0xabc' })
+    await session.submit(remark, { allowRawCall: true })
+    state.nonce = 0; state.pending = 0
+    adapter.submitBytes = async () => ({ success: true, extrinsicHash: '0xdef' })
+    await session.submit(remark, { allowRawCall: true })
+    await session.submit(remark, { allowRawCall: true })
+    assert.deepEqual(state.encoded.map(row => row.params.nonce), [3n, 0n, 1n])
+  })
+}

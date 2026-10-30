@@ -761,3 +761,73 @@ fn explicit_block_reads_resolve_historical_and_upgraded_metadata() {
         worker.join().unwrap();
     }
 }
+
+#[test]
+fn included_nonces_allow_reaped_accounts_without_erasing_later_reservations() {
+    let mut state = NonceReservations::default();
+    let account = "a".to_string();
+    assert_eq!(state.reserve(account.clone(), 7, 2).unwrap(), 7);
+    let carrier_token = state.tokens[&account].clone();
+    state.included(&account, 7, &carrier_token);
+    assert_eq!(
+        state.floors[&account], 9,
+        "carrier must preserve inner nonce"
+    );
+    state.included(&account, 8, &carrier_token);
+    assert_eq!(
+        state.reserve(account.clone(), 0, 1).unwrap(),
+        0,
+        "refunded account restarts at zero"
+    );
+    state.included(&account, 8, &carrier_token);
+    assert_eq!(
+        state.floors[&account], 1,
+        "late receipt cannot clear new epoch"
+    );
+    let token = state.tokens[&account].clone();
+    assert_eq!(state.reserve(account.clone(), 0, 1).unwrap(), 1);
+    state.included(&account, 0, &token);
+    assert_eq!(
+        state.floors[&account], 2,
+        "later reservation stays protected"
+    );
+}
+
+#[test]
+fn encoded_receipt_tracking_retires_only_included_authorizations() {
+    let (endpoint, worker) = server(external_plan_replies());
+    let client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
+    let key = Keypair::from_uri("//Alice", crate::keys::CRYPTO_SR25519).unwrap();
+    let plan = external_plan(&client, &key);
+    let signature = key.sign(&plan.payload).unwrap();
+    let (encoded, hash) = client
+        .assemble_external_extrinsic(&plan, &signature, None)
+        .unwrap();
+    let observation = client
+        .nonce_observation(&encoded)
+        .expect("signed account and nonce");
+    assert_eq!(
+        observation.0,
+        nonce_account_key(&key.ss58_address()).unwrap()
+    );
+    assert_eq!(observation.1, 7);
+    let mut outcome = TxOutcome::uncertain(hash, "lost response".into());
+    client.retire_included_nonce(Some(observation.clone()), &outcome);
+    assert_eq!(
+        client.nonce_reservations.lock().unwrap().floors[&observation.0],
+        8
+    );
+    // Dispatch failure still consumes the nonce; success is not the criterion.
+    outcome.block_hash = Some(hex_prefixed(&[2; 32]));
+    client.retire_included_nonce(Some(observation.clone()), &outcome);
+    assert!(!client
+        .nonce_reservations
+        .lock()
+        .unwrap()
+        .floors
+        .contains_key(&observation.0));
+    assert!(client
+        .assemble_external_extrinsic(&plan, &signature, None)
+        .is_err());
+    worker.join().unwrap();
+}

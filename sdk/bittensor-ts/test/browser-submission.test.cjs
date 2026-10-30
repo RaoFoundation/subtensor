@@ -109,3 +109,34 @@ test('browser Shield uses the best-head key independently of its signing snapsho
   assert.deepEqual(signingBlocks, [finalized, finalized])
   await client.close()
 })
+
+test('browser inclusion retires nonce floors after a reaped account is refunded', async () => {
+  const { client, signer } = await fixture(), nonces = []
+  let chainNonce = 7
+  client.rpc = async () => chainNonce
+  client.prepareRaw = async (_call, _signer, options) => { nonces.push(options.nonce); return {} }
+  client.signPrepared = async () => ({ bytes: new Uint8Array([1]) })
+  // Even an included dispatch failure consumes the nonce.
+  client.broadcastExtrinsic = async () => ({ status: 'failed', success: false, blockHash: '0x1234' })
+  await client.submitPreparedCall({}, signer, {})
+  chainNonce = 0
+  client.broadcastExtrinsic = async () => ({ status: 'submitted' })
+  await client.submitPreparedCall({}, signer, {})
+  await client.submitPreparedCall({}, signer, {})
+  assert.deepEqual(nonces, [7, 0, 1])
+  await client.close()
+})
+
+test('browser delayed receipts cannot erase a newer reservation epoch', async () => {
+  const { client, signer } = await fixture()
+  const account = core.publicKeyFromSs58(signer.address).toString('hex')
+  client.reserveNonceRange(signer.address, 7, 2)
+  const token = client.nonceTokens.get('0x' + account)
+  client.retireIncludedNonce(signer.address, 7, token, { blockHash: 'included' })
+  assert.equal(client.nonceFloors.get('0x' + account), 9)
+  client.retireIncludedNonce(signer.address, 8, token, { blockHash: 'included' })
+  assert.equal(client.reserveNonceRange(signer.address, 0, 1), 0)
+  client.retireIncludedNonce(signer.address, 8, token, { blockHash: 'included' })
+  assert.equal(client.reserveNonceRange(signer.address, 0, 1), 1)
+  await client.close()
+})

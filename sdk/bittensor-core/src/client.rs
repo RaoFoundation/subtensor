@@ -854,27 +854,55 @@ impl Client {
             ));
         }
         let account = nonce_account_key(address)?;
-        let chain_next = self.account_next_index_remote(address)?;
         let mut reservations = self
             .nonce_reservations
             .lock()
             .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        // Inclusion cleanup must not race a nonce sampled before that inclusion.
+        let chain_next = self.account_next_index_remote(address)?;
         reservations.reserve(account, chain_next, count)
     }
 
-    fn commit_nonce(&self, address: &str, nonce: u64) -> Result<(), CoreError> {
-        let account = nonce_account_key(address)?;
-        let mut reservations = self
+    // Capture the reservation epoch before transmission. A delayed duplicate
+    // receipt must not clear a new reservation after an account was reaped.
+    fn nonce_observation(&self, extrinsic: &[u8]) -> Option<(String, u64, Arc<()>)> {
+        let decoded = self
+            .runtime()
+            .ok()?
+            .decode_extrinsic(extrinsic, true)
+            .ok()?;
+        let address = field(&decoded, "address")?;
+        let address = field(address, "Id").unwrap_or(address);
+        let account = if let Some(raw) = field(address, "Raw").and_then(value_bytes) {
+            hex_prefixed(raw.get(..32)?)
+        } else if let Some(bytes) = value_bytes(address).filter(|bytes| bytes.len() == 32) {
+            hex_prefixed(&bytes)
+        } else {
+            nonce_account_key(as_str(address)?).ok()?
+        };
+        let nonce = u64::try_from(as_u128(field(&decoded, "nonce")?)?).ok()?;
+        let token = self
             .nonce_reservations
             .lock()
-            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
-        let next = nonce.saturating_add(1);
-        reservations
-            .floors
-            .entry(account)
-            .and_modify(|reserved| *reserved = (*reserved).max(next))
-            .or_insert(next);
-        Ok(())
+            .ok()?
+            .tokens
+            .get(&account)?
+            .clone();
+        Some((account, nonce, token))
+    }
+
+    fn retire_included_nonce(
+        &self,
+        observation: Option<(String, u64, Arc<()>)>,
+        outcome: &TxOutcome,
+    ) {
+        if outcome.block_hash.is_some() {
+            if let Some((account, nonce, token)) = observation {
+                if let Ok(mut reservations) = self.nonce_reservations.lock() {
+                    reservations.included(&account, nonce, &token);
+                }
+            }
+        }
     }
 
     /// Reset this account's local reservation floor to the current pending-pool
@@ -889,6 +917,7 @@ impl Client {
             .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
         reservations.invalidate_external_plans(&account, 0, u64::MAX);
         reservations.released.remove(&account);
+        reservations.tokens.insert(account.clone(), Arc::new(()));
         reservations.floors.insert(account, chain_next);
         Ok(())
     }
@@ -1021,11 +1050,12 @@ impl Client {
             ),
             None => {
                 let account = nonce_account_key(&signer.ss58_address)?;
-                let chain_next = self.account_next_index_remote(&signer.ss58_address)?;
-                self.nonce_reservations
+                let mut reservations = self
+                    .nonce_reservations
                     .lock()
-                    .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?
-                    .reserve_external(account, chain_next)?
+                    .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+                let chain_next = self.account_next_index_remote(&signer.ss58_address)?;
+                reservations.reserve_external(account, chain_next)?
             }
         };
         let result = self.external_signing_plan_at(
@@ -1254,12 +1284,8 @@ impl Client {
             }
             Err(error) => return Err(error),
         };
-        if plan.lifecycle.reservation.is_some() {
-            if is_definite_rejection(&outcome) {
-                self.release_external_plan(plan)?;
-            } else if outcome.block_hash.is_some() {
-                self.commit_nonce(&plan.signer_address, plan.params.nonce)?;
-            }
+        if plan.lifecycle.reservation.is_some() && is_definite_rejection(&outcome) {
+            self.release_external_plan(plan)?;
         }
         Ok(outcome)
     }
@@ -1771,9 +1797,6 @@ impl Client {
             if !explicit_nonce && is_definite_rejection(&outcome) {
                 self.release_nonce(&address, nonce)?;
             }
-            if outcome.block_hash.is_some() {
-                self.commit_nonce(&address, nonce)?;
-            }
             return Ok(outcome);
         }
         Ok(last.unwrap_or_else(|| {
@@ -1834,6 +1857,7 @@ impl Client {
                 }
             }
         };
+        let observation = self.nonce_observation(extrinsic);
         let xt_hex = hex_prefixed(extrinsic);
         check_cancelled_before_submission(cancelled)?;
         let uncertain = match self.rpc_value("author_submitExtrinsic", json!([xt_hex])) {
@@ -1869,7 +1893,10 @@ impl Client {
             timeout,
             cancelled,
         ) {
-            Ok(outcome) => Ok(outcome),
+            Ok(outcome) => {
+                self.retire_included_nonce(observation, &outcome);
+                Ok(outcome)
+            }
             Err(error) => Ok(TxOutcome::uncertain(
                 expected_hash,
                 format!(
@@ -1958,6 +1985,7 @@ impl Client {
             .ok_or_else(|| CoreError::Rpc("successful Shield carrier omitted its block".into()))?;
         // The carrier only accepts ciphertext. Report the requested call's
         // dispatch result, including nested failures and missing inner inclusion.
+        let observation = self.nonce_observation(inner);
         let mut result = self.wait_for_inclusion(
             inner,
             inner_hash.clone(),
@@ -1966,6 +1994,7 @@ impl Client {
             timeout,
             None,
         )?;
+        self.retire_included_nonce(observation, &result);
         result.data.insert("shielded".into(), Value::Bool(true));
         result
             .data
@@ -3356,12 +3385,38 @@ fn reserve_nonce_range(
 
 #[derive(Default)]
 struct NonceReservations {
+    tokens: HashMap<String, Arc<()>>,
     floors: HashMap<String, u64>,
     released: HashMap<String, Vec<(u64, u64)>>,
     external_plans: HashMap<String, BTreeMap<u64, Weak<ExternalPlanLifecycle>>>,
 }
 
 impl NonceReservations {
+    fn included(&mut self, account: &str, nonce: u64, token: &Arc<()>) {
+        if !self
+            .tokens
+            .get(account)
+            .is_some_and(|current| Arc::ptr_eq(current, token))
+        {
+            return;
+        }
+        self.invalidate_external_plans(account, 0, nonce.saturating_add(1));
+        if self
+            .floors
+            .get(account)
+            .is_some_and(|floor| *floor <= nonce.saturating_add(1))
+        {
+            self.floors.remove(account);
+            self.released.remove(account);
+            self.tokens.remove(account);
+        } else if let Some(ranges) = self.released.get_mut(account) {
+            ranges.retain_mut(|(start, end)| {
+                *start = (*start).max(nonce.saturating_add(1));
+                *start < *end
+            });
+        }
+    }
+
     fn reserve_external(
         &mut self,
         account: String,
@@ -3445,9 +3500,12 @@ impl NonceReservations {
             if *start == *end {
                 ranges.remove(0);
             }
+            self.tokens.insert(account, Arc::new(()));
             return Ok(nonce);
         }
-        reserve_nonce_range(&mut self.floors, account, chain_next, count)
+        let nonce = reserve_nonce_range(&mut self.floors, account.clone(), chain_next, count)?;
+        self.tokens.insert(account, Arc::new(()));
+        Ok(nonce)
     }
 
     fn release(&mut self, account: String, nonce: u64, count: u64) {

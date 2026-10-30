@@ -94,6 +94,7 @@ export class Client {
   private runtimeCache = new Map<string, RuntimeEntry>()
   private transactionQueues = new Map<string, Promise<unknown>>()
   private nonceFloors = new Map<string, number>()
+  private nonceTokens = new Map<string, object>()
   private importedTransactions = new WeakMap<PreparedTransaction, SerializedUnsignedTransaction>()
   constructor(network = 'finney', readonly options: ClientOptions = {}) {
     const target = options.endpoint ?? network
@@ -473,6 +474,7 @@ export class Client {
     const key = hex(publicKeyFromSs58(address)), start = Math.max(nonce, this.nonceFloors.get(key) ?? 0)
     if (!Number.isSafeInteger(start + count)) throw new RangeError('nonce reservation exceeds safe integer range')
     this.nonceFloors.set(key, start + count)
+    this.nonceTokens.set(key, {})
     return start
   }
   /** Reserve consecutive nonces for manual signing. Reservations survive uncertain delivery. */
@@ -481,7 +483,16 @@ export class Client {
   }
   /** Clear a cached reservation only after reconciling inclusion, expiry, or an abandoned
    * signing request. Clearing while a shielded inner transaction is pending can reuse its nonce. */
-  invalidateNonce(address: string): void { this.nonceFloors.delete(hex(publicKeyFromSs58(address))) }
+  invalidateNonce(address: string): void {
+    const key = hex(publicKeyFromSs58(address))
+    this.nonceFloors.delete(key); this.nonceTokens.delete(key)
+  }
+  private retireIncludedNonce(address: string, nonce: number, token: object | undefined, result: ExtrinsicResult): void {
+    const key = hex(publicKeyFromSs58(address))
+    if (result.blockHash && token && this.nonceTokens.get(key) === token && (this.nonceFloors.get(key) ?? Infinity) <= nonce + 1) {
+      this.nonceFloors.delete(key); this.nonceTokens.delete(key)
+    }
+  }
   async estimateFee(call: Call, address: string, options: SubmitOptions = {}, block?: BlockRef): Promise<Balance> {
     const unsigned = await this.prepareRaw(call, { address }, options, block == null ? undefined : await this.resolveBlockHash(block))
     const bytes = unsigned.runtime.encodeSignedExtrinsic(unsigned.callData, unsigned.publicKey, new Uint8Array(64), 1, { ...unsigned.txParams, metadataHashEnabled: unsigned.txParams.metadataHash != null }).bytes
@@ -530,6 +541,7 @@ export class Client {
     const address = signer.ss58Address ?? signer.address!
     const reserved = ownsReservation || options.nonce == null, count = options.mevShield ? 2 : 1
     const nonce = options.nonce ?? this.reserveNonceRange(address, await this.peekNonce(address), count)
+    const token = this.nonceTokens.get(hex(publicKeyFromSs58(address)))
     let broadcastStarted = false, carrierReturned = false
     try {
     options = { ...options, nonce }
@@ -538,7 +550,9 @@ export class Client {
       const signed = await this.signPrepared(await this.prepareRaw(call, signer, options, blockHash), signer)
       options.signal?.throwIfAborted()
       broadcastStarted = true
-      return await this.broadcastExtrinsic(signed.bytes, submissionOptions)
+      const result = await this.broadcastExtrinsic(signed.bytes, submissionOptions)
+      this.retireIncludedNonce(address, nonce, token, result)
+      return result
     }
     const signingOptions = shieldOptions(options)
     if (!Number.isSafeInteger(nonce) || nonce < 0 || nonce >= Number.MAX_SAFE_INTEGER) throw new TypeError('invalid shielded nonce')
@@ -557,6 +571,7 @@ export class Client {
     const result = await this.broadcastExtrinsic(outer.bytes, submissionOptions)
     carrierReturned = true
     const followed = await this.resolveShieldedInner(result, hex(inner.hash), Number(signingOptions.period), options)
+    if (followed.data?.inner_extrinsic_hash && followed.extrinsicHash === hex(inner.hash)) this.retireIncludedNonce(address, nonce + 1, token, followed)
     const accountKey = hex(publicKeyFromSs58(address))
     if (reserved && followed.data?.inner_expiry_finalized === true && this.nonceFloors.get(accountKey) === nonce + 2) this.nonceFloors.set(accountKey, nonce + 1)
     return followed
