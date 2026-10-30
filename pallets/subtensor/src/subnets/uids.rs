@@ -9,6 +9,40 @@ use subtensor_runtime_common::NetUid;
 pub const NULL_PRUNING_BATCH: u16 = 64;
 
 impl<T: Config> Pallet<T> {
+    /// Invalidate pending weight commits from a neuron's old registration.
+    ///
+    /// Manual commits are keyed by hotkey and can be removed directly. Timelocked
+    /// commits are shared per epoch, so scanning and rewriting those queues here
+    /// would make registration cost depend on every validator's pending payloads.
+    /// Record a constant-cost cutoff instead; reveal drops entries at or before it.
+    pub(crate) fn invalidate_weight_commits_for_hotkey(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        block_number: u64,
+    ) {
+        for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
+            let index = Self::get_mechanism_storage_index(netuid, mecid.into());
+            WeightCommits::<T>::remove(index, hotkey);
+        }
+        // Root never runs the subnet timelocked reveal path, so no root queue
+        // can replay an old registration and no cutoff needs to be retained.
+        if netuid.is_root() {
+            return;
+        }
+        TimelockedCommitInvalidatedAt::<T>::insert(
+            netuid,
+            hotkey,
+            (block_number, Self::current_epoch_with_lookahead(netuid)),
+        );
+    }
+
+    /// Worst-case storage charge for commit invalidation during UID replacement.
+    pub fn registration_commit_cleanup_weight() -> Weight {
+        let writes =
+            u64::from(crate::subnets::mechanism::MAX_MECHANISM_COUNT_PER_SUBNET).saturating_add(1);
+        T::DbWeight::get().writes(writes)
+    }
+
     /// Returns the number of filled slots on a network.
     pub fn get_subnetwork_n(netuid: NetUid) -> u16 {
         SubnetworkN::<T>::get(netuid)
@@ -101,6 +135,7 @@ impl<T: Config> Pallet<T> {
         }
 
         T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
+        Self::invalidate_weight_commits_for_hotkey(netuid, &old_hotkey, block_number);
 
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
@@ -350,6 +385,11 @@ impl<T: Config> Pallet<T> {
                     // Remove hotkey related storage items if hotkey exists
                     if let Ok(hotkey) = Keys::<T>::try_get(netuid, neuron_uid) {
                         T::CommitmentsInterface::purge_neuron(netuid, &hotkey);
+                        Self::invalidate_weight_commits_for_hotkey(
+                            netuid,
+                            &hotkey,
+                            Self::get_current_block_as_u64(),
+                        );
 
                         // Same root-churn finalization as `replace_neuron`: deposit while
                         // still on root, then recycle leftover dust after membership drops.
@@ -531,6 +571,15 @@ impl<T: Config> Pallet<T> {
                 }
 
                 // Swap uid specific storage items to new compressed positions
+                // Pending payloads refer to the pre-compaction UID layout. Cancel
+                // them for surviving validators too, even if their own UID stays
+                // fixed: a recipient UID may now belong to a different hotkey.
+                let hotkey = Keys::<T>::get(netuid, old_neuron_uid);
+                Self::invalidate_weight_commits_for_hotkey(
+                    netuid,
+                    &hotkey,
+                    Self::get_current_block_as_u64(),
+                );
                 Keys::<T>::swap(netuid, old_neuron_uid, netuid, new_neuron_uid);
                 AssociatedEvmAddress::<T>::swap(netuid, old_neuron_uid, netuid, new_neuron_uid);
                 BlockAtRegistration::<T>::swap(netuid, old_neuron_uid, netuid, new_neuron_uid);
@@ -776,6 +825,6 @@ impl<T: Config> Pallet<T> {
     /// Return true if a hotkey is registered on specific network.
     ///
     pub fn is_hotkey_registered_on_specific_network(hotkey: &T::AccountId, netuid: NetUid) -> bool {
-        IsNetworkMember::<T>::contains_key(hotkey, netuid)
+        IsNetworkMember::<T>::get(hotkey, netuid)
     }
 }

@@ -945,9 +945,10 @@ impl<T: Config> Pallet<T> {
 
         // 3.1 Remove the previous hotkey and insert the new hotkey from membership.
         // IsNetworkMember( hotkey, netuid ) -> bool -- is the hotkey a subnet member.
-        let is_network_member: bool = IsNetworkMember::<T>::get(old_hotkey, netuid);
-        IsNetworkMember::<T>::remove(old_hotkey, netuid);
-        IsNetworkMember::<T>::insert(new_hotkey, netuid, is_network_member);
+        let is_network_member = IsNetworkMember::<T>::take(old_hotkey, netuid);
+        if is_network_member {
+            IsNetworkMember::<T>::insert(new_hotkey, netuid, true);
+        }
         weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
 
         // 3.2 Swap Uids + Keys.
@@ -997,6 +998,17 @@ impl<T: Config> Pallet<T> {
                     weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
                 }
             }
+        }
+
+        // Timelocked payloads retain the old signing hotkey in their ciphertext;
+        // they cannot follow the UID. Prevent them from reviving if that key
+        // registers again. Manual commits have already moved to the new key.
+        if is_network_member {
+            Self::invalidate_weight_commits_for_hotkey(
+                netuid,
+                old_hotkey,
+                Self::get_current_block_as_u64(),
+            );
         }
 
         // 3.6. Swap the subnet loaded emission.

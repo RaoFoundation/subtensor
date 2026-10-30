@@ -4,8 +4,9 @@ use super::mock::*;
 use crate::*;
 use frame_support::{BoundedVec, assert_err, assert_ok};
 use pallet_commitments::{CommitmentInfo, Data};
-use sp_core::{H160, U256};
+use sp_core::{H160, H256, U256};
 use sp_runtime::PerU16;
+use sp_std::collections::vec_deque::VecDeque;
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
 
 /********************************************
@@ -77,6 +78,52 @@ fn append_neuron_does_not_manufacture_consensus_history() {
             ConsensusByMechanism::<Test>::get(netuid_index),
             vec![PerU16::from_parts(10)]
         );
+    });
+}
+
+#[test]
+fn yuma_trim_invalidates_old_uid_payloads_for_removed_and_surviving_hotkeys() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let index = NetUidStorageIndex::from(netuid);
+        let hotkeys = [U256::from(1), U256::from(2), U256::from(3)];
+        add_network(netuid, 360, 0);
+        MinAllowedUids::<Test>::insert(netuid, 2);
+        SubtensorModule::set_immunity_period(netuid, 0);
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, 1));
+        for hotkey in hotkeys {
+            SubtensorModule::append_neuron(netuid, &hotkey, 0);
+            WeightCommits::<Test>::insert(
+                index,
+                hotkey,
+                VecDeque::from([(H256::repeat_byte(1), 0, 1, 0)]),
+            );
+        }
+        TimelockedWeightCommits::<Test>::insert(
+            index,
+            0,
+            VecDeque::from(hotkeys.map(|hotkey| (hotkey, 1, Default::default(), 1_000))),
+        );
+        Emission::<Test>::insert(netuid, vec![AlphaBalance::ZERO, 2.into(), 1.into()]);
+        // The retained validator's existing row is remapped, but the same UID
+        // vector inside an encrypted pending commit cannot be safely remapped.
+        Weights::<Test>::insert(index, 1, vec![(2, 100)]);
+        System::set_block_number(2);
+        assert_ok!(SubtensorModule::trim_to_max_allowed_uids(netuid, 2));
+        assert_eq!(Weights::<Test>::get(index, 0), vec![(1, 100)]);
+        for hotkey in hotkeys {
+            assert!(!WeightCommits::<Test>::contains_key(index, hotkey));
+            assert!(TimelockedCommitInvalidatedAt::<Test>::contains_key(
+                netuid, hotkey
+            ));
+        }
+        // Reopening a slot for the trimmed key cannot revive its old payload.
+        SubtensorModule::append_neuron(netuid, &hotkeys[0], 3);
+        SubnetEpochIndex::<Test>::insert(netuid, 1);
+        LastEpochBlock::<Test>::insert(netuid, 2);
+        assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
+        assert!(TimelockedWeightCommits::<Test>::get(index, 0).is_empty());
+        assert_eq!(Weights::<Test>::get(index, 0), vec![(1, 100)]);
     });
 }
 
@@ -216,6 +263,56 @@ fn test_replace_neuron() {
             Commitments::commitment_of(netuid, hotkey_account_id).is_none(),
             "deregistered neuron's commitment should be purged"
         );
+    });
+}
+
+#[test]
+fn replace_neuron_invalidates_pending_weight_commits_without_scanning_epoch_queues() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let old_hotkey = U256::from(10);
+        let retained_hotkey = U256::from(11);
+        let new_hotkey = U256::from(12);
+        add_network(netuid, 13, 0);
+        register_ok_neuron(netuid, old_hotkey, U256::from(20), 0);
+
+        let index = NetUidStorageIndex::from(netuid);
+        WeightCommits::<Test>::insert(
+            index,
+            old_hotkey,
+            VecDeque::from([(H256::repeat_byte(1), 1, 1, 0)]),
+        );
+        let timelocked = VecDeque::from([
+            (old_hotkey, 1, Default::default(), 1),
+            (retained_hotkey, 1, Default::default(), 2),
+        ]);
+        TimelockedWeightCommits::<Test>::insert(index, 1, timelocked.clone());
+        TimelockedWeightCommits::<Test>::insert(index, 2, timelocked.clone());
+
+        SubtensorModule::replace_neuron(netuid, 0, &new_hotkey, 2);
+
+        assert!(!WeightCommits::<Test>::contains_key(index, old_hotkey));
+        assert_eq!(TimelockedWeightCommits::<Test>::get(index, 1), timelocked);
+        assert_eq!(TimelockedWeightCommits::<Test>::get(index, 2), timelocked);
+        assert_eq!(
+            TimelockedCommitInvalidatedAt::<Test>::get(netuid, old_hotkey),
+            Some((2, SubtensorModule::current_epoch_with_lookahead(netuid)))
+        );
+        assert!(!SubtensorModule::timelocked_commit_is_current(
+            netuid,
+            &old_hotkey,
+            1
+        ));
+        assert!(!SubtensorModule::timelocked_commit_is_current(
+            netuid,
+            &old_hotkey,
+            2
+        ));
+        assert!(SubtensorModule::timelocked_commit_is_current(
+            netuid,
+            &new_hotkey,
+            3
+        ));
     });
 }
 

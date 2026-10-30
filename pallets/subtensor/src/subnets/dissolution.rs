@@ -211,6 +211,8 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Uids::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            TimelockedCommitInvalidatedAt::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             VotingPower::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             BlockAtRegistration::<T>::clear_prefix(netuid, limit, None)
@@ -434,6 +436,7 @@ impl<T: Config> Pallet<T> {
         LastEpochBlock::<T>::remove(netuid);
         PendingEpochAt::<T>::remove(netuid);
         SubnetEpochIndex::<T>::remove(netuid);
+        TimelockedCommitCleanupCursor::<T>::remove(netuid);
         TotalVotingPower::<T>::remove(netuid);
         VotingPowerTrackingEnabled::<T>::remove(netuid);
         VotingPowerDisableAtBlock::<T>::remove(netuid);

@@ -395,7 +395,7 @@ mod dispatches {
         /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(117)]
-        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_crv3_mechanism_weights(), <T as Config>::WeightInfo::commit_crv3_mechanism_weights_null()), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::timelock_commit_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_crv3_mechanism_weights(), <T as Config>::WeightInfo::commit_crv3_mechanism_weights_null()), DispatchClass::Normal, Pays::No))]
         pub fn commit_crv3_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -800,7 +800,11 @@ mod dispatches {
         /// * `InvalidSeal`: The seal is incorrect.
         ///
         #[pallet::call_index(6)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(1)))]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::register()
+                .saturating_add(Pallet::<T>::registration_commit_cleanup_weight())
+                .saturating_add(Pallet::<T>::hotkey_owner_policy_weight())
+        )]
         pub fn register(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -837,7 +841,11 @@ mod dispatches {
 
         /// User register a new subnetwork via burning token
         #[pallet::call_index(7)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::burned_register().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(1)))]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::burned_register()
+                .saturating_add(Pallet::<T>::registration_commit_cleanup_weight())
+                .saturating_add(Pallet::<T>::hotkey_owner_policy_weight())
+        )]
         pub fn burned_register(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -850,7 +858,12 @@ mod dispatches {
         /// or transaction fee. The signing coldkey is bound into the proof.
         /// Transaction validation verifies the proof before pool admission.
         #[pallet::call_index(152)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::pow_register().saturating_add(Pallet::<T>::hotkey_owner_policy_weight()), Pays::No))]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::pow_register()
+                .saturating_add(Pallet::<T>::registration_commit_cleanup_weight())
+                .saturating_add(Pallet::<T>::hotkey_owner_policy_weight()),
+            Pays::No,
+        ))]
         pub fn pow_register(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1947,7 +1960,7 @@ mod dispatches {
         ///
         /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(113)]
-        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights(), <T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights_null()), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::timelock_commit_weight_for_mode(*netuid, <T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights(), <T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights_null()), DispatchClass::Normal, Pays::No))]
         pub fn commit_timelocked_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2050,7 +2063,7 @@ mod dispatches {
         ///
         /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(118)]
-        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::timelock_commit_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()), DispatchClass::Normal, Pays::No))]
         pub fn commit_timelocked_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,

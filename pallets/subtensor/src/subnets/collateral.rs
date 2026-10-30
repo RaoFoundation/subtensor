@@ -646,8 +646,19 @@ impl<T: Config> Pallet<T> {
                         false,
                     )?;
                     ensure!(!bought.is_zero(), Error::<T>::AmountTooLow);
-                    Self::credit_miner_collateral(netuid, &hotkey, &coldkey, bought, false)?;
-                    added = added.saturating_add(bought);
+                    // The moving-price quote can differ from the live AMM execution in either
+                    // direction. Never lock more than requested; an underfill remains a valid
+                    // partial top-up because fees and ordinary price impact make it the normal
+                    // result when the moving and spot prices agree.
+                    let bought_to_lock = bought.min(shortfall_alpha);
+                    Self::credit_miner_collateral(
+                        netuid,
+                        &hotkey,
+                        &coldkey,
+                        bought_to_lock,
+                        false,
+                    )?;
+                    added = added.saturating_add(bought_to_lock);
                 }
 
                 ensure!(!added.is_zero(), Error::<T>::AmountTooLow);
