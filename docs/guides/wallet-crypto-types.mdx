@@ -1,0 +1,344 @@
+---
+title: Wallet crypto types
+description: Compare ML-DSA-65, Falcon-512, and Falcon-1024 wallets, and create, recover, and use standard or rotating accounts.
+---
+
+Bittensor supports five signing schemes: Sr25519, Ed25519, ML-DSA-65,
+Falcon-512, and Falcon-1024. Each supports a **standard** account with a fixed
+signing key or a **hashed** account with rotating signing keys. Existing standard
+Sr25519 and Ed25519 wallets keep their addresses and require no migration.
+
+ML-DSA-65 and both Falcon variants provide post-quantum signatures in either
+account mode. Hashing and rotation do not make Sr25519 or Ed25519 signatures
+quantum-resistant.
+
+## Post-quantum scheme comparison
+
+| Scheme | NIST security level | Public key | Signature | Key + signature | Sign transaction |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| ML-DSA-65 | 3 | 1,952 B | 3,309 B | 5,261 B | **0.521 ms** |
+| Falcon-512 | 1 | 897 B | 666 B, padded | 1,563 B | 3.117 ms |
+| Falcon-1024 | 5 | 1,793 B | 1,280 B, padded | 3,073 B | 11.319 ms |
+
+The security levels describe the parameter sets' claimed NIST categories:
+ML-DSA-65 is specified in [FIPS 204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf),
+and the Falcon sets target levels 1 and 5 in the
+[Falcon specification](https://falcon-sign.info/falcon.pdf).
+Bittensor uses the original Falcon padded signature format; these wallet profiles
+do not claim compatibility with final FN-DSA encodings.
+
+ML-DSA-65 has the fastest signing time in this comparison. Falcon-512 has the
+smallest key and signature, while Falcon-1024 targets the highest security level
+of the three. Key + signature counts only those two fields; transaction framing
+and call data add bytes. Signing time is separate from transaction inclusion,
+finalization, and on-chain verification. Fees also depend on the runtime's
+execution weights, not only signature size.
+
+## Create and recover a wallet
+
+Choose the signing scheme independently from the account mode:
+
+```bash
+btcli wallet create --crypto-type sr
+btcli wallet create --crypto-type ed
+btcli wallet create --crypto-type ms
+btcli wallet create --crypto-type falcon512
+btcli wallet create --crypto-type falcon1024
+btcli wallet create --crypto-type sr --type hashed
+btcli wallet create --crypto-type ed --type hashed
+btcli wallet create --crypto-type ms --type hashed
+btcli wallet create --crypto-type falcon512 --type hashed
+btcli wallet create --crypto-type falcon1024 --type hashed
+```
+
+`--crypto-type` chooses `sr`, `ed`, `ms`, `falcon512`, or `falcon1024`. `--type` chooses
+`standard` (the default, with a fixed signing key) or `hashed` (a permanent
+account whose signing key rotates on inclusion). Both choices apply to the
+coldkey and hotkey; `--hotkey-crypto-type` and `--hotkey-type` override them
+independently. Ordinary commands detect both choices from the keyfile.
+
+| Scheme | `--type standard` | `--type hashed` |
+| --- | --- | --- |
+| `sr` / `sr25519` | Existing Sr25519 account | Rotating Sr25519 account |
+| `ed` / `ed25519` | Existing Ed25519 account | Rotating Ed25519 account |
+| `ms` / `ml-dsa` | Fixed-key ML-DSA-65 account | Rotating ML-DSA-65 account |
+| `falcon512` / `falcon-512` | Fixed-key Falcon-512 account | Rotating Falcon-512 account |
+| `falcon1024` / `falcon-1024` | Fixed-key Falcon-1024 account | Rotating Falcon-1024 account |
+
+`--crypto-type hashed` is an alias for rotating Sr25519;
+`--crypto-type hashed-ed25519` selects rotating Ed25519. `--type hashed` alone
+uses the default Sr25519 scheme. For existing experimental ML-DSA wallets,
+`mldsa65`, `mldsa`, `ml-dsa-65`, and numeric `7` preserve rotating mode when
+`--type` is omitted. Prefer `ms` with an explicit `--type hashed` for new rotating
+wallets. The mode is part of the permanent account identity and cannot be changed
+in place. A standard ML-DSA or Falcon wallet stays fixed and uses the ordinary native
+transaction nonce for replay protection, starting at zero. It has no registered
+authorization generation or registration deposit.
+
+Record both the scheme and account mode with each mnemonic. The same mnemonic
+with a different scheme or mode derives a different account. The default is
+12 words for Sr25519 and Ed25519. ML-DSA and Falcon require 24 words; recovery
+uses the original 24-word mnemonic or 32-byte master seed. To recover the same account, use the original scheme and mode:
+
+```bash
+btcli wallet regen-coldkey --crypto-type sr --type hashed
+btcli wallet regen-hotkey --crypto-type ed --type standard
+btcli wallet regen-coldkey --crypto-type ms --type hashed
+btcli wallet regen-coldkey --crypto-type falcon512 --type standard
+btcli wallet regen-hotkey --crypto-type falcon1024 --type hashed
+```
+
+Install matching Python SDK and native `bittensor-core` builds. SDK constructors
+accept `account_type="standard"` or `account_type="hashed"`. Use the matching
+native extension for ML-DSA and Falcon. Browser extensions, Ledger apps, and
+Polkadot Vault need explicit support for the selected scheme before they can
+sign its transactions. Unknown signing schemes fail before
+creating or restoring a keyfile.
+
+## Registration and authorization
+
+Standard ML-DSA and Falcon wallets use one ordinary **SS58 address** for display, receiving, and
+account identity. They can receive funds and submit their first transaction without
+registration, a sponsor, or a 0.2 TAO registration reserve. Ordinary transaction
+fees and operation-specific deposits still apply. Recovery deterministically
+selects the same fixed key whose AccountId cannot also decode as an Ed25519 or
+Sr25519 public key.
+
+All hashed wallets require registration before use, including rotating
+Sr25519, Ed25519, ML-DSA-65, Falcon-512, and Falcon-1024.
+Their `tao_` receiving addresses carry a public registration descriptor without revealing the active
+signing public key. A wallet has the same address on every network; registration,
+balances, and generations are independent on each chain. Creating and restoring
+wallets requires no network connection.
+
+`btcli wallet show` and `btcli wallet list` always show the complete **receiving
+address** first for these wallets. Share this address for payments, including
+after registration: its descriptor lets the sender check registration and
+prepare it when needed. The **Account ID (SS58)** identifies the same account in
+Polkadot.js and other explorers, but does not contain the registration descriptor.
+Standard wallets of all five schemes use SS58 only.
+
+For rotating wallets, the commands check registration at a finalized block on the selected `--network`.
+Registration status is specific to that network; it does not imply registration
+on another chain or that signing is currently enabled. This check never changes
+which address is primary.
+
+If the RPC is unavailable, the commands still show local public addresses and
+report registration as unknown. Use `--offline` to skip the check entirely.
+Creation and recovery of rotating wallets also show both forms with registration not checked.
+The receiving address also supports watch-only recovery. JSON output exposes `ss58`,
+`receiving_address`, `primary_address`, and `registration` (with `coldkey_` or
+`hotkey_` prefixes where applicable); the existing `address` field continues to
+carry the complete receiving address. For these wallet types, `primary_address`
+always equals `receiving_address`, including after finalized registration.
+
+Transfers to a rotating receiving descriptor can sponsor registration. Wait for
+finalized registration before sharing that rotating account's plain SS58 address
+or assigning roles. Its descriptor and SS58 identify the same account. Multisig
+and EVM payments to registration-dependent recipients require finalized
+registration first. These requirements do not apply to standard ML-DSA or Falcon recipients.
+
+When a transfer needs to register its recipient, the CLI asks a separate
+default-No question naming the network, recipient, paying account, and exact
+deposit. This deposit is **permanently reserved from the sender**, in addition
+to the payment and transaction fees. The amount comes from that chain's
+runtime, not from a fixed CLI price. Declining submits nothing. An already
+registered recipient requires no new deposit or sponsorship prompt.
+
+The candidate runtime uses one **0.2 TAO registration deposit** for hashed
+Sr25519/Ed25519, rotating ML-DSA/Falcon, and registered protected derived accounts.
+Standard ML-DSA and Falcon wallets do not register or reserve this deposit. Normal
+multisig and proxy deposits remain separate. Changing the registration price
+does not refund deposits already reserved on an earlier runtime.
+
+Account registration defaults to MEV Shield, including registration added to
+a transfer. The CLI respects `--no-mev-shield` and the `mev_shield` setting;
+`--mev-shield` requires encrypted submission. In the SDK, `execute` and
+`submit_call` accept `shielded=False` to opt out or `shielded=True` to require
+Shield. As with staking, the default can fall back to public submission with a
+warning if Shield is unavailable; the CLI also allows fallback when the carrier
+fee is unaffordable. Explicitly requiring Shield prevents either fallback.
+This does not replace registration sponsorship consent or the need to
+confirm finalized registration before sharing a new rotating account address.
+
+`--yes` does not authorize this extra deposit. For non-interactive commands,
+explicitly set `--max-registration-deposit` to the maximum TAO you accept:
+
+```bash
+btcli wallet transfer --wallet sender --dest <receiving-address> --amount 1 \
+  --yes --max-registration-deposit 0.2
+```
+
+The command refuses a deposit above that limit. `--dry-run` shows the reserve
+without requesting consent or submitting. JSON and other non-interactive
+sessions require the explicit limit when registration is needed.
+
+The SDK also requires consent for registration it adds automatically. After
+reviewing the quote from `await client.preflight(intent, sender)`, provide a
+native TAO `Balance` limit to `client.execute` or `client.submit_shielded`:
+
+```python
+await client.execute(
+    intent,
+    sender,
+    max_registration_deposit=bt.Balance.from_tao("0.2"),
+)
+```
+
+Alternatively, `on_registration_sponsorship` receives a quote with
+`recipient_account`, `payer_account`, and `deposit`; it must explicitly return
+`True` to approve. The SDK never opens an interactive prompt itself. If both a
+limit and callback are supplied, both must approve. Consent is checked against
+the composed transaction before signing, including for Shield submissions.
+An explicitly constructed raw registration call remains an explicit operation.
+
+Hashed accounts require hashed proxy delegates and, when used as hotkeys, hashed
+coldkey owners. Hashed Sr25519 and Ed25519 can control each other. Registration
+rejects an existing unprotected owner, and coldkey swaps preserve that policy.
+Registered rotating ML-DSA and Falcon require registered post-quantum authority
+for delegates and owners. Standard ML-DSA and Falcon follow ordinary account policy: they may grant a classical
+proxy and use normal multisig, derivative, and pure-proxy calls without derived
+registration. Such delegation is not exclusively post-quantum authority.
+
+The new **safe composite mode** derives a full 32-byte address that cannot also
+be an Ed25519 or Sr25519 public key. It supports multisigs, derivatives, and pure
+proxies without account registration or a registration deposit. Ordinary
+multisig/proxy deposits still apply. Any signing scheme may participate; quantum
+resistance depends on the quorum and delegates actually chosen. A voluntary
+classical proxy or a quorum of classical members remains a downgrade.
+
+Safe composite calls use a configured derivation weight in addition to the
+underlying operation's weight. The chain must support the corresponding safe
+calls before these accounts can be used.
+
+Safe mode creates a different address from legacy mode. Existing configurations
+without a mode retain their legacy address. Those legacy hashes may encode
+classical public keys and have no automatic post-quantum guarantee, even when
+all members use post-quantum signatures. Registered protected mode remains a separate option for
+qualifying registered rotating authorities; neither a standard ML-DSA/Falcon wallet nor a safe
+composite automatically satisfies that permanent authority policy.
+
+In the SDK, select `await client.multisig(signatories, threshold,
+account_mode="safe")`; omitted mode remains `legacy`. New CLI `multisig add`
+entries default to safe mode; use `--account-mode legacy` to restore an existing
+legacy group. All approvals, execution, cancellation, and funding use the stored
+mode. Safe groups never require `register_derived`.
+
+Safe derivative and pure-proxy composition is selected automatically when the
+SDK receives a standard ML-DSA/Falcon wallet or an explicitly safe multisig origin. A bare
+SS58 address does not reveal its signing scheme: supply `account_mode="safe"`
+when choosing that derivation explicitly. Preserve the mode when restoring a
+pure proxy, and use its matching safe destruction path.
+
+Root controls registration and signing for all hashed accounts and all standard
+or rotating ML-DSA/Falcon accounts through
+`AdminUtils.sudo_set_hashed_accounts_enabled(enabled)`. The current value is in
+`AdminUtils.HashedAccountsEnabled`; its default is false. Disabling pauses new
+registration and signing for these accounts, preserving existing records,
+rotating generations, native nonces, and EVM aliases. Ordinary fixed Sr25519/Ed25519 wallets are unaffected.
+The chain must also support the wallet's account profile and have usable
+authorization weights for the selected profile. The runtime advertises supported
+ML-DSA profiles in `HashedAccounts.MldsaAccountProfiles` and Falcon profiles in
+`HashedAccounts.FalconAccountProfiles`.
+Wallet creation is local; transaction use requires a compatible, activated chain.
+See the [ML-DSA specification](/docs/design/ml-dsa-accounts-spec) and
+[Falcon wallet protocol](/docs/design/falcon-accounts) for protocol and activation
+requirements.
+
+For fee-free PoW admission, register both hashed keys through a sponsor and wait
+for finalization. `btcli subnets register --pow` then submits the PoW operation
+without a registration batch. The sponsor pays the separate setup reserve.
+
+## Transactions and client compatibility
+
+The SDK reads a rotating account's generation and nonce before signing. Standard
+ML-DSA and Falcon read the native nonce without querying an identity registry.
+A classical hashed transaction uses the standard signed-v4 layout and a standard Sr25519
+or Ed25519 signature. The operation remains the top-level call, such as
+`Balances.transfer_keep_alive` or `SubtensorModule.burned_register`; there is no
+account wrapper call.
+
+The existing `MultiAddress::Raw` signer field contains a fixed 106-byte address:
+permanent account ID, format version, scheme, generation, current public key and
+next commitment. The signature binds this entire address and the full call,
+nonce, tip, era, genesis hash and runtime versions under a transaction-specific
+hash domain. Ordinary accounts retain their existing encoding and signing rules.
+
+For classical hashed wallets, the runtime checks the registered commitment, charges fees and checks permissions
+for the permanent account, advances its generation, and dispatches the original
+call as that account. Included dispatch failures still consume a generation.
+Invalid or dropped transactions do not. Wallet backups need no signing history
+to recover the next key.
+
+Metadata-aware clients can decode these transactions and mixed blocks with their
+existing v4 decoder. Polkadot.js shows the actual operation and permanent signer
+address directly. The account ID leads the raw signer field so existing
+AccountId32 displays resolve it correctly; other clients may display the raw
+bytes until they recognize the hashed signer format. Recipient addresses remain unchanged.
+Creating hashed transactions still requires a wallet that understands key
+derivation, registration and the signed address format.
+
+ML-DSA and Falcon use the same signed-v4 envelope, with their authorization
+proof in `MultiAddress::Raw` and a fixed nonzero carrier in the unchanged Ed25519
+signature field. That carrier is framing only; the runtime verifies the actual
+post-quantum proof over the complete transaction payload. Existing block decoders
+keep their original signature type.
+
+| Scheme | Raw authorization proof, standard or hashed |
+| --- | ---: |
+| ML-DSA-65 | 5,367 bytes |
+| Falcon-512 | 1,669 bytes |
+| Falcon-1024 | 3,179 bytes |
+
+These proofs add the permanent account ID, profile, generation, and next
+commitment to the public key and signature. Standard ML-DSA/Falcon keeps proof
+generation zero and the same signing key while its ordinary native nonce advances.
+The nonce survives balance draining and refunding. Hashed ML-DSA/Falcon also
+advances its registered generation and commitment when a valid transaction is
+included and reaches dispatch, including when the dispatched call fails. Invalid
+or dropped transactions do not rotate the key. Both address forms and the recovery
+phrase stay unchanged as keys rotate.
+
+Hashing and rotation do not make classical signatures quantum-resistant: a
+transaction reveals its current public key even if it is dropped before inclusion.
+
+## EVM wallets
+
+Use a separate ordinary **ECDSA EVM wallet** for Ethereum transactions. Its key,
+balance, nonce, and contracts remain separate from the native standard ML-DSA or Falcon account.
+The existing `associate_evm_key` workflow can associate that EVM address with a
+native neuron identity; it does not merge accounts or let the ECDSA key sign for
+the native post-quantum address. The EVM wallet remains classical, without a post-quantum
+guarantee. Creating a standard ML-DSA or Falcon wallet does not install an EVM alias or
+ownership record.
+
+Native `EVM.call`, creation, and withdrawal compatibility also remains available.
+For a standard ML-DSA or Falcon account, the ordinary truncated source uses a
+separate Frontier backing balance. Signing such a call with a post-quantum key does not remove
+the EVM source's other classical authorization routes. Existing registered
+rotating/protected aliases retain their established mapping and protections.
+
+An ML-DSA or Falcon proof is not an `eth_sendRawTransaction` ECDSA signature. Contracts that
+require ECDSA signatures continue to require the corresponding EVM authority.
+
+## Message signatures
+
+For classical SR/ED wallets, `btcli wallet sign --message "challenge"` uses the
+wallet's stored scheme.
+`btcli wallet verify --message "challenge" --signature HEX --ss58 ADDRESS`
+uses the descriptor in a receiving address. With plain SS58, supply the trusted
+signing scheme and account mode, for example `--crypto-type sr --type hashed`.
+The verifier never guesses the scheme from the signature.
+
+Classical hashed message signatures use the retired generation-zero identity key and a
+separate signing domain. First include a transaction retiring generation zero;
+the CLI checks finalized state before revealing that retired key. SDK callers
+pass the finalized generation as `hashed_generation` to `wallets.sign_message`,
+or select it with `key.at_generation(generation)`.
+
+Standard and hashed ML-DSA/Falcon wallets do not support arbitrary message
+signing or HTTP authentication. Their transaction signing remains available,
+and they approve limit orders through a normal signed `authorize_order` call.
+
+For classical HTTP signatures, servers must pass `expected_crypto_type` to `http_auth.verify` from trusted
+configuration or registry state. The request's crypto header is not trusted.

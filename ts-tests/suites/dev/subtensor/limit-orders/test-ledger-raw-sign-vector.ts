@@ -135,10 +135,7 @@ const SOFTWARE_ADDRESS = "5EpHX5foDtnhZngj4GsKq5eKGpUvuMqbpUG48ZfCCCs7EzKR";
 const BOB_SS58 = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
 const CHARLIE_SS58 = "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y";
 
-const EXECUTABLE_MESSAGE =
-    "TAO.com order v1: Limit buy 1000 on subnet 1, limit price 1000000000, " +
-    `expiry 18446744073709551615, hotkey ${BOB_SS58}, fee 0 to ${CHARLIE_SS58}, ` +
-    `relayer none, max slippage none, chain 945, partial fills false, signer ${SOFTWARE_ADDRESS}`;
+const EXECUTABLE_MESSAGE = `TAO.com order v1: Limit buy 1000 on subnet 1, limit price 1000000000, expiry 18446744073709551615, hotkey ${BOB_SS58}, fee 0 to ${CHARLIE_SS58}, relayer none, max slippage none, chain 945, partial fills false, signer ${SOFTWARE_ADDRESS}`;
 
 /** blake2_256 of the wrapped EXECUTABLE_MESSAGE (350 bytes wrapped, so hashed). */
 const EXECUTABLE_DIGEST = "0xcd8f76e889c586d5efb73dd03433dc164b75fd727c52aaa4c8d07eb13dc98c12";
@@ -188,13 +185,7 @@ const DEVICE_V2_VECTORS: {
     {
         name: "device-v2-limit-buy-fixed",
         order: DEVICE_V2_BASE,
-        message:
-            "TAO.com order v2: Limit buy 1000000000 on subnet 64, " +
-            "limit price 500000000, expiry 1793000000000, " +
-            `hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, ` +
-            `relayer ${RELAYER_A}, max slippage 7500000, ` +
-            `chain 1, partial fills true, signer ${DEVICE_ADDRESS}, ` +
-            "has-linked-order false",
+        message: `TAO.com order v2: Limit buy 1000000000 on subnet 64, limit price 500000000, expiry 1793000000000, hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, relayer ${RELAYER_A}, max slippage 7500000, chain 1, partial fills true, signer ${DEVICE_ADDRESS}, has-linked-order false`,
         payloadLen: 423,
         digest: "0xb37d9b6e7f33e10d428db66ad581b7f83558e087dbf8e547af8b5b718a45f63a",
     },
@@ -206,14 +197,7 @@ const DEVICE_V2_VECTORS: {
             amount: { LinkedPercentage: { provider: PROVIDER_A, pct: 250_000_000 } },
             has_linked_order: true,
         },
-        message:
-            "TAO.com order v2: Take-profit 250000000 ppb of " +
-            `order ${PROVIDER_A} output on subnet 64, ` +
-            "trigger price 500000000, expiry 1793000000000, " +
-            `hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, ` +
-            `relayer ${RELAYER_A}, max slippage 7500000, ` +
-            `chain 1, partial fills true, signer ${DEVICE_ADDRESS}, ` +
-            "has-linked-order true",
+        message: `TAO.com order v2: Take-profit 250000000 ppb of order ${PROVIDER_A} output on subnet 64, trigger price 500000000, expiry 1793000000000, hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, relayer ${RELAYER_A}, max slippage 7500000, chain 1, partial fills true, signer ${DEVICE_ADDRESS}, has-linked-order true`,
         payloadLen: 512,
         digest: "0x4872611a3656ed87cc8d7f3e78b9f6c9e1f70a5d4eaf86a20ae4a916f21f8190",
     },
@@ -227,13 +211,7 @@ const DEVICE_V2_VECTORS: {
             partial_fills_enabled: false,
             has_linked_order: true,
         },
-        message:
-            "TAO.com order v2: Stop-loss 1000000000 on subnet 64, " +
-            "trigger price 500000000, expiry 1793000000000, " +
-            `hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, ` +
-            "relayer [], max slippage 0, " +
-            `chain 1, partial fills false, signer ${DEVICE_ADDRESS}, ` +
-            "has-linked-order true",
+        message: `TAO.com order v2: Stop-loss 1000000000 on subnet 64, trigger price 500000000, expiry 1793000000000, hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, relayer [], max slippage 0, chain 1, partial fills false, signer ${DEVICE_ADDRESS}, has-linked-order true`,
         payloadLen: 373,
         digest: "0x0384ac179ed6f4e14cea6560368e0c72c705db3638df81ae0a235036a1ee5445",
     },
@@ -250,13 +228,7 @@ const DEVICE_V2_VECTORS: {
             chain_id: 18_446_744_073_709_551_615n,
             has_linked_order: true,
         },
-        message:
-            "TAO.com order v2: Limit buy 18446744073709551615 on subnet 64, " +
-            "limit price 18446744073709551615, expiry 18446744073709551615, " +
-            `hotkey ${HOTKEY_SS58}, fee 1000000000 to ${FEE_RECIPIENT_SS58}, ` +
-            `relayer ${RELAYER_A}+${RELAYER_B}, max slippage 1000000000, ` +
-            `chain 18446744073709551615, partial fills true, signer ${DEVICE_ADDRESS}, ` +
-            "has-linked-order true",
+        message: `TAO.com order v2: Limit buy 18446744073709551615 on subnet 64, limit price 18446744073709551615, expiry 18446744073709551615, hotkey ${HOTKEY_SS58}, fee 1000000000 to ${FEE_RECIPIENT_SS58}, relayer ${RELAYER_A}+${RELAYER_B}, max slippage 1000000000, chain 18446744073709551615, partial fills true, signer ${DEVICE_ADDRESS}, has-linked-order true`,
         payloadLen: 524,
         digest: "0x755794cb9934648f3939dd1a65c699dcd07105c5544f91f3fdc0dfb578bdec39",
     },
@@ -275,35 +247,15 @@ const DEVICE_V2_VECTORS: {
             partial_fills_enabled: false,
             has_linked_order: false,
         },
-        message:
-            "TAO.com order v2: Limit buy 0 on subnet 0, " +
-            "limit price 0, expiry 0, " +
-            `hotkey ${HOTKEY_SS58}, fee 0 to ${FEE_RECIPIENT_SS58}, ` +
-            "relayer none, max slippage none, " +
-            `chain 0, partial fills false, signer ${DEVICE_ADDRESS}, ` +
-            "has-linked-order false",
+        message: `TAO.com order v2: Limit buy 0 on subnet 0, limit price 0, expiry 0, hotkey ${HOTKEY_SS58}, fee 0 to ${FEE_RECIPIENT_SS58}, relayer none, max slippage none, chain 0, partial fills false, signer ${DEVICE_ADDRESS}, has-linked-order false`,
         payloadLen: 341,
         digest: "0x7326e6c0ba508f552307354a82325bd795f36223b88f34b8cce443cb61d8f65d",
     },
 ];
 
-const DEFECT_CLIENT_MESSAGE =
-    "TAO.com order v2: Limit buy 1000000000 ppb of " +
-    "order 0x0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff output on subnet 64, " +
-    "limit price 500000000, expiry 1793000000000, " +
-    `hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, ` +
-    `relayer ${RELAYER_A}, max slippage 7500000, ` +
-    "chain 1, partial fills true, signer 5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC, " +
-    "has-linked-order true";
+const DEFECT_CLIENT_MESSAGE = `TAO.com order v2: Limit buy 1000000000 ppb of order 0x0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff output on subnet 64, limit price 500000000, expiry 1793000000000, hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, relayer ${RELAYER_A}, max slippage 7500000, chain 1, partial fills true, signer 5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC, has-linked-order true`;
 
-const DEFECT_CORRECTED_MESSAGE =
-    "TAO.com order v2: Limit buy 1000000000 ppb of " +
-    "order 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff output on subnet 64, " +
-    "limit price 500000000, expiry 1793000000000, " +
-    `hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, ` +
-    `relayer ${RELAYER_A}, max slippage 7500000, ` +
-    "chain 1, partial fills true, signer 5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC, " +
-    "has-linked-order true";
+const DEFECT_CORRECTED_MESSAGE = `TAO.com order v2: Limit buy 1000000000 ppb of order 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff output on subnet 64, limit price 500000000, expiry 1793000000000, hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, relayer ${RELAYER_A}, max slippage 7500000, chain 1, partial fills true, signer 5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC, has-linked-order true`;
 
 // `new Uint8Array(...)` is load-bearing: `@polkadot/util`'s `isU8a` tests
 // `constructor === Uint8Array` by identity, so an array from another realm makes
@@ -494,7 +446,9 @@ describeSuite({
                     signer: "5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC",
                     amount: {
                         LinkedPercentage: {
-                            provider: "0Xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                            // Exercise normalization of a noncanonical prefix at the input boundary.
+                            provider:
+                                "0Xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" as `0x${string}`,
                             pct: 1_000_000_000,
                         },
                     },

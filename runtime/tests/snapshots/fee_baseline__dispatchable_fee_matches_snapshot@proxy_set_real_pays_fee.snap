@@ -3,4 +3,4 @@ source: runtime/tests/fee_baseline.rs
 description: proxy_set_real_pays_fee
 expression: fee
 ---
-77288
+114788

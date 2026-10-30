@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 import bittensor_core as _core
 
+from ..account_mode import validate_account_mode
 from .const import SS58_FORMAT
 from .contract import (
     CallArgIR,
@@ -92,16 +93,23 @@ def is_valid_ss58_address(value: str, ss58_format: Optional[int] = None) -> bool
 
 
 def multisig_account(
-    signatories: list[str], threshold: int, ss58_format: int = SS58_FORMAT
+    signatories: list[str], threshold: int, ss58_format: int = SS58_FORMAT, *, account_mode="legacy"
 ) -> MultisigAccount:
     """Derive the deterministic M-of-N multisig account for a signer set."""
-    keys = [bytes.fromhex(ss58_decode(address)) for address in signatories]
-    account, sorted_keys = _core.multisig_account_id(keys, threshold)
+    # Membership is an account identity, not a payment destination. Preserve
+    # descriptors on payment paths, but accept receiving addresses here too.
+    from ..receiving import parse_recipient
+
+    keys = [bytes.fromhex(ss58_decode(parse_recipient(address).account)) for address in signatories]
+    account_mode = validate_account_mode(account_mode)
+    derive = _core.safe_multisig_account_id if account_mode == "safe" else _core.multisig_account_id
+    account, sorted_keys = derive(keys, threshold)
     return MultisigAccount(
         signatories=[ss58_encode(key, ss58_format) for key in sorted_keys],
         threshold=threshold,
         public_key=bytes(account),
         ss58_address=ss58_encode(bytes(account), ss58_format),
+        account_mode=account_mode,
     )
 
 

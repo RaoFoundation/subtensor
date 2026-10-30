@@ -23,7 +23,7 @@ from ._substrate import Substrate
 from .client import BlockHeader, Client
 from .intents import Policy
 from .namespaces import NAMESPACES
-from .settings import DEFAULT_NETWORK
+from .settings import DEFAULT_ERA_PERIOD, DEFAULT_NETWORK, MEV_SHIELD_ERA_PERIOD
 from .snapshot import Snapshot
 
 _NAMESPACES = tuple(NAMESPACES)
@@ -239,6 +239,7 @@ class SyncClient:
         self.staking = _SyncNamespace(self._client.staking, self._call)
         self.subnets = _SyncNamespace(self._client.subnets, self._call)
         self.weights = _SyncNamespace(self._client.weights, self._call)
+        self.limit_orders = _SyncNamespace(self._client.limit_orders, self._call)
 
     # Lifecycle ----------------------------------------------------------------
 
@@ -434,6 +435,12 @@ class SyncClient:
     def prepare_call(self, call, *, address, **kwargs):
         return self._call(self._client.prepare_call(call, address=address, **kwargs))
 
+    def prepare_mldsa_call(self, call, *, descriptor, **kwargs):
+        return self._call(self._client.prepare_mldsa_call(call, descriptor=descriptor, **kwargs))
+
+    def prepare_pq_call(self, call, *, descriptor, **kwargs):
+        return self._call(self._client.prepare_pq_call(call, descriptor=descriptor, **kwargs))
+
     def submit_signature(self, unsigned, signature, **kwargs):
         return self._call(self._client.submit_signature(unsigned, signature, **kwargs))
 
@@ -443,22 +450,35 @@ class SyncClient:
     def estimate_weight(self, call, *, address):
         return self._call(self._client.estimate_weight(call, address=address))
 
-    def multisig(self, signatories, threshold):
-        multi = self._call(self._client.multisig(signatories, threshold))
+    def multisig(self, signatories, threshold, *, account_mode="legacy"):
+        multi = self._call(self._client.multisig(signatories, threshold, account_mode=account_mode))
         return _SyncNamespace(multi, self._call)
 
-    def preflight(self, intent, wallet, *, proxy_for=None, proxy_type=None):
+    def preflight(
+        self,
+        intent,
+        wallet,
+        *,
+        proxy_for=None,
+        proxy_type=None,
+        shielded=None,
+        period=DEFAULT_ERA_PERIOD,
+    ):
         return self._call(
             self._client.preflight(
                 intent,
                 wallet,
                 proxy_for=proxy_for,
                 proxy_type=proxy_type,
+                shielded=shielded,
+                period=period,
             )
         )
 
-    def estimate_shielded_carrier_fee(self, fee_payer):
-        return self._call(self._client.estimate_shielded_carrier_fee(fee_payer))
+    def estimate_shielded_carrier_fee(self, fee_payer, call, *, period=MEV_SHIELD_ERA_PERIOD):
+        return self._call(
+            self._client.estimate_shielded_carrier_fee(fee_payer, call, period=period)
+        )
 
     def plan(self, intent, wallet, **kwargs):
         return self._call(self._client.plan(intent, wallet, **kwargs))

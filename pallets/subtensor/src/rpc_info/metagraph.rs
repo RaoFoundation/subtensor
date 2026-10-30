@@ -565,6 +565,20 @@ pub enum SelectiveMetagraphIndex {
     CollateralEarned,
 }
 
+/// A request can select every field once. Bound the raw list before sorting so
+/// repeated or unknown indices cannot amplify runtime work or normalization.
+pub const MAX_SELECTIVE_METAGRAPH_INDICES: usize =
+    SelectiveMetagraphIndex::CollateralEarned as usize + 1;
+
+pub fn normalize_metagraph_indices(mut indices: Vec<u16>) -> Option<Vec<u16>> {
+    if indices.len() > MAX_SELECTIVE_METAGRAPH_INDICES {
+        return None;
+    }
+    indices.sort_unstable();
+    indices.dedup();
+    Some(indices)
+}
+
 impl SelectiveMetagraphIndex {
     fn from_index(index: usize) -> Option<Self> {
         match index {
@@ -880,6 +894,7 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
+        let metagraph_indexes = normalize_metagraph_indices(metagraph_indexes)?;
         if !Self::is_subnet_reportable(netuid) {
             None
         } else {
@@ -897,6 +912,7 @@ impl<T: Config> Pallet<T> {
         mecid: MechId,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
+        let metagraph_indexes = normalize_metagraph_indices(metagraph_indexes)?;
         if !Self::is_subnet_reportable(netuid) {
             None
         } else {
@@ -1614,6 +1630,49 @@ impl<T: Config> Pallet<T> {
             ..Default::default()
         }
     }
+}
+
+#[test]
+fn selective_metagraph_indices_are_bounded_before_deduplication() {
+    assert_eq!(normalize_metagraph_indices(vec![]), Some(vec![]));
+    assert_eq!(
+        normalize_metagraph_indices(vec![54; MAX_SELECTIVE_METAGRAPH_INDICES]),
+        Some(vec![54])
+    );
+    assert!(normalize_metagraph_indices(vec![54; MAX_SELECTIVE_METAGRAPH_INDICES + 1]).is_none());
+    let all: Vec<_> = (0..MAX_SELECTIVE_METAGRAPH_INDICES as u16).collect();
+    assert!(
+        all.iter()
+            .all(|index| SelectiveMetagraphIndex::from_index(*index as usize).is_some())
+    );
+    assert_eq!(normalize_metagraph_indices(all.clone()), Some(all));
+}
+
+#[test]
+fn selective_graph_getters_bound_raw_calls_and_preserve_selected_fields() {
+    use crate::tests::mock::{SubtensorModule, add_network, new_test_ext};
+    use sp_core::U256;
+
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 1, 0);
+        SubtensorModule::append_neuron(netuid, &U256::from(30), 0);
+        for mecid in [None, Some(MechId::from(0))] {
+            let get = |indices| match mecid {
+                None => SubtensorModule::get_selective_metagraph(netuid, indices),
+                Some(mecid) => SubtensorModule::get_selective_mechagraph(netuid, mecid, indices),
+            };
+            let once = get(vec![54, 52, 1]);
+            assert!(once.is_some(), "the test subnet is reportable");
+            let once = once.unwrap_or_default();
+            assert_eq!(once.hotkeys.as_ref().map(Vec::len), Some(1));
+            assert_eq!(once.identities.as_ref().map(Vec::len), Some(1));
+            assert_eq!(get(vec![54, 1, 52, 54, 52, 1]), Some(once));
+            assert_eq!(get(vec![u16::MAX]), get(vec![]));
+            assert!(get((0..MAX_SELECTIVE_METAGRAPH_INDICES as u16).collect()).is_some());
+            assert!(get(vec![54; MAX_SELECTIVE_METAGRAPH_INDICES + 1]).is_none());
+        }
+    });
 }
 
 #[test]

@@ -5,6 +5,7 @@ classification — all against the in-process fake node."""
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 from websockets.datastructures import Headers
@@ -16,6 +17,7 @@ from bittensor import RpcConnectionError
 from bittensor import RpcPolicyError as PublicRpcPolicyError
 from bittensor._substrate import RpcSubstrate
 from bittensor._transport import rpc
+from bittensor._transport.contract import CallBytes
 from bittensor._transport.errors import (
     MaxRetriesExceeded,
     RpcPolicyRejection,
@@ -26,6 +28,17 @@ from bittensor._transport.rpc import RpcSession
 from tests.harness.fake_node import FakeNode
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_compose_preserves_prepared_call_bytes_without_rebuilding():
+    call = CallBytes(data=b"\x24\x03\x00\xff", spec_version=999)
+    substrate = RpcSubstrate("ws://unused:1")
+    substrate.spec_version = AsyncMock(return_value=999)
+    assert await substrate.compose(call) is call
+    assert (await substrate.compose(call)).call_hash == call.call_hash
+    substrate.spec_version.return_value = 1000
+    with pytest.raises(ValueError, match="runtime changed since call composition"):
+        await substrate.compose(call)
 
 
 def make_session(node: FakeNode, **kwargs) -> RpcSession:
@@ -373,6 +386,39 @@ async def test_rpc_substrate_exposes_public_blank_timeout_error(monkeypatch):
         await substrate.connect()
 
 
+async def test_account_next_index_observes_other_clients_without_reserving_a_nonce():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from bittensor._transport.extrinsics import NonceCache
+
+    session = SimpleNamespace(request=AsyncMock(return_value=5))
+    cache = NonceCache(session)
+    cache.pin("account", 1)
+    substrate = RpcSubstrate("wss://rpc.example", fallback_endpoints=[])
+    substrate._substrate = SimpleNamespace(get_account_next_index=cache.next_for)
+    assert await substrate.account_next_index("account") == 5
+    session.request.return_value = 7
+    assert await substrate.account_next_index("account") == 7
+    assert await substrate.account_next_index("account") == 7
+    assert cache._nonces["account"] == 1
+
+
+async def test_nonce_reservations_follow_external_spends_and_remain_distinct():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from bittensor._transport.extrinsics import NonceCache
+
+    session = SimpleNamespace(request=AsyncMock(return_value=1))
+    cache = NonceCache(session)
+    assert await cache.next_for("account") == 1
+    # Another client or an included Shield pair consumes several nonces.
+    session.request.return_value = 5
+    assert await cache.next_for("account") == 5
+    assert await asyncio.gather(*(cache.next_for("account") for _ in range(3))) == [6, 7, 8]
+
+
 async def test_rpc_substrate_stream_preserves_public_policy_metadata():
     class RefusedStream:
         async def subscribe_heads(self, **kwargs):
@@ -399,7 +445,7 @@ async def test_rpc_substrate_write_helper_preserves_public_policy_metadata():
     assert excinfo.value.retry_after == "9"
 
 
-async def test_rpc_substrate_submit_preserves_policy_metadata_and_clears_nonce():
+async def test_rpc_substrate_submit_preserves_policy_metadata_and_unknown_nonce():
     class RefusedSubmit:
         def __init__(self):
             self.cleared = []
@@ -421,7 +467,7 @@ async def test_rpc_substrate_submit_preserves_policy_metadata_and_clears_nonce()
             wait_for_finalization=True,
         )
     assert excinfo.value.retry_after == "7"
-    assert raw.cleared == ["5Signer"]
+    assert raw.cleared == []
 
 
 async def test_rpc_substrate_submit_timeout_is_a_public_connection_error():
@@ -445,7 +491,7 @@ async def test_rpc_substrate_submit_timeout_is_a_public_connection_error():
             wait_for_inclusion=True,
             wait_for_finalization=True,
         )
-    assert raw.cleared == ["5Signer"]
+    assert raw.cleared == []
 
 
 async def test_state_discarded_classified():

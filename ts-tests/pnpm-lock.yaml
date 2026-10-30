@@ -5,6 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  polkadot-api: 1.23.3
   vitest@<3.2.6: 3.2.6
   ws@>=8.0.0 <8.21.0: 8.21.0
   minimatch@>=10.0.0 <10.2.3: 10.2.3
@@ -15,6 +16,14 @@ overrides:
   yaml@>=2.0.0 <2.8.3: 2.8.3
   uuid@>=10.0.0 <11.1.1: 11.1.1
   esbuild@>=0.27.3 <0.28.1: 0.28.1
+
+patchedDependencies:
+  '@polkadot-api/observable-client@0.17.3':
+    hash: 95d610d3203aef8be0fb05d5e4bb45c073aae2c65a1e9c44462e015fec52a4e2
+    path: patches/@polkadot-api__observable-client@0.17.3.patch
+  polkadot-api@1.23.3:
+    hash: 9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5
+    path: patches/polkadot-api@1.23.3.patch
 
 importers:
 
@@ -34,7 +43,7 @@ importers:
         version: 1.2.3
       '@polkadot-api/sdk-ink':
         specifier: ^0.5.1
-        version: 0.5.1(@polkadot-api/ink-contracts@0.4.6)(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)(typescript@5.8.3)(zod@3.25.76)
+        version: 0.5.1(@polkadot-api/ink-contracts@0.4.6)(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)(typescript@5.8.3)(zod@3.25.76)
       '@polkadot-api/substrate-bindings':
         specifier: ^0.17.0
         version: 0.17.0
@@ -66,8 +75,8 @@ importers:
         specifier: ^2.7.0
         version: 2.7.0
       polkadot-api:
-        specifier: ^1.22.0
-        version: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+        specifier: 1.23.3
+        version: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
       ps-node:
         specifier: 0.1.6
         version: 0.1.6
@@ -156,7 +165,7 @@ importers:
     optionalDependencies:
       '@polkadot-api/descriptors':
         specifier: file:.papi/descriptors
-        version: file:.papi/descriptors(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))
+        version: file:.papi/descriptors(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))
 
 packages:
 
@@ -1384,16 +1393,9 @@ packages:
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
 
-  '@polkadot-api/cli@0.15.2':
-    resolution: {integrity: sha512-eC/wUxjaN8miAmwSwJ/XIZ1zG+4leB2fs6h0fcZrbVI9SJXwuoWGTCMtErq+fbgRlDoK3cxEUO16JBKhLkCWXw==}
-    hasBin: true
-
   '@polkadot-api/cli@0.18.1':
     resolution: {integrity: sha512-jPa8WSNPZWdy372sBAUnm0nU1XX5mLbmgkOOU39+zpYPSE12mYXyM3r7JuT5IHdAccEJr6qK2DplPFTeNSyq9A==}
     hasBin: true
-
-  '@polkadot-api/codegen@0.19.1':
-    resolution: {integrity: sha512-129a0vHChzKuvQDELMYPpmqZtA5VFlJ7vo5HZh47bo67qYi1veRgDrNQVGM8yaHzi7Coo481b/SDruZbbbgd3Q==}
 
   '@polkadot-api/codegen@0.21.2':
     resolution: {integrity: sha512-e1Of2TfB13YndPQ71WrtOIPfRrSlkG6wGprP8/VHC484kkt2JPDOY+io3NdPWkafDblDQ47aG0368sxT+4RSZA==}
@@ -1401,25 +1403,19 @@ packages:
   '@polkadot-api/common-sdk-utils@0.1.0':
     resolution: {integrity: sha512-cgA9fh8dfBai9b46XaaQmj9vwzyHStQjc/xrAvQksgF6SqvZ0yAfxVqLvGrsz/Xi3dsAdKLg09PybC7MUAMv9w==}
     peerDependencies:
-      polkadot-api: ^1.8.1
+      polkadot-api: 1.23.3
       rxjs: '>=7.8.1'
 
   '@polkadot-api/descriptors@file:.papi/descriptors':
     resolution: {directory: .papi/descriptors, type: directory}
     peerDependencies:
-      polkadot-api: '>=1.21.0'
-
-  '@polkadot-api/ink-contracts@0.4.0':
-    resolution: {integrity: sha512-e2u5KhuYoiM+PyHsvjkI0O1nmFuC0rLH64uBerMqwK7hWENdM/ej9OqKawIzp6NQuYSHF5P4U8NBT0mjP9Y1yQ==}
+      polkadot-api: 1.23.3
 
   '@polkadot-api/ink-contracts@0.4.6':
     resolution: {integrity: sha512-wpFPa8CnGnmq+cFYMzuTEDmtt3ElBM0UWgTz4RpmI9E7knZ1ctWBhO7amXxOWcILqIG6sqWIE95x0cfF1PRcQg==}
 
   '@polkadot-api/json-rpc-provider-proxy@0.1.0':
     resolution: {integrity: sha512-8GSFE5+EF73MCuLQm8tjrbCqlgclcHBSRaswvXziJ0ZW7iw3UEMsKkkKvELayWyBuOPa2T5i1nj6gFOeIsqvrg==}
-
-  '@polkadot-api/json-rpc-provider-proxy@0.2.4':
-    resolution: {integrity: sha512-nuGoY9QpBAiRU7xmXN3nugFvPcnSu3IxTLm1OWcNTGlZ1LW5bvdQHz3JLk56+Jlyb3GJ971hqdg2DJsMXkKCOg==}
 
   '@polkadot-api/json-rpc-provider-proxy@0.2.8':
     resolution: {integrity: sha512-AC5KK4p2IamAQuqR0S3YaiiUDRB2r1pWNrdF0Mntm5XGYEmeiAILBmnFa7gyWwemhkTWPYrK5HCurlGfw2EsDA==}
@@ -1430,16 +1426,8 @@ packages:
   '@polkadot-api/json-rpc-provider@0.0.4':
     resolution: {integrity: sha512-9cDijLIxzHOBuq6yHqpqjJ9jBmXrctjc1OFqU+tQrS96adQze3mTIH6DTgfb/0LMrqxzxffz1HQGrIlEH00WrA==}
 
-  '@polkadot-api/known-chains@0.9.11':
-    resolution: {integrity: sha512-ZbKXjPNI56DieJrM3DwuzNkjgLIGLjmXt5280cYJksGfatJkS/fZXIsAz0gBvs3UDeghd4co5a/OEEPiI5X8YQ==}
-
   '@polkadot-api/known-chains@0.9.18':
     resolution: {integrity: sha512-zdU4FA01lXcpNXUiFgSmFKIwDKbTw15KT4U6Zlqo6FPUMZgncVEbbS4dSgVrf+TGw9SDOUjGlEdyTHAiOAG5Tw==}
-
-  '@polkadot-api/legacy-provider@0.3.2':
-    resolution: {integrity: sha512-/aM4jKNED5ONhOg1WnUzfSM9cJ17FHpZvASWLUGNbC2Y6CZKmLQ9UFm9fZnIbpMmC01Mz3L5orE+IlCo6g54Ag==}
-    peerDependencies:
-      rxjs: '>=7.8.0'
 
   '@polkadot-api/legacy-provider@0.3.8':
     resolution: {integrity: sha512-Q747MN/7IUxxXGLWLQfhmSLqFyOLUsUFqQQytlEBjt66ZAv9VwYiHZ8JMBCnMzFuaUpKEWDT62ESKhgXn/hmEQ==}
@@ -1449,17 +1437,11 @@ packages:
   '@polkadot-api/logs-provider@0.0.6':
     resolution: {integrity: sha512-4WgHlvy+xee1ADaaVf6+MlK/+jGMtsMgAzvbQOJZnP4PfQuagoTqaeayk8HYKxXGphogLlPbD06tANxcb+nvAg==}
 
-  '@polkadot-api/merkleize-metadata@1.1.25':
-    resolution: {integrity: sha512-deNOiMY/XvyN47/N3C+GrkM0a1i7xcy4I3F3H9wW1XtyxffAmNpoj58L7Zr2RtXYhfekmhdUZlzdD1+DOYeqvg==}
-
   '@polkadot-api/merkleize-metadata@1.1.29':
     resolution: {integrity: sha512-z8ivYDdr4xlh50MQ7hLaSVw4VM6EV7gGgd+v/ej09nue0W08NG77zf7pXWeRKgOXe3+hPOSQQRSZT2OlIYRfqA==}
 
   '@polkadot-api/merkleize-metadata@1.2.3':
     resolution: {integrity: sha512-WkPbz0p2XQ9c8yXagdnwCHEB70Gnm91okcsd6IXU393//3aPgkxKgb+/Efnz7C5/KQmg02P0zXo7q/n/W/yVCA==}
-
-  '@polkadot-api/metadata-builders@0.13.5':
-    resolution: {integrity: sha512-3XqLKVv3eGDOUHEeC1KkBCeb/IjnfzdGNxydXJtonr+sbu6Ds7om5sSjqqWASf1bRSO0aHzVO3upPANveCcysg==}
 
   '@polkadot-api/metadata-builders@0.13.9':
     resolution: {integrity: sha512-V2GljT6StuK40pfmO5l53CvgFNgy60Trrv20mOZDCsFU9J82F+a1HYAABDYlRgoZ9d0IDwc+u+vI+RHUJoR4xw==}
@@ -1470,16 +1452,8 @@ packages:
   '@polkadot-api/metadata-builders@0.3.2':
     resolution: {integrity: sha512-TKpfoT6vTb+513KDzMBTfCb/ORdgRnsS3TDFpOhAhZ08ikvK+hjHMt5plPiAX/OWkm1Wc9I3+K6W0hX5Ab7MVg==}
 
-  '@polkadot-api/metadata-compatibility@0.3.6':
-    resolution: {integrity: sha512-rt6LTWph3L5sr7u940Ipvw2hao5to6T5BlbpRDkXHru+Xkl46tipTtrEjghtqkLBmOdVR6yiAVelOLWsiqPXnQ==}
-
   '@polkadot-api/metadata-compatibility@0.4.4':
     resolution: {integrity: sha512-V4ye5d2ns32YC45Fdc/IF9Y7CgM8inzJbmHQ2DCPSNd6omTRLJd81gU9zU88QAqPAcH2gKGnS5UF+wLL2VagSQ==}
-
-  '@polkadot-api/observable-client@0.15.1':
-    resolution: {integrity: sha512-iR0ALA2C1aMzXqxqZqksLuScaImXbSWyaVs9Ym9Jz9SCeh2FSP6yK43BLW+RZOfcS84POxuGAktTXFssYM6fkg==}
-    peerDependencies:
-      rxjs: '>=7.8.0'
 
   '@polkadot-api/observable-client@0.17.3':
     resolution: {integrity: sha512-SJhbMKBIzxNgUUy7ZWflYf/TX9soMqiR2WYyggA7U3DLhgdx4wzFjOSbxCk8RuX9Kf/AmJE4dfleu9HBSCZv6g==}
@@ -1492,14 +1466,8 @@ packages:
       '@polkadot-api/substrate-client': 0.1.4
       rxjs: '>=7.8.0'
 
-  '@polkadot-api/pjs-signer@0.6.15':
-    resolution: {integrity: sha512-JsrsuV5aa8Ghnkle+ZiR15xB/xqW9PFNsP3jFsG/n0DlfbKI+mSfrBZ6v3gkpccQIHtRnOA4yB1qRijjIEp2WQ==}
-
   '@polkadot-api/pjs-signer@0.6.19':
     resolution: {integrity: sha512-jTHKoanZg9ewupthOczWNb2pici+GK+TBQmp9MwhwGs/3uMD2144aA8VNNBEi8rMxOBZlvKYfGkgjiTEGbBwuQ==}
-
-  '@polkadot-api/polkadot-sdk-compat@2.3.3':
-    resolution: {integrity: sha512-p30po+iv4trniSJ7UZiIt/rFInvtA9Tzg65EzuRkCaQAnh54a3MPp9w/q+x+SNLEcfzVLvf8LyPnMPOIpKuj5w==}
 
   '@polkadot-api/polkadot-sdk-compat@2.4.1':
     resolution: {integrity: sha512-+sET0N3GpnKkLvsazBZEC5vhqAlamlL1KkJK9STB1tRxHSZcY/yBBa1Udn9DXJfX48kE9cnzfYldl9zsjqpARg==}
@@ -1514,39 +1482,22 @@ packages:
     resolution: {integrity: sha512-9pRnghjigivvgq7375hzkoazstvPDbc0YB01Jzw1/MYKcX+YJn1p/H8SAQTWbKlz2ohFgi1nwU52a0bsmKqb/Q==}
     peerDependencies:
       '@polkadot-api/ink-contracts': '>=0.4.0'
-      polkadot-api: '>=1.19.0'
+      polkadot-api: 1.23.3
       rxjs: '>=7.8.0'
 
   '@polkadot-api/signer@0.2.13':
     resolution: {integrity: sha512-XBOtjFsRGETVm/aXeZnsvFcJ1qvtZhRtwUMmpCOBt9s8PWfILaQH/ecOegzda3utNIZGmXXaOoJ5w9Hc/6I3ww==}
 
-  '@polkadot-api/signer@0.2.9':
-    resolution: {integrity: sha512-2KntINp+HlrnsRquQiDaoGU400Guh/CbbTdkq23Y14qLjjKUQbGGs7RLHuVCxagxKw4UFlQpO36Ku0lHj3rq5Q==}
-
-  '@polkadot-api/signers-common@0.1.16':
-    resolution: {integrity: sha512-/+EqdH+aIWCzV0TWiHG7vuklxyHQ2lOkQAL6H/sVe2zsHpUjGfFzO/VAzVLH2acYHbpslKFLrA/y8RAIzYHhkg==}
-
   '@polkadot-api/signers-common@0.1.20':
     resolution: {integrity: sha512-v1mrTdRjQOV17riZ8172OsOQ/RJbv1QsEpjwnvxzvdCnjuNpYwtYHZaE+cSdDBb4n1p73XIBMvB/uAK/QFC2JA==}
-
-  '@polkadot-api/sm-provider@0.1.11':
-    resolution: {integrity: sha512-XSli7BF3Xpyh0sdu1MNRJ1qyT3Werd5Z+tQa4iXR+nzo5Kpvg67paG9A8z1K7vNF83pRw4rvnXE9G5HbC+tPvA==}
-    peerDependencies:
-      '@polkadot-api/smoldot': '>=0.3'
 
   '@polkadot-api/sm-provider@0.1.16':
     resolution: {integrity: sha512-3LEDU7nkgtDx1A6ATHLLm3+nFAY6cdkNA9tGltfDzW0efACrhhfDjNqJdI1qLNY0wDyT1aGdoWr5r+4CckRpXA==}
     peerDependencies:
       '@polkadot-api/smoldot': '>=0.3'
 
-  '@polkadot-api/smoldot@0.3.14':
-    resolution: {integrity: sha512-eWqO0xFQaKzqY5mRYxYuZcj1IiaLcQP+J38UQyuJgEorm+9yHVEQ/XBWoM83P+Y8TwE5IWTICp1LCVeiFQTGPQ==}
-
   '@polkadot-api/smoldot@0.3.15':
     resolution: {integrity: sha512-YyV+ytP8FcmKEgLRV7uXepJ5Y6md/7u2F8HKxmkWytmnGXO1z+umg2pHbOxLGifD9V2NhkPY+awpzErtVIzqAA==}
-
-  '@polkadot-api/substrate-bindings@0.16.3':
-    resolution: {integrity: sha512-KN/nghI3SM0t7WsULwLRB3s4DnWogGCi5TuvXB0yPkkiB5GJugMPuHTTUxDkWmjZ0vLUFlmkaZ/sfFf0tvo8xQ==}
 
   '@polkadot-api/substrate-bindings@0.16.6':
     resolution: {integrity: sha512-cATY7HWU5hWd09C1MUEddechq7JT7QAciKL2/N/1wv5rxGcAFyAD9ZtaKBXVI4Aui9RSeGh8KvHdgKFLoozMyQ==}
@@ -1563,9 +1514,6 @@ packages:
   '@polkadot-api/substrate-client@0.1.4':
     resolution: {integrity: sha512-MljrPobN0ZWTpn++da9vOvt+Ex+NlqTlr/XT7zi9sqPtDJiQcYl+d29hFAgpaeTqbeQKZwz3WDE9xcEfLE8c5A==}
 
-  '@polkadot-api/substrate-client@0.4.7':
-    resolution: {integrity: sha512-Mmx9VKincVqfVQmq89gzDk4DN3uKwf8CxoqYvq+EiPUZ1QmMUc7X4QMwG1MXIlYdnm5LSXzn+2Jn8ik8xMgL+w==}
-
   '@polkadot-api/substrate-client@0.5.0':
     resolution: {integrity: sha512-J+gyZONCak+n6NxADZWtldH+gatYORqEScMAgI9gGu43pHUe7/xNRCqnin0dgDIzmuL3m1ERglF8LR7YhB0nHQ==}
 
@@ -1580,9 +1528,6 @@ packages:
 
   '@polkadot-api/wasm-executor@0.2.3':
     resolution: {integrity: sha512-B2h1o+Qlo9idpASaHvMSoViB2I5ko5OAfwfhYF8LQDkTADK0B+SeStzNj1Qn+FG34wqTuv7HzBCdjaUgzYINJQ==}
-
-  '@polkadot-api/ws-provider@0.6.2':
-    resolution: {integrity: sha512-YCllTdysvh30t4YWJubS1G8ULCZTOXGC+x8evbuFUNM1d70gpD98+zi4ba4lZGd1IlZ8v0zJuvC7G+/9Jcrm4w==}
 
   '@polkadot-api/ws-provider@0.7.5':
     resolution: {integrity: sha512-2ZLEo0PAFeuOx2DUDkbex85HZMf9lgnmZ8oGB5+NaButIydkoqXy5SHYJNPc45GcZy2tvwzImMZInNMLa5GJhg==}
@@ -3403,6 +3348,7 @@ packages:
     resolution: {integrity: sha512-Quz3MvAwHxVYNXsOByL7xI5EB2WYOeFswqaHIA3qOK3isRWTxiplBEocmmru6XmxDB2L7jDNYtYA4FyimoAFEw==}
     engines: {node: '>=8.17.0'}
     hasBin: true
+    bundledDependencies: []
 
   jsondiffpatch@0.7.6:
     resolution: {integrity: sha512-zE9+AXFq+MkTolDor2Cw1nJzLC0aleqPkYf52Kb4Kn4mJcka/gFHpGI2JBVEJCfWOvBl0OoxZS+wuLdislQcqg==}
@@ -3924,12 +3870,6 @@ packages:
     engines: {node: '>=18.12'}
     hasBin: true
 
-  polkadot-api@1.19.2:
-    resolution: {integrity: sha512-ZaE5GMZ7pd2bw5dPLWWEB2WjzbhsPdnQjBuJ9HstEUkxcfaQkNIqRy33vGv1QmJ6xyp1aiffSTa9r1DGbjuixQ==}
-    hasBin: true
-    peerDependencies:
-      rxjs: '>=7.8.0'
-
   polkadot-api@1.23.3:
     resolution: {integrity: sha512-wOWli6Cfk3bO1u/W8qmwriCIKxATkNea8Jyg1jj7GzAqafxy295BYPzYHy2mJZCQ0PAVFPR4/JvCXocTLBsp5A==}
     hasBin: true
@@ -4227,9 +4167,6 @@ packages:
   smoldot@2.0.26:
     resolution: {integrity: sha512-F+qYmH4z2s2FK+CxGj8moYcd1ekSIKH8ywkdqlOz88Dat35iB1DIYL11aILN46YSGMzQW/lbJNS307zBSDN5Ig==}
 
-  smoldot@2.0.39:
-    resolution: {integrity: sha512-yFMSzI6nkqWFTNao99lBA/TguUFU+bR3A5UGTDd/QqqB12jqzvZnmW/No6l2rKmagt8Qx/KybMNowV/E28znhA==}
-
   smoldot@2.0.40:
     resolution: {integrity: sha512-h6XC/kKDLdZBBTI0X8y4ZxmaZ2KYVVB0+5isCQm6j26ljeNjHZUDOV+hf8VyoE23+jg00wrxNJ2IVcIAURxwtg==}
 
@@ -4256,10 +4193,6 @@ packages:
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
-
-  source-map@0.7.6:
-    resolution: {integrity: sha512-i5uvt8C3ikiWeNZSVZNWcfZPItFQOsYTUAOkcUPGd8DqDy1uOUikjt5dG+uRlwyvR108Fb9DOd4GvXfT0N2/uQ==}
-    engines: {node: '>= 12'}
 
   source-map@0.8.0-beta.0:
     resolution: {integrity: sha512-2ymg6oRBpebeZi9UUNsgQ89bhx01TcTkmNTGnNO88imTmbSgy4nfujrgVEFKWpMTEGA11EDkTt7mqObTPdigIA==}
@@ -4527,25 +4460,6 @@ packages:
 
   tsup@8.5.0:
     resolution: {integrity: sha512-VmBp77lWNQq6PfuMqCHD3xWl22vEoWsKajkF8t+yMBawlUS8JzEI+vOVMeuNZIuMML8qXRizFKi9oD5glKQVcQ==}
-    engines: {node: '>=18'}
-    hasBin: true
-    peerDependencies:
-      '@microsoft/api-extractor': ^7.36.0
-      '@swc/core': ^1
-      postcss: ^8.4.12
-      typescript: '>=4.5.0'
-    peerDependenciesMeta:
-      '@microsoft/api-extractor':
-        optional: true
-      '@swc/core':
-        optional: true
-      postcss:
-        optional: true
-      typescript:
-        optional: true
-
-  tsup@8.5.1:
-    resolution: {integrity: sha512-xtgkqwdhpKWr3tKPmCkvYmS9xnQK3m3XgxZHwSUjvfTjp7YfXe5tT3GgWi0F2N+ZSMsOeWeZFh7ZZFg5iPhing==}
     engines: {node: '>=18'}
     hasBin: true
     peerDependencies:
@@ -6011,7 +5925,7 @@ snapshots:
       jsonc-parser: 3.3.1
       minimatch: 10.2.3
       pino: 10.3.1
-      polkadot-api: 1.19.2(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+      polkadot-api: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
       react: 19.2.7
       reflect-metadata: 0.2.2
       semver: 7.8.2
@@ -6087,7 +6001,7 @@ snapshots:
       '@zombienet/utils': 0.0.30(@types/node@24.13.1)(chokidar@3.6.0)(typescript@5.8.3)
       bottleneck: 2.19.5
       ethers: 6.16.0
-      polkadot-api: 1.19.2(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+      polkadot-api: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
       viem: 2.41.2(typescript@5.8.3)(zod@3.25.76)
       vitest: 3.2.6(@types/debug@4.1.12)(@types/node@24.13.1)(@vitest/ui@3.2.6)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.8.3)
       web3: 4.16.0(encoding@0.1.13)(typescript@5.8.3)(zod@3.25.76)
@@ -6396,46 +6310,6 @@ snapshots:
 
   '@polka/url@1.0.0-next.29': {}
 
-  '@polkadot-api/cli@0.15.2(postcss@8.5.15)(tsx@4.22.4)(yaml@2.8.3)':
-    dependencies:
-      '@commander-js/extra-typings': 14.0.0(commander@14.0.3)
-      '@polkadot-api/codegen': 0.19.1
-      '@polkadot-api/ink-contracts': 0.4.0
-      '@polkadot-api/json-rpc-provider': 0.0.4
-      '@polkadot-api/known-chains': 0.9.11
-      '@polkadot-api/legacy-provider': 0.3.2(rxjs@7.8.2)
-      '@polkadot-api/metadata-compatibility': 0.3.6
-      '@polkadot-api/observable-client': 0.15.1(rxjs@7.8.2)
-      '@polkadot-api/polkadot-sdk-compat': 2.3.3
-      '@polkadot-api/sm-provider': 0.1.11(@polkadot-api/smoldot@0.3.14)
-      '@polkadot-api/smoldot': 0.3.14
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/substrate-client': 0.4.7
-      '@polkadot-api/utils': 0.2.0
-      '@polkadot-api/wasm-executor': 0.2.3
-      '@polkadot-api/ws-provider': 0.6.2
-      '@types/node': 24.13.1
-      commander: 14.0.3
-      execa: 9.6.1
-      fs.promises.exists: 1.1.4
-      ora: 9.4.0
-      read-pkg: 9.0.1
-      rxjs: 7.8.2
-      tsc-prog: 2.3.0(typescript@5.9.3)
-      tsup: 8.5.1(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.8.3)
-      typescript: 5.9.3
-      write-package: 7.2.0
-    transitivePeerDependencies:
-      - '@microsoft/api-extractor'
-      - '@swc/core'
-      - bufferutil
-      - jiti
-      - postcss
-      - supports-color
-      - tsx
-      - utf-8-validate
-      - yaml
-
   '@polkadot-api/cli@0.18.1(postcss@8.5.15)(tsx@4.22.4)(yaml@2.8.3)':
     dependencies:
       '@commander-js/extra-typings': 14.0.0(commander@14.0.3)
@@ -6445,7 +6319,7 @@ snapshots:
       '@polkadot-api/known-chains': 0.9.18
       '@polkadot-api/legacy-provider': 0.3.8(rxjs@7.8.2)
       '@polkadot-api/metadata-compatibility': 0.4.4
-      '@polkadot-api/observable-client': 0.17.3(rxjs@7.8.2)
+      '@polkadot-api/observable-client': 0.17.3(patch_hash=95d610d3203aef8be0fb05d5e4bb45c073aae2c65a1e9c44462e015fec52a4e2)(rxjs@7.8.2)
       '@polkadot-api/polkadot-sdk-compat': 2.4.1
       '@polkadot-api/sm-provider': 0.1.16(@polkadot-api/smoldot@0.3.15)
       '@polkadot-api/smoldot': 0.3.15
@@ -6476,14 +6350,6 @@ snapshots:
       - utf-8-validate
       - yaml
 
-  '@polkadot-api/codegen@0.19.1':
-    dependencies:
-      '@polkadot-api/ink-contracts': 0.4.0
-      '@polkadot-api/metadata-builders': 0.13.5
-      '@polkadot-api/metadata-compatibility': 0.3.6
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/utils': 0.2.0
-
   '@polkadot-api/codegen@0.21.2':
     dependencies:
       '@polkadot-api/ink-contracts': 0.4.6
@@ -6492,21 +6358,15 @@ snapshots:
       '@polkadot-api/substrate-bindings': 0.17.0
       '@polkadot-api/utils': 0.2.0
 
-  '@polkadot-api/common-sdk-utils@0.1.0(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)':
+  '@polkadot-api/common-sdk-utils@0.1.0(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)':
     dependencies:
-      polkadot-api: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+      polkadot-api: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
       rxjs: 7.8.2
 
-  '@polkadot-api/descriptors@file:.papi/descriptors(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))':
+  '@polkadot-api/descriptors@file:.papi/descriptors(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))':
     dependencies:
-      polkadot-api: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+      polkadot-api: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
     optional: true
-
-  '@polkadot-api/ink-contracts@0.4.0':
-    dependencies:
-      '@polkadot-api/metadata-builders': 0.13.5
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/utils': 0.2.0
 
   '@polkadot-api/ink-contracts@0.4.6':
     dependencies:
@@ -6517,8 +6377,6 @@ snapshots:
   '@polkadot-api/json-rpc-provider-proxy@0.1.0':
     optional: true
 
-  '@polkadot-api/json-rpc-provider-proxy@0.2.4': {}
-
   '@polkadot-api/json-rpc-provider-proxy@0.2.8': {}
 
   '@polkadot-api/json-rpc-provider@0.0.1':
@@ -6526,17 +6384,7 @@ snapshots:
 
   '@polkadot-api/json-rpc-provider@0.0.4': {}
 
-  '@polkadot-api/known-chains@0.9.11': {}
-
   '@polkadot-api/known-chains@0.9.18': {}
-
-  '@polkadot-api/legacy-provider@0.3.2(rxjs@7.8.2)':
-    dependencies:
-      '@polkadot-api/json-rpc-provider': 0.0.4
-      '@polkadot-api/raw-client': 0.1.1
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/utils': 0.2.0
-      rxjs: 7.8.2
 
   '@polkadot-api/legacy-provider@0.3.8(rxjs@7.8.2)':
     dependencies:
@@ -6550,12 +6398,6 @@ snapshots:
     dependencies:
       '@polkadot-api/json-rpc-provider': 0.0.4
 
-  '@polkadot-api/merkleize-metadata@1.1.25':
-    dependencies:
-      '@polkadot-api/metadata-builders': 0.13.5
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/utils': 0.2.0
-
   '@polkadot-api/merkleize-metadata@1.1.29':
     dependencies:
       '@polkadot-api/metadata-builders': 0.13.9
@@ -6567,11 +6409,6 @@ snapshots:
       '@polkadot-api/metadata-builders': 0.14.3
       '@polkadot-api/substrate-bindings': 0.20.3
       '@polkadot-api/utils': 0.4.0
-
-  '@polkadot-api/metadata-builders@0.13.5':
-    dependencies:
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/utils': 0.2.0
 
   '@polkadot-api/metadata-builders@0.13.9':
     dependencies:
@@ -6589,25 +6426,12 @@ snapshots:
       '@polkadot-api/utils': 0.1.0
     optional: true
 
-  '@polkadot-api/metadata-compatibility@0.3.6':
-    dependencies:
-      '@polkadot-api/metadata-builders': 0.13.5
-      '@polkadot-api/substrate-bindings': 0.16.3
-
   '@polkadot-api/metadata-compatibility@0.4.4':
     dependencies:
       '@polkadot-api/metadata-builders': 0.13.9
       '@polkadot-api/substrate-bindings': 0.17.0
 
-  '@polkadot-api/observable-client@0.15.1(rxjs@7.8.2)':
-    dependencies:
-      '@polkadot-api/metadata-builders': 0.13.5
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/substrate-client': 0.4.7
-      '@polkadot-api/utils': 0.2.0
-      rxjs: 7.8.2
-
-  '@polkadot-api/observable-client@0.17.3(rxjs@7.8.2)':
+  '@polkadot-api/observable-client@0.17.3(patch_hash=95d610d3203aef8be0fb05d5e4bb45c073aae2c65a1e9c44462e015fec52a4e2)(rxjs@7.8.2)':
     dependencies:
       '@polkadot-api/metadata-builders': 0.13.9
       '@polkadot-api/substrate-bindings': 0.17.0
@@ -6624,14 +6448,6 @@ snapshots:
       rxjs: 7.8.2
     optional: true
 
-  '@polkadot-api/pjs-signer@0.6.15':
-    dependencies:
-      '@polkadot-api/metadata-builders': 0.13.5
-      '@polkadot-api/polkadot-signer': 0.1.6
-      '@polkadot-api/signers-common': 0.1.16
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/utils': 0.2.0
-
   '@polkadot-api/pjs-signer@0.6.19':
     dependencies:
       '@polkadot-api/metadata-builders': 0.13.9
@@ -6639,10 +6455,6 @@ snapshots:
       '@polkadot-api/signers-common': 0.1.20
       '@polkadot-api/substrate-bindings': 0.17.0
       '@polkadot-api/utils': 0.2.0
-
-  '@polkadot-api/polkadot-sdk-compat@2.3.3':
-    dependencies:
-      '@polkadot-api/json-rpc-provider': 0.0.4
 
   '@polkadot-api/polkadot-sdk-compat@2.4.1':
     dependencies:
@@ -6654,14 +6466,14 @@ snapshots:
     dependencies:
       '@polkadot-api/json-rpc-provider': 0.0.4
 
-  '@polkadot-api/sdk-ink@0.5.1(@polkadot-api/ink-contracts@0.4.6)(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)(typescript@5.8.3)(zod@3.25.76)':
+  '@polkadot-api/sdk-ink@0.5.1(@polkadot-api/ink-contracts@0.4.6)(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)(typescript@5.8.3)(zod@3.25.76)':
     dependencies:
       '@ethereumjs/rlp': 10.1.2
-      '@polkadot-api/common-sdk-utils': 0.1.0(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)
+      '@polkadot-api/common-sdk-utils': 0.1.0(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)
       '@polkadot-api/ink-contracts': 0.4.6
       '@polkadot-api/substrate-bindings': 0.16.6
       abitype: 1.2.4(typescript@5.8.3)(zod@3.25.76)
-      polkadot-api: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+      polkadot-api: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
       rxjs: 7.8.2
       viem: 2.38.0(typescript@5.8.3)(zod@3.25.76)
     transitivePeerDependencies:
@@ -6679,22 +6491,6 @@ snapshots:
       '@polkadot-api/substrate-bindings': 0.17.0
       '@polkadot-api/utils': 0.2.0
 
-  '@polkadot-api/signer@0.2.9':
-    dependencies:
-      '@noble/hashes': 2.2.0
-      '@polkadot-api/merkleize-metadata': 1.1.25
-      '@polkadot-api/polkadot-signer': 0.1.6
-      '@polkadot-api/signers-common': 0.1.16
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/utils': 0.2.0
-
-  '@polkadot-api/signers-common@0.1.16':
-    dependencies:
-      '@polkadot-api/metadata-builders': 0.13.5
-      '@polkadot-api/polkadot-signer': 0.1.6
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/utils': 0.2.0
-
   '@polkadot-api/signers-common@0.1.20':
     dependencies:
       '@polkadot-api/metadata-builders': 0.13.9
@@ -6702,25 +6498,11 @@ snapshots:
       '@polkadot-api/substrate-bindings': 0.17.0
       '@polkadot-api/utils': 0.2.0
 
-  '@polkadot-api/sm-provider@0.1.11(@polkadot-api/smoldot@0.3.14)':
-    dependencies:
-      '@polkadot-api/json-rpc-provider': 0.0.4
-      '@polkadot-api/json-rpc-provider-proxy': 0.2.4
-      '@polkadot-api/smoldot': 0.3.14
-
   '@polkadot-api/sm-provider@0.1.16(@polkadot-api/smoldot@0.3.15)':
     dependencies:
       '@polkadot-api/json-rpc-provider': 0.0.4
       '@polkadot-api/json-rpc-provider-proxy': 0.2.8
       '@polkadot-api/smoldot': 0.3.15
-
-  '@polkadot-api/smoldot@0.3.14':
-    dependencies:
-      '@types/node': 24.13.1
-      smoldot: 2.0.39
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
 
   '@polkadot-api/smoldot@0.3.15':
     dependencies:
@@ -6729,13 +6511,6 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
-
-  '@polkadot-api/substrate-bindings@0.16.3':
-    dependencies:
-      '@noble/hashes': 2.2.0
-      '@polkadot-api/utils': 0.2.0
-      '@scure/base': 2.2.0
-      scale-ts: 1.6.1
 
   '@polkadot-api/substrate-bindings@0.16.6':
     dependencies:
@@ -6772,12 +6547,6 @@ snapshots:
       '@polkadot-api/utils': 0.1.0
     optional: true
 
-  '@polkadot-api/substrate-client@0.4.7':
-    dependencies:
-      '@polkadot-api/json-rpc-provider': 0.0.4
-      '@polkadot-api/raw-client': 0.1.1
-      '@polkadot-api/utils': 0.2.0
-
   '@polkadot-api/substrate-client@0.5.0':
     dependencies:
       '@polkadot-api/json-rpc-provider': 0.0.4
@@ -6792,16 +6561,6 @@ snapshots:
   '@polkadot-api/utils@0.4.0': {}
 
   '@polkadot-api/wasm-executor@0.2.3': {}
-
-  '@polkadot-api/ws-provider@0.6.2':
-    dependencies:
-      '@polkadot-api/json-rpc-provider': 0.0.4
-      '@polkadot-api/json-rpc-provider-proxy': 0.2.4
-      '@types/ws': 8.18.1
-      ws: 8.21.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
 
   '@polkadot-api/ws-provider@0.7.5':
     dependencies:
@@ -8039,11 +7798,6 @@ snapshots:
   bundle-require@5.1.0(esbuild@0.25.12):
     dependencies:
       esbuild: 0.25.12
-      load-tsconfig: 0.2.5
-
-  bundle-require@5.1.0(esbuild@0.28.1):
-    dependencies:
-      esbuild: 0.28.1
       load-tsconfig: 0.2.5
 
   cac@6.7.14: {}
@@ -9690,40 +9444,7 @@ snapshots:
 
   pnpm@10.34.5: {}
 
-  polkadot-api@1.19.2(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3):
-    dependencies:
-      '@polkadot-api/cli': 0.15.2(postcss@8.5.15)(tsx@4.22.4)(yaml@2.8.3)
-      '@polkadot-api/ink-contracts': 0.4.0
-      '@polkadot-api/json-rpc-provider': 0.0.4
-      '@polkadot-api/known-chains': 0.9.11
-      '@polkadot-api/logs-provider': 0.0.6
-      '@polkadot-api/metadata-builders': 0.13.5
-      '@polkadot-api/metadata-compatibility': 0.3.6
-      '@polkadot-api/observable-client': 0.15.1(rxjs@7.8.2)
-      '@polkadot-api/pjs-signer': 0.6.15
-      '@polkadot-api/polkadot-sdk-compat': 2.3.3
-      '@polkadot-api/polkadot-signer': 0.1.6
-      '@polkadot-api/signer': 0.2.9
-      '@polkadot-api/sm-provider': 0.1.11(@polkadot-api/smoldot@0.3.14)
-      '@polkadot-api/smoldot': 0.3.14
-      '@polkadot-api/substrate-bindings': 0.16.3
-      '@polkadot-api/substrate-client': 0.4.7
-      '@polkadot-api/utils': 0.2.0
-      '@polkadot-api/ws-provider': 0.6.2
-      '@rx-state/core': 0.1.4(rxjs@7.8.2)
-      rxjs: 7.8.2
-    transitivePeerDependencies:
-      - '@microsoft/api-extractor'
-      - '@swc/core'
-      - bufferutil
-      - jiti
-      - postcss
-      - supports-color
-      - tsx
-      - utf-8-validate
-      - yaml
-
-  polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3):
+  polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3):
     dependencies:
       '@polkadot-api/cli': 0.18.1(postcss@8.5.15)(tsx@4.22.4)(yaml@2.8.3)
       '@polkadot-api/ink-contracts': 0.4.6
@@ -9732,7 +9453,7 @@ snapshots:
       '@polkadot-api/logs-provider': 0.0.6
       '@polkadot-api/metadata-builders': 0.13.9
       '@polkadot-api/metadata-compatibility': 0.4.4
-      '@polkadot-api/observable-client': 0.17.3(rxjs@7.8.2)
+      '@polkadot-api/observable-client': 0.17.3(patch_hash=95d610d3203aef8be0fb05d5e4bb45c073aae2c65a1e9c44462e015fec52a4e2)(rxjs@7.8.2)
       '@polkadot-api/pjs-signer': 0.6.19
       '@polkadot-api/polkadot-sdk-compat': 2.4.1
       '@polkadot-api/polkadot-signer': 0.1.6
@@ -10066,13 +9787,6 @@ snapshots:
       - utf-8-validate
     optional: true
 
-  smoldot@2.0.39:
-    dependencies:
-      ws: 8.21.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
   smoldot@2.0.40:
     dependencies:
       ws: 8.21.0
@@ -10116,8 +9830,6 @@ snapshots:
       is-plain-obj: 4.1.0
 
   source-map-js@1.2.1: {}
-
-  source-map@0.7.6: {}
 
   source-map@0.8.0-beta.0:
     dependencies:
@@ -10426,34 +10138,6 @@ snapshots:
       resolve-from: 5.0.0
       rollup: 4.61.1
       source-map: 0.8.0-beta.0
-      sucrase: 3.35.1
-      tinyexec: 0.3.2
-      tinyglobby: 0.2.17
-      tree-kill: 1.2.2
-    optionalDependencies:
-      postcss: 8.5.15
-      typescript: 5.9.3
-    transitivePeerDependencies:
-      - jiti
-      - supports-color
-      - tsx
-      - yaml
-
-  tsup@8.5.1(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.8.3):
-    dependencies:
-      bundle-require: 5.1.0(esbuild@0.28.1)
-      cac: 6.7.14
-      chokidar: 4.0.3
-      consola: 3.4.2
-      debug: 4.4.3
-      esbuild: 0.28.1
-      fix-dts-default-cjs-exports: 1.0.1
-      joycon: 3.1.1
-      picocolors: 1.1.1
-      postcss-load-config: 6.0.1(postcss@8.5.15)(tsx@4.22.4)(yaml@2.8.3)
-      resolve-from: 5.0.0
-      rollup: 4.61.1
-      source-map: 0.7.6
       sucrase: 3.35.1
       tinyexec: 0.3.2
       tinyglobby: 0.2.17
