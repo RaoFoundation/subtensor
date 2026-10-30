@@ -6106,7 +6106,11 @@ fn sn29_short_self_pump_buyback_close_preserves_weights_no_profit() {
             w_before,
             "buyback readd must preserve w1 (SN29 drain fix)"
         );
-        assert_eq!(weight_update_count(), 0, "readd must not bump weight counter");
+        assert_eq!(
+            weight_update_count(),
+            0,
+            "readd must not bump weight counter"
+        );
 
         // Unstake leftover alpha from the pump.
         let leftover = alpha(&owner, &hotkey, netuid());
@@ -6402,7 +6406,10 @@ fn k_neutral_shogting_skewed_weights_no_profit_burns_formula() {
                 false,
             );
         }
-        assert!(tao(&owner) <= free_before, "no profitable skewed shogting cycle");
+        assert!(
+            tao(&owner) <= free_before,
+            "no profitable skewed shogting cycle"
+        );
     });
 }
 

@@ -45,13 +45,9 @@ pub fn burn_amounts_to_invariant_baseline(
         return (0, 0);
     }
 
-    let Some(sigma) = sigma_to_baseline(
-        tao,
-        alpha,
-        quote_weight_parts,
-        baseline_tao,
-        baseline_alpha,
-    ) else {
+    let Some(sigma) =
+        sigma_to_baseline(tao, alpha, quote_weight_parts, baseline_tao, baseline_alpha)
+    else {
         return (0, 0);
     };
 
@@ -117,7 +113,9 @@ fn sigma_to_baseline(
     }
     let ln_x: I64F64 = ln(ratio_x).ok()?;
     let ln_y: I64F64 = ln(ratio_y).ok()?;
-    let log_sigma = w_b.saturating_mul(ln_x).saturating_add(w_q.saturating_mul(ln_y));
+    let log_sigma = w_b
+        .saturating_mul(ln_x)
+        .saturating_add(w_q.saturating_mul(ln_y));
     exp(log_sigma).ok()
 }
 
@@ -129,15 +127,8 @@ mod tests {
     fn equal_weight_burns_down_to_baseline_k() {
         // Baseline √(x y) = √(100*100) = 100.
         // Post-credit 121/121 → √ = 121; σ = 100/121; keep ≈ 100.
-        let (bt, ba) = burn_amounts_to_invariant_baseline(
-            121,
-            121,
-            WEIGHT_ACCURACY / 2,
-            100,
-            100,
-            90,
-            90,
-        );
+        let (bt, ba) =
+            burn_amounts_to_invariant_baseline(121, 121, WEIGHT_ACCURACY / 2, 100, 100, 90, 90);
         // Floor of σ·reserve may undershoot by 1 U64F64 quantum.
         assert!((121 - bt).abs_diff(100) <= 1);
         assert!((121 - ba).abs_diff(100) <= 1);
@@ -164,15 +155,8 @@ mod tests {
 
     #[test]
     fn no_burn_when_already_at_or_below_baseline() {
-        let (bt, ba) = burn_amounts_to_invariant_baseline(
-            90,
-            90,
-            WEIGHT_ACCURACY / 2,
-            100,
-            100,
-            80,
-            80,
-        );
+        let (bt, ba) =
+            burn_amounts_to_invariant_baseline(90, 90, WEIGHT_ACCURACY / 2, 100, 100, 80, 80);
         assert_eq!((bt, ba), (0, 0));
     }
 
@@ -181,15 +165,7 @@ mod tests {
         // w_q = 0.3, w_b = 0.7. Post-credit double both sides vs baseline →
         // L' = 2 L*; σ = 1/2; keep half.
         let w_q = (WEIGHT_ACCURACY as u128 * 3 / 10) as u64;
-        let (bt, ba) = burn_amounts_to_invariant_baseline(
-            200,
-            200,
-            w_q,
-            100,
-            100,
-            50,
-            50,
-        );
+        let (bt, ba) = burn_amounts_to_invariant_baseline(200, 200, w_q, 100, 100, 50, 50);
         let keep_t = 200 - bt;
         let keep_a = 200 - ba;
         // Spot y/x unchanged.

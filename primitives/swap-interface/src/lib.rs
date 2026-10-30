@@ -12,7 +12,9 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 mod k_neutral;
 mod order;
 
-pub use k_neutral::{WEIGHT_ACCURACY as K_NEUTRAL_WEIGHT_ACCURACY, burn_amounts_to_invariant_baseline};
+pub use k_neutral::{
+    WEIGHT_ACCURACY as K_NEUTRAL_WEIGHT_ACCURACY, burn_amounts_to_invariant_baseline,
+};
 
 /// Coarse failure classification for protocol-owned basket operations. Callers may recover from
 /// an oversized input by chunking, and may explicitly write off a terminally untradeable asset;

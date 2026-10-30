@@ -4036,10 +4036,7 @@ pub mod pallet {
                 }
             }
             let (credited_tao, credited_alpha) = match position.side {
-                Side::Short => (
-                    position.lift_tao.saturating_add(position.proceeds),
-                    0u64,
-                ),
+                Side::Short => (position.lift_tao.saturating_add(position.proceeds), 0u64),
                 Side::Long => (
                     0u64,
                     position.lift_alpha.saturating_add(position.escrow_alpha),
@@ -5093,12 +5090,8 @@ pub mod pallet {
                 b.l_l = 0;
             });
             // Dissolution winds the subnet down — skip k-burn, drop baseline.
-            let _ = Self::maybe_burn_invariant_surplus(
-                netuid,
-                book.held_tao,
-                book.held_alpha,
-                true,
-            );
+            let _ =
+                Self::maybe_burn_invariant_surplus(netuid, book.held_tao, book.held_alpha, true);
             if let Some(mut d) = Dissolutions::<T>::get(netuid) {
                 d.lifts_readded = true;
                 Dissolutions::<T>::insert(netuid, d);
