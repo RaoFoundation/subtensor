@@ -1,8 +1,8 @@
 import type { KeyringPair } from "@moonwall/util";
 import type { subtensor } from "@polkadot-api/descriptors";
-import { Keyring } from "@polkadot/keyring";
 import type { TypedApi } from "polkadot-api";
 import { log } from "./logger.js";
+import { keyringPairFromUri } from "./account.ts";
 import { waitForTransactionWithRetry } from "./transactions.js";
 
 export async function addNewSubnetwork(
@@ -10,8 +10,7 @@ export async function addNewSubnetwork(
     hotkey: KeyringPair,
     coldkey: KeyringPair
 ): Promise<number> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const totalNetworks = await api.query.SubtensorModule.TotalNetworks.getValue();
 
     // Disable network rate limit for testing

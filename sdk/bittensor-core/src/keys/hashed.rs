@@ -69,6 +69,7 @@ pub fn verify_hashed_authorization(
 
 /// Public metadata is sufficient to preserve an address in a watch-only wallet.
 /// Signing additionally requires the original, independent master seed.
+#[derive(Clone)]
 pub struct HashedKeypair {
     descriptor: Descriptor,
     master_seed: Option<Zeroizing<[u8; 32]>>,
@@ -179,6 +180,7 @@ impl Keypair {
             ));
         }
         Ok(Self {
+            derivation_source: None,
             inner: KeypairInner::Hashed(HashedKeypair {
                 descriptor,
                 master_seed: None,
@@ -224,6 +226,7 @@ impl Keypair {
             ));
         }
         Ok(Self {
+            derivation_source: None,
             inner: KeypairInner::Hashed(HashedKeypair {
                 descriptor: hashed.descriptor,
                 master_seed: hashed.master_seed.clone(),

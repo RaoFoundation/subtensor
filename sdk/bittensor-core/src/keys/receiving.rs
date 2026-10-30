@@ -6,7 +6,6 @@
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use codec::Decode;
-use sp_core::crypto::{AccountId32, Ss58AddressFormat, Ss58Codec};
 use sp_core::hashing::blake2_256;
 use subtensor_hashed::Descriptor;
 
@@ -121,10 +120,10 @@ pub fn encode_mldsa_receiving_address(descriptor: &[u8]) -> Result<String, CoreE
     let parsed = subtensor_hashed::mldsa::Descriptor::from_bytes(descriptor)
         .map_err(|_| crypto_err("invalid post-quantum receiving descriptor"))?;
     if parsed.is_stateless() {
-        return Ok(
-            AccountId32::new(subtensor_hashed::mldsa::account_id(&parsed))
-                .to_ss58check_with_version(Ss58AddressFormat::custom(super::DEFAULT_SS58_FORMAT)),
-        );
+        return Ok(super::ss58_from_public(
+            subtensor_hashed::mldsa::account_id(&parsed),
+            super::DEFAULT_SS58_FORMAT,
+        ));
     }
     let mut body = descriptor.to_vec();
     body.extend_from_slice(&mldsa_checksum(descriptor));

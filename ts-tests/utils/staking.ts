@@ -1,7 +1,7 @@
 import type { KeyringPair } from "@moonwall/util";
 import type { subtensor } from "@polkadot-api/descriptors";
-import { Keyring } from "@polkadot/keyring";
 import type { TypedApi } from "polkadot-api";
+import { keyringPairFromUri } from "./account.ts";
 import { waitForTransactionWithRetry } from "./transactions.js";
 
 export async function addStake(
@@ -246,8 +246,7 @@ export async function sudoSetRootClaimThreshold(
     netuid: number,
     newValue: bigint
 ): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.SubtensorModule.sudo_set_root_claim_threshold({
         netuid: netuid,
         new_value: newValue,
@@ -261,8 +260,7 @@ export async function getTempo(api: TypedApi<typeof subtensor>, netuid: number):
 }
 
 export async function sudoSetTempo(api: TypedApi<typeof subtensor>, netuid: number, tempo: number): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_tempo({
         netuid: netuid,
         tempo: tempo,
@@ -333,8 +331,7 @@ export async function sudoSetSubtokenEnabled(
     netuid: number,
     enabled: boolean
 ): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_subtoken_enabled({
         netuid: netuid,
         subtoken_enabled: enabled,
@@ -352,8 +349,7 @@ export async function getAdminFreezeWindow(api: TypedApi<typeof subtensor>): Pro
 }
 
 export async function sudoSetAdminFreezeWindow(api: TypedApi<typeof subtensor>, window: number): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_admin_freeze_window({
         window: window,
     });
@@ -366,8 +362,7 @@ export async function sudoSetEmaPriceHalvingPeriod(
     netuid: number,
     emaPriceHalvingPeriod: number
 ): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_ema_price_halving_period({
         netuid: netuid,
         ema_halving: BigInt(emaPriceHalvingPeriod),
@@ -377,8 +372,7 @@ export async function sudoSetEmaPriceHalvingPeriod(
 }
 
 export async function sudoSetLockReductionInterval(api: TypedApi<typeof subtensor>, interval: number): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_lock_reduction_interval({
         interval: BigInt(interval),
     });
@@ -391,8 +385,7 @@ export async function sudoSetWeightsSetRateLimit(
     netuid: number,
     weightsSetRateLimit: number
 ): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_weights_set_rate_limit({
         netuid: netuid,
         weights_set_rate_limit: BigInt(weightsSetRateLimit),
@@ -402,8 +395,7 @@ export async function sudoSetWeightsSetRateLimit(
 }
 
 export async function sudoSetSubnetMovingAlpha(api: TypedApi<typeof subtensor>, alpha: bigint): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_subnet_moving_alpha({
         alpha: alpha,
     });

@@ -1,6 +1,6 @@
 import type { subtensor } from "@polkadot-api/descriptors";
-import { Keyring } from "@polkadot/keyring";
 import type { TypedApi } from "polkadot-api";
+import { keyringPairFromUri } from "./account.ts";
 import { waitForFinalizedBlocks, waitForTransactionWithRetry } from "./transactions.js";
 export const TAO = BigInt(1000000000); // 10^9 RAO per TAO
 export const GWEI = BigInt(1000000000);
@@ -30,8 +30,7 @@ export async function forceSetBalance(
     amount: bigint = tao(1e10)
 ): Promise<void> {
     const { MultiAddress } = await import("@polkadot-api/descriptors");
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.Balances.force_set_balance({
         who: MultiAddress.Id(ss58Address),
         new_free: amount,

@@ -1,20 +1,21 @@
-import { expect, beforeAll } from "vitest";
-import type { TypedApi } from "polkadot-api";
-import { hexToU8a } from "@polkadot/util";
-import { subtensor, MultiAddress } from "@polkadot-api/descriptors";
+import { hexToBytes as hexToU8a } from "@bittensor/sdk";
 import { describeSuite } from "@moonwall/cli";
 import type { KeyringPair } from "@moonwall/util";
-import { Keyring } from "@polkadot/keyring";
+import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
+import { sleep } from "@zombienet/utils";
+import type { TypedApi } from "polkadot-api";
+import { beforeAll, expect } from "vitest";
 import {
     checkRuntime,
     getAccountNonce,
     getBalance,
     getNextKey,
     getSignerFromKeypair,
+    fundShieldAccounts,
+    shieldAccount,
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
-import { sleep } from "@zombienet/utils";
 
 describeSuite({
     id: "03_timing",
@@ -33,19 +34,19 @@ describeSuite({
         let two: KeyringPair;
 
         beforeAll(async () => {
-            const keyring = new Keyring({ type: "sr25519" });
-            alice = keyring.addFromUri("//Alice");
-            bob = keyring.addFromUri("//Bob");
-            charlie = keyring.addFromUri("//Charlie");
-            dave = keyring.addFromUri("//Dave");
-            eve = keyring.addFromUri("//Eve");
-            ferdie = keyring.addFromUri("//Ferdie");
-            one = keyring.addFromUri("//One");
-            two = keyring.addFromUri("//Two");
+            alice = shieldAccount("timing", "Alice");
+            bob = shieldAccount("timing", "Bob");
+            charlie = shieldAccount("timing", "Charlie");
+            dave = shieldAccount("timing", "Dave");
+            eve = shieldAccount("timing", "Eve");
+            ferdie = shieldAccount("timing", "Ferdie");
+            one = shieldAccount("timing", "One");
+            two = shieldAccount("timing", "Two");
 
             api = context.papi("Node").getTypedApi(subtensor);
 
             await checkRuntime(api);
+            await fundShieldAccounts(api, "timing", [alice, bob, charlie, dave, eve, ferdie, one, two]);
         }, 120000);
 
         // This environment runs the four cases concurrently. Every case uses a

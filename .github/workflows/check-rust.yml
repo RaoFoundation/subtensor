@@ -318,12 +318,12 @@ jobs:
               grep -Fxq 'WASM_PACK_VERSION=0.13.1' "$contract" && \
               [[ -x "$system_bin" ]] && \
               "$system_bin" --version 2>/dev/null | grep -Fq 'wasm-pack 0.13.1'; then
-            install -m 0755 "$system_bin" "$HOME/.cargo/bin/wasm-pack"
+            install -D -m 0755 "$system_bin" "$RUNNER_TEMP/wasm-pack/bin/wasm-pack"
           else
-            curl -LsSf https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz \
-              | tar zxf - --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-pack'
+            cargo install --locked --version 0.13.1 --root "$RUNNER_TEMP/wasm-pack" --force wasm-pack
           fi
-          wasm-pack --version
+          echo "$RUNNER_TEMP/wasm-pack/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/wasm-pack/bin/wasm-pack" --version
       - name: wasm smoke test (node)
         run: |
           wasm-pack build sdk/bittensor-core-wasm --target nodejs --out-dir pkg-node --no-opt

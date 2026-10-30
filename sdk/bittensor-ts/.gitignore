@@ -1,0 +1,7 @@
+node_modules/
+dist/
+native.cjs
+native.generated.d.ts
+*.node
+*.node.map
+npm-debug.log*

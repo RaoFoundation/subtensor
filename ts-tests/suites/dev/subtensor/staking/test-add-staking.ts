@@ -1,9 +1,8 @@
 import type { Vec } from "@polkadot/types-codec";
 import type { EventRecord } from "@polkadot/types/interfaces";
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
-import type { ApiPromise } from "@polkadot/api";
 import type { KeyringPair } from "@moonwall/util";
-import { BN } from "@polkadot/util";
+import type { ApiPromise } from "@polkadot/api";
 
 describeSuite({
     id: "DEV_SUB_STAKING_ADD_STAKING_01",
@@ -29,8 +28,6 @@ describeSuite({
             test: async () => {
                 const alice = context.keyring.alice;
                 const bob = context.keyring.bob;
-                const appFees = new BN(100_000);
-
                 // Register network
                 let tx = polkadotJs.tx.subtensorModule.registerNetwork(bob.address);
                 await context.createBlock([await tx.signAsync(alice)]);

@@ -19,6 +19,7 @@ const DERIVATION_SALT: &[u8] = b"bittensor/ms/v2/derive";
 const STATELESS_KEY_SEARCH_LIMIT: u64 = 256;
 pub const ROLE_TRANSACTION: u8 = 0;
 
+#[derive(Clone)]
 pub struct MldsaKeypair {
     pub(super) descriptor: mldsa::Descriptor,
     master_seed: Option<Zeroizing<[u8; 32]>>,
@@ -208,6 +209,7 @@ impl Keypair {
             return Err(crypto_err("unsupported post-quantum account descriptor"));
         }
         Ok(Self {
+            derivation_source: None,
             inner: KeypairInner::Mldsa(MldsaKeypair {
                 descriptor,
                 master_seed: None,
@@ -223,6 +225,7 @@ impl Keypair {
     pub(super) fn mldsa_public_only(&self) -> Result<Self, CoreError> {
         let key = self.mldsa()?;
         Ok(Self {
+            derivation_source: None,
             inner: KeypairInner::Mldsa(MldsaKeypair {
                 descriptor: key.descriptor,
                 master_seed: None,
@@ -248,6 +251,7 @@ impl Keypair {
             ));
         }
         Ok(Self {
+            derivation_source: None,
             inner: KeypairInner::Mldsa(MldsaKeypair {
                 descriptor: key.descriptor,
                 master_seed: key.master_seed.clone(),

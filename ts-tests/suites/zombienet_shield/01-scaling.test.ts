@@ -1,17 +1,18 @@
+import { hexToBytes as hexToU8a } from "@bittensor/sdk";
 import { describeSuite } from "@moonwall/cli";
 import type { KeyringPair } from "@moonwall/util";
 import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
-import { Keyring } from "@polkadot/keyring";
-import { hexToU8a } from "@polkadot/util";
+import { sleep } from "@zombienet/utils";
 import type { PolkadotClient, TypedApi } from "polkadot-api";
 import { beforeAll, expect } from "vitest";
-import { sleep } from "@zombienet/utils";
 import {
     checkRuntime,
     getAccountNonce,
     getBalance,
     getNextKey,
     getSignerFromKeypair,
+    fundShieldAccounts,
+    shieldAccount,
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
@@ -56,12 +57,11 @@ describeSuite({
         let t03Recipient: KeyringPair;
 
         beforeAll(async () => {
-            const keyring = new Keyring({ type: "sr25519" });
-            alice = keyring.addFromUri("//Alice");
-            bob = keyring.addFromUri("//Bob");
-            charlie = keyring.addFromUri("//Charlie");
-            t03Sender = keyring.addFromUri("//Dave");
-            t03Recipient = keyring.addFromUri("//Eve");
+            alice = shieldAccount("scaling", "Alice");
+            bob = shieldAccount("scaling", "Bob");
+            charlie = shieldAccount("scaling", "Charlie");
+            t03Sender = shieldAccount("scaling", "Dave");
+            t03Recipient = shieldAccount("scaling", "Eve");
 
             client = context.papi("Node");
             api = client.getTypedApi(subtensor);
@@ -69,9 +69,10 @@ describeSuite({
             apiFull = clientFull.getTypedApi(subtensor);
 
             await checkRuntime(api);
+            await fundShieldAccounts(api, "scaling", [alice, bob, charlie, t03Sender, t03Recipient]);
         }, 120000);
 
-        // This shard runs all six read/write cases concurrently. T03 uses
+        // This shard runs all four read/write cases concurrently. T03 uses
         // Dave/Eve while T04 uses Alice/Bob/Charlie, so the writers never
         // share a nonce or a recipient balance. The key and topology cases
         // are read-only.

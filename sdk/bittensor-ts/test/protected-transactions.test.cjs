@@ -1,0 +1,296 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const sdk = require('../dist')
+const { ProtectedWalletClient } = sdk
+function littleU64(value) { const bytes = Buffer.alloc(8); bytes.writeBigUInt64LE(BigInt(value)); return bytes }
+const remark = {pallet:'System',call:'remark',params:{remark:new Uint8Array(400).fill(4)}}
+function fixture(crypto = sdk.CRYPTO_HASHED) {
+  const key = sdk.Keypair.fromSeed(Buffer.alloc(32,34),crypto)
+  const state = {generation:2n,nonce:3,pending:3,enabled:true,fee:10n,submissions:[],signatures:[],queries:[],encoded:[],runtimeBlocks:[],finalizedHead:'0x'+'22'.repeat(32),bestHead:'0x'+'33'.repeat(32)}
+  const runtime = {
+    supportsMldsaProfile: () => true,
+    composeCall: (p,f,a) => p === 'MevShield' ? Buffer.concat([Buffer.from([9,0]),Buffer.from(a.ciphertext)]) : Buffer.concat([Buffer.from([0,0]),Buffer.from(a.remark ?? [2,3])]),
+    signaturePayloadParts: params => ({includedInExtrinsic: littleU64(params.nonce), includedInSignedData: Buffer.alloc(64,8)}),
+    encodeSignedExtrinsic: (call,account,proof,crypto,params) => {state.encoded.push({call,proof,params});return {bytes:Buffer.concat([Buffer.from(proof),Buffer.from(call)]),hash:Buffer.alloc(32,7)}},
+  }
+  const adapter = {
+    decodeAddress:sdk.publicKeyFromSs58,hash:sdk.blake2_256,
+    finalizedHead: async () => state.finalizedHead,blockHash:async n => n == null ? state.bestHead : '0x'+'11'.repeat(32),blockNumber:async () => 100,
+    accountNextIndex:async () => state.pending,runtimeAt:async block => {state.runtimeBlocks.push(block);return runtime},eraBirth:()=>64,
+    query: async (p,s,a,b) => {
+      state.queries.push([p,s,b])
+      if (s === 'HashedAccountsEnabled') return state.enabled
+      if (s === 'Account') return {nonce:state.nonce,data:{free:100000n}}
+      if (s === 'Accounts' || s === 'MlDsaAccounts') return {descriptor:key.authorizationDescriptor(),generation:state.generation,commitment:key.atGeneration(state.generation).authorizationCurrentCommitment()}
+      if (s === 'NextKey') return Buffer.alloc(1184,b === state.bestHead ? 1 : 9)
+      return null
+    },
+    rpc:async () => ({partialFee:state.fee}),
+    intentReader:async () => ({query:adapter.query,decodeAddress:sdk.publicKeyFromSs58}),
+    seal: (key,bytes) => {state.shieldKey = key;state.inner = bytes;return Buffer.alloc(1234,2)},
+    verify:(...args) => {state.signatures.push(args);return sdk.verifyAuthorization(...args)},
+    submitBytes:async (bytes,address,options) => {state.submissions.push({bytes,address,options});return {success:true,extrinsicHash:'0xabc',events:[]}},
+    followShielded:async (carrier,hash,period) => ({success:true,carrier,hash,period}),
+  }
+  return {key,state,adapter,session:new ProtectedWalletClient(adapter,key)}
+}
+test('rotating submission selects finalized generation and signs the complete payload', async () => {
+  const {session,state,key} = fixture()
+  await session.submit(remark,{allowRawCall:true})
+  assert.equal(state.signatures.length,1)
+  assert.equal(state.signatures[0][3],2n)
+  assert(state.signatures[0][1].length > 256)
+  assert.equal(state.encoded.at(-1).params.nonce,3n)
+  assert.equal(state.submissions.length,1)
+  await assert.rejects(session.submit(remark,{allowRawCall:true}),/not reconciled/)
+  state.generation++; state.nonce++;state.pending++
+  await session.submit(remark,{allowRawCall:true})
+  assert.equal(state.signatures.at(-1)[3],3n)
+  assert(state.queries.filter(row => ['Accounts','Account'].includes(row[1])).every(row => row[2]))
+})
+test('pending nonce, changed authority and disabled authorization refuse before broadcast', async () => {
+  const {session,state,adapter} = fixture()
+  state.pending++
+  await assert.rejects(session.submit(remark,{allowRawCall:true}),/finalized nonce/)
+  state.pending--; state.enabled = false
+  await assert.rejects(session.submit(remark,{allowRawCall:true}),/disabled/)
+  state.enabled = true
+  adapter.verify = (...args) => {state.pending++;return sdk.verifyAuthorization(...args)}
+  await assert.rejects(session.submit(remark,{allowRawCall:true}),/nonce changed/)
+  assert.equal(state.submissions.length,0)
+})
+test('shielded pair shares authority with consecutive generation and nonce; oversize fails closed', async () => {
+  const {session,state} = fixture(sdk.CRYPTO_MLDSA65)
+  const result = await session.submit(remark,{allowRawCall:true,mevShield:true})
+  assert.deepEqual(state.signatures.map(row => row[3]),[3n,2n])
+  assert.deepEqual(state.encoded.map(row => row.params.nonce),[4n,3n])
+  assert.equal(result.period,8)
+  const other = fixture()
+  other.adapter.seal = () => Buffer.alloc(8193)
+  await assert.rejects(other.session.submit(remark,{allowRawCall:true,mevShield:true}),/8192/)
+  assert.equal(other.state.submissions.length,0)
+})
+test('protected Shield uses the best-head encryption key while signing with finalized authority', async () => {
+  const {session,state} = fixture(sdk.CRYPTO_MLDSA65)
+  await session.submit(remark,{allowRawCall:true,mevShield:true})
+  assert.deepEqual(state.queries.filter(row => row[1] === 'NextKey'),[['MevShield','NextKey',state.bestHead]])
+  assert.deepEqual(Buffer.from(state.shieldKey),Buffer.alloc(1184,1))
+  assert(state.queries.filter(row => ['MlDsaAccounts','Account'].includes(row[1])).every(row => row[2] === state.finalizedHead))
+  assert(state.runtimeBlocks.every(block => block === state.finalizedHead))
+  assert.deepEqual(state.signatures.map(row => row[3]),[3n,2n])
+})
+
+function weightsFixture(crypto) {
+  const f = fixture(crypto), query = f.adapter.query
+  const weightsState = {
+    Uids:0,CommitRevealWeightsEnabled:true,WeightsSetRateLimit:0,LastUpdate:[0],
+    MinAllowedWeights:1,MaxWeightsLimit:65535,SubnetEpochConsensus:'Yuma',
+    Tempo:30,RevealPeriodEpochs:2,LastEpochBlock:70,PendingEpochAt:111,SubnetEpochIndex:9,BlocksSinceLastStep:30,
+  }
+  f.state.weights = []
+  f.adapter.intentReader = async block => ({
+    query:async (p,s,a,b) => p === 'SubtensorModule' && s in weightsState ? weightsState[s] : query(p,s,a,b),
+    decodeAddress:sdk.publicKeyFromSs58,countStorageKeys:async () => 0,
+    blockNumber:async () => 100,blockHash:async () => block,blockTime:async () => 12,
+    encryptWeightsV2:async options => {f.state.weights.push(options);return {commit:new Uint8Array([1,2]),revealRound:42n}},
+  })
+  return f
+}
+for (const crypto of [sdk.CRYPTO_HASHED,sdk.CRYPTO_HASHED_ED25519,sdk.CRYPTO_MLDSA65,sdk.CRYPTO_MLDSA65_FIXED,sdk.CRYPTO_FALCON512,sdk.CRYPTO_FALCON512_HASHED,sdk.CRYPTO_FALCON1024,sdk.CRYPTO_FALCON1024_HASHED]) {
+  test(`protected wallet ${crypto} defaults timelocked weights to its public account ID`, async () => {
+    const {key,session,state} = weightsFixture(crypto)
+    for (const op of ['set_weights','commit_weights']) {
+      const intent = sdk.buildIntent(op,{netuid:5,weights:{1:1}})
+      const plan = await session.plan(intent)
+      assert.equal(plan.ok,true)
+      assert.equal(plan.call.call,'commit_timelocked_mechanism_weights')
+      assert.deepEqual(Buffer.from(state.weights.at(-1).hotkey),sdk.publicKeyFromSs58(key.ss58Address))
+      assert.equal(state.weights.at(-1).hotkey.length,32)
+    }
+    await session.execute(sdk.buildIntent('set_weights',{netuid:5,weights:{1:1}}))
+    assert.equal(state.submissions.length,1)
+  })
+}
+test('protected weight contexts fill omitted account IDs and resolve proxy dispatch identity', async () => {
+  const {key,session,state} = weightsFixture(sdk.CRYPTO_FALCON512_HASHED)
+  const intent = sdk.buildIntent('set_weights',{netuid:5,weights:{1:1}})
+  await session.plan(intent,{context:{coldkey:key.ss58Address}})
+  assert.deepEqual(Buffer.from(state.weights.at(-1).hotkey),sdk.publicKeyFromSs58(key.ss58Address))
+  const real = sdk.Keypair.fromUri('//Alice')
+  const plan = await session.plan(intent,{context:{coldkey:key.ss58Address},proxyFor:real.ss58Address,proxyType:'Weights'})
+  assert.equal(plan.call.call,'proxy')
+  assert.equal(plan.call.params.call.call,'commit_timelocked_mechanism_weights')
+  assert.deepEqual(Buffer.from(state.weights.at(-1).hotkey),real.publicKey)
+  await assert.rejects(session.plan(intent,{context:{coldkey:key.ss58Address,hotkeyPublicKey:real.publicKey}}),/differs from its account ID/)
+})
+test('protected batches preserve weight identity and reject mixed signer roles', async () => {
+  const {key,session,state} = weightsFixture(sdk.CRYPTO_FALCON512)
+  const weights = {op:'set_weights',netuid:5,weights:{1:1}}
+  const plan = await session.plan(sdk.buildIntent('batch',{intents:[weights]}))
+  assert.equal(plan.call.call,'batch_all')
+  assert.deepEqual(Buffer.from(state.weights.at(-1).hotkey),sdk.publicKeyFromSs58(key.ss58Address))
+  const real = sdk.Keypair.fromUri('//Alice')
+  await session.plan(sdk.buildIntent('execute_proxy_announced',{real_ss58:real.ss58Address,delegate_ss58:key.ss58Address,inner_op:'batch',inner_args:{intents:[weights]}}))
+  assert.deepEqual(Buffer.from(state.weights.at(-1).hotkey),real.publicKey)
+  await assert.rejects(session.plan(sdk.buildIntent('batch',{intents:[weights,{op:'transfer',dest_ss58:key.ss58Address,amount_tao:'0.000001'}]})),/must share a signer/)
+})
+test('watch-only fee quotations use dummy proofs and account for both carrier and tips', async () => {
+  const {key,state,adapter} = fixture(sdk.CRYPTO_MLDSA65)
+  const session = new ProtectedWalletClient(adapter,key.publicOnly())
+  assert.equal(await session.estimateFee(remark,{mevShield:true,tip:7n}),34n)
+  assert.equal(state.signatures.length,0)
+  assert.equal(state.encoded.length,2)
+  for (const row of state.encoded) assert.deepEqual(Buffer.from(row.proof),key.dummyAuthorization())
+  const preview = await session.plan(sdk.buildIntent('transfer',{dest_ss58:key.ss58Address,amount_tao:'0.000001'}),{mevShield:false})
+  assert.equal(preview.ok,true)
+  assert.equal(preview.feeRao,10n)
+  assert.equal(state.signatures.length,0)
+})
+test('fixed wallets serialize submissions and retain nonce reservations when RPC lags', async () => {
+  const {session,state} = fixture(sdk.CRYPTO_FALCON512)
+  await Promise.all([session.submit(remark,{allowRawCall:true}),session.submit(remark,{allowRawCall:true})])
+  assert.deepEqual(state.encoded.map(row => row.params.nonce),[3n,4n])
+  assert.deepEqual(state.signatures.map(row => row[3]),[0n,0n])
+  assert.equal(state.queries.some(row => row[1] === 'MlDsaAccounts'),false)
+})
+test('raw permission, cancellation and fee caps are checked before private signing', async () => {
+  const {session,state} = fixture()
+  await assert.rejects(session.submit(remark),/allowRawCall/)
+  await assert.rejects(session.signExtrinsic(remark,{allowRawCall:true}),/explicit nonce/)
+  const abort = new AbortController();abort.abort()
+  await assert.rejects(session.submit(remark,{allowRawCall:true,signal:abort.signal}),/abort/i)
+  await assert.rejects(session.execute(sdk.buildIntent('transfer',{dest_ss58:session.keypair.ss58Address,amount_tao:'1'}),{policy:{maxFeeRao:1n}}),/maxFeeRao/)
+  assert.equal(state.signatures.length,0)
+})
+test('receiving payments register before transfer, guard existing registration, and reject mismatched descriptors', async () => {
+  const {adapter,key} = fixture(sdk.CRYPTO_MLDSA65)
+  const sender = sdk.Keypair.fromUri('//Alice'), descriptor = key.authorizationDescriptor()
+  let registered = null
+  const reader = {
+    query:async (p,s) => s === 'HashedAccountsEnabled' ? true : s === 'MlDsaAccounts' ? registered : {data:{free:10000000000n}},
+    constant:async () => 100n, supportsPqProfile:()=>true,finalizedHead:adapter.finalizedHead,
+    decodeAddress:sdk.publicKeyFromSs58,
+    parseRecipient:(address,explicit) => sdk.parseRecipient(address,sdk.decodeReceivingAddress,sdk.Keypair.fromDescriptor,sdk.publicKeyFromSs58,explicit),
+  }
+  const intent = sdk.buildIntent('transfer',{dest_ss58:key.receivingAddress(),amount_tao:'1'})
+  let plan = await intent.prepare(reader,{coldkey:sender.ss58Address})
+  assert.equal(plan.call.call,'batch_all')
+  assert.equal(plan.call.params.calls[0].call,'register')
+  assert.equal(plan.call.params.calls[1].params.dest,key.ss58Address)
+  assert.equal(plan.requiredFreeRao,100n)
+  registered = {descriptor}
+  plan = await intent.prepare(reader,{coldkey:sender.ss58Address})
+  assert.equal(plan.call.params.calls[0].call,'check_registered')
+  assert.throws(() => reader.parseRecipient(sender.ss58Address,descriptor),/does not match/)
+  registered = {descriptor:sdk.Keypair.fromSeed(Buffer.alloc(32,55),sdk.CRYPTO_MLDSA65).authorizationDescriptor()}
+  await assert.rejects(intent.prepare(reader,{coldkey:sender.ss58Address}),/differs/)
+})
+test('hashed classical HTTP signing requires retired authority and verification requires trusted scheme', async () => {
+  const {key,adapter,state} = fixture(sdk.CRYPTO_HASHED_ED25519)
+  const request = {method:'GET',path:'/',receiverSs58:key.ss58Address,nonceNs:100n}
+  await assert.rejects(sdk.httpAuth.sign(key,request),/prepareHttpSigner/)
+  state.generation = 0n
+  await assert.rejects(sdk.prepareHttpSigner(adapter,key),/generation zero/)
+  state.generation = 2n
+  const active = await sdk.prepareHttpSigner(adapter,key), headers = await sdk.httpAuth.sign(active,request)
+  const options = {method:'GET',path:'/',selfHotkeySs58:key.ss58Address,nowNs:100n}
+  await assert.rejects(sdk.httpAuth.verify(headers,Buffer.alloc(0),options),/expectedCryptoType/)
+  await assert.rejects(sdk.httpAuth.verify(headers,Buffer.alloc(0),{...options,expectedCryptoType:0}),/trusted sender/)
+  assert.equal((await sdk.httpAuth.verify(headers,Buffer.alloc(0),{...options,expectedCryptoType:6})).cryptoType,6)
+})
+test('automatic registration reserve requires an explicit allowance and callback cannot override its cap', async () => {
+  const plan = {extras:{registrationSponsorships:[{payer:'payer',recipient:'recipient',depositRao:100n}]}}
+  await assert.rejects(sdk.authorizeRegistrationSponsorship(plan,{}),/requires/)
+  await assert.rejects(sdk.authorizeRegistrationSponsorship(plan,{maxRegistrationDepositRao:99n,onRegistrationSponsorship:()=>true}),/exceeds/)
+  await assert.rejects(sdk.authorizeRegistrationSponsorship(plan,{maxRegistrationDepositRao:100n,onRegistrationSponsorship:()=>false}),/declined/)
+  await sdk.authorizeRegistrationSponsorship(plan,{maxRegistrationDepositRao:100n})
+  await sdk.authorizeRegistrationSponsorship(plan,{onRegistrationSponsorship:quote=>quote.recipient === 'recipient'})
+})
+test('orders use account approval and reject removed PQ delegation', async () => {
+  const {key,adapter,session} = fixture(sdk.CRYPTO_FALCON512)
+  const order = {V1:{signer:key.ss58Address,hotkey:key.ss58Address,fee_recipient:key.ss58Address,netuid:1,order_type:'LimitBuy',amount:20n,limit_price:30n,fee_rate:0}}
+  adapter.intentReader = async () => ({query:adapter.query,composeCall:async call => {
+    const nonce = Buffer.alloc(8); nonce.writeBigUInt64LE(call.params.order.Authorized.nonce)
+    return Buffer.concat([Buffer.from([4,2,2]),nonce,Buffer.from(JSON.stringify(call.params.order.Authorized.terms,(_,v) => typeof v === 'bigint' ? v.toString() : v))])
+  }})
+  const prepared = await session.prepareOrder(4n,order), signed = prepared.accountApproved()
+  assert.equal(signed.signature,'AccountApproved')
+  assert.equal(signed.order.Authorized.nonce,4n)
+  assert.equal(sdk.validateSignedOrders([signed]).length,1)
+  for (const scheme of ['MlDsa','Falcon']) assert.throws(() => sdk.validateSignedOrders([{...signed,signature:{[scheme]:{epoch:1n,public_key:'0x',signature:'0x'}}}]),/unknown order authorization/)
+  assert.equal(session.signOrder,undefined)
+  assert.equal(session.signMessage,undefined)
+  assert.equal(sdk.installCapabilityCall,undefined)
+  assert.equal(sdk.pqHttpAuth,undefined)
+  for (const op of ['install_order_capability','revoke_order_capability']) assert.throws(() => sdk.buildIntent(op,{}))
+  assert.throws(() => key.sign(Buffer.from('arbitrary message')),/not supported/)
+  const changed = prepared.order; changed.V1.amount = 999n
+  assert.equal(prepared.order.V1.amount,20n)
+  assert.notEqual((await session.prepareOrder(5n,order)).orderId,prepared.orderId)
+})
+test('safe derivative and multisig calls preserve explicit account mode', async () => {
+  const {adapter,key} = fixture(sdk.CRYPTO_FALCON512)
+  assert.equal((await sdk.derivativeCall(adapter,key,4,remark)).call,'as_safe_derivative')
+  const client = new sdk.Client('local'), members = [key.ss58Address,sdk.Keypair.fromUri('//Alice').ss58Address]
+  const {NodeMultisig} = require('../dist/node-workflows')
+  const legacy = new NodeMultisig(client,members,2), safe = new NodeMultisig(client,members,2,42,'safe')
+  assert.notEqual(legacy.address,safe.address)
+  assert.equal(safe.accountMode,'safe')
+  await client.close()
+})
+
+for (const crypto of [sdk.CRYPTO_HASHED, sdk.CRYPTO_MLDSA65, sdk.CRYPTO_MLDSA65_FIXED, sdk.CRYPTO_FALCON512, sdk.CRYPTO_FALCON512_HASHED, sdk.CRYPTO_FALCON1024, sdk.CRYPTO_FALCON1024_HASHED]) {
+  test(`protected wallet ${crypto} reuses rejected authority but retains uncertain delivery`, async () => {
+    const { JsonRpcError, SubmissionUncertainError } = require('../dist/transport')
+    for (const mevShield of [false, true]) {
+      const f = fixture(crypto), submitted = f.adapter.submitBytes
+      f.adapter.submitBytes = async () => { throw new JsonRpcError('invalid transaction', 1010) }
+      await assert.rejects(f.session.submit(remark, { allowRawCall: true, mevShield }), /invalid transaction/)
+      f.adapter.submitBytes = async () => ({ success: false, events: [], data: { submission_rejected: true } })
+      await f.session.submit(remark, { allowRawCall: true, mevShield })
+      f.adapter.submitBytes = submitted
+      await f.session.submit(remark, { allowRawCall: true, mevShield })
+      assert.equal(f.state.encoded.at(-1).params.nonce, 3n)
+      const g = fixture(crypto)
+      g.adapter.submitBytes = async () => { throw new SubmissionUncertainError('0xabc', new Error('response lost')) }
+      await assert.rejects(g.session.submit(remark, { allowRawCall: true, mevShield }), /submission uncertain/)
+      g.adapter.submitBytes = submitted
+      if ([sdk.CRYPTO_MLDSA65_FIXED, sdk.CRYPTO_FALCON512, sdk.CRYPTO_FALCON1024].includes(crypto)) {
+        await g.session.submit(remark, { allowRawCall: true, mevShield })
+        assert.equal(g.state.encoded.at(-1).params.nonce, mevShield ? 5n : 4n)
+      } else await assert.rejects(g.session.submit(remark, { allowRawCall: true, mevShield }), /not reconciled/)
+    }
+  })
+}
+
+
+test('protected Shield expiry releases the unused nonce and generation only after finality', async () => {
+  for (const crypto of [sdk.CRYPTO_HASHED, sdk.CRYPTO_FALCON512]) {
+    for (const finalized of [false, true]) {
+      const f = fixture(crypto)
+      f.adapter.submitBytes = async () => ({ success: true, blockHash: 'carrier', extrinsicHash: 'outer' })
+      f.adapter.followShielded = async () => ({ data: { carrier_only: true, inner_expiry_finalized: finalized }, chainError: { name: 'ExtrinsicExpired' } })
+      await f.session.submit(remark, { allowRawCall: true, mevShield: true })
+      f.state.nonce++; f.state.pending++; f.state.generation++
+      if (!finalized && crypto === sdk.CRYPTO_HASHED) {
+        await assert.rejects(f.session.submit(remark, { allowRawCall: true }), /not reconciled/)
+      } else {
+        await f.session.submit(remark, { allowRawCall: true })
+        assert.equal(f.state.encoded.at(-1).params.nonce, finalized ? 4n : 5n)
+      }
+    }
+  }
+})
+
+for (const crypto of [sdk.CRYPTO_MLDSA65_FIXED, sdk.CRYPTO_FALCON512, sdk.CRYPTO_FALCON1024]) {
+  test(`fixed protected wallet ${crypto} resets consumed nonce after reaping`, async () => {
+    const { session, state, adapter } = fixture(crypto)
+    adapter.submitBytes = async () => ({ success: true, blockHash: 'included', extrinsicHash: '0xabc' })
+    await session.submit(remark, { allowRawCall: true })
+    state.nonce = 0; state.pending = 0
+    adapter.submitBytes = async () => ({ success: true, extrinsicHash: '0xdef' })
+    await session.submit(remark, { allowRawCall: true })
+    await session.submit(remark, { allowRawCall: true })
+    assert.deepEqual(state.encoded.map(row => row.params.nonce), [3n, 0n, 1n])
+  })
+}

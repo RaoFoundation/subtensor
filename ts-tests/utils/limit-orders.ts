@@ -1,10 +1,14 @@
 import type { KeyringPair } from "@moonwall/util";
 import type { TypedApi } from "polkadot-api";
 import type { subtensor } from "@polkadot-api/descriptors";
-import { Keyring } from "@polkadot/keyring";
-import { stringToU8a, u8aToHex, u8aWrapBytes } from "@polkadot/util";
-import { blake2AsHex, blake2AsU8a, decodeAddress, encodeAddress } from "@polkadot/util-crypto";
+import { blake2_256, bytesToHex, hexToBytes, publicKeyFromSs58, ss58FromPublic } from "@bittensor/sdk";
+import { keyringPairFromUri } from "./account.ts";
 import { waitForTransactionWithRetry } from "./transactions.js";
+
+/** Wrap raw signing bytes exactly as the runtime does, including binary hashes. */
+function wrapBytes(data: Uint8Array): Uint8Array {
+    return Buffer.concat([Buffer.from("<Bytes>"), data, Buffer.from("</Bytes>")]);
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -187,7 +191,7 @@ export function buildSignedOrder(api: any, params: OrderParams): SignedOrder {
 
     return {
         order: versionedOrder,
-        signature: { Sr25519: u8aToHex(sig) as `0x${string}` },
+        signature: { Sr25519: bytesToHex(sig) as `0x${string}` },
         partial_fill: null,
     };
 }
@@ -206,8 +210,8 @@ export function buildSignedOrderV2(api: any, params: OrderV2Params): SignedOrder
         order: versionedOrder,
         signature:
             params.signer.type === "ed25519"
-                ? { Ed25519: u8aToHex(sig) as `0x${string}` }
-                : { Sr25519: u8aToHex(sig) as `0x${string}` },
+                ? { Ed25519: bytesToHex(sig) as `0x${string}` }
+                : { Sr25519: bytesToHex(sig) as `0x${string}` },
         partial_fill: null,
     };
 }
@@ -220,7 +224,7 @@ export function buildSignedOrderV2(api: any, params: OrderV2Params): SignedOrder
  *     signature.verify(b"<Bytes>" ++ blake2_256(SCALE(VersionedOrder)) ++ b"</Bytes>", signer)
  *
  * The signed payload is the raw 32-byte blake2-256 hash of the SCALE-encoded
- * VersionedOrder, wrapped by `u8aWrapBytes` (which prepends `<Bytes>` and
+ * VersionedOrder, wrapped by `wrapBytes` (which prepends `<Bytes>` and
  * appends `</Bytes>`).  This is byte-for-byte what the runtime reconstructs
  * from `order_id.as_bytes()`, so the hash must be wrapped raw — never
  * hex-encoded before wrapping.
@@ -233,17 +237,17 @@ export function buildWrappedSignedOrder(api: any, params: OrderParams): SignedOr
 
     // SCALE-encode the VersionedOrder, then hash it (this is the OrderId).
     const encoded = api.registry.createType("LimitVersionedOrder", versionedOrder);
-    const hash = blake2AsU8a(encoded.toU8a(), 256);
+    const hash = blake2_256(encoded.toU8a());
 
     // Wrap the raw 32-byte hash in the signRaw envelope: <Bytes>..hash..</Bytes>.
-    const wrapped = u8aWrapBytes(hash);
+    const wrapped = wrapBytes(hash);
     const sig = params.signer.sign(wrapped);
 
     // Tag the signature variant from the keypair type.
     const signature =
         params.signer.type === "ed25519"
-            ? { Ed25519: u8aToHex(sig) as `0x${string}` }
-            : { Sr25519: u8aToHex(sig) as `0x${string}` };
+            ? { Ed25519: bytesToHex(sig) as `0x${string}` }
+            : { Sr25519: bytesToHex(sig) as `0x${string}` };
 
     return {
         order: versionedOrder,
@@ -260,15 +264,15 @@ export function buildWrappedSignedOrderV2(api: any, params: OrderV2Params): Sign
     const versionedOrder = buildVersionedOrderV2(params);
 
     const encoded = api.registry.createType("LimitVersionedOrder", versionedOrder);
-    const wrapped = u8aWrapBytes(blake2AsU8a(encoded.toU8a(), 256));
+    const wrapped = wrapBytes(blake2_256(encoded.toU8a()));
     const sig = params.signer.sign(wrapped);
 
     return {
         order: versionedOrder,
         signature:
             params.signer.type === "ed25519"
-                ? { Ed25519: u8aToHex(sig) as `0x${string}` }
-                : { Sr25519: u8aToHex(sig) as `0x${string}` },
+                ? { Ed25519: bytesToHex(sig) as `0x${string}` }
+                : { Sr25519: bytesToHex(sig) as `0x${string}` },
         partial_fill: null,
     };
 }
@@ -295,12 +299,13 @@ export const LEDGER_MAX_SIGN_SIZE = 256;
 
 /**
  * Re-encode an account address as SS58 at prefix 42.  Accepts any input the
- * `@polkadot/util-crypto` `decodeAddress` understands (SS58 of any prefix, hex,
- * or raw bytes) and always re-encodes so the output prefix is deterministic —
+ * SDK address helpers understand (SS58 of any prefix or hex) and always
+ * re-encode so the output prefix is deterministic —
  * matching the runtime's `render_account`, which always renders at prefix 42.
  */
 function renderAccount(addr: string): string {
-    return encodeAddress(decodeAddress(addr), READABLE_SS58_PREFIX);
+    const publicKey = /^0x/i.test(addr) ? hexToBytes(addr.slice(2)) : publicKeyFromSs58(addr);
+    return ss58FromPublic(publicKey, READABLE_SS58_PREFIX);
 }
 
 /**
@@ -411,16 +416,16 @@ export function buildReadableSignedOrderV2(api: any, params: OrderV2Params): Sig
     const versionedOrder = buildVersionedOrderV2(params);
     const v2 = asV2(versionedOrder);
 
-    const wrapped = u8aWrapBytes(stringToU8a(formatOrderMessageV2(v2)));
-    const signedBytes = wrapped.length > LEDGER_MAX_SIGN_SIZE ? blake2AsU8a(wrapped, 256) : wrapped;
+    const wrapped = wrapBytes(Buffer.from(formatOrderMessageV2(v2), "utf8"));
+    const signedBytes = wrapped.length > LEDGER_MAX_SIGN_SIZE ? blake2_256(wrapped) : wrapped;
     const sig = params.signer.sign(signedBytes);
 
     return {
         order: versionedOrder,
         signature:
             params.signer.type === "ed25519"
-                ? { Ed25519: u8aToHex(sig) as `0x${string}` }
-                : { Sr25519: u8aToHex(sig) as `0x${string}` },
+                ? { Ed25519: bytesToHex(sig) as `0x${string}` }
+                : { Sr25519: bytesToHex(sig) as `0x${string}` },
         partial_fill: null,
     };
 }
@@ -433,8 +438,8 @@ export function buildReadableSignedOrderV2(api: any, params: OrderV2Params): Sig
  *
  *     signature.verify(b"<Bytes>" ++ utf8(render_order(order)) ++ b"</Bytes>", signer)
  *
- * IMPORTANT: the message is converted to BYTES with `stringToU8a` and then
- * wrapped with `u8aWrapBytes`, so the signed payload is exactly
+ * IMPORTANT: the message is converted to BYTES with UTF-8 encoding and then
+ * wrapped with literal `<Bytes>` tags, so the signed payload is exactly
  * `<Bytes>` ++ utf8(message) ++ `</Bytes>` — matching the runtime's
  * `[b"<Bytes>", &render_order, b"</Bytes>"].concat()`.  Wrapping the raw string
  * instead of the bytes would corrupt the payload.
@@ -454,15 +459,15 @@ export function buildReadableSignedOrder(api: any, params: OrderParams): SignedO
 
     // Render the canonical message, convert to UTF-8 bytes, then wrap.
     const message = formatOrderMessage(asV1(versionedOrder));
-    const wrapped = u8aWrapBytes(stringToU8a(message));
-    const signedBytes = wrapped.length > LEDGER_MAX_SIGN_SIZE ? blake2AsU8a(wrapped, 256) : wrapped;
+    const wrapped = wrapBytes(Buffer.from(message, "utf8"));
+    const signedBytes = wrapped.length > LEDGER_MAX_SIGN_SIZE ? blake2_256(wrapped) : wrapped;
     const sig = params.signer.sign(signedBytes);
 
     // Tag the signature variant from the keypair type.
     const signature =
         params.signer.type === "ed25519"
-            ? { Ed25519: u8aToHex(sig) as `0x${string}` }
-            : { Sr25519: u8aToHex(sig) as `0x${string}` };
+            ? { Ed25519: bytesToHex(sig) as `0x${string}` }
+            : { Sr25519: bytesToHex(sig) as `0x${string}` };
 
     return {
         order: versionedOrder,
@@ -477,7 +482,7 @@ export function buildReadableSignedOrder(api: any, params: OrderParams): SignedO
  */
 export function orderId(api: any, order: VersionedOrder): `0x${string}` {
     const encoded = api.registry.createType("LimitVersionedOrder", order);
-    return blake2AsHex(encoded.toU8a(), 256) as `0x${string}`;
+    return bytesToHex(blake2_256(encoded.toU8a())) as `0x${string}`;
 }
 
 // ── Registry ──────────────────────────────────────────────────────────────────
@@ -580,8 +585,7 @@ export async function getAlphaPrice(api: TypedApi<typeof subtensor>, netuid: num
 
 /** Enable the subtoken for a subnet (required for swaps to work). */
 export async function enableSubtoken(api: TypedApi<typeof subtensor>, netuid: number): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_subtoken_enabled({
         netuid,
         subtoken_enabled: true,
@@ -592,8 +596,7 @@ export async function enableSubtoken(api: TypedApi<typeof subtensor>, netuid: nu
 
 /** Sudo-enable or disable the limit-orders pallet. */
 export async function setPalletStatus(api: TypedApi<typeof subtensor>, enabled: boolean): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const tx = api.tx.Sudo.sudo({
         call: api.tx.LimitOrders.set_pallet_status({ enabled }).decodedCall,
     });
@@ -709,8 +712,7 @@ export async function executeBatchedOrders(
     netuid: number,
     orders: SignedOrder[]
 ): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     // PAPI descriptors predate `VersionedOrder::V2`; regenerate with
     // `pnpm generate-types` against a node carrying this runtime to drop the cast.
     const tx = api.tx.LimitOrders.execute_batched_orders({

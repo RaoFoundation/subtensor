@@ -1,6 +1,6 @@
 import { describeSuite, expect } from "@moonwall/cli";
-import { Keyring } from "@polkadot/keyring";
-import { encodeAddress } from "@polkadot/util-crypto";
+import { publicKeyFromSs58, ss58FromPublic } from "@bittensor/sdk";
+import { keyringPairFromUri } from "../../../../utils/account.js";
 import {
     type Order,
     type OrderType,
@@ -16,18 +16,17 @@ import {
 // These assertions pin the TS output against FULLY HARDCODED literals derived
 // with a well-known dev key (sr25519 `//Alice` at prefix 42 is the canonical
 // `5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`), so the expected string is
-// NOT derived from the same `encodeAddress` call it is testing.
+// NOT derived from the same `ss58FromPublic` call it is testing.
 //
 // The field VALUES mirror the Rust golden vectors in
 // `pallets/limit-orders/src/tests/readable.rs` so both suites pin identical
 // output.
 
 // Known dev keys, sr25519, rendered at prefix 42.
-const KR = new Keyring({ type: "sr25519" });
-const ALICE = KR.addFromUri("//Alice").address; // 5Grwva...
-const BOB = KR.addFromUri("//Bob").address; // 5FHneW...
-const CHARLIE = KR.addFromUri("//Charlie").address; // 5FLSig...
-const DAVE = KR.addFromUri("//Dave").address; // 5DAAnr...
+const ALICE = keyringPairFromUri("//Alice").address; // 5Grwva...
+const BOB = keyringPairFromUri("//Bob").address; // 5FHneW...
+const CHARLIE = keyringPairFromUri("//Charlie").address; // 5FLSig...
+const DAVE = keyringPairFromUri("//Dave").address; // 5DAAnr...
 
 // Hardcoded SS58 (prefix 42) of the dev keys — independent of the formatter.
 const ALICE_SS58 = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
@@ -77,7 +76,7 @@ describeSuite({
                 // explicit re-encode is idempotent — so both routes must equal
                 // the hardcoded literal.
                 expect(ALICE).toBe(ALICE_SS58);
-                expect(encodeAddress(ALICE, READABLE_SS58_PREFIX)).toBe(ALICE_SS58);
+                expect(ss58FromPublic(publicKeyFromSs58(ALICE), READABLE_SS58_PREFIX)).toBe(ALICE_SS58);
             },
         });
 

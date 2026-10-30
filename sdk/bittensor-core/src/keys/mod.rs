@@ -14,7 +14,7 @@ use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sealedbox;
 #[cfg(feature = "host")]
 use sodiumoxide::crypto::sign::ed25519 as sign_ed25519;
-use sp_core::crypto::{AccountId32, Pair as PairT, Ss58Codec};
+use sp_core::crypto::{Pair as PairT, Ss58AddressFormat};
 use sp_core::{ed25519, sr25519, ByteArray};
 use zeroize::Zeroizing;
 
@@ -49,6 +49,52 @@ pub const CRYPTO_FALCON512: u8 = 9;
 pub const CRYPTO_FALCON512_HASHED: u8 = 10;
 pub const CRYPTO_FALCON1024: u8 = 11;
 pub const CRYPTO_FALCON1024_HASHED: u8 = 12;
+
+/// Shape-correct fee-estimation proof. Contains no signing key or valid signature.
+pub fn dummy_authorization(crypto_type: u8, account: [u8; 32]) -> Result<Vec<u8>, CoreError> {
+    use codec::{Encode, MaxEncodedLen};
+    use subtensor_hashed::{falcon, mldsa};
+    if is_falcon_crypto(crypto_type) {
+        let profile = pq_profile(crypto_type).ok_or_else(|| crypto_err("unknown PQ profile"))?;
+        return Ok(falcon::SignerAddress {
+            account,
+            version: falcon::VERSION,
+            algorithm: profile,
+            generation: 0,
+            public_key: vec![
+                0;
+                falcon::public_key_len(profile)
+                    .ok_or_else(|| crypto_err("unknown Falcon profile"))?
+            ],
+            next_commitment: [1; 64],
+            signature: vec![
+                0;
+                falcon::signature_len(profile)
+                    .ok_or_else(|| crypto_err("unknown Falcon profile"))?
+            ],
+        }
+        .encode());
+    }
+    if is_mldsa_crypto(crypto_type) {
+        return Ok(mldsa::SignerAddress {
+            account,
+            version: mldsa::VERSION,
+            algorithm: pq_profile(crypto_type).ok_or_else(|| crypto_err("unknown PQ profile"))?,
+            generation: 0,
+            public_key: [0; mldsa::PUBLIC_KEY_LEN],
+            next_commitment: [1; 64],
+            signature: [0; mldsa::SIGNATURE_LEN],
+        }
+        .encode());
+    }
+    if is_hashed_crypto(crypto_type) {
+        return Ok(vec![0; subtensor_hashed::Proof::max_encoded_len()]);
+    }
+    if crypto_type == CRYPTO_ED25519 || crypto_type == CRYPTO_SR25519 {
+        return Ok(vec![0; 64]);
+    }
+    Err(crypto_err("unsupported crypto type"))
+}
 
 pub fn is_falcon_crypto(crypto_type: u8) -> bool {
     matches!(
@@ -143,6 +189,8 @@ pub fn account_crypto_type(crypto_type: u8, mode: Option<&str>) -> Result<u8, Co
 
 pub const DEFAULT_SS58_FORMAT: u16 = 42;
 
+const MAX_SS58_ACCOUNT_ADDRESS_LEN: usize = 64;
+
 fn crypto_err(msg: impl Into<String>) -> CoreError {
     CoreError::Crypto(msg.into())
 }
@@ -161,9 +209,39 @@ fn as_bytes<T: AsRef<[u8]>>(value: &T) -> Vec<u8> {
 /// Decode the 32-byte account identity. Hashed identities are commitments, not
 /// signing public keys; the historical function name remains for compatibility.
 pub fn public_key_from_ss58(ss58_address: &str) -> Result<[u8; 32], CoreError> {
-    let account = AccountId32::from_ss58check(ss58_address)
-        .map_err(|e| crypto_err(format!("invalid ss58 address: {e:?}")))?;
-    Ok(account.into())
+    if ss58_address.len() > MAX_SS58_ACCOUNT_ADDRESS_LEN {
+        return Err(crypto_err("invalid ss58 address length"));
+    }
+    let decoded = base58::base58_decode(ss58_address)
+        .ok_or_else(|| crypto_err("invalid ss58 address: invalid base58"))?;
+    if decoded.len() != 35 && decoded.len() != 36 {
+        return Err(crypto_err("invalid ss58 address length"));
+    }
+    let (prefix_len, ident) = match decoded[0] {
+        0..=63 => (1, decoded[0] as u16),
+        64..=127 => {
+            let lower = (decoded[0] << 2) | (decoded[1] >> 6);
+            let upper = decoded[1] & 0b0011_1111;
+            (2, (lower as u16) | ((upper as u16) << 8))
+        }
+        _ => return Err(crypto_err("invalid ss58 address prefix")),
+    };
+    if Ss58AddressFormat::from(ident).is_reserved() {
+        return Err(crypto_err("invalid ss58 address format"));
+    }
+    if decoded.len() != prefix_len + 32 + 2 {
+        return Err(crypto_err("invalid ss58 account length"));
+    }
+    let body_end = prefix_len + 32;
+    let mut checksum_input = Vec::with_capacity(7 + body_end);
+    checksum_input.extend_from_slice(b"SS58PRE");
+    checksum_input.extend_from_slice(&decoded[..body_end]);
+    let checksum = sp_core::hashing::blake2_512(&checksum_input);
+    if decoded[body_end] != checksum[0] || decoded[body_end + 1] != checksum[1] {
+        return Err(crypto_err("invalid ss58 checksum"));
+    }
+    <[u8; 32]>::try_from(&decoded[prefix_len..body_end])
+        .map_err(|_| crypto_err("invalid ss58 public key length"))
 }
 
 /// ss58 rendering, byte-identical to sp-core's `to_ss58check_with_version`
@@ -248,6 +326,7 @@ fn ed25519_x25519_from_pair(
 
 // Each Keypair holds exactly one variant; the size skew between ed25519 and
 // public-only is irrelevant here.
+#[derive(Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum KeypairInner {
     Ed25519(ed25519::Pair),
@@ -261,6 +340,15 @@ pub enum KeypairInner {
 }
 
 impl KeypairInner {
+    fn has_private_key(&self) -> bool {
+        match self {
+            KeypairInner::Ed25519(_) | KeypairInner::Sr25519(_) => true,
+            KeypairInner::Hashed(pair) => pair.master_seed().is_some(),
+            KeypairInner::Mldsa(pair) => pair.master_seed().is_some(),
+            KeypairInner::PublicOnly { .. } => false,
+        }
+    }
+
     fn private_key_bytes(&self) -> Option<Vec<u8>> {
         match self {
             KeypairInner::Ed25519(pair) => Some(pair.to_raw_vec()),
@@ -272,10 +360,69 @@ impl KeypairInner {
     }
 }
 
+#[derive(Clone)]
+struct DerivationSource {
+    base_uri: Zeroizing<String>,
+    password: Option<Zeroizing<String>>,
+}
+
+impl DerivationSource {
+    fn from_mnemonic(mnemonic: &str, password: Option<&str>) -> Self {
+        Self {
+            base_uri: Zeroizing::new(mnemonic.to_owned()),
+            password: password.map(|value| Zeroizing::new(value.to_owned())),
+        }
+    }
+
+    fn from_uri(uri: &str) -> Self {
+        let Some((base_uri, password)) = uri.split_once("///") else {
+            return Self {
+                base_uri: Zeroizing::new(uri.to_owned()),
+                password: None,
+            };
+        };
+        Self {
+            base_uri: Zeroizing::new(base_uri.to_owned()),
+            password: Some(Zeroizing::new(password.to_owned())),
+        }
+    }
+
+    fn child(&self, path: &str) -> Result<Self, CoreError> {
+        if path.is_empty() || !path.starts_with('/') || path.contains("///") {
+            return Err(crypto_err(
+                "derivation path must start with '/' and must not contain a password",
+            ));
+        }
+        let mut base_uri = String::with_capacity(self.base_uri.len() + path.len());
+        base_uri.push_str(self.base_uri.as_str());
+        base_uri.push_str(path);
+        Ok(Self {
+            base_uri: Zeroizing::new(base_uri),
+            password: self
+                .password
+                .as_ref()
+                .map(|value| Zeroizing::new(value.as_str().to_owned())),
+        })
+    }
+
+    fn secret_uri(&self) -> Zeroizing<String> {
+        let password_len = self.password.as_ref().map_or(0, |value| value.len() + 3);
+        let mut uri = String::with_capacity(self.base_uri.len() + password_len);
+        uri.push_str(self.base_uri.as_str());
+        if let Some(password) = &self.password {
+            uri.push_str("///");
+            uri.push_str(password.as_str());
+        }
+        Zeroizing::new(uri)
+    }
+}
+
 /// A native keypair or a versioned hashed account backed by workspace crypto.
+#[derive(Clone)]
 pub struct Keypair {
     inner: KeypairInner,
     ss58_format: u16,
+    derivation_source: Option<DerivationSource>,
     /// The BIP39 phrase this keypair was derived from, when known and
     /// sufficient on its own to re-derive the key (no derivation password).
     /// Written to keyfiles as ``secretPhrase`` for parity with the legacy
@@ -354,6 +501,7 @@ impl Keypair {
                 crypto_type,
             },
             ss58_format,
+            derivation_source: None,
             mnemonic: None,
             seed: None,
         })
@@ -404,6 +552,7 @@ impl Keypair {
         Ok(Self {
             inner,
             ss58_format: DEFAULT_SS58_FORMAT,
+            derivation_source: Some(DerivationSource::from_mnemonic(mnemonic, password)),
             // A phrase with a derivation password cannot re-derive the key on
             // its own, so only a passwordless phrase is kept (and written to
             // keyfiles); the derived seed is always sufficient.
@@ -436,37 +585,59 @@ impl Keypair {
         Ok(Self {
             inner,
             ss58_format: DEFAULT_SS58_FORMAT,
+            derivation_source: None,
             mnemonic: None,
             seed: Some(Zeroizing::new(seed.to_vec())),
         })
     }
 
-    /// Derive a keypair from a secret URI (e.g. "//Alice" or "<mnemonic>//hard/soft").
-    pub fn from_uri(uri: &str, crypto_type: u8) -> Result<Self, CoreError> {
+    fn inner_from_uri(uri: &str, crypto_type: u8) -> Result<KeypairInner, CoreError> {
         if is_hashed_crypto(crypto_type) || is_pq_crypto(crypto_type) {
-            return Err(crypto_err(
-                "hashed and post-quantum wallets require a mnemonic or a 32-byte master seed; secret URIs are unsupported",
-            ));
+            return Err(crypto_err("hashed and post-quantum wallets require a mnemonic or a 32-byte master seed; secret URIs are unsupported"));
         }
-        let inner = match crypto_type {
-            CRYPTO_SR25519 => KeypairInner::Sr25519(
-                sr25519::Pair::from_string(uri, None)
-                    .map_err(|e| crypto_err(format!("invalid secret uri: {e:?}")))?,
-            ),
-            CRYPTO_ED25519 => KeypairInner::Ed25519(
-                ed25519::Pair::from_string(uri, None)
-                    .map_err(|e| crypto_err(format!("invalid secret uri: {e:?}")))?,
-            ),
-            other => return Err(crypto_err(format!("unknown crypto type {other}"))),
-        };
-        // A URI may carry derivation junctions, so neither the phrase nor a
-        // bare seed is retained.
+        match crypto_type {
+            CRYPTO_SR25519 => sr25519::Pair::from_string(uri, None)
+                .map(KeypairInner::Sr25519)
+                .map_err(|e| crypto_err(format!("invalid secret uri: {e:?}"))),
+            CRYPTO_ED25519 => ed25519::Pair::from_string(uri, None)
+                .map(KeypairInner::Ed25519)
+                .map_err(|e| crypto_err(format!("invalid secret uri: {e:?}"))),
+            other => Err(crypto_err(format!("unknown crypto type {other}"))),
+        }
+    }
+
+    fn from_derivation_source(
+        source: DerivationSource,
+        crypto_type: u8,
+        ss58_format: u16,
+    ) -> Result<Self, CoreError> {
+        let secret_uri = source.secret_uri();
+        let inner = Self::inner_from_uri(secret_uri.as_str(), crypto_type)?;
         Ok(Self {
             inner,
-            ss58_format: DEFAULT_SS58_FORMAT,
+            ss58_format,
+            derivation_source: Some(source),
             mnemonic: None,
             seed: None,
         })
+    }
+
+    /// Derive a keypair from a secret URI (e.g. "//Alice" or "<mnemonic>//hard/soft").
+    pub fn from_uri(uri: &str, crypto_type: u8) -> Result<Self, CoreError> {
+        Self::from_derivation_source(
+            DerivationSource::from_uri(uri),
+            crypto_type,
+            DEFAULT_SS58_FORMAT,
+        )
+    }
+
+    /// Derive a child without exposing or reconstructing its secret URI outside Rust.
+    pub fn derive(&self, path: &str) -> Result<Self, CoreError> {
+        let source = self
+            .derivation_source
+            .as_ref()
+            .ok_or_else(|| crypto_err("derivation requires a mnemonic or secret URI keypair"))?;
+        Self::from_derivation_source(source.child(path)?, self.crypto_type(), self.ss58_format)
     }
 
     /// Derive a keypair from a hex-encoded private key or seed bytes.
@@ -503,6 +674,7 @@ impl Keypair {
         Ok(Self {
             inner,
             ss58_format: DEFAULT_SS58_FORMAT,
+            derivation_source: None,
             mnemonic: None,
             seed: None,
         })
@@ -567,6 +739,10 @@ impl Keypair {
         self.ss58_format
     }
 
+    pub fn has_private_key(&self) -> bool {
+        self.inner.has_private_key()
+    }
+
     pub fn private_key_bytes(&self) -> Option<Vec<u8>> {
         self.inner.private_key_bytes()
     }
@@ -586,6 +762,7 @@ impl Keypair {
         Self {
             inner,
             ss58_format,
+            derivation_source: None,
             mnemonic: None,
             seed: None,
         }
@@ -680,7 +857,7 @@ pub fn verify(
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-    use sp_core::crypto::Ss58AddressFormat;
+    use sp_core::crypto::{AccountId32, Ss58AddressFormat, Ss58Codec};
 
     use super::*;
 
@@ -706,6 +883,32 @@ mod tests {
     }
 
     #[test]
+    fn ss58_decoding_matches_sp_core_allowed_and_reserved_formats() {
+        let mut key = [0u8; 32];
+        key[..4].copy_from_slice(&42u32.to_le_bytes());
+        for format in [0u16, 2, 42, 45, 46, 47, 48, 63, 64, 255, 4096, 16383] {
+            let address = ss58_from_public(key, format);
+            let ours = public_key_from_ss58(&address);
+            let sp_core = AccountId32::from_ss58check_with_version(&address).map(|(account, _)| {
+                let bytes: &[u8] = account.as_ref();
+                <[u8; 32]>::try_from(bytes).unwrap()
+            });
+            assert_eq!(
+                ours.is_ok(),
+                sp_core.is_ok(),
+                "decode acceptance diverged for format {format}",
+            );
+            if let Ok(expected) = sp_core {
+                assert_eq!(
+                    ours.unwrap(),
+                    expected,
+                    "decoded key diverged for format {format}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn alice_uri_matches_known_address() {
         let kp = Keypair::from_uri("//Alice", CRYPTO_SR25519).unwrap();
         assert_eq!(
@@ -715,11 +918,41 @@ mod tests {
     }
 
     #[test]
+    fn password_protected_mnemonic_derives_inside_keypair() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let password = "protected-derivation-password";
+        let parent = Keypair::from_mnemonic(mnemonic, CRYPTO_SR25519, Some(password)).unwrap();
+        let child = parent.derive("//child").unwrap();
+        let expected =
+            Keypair::from_uri(&format!("{mnemonic}//child///{password}"), CRYPTO_SR25519).unwrap();
+        assert_eq!(child.public_key_bytes(), expected.public_key_bytes());
+
+        let grandchild = child.derive("//grandchild").unwrap();
+        let expected = Keypair::from_uri(
+            &format!("{mnemonic}//child//grandchild///{password}"),
+            CRYPTO_SR25519,
+        )
+        .unwrap();
+        assert_eq!(grandchild.public_key_bytes(), expected.public_key_bytes());
+        assert!(parent.derive("///replacement-password").is_err());
+    }
+
+    #[test]
     fn public_only_from_ss58_matches_full_key() {
         let full = Keypair::from_uri("//Alice", CRYPTO_SR25519).unwrap();
         let public = Keypair::new(Some(&full.ss58_address()), None, CRYPTO_SR25519, 42).unwrap();
         assert_eq!(public.ss58_address(), full.ss58_address());
         assert_eq!(public.public_key_bytes(), full.public_key_bytes());
+    }
+
+    #[test]
+    fn public_key_from_ss58_rejects_pathological_length_before_decode() {
+        let long_address = "1".repeat(MAX_SS58_ACCOUNT_ADDRESS_LEN + 1);
+        let error = public_key_from_ss58(&long_address).expect_err("long ss58 must reject");
+        assert!(
+            error.to_string().contains("invalid ss58 address length"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]

@@ -1,9 +1,11 @@
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
 import { subtensor } from "@polkadot-api/descriptors";
-import type { KeyringPair } from "@polkadot/keyring/types";
 import { ethers } from "ethers";
 import type { TypedApi } from "polkadot-api";
 import {
+    IBALANCETRANSFER_ADDRESS,
+    IBalanceTransferABI,
     convertH160ToSS58,
     convertPublicKeyToSs58,
     createEthersWallet,
@@ -12,8 +14,6 @@ import {
     forceSetChainID,
     generateKeyringPair,
     getEthChainId,
-    IBALANCETRANSFER_ADDRESS,
-    IBalanceTransferABI,
     raoToEth,
     sendTransaction,
     tao,
@@ -37,6 +37,8 @@ describeSuite({
         beforeAll(async () => {
             api = context.papi("Node").getTypedApi(subtensor);
             provider = context.ethers("EVM").provider as ethers.JsonRpcProvider;
+            // Match the local 100 ms block cadence instead of ethers' 4 s default.
+            provider.pollingInterval = 100;
 
             ethWallet = createEthersWallet(provider);
             ethWallet2 = createEthersWallet(provider);

@@ -10,8 +10,8 @@
 #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -19,21 +19,57 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use reqwest::blocking::Client as HttpClient;
 use serde_json::{json, Value as JsonValue};
 
-use crate::codec::extrinsic::{era_birth, TxParams};
+use crate::codec::extrinsic::{era_birth, SignerPayload, TxParams};
 use crate::codec::value::Value;
+use crate::digest::{generate_extrinsic_proof, metadata_digest, ChainInfo};
 use crate::error::CoreError;
-use crate::keys::{is_hashed_crypto, is_pq_crypto, is_rotating_crypto, Keypair};
+use crate::keys::{
+    is_hashed_crypto, is_pq_crypto, is_rotating_crypto, public_key_from_ss58, Keypair,
+};
 use crate::mlkem;
 use crate::runtime::type_string::TypeSpec;
 use crate::runtime::{Runtime, RuntimeApiMethodInfo, StorageInfo};
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
-const DEFAULT_RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
-const DEFAULT_ERA_PERIOD: u64 = 64;
-// Runtime CheckMortality limits encrypted carriers to eight blocks.
-const SHIELD_ERA_PERIOD: u64 = 8;
+const ENDPOINT_IDENTITY_TTL: Duration = Duration::from_secs(60);
+#[cfg(test)]
+#[path = "client_endpoint_tests.rs"]
+mod endpoint_identity_tests;
+pub const DEFAULT_RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
+pub const DEFAULT_ERA_PERIOD: u64 = 64;
+/// The shield pallet accepts only short-lived inner transactions.
+pub const MEV_SHIELD_ERA_PERIOD: u64 = 8;
 const STORAGE_PAGE_SIZE: u64 = 1_000;
 const RAO_PER_TAO: u128 = 1_000_000_000;
+const NONCE_RETRY_LIMIT: usize = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TxWait {
+    Submitted,
+    Included,
+    Finalized,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TxSubmitOptions<'a> {
+    pub nonce: Option<u64>,
+    pub period: Option<u64>,
+    pub wait: TxWait,
+    pub timeout: Duration,
+    pub cancelled: Option<&'a AtomicBool>,
+}
+
+impl Default for TxSubmitOptions<'_> {
+    fn default() -> Self {
+        Self {
+            nonce: None,
+            period: Some(DEFAULT_ERA_PERIOD),
+            wait: TxWait::Included,
+            timeout: DEFAULT_RECEIPT_TIMEOUT,
+            cancelled: None,
+        }
+    }
+}
 
 /// A decoded block header.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +86,26 @@ pub struct SubnetInfo {
     pub tempo: u16,
     pub burn_rao: u128,
     pub neuron_count: u16,
+}
+
+/// One V3 subnet hyperparameter entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubnetHyperparameter {
+    pub name: String,
+    pub value: SubnetHyperparameterValue,
+}
+
+/// Typed value variants returned by `SubnetInfoRuntimeApi.get_subnet_hyperparams_v3`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubnetHyperparameterValue {
+    Bool(bool),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    TaoBalance(u128),
+    I32F32Bits(i64),
+    U64F64Bits(u128),
 }
 
 /// Swap simulation returned by the runtime API.
@@ -97,6 +153,78 @@ pub struct TxOutcome {
     pub data: BTreeMap<String, Value>,
 }
 
+/// How a Rust-owned signing plan should treat RFC-0078 metadata hashes.
+#[derive(Debug, Clone)]
+pub enum MetadataHashMode {
+    Auto,
+    Disabled,
+    Explicit([u8; 32]),
+}
+
+/// Public signer identity supplied by a caller that will produce the
+/// signature outside Rust. Rust still owns nonce/era/payload construction and
+/// validates the returned signature before assembling bytes.
+#[derive(Debug, Clone)]
+pub struct ExternalSigner {
+    pub ss58_address: String,
+    pub public_key: [u8; 32],
+    pub crypto_type: u8,
+    pub requires_metadata_proof: bool,
+}
+
+/// Options that affect the exact signed payload. Defaults match the native
+/// transaction executor so local and external signers share the same plan.
+#[derive(Debug, Clone)]
+pub struct ExternalSigningOptions {
+    pub nonce: Option<u64>,
+    pub period: Option<u64>,
+    pub tip: u128,
+    pub tip_asset_id: Option<u128>,
+    pub metadata_hash: MetadataHashMode,
+}
+
+impl Default for ExternalSigningOptions {
+    fn default() -> Self {
+        Self {
+            nonce: None,
+            period: Some(DEFAULT_ERA_PERIOD),
+            tip: 0,
+            tip_asset_id: None,
+            metadata_hash: MetadataHashMode::Auto,
+        }
+    }
+}
+
+/// Fully specified transaction signing plan for external signers. A submission
+/// attempt consumes the plan and every clone, including on definite failure.
+/// Create a fresh plan after rejection; reconcile uncertain delivery by hash.
+#[derive(Clone)]
+pub struct ExternalSigningPlan {
+    lifecycle: Arc<ExternalPlanLifecycle>,
+    pub call_data: Vec<u8>,
+    pub signer_address: String,
+    pub public_key: [u8; 32],
+    pub crypto_type: u8,
+    pub runtime: Arc<Runtime>,
+    pub runtime_spec_version: u32,
+    pub runtime_transaction_version: u32,
+    pub reserved_nonce: bool,
+    pub params: TxParams,
+    pub payload: Vec<u8>,
+    pub included_in_extrinsic: Vec<u8>,
+    pub included_in_signed_data: Vec<u8>,
+    pub signer_payload: SignerPayload,
+    pub metadata_proof: Option<Vec<u8>>,
+    pub chain_info: Option<ChainInfo>,
+    pub fee_rao: Option<u128>,
+    pub warnings: Vec<String>,
+}
+
+struct ExternalPlanLifecycle {
+    used: AtomicBool,
+    reservation: Option<(String, u64)>,
+}
+
 impl TxOutcome {
     fn pool_rejection(hash: String, message: String) -> Self {
         Self {
@@ -109,8 +237,17 @@ impl TxOutcome {
             events: Vec::new(),
             error: None,
             message,
-            data: BTreeMap::new(),
+            data: BTreeMap::from([("submission_rejected".into(), Value::Bool(true))]),
         }
+    }
+
+    fn uncertain(hash: String, message: String) -> Self {
+        let mut outcome = Self::pool_rejection(hash, message);
+        outcome.data.clear();
+        outcome
+            .data
+            .insert("submission_uncertain".into(), Value::Bool(true));
+        outcome
     }
 }
 
@@ -138,10 +275,13 @@ fn classify_inclusion_finalization(
 
 /// The native Bittensor chain client.
 pub struct Client {
-    endpoint: String,
+    endpoints: Vec<String>,
+    active_endpoint: RwLock<usize>,
+    validated_endpoints: Mutex<HashMap<usize, Instant>>,
     http: HttpClient,
     next_id: AtomicU64,
     runtime: RwLock<Arc<Runtime>>,
+    nonce_reservations: Mutex<NonceReservations>,
     genesis_hash: [u8; 32],
     ss58_format: u16,
 }
@@ -164,20 +304,51 @@ impl Client {
     /// Connect to a Substrate JSON-RPC endpoint. Websocket URLs are accepted for
     /// compatibility and are mapped to HTTP on the same host/port.
     pub fn connect(endpoint: impl Into<String>) -> Result<Self, CoreError> {
-        let endpoint = http_endpoint(&endpoint.into());
+        Self::connect_many([endpoint.into()])
+    }
+
+    /// Connect to the first healthy endpoint, retaining the full ordered list
+    /// for later failover. Websocket URLs are accepted for compatibility and
+    /// are mapped to HTTP on the same host/port.
+    pub fn connect_many<I, S>(endpoints: I) -> Result<Self, CoreError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let endpoints = normalized_endpoints(endpoints)?;
         let http = HttpClient::builder()
             .timeout(DEFAULT_RPC_TIMEOUT)
             .build()
             .map_err(|error| CoreError::Rpc(format!("cannot build HTTP client: {error}")))?;
-        let bootstrap = RpcBootstrap {
-            endpoint: endpoint.clone(),
-            http: http.clone(),
-            next_id: AtomicU64::new(1),
+        let mut last_error = None;
+        let mut bootstrap_result = None;
+        for (index, endpoint) in endpoints.iter().enumerate() {
+            let bootstrap = RpcBootstrap {
+                endpoint: endpoint.clone(),
+                http: http.clone(),
+                next_id: AtomicU64::new(1),
+            };
+            let result = (|| {
+                let ss58_format = bootstrap.ss58_format()?;
+                let version = bootstrap.runtime_version()?;
+                let metadata = bootstrap.metadata()?;
+                let genesis_hash = parse_h256(&bootstrap.block_hash(Some(0))?)?;
+                Ok((index, ss58_format, version, metadata, genesis_hash))
+            })();
+            match result {
+                Ok(result) => {
+                    bootstrap_result = Some(result);
+                    break;
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        let Some((active_index, ss58_format, version, metadata, genesis_hash)) = bootstrap_result
+        else {
+            return Err(
+                last_error.unwrap_or_else(|| CoreError::Rpc("no endpoints supplied".into()))
+            );
         };
-        let ss58_format = bootstrap.ss58_format()?;
-        let version = bootstrap.runtime_version()?;
-        let metadata = bootstrap.metadata()?;
-        let genesis_hash = parse_h256(&bootstrap.block_hash(Some(0))?)?;
         let runtime = Runtime::parse(
             &metadata,
             version.spec_version,
@@ -185,17 +356,20 @@ impl Client {
             ss58_format,
         )?;
         Ok(Self {
-            endpoint,
+            endpoints,
+            active_endpoint: RwLock::new(active_index),
+            validated_endpoints: Mutex::new(HashMap::from([(active_index, Instant::now())])),
             http,
             next_id: AtomicU64::new(100),
             runtime: RwLock::new(Arc::new(runtime)),
+            nonce_reservations: Mutex::new(NonceReservations::default()),
             genesis_hash,
             ss58_format,
         })
     }
 
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
+    pub fn endpoint(&self) -> String {
+        self.active_endpoint()
     }
 
     /// Stable names of the typed read helpers supplied by the native SDK.
@@ -242,13 +416,76 @@ impl Client {
             .map(|runtime| Arc::clone(&runtime))
     }
 
+    fn active_endpoint(&self) -> String {
+        let index = self.active_endpoint.read().map(|guard| *guard).unwrap_or(0);
+        self.endpoints
+            .get(index)
+            .cloned()
+            .or_else(|| self.endpoints.first().cloned())
+            .unwrap_or_default()
+    }
+
+    fn set_active_endpoint(&self, index: usize) -> Result<(), CoreError> {
+        let mut guard = self
+            .active_endpoint
+            .write()
+            .map_err(|_| CoreError::Rpc("endpoint lock is poisoned".into()))?;
+        *guard = index;
+        Ok(())
+    }
+
+    fn endpoint_order(&self) -> Vec<(usize, String)> {
+        let active = self.active_endpoint.read().map(|guard| *guard).unwrap_or(0);
+        (0..self.endpoints.len())
+            .map(|offset| {
+                let index = (active + offset) % self.endpoints.len();
+                (index, self.endpoints[index].clone())
+            })
+            .collect()
+    }
+
+    pub fn current_runtime(&self) -> Result<Arc<Runtime>, CoreError> {
+        self.ensure_runtime_current()?;
+        self.runtime()
+    }
+
+    // Explicit block reads must use that block's runtime, without replacing
+    // the live cache with historical metadata.
+    fn runtime_for_block(&self, block_hash: Option<&str>) -> Result<Arc<Runtime>, CoreError> {
+        let Some(hash) = block_hash else {
+            return self.current_runtime();
+        };
+        let version =
+            parse_runtime_version(self.rpc_value("state_getRuntimeVersion", json!([hash]))?)?;
+        let current = self.runtime()?;
+        if current.spec_version == version.spec_version
+            && current.transaction_version == version.transaction_version
+        {
+            return Ok(current);
+        }
+        let metadata = fetch_metadata(|method, params| {
+            let mut params = params.as_array().cloned().unwrap_or_default();
+            params.push(json!(hash));
+            self.rpc_value(method, json!(params))
+        })?;
+        Ok(Arc::new(Runtime::parse(
+            &metadata,
+            version.spec_version,
+            version.transaction_version,
+            self.ss58_format,
+        )?))
+    }
+
     /// Refresh metadata after a runtime upgrade. Returns true when the cached
     /// runtime changed.
     pub fn refresh_runtime(&self) -> Result<bool, CoreError> {
         let version = self.runtime_version()?;
-        let current = self.runtime()?;
-        if current.spec_version == version.spec_version
-            && current.transaction_version == version.transaction_version
+        let mut guard = self
+            .runtime
+            .write()
+            .map_err(|_| CoreError::Rpc("runtime metadata lock is poisoned".into()))?;
+        if guard.spec_version == version.spec_version
+            && guard.transaction_version == version.transaction_version
         {
             return Ok(false);
         }
@@ -259,23 +496,89 @@ impl Client {
             version.transaction_version,
             self.ss58_format,
         )?;
-        let mut guard = self
-            .runtime
-            .write()
-            .map_err(|_| CoreError::Rpc("runtime metadata lock is poisoned".into()))?;
         *guard = Arc::new(next);
         Ok(true)
     }
 
+    fn ensure_runtime_current(&self) -> Result<bool, CoreError> {
+        let version = self.runtime_version()?;
+        let current = self.runtime()?;
+        if current.spec_version == version.spec_version
+            && current.transaction_version == version.transaction_version
+        {
+            return Ok(false);
+        }
+        self.refresh_runtime()
+    }
+
     /// Escape hatch for node RPCs not yet wrapped by the SDK.
     pub fn rpc_value(&self, method: &str, params: JsonValue) -> Result<JsonValue, CoreError> {
-        rpc_request(
+        let mut last_error = None;
+        for (index, endpoint) in self.endpoint_order() {
+            // A fallback must establish the same chain identity before it sees
+            // any application request, especially a signed transaction.
+            if let Err(error) = self.validate_endpoint_genesis(index, &endpoint) {
+                last_error = Some(error);
+                continue;
+            }
+            match rpc_request(
+                &self.http,
+                &endpoint,
+                self.next_id.fetch_add(1, Ordering::Relaxed),
+                method,
+                params.clone(),
+            ) {
+                Ok(value) => {
+                    self.set_active_endpoint(index)?;
+                    return Ok(value);
+                }
+                Err(error)
+                    if is_transport_rpc_error(&error) && !method.starts_with("author_submit") =>
+                {
+                    self.validated_endpoints
+                        .lock()
+                        .map_err(|_| CoreError::Rpc("endpoint validation lock is poisoned".into()))?
+                        .remove(&index);
+                    last_error = Some(error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        let error = last_error.unwrap_or_else(|| CoreError::Rpc("all endpoints failed".into()));
+        if method.starts_with("author_submit") {
+            return Err(CoreError::Rpc(format!("submission not sent: {error}")));
+        }
+        Err(error)
+    }
+
+    fn validate_endpoint_genesis(&self, index: usize, endpoint: &str) -> Result<(), CoreError> {
+        if self
+            .validated_endpoints
+            .lock()
+            .map_err(|_| CoreError::Rpc("endpoint validation lock is poisoned".into()))?
+            .get(&index)
+            .is_some_and(|validated| validated.elapsed() < ENDPOINT_IDENTITY_TTL)
+        {
+            return Ok(());
+        }
+        let value = rpc_request(
             &self.http,
-            &self.endpoint,
+            endpoint,
             self.next_id.fetch_add(1, Ordering::Relaxed),
-            method,
-            params,
-        )
+            "chain_getBlockHash",
+            json!([0]),
+        )?;
+        let genesis = parse_h256(json_string(&value, "endpoint genesis hash")?)?;
+        if genesis != self.genesis_hash {
+            return Err(CoreError::Rpc(format!(
+                "endpoint {endpoint} belongs to another chain"
+            )));
+        }
+        self.validated_endpoints
+            .lock()
+            .map_err(|_| CoreError::Rpc("endpoint validation lock is poisoned".into()))?
+            .insert(index, Instant::now());
+        Ok(())
     }
 
     fn runtime_version(&self) -> Result<RuntimeVersion, CoreError> {
@@ -386,15 +689,17 @@ impl Client {
         function: &str,
         params: &Value,
     ) -> Result<Vec<u8>, CoreError> {
-        self.runtime()?.compose_call(pallet, function, params)
+        self.current_runtime()?
+            .compose_call(pallet, function, params)
     }
 
     pub fn decode_call(&self, data: &[u8]) -> Result<Value, CoreError> {
-        self.runtime()?.decode_spec(&TypeSpec::Call, data, true)
+        self.current_runtime()?
+            .decode_spec(&TypeSpec::Call, data, true)
     }
 
     pub fn decode_scale(&self, type_name: &str, data: &[u8]) -> Result<Value, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = self.current_runtime()?;
         if type_name == "Call" {
             return runtime.decode_spec(&TypeSpec::Call, data, true);
         }
@@ -405,7 +710,7 @@ impl Client {
     }
 
     pub fn constant(&self, pallet: &str, name: &str) -> Result<Value, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = self.current_runtime()?;
         let info = runtime
             .constant(pallet, name)
             .cloned()
@@ -420,13 +725,8 @@ impl Client {
         params: &[Value],
         block_hash: Option<&str>,
     ) -> Result<Value, CoreError> {
-        self.query_with_runtime(
-            self.runtime()?.as_ref(),
-            pallet,
-            storage,
-            params,
-            block_hash,
-        )
+        let runtime = self.runtime_for_block(block_hash)?;
+        self.query_with_runtime(&runtime, pallet, storage, params, block_hash)
     }
 
     fn query_with_runtime(
@@ -453,7 +753,7 @@ impl Client {
         if param_sets.is_empty() {
             return Ok(Vec::new());
         }
-        let runtime = self.runtime()?;
+        let runtime = self.runtime_for_block(block_hash)?;
         let info = storage_info(&runtime, pallet, storage)?;
         let mut keys = Vec::with_capacity(param_sets.len());
         for params in param_sets {
@@ -473,7 +773,7 @@ impl Client {
         fixed_params: &[Value],
         block_hash: Option<&str>,
     ) -> Result<Vec<(Value, Value)>, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = self.runtime_for_block(block_hash)?;
         let info = storage_info(&runtime, pallet, storage)?;
         if fixed_params.len() > info.key_types.len() {
             return Err(CoreError::Codec(format!(
@@ -505,7 +805,7 @@ impl Client {
         params: &[Value],
         block_hash: Option<&str>,
     ) -> Result<Value, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = self.runtime_for_block(block_hash)?;
         let method_info = runtime_api_method(&runtime, api, method)?.clone();
         if method_info.inputs.len() != params.len() {
             return Err(CoreError::Codec(format!(
@@ -531,8 +831,488 @@ impl Client {
     }
 
     pub fn account_next_index(&self, address: &str) -> Result<u64, CoreError> {
+        self.account_next_index_remote(address)
+    }
+
+    fn account_next_index_remote(&self, address: &str) -> Result<u64, CoreError> {
         let value = self.rpc_value("system_accountNextIndex", json!([address]))?;
         json_u64(&value)
+    }
+
+    fn reserve_nonce(&self, address: &str) -> Result<u64, CoreError> {
+        self.reserve_nonces(address, 1)
+    }
+
+    /// Atomically reserve consecutive nonces, including detached plans and the
+    /// carrier/inner pair of a shielded submission. Reservations survive an
+    /// uncertain submission outcome; reconcile the chain and pending pool before
+    /// recovering an unused range with a fresh client.
+    pub fn reserve_nonces(&self, address: &str, count: u64) -> Result<u64, CoreError> {
+        if count == 0 {
+            return Err(CoreError::Policy(
+                "nonce reservation count must be positive".into(),
+            ));
+        }
+        let account = nonce_account_key(address)?;
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        // Inclusion cleanup must not race a nonce sampled before that inclusion.
+        let chain_next = self.account_next_index_remote(address)?;
+        reservations.reserve(account, chain_next, count)
+    }
+
+    // Capture the reservation epoch before transmission. A delayed duplicate
+    // receipt must not clear a new reservation after an account was reaped.
+    fn nonce_observation(&self, extrinsic: &[u8]) -> Option<(String, u64, Arc<()>)> {
+        let decoded = self
+            .runtime()
+            .ok()?
+            .decode_extrinsic(extrinsic, true)
+            .ok()?;
+        let address = field(&decoded, "address")?;
+        let address = field(address, "Id").unwrap_or(address);
+        let account = if let Some(raw) = field(address, "Raw").and_then(value_bytes) {
+            hex_prefixed(raw.get(..32)?)
+        } else if let Some(bytes) = value_bytes(address).filter(|bytes| bytes.len() == 32) {
+            hex_prefixed(&bytes)
+        } else {
+            nonce_account_key(as_str(address)?).ok()?
+        };
+        let nonce = u64::try_from(as_u128(field(&decoded, "nonce")?)?).ok()?;
+        let token = self
+            .nonce_reservations
+            .lock()
+            .ok()?
+            .tokens
+            .get(&account)?
+            .clone();
+        Some((account, nonce, token))
+    }
+
+    fn retire_included_nonce(
+        &self,
+        observation: Option<(String, u64, Arc<()>)>,
+        outcome: &TxOutcome,
+    ) {
+        if outcome.block_hash.is_some() {
+            if let Some((account, nonce, token)) = observation {
+                if let Ok(mut reservations) = self.nonce_reservations.lock() {
+                    reservations.included(&account, nonce, &token);
+                }
+            }
+        }
+    }
+
+    /// Reset this account's local reservation floor to the current pending-pool
+    /// nonce. Use only after reconciling every detached or shielded transaction;
+    /// an uncertain timeout or abort alone does not make its nonce reusable.
+    pub fn invalidate_nonce(&self, address: &str) -> Result<(), CoreError> {
+        let account = nonce_account_key(address)?;
+        let chain_next = self.account_next_index_remote(address)?;
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        reservations.invalidate_external_plans(&account, 0, u64::MAX);
+        reservations.released.remove(&account);
+        reservations.tokens.insert(account.clone(), Arc::new(()));
+        reservations.floors.insert(account, chain_next);
+        Ok(())
+    }
+
+    fn release_nonce(&self, address: &str, nonce: u64) -> Result<(), CoreError> {
+        self.release_nonces(address, nonce, 1)
+    }
+
+    /// Release an unused reservation only after a definite pre-submission
+    /// failure or pool rejection. Never use this for uncertain delivery.
+    pub fn release_nonces(&self, address: &str, nonce: u64, count: u64) -> Result<(), CoreError> {
+        let account = nonce_account_key(address)?;
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        reservations.release(account, nonce, count);
+        Ok(())
+    }
+
+    /// Chain constants used for RFC-0078 metadata hashes and Ledger proofs.
+    pub fn chain_info(&self) -> Result<ChainInfo, CoreError> {
+        let runtime = self.current_runtime()?;
+        self.chain_info_for_runtime(&runtime)
+    }
+
+    fn chain_info_for_runtime(&self, runtime: &Runtime) -> Result<ChainInfo, CoreError> {
+        let spec_name = self
+            .runtime_version()
+            .map(|version| version.spec_name)
+            .unwrap_or_else(|_| "node-subtensor".into());
+        let properties = match self.rpc_value("system_properties", json!([])) {
+            Ok(properties) => properties,
+            Err(CoreError::Rpc(_)) => JsonValue::Object(Default::default()),
+            Err(error) => return Err(error),
+        };
+        let base58_prefix = property_u64(
+            &properties,
+            &["ss58Format", "ss58Prefix"],
+            u64::from(runtime.ss58_format),
+        )?;
+        let decimals = property_u64(&properties, &["tokenDecimals", "decimals"], 9)?;
+        Ok(ChainInfo {
+            spec_version: runtime.spec_version,
+            spec_name,
+            base58_prefix: u16::try_from(base58_prefix).map_err(|_| {
+                CoreError::Rpc(format!("ss58 prefix {base58_prefix} does not fit u16"))
+            })?,
+            decimals: u8::try_from(decimals).map_err(|_| {
+                CoreError::Rpc(format!("token decimals {decimals} does not fit u8"))
+            })?,
+            token_symbol: property_string(&properties, &["tokenSymbol", "symbol"], "TAO"),
+        })
+    }
+
+    fn tx_params_for_external(
+        &self,
+        runtime: &Runtime,
+        signer: &ExternalSigner,
+        options: ExternalSigningOptions,
+    ) -> Result<(TxParams, Option<ChainInfo>), CoreError> {
+        let nonce = match options.nonce {
+            Some(nonce) => nonce,
+            None => self.reserve_nonce(&signer.ss58_address)?,
+        };
+        let current = self.block_number()?;
+        let (era, era_block_hash) = match options.period {
+            Some(period) if period > 0 => {
+                let (era, birth) = stored_mortal_era(period, current);
+                let hash = parse_h256(&self.block_hash(Some(birth))?)?;
+                (era, hash)
+            }
+            _ => (Value::str("00"), self.genesis_hash),
+        };
+        let default_metadata_hash = signer.requires_metadata_proof
+            || runtime
+                .extrinsic
+                .signed_extensions
+                .iter()
+                .any(|ext| ext.identifier == "CheckMetadataHash");
+        let mut chain_info = None;
+        let metadata_hash = match options.metadata_hash {
+            MetadataHashMode::Explicit(hash) => Some(hash),
+            MetadataHashMode::Disabled if signer.requires_metadata_proof => {
+                return Err(CoreError::Policy(
+                    "metadataHash cannot be disabled for a signer that requires metadata proof"
+                        .into(),
+                ));
+            }
+            MetadataHashMode::Disabled => None,
+            MetadataHashMode::Auto if default_metadata_hash => {
+                let info = self.chain_info_for_runtime(runtime)?;
+                let digest = metadata_digest(&runtime.metadata_bytes, &info)?;
+                chain_info = Some(info);
+                Some(digest)
+            }
+            MetadataHashMode::Auto => None,
+        };
+        if signer.requires_metadata_proof && chain_info.is_none() {
+            chain_info = Some(self.chain_info_for_runtime(runtime)?);
+        }
+        Ok((
+            TxParams {
+                era,
+                nonce,
+                tip: options.tip,
+                tip_asset_id: options.tip_asset_id,
+                genesis_hash: self.genesis_hash,
+                era_block_hash,
+                metadata_hash,
+            },
+            chain_info,
+        ))
+    }
+
+    /// Create the exact payload an external signer must sign.
+    pub fn external_signing_plan(
+        &self,
+        call_data: &[u8],
+        signer: ExternalSigner,
+        options: ExternalSigningOptions,
+    ) -> Result<ExternalSigningPlan, CoreError> {
+        let (nonce, lifecycle) = match options.nonce {
+            Some(nonce) => (
+                nonce,
+                Arc::new(ExternalPlanLifecycle {
+                    used: AtomicBool::new(false),
+                    reservation: None,
+                }),
+            ),
+            None => {
+                let account = nonce_account_key(&signer.ss58_address)?;
+                let mut reservations = self
+                    .nonce_reservations
+                    .lock()
+                    .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+                let chain_next = self.account_next_index_remote(&signer.ss58_address)?;
+                reservations.reserve_external(account, chain_next)?
+            }
+        };
+        let result = self.external_signing_plan_at(
+            call_data,
+            signer,
+            ExternalSigningOptions {
+                nonce: Some(nonce),
+                ..options
+            },
+            Arc::clone(&lifecycle),
+        );
+        match result {
+            Ok(plan) => Ok(plan),
+            Err(error) => {
+                self.release_external_reservation(&lifecycle)?;
+                Err(error)
+            }
+        }
+    }
+
+    fn external_signing_plan_at(
+        &self,
+        call_data: &[u8],
+        signer: ExternalSigner,
+        options: ExternalSigningOptions,
+        lifecycle: Arc<ExternalPlanLifecycle>,
+    ) -> Result<ExternalSigningPlan, CoreError> {
+        let address_key = public_key_from_ss58(&signer.ss58_address)?;
+        if address_key != signer.public_key {
+            return Err(CoreError::Crypto(
+                "signer public key does not match signer address".into(),
+            ));
+        }
+        let runtime = self.current_runtime()?;
+        let reserved_nonce = lifecycle.reservation.is_some();
+        let (params, chain_info) = self.tx_params_for_external(&runtime, &signer, options)?;
+        let (included_in_extrinsic, included_in_signed_data) =
+            runtime.signature_payload_parts(&params)?;
+        let metadata_proof = if signer.requires_metadata_proof {
+            let info = chain_info.as_ref().ok_or_else(|| {
+                CoreError::Codec("chain info is required for metadata proof".into())
+            })?;
+            Some(generate_extrinsic_proof(
+                call_data,
+                &included_in_extrinsic,
+                &included_in_signed_data,
+                &runtime.metadata_bytes,
+                info,
+            )?)
+        } else {
+            None
+        };
+        let payload = runtime.signature_payload(call_data, &params)?;
+        let signer_payload = runtime.signer_payload(&signer.ss58_address, call_data, &params)?;
+        let mut warnings = Vec::new();
+        let fee_rao = match self.estimate_fee_for_plan(
+            &runtime,
+            call_data,
+            signer.public_key,
+            signer.crypto_type,
+            &params,
+        ) {
+            Ok(fee) => Some(fee),
+            Err(error) => {
+                warnings.push(format!("could not estimate fee: {error}"));
+                None
+            }
+        };
+        Ok(ExternalSigningPlan {
+            lifecycle,
+            call_data: call_data.to_vec(),
+            signer_address: signer.ss58_address,
+            public_key: signer.public_key,
+            crypto_type: signer.crypto_type,
+            runtime: Arc::clone(&runtime),
+            runtime_spec_version: runtime.spec_version,
+            runtime_transaction_version: runtime.transaction_version,
+            reserved_nonce,
+            params,
+            payload,
+            included_in_extrinsic,
+            included_in_signed_data,
+            signer_payload,
+            metadata_proof,
+            chain_info,
+            fee_rao,
+            warnings,
+        })
+    }
+
+    /// Quote with a dummy signature. This read-only operation remains available
+    /// after a plan is consumed and never reactivates its nonce reservation.
+    pub fn estimate_fee_external_plan(
+        &self,
+        plan: &ExternalSigningPlan,
+    ) -> Result<u128, CoreError> {
+        self.estimate_fee_for_plan(
+            &plan.runtime,
+            &plan.call_data,
+            plan.public_key,
+            plan.crypto_type,
+            &plan.params,
+        )
+    }
+
+    fn estimate_fee_for_plan(
+        &self,
+        runtime: &Runtime,
+        call_data: &[u8],
+        public_key: [u8; 32],
+        crypto_type: u8,
+        params: &TxParams,
+    ) -> Result<u128, CoreError> {
+        let signature = vec![0u8; 64];
+        let (extrinsic, _) = runtime.encode_signed_extrinsic(
+            call_data,
+            public_key,
+            &signature,
+            crypto_type,
+            params,
+        )?;
+        self.payment_query_fee(&extrinsic)
+    }
+
+    pub fn assemble_external_extrinsic(
+        &self,
+        plan: &ExternalSigningPlan,
+        signature: &[u8],
+        crypto_type: Option<u8>,
+    ) -> Result<(Vec<u8>, String), CoreError> {
+        // Keep invalidation from racing assembly. A released plan must not
+        // produce bytes authorizing a nonce now owned by a different plan.
+        let reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        reservations.check_external_plan(plan)?;
+        self.encode_external_extrinsic(plan, signature, crypto_type)
+    }
+
+    fn encode_external_extrinsic(
+        &self,
+        plan: &ExternalSigningPlan,
+        signature: &[u8],
+        crypto_type: Option<u8>,
+    ) -> Result<(Vec<u8>, String), CoreError> {
+        let signature_crypto_type = crypto_type.unwrap_or(plan.crypto_type);
+        if signature_crypto_type != plan.crypto_type {
+            return Err(CoreError::Crypto(
+                "signature crypto type does not match the Rust signing plan".into(),
+            ));
+        }
+        let verifier = Keypair::new(
+            Some(&plan.signer_address),
+            Some(&plan.public_key),
+            plan.crypto_type,
+            self.ss58_format,
+        )?;
+        if !verifier.verify(&plan.payload, signature)? {
+            return Err(CoreError::Crypto(
+                "external signature does not verify against the Rust signing plan".into(),
+            ));
+        }
+        let (extrinsic, hash) = plan.runtime.encode_signed_extrinsic(
+            &plan.call_data,
+            plan.public_key,
+            signature,
+            signature_crypto_type,
+            &plan.params,
+        )?;
+        Ok((extrinsic, hex_prefixed(&hash)))
+    }
+
+    pub fn submit_external(
+        &self,
+        plan: &ExternalSigningPlan,
+        signature: &[u8],
+        crypto_type: Option<u8>,
+        wait: TxWait,
+        timeout: Duration,
+    ) -> Result<TxOutcome, CoreError> {
+        self.submit_external_with_cancel(plan, signature, crypto_type, wait, timeout, None)
+    }
+
+    pub fn submit_external_with_cancel(
+        &self,
+        plan: &ExternalSigningPlan,
+        signature: &[u8],
+        crypto_type: Option<u8>,
+        wait: TxWait,
+        timeout: Duration,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<TxOutcome, CoreError> {
+        {
+            let reservations = self
+                .nonce_reservations
+                .lock()
+                .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+            reservations.check_external_plan(plan)?;
+            // Clones share this flag, including explicit-nonce plans, so only
+            // one caller can submit or release this plan's reservation.
+            if plan.lifecycle.used.swap(true, Ordering::AcqRel) {
+                return Err(CoreError::Policy(
+                    "external signing plan is no longer usable".into(),
+                ));
+            }
+        }
+        if let Err(error) = check_cancelled_before_submission(cancelled) {
+            self.release_external_plan(plan)?;
+            return Err(error);
+        }
+        let (extrinsic, hash) = match self.encode_external_extrinsic(plan, signature, crypto_type) {
+            Ok(signed) => signed,
+            Err(error) => {
+                self.release_external_plan(plan)?;
+                return Err(error);
+            }
+        };
+        let outcome = match self
+            .submit_encoded_with_wait_cancelled(&extrinsic, hash, wait, timeout, cancelled)
+        {
+            Ok(outcome) => outcome,
+            Err(error) if is_cancelled_before_submission_error(&error) => {
+                self.release_external_plan(plan)?;
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+        if plan.lifecycle.reservation.is_some() && is_definite_rejection(&outcome) {
+            self.release_external_plan(plan)?;
+        }
+        Ok(outcome)
+    }
+
+    pub(crate) fn release_external_plan(
+        &self,
+        plan: &ExternalSigningPlan,
+    ) -> Result<(), CoreError> {
+        self.release_external_reservation(&plan.lifecycle)
+    }
+
+    fn release_external_reservation(
+        &self,
+        lifecycle: &Arc<ExternalPlanLifecycle>,
+    ) -> Result<(), CoreError> {
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        // The nonce may already have been invalidated and reassigned. An old
+        // plan must never release its successor's reservation.
+        if reservations.owns_external_reservation(lifecycle) {
+            if let Some((account, nonce)) = &lifecycle.reservation {
+                reservations.release(account.clone(), *nonce, 1);
+            }
+        }
+        Ok(())
     }
 
     /// Sign without submitting. Returns `(encoded extrinsic, 0x hash)`.
@@ -556,7 +1336,7 @@ impl Client {
         period: Option<u64>,
         shielded: bool,
     ) -> Result<SigningContext, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = self.current_runtime()?;
         let mut registered = None;
         let mut authority_block = None;
         let stateless = crate::keys::is_fixed_pq_crypto(signer.crypto_type());
@@ -778,17 +1558,25 @@ impl Client {
     ) -> Result<TxParams, CoreError> {
         let (era, era_block_hash) = match period {
             Some(period) if period > 0 => {
-                let birth = era_birth(period, current);
+                let (era, birth) = stored_mortal_era(period, current);
                 let hash = parse_h256(&self.block_hash(Some(birth))?)?;
-                (
-                    Value::record(vec![
-                        ("period".into(), Value::Uint(u128::from(period))),
-                        ("current".into(), Value::Uint(u128::from(current))),
-                    ]),
-                    hash,
-                )
+                (era, hash)
             }
             _ => (Value::str("00"), self.genesis_hash),
+        };
+        let runtime = self.current_runtime()?;
+        let metadata_hash = if runtime
+            .extrinsic
+            .signed_extensions
+            .iter()
+            .any(|ext| ext.identifier == "CheckMetadataHash")
+        {
+            Some(metadata_digest(
+                &runtime.metadata_bytes,
+                &self.chain_info_for_runtime(&runtime)?,
+            )?)
+        } else {
+            None
         };
         Ok(TxParams {
             era,
@@ -797,15 +1585,24 @@ impl Client {
             tip_asset_id: None,
             genesis_hash: self.genesis_hash,
             era_block_hash,
-            metadata_hash: None,
+            metadata_hash,
         })
     }
 
     /// Quotes only decode the envelope: never disclose an active signing key
     /// or produce a reusable authorization for an operation the user may cancel.
     fn payment_info(&self, call_data: &[u8], signer: &Keypair) -> Result<JsonValue, CoreError> {
-        let runtime = self.runtime()?;
         let nonce = self.account_next_index(&signer.ss58_address())?;
+        self.payment_info_at_nonce(call_data, signer, nonce)
+    }
+
+    fn payment_info_at_nonce(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        nonce: u64,
+    ) -> Result<JsonValue, CoreError> {
+        let runtime = self.current_runtime()?;
         let params = self.transaction_params(nonce, Some(DEFAULT_ERA_PERIOD))?;
         let proof_len = if is_hashed_crypto(signer.crypto_type()) {
             subtensor_hashed::Proof::max_encoded_len()
@@ -864,7 +1661,42 @@ impl Client {
     }
 
     pub fn estimate_fee(&self, call_data: &[u8], signer: &Keypair) -> Result<u128, CoreError> {
-        let value = self.payment_info(call_data, signer)?;
+        Self::fee_from_payment_info(self.payment_info(call_data, signer)?)
+    }
+
+    /// Conservative full shield quote, including maximum carrier and nonce sizes.
+    pub(crate) fn estimate_shielded_fee(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+    ) -> Result<u128, CoreError> {
+        let carrier = self.compose_call(
+            "MevShield",
+            "submit_encrypted",
+            &Value::record(vec![("ciphertext".into(), Value::Bytes(vec![0; 8192]))]),
+        )?;
+        let inner = Self::fee_from_payment_info(self.payment_info_at_nonce(
+            call_data,
+            signer,
+            u64::from(u32::MAX),
+        )?)?;
+        let outer = Self::fee_from_payment_info(self.payment_info_at_nonce(
+            &carrier,
+            signer,
+            u64::from(u32::MAX),
+        )?)?;
+        inner
+            .checked_add(outer)
+            .ok_or_else(|| CoreError::Policy("Shield total fee exceeds u128".into()))
+    }
+
+    fn payment_query_fee(&self, extrinsic: &[u8]) -> Result<u128, CoreError> {
+        Self::fee_from_payment_info(
+            self.rpc_value("payment_queryInfo", json!([hex_prefixed(extrinsic)]))?,
+        )
+    }
+
+    fn fee_from_payment_info(value: JsonValue) -> Result<u128, CoreError> {
         let object = value
             .as_object()
             .ok_or_else(|| CoreError::Rpc("payment_queryInfo returned a non-object".into()))?;
@@ -890,11 +1722,89 @@ impl Client {
         signer: &Keypair,
         nonce: Option<u64>,
         period: Option<u64>,
-        wait_for_finalization: bool,
+        wait: TxWait,
+        timeout: Duration,
     ) -> Result<TxOutcome, CoreError> {
-        let context = self.prepare_signing(signer, nonce, period, false)?;
-        let (extrinsic, hash) = self.sign_prepared(call_data, signer, &context, 0)?;
-        self.submit_encoded(&extrinsic, hash, wait_for_finalization)
+        self.submit_with_cancel(
+            call_data,
+            signer,
+            TxSubmitOptions {
+                nonce,
+                period,
+                wait,
+                timeout,
+                cancelled: None,
+            },
+        )
+    }
+
+    pub fn submit_with_cancel(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        options: TxSubmitOptions<'_>,
+    ) -> Result<TxOutcome, CoreError> {
+        if is_rotating_crypto(signer.crypto_type()) {
+            check_cancelled(options.cancelled)?;
+            let context = self.prepare_signing(signer, options.nonce, options.period, false)?;
+            let (extrinsic, hash) = self.sign_prepared(call_data, signer, &context, 0)?;
+            return self.submit_encoded_with_wait_cancelled(
+                &extrinsic,
+                hash,
+                options.wait,
+                options.timeout,
+                options.cancelled,
+            );
+        }
+        let address = signer.ss58_address();
+        let explicit_nonce = options.nonce.is_some();
+        let mut last = None;
+        for _ in 0..NONCE_RETRY_LIMIT {
+            check_cancelled(options.cancelled)?;
+            let nonce = match options.nonce {
+                Some(nonce) => nonce,
+                None => self.reserve_nonce(&address)?,
+            };
+            let (extrinsic, hash) =
+                match self.sign_extrinsic(call_data, signer, nonce, options.period) {
+                    Ok(signed) => signed,
+                    Err(error) => {
+                        if !explicit_nonce {
+                            self.release_nonce(&address, nonce)?;
+                        }
+                        return Err(error);
+                    }
+                };
+            let outcome = match self.submit_encoded_with_wait_cancelled(
+                &extrinsic,
+                hash,
+                options.wait,
+                options.timeout,
+                options.cancelled,
+            ) {
+                Ok(outcome) => outcome,
+                Err(error) if !explicit_nonce && is_cancelled_before_submission_error(&error) => {
+                    self.release_nonce(&address, nonce)?;
+                    return Err(error);
+                }
+                Err(error) => return Err(error),
+            };
+            if is_nonce_pool_rejection(&outcome) && !explicit_nonce {
+                self.release_nonce(&address, nonce)?;
+                last = Some(outcome);
+                continue;
+            }
+            if !explicit_nonce && is_definite_rejection(&outcome) {
+                self.release_nonce(&address, nonce)?;
+            }
+            return Ok(outcome);
+        }
+        Ok(last.unwrap_or_else(|| {
+            TxOutcome::pool_rejection(
+                String::new(),
+                "transaction rejected after nonce retries".into(),
+            )
+        }))
     }
 
     pub fn submit_encoded(
@@ -903,24 +1813,97 @@ impl Client {
         expected_hash: String,
         wait_for_finalization: bool,
     ) -> Result<TxOutcome, CoreError> {
-        let start_block = self.block_number()?;
-        let xt_hex = hex_prefixed(extrinsic);
-        let submitted = match self.rpc_value("author_submitExtrinsic", json!([xt_hex])) {
-            Ok(value) => value,
-            Err(error) => {
-                return Ok(TxOutcome::pool_rejection(expected_hash, error.to_string()));
-            }
-        };
-        let submitted_hash = submitted
-            .as_str()
-            .map_or(expected_hash, ToString::to_string);
-        self.wait_for_inclusion(
+        self.submit_encoded_with_wait(
             extrinsic,
-            submitted_hash,
-            start_block,
-            wait_for_finalization,
+            expected_hash,
+            if wait_for_finalization {
+                TxWait::Finalized
+            } else {
+                TxWait::Included
+            },
             DEFAULT_RECEIPT_TIMEOUT,
         )
+    }
+
+    pub fn submit_encoded_with_wait(
+        &self,
+        extrinsic: &[u8],
+        expected_hash: String,
+        wait: TxWait,
+        timeout: Duration,
+    ) -> Result<TxOutcome, CoreError> {
+        self.submit_encoded_with_wait_cancelled(extrinsic, expected_hash, wait, timeout, None)
+    }
+
+    pub fn submit_encoded_with_wait_cancelled(
+        &self,
+        extrinsic: &[u8],
+        expected_hash: String,
+        wait: TxWait,
+        timeout: Duration,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<TxOutcome, CoreError> {
+        check_cancelled_before_submission(cancelled)?;
+        let start_block = if wait == TxWait::Submitted {
+            0
+        } else {
+            match self.block_number() {
+                Ok(number) => number,
+                Err(error) => {
+                    return Ok(TxOutcome::pool_rejection(
+                        expected_hash,
+                        format!("pre-submission preparation failed: {error}"),
+                    ))
+                }
+            }
+        };
+        let observation = self.nonce_observation(extrinsic);
+        let xt_hex = hex_prefixed(extrinsic);
+        check_cancelled_before_submission(cancelled)?;
+        let uncertain = match self.rpc_value("author_submitExtrinsic", json!([xt_hex])) {
+            Ok(value)
+                if value
+                    .as_str()
+                    .is_some_and(|hash| hash.eq_ignore_ascii_case(&expected_hash)) =>
+            {
+                None
+            }
+            Ok(_) => Some("node returned a different submitted extrinsic hash".to_string()),
+            Err(error) if is_definite_submit_error(&error) => {
+                return Ok(TxOutcome::pool_rejection(expected_hash, error.to_string()));
+            }
+            Err(error) => Some(error.to_string()),
+        };
+        if wait == TxWait::Submitted {
+            return Ok(match uncertain {
+                Some(message) => TxOutcome::uncertain(expected_hash, format!("submission uncertain: {message}; reconcile by extrinsic hash before retrying")),
+                None => TxOutcome {
+                    success: true, extrinsic_hash: expected_hash, block_hash: None,
+                    block_number: None, extrinsic_index: None, fee_rao: None,
+                    events: Vec::new(), error: None, message: "Submitted".into(), data: BTreeMap::new(),
+                },
+            });
+        }
+        // Read-only reconciliation: a lost response never authorizes a resend.
+        match self.wait_for_inclusion(
+            extrinsic,
+            expected_hash.clone(),
+            start_block,
+            wait == TxWait::Finalized,
+            timeout,
+            cancelled,
+        ) {
+            Ok(outcome) => {
+                self.retire_included_nonce(observation, &outcome);
+                Ok(outcome)
+            }
+            Err(error) => Ok(TxOutcome::uncertain(
+                expected_hash,
+                format!(
+                    "submission uncertain: {error}; reconcile by extrinsic hash before retrying"
+                ),
+            )),
+        }
     }
 
     /// Full MEV-shield pipeline: sign the inner call at nonce+1, seal it with
@@ -936,16 +1919,47 @@ impl Client {
         let next_key = self.query("MevShield", "NextKey", &[], None)?;
         let public_key = value_bytes(&next_key)
             .ok_or_else(|| CoreError::Rpc("MevShield.NextKey is unavailable".into()))?;
-        let context = self.prepare_signing(signer, None, Some(SHIELD_ERA_PERIOD), true)?;
-        let (inner, inner_hash) = self.sign_prepared(call_data, signer, &context, 1)?;
-        let ciphertext = mlkem::seal(&public_key, &inner, true)?;
-        let outer = context.runtime.compose_call(
-            "MevShield",
-            "submit_encrypted",
-            &Value::record(vec![("ciphertext".into(), Value::Bytes(ciphertext))]),
-        )?;
-        let (extrinsic, hash) = self.sign_prepared(&outer, signer, &context, 0)?;
+        let nonce = if is_rotating_crypto(signer.crypto_type()) {
+            None
+        } else {
+            Some(self.reserve_nonces(&signer.ss58_address(), 2)?)
+        };
+        let prepared = (|| -> Result<_, CoreError> {
+            let context = self.prepare_signing(signer, nonce, Some(MEV_SHIELD_ERA_PERIOD), true)?;
+            let (inner, inner_hash) = self.sign_prepared(call_data, signer, &context, 1)?;
+            let envelope = prepare_shielded_envelope(
+                context.params.nonce,
+                |_, _| Ok((inner.clone(), inner_hash)),
+                |bytes| mlkem::seal(&public_key, bytes, true),
+            )?;
+            debug_assert_eq!(envelope.outer_nonce, context.params.nonce);
+            debug_assert_eq!(envelope.period, MEV_SHIELD_ERA_PERIOD);
+            let outer = context.runtime.compose_call(
+                "MevShield",
+                "submit_encrypted",
+                &Value::record(vec![(
+                    "ciphertext".into(),
+                    Value::Bytes(envelope.ciphertext),
+                )]),
+            )?;
+            let (extrinsic, hash) = self.sign_prepared(&outer, signer, &context, 0)?;
+            Ok((extrinsic, hash, inner, envelope.inner_hash))
+        })();
+        let (extrinsic, hash, inner, inner_hash) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                if let Some(nonce) = nonce {
+                    self.release_nonces(&signer.ss58_address(), nonce, 2)?;
+                }
+                return Err(error);
+            }
+        };
         let carrier = self.submit_encoded(&extrinsic, hash, wait_for_finalization)?;
+        if is_definite_rejection(&carrier) {
+            if let Some(nonce) = nonce {
+                self.release_nonces(&signer.ss58_address(), nonce, 2)?;
+            }
+        }
         self.resolve_shielded_inner(
             &inner,
             inner_hash,
@@ -971,13 +1985,16 @@ impl Client {
             .ok_or_else(|| CoreError::Rpc("successful Shield carrier omitted its block".into()))?;
         // The carrier only accepts ciphertext. Report the requested call's
         // dispatch result, including nested failures and missing inner inclusion.
+        let observation = self.nonce_observation(inner);
         let mut result = self.wait_for_inclusion(
             inner,
             inner_hash.clone(),
             start_block,
             wait_for_finalization,
             timeout,
+            None,
         )?;
+        self.retire_included_nonce(observation, &result);
         result.data.insert("shielded".into(), Value::Bool(true));
         result
             .data
@@ -1075,6 +2092,21 @@ impl Client {
             block_hash,
         )?;
         flatten_subnet_hyperparams_v3(entries)
+    }
+
+    /// Typed V3 entries, preserving each runtime value variant and fixed-point bits.
+    pub fn subnet_hyperparameters_typed(
+        &self,
+        netuid: u16,
+        block_hash: Option<&str>,
+    ) -> Result<Option<Vec<SubnetHyperparameter>>, CoreError> {
+        let value = self.runtime_call(
+            "SubnetInfoRuntimeApi",
+            "get_subnet_hyperparams_v3",
+            &[Value::Uint(u128::from(netuid))],
+            block_hash,
+        )?;
+        subnet_hyperparameters_v3(&value)
     }
 
     pub fn stake_rao(
@@ -1249,6 +2281,7 @@ impl Client {
         start_block: u64,
         wait_for_finalization: bool,
         timeout: Duration,
+        cancelled: Option<&AtomicBool>,
     ) -> Result<TxOutcome, CoreError> {
         let deadline = Instant::now() + timeout;
         let xt_hex = hex_prefixed(extrinsic).to_ascii_lowercase();
@@ -1258,13 +2291,21 @@ impl Client {
             .unwrap_or_else(|_| Duration::from_millis(250))
             .min(Duration::from_secs(1));
         'track_inclusion: while Instant::now() < deadline {
+            check_cancelled(cancelled)?;
             let head = self.block_number()?;
             while next_block <= head {
+                check_cancelled(cancelled)?;
                 let included_at = next_block;
                 let block_hash = self.block_hash(Some(included_at))?;
                 if let Some(index) = self.find_extrinsic(&block_hash, &xt_hex)? {
                     if wait_for_finalization {
-                        match self.wait_until_finalized(&block_hash, included_at, deadline, poll)? {
+                        match self.wait_until_finalized(
+                            &block_hash,
+                            included_at,
+                            deadline,
+                            poll,
+                            cancelled,
+                        )? {
                             InclusionFinalization::Finalized => {}
                             InclusionFinalization::Reorged => {
                                 // The old inclusion block is no longer canonical.
@@ -1279,11 +2320,11 @@ impl Client {
                 }
                 next_block = next_block.saturating_add(1);
             }
-            thread::sleep(poll);
+            sleep_or_cancel(poll, cancelled)?;
         }
-        Ok(TxOutcome::pool_rejection(
+        Ok(TxOutcome::uncertain(
             hash,
-            format!("extrinsic was not included within {}s", timeout.as_secs()),
+            format!("extrinsic was not observed within {}s; reconcile by extrinsic hash before retrying", timeout.as_secs()),
         ))
     }
 
@@ -1315,8 +2356,10 @@ impl Client {
         included_at: u64,
         deadline: Instant,
         poll: Duration,
+        cancelled: Option<&AtomicBool>,
     ) -> Result<InclusionFinalization, CoreError> {
         while Instant::now() < deadline {
+            check_cancelled(cancelled)?;
             // Fetch finality first, then the canonical hash at the inclusion
             // height. Once finality has reached that height, the best chain must
             // contain the same finalized ancestor at that height.
@@ -1331,7 +2374,7 @@ impl Client {
             ) {
                 return Ok(status);
             }
-            thread::sleep(poll);
+            sleep_or_cancel(poll, cancelled)?;
         }
         Err(CoreError::Rpc(format!(
             "block {included_at} ({inclusion_hash}) was included but not finalized before the receipt timeout"
@@ -1549,10 +2592,11 @@ impl RpcBootstrap {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct RuntimeVersion {
     spec_version: u32,
     transaction_version: u32,
+    spec_name: String,
 }
 
 fn parse_runtime_version(value: JsonValue) -> Result<RuntimeVersion, CoreError> {
@@ -1570,6 +2614,11 @@ fn parse_runtime_version(value: JsonValue) -> Result<RuntimeVersion, CoreError> 
             .map_err(|_| CoreError::Rpc("specVersion does not fit u32".into()))?,
         transaction_version: u32::try_from(json_u64(transaction)?)
             .map_err(|_| CoreError::Rpc("transactionVersion does not fit u32".into()))?,
+        spec_name: object
+            .get("specName")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("node-subtensor")
+            .to_owned(),
     })
 }
 
@@ -1653,6 +2702,116 @@ fn http_endpoint(endpoint: &str) -> String {
         return format!("https://{rest}");
     }
     endpoint.to_string()
+}
+
+fn normalized_endpoints<I, S>(endpoints: I) -> Result<Vec<String>, CoreError>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let mut out = Vec::new();
+    for endpoint in endpoints {
+        let endpoint = endpoint.into();
+        let endpoint = http_endpoint(endpoint.trim());
+        if endpoint.is_empty() {
+            continue;
+        }
+        if !out.iter().any(|candidate| candidate == &endpoint) {
+            out.push(endpoint);
+        }
+    }
+    if out.is_empty() {
+        return Err(CoreError::Rpc("no endpoints supplied".into()));
+    }
+    Ok(out)
+}
+
+fn is_transport_rpc_error(error: &CoreError) -> bool {
+    let CoreError::Rpc(message) = error else {
+        return false;
+    };
+    message.contains(" request failed:")
+        || message.contains(" HTTP error:")
+        || message.contains(" returned invalid JSON:")
+        || message.contains(" response omitted result")
+}
+
+fn is_definite_submit_error(error: &CoreError) -> bool {
+    let CoreError::Rpc(message) = error else {
+        return false;
+    };
+    if message.starts_with("submission not sent: ") {
+        return true;
+    }
+    let Some(raw) = message.strip_prefix("author_submitExtrinsic: ") else {
+        return false;
+    };
+    let Ok(error) = serde_json::from_str::<JsonValue>(raw) else {
+        return false;
+    };
+    // AlreadyImported (1013), internal errors and transport failures cannot
+    // establish rejection. Only explicit validation/admission errors can.
+    matches!(
+        error.get("code").and_then(JsonValue::as_i64),
+        Some(1010 | 1011 | 1012 | 1014 | -32600 | -32601 | -32602)
+    )
+}
+
+fn is_definite_rejection(outcome: &TxOutcome) -> bool {
+    outcome.data.get("submission_rejected") == Some(&Value::Bool(true))
+        && outcome.block_hash.is_none()
+}
+
+fn is_nonce_pool_rejection(outcome: &TxOutcome) -> bool {
+    is_definite_rejection(outcome)
+        && !outcome.success
+        && outcome.block_hash.is_none()
+        && is_nonce_pool_error_message(&outcome.message)
+}
+
+fn is_nonce_pool_error_message(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("stale")
+        || normalized.contains("future")
+        || normalized.contains("priority is too low")
+        || normalized.contains("priority too low")
+        || normalized.contains("invalid transaction")
+            && normalized.contains("payment")
+            && normalized.contains("nonce")
+}
+
+fn check_cancelled(cancelled: Option<&AtomicBool>) -> Result<(), CoreError> {
+    if cancelled.is_some_and(|cancelled| cancelled.load(Ordering::Relaxed)) {
+        Err(CoreError::Rpc("operation cancelled".into()))
+    } else {
+        Ok(())
+    }
+}
+
+fn check_cancelled_before_submission(cancelled: Option<&AtomicBool>) -> Result<(), CoreError> {
+    if cancelled.is_some_and(|cancelled| cancelled.load(Ordering::Relaxed)) {
+        Err(CoreError::Rpc(
+            "operation cancelled before submission".into(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn is_cancelled_before_submission_error(error: &CoreError) -> bool {
+    matches!(error, CoreError::Rpc(message) if message == "operation cancelled before submission")
+}
+
+fn sleep_or_cancel(duration: Duration, cancelled: Option<&AtomicBool>) -> Result<(), CoreError> {
+    let deadline = Instant::now() + duration;
+    loop {
+        check_cancelled(cancelled)?;
+        let now = Instant::now();
+        if now >= deadline {
+            return Ok(());
+        }
+        thread::sleep((deadline - now).min(Duration::from_millis(50)));
+    }
 }
 
 fn parse_header_fields(value: &JsonValue) -> Result<(u64, String), CoreError> {
@@ -1910,6 +3069,93 @@ pub fn as_bool(value: &Value) -> Option<bool> {
     }
 }
 
+fn as_i128(value: &Value) -> Option<i128> {
+    match value {
+        Value::Int(value) => Some(*value),
+        Value::Uint(value) => i128::try_from(*value).ok(),
+        _ => None,
+    }
+}
+
+fn subnet_hyperparameters_v3(
+    value: &Value,
+) -> Result<Option<Vec<SubnetHyperparameter>>, CoreError> {
+    match value {
+        Value::Null => Ok(None),
+        Value::List(entries) => entries
+            .iter()
+            .map(subnet_hyperparameter_entry)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some),
+        other => Err(CoreError::Codec(format!(
+            "SubnetInfoRuntimeApi.get_subnet_hyperparams_v3 returned {other:?}, expected Option<Vec<HyperparamEntry>>"
+        ))),
+    }
+}
+
+fn subnet_hyperparameter_entry(value: &Value) -> Result<SubnetHyperparameter, CoreError> {
+    let name = field(value, "name")
+        .and_then(value_bytes)
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .ok_or_else(|| CoreError::Codec("hyperparameter entry omitted UTF-8 name".into()))?;
+    let value = field(value, "value")
+        .ok_or_else(|| CoreError::Codec(format!("hyperparameter {name} omitted value")))
+        .and_then(subnet_hyperparameter_value)?;
+    Ok(SubnetHyperparameter { name, value })
+}
+
+fn subnet_hyperparameter_value(value: &Value) -> Result<SubnetHyperparameterValue, CoreError> {
+    let Value::Dict(entries) = value else {
+        return Err(CoreError::Codec(format!(
+            "hyperparameter value {value:?} is not a V3 enum variant"
+        )));
+    };
+    let [(Value::Str(variant), payload)] = entries.as_slice() else {
+        return Err(CoreError::Codec(format!(
+            "hyperparameter value {value:?} is not a single V3 enum variant"
+        )));
+    };
+    match variant.as_str() {
+        "Bool" => as_bool(payload)
+            .map(SubnetHyperparameterValue::Bool)
+            .ok_or_else(|| CoreError::Codec("Bool hyperparameter is not a bool".into())),
+        "U16" => as_u128(payload)
+            .and_then(|value| u16::try_from(value).ok())
+            .map(SubnetHyperparameterValue::U16)
+            .ok_or_else(|| CoreError::Codec("U16 hyperparameter is outside u16".into())),
+        "U32" => as_u128(payload)
+            .and_then(|value| u32::try_from(value).ok())
+            .map(SubnetHyperparameterValue::U32)
+            .ok_or_else(|| CoreError::Codec("U32 hyperparameter is outside u32".into())),
+        "U64" => as_u128(payload)
+            .and_then(|value| u64::try_from(value).ok())
+            .map(SubnetHyperparameterValue::U64)
+            .ok_or_else(|| CoreError::Codec("U64 hyperparameter is outside u64".into())),
+        "U128" => as_u128(payload)
+            .map(SubnetHyperparameterValue::U128)
+            .ok_or_else(|| {
+                CoreError::Codec("U128 hyperparameter is not an unsigned integer".into())
+            }),
+        "TaoBalance" => as_u128(payload)
+            .map(SubnetHyperparameterValue::TaoBalance)
+            .ok_or_else(|| {
+                CoreError::Codec("TaoBalance hyperparameter is not an unsigned integer".into())
+            }),
+        "I32F32" => field(payload, "bits")
+            .and_then(as_i128)
+            .and_then(|value| i64::try_from(value).ok())
+            .map(SubnetHyperparameterValue::I32F32Bits)
+            .ok_or_else(|| CoreError::Codec("I32F32 hyperparameter omitted i64 bits".into())),
+        "U64F64" => field(payload, "bits")
+            .and_then(as_u128)
+            .map(SubnetHyperparameterValue::U64F64Bits)
+            .ok_or_else(|| CoreError::Codec("U64F64 hyperparameter omitted u128 bits".into())),
+        other => Err(CoreError::Codec(format!(
+            "unknown hyperparameter V3 value variant {other}"
+        ))),
+    }
+}
+
 pub fn value_bytes(value: &Value) -> Option<Vec<u8>> {
     match value {
         Value::Bytes(bytes) => Some(bytes.clone()),
@@ -1980,6 +3226,36 @@ fn json_string<'a>(value: &'a JsonValue, context: &str) -> Result<&'a str, CoreE
         JsonValue::String(text) => Ok(text),
         _ => Err(CoreError::Rpc(format!("{context} is not a string"))),
     }
+}
+
+fn property_value<'a>(properties: &'a JsonValue, keys: &[&str]) -> Option<&'a JsonValue> {
+    let object = properties.as_object()?;
+    keys.iter().find_map(|key| object.get(*key))
+}
+
+fn first_property(value: &JsonValue) -> &JsonValue {
+    value
+        .as_array()
+        .and_then(|items| items.first())
+        .unwrap_or(value)
+}
+
+fn property_u64(properties: &JsonValue, keys: &[&str], fallback: u64) -> Result<u64, CoreError> {
+    let Some(value) = property_value(properties, keys).map(first_property) else {
+        return Ok(fallback);
+    };
+    if value.is_null() {
+        return Ok(fallback);
+    }
+    json_u64(value)
+}
+
+fn property_string(properties: &JsonValue, keys: &[&str], fallback: &str) -> String {
+    property_value(properties, keys)
+        .map(first_property)
+        .and_then(JsonValue::as_str)
+        .unwrap_or(fallback)
+        .to_owned()
 }
 
 fn json_number_u64(value: &JsonValue) -> Option<u64> {
@@ -2080,9 +3356,379 @@ fn hex_prefixed(bytes: &[u8]) -> String {
     format!("0x{}", hex::encode(bytes))
 }
 
+fn nonce_account_key(address: &str) -> Result<String, CoreError> {
+    Ok(hex_prefixed(&public_key_from_ss58(address)?))
+}
+
+fn reserve_nonce_range(
+    reservations: &mut HashMap<String, u64>,
+    account: String,
+    chain_next: u64,
+    count: u64,
+) -> Result<u64, CoreError> {
+    if count == 0 {
+        return Err(CoreError::Policy(
+            "nonce reservation count must be positive".into(),
+        ));
+    }
+    let nonce = reservations
+        .get(&account)
+        .copied()
+        .unwrap_or(chain_next)
+        .max(chain_next);
+    let next = nonce
+        .checked_add(count)
+        .ok_or_else(|| CoreError::Policy("nonce reservation overflow".into()))?;
+    reservations.insert(account, next);
+    Ok(nonce)
+}
+
+#[derive(Default)]
+struct NonceReservations {
+    tokens: HashMap<String, Arc<()>>,
+    floors: HashMap<String, u64>,
+    released: HashMap<String, Vec<(u64, u64)>>,
+    external_plans: HashMap<String, BTreeMap<u64, Weak<ExternalPlanLifecycle>>>,
+}
+
+impl NonceReservations {
+    fn included(&mut self, account: &str, nonce: u64, token: &Arc<()>) {
+        if !self
+            .tokens
+            .get(account)
+            .is_some_and(|current| Arc::ptr_eq(current, token))
+        {
+            return;
+        }
+        self.invalidate_external_plans(account, 0, nonce.saturating_add(1));
+        if self
+            .floors
+            .get(account)
+            .is_some_and(|floor| *floor <= nonce.saturating_add(1))
+        {
+            self.floors.remove(account);
+            self.released.remove(account);
+            self.tokens.remove(account);
+        } else if let Some(ranges) = self.released.get_mut(account) {
+            ranges.retain_mut(|(start, end)| {
+                *start = (*start).max(nonce.saturating_add(1));
+                *start < *end
+            });
+        }
+    }
+
+    fn reserve_external(
+        &mut self,
+        account: String,
+        chain_next: u64,
+    ) -> Result<(u64, Arc<ExternalPlanLifecycle>), CoreError> {
+        let nonce = self.reserve(account.clone(), chain_next, 1)?;
+        let lifecycle = Arc::new(ExternalPlanLifecycle {
+            used: AtomicBool::new(false),
+            reservation: Some((account.clone(), nonce)),
+        });
+        let plans = self.external_plans.entry(account).or_default();
+        plans.retain(|_, state| state.strong_count() > 0);
+        plans.insert(nonce, Arc::downgrade(&lifecycle));
+        Ok((nonce, lifecycle))
+    }
+
+    fn owns_external_reservation(&self, lifecycle: &Arc<ExternalPlanLifecycle>) -> bool {
+        let Some((account, nonce)) = &lifecycle.reservation else {
+            return false;
+        };
+        self.external_plans
+            .get(account)
+            .and_then(|plans| plans.get(nonce))
+            .and_then(Weak::upgrade)
+            .is_some_and(|owner| Arc::ptr_eq(&owner, lifecycle))
+    }
+
+    fn check_external_plan(&self, plan: &ExternalSigningPlan) -> Result<(), CoreError> {
+        if plan.lifecycle.used.load(Ordering::Acquire)
+            || (plan.lifecycle.reservation.is_some()
+                && !self.owns_external_reservation(&plan.lifecycle))
+        {
+            return Err(CoreError::Policy(
+                "external signing plan is no longer usable".into(),
+            ));
+        }
+        if let Some((account, nonce)) = &plan.lifecycle.reservation {
+            if plan.params.nonce != *nonce || nonce_account_key(&plan.signer_address)? != *account {
+                return Err(CoreError::Policy(
+                    "external signing plan reservation was modified".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn invalidate_external_plans(&mut self, account: &str, start: u64, end: u64) {
+        if let Some(plans) = self.external_plans.get_mut(account) {
+            plans.retain(|nonce, state| {
+                if *nonce >= start && *nonce < end {
+                    if let Some(state) = state.upgrade() {
+                        state.used.store(true, Ordering::Release);
+                    }
+                    false
+                } else {
+                    state.strong_count() > 0
+                }
+            });
+        }
+    }
+
+    fn reserve(&mut self, account: String, chain_next: u64, count: u64) -> Result<u64, CoreError> {
+        if count == 0 {
+            return Err(CoreError::Policy(
+                "nonce reservation count must be positive".into(),
+            ));
+        }
+        let ranges = self.released.entry(account.clone()).or_default();
+        ranges.retain_mut(|(start, end)| {
+            *start = (*start).max(chain_next);
+            *start < *end
+        });
+        if let Some((start, end)) = ranges.first_mut() {
+            if *end - *start < count {
+                return Err(CoreError::Policy(
+                    "fill the released nonce gap before reserving a larger range".into(),
+                ));
+            }
+            let nonce = *start;
+            *start += count;
+            if *start == *end {
+                ranges.remove(0);
+            }
+            self.tokens.insert(account, Arc::new(()));
+            return Ok(nonce);
+        }
+        let nonce = reserve_nonce_range(&mut self.floors, account.clone(), chain_next, count)?;
+        self.tokens.insert(account, Arc::new(()));
+        Ok(nonce)
+    }
+
+    fn release(&mut self, account: String, nonce: u64, count: u64) {
+        let Some(end) = nonce.checked_add(count) else {
+            return;
+        };
+        let Some(&floor) = self.floors.get(&account) else {
+            return;
+        };
+        if count == 0 || end > floor {
+            return;
+        }
+        self.invalidate_external_plans(&account, nonce, end);
+        let Some(floor) = self.floors.get_mut(&account) else {
+            return;
+        };
+        let ranges = self.released.entry(account).or_default();
+        ranges.push((nonce, end));
+        ranges.sort_unstable();
+        let mut merged: Vec<(u64, u64)> = Vec::new();
+        for &(start, end) in ranges.iter() {
+            if let Some(last) = merged.last_mut().filter(|last| last.1 >= start) {
+                last.1 = last.1.max(end);
+            } else {
+                merged.push((start, end));
+            }
+        }
+        while merged.last().is_some_and(|range| range.1 == *floor) {
+            if let Some((start, _)) = merged.pop() {
+                *floor = start;
+            }
+        }
+        *ranges = merged;
+    }
+}
+
+#[cfg(test)]
+mod nonce_reservation_tests {
+    use super::{nonce_account_key, reserve_nonce_range, CoreError, HashMap, NonceReservations};
+    use crate::keys::ss58_from_public;
+
+    #[test]
+    fn shield_pairs_preserve_detached_and_pending_reservations() -> Result<(), CoreError> {
+        let account = nonce_account_key(&ss58_from_public([7; 32], 42))?;
+        let mut reservations = HashMap::new();
+        assert_eq!(
+            reserve_nonce_range(&mut reservations, account.clone(), 10, 1)?,
+            10
+        );
+        assert_eq!(
+            reserve_nonce_range(&mut reservations, account.clone(), 10, 2)?,
+            11
+        );
+        assert_eq!(
+            reserve_nonce_range(&mut reservations, account.clone(), 10, 1)?,
+            13
+        );
+        assert_eq!(reserve_nonce_range(&mut reservations, account, 20, 2)?, 20);
+        Ok(())
+    }
+
+    #[test]
+    fn rejected_ranges_leave_reservations_intact() {
+        let mut reservations = HashMap::new();
+        reservations.insert("account".into(), 9);
+        for (chain_next, count) in [(0, 0), (u64::MAX, 1), (u64::MAX - 1, 2)] {
+            assert!(
+                reserve_nonce_range(&mut reservations, "account".into(), chain_next, count)
+                    .is_err()
+            );
+            assert_eq!(reservations.get("account"), Some(&9));
+        }
+    }
+
+    #[test]
+    fn network_formats_share_account_reservations() -> Result<(), CoreError> {
+        let a = nonce_account_key(&ss58_from_public([7; 32], 42))?;
+        let b = nonce_account_key(&ss58_from_public([7; 32], 0))?;
+        assert_eq!(a, b);
+        let mut reservations = HashMap::new();
+        assert_eq!(reserve_nonce_range(&mut reservations, a, 0, 2)?, 0);
+        assert_eq!(reserve_nonce_range(&mut reservations, b, 0, 1)?, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn cancelled_submit_cannot_release_an_earlier_shield_pair() -> Result<(), CoreError> {
+        let mut reservations = NonceReservations::default();
+        let account = "account".to_owned();
+        assert_eq!(reservations.reserve(account.clone(), 10, 2)?, 10);
+        assert_eq!(reservations.reserve(account.clone(), 10, 1)?, 12);
+        reservations.release(account.clone(), 12, 1);
+        assert_eq!(reservations.reserve(account.clone(), 10, 1)?, 12);
+        assert_eq!(reservations.reserve(account.clone(), 10, 1)?, 13);
+        reservations.release(account.clone(), 12, 1);
+        assert_eq!(reservations.reserve(account.clone(), 10, 1)?, 12);
+        assert_eq!(reservations.reserve(account, 10, 1)?, 14);
+        Ok(())
+    }
+}
+
+/// Parent-state runtime APIs check signatures before the next block initializes.
+/// System::BlockHash stores the best head's hash only in that next initialization,
+/// so using the head itself as an era birth makes shield detection fail even when
+/// the carrier can later be included. Anchor to an already stored parent instead.
+fn stored_mortal_era(period: u64, best: u64) -> (Value, u64) {
+    let current = best.saturating_sub(1);
+    (
+        Value::record(vec![
+            ("period".into(), Value::Uint(u128::from(period))),
+            ("current".into(), Value::Uint(u128::from(current))),
+        ]),
+        era_birth(period, current),
+    )
+}
+
+struct ShieldedEnvelope {
+    outer_nonce: u64,
+    period: u64,
+    ciphertext: Vec<u8>,
+    inner_hash: String,
+}
+
+fn prepare_shielded_envelope(
+    nonce: u64,
+    sign_inner: impl FnOnce(u64, u64) -> Result<(Vec<u8>, String), CoreError>,
+    seal: impl FnOnce(&[u8]) -> Result<Vec<u8>, CoreError>,
+) -> Result<ShieldedEnvelope, CoreError> {
+    let inner_nonce = nonce
+        .checked_add(1)
+        .ok_or_else(|| CoreError::Policy("shielded nonce overflow".into()))?;
+    let (inner, inner_hash) = sign_inner(inner_nonce, MEV_SHIELD_ERA_PERIOD)?;
+    let ciphertext = seal(&inner)?;
+    if ciphertext.len() > 8192 {
+        return Err(CoreError::Policy(
+            "shielded ciphertext exceeds 8192 bytes".into(),
+        ));
+    }
+    Ok(ShieldedEnvelope {
+        outer_nonce: nonce,
+        period: MEV_SHIELD_ERA_PERIOD,
+        ciphertext,
+        inner_hash,
+    })
+}
+
+#[cfg(test)]
+mod shielded_envelope_tests {
+    use super::{field, prepare_shielded_envelope, stored_mortal_era, CoreError, Value};
+
+    #[test]
+    fn mortal_era_birth_is_available_in_parent_state_before_block_initialization() {
+        for period in [4, 8, 64, 128, 65536] {
+            for best in [1, 4, 8, 9, 128, 65536, 65537] {
+                let (era, birth) = stored_mortal_era(period, best);
+                assert_eq!(
+                    field(&era, "current"),
+                    Some(&Value::Uint(u128::from(best - 1)))
+                );
+                assert!(
+                    birth < best,
+                    "the parent state's block-hash map excludes the current head"
+                );
+                assert!(
+                    best - birth < period,
+                    "the mortal transaction must remain live"
+                );
+            }
+        }
+        let (genesis, birth) = stored_mortal_era(8, 0);
+        assert_eq!(field(&genesis, "current"), Some(&Value::Uint(0)));
+        assert_eq!(birth, 0);
+    }
+
+    #[test]
+    fn inner_and_carrier_have_runtime_accepted_eras_and_consecutive_nonces() -> Result<(), CoreError>
+    {
+        let envelope = prepare_shielded_envelope(
+            41,
+            |nonce, period| {
+                assert_eq!(nonce, 42);
+                assert_eq!(period, 8);
+                Ok((vec![1, 2, 3], "0xinner".into()))
+            },
+            |bytes| {
+                assert_eq!(bytes, &[1, 2, 3]);
+                Ok(vec![9; 8192])
+            },
+        )?;
+        assert_eq!(envelope.outer_nonce, 41);
+        assert_eq!(envelope.period, 8);
+        assert_eq!(envelope.inner_hash, "0xinner");
+        assert_eq!(envelope.ciphertext.len(), 8192);
+        Ok(())
+    }
+
+    #[test]
+    fn overflowing_nonce_cannot_reach_the_signer() {
+        let result = prepare_shielded_envelope(
+            u64::MAX,
+            |_, _| panic!("must not sign overflowing nonce"),
+            |_| panic!("must not seal"),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ciphertext_beyond_runtime_bound_cannot_be_submitted() {
+        let result = prepare_shielded_envelope(
+            0,
+            |_, _| Ok((vec![1], "0xinner".into())),
+            |_| Ok(vec![0; 8193]),
+        );
+        assert!(result.is_err());
+    }
+}
+
 #[cfg(test)]
 mod reorg_finalization_tests {
-    use super::{classify_inclusion_finalization, InclusionFinalization};
+    use super::{
+        classify_inclusion_finalization, subnet_hyperparameters_v3, InclusionFinalization,
+        SubnetHyperparameter, SubnetHyperparameterValue, Value,
+    };
 
     #[test]
     fn canonical_inclusion_remains_pending_below_finalized_height() {
@@ -2114,6 +3760,53 @@ mod reorg_finalization_tests {
             classify_inclusion_finalization("0xabc", None, 10, 9),
             Some(InclusionFinalization::Reorged)
         );
+    }
+
+    #[test]
+    fn subnet_hyperparameters_v3_are_typed_entries() {
+        let raw = Value::List(vec![
+            Value::record(vec![
+                ("name".into(), Value::str("tempo")),
+                (
+                    "value".into(),
+                    Value::record(vec![("U16".into(), Value::Int(12))]),
+                ),
+            ]),
+            Value::record(vec![
+                ("name".into(), Value::str("burn_increase_mult")),
+                (
+                    "value".into(),
+                    Value::record(vec![(
+                        "U64F64".into(),
+                        Value::record(vec![("bits".into(), Value::Uint(1_u128 << 64))]),
+                    )]),
+                ),
+            ]),
+        ]);
+
+        let typed = match subnet_hyperparameters_v3(&raw) {
+            Ok(value) => value,
+            Err(error) => panic!("valid V3 value failed to decode: {error}"),
+        };
+        assert_eq!(
+            typed,
+            Some(vec![
+                SubnetHyperparameter {
+                    name: "tempo".into(),
+                    value: SubnetHyperparameterValue::U16(12),
+                },
+                SubnetHyperparameter {
+                    name: "burn_increase_mult".into(),
+                    value: SubnetHyperparameterValue::U64F64Bits(1_u128 << 64),
+                },
+            ])
+        );
+
+        let empty = match subnet_hyperparameters_v3(&Value::Null) {
+            Ok(value) => value,
+            Err(error) => panic!("null V3 value failed to decode: {error}"),
+        };
+        assert_eq!(empty, None);
     }
 }
 
@@ -2175,6 +3868,7 @@ mod fee_quote_tests {
                 .unwrap();
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let endpoint = format!("http://{}", listener.local_addr().unwrap());
+            let version = json!({"specVersion": runtime.spec_version, "transactionVersion": runtime.transaction_version, "specName": "test"});
             let server = thread::spawn(move || {
                 let mut quotes = Vec::new();
                 while quotes.len() < 2 {
@@ -2215,6 +3909,8 @@ mod fee_quote_tests {
                     reader.read_exact(&mut body).unwrap();
                     let request: JsonValue = serde_json::from_slice(&body).unwrap();
                     let result = match request["method"].as_str().unwrap() {
+                        "state_getRuntimeVersion" => version.clone(),
+                        "system_properties" => json!({}),
                         "system_accountNextIndex" => json!(64),
                         "chain_getHeader" => {
                             json!({"number":"0xa", "parentHash":hex_prefixed(&[8;32])})
@@ -2236,7 +3932,10 @@ mod fee_quote_tests {
                 quotes
             });
             let client = Client {
-                endpoint,
+                endpoints: vec![endpoint],
+                active_endpoint: RwLock::new(0),
+                validated_endpoints: Mutex::new(HashMap::from([(0, Instant::now())])),
+                nonce_reservations: Mutex::new(NonceReservations::default()),
                 http: HttpClient::builder()
                     .no_proxy()
                     .timeout(Duration::from_secs(5))
@@ -2248,7 +3947,7 @@ mod fee_quote_tests {
                 ss58_format: 42,
             };
             let probe = || {
-                let response = client.http.head(&client.endpoint).send().unwrap();
+                let response = client.http.head(client.endpoint()).send().unwrap();
                 assert_eq!(response.status().as_u16(), 200);
                 assert!(response.bytes().unwrap().is_empty());
             };
@@ -2551,6 +4250,7 @@ mod registered_signing_tests {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             listener.set_nonblocking(true).unwrap();
             let endpoint = format!("http://{}", listener.local_addr().unwrap());
+            let version = json!({"specVersion": runtime.spec_version, "transactionVersion": runtime.transaction_version, "specName": "test"});
             let server = thread::spawn(move || {
                 while !server_stop.load(Ordering::Relaxed) {
                     let (mut stream, _) = match listener.accept() {
@@ -2586,6 +4286,8 @@ mod registered_signing_tests {
                         PINNED_HASH
                     };
                     let result = match request["method"].as_str().unwrap() {
+                        "state_getRuntimeVersion" => version.clone(),
+                        "system_properties" => json!({}),
                         "chain_getFinalizedHead" => {
                             state.finalized_reads += 1;
                             json!(hex_prefixed(&hash))
@@ -2661,7 +4363,10 @@ mod registered_signing_tests {
             });
             Self {
                 client: Client {
-                    endpoint,
+                    endpoints: vec![endpoint],
+                    active_endpoint: RwLock::new(0),
+                    validated_endpoints: Mutex::new(HashMap::from([(0, Instant::now())])),
+                    nonce_reservations: Mutex::new(NonceReservations::default()),
                     http: HttpClient::builder()
                         .no_proxy()
                         .timeout(Duration::from_secs(5))
@@ -2731,7 +4436,19 @@ mod registered_signing_tests {
             tip_asset_id: None,
             genesis_hash: PINNED_HASH,
             era_block_hash: PINNED_HASH,
-            metadata_hash: None,
+            metadata_hash: Some(
+                metadata_digest(
+                    &runtime.metadata_bytes,
+                    &ChainInfo {
+                        spec_version: runtime.spec_version,
+                        spec_name: "test".into(),
+                        base58_prefix: 42,
+                        decimals: 9,
+                        token_symbol: "TAO".into(),
+                    },
+                )
+                .unwrap(),
+            ),
         };
         let (extra, additional) = runtime.signature_payload_parts(&params).unwrap();
         let mut payload = call.to_vec();
@@ -2923,7 +4640,11 @@ mod registered_signing_tests {
             )
             .unwrap();
         assert!(!result.success);
-        assert!(result.message.contains("not included"));
+        assert!(result.message.contains("not observed"));
+        assert_eq!(
+            result.data.get("submission_uncertain"),
+            Some(&Value::Bool(true))
+        );
         assert_eq!(result.extrinsic_hash, "inner");
         assert_eq!(result.fee_rao, Some(7));
         assert_eq!(result.data["carrier_extrinsic_hash"], Value::str("carrier"));
@@ -3122,6 +4843,8 @@ mod registered_signing_tests {
             let inner = node.decrypt(&ciphertext);
             let encoded_outer = node
                 .client
+                .runtime()
+                .unwrap()
                 .compose_call(
                     "MevShield",
                     "submit_encrypted",
@@ -3164,7 +4887,14 @@ mod registered_signing_tests {
             node.state.lock().unwrap().pending = true;
             let error = node
                 .client
-                .submit(&call, &signer, None, Some(DEFAULT_ERA_PERIOD), false)
+                .submit(
+                    &call,
+                    &signer,
+                    None,
+                    Some(DEFAULT_ERA_PERIOD),
+                    TxWait::Included,
+                    DEFAULT_RECEIPT_TIMEOUT,
+                )
                 .unwrap_err();
             assert!(error.to_string().contains("pending transaction"));
             node.state.lock().unwrap().pending = false;

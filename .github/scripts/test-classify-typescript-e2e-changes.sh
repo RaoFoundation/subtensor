@@ -5,7 +5,7 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
 classifier="$script_dir/classify-typescript-e2e-changes.sh"
 extractor="$script_dir/extract-pull-file-paths.sh"
-workflow="$script_dir/../workflows/typescript-e2e.yml"
+workflow="$script_dir/../workflows/bittensor-ts-e2e.yml"
 suite_registry="$repo_root/ts-tests/e2e-suite-ownership.json"
 scheduled_smoke_workflow="$repo_root/.github/workflows/scheduled-smoke-tests.yml"
 output=$(mktemp)
@@ -36,6 +36,17 @@ assert_value() {
 classify README.md
 assert_value e2e false
 assert_value topology_audit false
+
+for path in sdk/bittensor-ts/src/index.ts sdk/bittensor-core/src/client.rs sdk/bittensor-core-wasm/src/lib.rs; do
+  classify "$path"
+  assert_value e2e true
+  for suite in evm staking coldkey_swap dev subnets shield; do
+    assert_value "$suite" true
+  done
+done
+
+classify sdk/python/bittensor/client.py
+assert_value e2e false
 
 classify Cargo.lock
 assert_value e2e true
@@ -118,7 +129,7 @@ while IFS=$'\t' read -r suite selector; do
   assert_value "$selector" true
   if ! grep -Fq "steps.filter.outputs.$selector" "$workflow"; then
     echo "PR-owned TypeScript E2E selector is not wired into the workflow: $selector" >&2
-    echo "Fix: expose steps.filter.outputs.$selector to the planner in .github/workflows/typescript-e2e.yml." >&2
+    echo "Fix: expose steps.filter.outputs.$selector to the planner in .github/workflows/bittensor-ts-e2e.yml." >&2
     echo "Verify: .github/scripts/test-classify-typescript-e2e-changes.sh" >&2
     exit 1
   fi
@@ -177,7 +188,7 @@ for path in \
   ts-tests/configs/zombie_single_node.json \
   ts-tests/configs/zombie_extended.json \
   ts-tests/scripts/e2e-shard-plan.mjs \
-  .github/workflows/typescript-e2e.yml \
+  .github/workflows/bittensor-ts-e2e.yml \
   .github/actions/run-typescript-e2e/action.yml; do
   classify "$path"
   assert_value e2e true
@@ -275,8 +286,8 @@ fi
 grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.shield_matrix) }}' "$workflow"
 grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.fast_state_matrix) }}' "$workflow"
 grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.release_state_matrix) }}' "$workflow"
-grep -Fq 'needs: [trusted-pr, changes, build-fast]' "$workflow"
-grep -Fq 'needs: [trusted-pr, changes, build-release]' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, build-fast, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, build-release, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
 grep -Fq 'needs: [trusted-pr, changes, select-release-artifact]' "$workflow"
 grep -Fq 'needs: [trusted-pr, changes, build-fast, run-fast-e2e-tests, sharding-audit-fast]' "$workflow"
 grep -Fq 'needs: [trusted-pr, changes, build-release, run-shield-tests, sharding-audit-release]' "$workflow"
@@ -285,6 +296,38 @@ grep -Fq 'release_build: ${{ steps.lanes.outputs.release_build }}' "$workflow"
 grep -Fq 'name: Audit canonical unsharded ${{ matrix.test }}' "$workflow"
 grep -Fq 'EVM_SELECTED: ${{ needs.changes.outputs.evm }}' "$workflow"
 grep -Fq 'SHIELD_SELECTED: ${{ needs.changes.outputs.shield }}' "$workflow"
+# Hash-enabled lanes must wait for both their WASM and matching ordinary node,
+# without waiting for the other runtime variant or rebuilding native nodes.
+grep -Fq 'needs: [trusted-pr, changes, build-fast, build-fast-metadata-hash, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, build-release, build-release-metadata-hash, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
+for features in metadata-hash fast-runtime,metadata-hash; do
+  grep -Fq "run: cargo build --profile release --features $features -p node-subtensor-runtime" "$workflow"
+  if grep -Fxq "        run: cargo build --profile release --features $features -p node-subtensor" "$workflow"; then
+    echo "Metadata-hash lanes must reuse the matching node executable." >&2
+    exit 1
+  fi
+done
+e2e_action="$repo_root/.github/actions/run-typescript-e2e/action.yml"
+grep -Fq 'name: node-subtensor-${{ steps.artifacts.outputs.node }}' "$e2e_action"
+grep -Fq 'name: runtime-${{ inputs.binary }}' "$e2e_action"
+grep -Fq 'python3 .github/scripts/verify-base-node-runtime.py' "$e2e_action"
+# E2E workers must consume the prepared harness, not repeat checkout/install.
+python3 - "$workflow" "$e2e_action" <<'PYTEST'
+import pathlib
+import re
+import sys
+workflow = pathlib.Path(sys.argv[1]).read_text()
+action = pathlib.Path(sys.argv[2]).read_text()
+workers = re.findall(r"^  ((?:run-(?:fast|release|shield)[a-z0-9-]*tests|sharding-audit-(?:fast|release))):\n(.*?)(?=^  [a-z][a-z0-9-]*:|\Z)", workflow, re.M | re.S)
+assert len(workers) == 8, [name for name, _ in workers]
+for name, job in workers:
+    assert "prepare-typescript-e2e]" in job, name
+    assert "name: typescript-e2e-harness" in job, name
+    assert "actions/checkout@" not in job, name
+assert "npm ci" not in action
+assert "pnpm install" not in action
+assert "ts-tests/node_modules/.bin" in action
+PYTEST
 if grep -Eq '^  build:$' "$workflow"; then
   echo "TypeScript E2E consumers must not depend on a combined build matrix." >&2
   exit 1

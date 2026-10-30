@@ -34,6 +34,9 @@ async function assertPrecompileGasScaling(
         // block count: when GRANDPA lags best by more than 2 blocks, a fixed
         // wait ends before the fee deduction is in finalized state and the
         // balanceAfter < balanceBefore assertion sees identical balances.
+        if (receipt == null) {
+            throw new Error("precompile gas transaction did not produce a receipt");
+        }
         await waitUntilBlockFinalized(api, receipt.blockNumber);
 
         const balanceAfter = await getBalance(api, convertH160ToSS58(wallet.address));
@@ -67,6 +70,8 @@ describeSuite({
         beforeAll(async () => {
             api = context.papi("Node").getTypedApi(subtensor);
             const provider = context.ethers("EVM").provider as ethers.JsonRpcProvider;
+            // Match the local 100 ms block cadence instead of ethers' 4 s default.
+            provider.pollingInterval = 100;
             ethWallet = createEthersWallet(provider);
 
             await forceSetBalance(api, convertH160ToSS58(ethWallet.address));

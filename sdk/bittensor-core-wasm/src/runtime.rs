@@ -59,11 +59,17 @@ fn storage_entry_js(pallet: &str, info: &StorageInfo) -> Result<JsValue, JsValue
         "valueType",
         &JsValue::from_str(&format!("scale_info::{}", info.value_type)),
     )?;
+    set(&entry, "valueTypeId", &JsValue::from(info.value_type))?;
     set(
         &entry,
         "paramTypes",
         &string_array(info.key_types.iter().map(|id| format!("scale_info::{id}"))).into(),
     )?;
+    let param_type_ids = Array::new();
+    for id in &info.key_types {
+        param_type_ids.push(&JsValue::from(*id));
+    }
+    set(&entry, "paramTypeIds", &param_type_ids.into())?;
     set(&entry, "paramHashers", &string_array(&info.hashers).into())?;
     set(
         &entry,
@@ -117,6 +123,10 @@ impl Runtime {
 
 #[wasm_bindgen]
 impl Runtime {
+    #[wasm_bindgen(js_name = supportsMldsaProfile)]
+    pub fn supports_mldsa_profile(&self, profile: u8) -> bool {
+        self.inner.supports_mldsa_profile(profile)
+    }
     /// Parse a raw `MetadataVersioned` blob (magic `meta` + version byte +
     /// V14/V15 payload).
     #[wasm_bindgen(constructor)]
@@ -510,6 +520,66 @@ impl Runtime {
 
     /// Assemble the full signed extrinsic; returns `[bytes, hash]`.
     #[allow(clippy::too_many_arguments)]
+    #[wasm_bindgen(js_name = signerPayload)]
+    pub fn signer_payload(
+        &self,
+        address: &str,
+        call_data: &[u8],
+        era: &JsValue,
+        nonce: &JsValue,
+        tip: &JsValue,
+        tip_asset_id: &JsValue,
+        genesis_hash: &[u8],
+        era_block_hash: &[u8],
+        metadata_hash: Option<Vec<u8>>,
+    ) -> Result<JsValue, JsValue> {
+        let params = self.tx_params(
+            era,
+            nonce,
+            tip,
+            tip_asset_id,
+            genesis_hash,
+            era_block_hash,
+            metadata_hash,
+        )?;
+        let payload = self
+            .inner
+            .signer_payload(address, call_data, &params)
+            .map_err(to_js_err)?;
+        let object = Object::new();
+        for (name, value) in [
+            ("address", payload.address),
+            ("blockHash", payload.block_hash),
+            ("blockNumber", payload.block_number),
+            ("era", payload.era),
+            ("genesisHash", payload.genesis_hash),
+            ("method", payload.method),
+            ("nonce", payload.nonce),
+            ("specVersion", payload.spec_version),
+            ("tip", payload.tip),
+            ("transactionVersion", payload.transaction_version),
+        ] {
+            set(&object, name, &JsValue::from_str(&value))?;
+        }
+        set(&object, "version", &JsValue::from(payload.version))?;
+        set(
+            &object,
+            "signedExtensions",
+            &string_array(payload.signed_extensions).into(),
+        )?;
+        if let Some(value) = payload.asset_id {
+            set(&object, "assetId", &JsValue::from_str(&value))?;
+        }
+        if let Some(value) = payload.metadata_hash {
+            set(&object, "metadataHash", &JsValue::from_str(&value))?;
+        }
+        if let Some(value) = payload.mode {
+            set(&object, "mode", &JsValue::from(value))?;
+        }
+        Ok(object.into())
+    }
+
+    #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = encodeSignedExtrinsic)]
     pub fn encode_signed_extrinsic(
         &self,
@@ -580,11 +650,25 @@ impl Runtime {
                     inputs.push(&pair);
                 }
                 set(&entry, "inputs", &inputs.into())?;
+                let input_details = Array::new();
+                for param in &method.inputs {
+                    let detail = Object::new();
+                    set(&detail, "name", &JsValue::from_str(&param.name))?;
+                    set(&detail, "typeId", &JsValue::from(param.ty))?;
+                    set(
+                        &detail,
+                        "type",
+                        &JsValue::from_str(&format!("scale_info::{}", param.ty)),
+                    )?;
+                    input_details.push(&detail.into());
+                }
+                set(&entry, "inputDetails", &input_details.into())?;
                 set(
                     &entry,
                     "output",
                     &JsValue::from_str(&format!("scale_info::{}", method.output)),
                 )?;
+                set(&entry, "outputTypeId", &JsValue::from(method.output))?;
                 set(&entry, "docs", &string_array(&method.docs).into())?;
                 set(&methods, &method.name, &entry.into())?;
             }
@@ -620,22 +704,21 @@ impl Runtime {
                     for call in &variant.variants {
                         let call_entry = Object::new();
                         set(&call_entry, "name", &JsValue::from_str(&call.name))?;
+                        set(&call_entry, "index", &JsValue::from(call.index))?;
                         let args = Array::new();
+                        let arg_types = Array::new();
+                        let arg_type_ids = Array::new();
                         for field in &call.fields {
-                            let arg = Object::new();
-                            set(
-                                &arg,
-                                "name",
-                                &JsValue::from_str(field.name.as_deref().unwrap_or_default()),
-                            )?;
-                            set(
-                                &arg,
-                                "typeIdent",
-                                &JsValue::from_str(&self.inner.type_ident(field.ty.id)),
-                            )?;
-                            args.push(&arg.into());
+                            args.push(&JsValue::from_str(
+                                field.name.as_deref().unwrap_or_default(),
+                            ));
+                            arg_types
+                                .push(&JsValue::from_str(&format!("scale_info::{}", field.ty.id)));
+                            arg_type_ids.push(&JsValue::from(field.ty.id));
                         }
                         set(&call_entry, "args", &args.into())?;
+                        set(&call_entry, "argTypes", &arg_types.into())?;
+                        set(&call_entry, "argTypeIds", &arg_type_ids.into())?;
                         set(
                             &call_entry,
                             "docs",
@@ -667,14 +750,7 @@ impl Runtime {
             // Skip pseudo-entries like `:__STORAGE_VERSION__:`.
             let storage = Array::new();
             for item in pallet.storage.iter().filter(|s| !s.name.contains(':')) {
-                let storage_entry = Object::new();
-                set(&storage_entry, "name", &JsValue::from_str(&item.name))?;
-                set(
-                    &storage_entry,
-                    "valueTypeIdent",
-                    &JsValue::from_str(&self.inner.type_ident(item.value_type)),
-                )?;
-                storage.push(&storage_entry.into());
+                storage.push(&JsValue::from_str(&item.name));
             }
             set(&entry, "storage", &storage.into())?;
             let constants = string_array(pallet.constants.iter().map(|c| c.name.as_str()));
@@ -707,7 +783,11 @@ pub fn era_birth_js(period: &JsValue, current: &JsValue) -> Result<f64, JsValue>
 ///
 /// Takes raw 32-byte public keys; returns `[accountId, sortedPublicKeys]`.
 #[wasm_bindgen(js_name = multisigAccountId)]
-pub fn multisig_account_id_js(signatories: &Array, threshold: u16) -> Result<Array, JsValue> {
+pub fn multisig_account_id_js(
+    signatories: &Array,
+    threshold: u16,
+    safe: Option<bool>,
+) -> Result<Array, JsValue> {
     let mut keys = Vec::with_capacity(signatories.length() as usize);
     for (i, raw) in signatories.iter().enumerate() {
         let bytes: Uint8Array = raw.dyn_into().map_err(|_| {
@@ -724,7 +804,12 @@ pub fn multisig_account_id_js(signatories: &Array, threshold: u16) -> Result<Arr
         })?;
         keys.push(key);
     }
-    let (account, sorted) = multisig_account_id(&keys, threshold).map_err(to_js_err)?;
+    let (account, sorted) = if safe.unwrap_or(false) {
+        bittensor_core::codec::extrinsic::safe_multisig_account_id(&keys, threshold)
+    } else {
+        multisig_account_id(&keys, threshold)
+    }
+    .map_err(to_js_err)?;
     let sorted_js = Array::new();
     for key in &sorted {
         sorted_js.push(&Uint8Array::from(key.as_slice()).into());
