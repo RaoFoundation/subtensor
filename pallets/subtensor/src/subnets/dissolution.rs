@@ -436,6 +436,7 @@ impl<T: Config> Pallet<T> {
         LastEpochBlock::<T>::remove(netuid);
         PendingEpochAt::<T>::remove(netuid);
         SubnetEpochIndex::<T>::remove(netuid);
+        TimelockedCommitCleanupCursor::<T>::remove(netuid);
         TotalVotingPower::<T>::remove(netuid);
         VotingPowerTrackingEnabled::<T>::remove(netuid);
         VotingPowerDisableAtBlock::<T>::remove(netuid);

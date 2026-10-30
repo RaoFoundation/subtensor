@@ -2652,6 +2652,51 @@ fn alpha_sourced_child_take_does_not_dilute_root_validators() {
 }
 
 #[test]
+fn direct_root_child_take_preserves_nominators_and_settles_owner_collateral() {
+    for below_floor in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let netuid = add_dynamic_network(&U256::from(300), &U256::from(301));
+            let child = U256::from(31);
+            let owner = U256::from(32);
+            let nominator = U256::from(33);
+            Owner::<Test>::insert(child, owner);
+            // A zero hotkey take must not redirect childkey compensation into
+            // the child's nominators or an unclaimable root basket.
+            Delegates::<Test>::insert(child, PerU16::zero());
+            for coldkey in [owner, nominator] {
+                SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &child, &coldkey, netuid, 1_000_000u64.into(),
+                );
+            }
+            let locked = AlphaBalance::from(500_000u64);
+            let floor = if below_floor { 600_000u64.into() } else { AlphaBalance::ZERO };
+            MinerCollateral::<Test>::insert((netuid, child, owner), MinerCollateralState {
+                locked, min_locked: floor, earned: AlphaBalance::ZERO,
+                drain_ratio: U64F64::from_num(1),
+            });
+            ColdkeyMinerCollateral::<Test>::insert(netuid, owner, locked);
+
+            SubtensorModule::distribute_dividends_and_incentives_with_root_take(
+                netuid, AlphaBalance::ZERO, BTreeMap::new(), BTreeMap::new(), BTreeMap::new(),
+                BTreeMap::from([(child, U96F32::from_num(200_000))]),
+            );
+            assert_eq!(SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &child, &owner, netuid,
+            ), 1_200_000u64.into());
+            assert_eq!(SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &child, &nominator, netuid,
+            ), 1_000_000u64.into());
+            let expected_locked = if below_floor { 600_000u64 } else { 300_000u64 };
+            let state = MinerCollateral::<Test>::get((netuid, child, owner)).expect("collateral");
+            assert_eq!(state.locked, expected_locked.into());
+            assert_eq!(state.earned, 200_000u64.into());
+            assert_eq!(ColdkeyMinerCollateral::<Test>::get(netuid, owner), expected_locked.into());
+            assert!(!PendingBasketDeposits::<Test>::contains_key(child, netuid));
+        });
+    }
+}
+
+#[test]
 fn root_only_parent_rounding_does_not_give_stake_free_child_alpha() {
     new_test_ext(1).execute_with(|| {
         let netuid = add_dynamic_network(&U256::from(100), &U256::from(101));

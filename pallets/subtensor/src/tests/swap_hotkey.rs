@@ -18,6 +18,66 @@ use super::mock::*;
 use crate::*;
 
 #[test]
+fn hotkey_swap_and_reregistration_cannot_revive_timelocked_commits() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let other = NetUid::from(2);
+        let old = U256::from(10);
+        let new = U256::from(11);
+        let owner = U256::from(12);
+        add_network(netuid, 360, 0);
+        add_network(other, 360, 0);
+        register_ok_neuron(netuid, old, owner, 0);
+        register_ok_neuron(other, old, owner, 0);
+        add_balance_to_coldkey_account(&owner, 1_000_000_000_000u64.into());
+        SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
+        SubtensorModule::set_weights_set_rate_limit(netuid, 0);
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, 1));
+        assert_ok!(SubtensorModule::do_commit_timelocked_weights(
+            RuntimeOrigin::signed(old),
+            netuid,
+            vec![1; 5].try_into().unwrap(),
+            1_000,
+            SubtensorModule::get_commit_reveal_weights_version(),
+        ));
+        let epoch = SubtensorModule::current_epoch_with_lookahead(netuid);
+        System::set_block_number(2);
+        assert_ok!(SubtensorModule::swap_hotkey_v2(
+            RuntimeOrigin::signed(owner),
+            old,
+            new,
+            Some(netuid),
+            false,
+        ));
+        assert!(SubtensorModule::is_hotkey_registered_on_network(
+            netuid, &new
+        ));
+        assert!(SubtensorModule::is_hotkey_registered_on_network(
+            other, &old
+        ));
+        assert!(!TimelockedCommitInvalidatedAt::<Test>::contains_key(
+            other, old
+        ));
+        System::set_block_number(3);
+        register_ok_neuron(netuid, old, owner, 0);
+        SubnetEpochIndex::<Test>::insert(netuid, epoch + 1);
+        LastEpochBlock::<Test>::insert(netuid, 3);
+        assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
+        assert!(
+            TimelockedWeightCommits::<Test>::get(NetUidStorageIndex::from(netuid), epoch)
+                .is_empty()
+        );
+        assert_ok!(SubtensorModule::do_commit_timelocked_weights(
+            RuntimeOrigin::signed(old),
+            netuid,
+            vec![2; 5].try_into().unwrap(),
+            1_001,
+            SubtensorModule::get_commit_reveal_weights_version(),
+        ));
+    });
+}
+
+#[test]
 fn subnet_swaps_rename_a_delegators_only_staking_hotkey() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(900);

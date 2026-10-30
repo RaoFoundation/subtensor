@@ -2867,7 +2867,8 @@ fn dissolve_clears_all_mechanism_scoped_maps_for_all_mechanisms() {
             2u64,
             VecDeque::from([(hotkey, 2u64, Default::default(), Default::default())]),
         );
-        TimelockedCommitInvalidatedAt::<Test>::insert(net, hotkey, 2);
+        TimelockedCommitInvalidatedAt::<Test>::insert(net, hotkey, (2, 0));
+        TimelockedCommitCleanupCursor::<Test>::insert(net, vec![1]);
 
         // --- Incentive (MAP: netuid_index -> Vec<u16>)
         Incentive::<Test>::insert(idx0, vec![PerU16::from_parts(1), PerU16::from_parts(2)]);
@@ -2927,6 +2928,7 @@ fn dissolve_clears_all_mechanism_scoped_maps_for_all_mechanisms() {
         assert!(!TimelockedCommitInvalidatedAt::<Test>::contains_key(
             net, hotkey
         ));
+        assert!(!TimelockedCommitCleanupCursor::<Test>::contains_key(net));
 
         // Single-map per-mechanism vectors cleared.
         assert!(!Incentive::<Test>::contains_key(idx0));

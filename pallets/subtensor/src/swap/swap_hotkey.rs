@@ -1000,6 +1000,17 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // Timelocked payloads retain the old signing hotkey in their ciphertext;
+        // they cannot follow the UID. Prevent them from reviving if that key
+        // registers again. Manual commits have already moved to the new key.
+        if is_network_member {
+            Self::invalidate_weight_commits_for_hotkey(
+                netuid,
+                old_hotkey,
+                Self::get_current_block_as_u64(),
+            );
+        }
+
         // 3.6. Swap the subnet loaded emission.
         // LoadedEmission( netuid ) --> Vec<(hotkey, u64)> -- the loaded emission for the subnet.
         if is_network_member && let Some(mut old_loaded_emission) = LoadedEmission::<T>::get(netuid)

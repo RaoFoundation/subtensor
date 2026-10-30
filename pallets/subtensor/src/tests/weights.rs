@@ -5233,7 +5233,7 @@ fn timelocked_commit_must_follow_latest_registration_invalidation() {
         register_ok_neuron(netuid, hotkey, U256::from(2), 0);
         SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
         SubtensorModule::set_weights_set_rate_limit(netuid, 0);
-        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, 10);
+        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, (10, 0));
         let commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>> =
             vec![1u8; 5].try_into().expect("bounded commit");
         assert_noop!(
@@ -5278,7 +5278,7 @@ fn reveal_discards_timelocked_commit_from_previous_registration() {
             reveal_epoch,
             VecDeque::from([(hotkey, 5, Default::default(), 1_000)]),
         );
-        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, 10);
+        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, (10, reveal_epoch));
         assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
 
         assert!(TimelockedWeightCommits::<Test>::get(index, reveal_epoch).is_empty());
@@ -5293,13 +5293,193 @@ fn expired_registration_invalidation_is_removed_lazily() {
         add_network(netuid, 5, 0);
         register_ok_neuron(netuid, hotkey, U256::from(2), 0);
         assert_ok!(SubtensorModule::set_reveal_period(netuid, 1));
-        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, 10);
+        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, (10, 0));
+        SubnetEpochIndex::<Test>::insert(netuid, MAX_COMMIT_REVEAL_PEROIDS + 1);
 
         assert!(SubtensorModule::timelocked_commit_is_current(
             netuid, &hotkey, 100
         ));
         assert!(!TimelockedCommitInvalidatedAt::<Test>::contains_key(
             netuid, hotkey
+        ));
+    });
+}
+
+#[test]
+fn tempo_reduction_cannot_revive_a_previous_registration_commit() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        let coldkey = U256::from(2);
+        let index = NetUidStorageIndex::from(netuid);
+        add_network(netuid, 5_000, 0);
+        SubnetOwner::<Test>::insert(netuid, coldkey);
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+        SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, 1));
+        SubtensorModule::set_weights_set_rate_limit(netuid, 0);
+        assert_ok!(SubtensorModule::do_commit_timelocked_weights(
+            RuntimeOrigin::signed(hotkey),
+            netuid,
+            vec![1; 5].try_into().expect("bounded"),
+            1_000,
+            SubtensorModule::get_commit_reveal_weights_version(),
+        ));
+        let commit_epoch = SubtensorModule::current_epoch_with_lookahead(netuid);
+        System::set_block_number(2);
+        SubtensorModule::replace_neuron(netuid, 0, &U256::from(3), 2);
+        System::set_block_number(3);
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+
+        // No epoch has passed under the old tempo. A permitted reduction resets
+        // the scheduler, but must not retroactively expire the registration cutoff.
+        System::set_block_number(1_000);
+        assert_ok!(SubtensorModule::do_set_tempo(
+            RuntimeOrigin::signed(coldkey),
+            netuid,
+            MIN_TEMPO
+        ));
+        assert!(!SubtensorModule::timelocked_commit_is_current(
+            netuid, &hotkey, 1
+        ));
+        SubnetEpochIndex::<Test>::insert(netuid, commit_epoch + 1);
+        assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
+        assert!(TimelockedWeightCommits::<Test>::get(index, commit_epoch).is_empty());
+    });
+}
+
+#[test]
+fn registration_cutoff_survives_reveal_period_changes_and_same_block_commits() {
+    new_test_ext(10).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        let index = NetUidStorageIndex::from(netuid);
+        add_network(netuid, MIN_TEMPO, 0);
+        register_ok_neuron(netuid, hotkey, U256::from(2), 0);
+        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, (10, 0));
+        LastEpochBlock::<Test>::insert(netuid, 10);
+        PendingEpochAt::<Test>::insert(netuid, 0);
+        // Even with a short current period, keep the cutoff until no permitted
+        // increase can make an old queue eligible again.
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, 1));
+        SubnetEpochIndex::<Test>::insert(netuid, 2);
+        assert!(!SubtensorModule::timelocked_commit_is_current(
+            netuid, &hotkey, 10
+        ));
+        assert!(SubtensorModule::timelocked_commit_is_current(
+            netuid, &hotkey, 11
+        ));
+        assert_ok!(SubtensorModule::set_reveal_period(
+            netuid,
+            MAX_COMMIT_REVEAL_PEROIDS
+        ));
+        SubnetEpochIndex::<Test>::insert(netuid, MAX_COMMIT_REVEAL_PEROIDS);
+        TimelockedWeightCommits::<Test>::insert(
+            index,
+            0,
+            VecDeque::from([(hotkey, 10, Default::default(), 1_000)]),
+        );
+        assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
+        assert!(TimelockedWeightCommits::<Test>::get(index, 0).is_empty());
+        assert!(TimelockedCommitInvalidatedAt::<Test>::contains_key(
+            netuid, hotkey
+        ));
+        SubnetEpochIndex::<Test>::insert(netuid, MAX_COMMIT_REVEAL_PEROIDS + 1);
+        assert!(SubtensorModule::timelocked_commit_is_current(
+            netuid, &hotkey, 11
+        ));
+        assert!(!TimelockedCommitInvalidatedAt::<Test>::contains_key(
+            netuid, hotkey
+        ));
+    });
+}
+
+#[test]
+fn deferred_epoch_lookahead_cannot_retire_a_registration_cutoff() {
+    new_test_ext(1_000).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        add_network(netuid, MIN_TEMPO, 0);
+        register_ok_neuron(netuid, hotkey, U256::from(2), 0);
+        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, (10, 0));
+        SubnetEpochIndex::<Test>::insert(netuid, MAX_COMMIT_REVEAL_PEROIDS);
+        LastEpochBlock::<Test>::insert(netuid, 0);
+        assert_eq!(
+            SubtensorModule::current_epoch_with_lookahead(netuid),
+            MAX_COMMIT_REVEAL_PEROIDS + 1
+        );
+        assert!(!SubtensorModule::timelocked_commit_is_current(
+            netuid, &hotkey, 5
+        ));
+        assert!(TimelockedCommitInvalidatedAt::<Test>::contains_key(
+            netuid, hotkey
+        ));
+        SubtensorModule::apply_tempo_with_cycle_reset(netuid, MIN_TEMPO);
+        assert!(!SubtensorModule::timelocked_commit_is_current(
+            netuid, &hotkey, 5
+        ));
+    });
+}
+
+#[test]
+fn dormant_registration_cutoffs_are_cleaned_without_reusing_hotkeys() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let other = NetUid::from(2);
+        add_network(netuid, MIN_TEMPO, 0);
+        SubnetEpochIndex::<Test>::insert(netuid, MAX_COMMIT_REVEAL_PEROIDS + 1);
+        LastEpochBlock::<Test>::insert(netuid, 1);
+        for hotkey in 0..130 {
+            TimelockedCommitInvalidatedAt::<Test>::insert(netuid, U256::from(hotkey), (1, 0));
+        }
+        let live = U256::from(200);
+        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, live, (1, MAX_COMMIT_REVEAL_PEROIDS));
+        TimelockedCommitInvalidatedAt::<Test>::insert(other, live, (1, 0));
+        for pass in 0..3 {
+            assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
+            if pass == 0 {
+                assert!(TimelockedCommitCleanupCursor::<Test>::contains_key(netuid));
+                assert!(TimelockedCommitInvalidatedAt::<Test>::iter_prefix(netuid).count() > 1);
+            }
+        }
+        assert_eq!(
+            TimelockedCommitInvalidatedAt::<Test>::iter_prefix(netuid).count(),
+            1
+        );
+        assert!(TimelockedCommitInvalidatedAt::<Test>::contains_key(
+            netuid, live
+        ));
+        assert!(TimelockedCommitInvalidatedAt::<Test>::contains_key(
+            other, live
+        ));
+        assert!(!TimelockedCommitCleanupCursor::<Test>::contains_key(netuid));
+        SubnetEpochIndex::<Test>::insert(netuid, MAX_COMMIT_REVEAL_PEROIDS * 2 + 1);
+        assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
+        assert!(
+            TimelockedCommitInvalidatedAt::<Test>::iter_prefix(netuid)
+                .next()
+                .is_none()
+        );
+    });
+}
+
+#[test]
+fn root_commit_invalidation_does_not_create_an_unretirable_cutoff() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1);
+        WeightCommits::<Test>::insert(
+            NetUidStorageIndex::from(NetUid::ROOT),
+            hotkey,
+            VecDeque::from([(H256::repeat_byte(1), 0, 1, 0)]),
+        );
+        SubtensorModule::invalidate_weight_commits_for_hotkey(NetUid::ROOT, &hotkey, 1);
+        assert!(!WeightCommits::<Test>::contains_key(
+            NetUidStorageIndex::from(NetUid::ROOT),
+            hotkey
+        ));
+        assert!(!TimelockedCommitInvalidatedAt::<Test>::contains_key(
+            NetUid::ROOT,
+            hotkey
         ));
     });
 }

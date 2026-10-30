@@ -333,6 +333,8 @@ impl NoNestingCallFilter {
                         pending.extend(calls.iter().map(|call| (call, true)));
                     }
                     pallet_utility::Call::as_derivative { call, .. }
+                    | pallet_utility::Call::as_safe_derivative { call, .. }
+                    | pallet_utility::Call::as_protected_derivative { call, .. }
                     | pallet_utility::Call::dispatch_as { call, .. }
                     | pallet_utility::Call::with_weight { call, .. }
                     | pallet_utility::Call::dispatch_as_fallible { call, .. } => {
@@ -350,7 +352,9 @@ impl NoNestingCallFilter {
                 ) => pending.push((call, inside_batch)),
                 RuntimeCall::Multisig(
                     pallet_multisig::Call::as_multi_threshold_1 { call, .. }
-                    | pallet_multisig::Call::as_multi { call, .. },
+                    | pallet_multisig::Call::as_multi { call, .. }
+                    | pallet_multisig::Call::as_multi_threshold_1_safe { call, .. }
+                    | pallet_multisig::Call::as_multi_safe { call, .. },
                 ) => pending.push((call, inside_batch)),
                 RuntimeCall::Sudo(
                     pallet_sudo::Call::sudo { call }

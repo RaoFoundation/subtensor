@@ -41,29 +41,58 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().reads_writes(3, 1))
     }
 
-    /// A cutoff only needs to survive while a pre-replacement commit could still
-    /// occupy a reveal queue. The extra epoch covers the remainder of the commit
-    /// epoch and the `tempo + 1` factor matches the longest epoch spacing.
-    fn timelocked_invalidation_is_expired(netuid: NetUid, invalidated_at: u64, now: u64) -> bool {
-        let epochs = Self::get_reveal_period(netuid).saturating_add(1);
-        let epoch_blocks = u64::from(Self::get_tempo(netuid)).saturating_add(1);
-        now > invalidated_at.saturating_add(epochs.saturating_mul(epoch_blocks))
-    }
-
     pub(crate) fn timelocked_commit_is_current(
         netuid: NetUid,
         who: &T::AccountId,
         commit_block: u64,
     ) -> bool {
-        let Some(invalidated_at) = TimelockedCommitInvalidatedAt::<T>::get(netuid, who) else {
+        let Some((invalidated_at, invalidated_epoch)) =
+            TimelockedCommitInvalidatedAt::<T>::get(netuid, who)
+        else {
             return Self::is_hotkey_registered_on_network(netuid, who);
         };
-        let now = Self::get_current_block_as_u64();
-        if Self::timelocked_invalidation_is_expired(netuid, invalidated_at, now) {
+        // Queue keys use the monotonic epoch counter, not elapsed blocks. Retain
+        // the cutoff through the largest permitted reveal delay, including any
+        // future increase: no queue from this registration can reveal after it.
+        // Use only consumed epochs: a deferred fire-block's look-ahead can be
+        // cancelled by a tempo reset before its queues are processed.
+        if SubnetEpochIndex::<T>::get(netuid)
+            > invalidated_epoch.saturating_add(MAX_COMMIT_REVEAL_PEROIDS)
+        {
             TimelockedCommitInvalidatedAt::<T>::remove(netuid, who);
             return Self::is_hotkey_registered_on_network(netuid, who);
         }
         Self::is_hotkey_registered_on_network(netuid, who) && commit_block > invalidated_at
+    }
+
+    /// Retire dormant keys as well as those reached by a new commit or reveal.
+    /// A cursor ensures live cutoffs at the start of the prefix cannot starve
+    /// expired entries further along it. Each pass visits at most 64 rows.
+    pub(crate) fn cleanup_timelocked_registration_cutoffs(netuid: NetUid) {
+        const ROWS_PER_PASS: usize = 64;
+        let epoch = SubnetEpochIndex::<T>::get(netuid);
+        let entries = match TimelockedCommitCleanupCursor::<T>::get(netuid) {
+            Some(cursor) => TimelockedCommitInvalidatedAt::<T>::iter_prefix_from(netuid, cursor),
+            None => TimelockedCommitInvalidatedAt::<T>::iter_prefix(netuid),
+        }
+        .take(ROWS_PER_PASS)
+        .collect::<Vec<_>>();
+        let next = if entries.len() == ROWS_PER_PASS {
+            entries.last().map(|(hotkey, _)| {
+                TimelockedCommitInvalidatedAt::<T>::hashed_key_for(netuid, hotkey)
+            })
+        } else {
+            None
+        };
+        for (hotkey, (_, invalidated_epoch)) in entries {
+            if epoch > invalidated_epoch.saturating_add(MAX_COMMIT_REVEAL_PEROIDS) {
+                TimelockedCommitInvalidatedAt::<T>::remove(netuid, hotkey);
+            }
+        }
+        match next {
+            Some(cursor) => TimelockedCommitCleanupCursor::<T>::insert(netuid, cursor),
+            None => TimelockedCommitCleanupCursor::<T>::remove(netuid),
+        }
     }
 
     /// Pre-dispatch weight of `batch_set_weights`: the batch overhead plus one full

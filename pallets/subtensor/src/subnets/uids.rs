@@ -15,7 +15,7 @@ impl<T: Config> Pallet<T> {
     /// commits are shared per epoch, so scanning and rewriting those queues here
     /// would make registration cost depend on every validator's pending payloads.
     /// Record a constant-cost cutoff instead; reveal drops entries at or before it.
-    fn invalidate_weight_commits_for_hotkey(
+    pub(crate) fn invalidate_weight_commits_for_hotkey(
         netuid: NetUid,
         hotkey: &T::AccountId,
         block_number: u64,
@@ -24,7 +24,16 @@ impl<T: Config> Pallet<T> {
             let index = Self::get_mechanism_storage_index(netuid, mecid.into());
             WeightCommits::<T>::remove(index, hotkey);
         }
-        TimelockedCommitInvalidatedAt::<T>::insert(netuid, hotkey, block_number);
+        // Root never runs the subnet timelocked reveal path, so no root queue
+        // can replay an old registration and no cutoff needs to be retained.
+        if netuid.is_root() {
+            return;
+        }
+        TimelockedCommitInvalidatedAt::<T>::insert(
+            netuid,
+            hotkey,
+            (block_number, Self::current_epoch_with_lookahead(netuid)),
+        );
     }
 
     /// Worst-case storage charge for commit invalidation during UID replacement.
@@ -376,6 +385,11 @@ impl<T: Config> Pallet<T> {
                     // Remove hotkey related storage items if hotkey exists
                     if let Ok(hotkey) = Keys::<T>::try_get(netuid, neuron_uid) {
                         T::CommitmentsInterface::purge_neuron(netuid, &hotkey);
+                        Self::invalidate_weight_commits_for_hotkey(
+                            netuid,
+                            &hotkey,
+                            Self::get_current_block_as_u64(),
+                        );
 
                         // Same root-churn finalization as `replace_neuron`: deposit while
                         // still on root, then recycle leftover dust after membership drops.
@@ -557,6 +571,15 @@ impl<T: Config> Pallet<T> {
                 }
 
                 // Swap uid specific storage items to new compressed positions
+                // Pending payloads refer to the pre-compaction UID layout. Cancel
+                // them for surviving validators too, even if their own UID stays
+                // fixed: a recipient UID may now belong to a different hotkey.
+                let hotkey = Keys::<T>::get(netuid, old_neuron_uid);
+                Self::invalidate_weight_commits_for_hotkey(
+                    netuid,
+                    &hotkey,
+                    Self::get_current_block_as_u64(),
+                );
                 Keys::<T>::swap(netuid, old_neuron_uid, netuid, new_neuron_uid);
                 AssociatedEvmAddress::<T>::swap(netuid, old_neuron_uid, netuid, new_neuron_uid);
                 BlockAtRegistration::<T>::swap(netuid, old_neuron_uid, netuid, new_neuron_uid);

@@ -3210,12 +3210,17 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// Last block at which a hotkey's registration on a subnet was replaced.
+    /// Last (block, epoch) at which a hotkey's registration was invalidated.
     /// Timelocked commits at or before this block belong to the old registration
     /// and are discarded by the reveal path. Expired cutoffs are removed lazily.
     #[pallet::storage]
     pub type TimelockedCommitInvalidatedAt<T: Config> =
-        StorageDoubleMap<_, Identity, NetUid, Twox64Concat, T::AccountId, u64, OptionQuery>;
+        StorageDoubleMap<_, Identity, NetUid, Twox64Concat, T::AccountId, (u64, u64), OptionQuery>;
+
+    /// Raw-key cursor for gradual retirement of dormant registration cutoffs.
+    #[pallet::storage]
+    pub type TimelockedCommitCleanupCursor<T: Config> =
+        StorageMap<_, Identity, NetUid, Vec<u8>, OptionQuery>;
 
     /// MAP (netuid, epoch) → VecDeque<(who, ciphertext, reveal_round)>
     /// Deprecated: superseded by `CRV3WeightCommitsV2`.
