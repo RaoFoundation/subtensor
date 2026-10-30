@@ -1,0 +1,65 @@
+{
+  "note": "M(\u03c6)=1/(1-\u03c6) from lift alone (reserves \u00d7(1-\u03c6), spot unchanged). Markers are Cap_short/y. Empirical M is fractional spot impact of a 0.1%\u00b7y fee-free buy on the lifted book over the same buy on the unlifted book.",
+  "subnets": [
+    {
+      "netuid": 29,
+      "name": "hotfloat",
+      "y": 7898.541706,
+      "thin": false,
+      "phi_max_short": 0.16499999999999998,
+      "Cap_short": 1303.25938149,
+      "M_theory_at_cap": 1.1976047904191618,
+      "M_emp_mid": 1.0899672334161543,
+      "M_emp_cap": 1.1977230575065638,
+      "trade_tao": 7.8985417060000005
+    },
+    {
+      "netuid": 64,
+      "name": "Chutes",
+      "y": 200195.554717456,
+      "thin": false,
+      "phi_max_short": 0.25,
+      "Cap_short": 50048.888679364,
+      "M_theory_at_cap": 1.3333333333333333,
+      "M_emp_mid": 1.1429387347128055,
+      "M_emp_cap": 1.3335554444960163,
+      "trade_tao": 200.195554717456
+    },
+    {
+      "netuid": 51,
+      "name": "lium.io",
+      "y": 192399.387580989,
+      "thin": false,
+      "phi_max_short": 0.25,
+      "Cap_short": 48099.84689524725,
+      "M_theory_at_cap": 1.3333333333333333,
+      "M_emp_mid": 1.142938734711251,
+      "M_emp_cap": 1.3335554444916589,
+      "trade_tao": 192.39938758098899
+    },
+    {
+      "netuid": 4,
+      "name": "Targon",
+      "y": 141667.3524437,
+      "thin": false,
+      "phi_max_short": 0.25,
+      "Cap_short": 35416.838110925,
+      "M_theory_at_cap": 1.3333333333333333,
+      "M_emp_mid": 1.142938734712488,
+      "M_emp_cap": 1.3335554444952944,
+      "trade_tao": 141.6673524437
+    },
+    {
+      "netuid": 119,
+      "name": "CapabilityForge Next",
+      "y": 2990.552978757,
+      "thin": true,
+      "phi_max_short": 0.075,
+      "Cap_short": 224.29147340677497,
+      "M_theory_at_cap": 1.081081081081081,
+      "M_emp_mid": 1.0389812683470863,
+      "M_emp_cap": 1.0811248867895609,
+      "trade_tao": 2.990552978757
+    }
+  ]
+}

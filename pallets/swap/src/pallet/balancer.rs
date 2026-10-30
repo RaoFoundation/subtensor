@@ -399,6 +399,98 @@ impl Balancer {
             .saturating_mul(e.saturating_sub(one))
             .saturating_to_num::<u64>()
     }
+
+    /// Threshold quote (TAO) reserve depth such that a fee-free buy of `ref_tao`
+    /// moves spot price by exactly `move_bps` basis points:
+    ///
+    ///   `y* = ref / ((1 + move_bps/10_000)^{w_b} - 1)`
+    ///
+    /// Uses the same `SafeInt::pow_ratio_scaled` path as [`Self::calculate_quote_delta_in`].
+    /// Returns `u64::MAX` when the move is zero or the exponentiation is undefined.
+    pub fn buy_depth_threshold(&self, ref_tao: u64, move_bps: u16) -> u64 {
+        if ref_tao == 0 || move_bps == 0 {
+            return u64::MAX;
+        }
+
+        let base_numerator: u128 = 10_000u128.saturating_add(u128::from(move_bps));
+        let base_denominator: u128 = 10_000u128;
+        let w1_fixed: u128 = self.get_base_weight().deconstruct() as u128;
+        let scale: u128 = 10u128.pow(18);
+
+        let maybe_exp_result = SafeInt::pow_ratio_scaled(
+            &SafeInt::from(base_numerator),
+            &SafeInt::from(base_denominator),
+            &SafeInt::from(w1_fixed),
+            &SafeInt::from(ACCURACY),
+            1024,
+            &SafeInt::from(scale),
+        );
+
+        let Some(exp_result_safe_int) = maybe_exp_result else {
+            return u64::MAX;
+        };
+
+        let one = U64F64::saturating_from_num(1);
+        let scale_fixed = U64F64::saturating_from_num(scale);
+        let exp_result_fixed = if let Some(exp_result_u64) = exp_result_safe_int.to_u64() {
+            U64F64::saturating_from_num(exp_result_u64)
+        } else if u64::MAX < exp_result_safe_int {
+            U64F64::saturating_from_num(u64::MAX)
+        } else {
+            return u64::MAX;
+        };
+
+        let factor = exp_result_fixed.safe_div(scale_fixed).saturating_sub(one);
+        if factor == U64F64::saturating_from_num(0) {
+            return u64::MAX;
+        }
+
+        U64F64::saturating_from_num(ref_tao)
+            .safe_div(factor)
+            .saturating_to_num::<u64>()
+    }
+
+    /// Fee-free sell quote on a hypothetical pool: TAO out for selling `delta_alpha`.
+    ///
+    ///   `∆y = y · (1 − (x / (x+∆x))^(w_b/w_q))`
+    pub fn quote_sell_on(
+        tao_reserve: u64,
+        alpha_reserve: u64,
+        quote_weight: Perquintill,
+        delta_alpha: u64,
+    ) -> Result<u64, BalancerError> {
+        let bal = Self::new(quote_weight)?;
+        if delta_alpha == 0 || tao_reserve == 0 || alpha_reserve == 0 {
+            return Ok(0);
+        }
+        let e = bal.exp_base_quote(alpha_reserve, delta_alpha);
+        let one = U64F64::from_num(1);
+        let tao_reserve_fixed = U64F64::from_num(tao_reserve);
+        Ok(tao_reserve_fixed
+            .saturating_mul(one.saturating_sub(e))
+            .saturating_to_num::<u64>())
+    }
+
+    /// Fee-free buy quote on a hypothetical pool: alpha out for buying with `delta_tao`.
+    ///
+    ///   `∆x = x · (1 − (y / (y+∆y))^(w_q/w_b))`
+    pub fn quote_buy_on(
+        tao_reserve: u64,
+        alpha_reserve: u64,
+        quote_weight: Perquintill,
+        delta_tao: u64,
+    ) -> Result<u64, BalancerError> {
+        let bal = Self::new(quote_weight)?;
+        if delta_tao == 0 || tao_reserve == 0 || alpha_reserve == 0 {
+            return Ok(0);
+        }
+        let e = bal.exp_quote_base(tao_reserve, delta_tao);
+        let one = U64F64::from_num(1);
+        let alpha_reserve_fixed = U64F64::from_num(alpha_reserve);
+        Ok(alpha_reserve_fixed
+            .saturating_mul(one.saturating_sub(e))
+            .saturating_to_num::<u64>())
+    }
 }
 
 // cargo test --package pallet-subtensor-swap --lib -- pallet::balancer::tests --nocapture
@@ -1030,6 +1122,38 @@ mod tests {
             * ((target_price.to_num::<f64>() / current_price.to_num::<f64>()).powf(0.75) - 1.0);
 
         assert_eq!(dy, dy_expected as u64,);
+    }
+
+    #[test]
+    fn test_buy_depth_threshold_equal_weights() {
+        // Spec §2.2: at w_b = 0.5, y* = 1000 / (1.10^0.5 - 1) ≈ 20_488 τ.
+        let bal = Balancer::new(Perquintill::from_rational(1u128, 2u128)).unwrap();
+        let y_star = bal.buy_depth_threshold(1_000, 1_000);
+        let expected = 1_000.0 / (1.10f64.powf(0.5) - 1.0);
+        assert!(
+            (y_star as f64 - expected).abs() < 2.0,
+            "y*={y_star}, expected≈{expected}"
+        );
+    }
+
+    #[test]
+    fn test_quote_sell_and_buy_on_match_convert_deltas() {
+        let w_quote = Perquintill::from_rational(1u128, 2u128);
+        let bal = Balancer::new(w_quote).unwrap();
+        let x = 1_000_000_000u64;
+        let y = 2_000_000_000u64;
+        let dx = 10_000_000u64;
+        let dy = 20_000_000u64;
+
+        let sell = Balancer::quote_sell_on(y, x, w_quote, dx).unwrap();
+        let e_sell = bal.exp_base_quote(x, dx);
+        let sell_expected = (y as f64) * (1.0 - e_sell.to_num::<f64>());
+        assert!((sell as f64 - sell_expected).abs() < 2.0);
+
+        let buy = Balancer::quote_buy_on(y, x, w_quote, dy).unwrap();
+        let e_buy = bal.exp_quote_base(y, dy);
+        let buy_expected = (x as f64) * (1.0 - e_buy.to_num::<f64>());
+        assert!((buy as f64 - buy_expected).abs() < 2.0);
     }
 
     #[test]

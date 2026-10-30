@@ -185,3 +185,14 @@ class LimitOrders:
     PalletId = Item('LimitOrders', 'PalletId')
     PalletHotkey = Item('LimitOrders', 'PalletHotkey')
     LinkedOutputTtl = Item('LimitOrders', 'LinkedOutputTtl')
+
+class Lending:
+    PalletId = Item('Lending', 'PalletId')
+    MinimumLoanValue = Item('Lending', 'MinimumLoanValue')
+    InterestPeriod = Item('Lending', 'InterestPeriod')
+    BlocksPerYear = Item('Lending', 'BlocksPerYear')
+    ReferenceWarmup = Item('Lending', 'ReferenceWarmup')
+    MaxPositionsPerSubnet = Item('Lending', 'MaxPositionsPerSubnet')
+    MaxTotalPositions = Item('Lending', 'MaxTotalPositions')
+    ExpiryRetryDelay = Item('Lending', 'ExpiryRetryDelay')
+    InterestRetryDelay = Item('Lending', 'InterestRetryDelay')

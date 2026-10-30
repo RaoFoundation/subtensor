@@ -1,0 +1,449 @@
+% No-arbitrage for lift lending -- shogting cycle, fresh-fork base case.
+% PR #3268 companion. Addresses μ review of 8c746c99b.
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{microtype}
+
+\title{No-arbitrage for lift lending\\
+\large The shogting cycle from pallet math}
+\author{Subtensor lending (PR \#3268)\\
+Working note --- μ review response}
+\date{2026-10-29}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newtheorem{corollary}{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{cycle}{Cycle}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We analyse the \textbf{shogting cycle}
+(open short $\to$ stake/pump $\to$ close $\to$ unstake)
+from implemented pallet math. The lift fraction is $\varphi$ (not a
+fee); the swap fee is a separate $\varepsilon$. The base case uses
+\textbf{fresh} Finney SN29 reserves and weights at the lending-clone
+fork block, where $w_q=\tfrac12$. Contaminated clone runs that started
+from post-drain $w_q\approx 0.47$ are appendix-only. We give closed-form
+attacker ROI for the unfixed (weight-updating) and fixed
+(keep-weights) readd, plot ROI against
+$h=\mathrm{budget}/y$ on a log axis, and state how the derivation
+relates to $\mu$'s September~2026 factor $F$.
+\end{abstract}
+
+\tableofcontents
+
+%----------------------------------------------------------------------
+\section{Notation}
+\label{sec:notation}
+
+\begin{definition}[Shogting cycle]
+\label{def:shogting}
+The \textbf{shogting cycle} is the single-wallet TAO-pure sequence
+\[
+  \textbf{open short}
+  \;\to\;
+  \textbf{stake / pump}
+  \;\to\;
+  \textbf{close}
+  \;\to\;
+  \textbf{unstake}.
+\]
+The attacker starts with TAO budget $V=h\,y$ where
+$h=\mathrm{budget}/\texttt{tao\_in}$ and $y=\texttt{SubnetTAO}$.
+All residual alpha is unwound; the terminal book is pure TAO.
+This is the only named cycle in this note.
+\end{definition}
+
+All other symbols are from the live pallet / swap code.
+
+\begin{center}
+\begin{tabular}{@{}llp{0.52\textwidth}@{}}
+\toprule
+Symbol & Unit & Meaning \\
+\midrule
+$x$ & $\alpha$ & \texttt{SubnetAlphaIn} \\
+$y$ & $\tau$ & \texttt{SubnetTAO} \\
+$w_b,w_q$ & --- & Balancer base / quote weights; $w_b+w_q=1$ \\
+$L$ & --- & $x^{w_b}y^{w_q}$ \\
+$p$ & $\tau/\alpha$ & Spot $(w_b/w_q)\,(y/x)$ \\
+$\varphi$ & --- & Lift fraction $P/x$ (short) \\
+$P$ & $\alpha$ & Short principal \\
+$\lambda$ & --- & Short LTV (default $0.25$) \\
+$C$ & $\tau$ & Collateral $=\lambda\cdot(\text{debt mark})$ \\
+$S$ & $\tau$ & Pump (\texttt{AddStake}) \\
+$B$ & $\tau$ & TAO spent to buy repay principal \\
+$E$ & $\tau$ & Escrow proceeds from force-sell \\
+$\varepsilon$ & --- & Swap fee on input (base $0$; prod.\ $33/65535$) \\
+$h$ & --- & $V/y=\mathrm{budget}/\texttt{tao\_in}$ \\
+$V,V'$ & $\tau$ & Initial / terminal attacker TAO \\
+$\mathrm{ROI}$ & --- & $V'/V-1$ (attacker \% gain $=100\cdot\mathrm{ROI}$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{remark}[Report field \texttt{w1}]
+Clone reports print \texttt{w1} with $L\approx x^{1-w_1}y^{w_1}$.
+That \texttt{w1} is our $w_q$. We write $w_q$ only.
+\end{remark}
+
+%----------------------------------------------------------------------
+\section{Balancer and lift primitives}
+\label{sec:primitives}
+
+\subsection{Swaps}
+Fee $\varepsilon$ on input, weights fixed mid-swap:
+\begin{align}
+\label{eq:sell}
+\Delta y &= y\Bigl(1-\Bigl(\frac{x}{x+\Delta x(1-\varepsilon)}\Bigr)^{w_b/w_q}\Bigr),\\
+\label{eq:buy}
+\Delta x &= x\Bigl(1-\Bigl(\frac{y}{y+\Delta y(1-\varepsilon)}\Bigr)^{w_q/w_b}\Bigr).
+\end{align}
+
+\subsection{Lift and force-sell}
+Lift removes $(\varphi x,\varphi y)$ at unchanged spot. Force-sell
+$P=\varphi x$. At $\varepsilon=0$,
+\begin{equation}
+\label{eq:ys}
+y_s=y\,(1-\varphi)^{1/w_q},
+\qquad
+E=y\bigl[(1-\varphi)-(1-\varphi)^{1/w_q}\bigr],
+\qquad
+L_s=(1-\varphi)L.
+\end{equation}
+At the fresh-fork equal-weight point $w_q=\tfrac12$,
+$y_s=y(1-\varphi)^2$ and $E=y\,\varphi(1-\varphi)$.
+
+\subsection{Readd (the two designs under test)}
+Custody returns $(\varphi y,\varphi x)$.
+\begin{itemize}
+  \item \textbf{Unfixed} (pre-fix / current buggy path): credit via
+    \texttt{update\_weights\_for\_added\_liquidity} at the post-pump
+    mark $(x_c,y_c)$:
+    \begin{equation}
+    \label{eq:reweight}
+    w_q'
+    =
+    \frac{w_q\,x_c\,(y_c+\varphi y)}
+         {w_b\,y_c\,(x_c+\varphi x)+w_q\,x_c\,(y_c+\varphi y)},
+    \qquad w_b'=1-w_q'.
+    \end{equation}
+  \item \textbf{Fixed} (keep-weights; shipped root fix): credit the same
+    deltas with $(w_b,w_q)$ \textbf{untouched}.
+\end{itemize}
+
+\paragraph{Does $w$ stay at $\tfrac12$?}
+On the fresh-fork book $w_q=\tfrac12$: under the \textbf{fixed} readd,
+$w_q$ remains $\tfrac12$ through the whole shogting cycle (swaps never
+reweight; keep-weights readd does not either). Under the
+\textbf{unfixed} readd, $w_q$ moves as soon as the post-pump mark differs
+from the open mark --- typically $w_q<\tfrac12$ after a pump-then-readd.
+
+%----------------------------------------------------------------------
+\section{Fresh-fork SN29 base case}
+\label{sec:fresh}
+
+Lending-clone documentation: forked from Finney block
+\textbf{\#9,378,125}. Archive query of that block:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{SubnetTAO} $y$ & $7897.952\,\tau$ \\
+\texttt{SubnetAlphaIn} $x$ & $3\,153\,658.330\,\alpha$ \\
+\texttt{SwapBalancer} $w_q$ & $0.49999999858\approx\tfrac12$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent So the honest base case is \textbf{equal weights}, not
+$w_q\approx 0.47$. The $0.47$ / $0.45$ figures in the clone a13/a15
+reports are \textbf{contaminated}: those attacks were run sequentially
+on one chain (a12 drained first, then a13 started at printed
+$w_1=0.4717$, then a15 at $0.4507$). They are kept only as
+Appendix~\ref{app:contaminated}.
+
+Script: \texttt{scripts/no\_arbitrage\_shogting.py}.
+
+%----------------------------------------------------------------------
+\section{Shogting cycle: sizing and closed forms}
+\label{sec:closed}
+
+\subsection{Sizing from $h$ and lending params}
+Default $\lambda=0.25$, deep-pool
+$\varphi_{\max}=\mathrm{Cap}_{\mathrm{short}}/y=0.165$.
+Debt mark at equal weight equals $\varphi y$, so $C=\lambda\varphi y$.
+Unconstrained we set the pump equal to the lift TAO,
+$S=\varphi y$, hence
+\begin{equation}
+\label{eq:phi-h}
+\varphi(h)=\min\bigl(\varphi_{\max},\, h/(1+\lambda)\bigr).
+\end{equation}
+Capacity then binds for $h\ge\varphi_{\max}(1+\lambda)=0.20625$; extra
+budget goes to the pump/repay split below.
+
+Wallet-close solvency: after posting $C$, the remainder $V-C$ splits as
+$S+B=V-C$ so the attacker can buy repay principal after the pump
+($B$ endogenous). Close burns $P$, refunds $E+C$, readds lift legs,
+unstakes pump alpha $\alpha_p$.
+
+\subsection{Attacker ROI}
+\begin{equation}
+\label{eq:roi}
+V'=V-S-B+E+\Delta y_{\mathrm{unstake}},
+\qquad
+\mathrm{ROI}(h)=\frac{V'}{V}-1,
+\qquad
+\%\text{ gain}=100\cdot\mathrm{ROI}(h).
+\end{equation}
+
+\subsection{Fee-free equal-weight closed forms}
+\label{sec:cf}
+Take $\varepsilon=0$, $w_b=w_q=\tfrac12$, $\varphi=\varphi(h)$ as in
+\eqref{eq:phi-h}, and $S,B$ the solvency split of $V-C$. Write
+$y_s=y(1-\varphi)^2$, $E=y\varphi(1-\varphi)$,
+$y_p=y_s+S$, $x_p=x\sqrt{y_s/y_p}$, $\alpha_p=x-x_p$, and
+\begin{equation}
+\label{eq:B}
+B
+=
+y_p\left(
+\frac{1}{\bigl(1-\varphi\sqrt{y_p/y_s}\bigr)^2}-1
+\right)
+\end{equation}
+(exact cost to buy $P=\varphi x$). Post-buy state
+$(x_c,y_c)=(x_p\sqrt{y_p/(y_p+B)},\,y_p+B)$.
+
+\paragraph{Fixed (keep-weights).}
+$x_r=x_c+\varphi x$, $y_r=y_c+\varphi y$, weights stay
+$(\tfrac12,\tfrac12)$. Unstake
+$\Delta y^{\mathrm{fix}}
+=y_r\cdot\alpha_p/(x_r+\alpha_p)$.
+Then
+\begin{equation}
+\label{eq:roi-fixed}
+\boxed{
+\mathrm{ROI}_{\mathrm{fix}}(h)
+=
+\frac{E-S-B+\Delta y^{\mathrm{fix}}}{V}.
+}
+\end{equation}
+Here $w_q$ remains $\tfrac12$.
+
+\paragraph{Unfixed (weight-updating readd).}
+Apply \eqref{eq:reweight} at $(x_c,y_c)$ to get $(w_b',w_q')$ and
+$(x_r,y_r)=(x_c+\varphi x,\,y_c+\varphi y)$. Unstake at the new
+weights
+$\Delta y^{\mathrm{unfix}}
+=y_r\bigl(1-(x_r/(x_r+\alpha_p))^{w_b'/w_q'}\bigr)$.
+Then
+\begin{equation}
+\label{eq:roi-unfixed}
+\boxed{
+\mathrm{ROI}_{\mathrm{unfix}}(h)
+=
+\frac{E-S-B+\Delta y^{\mathrm{unfix}}}{V}.
+}
+\end{equation}
+Here $w_q$ does \textbf{not} stay at $\tfrac12$.
+
+\paragraph{Production fee.}
+Replace every swap by \eqref{eq:sell}--\eqref{eq:buy} at
+$\varepsilon=33/65535$; lift / readd / \eqref{eq:reweight} unchanged.
+No closed elementary simplification; the same ROI identity
+\eqref{eq:roi} is evaluated numerically (script above).
+
+\begin{theorem}[Fresh-fork shogting drain]
+\label{thm:shogting}
+On the fork-state SN29 book ($w_q=\tfrac12$), the fee-free shogting
+cycle has $\mathrm{ROI}_{\mathrm{unfix}}(h)>0$ for large $h$
+(weight ratchet), while $\mathrm{ROI}_{\mathrm{fix}}(h)\le 0$.
+At $h=0.5$: unfixed $+3.10\%$, fixed $-2.94\%$; fixed leaves
+$w_q=\tfrac12$, unfixed moves $w_q\to 0.473$.
+\end{theorem}
+
+%----------------------------------------------------------------------
+\section{ROI plot}
+\label{sec:plot}
+
+Figure~\ref{fig:roi}: single-wallet shogting cycle on fresh-fork SN29,
+$\%\mathrm{ROI}$ vs $h\in[0.01,10]$ (log), unfixed vs fixed, at
+$\varepsilon=0$ and $\varepsilon=33/65535$.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.92\textwidth]{no-arbitrage-shogting-roi.pdf}
+\caption{Shogting-cycle ROI (\%) vs $h=\mathrm{budget}/y$ on fresh-fork
+SN29 ($w_q=\tfrac12$). Unfixed readd is profitable at large $h$;
+keep-weights stays non-positive. PNG twin:
+\texttt{no-arbitrage-shogting-roi.png}.}
+\label{fig:roi}
+\end{figure}
+
+%----------------------------------------------------------------------
+\section{Relation to $\mu$'s September 2026 derivation}
+\label{sec:mu}
+
+$\mu$ wrote a fee-free pool factor $F(f_h,\varphi,w_2)$ for an earlier
+shorting-cycle proposal and took attacker profit when $F<1$ (pool-cost
+convention). We do \textbf{not} assume that formula. We derive the
+shogting cycle from pallet lift / force-sell / readd, then map:
+
+\begin{center}
+\begin{tabular}{@{}llp{0.42\textwidth}@{}}
+\toprule
+$\mu$ & This note & Relation \\
+\midrule
+$\varphi$ & $\varphi$ (lift fraction) &
+  Same object: $y_s/y=(1-\varphi)^{1/w_q}$ at $\varepsilon=0$ is
+  $\mu$'s $(1-\varphi)^{1/w_2}$ with $w_2=w_q$. \\
+$w_2$ & $w_q$ & Quote weight. \\
+fees ignored & $\varepsilon=0$ base case & Same restriction for the
+  closed forms \eqref{eq:roi-fixed}--\eqref{eq:roi-unfixed}. \\
+$f_h$ & related to $h=V/y$ &
+  Size vs pool; our sizing \eqref{eq:phi-h} plus $S+B=V-C$ is the
+  concrete single-wallet map. \\
+$F<1$ profitable & $\mathrm{ROI}>0$ profitable &
+  Reciprocal conventions:
+  $F_{\mathrm{cyc}}:=1+\mathrm{ROI}\approx 1/F$ when both describe the
+  same fee-free short cycle \emph{without} a weight ratchet. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Did we simplify, or does the logic differ?}
+\begin{itemize}
+  \item The lift identity \eqref{eq:ys} \textbf{reduces to} $\mu$'s
+        $(1-\varphi)^{1/w_2}$ term --- same algebra, independent
+        derivation.
+  \item The shogting-cycle ROI \textbf{differs} from $\mu$'s $F$ once
+        readd uses \eqref{eq:reweight}: that weight ratchet is the SN29
+        drain and is absent from the September fee-free $F$.
+  \item Under keep-weights and $\varepsilon=0$, the shogting cycle is
+        the natural pallet realisation of $\mu$'s shorting round trip;
+        our $\mathrm{ROI}_{\mathrm{fix}}\le 0$ is the attacker-side
+        statement matching $F\ge 1$ on that fee-free path.
+\end{itemize}
+
+%----------------------------------------------------------------------
+\section{Root fix}
+\label{sec:fix}
+
+\texttt{readd\_protocol\_liquidity} credits $(\Delta y,\Delta x)$
+\textbf{without} calling \eqref{eq:reweight}. Emissions still use
+\texttt{adjust\_protocol\_liquidity}. Stake/unstake unchanged.
+
+This is still weighted Balancer whenever $w_q\neq\tfrac12$; the fresh
+fork happens to start at $\tfrac12$. Keep-weights only skips
+asymmetric-join reweight on \emph{lending} readd after skew.
+
+\paragraph{Recommendation.}
+Ship the keep-weights readd (the fixed shogting path) together with the
+k-neutrality burn of Section~\ref{sec:k-neutral}. Do not restore
+\eqref{eq:reweight} on lending readd.
+
+%----------------------------------------------------------------------
+\section{K-neutrality burn}
+\label{sec:k-neutral}
+
+Keep-weights alone stops the SN29 weight ratchet, but $\mu$ showed that a
+shogting cycle under fixed weights can only \emph{increase}
+$\sqrt{k}=L=x^{w_b}y^{w_q}$ (proved for $w_q=\tfrac12$): the cycle's loss
+stays in the pool and deepens it. Jacob (2026-10-30) requires lending
+cycles to leave $k$ unchanged, so pools get thinner/more volatile while
+a lift is outstanding, not deeper after close.
+
+\paragraph{Baseline.}
+When the lift book goes idle$\to$busy, snapshot pool reserves
+$(x^\star,y^\star)$ (storage \texttt{InvariantBaseline}). This defines
+\[
+  L^\star \;=\; (x^\star)^{w_b}(y^\star)^{w_q}
+\]
+at the live weights (unchanged by readd).
+
+\paragraph{Burn after last readd.}
+On close/repay/forfeit/expiry, after a full weight-preserving credit of
+the lift legs, if the book is again idle:
+\[
+  \sigma
+  \;=\;
+  \Bigl(\frac{x^\star}{x'}\Bigr)^{w_b}
+  \Bigl(\frac{y^\star}{y'}\Bigr)^{w_q},
+\]
+where $(x',y')$ are post-credit reserves. If $\sigma\ge 1$ ($L'\le L^\star$)
+burn nothing. Otherwise keep $\sigma$ of each reserve (spot fixed) and burn
+the rest. Floors at the pre-credit reserves ensure the burn never eats
+user funds or escrow --- only surplus from the just-credited legs.
+Dissolution skips the burn (subnet winding down) and clears the baseline.
+
+\paragraph{Any weights.}
+The same $\sigma$ works for arbitrary $(w_b,w_q)$ with $w_b+w_q=1$;
+equal weights reduce to $\sigma=L^\star/L'$. Burning TAO matches the
+existing burn-all-interest policy; surplus alpha is discarded from
+\texttt{SubnetAlphaIn}.
+
+%----------------------------------------------------------------------
+\section{Pass/fail (keep-weights), search, slippage}
+\label{sec:criterion}
+
+Operational shipping criterion (unchanged intent): no self-contained
+sequence of length $\le N=8$ (multi-coldkey and trade-split variants
+included) yields attacker $\Delta>0$ for $\varphi\le\varphi_{\max}$ under
+keep-weights on live snapshots. Search PASS on SN29 / SN64 / SN51 / SN4 /
+SN119 ($20\,087$ cells). Deliberate shallowness:
+$M(\varphi)\approx 1/(1-\varphi)$ while a lift is outstanding
+(Figure in prior revision; script
+\texttt{no\_arbitrage\_slippage\_chart.py}).
+
+%----------------------------------------------------------------------
+\appendix
+\section{Contaminated clone runs (not the base case)}
+\label{app:contaminated}
+
+Sequential attacks on the lending clone, tip \texttt{4d3dc1585}:
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+run & $y$ & printed $w_1$ ($=w_q$) & note \\
+\midrule
+a13 & $7449.956$ & $0.471657$ & started after a12 drain \\
+a15 & $7152.475$ & $0.450710$ & started after a13 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Production-fee unfixed math still matches the reported free PnL
+(a13 $+289.30$ vs $+289.27$; a15 $\approx +122$) because those books
+really were skewed. They must not be used as the ``mainnet $w_q$'' base
+case --- that is Section~\ref{sec:fresh} ($w_q=\tfrac12$).
+
+\begin{thebibliography}{9}
+\bibitem{mu-2026}
+$\mu$, September 2026 hand derivation of the fee-free short-cycle
+factor $F(f_h,\varphi,w_2)$. Cited for the mapping in
+Section~\ref{sec:mu}.
+\bibitem{spec}
+\emph{Lift-based lending on main's Balancer pools},
+\texttt{pallets/lending/docs/lift-lending-spec.md}.
+\bibitem{fork}
+Lending-clone docs: Finney fork block \#9,378,125; archive query of
+\texttt{SubnetTAO}/\texttt{SubnetAlphaIn}/\texttt{SwapBalancer} for SN29.
+\bibitem{report}
+Contaminated a13/a15 drain reports on clone tip \texttt{4d3dc1585}
+(Appendix~\ref{app:contaminated}).
+\end{thebibliography}
+
+\end{document}

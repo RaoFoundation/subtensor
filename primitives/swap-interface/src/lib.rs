@@ -9,7 +9,12 @@ use substrate_fixed::types::U64F64;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 
+mod k_neutral;
 mod order;
+
+pub use k_neutral::{
+    WEIGHT_ACCURACY as K_NEUTRAL_WEIGHT_ACCURACY, burn_amounts_to_invariant_baseline,
+};
 
 /// Coarse failure classification for protocol-owned basket operations. Callers may recover from
 /// an oversized input by chunking, and may explicitly write off a terminally untradeable asset;
@@ -57,6 +62,93 @@ pub trait SwapHandler {
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance);
+
+    /// Proportionally lift liquidity out of the Balancer pool without changing weights
+    /// (and therefore without changing price).
+    ///
+    /// `g = g_numer / g_denom` with `0 < g < 1`. Returns `(lift_alpha, lift_tao)` =
+    /// `(floor(x · g), floor(y · g))`. Remaining reserves must stay ≥ `MinimumReserve`.
+    /// Does not mutate `SubnetTAO` / `SubnetAlphaIn` / `TotalStake` — the caller does.
+    ///
+    /// Lending sizes `g` as `P/x` (short) or `P/y` (long) so the lent leg equals principal.
+    fn lift_protocol_liquidity(
+        netuid: NetUid,
+        g_numer: u64,
+        g_denom: u64,
+    ) -> Result<(AlphaBalance, TaoBalance), DispatchError>;
+
+    /// Re-add liquidity after a repay/default.
+    ///
+    /// Exact lift inverse on the Balancer side (design (a)): credit the
+    /// snapshot reserve deltas with **weights untouched**. Stake/unstake keep
+    /// using the weighted pool; only this path skips
+    /// `update_weights_for_added_liquidity`. Do **not** route through
+    /// [`Self::adjust_protocol_liquidity`] — that reweight-at-skew path is the
+    /// SN29 drain.
+    fn readd_protocol_liquidity(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance);
+
+    /// Alias of [`Self::readd_protocol_liquidity`] (weight-preserving credit).
+    fn credit_protocol_liquidity(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance);
+
+    /// Burn amounts that restore Balancer `L` to a pre-lending baseline at the
+    /// current spot (weights unchanged). See
+    /// [`burn_amounts_to_invariant_baseline`].
+    fn burn_amounts_to_invariant_baseline(
+        tao_reserve: TaoBalance,
+        alpha_reserve: AlphaBalance,
+        quote_weight_parts: u64,
+        baseline_tao: TaoBalance,
+        baseline_alpha: AlphaBalance,
+        floor_tao: TaoBalance,
+        floor_alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance) {
+        let (bt, ba) = burn_amounts_to_invariant_baseline(
+            tao_reserve.to_u64(),
+            alpha_reserve.to_u64(),
+            quote_weight_parts,
+            baseline_tao.to_u64(),
+            baseline_alpha.to_u64(),
+            floor_tao.to_u64(),
+            floor_alpha.to_u64(),
+        );
+        (bt.into(), ba.into())
+    }
+
+    /// Threshold TAO depth `y*` such that a fee-free buy of `ref_tao` moves price by
+    /// `move_bps` basis points: `y* = ref / ((1 + bps/10_000)^{w_b} - 1)`.
+    fn buy_depth_threshold(netuid: NetUid, ref_tao: TaoBalance, move_bps: u16) -> TaoBalance;
+
+    /// Fee-free sell quote against a hypothetical pool state.
+    /// `quote_weight_parts` is `Perquintill::deconstruct()` of the Balancer quote weight.
+    /// Returns TAO out for selling `delta_alpha`.
+    fn quote_sell_on(
+        tao_reserve: TaoBalance,
+        alpha_reserve: AlphaBalance,
+        quote_weight_parts: u64,
+        delta_alpha: AlphaBalance,
+    ) -> TaoBalance;
+
+    /// Fee-free buy quote against a hypothetical pool state.
+    /// `quote_weight_parts` is `Perquintill::deconstruct()` of the Balancer quote weight.
+    /// Returns alpha out for buying with `delta_tao`.
+    fn quote_buy_on(
+        tao_reserve: TaoBalance,
+        alpha_reserve: AlphaBalance,
+        quote_weight_parts: u64,
+        delta_tao: TaoBalance,
+    ) -> AlphaBalance;
+
+    /// Live Balancer quote weight parts (`Perquintill::deconstruct()`) for `netuid`.
+    fn balancer_quote_weight(netuid: NetUid) -> u64;
+
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance;
     fn protocol_tao_reservoir(netuid: NetUid) -> TaoBalance;
     fn clear_protocol_liquidity_reservoirs(netuid: NetUid);

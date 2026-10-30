@@ -1,0 +1,60 @@
+{
+  "source": "finney",
+  "endpoint": "wss://entrypoint-finney.opentensor.ai:443",
+  "note": "SubnetTAO / SubnetAlphaIn / Swap.SwapBalancer.quote (Perquintill parts / 1e18). Snapshotted for the keep-weights bounded search.",
+  "fetched_utc": "2026-10-29",
+  "params": {
+    "floor_bps": 3300,
+    "thin_floor_bps": 1500,
+    "ceiling_bps": 5000,
+    "split_short_bps": 5000,
+    "thin_tao": 3000.0,
+    "ref_tao": 1000.0,
+    "move_bps": 1000
+  },
+  "subnets": [
+    {
+      "netuid": 29,
+      "name": "hotfloat",
+      "y": 7898.541706,
+      "x": 3153847.828736673,
+      "w_q": 0.49999999838361536
+    },
+    {
+      "netuid": 64,
+      "name": "Chutes",
+      "y": 200195.554717456,
+      "x": 2975271.523691783,
+      "w_q": 0.49999999571399273
+    },
+    {
+      "netuid": 51,
+      "name": "lium.io",
+      "y": 192399.387580989,
+      "x": 1540502.421523548,
+      "w_q": 0.4999999904325722
+    },
+    {
+      "netuid": 4,
+      "name": "Targon",
+      "y": 141667.3524437,
+      "x": 2474799.692716788,
+      "w_q": 0.499999994701321
+    },
+    {
+      "netuid": 119,
+      "name": "CapabilityForge Next",
+      "y": 2990.552978757,
+      "x": 1394469.296284051,
+      "w_q": 0.5
+    }
+  ],
+  "clone_sn29_skew": {
+    "netuid": 29,
+    "name": "hotfloat-clone-a13",
+    "note": "Clone tip 4d3dc1585 a13 book (skewed w_q); regression fixture, not live.",
+    "y": 7449.956,
+    "x": 3153861.0,
+    "w_q": 0.471657
+  }
+}

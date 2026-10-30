@@ -2,6 +2,7 @@ use super::*;
 use crate::subnets::dissolution::DissolveCleanupPhase;
 use frame_support::PalletId;
 use pallet_alpha_assets::AlphaAssetsInterface;
+use pallet_lending::LendingInterface;
 use safe_math::FixedExt;
 use sp_core::Get;
 use sp_runtime::{SaturatedConversion, traits::AccountIdConversion};
@@ -93,7 +94,8 @@ impl<T: Config> Pallet<T> {
                     DissolveCleanupPhase::SubnetBasketHoldingsToRoot
                     | DissolveCleanupPhase::SubnetRootDividendsRootClaimable
                     | DissolveCleanupPhase::SubnetRootDividendsRootClaimed
-                    | DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue => true,
+                    | DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue
+                    | DissolveCleanupPhase::LendingSettle => true,
                     DissolveCleanupPhase::AlphaInOutStakesSettleStakes => {
                         let Some(last_key) = status.last_key else {
                             return true;
@@ -533,7 +535,12 @@ impl<T: Config> Pallet<T> {
         log::info!("NetworkAdded( netuid:{netuid_to_register:?}, mechanism:{mechid:?} )");
         Self::deposit_event(Event::NetworkAdded(netuid_to_register, mechid));
 
-        // --- 12. Return success.
+        // --- 12. Seed lending reference / G_ema while the registration lock
+        // already priced the pool, so EMAs age through the new-subnet wait.
+        T::Lending::on_subnet_registered(netuid_to_register);
+        weight.saturating_accrue(T::DbWeight::get().reads_writes(8, 5));
+
+        // --- 13. Return success.
         Ok(Some(weight).into())
     }
 
@@ -647,6 +654,8 @@ impl<T: Config> Pallet<T> {
         FirstEmissionBlockNumber::<T>::insert(netuid, next_block_number);
         SubtokenEnabled::<T>::insert(netuid, true);
         SubnetState::<T>::insert(netuid, SubnetLifecycleState::Started);
+        // Fallback seed if registration-time price was zero / unavailable.
+        T::Lending::on_subtoken_enabled(netuid);
         Self::deposit_event(Event::FirstEmissionBlockNumberSet(
             netuid,
             next_block_number,

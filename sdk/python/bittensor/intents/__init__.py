@@ -40,6 +40,7 @@ from .governance import (
 from .hyperparameters import OWNER_HYPERPARAMETERS, SetHyperparameter
 from .identity import SetIdentity, SetSubnetIdentity
 from .leasing import RegisterLeasedNetwork, TerminateLease
+from .lending import CloseLoan, OpenLoan, RaiseLoan
 from .lock import LockStake, MoveLock, SetPerpetualLock, SetRejectLockedAlpha
 from .multisig import (
     MultisigApprove,
@@ -108,6 +109,7 @@ __all__ = [
     "ClaimRoot",
     "ClaimRootWithHotkey",
     "ClearColdkeySwapAnnouncement",
+    "CloseLoan",
     "CommitWeights",
     "ContributeCrowdloan",
     "CreateCrowdloan",
@@ -133,9 +135,11 @@ __all__ = [
     "MultisigCancel",
     "MultisigExecute",
     "MultisigThreshold1",
+    "OpenLoan",
     "Plan",
     "Policy",
     "PowRegister",
+    "RaiseLoan",
     "RefundCrowdloan",
     "RegisterLeasedNetwork",
     "RegisterSubnet",

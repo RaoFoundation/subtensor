@@ -1,5 +1,6 @@
 use super::*;
 
+use pallet_lending::LendingInterface;
 use sp_runtime::PerU16;
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 use subtensor_runtime_common::NetUid;
@@ -537,6 +538,12 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NonAssociatedColdKey
         );
 
+        // §14: lending custody hotkey cannot set children.
+        ensure!(
+            !T::Lending::is_custody_hotkey(&hotkey),
+            Error::<T>::CustodyHotkey
+        );
+
         // Ensure there are no duplicates in the list of children.
         let mut unique_children = Vec::new();
         for (_, child_i) in &children {
@@ -848,6 +855,12 @@ impl<T: Config> Pallet<T> {
         ensure!(
             Self::coldkey_owns_hotkey(&coldkey, &hotkey),
             Error::<T>::NonAssociatedColdKey
+        );
+
+        // §14: lending custody hotkey cannot set take.
+        ensure!(
+            !T::Lending::is_custody_hotkey(&hotkey),
+            Error::<T>::CustodyHotkey
         );
 
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);

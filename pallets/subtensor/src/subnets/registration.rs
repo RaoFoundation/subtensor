@@ -2,6 +2,7 @@ use super::*;
 use frame_support::dispatch::DispatchResultWithPostInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::Weight;
+use pallet_lending::LendingInterface;
 use sp_core::{H256, U256};
 use sp_io::hashing::{keccak_256, sha2_256};
 use sp_runtime::Saturating;
@@ -64,6 +65,11 @@ impl<T: Config> Pallet<T> {
         ensure!(
             !Uids::<T>::contains_key(netuid, hotkey),
             Error::<T>::HotKeyAlreadyRegisteredInSubNet
+        );
+        // §14: lending custody hotkey cannot register as a neuron.
+        ensure!(
+            !T::Lending::is_custody_hotkey(hotkey),
+            Error::<T>::CustodyHotkey
         );
         ensure!(
             Self::get_max_allowed_uids(netuid) != 0,
@@ -271,6 +277,11 @@ impl<T: Config> Pallet<T> {
         ensure!(
             !Uids::<T>::contains_key(netuid, hotkey),
             Error::<T>::HotKeyAlreadyRegisteredInSubNet
+        );
+        // §14: lending custody hotkey cannot register as a neuron.
+        ensure!(
+            !T::Lending::is_custody_hotkey(hotkey),
+            Error::<T>::CustodyHotkey
         );
 
         // 5) compute current burn price.

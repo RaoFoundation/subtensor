@@ -463,5 +463,7 @@ mod errors {
         ColdkeySwapDestinationReserved,
         /// No live coldkey-swap destination reservation exists for this account.
         ColdkeySwapDestinationReservationNotFound,
+        /// Third-party stake onto the lending custody hotkey is rejected (§14).
+        CustodyHotkey,
     }
 }

@@ -41,6 +41,7 @@ from .commands import (
     crowd,
     evm,
     extension,
+    lending,
     lock,
     misc,
     multisig,
@@ -98,6 +99,7 @@ PANEL_ADDITIONAL = "Additional"
 # then subnet inspection, conviction locking, and hyperparameters.
 app.add_typer(wallet.app, name="wallet")
 app.add_typer(stake.app, name="stake")
+app.add_typer(lending.app, name="lending")
 app.add_typer(root.app, name="root")
 app.add_typer(subnets.app, name="subnets")
 app.add_typer(lock.app, name="conviction")
@@ -116,6 +118,7 @@ app.add_typer(multisig.app, name="multisig", rich_help_panel=PANEL_ACCOUNTS)
 for _sub_app, _aliases in (
     (wallet.app, ("w", "wallets")),
     (stake.app, ("st",)),
+    (lending.app, ("ln", "loan", "loans")),
     (root.app, ("rt",)),
     (subnets.app, ("s", "subnet")),
     (sudo.app, ("su", "sudo")),

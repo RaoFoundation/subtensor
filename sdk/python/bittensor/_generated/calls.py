@@ -31,6 +31,7 @@ FixedI128 = Any
 FixedU128 = Any
 H160 = Any
 H256 = Any
+LiftParams = Any
 MechId = Any
 MultiAddress = Any
 NetUid = Any
@@ -44,6 +45,7 @@ ProxyType = Any
 PulsesPayload = Any
 RecycleOrBurnEnum = Any
 RuntimeCall = Any
+Side = Any
 TaoBalance = Any
 TickIndex = Any
 Timepoint = Any
@@ -1727,3 +1729,45 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
+
+
+class Lending:
+    """Call builders for the Lending pallet."""
+
+    @staticmethod
+    def close(netuid: 'NetUid', hotkey: 'AccountId32', repay_from_wallet: 'bool', max_payment: 'u64', min_refund: 'u64', valid_until: 'u32') -> Call:
+        'Close a position. Shorts buy back (or repay alpha); longs repay TAO (or sell escrow).  Wallet alpha repayment is drawn from stake on `hotkey`, and returned alpha is staked to `hotkey`. Short escrow buyback may pull extra free TAO from the owner when `E_S + C` is underwater (≤ `max_payment`).'
+        return Call('Lending', 'close', {'netuid': netuid, 'hotkey': hotkey, 'repay_from_wallet': repay_from_wallet, 'max_payment': max_payment, 'min_refund': min_refund, 'valid_until': valid_until})
+
+    @staticmethod
+    def open(netuid: 'NetUid', side: 'Side', collateral: 'u64', source_hotkey: 'Any', min_borrow: 'u64', min_proceeds: 'u64', min_escrow_alpha: 'u64', valid_until: 'u32') -> Call:
+        'Open or increase a loan. Shorts force-sell; longs force-buy into escrow.  Longs require `source_hotkey` (collateral alpha is locked from that stake). Shorts are TAO-only and must pass `None` — no hotkey is stored on the position either way.'
+        return Call('Lending', 'open', {'netuid': netuid, 'side': side, 'collateral': collateral, 'source_hotkey': source_hotkey, 'min_borrow': min_borrow, 'min_proceeds': min_proceeds, 'min_escrow_alpha': min_escrow_alpha, 'valid_until': valid_until})
+
+    @staticmethod
+    def open_exact(netuid: 'NetUid', side: 'Side', collateral: 'u64', source_hotkey: 'Any', principal: 'u64', min_proceeds: 'u64', min_escrow_alpha: 'u64', valid_until: 'u32') -> Call:
+        'Open or increase with an exact additional principal.'
+        return Call('Lending', 'open_exact', {'netuid': netuid, 'side': side, 'collateral': collateral, 'source_hotkey': source_hotkey, 'principal': principal, 'min_proceeds': min_proceeds, 'min_escrow_alpha': min_escrow_alpha, 'valid_until': valid_until})
+
+    @staticmethod
+    def open_long_and_sell(netuid: 'NetUid', hotkey: 'AccountId32', collateral_alpha: 'Any', borrow_tao: 'Any', max_collateral_alpha: 'u64', min_borrow_tao: 'u64', sell_alpha: 'Any', min_tao_out: 'u64', min_escrow_alpha: 'u64', valid_until: 'u32') -> Call:
+        'Atomic raise: escrowed long + spot sale of own unlocked alpha.'
+        return Call('Lending', 'open_long_and_sell', {'netuid': netuid, 'hotkey': hotkey, 'collateral_alpha': collateral_alpha, 'borrow_tao': borrow_tao, 'max_collateral_alpha': max_collateral_alpha, 'min_borrow_tao': min_borrow_tao, 'sell_alpha': sell_alpha, 'min_tao_out': min_tao_out, 'min_escrow_alpha': min_escrow_alpha, 'valid_until': valid_until})
+
+    @staticmethod
+    def repay(netuid: 'NetUid', hotkey: 'AccountId32', principal_part: 'u64', repay_from_wallet: 'bool', max_payment: 'u64', min_refund: 'u64', valid_until: 'u32') -> Call:
+        'Partial repay of `principal_part` (§4.4). `principal_part == principal` closes.  `hotkey` is the alpha source and destination, as in [`Pallet::close`].'
+        return Call('Lending', 'repay', {'netuid': netuid, 'hotkey': hotkey, 'principal_part': principal_part, 'repay_from_wallet': repay_from_wallet, 'max_payment': max_payment, 'min_refund': min_refund, 'valid_until': valid_until})
+
+    @staticmethod
+    def set_enabled(enabled: 'bool') -> Call:
+        return Call('Lending', 'set_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def set_lift_params(params: 'LiftParams') -> Call:
+        return Call('Lending', 'set_lift_params', {'params': params})
+
+    @staticmethod
+    def warm_reference(netuid: 'NetUid') -> Call:
+        'Permissionless fallback seed of the lending reference and `G_ema`.  Prefer automatic seeding: registration (`on_subnet_registered`), start-call (`on_subtoken_enabled`), and the upgrade migration. This extrinsic remains for ops recovery. Idempotent.'
+        return Call('Lending', 'warm_reference', {'netuid': netuid})

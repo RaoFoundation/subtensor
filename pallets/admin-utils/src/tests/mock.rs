@@ -240,6 +240,7 @@ impl pallet_subtensor::Config for Test {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = Swap;
+    type Lending = ();
     type KeySwapOnSubnetCost = InitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = ();

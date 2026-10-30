@@ -49,4 +49,23 @@ ignore = [
     # 0383 webpki-root-certs: only a wasm32 / FreeBSD-dev dependency of
     #   rustls-platform-verifier; not part of the node build.
     "RUSTSEC-2026-0383",
+    # RUSTSEC-2026-0387 (added 2026-10-28): crypto-bigint timing variability
+    # in ops intended to be constant-time. Pulled transitively by the
+    # polkadot-sdk crypto stack; no patch on the pinned line without an SDK
+    # bump. Accepted as a known fork-tree exception; revisit on next bump.
+    "RUSTSEC-2026-0387",
+    # RUSTSEC-2026-0403 (added 2026-10-28): zstd-safe uninitialized memory on
+    # failed legacy-frame streaming decompression (5.0.2 and 6.0.6). Same
+    # SDK-pinned zstd graph as the other zstd-safe unsound entries; node
+    # decompression paths do not feed untrusted legacy frames. Fix needs a
+    # newer zstd-safe major via the polkadot-sdk bump.
+    "RUSTSEC-2026-0403",
+    # GHSA-6fr9-xmw9-5352 / RUSTSEC-2026-0424 (added 2026-10-30): unchecked
+    # memory usage transferring borrowed resources between wasmtime
+    # components. Same sc-executor wasmtime 8.0.1 pin as 0316/0363 — the
+    # executor resolves without `component-model`, so the affected component
+    # transfer path is not compiled into the node. Fix needs wasmtime >=36
+    # (or other patched majors); revisit on the next polkadot-sdk bump.
+    # https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-6fr9-xmw9-5352
+    "RUSTSEC-2026-0424",
 ]

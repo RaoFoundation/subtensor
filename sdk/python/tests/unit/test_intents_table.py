@@ -105,12 +105,12 @@ def test_rejects_unknown_argument(op: str):
 async def test_composes_and_plans_offline(
     op: str, client: Client, substrate: FakeSubstrate, wallet
 ):
-    if op in ("claim_root", "claim_root_with_hotkey"):
+    if op in ("claim_root", "claim_root_with_hotkey", "open_loan"):
         substrate.seed(
             "System",
             "Account",
             [wallet.coldkey.ss58_address],
-            {"data": {"free": 10**9}},
+            {"data": {"free": 10**18, "reserved": 0, "frozen": 0}},
         )
     plan = await client.plan(build(op, INTENT_SAMPLES[op]), wallet)
     assert plan.op == op

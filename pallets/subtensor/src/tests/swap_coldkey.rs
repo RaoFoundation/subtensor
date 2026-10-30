@@ -3688,6 +3688,84 @@ fn test_coldkey_swap_work_stops_after_position_cap() {
     });
 }
 
+/// TAO-only shorts have no Alpha stake rows; lending count must still drive
+/// coldkey-swap admission and weight (Skeptic fid:9c45c69e).
+#[test]
+fn test_coldkey_swap_counts_lending_positions_without_stake() {
+    new_test_ext(1).execute_with(|| {
+        let old = U256::from(1);
+        let dest = U256::from(2);
+        add_balance_to_coldkey_account(&old, 1_000_000_000.into());
+
+        // Multiple shorts, zero ordinary stake positions.
+        let lending = 7u32;
+        crate::tests::mock::set_mock_lending_positions(old, lending);
+
+        let work = SubtensorModule::coldkey_swap_work(&old, &dest);
+        assert_eq!(work.hotkeys, 0);
+        assert_eq!(
+            work.positions, lending,
+            "lending loans must count toward swap work without stake rows"
+        );
+
+        let admitted = SubtensorModule::ensure_coldkey_swap_destination(&old, &dest)
+            .expect("under-cap lending-only swap admits");
+        assert_eq!(admitted.positions, lending);
+
+        let actual = SubtensorModule::swap_coldkey_actual_weight(admitted);
+        let per_position = <Test as crate::Config>::WeightInfo::transfer_stake();
+        assert!(
+            actual.all_gte(per_position.saturating_mul(u64::from(lending))),
+            "successful weight must charge lending migration work"
+        );
+
+        // Oversized lending-only account fails closed at the combined cap.
+        crate::tests::mock::set_mock_lending_positions(
+            old,
+            MAX_COLDKEY_SWAP_POSITIONS.saturating_add(3),
+        );
+        let over = SubtensorModule::coldkey_swap_work(&old, &dest);
+        assert_eq!(
+            over.positions,
+            MAX_COLDKEY_SWAP_POSITIONS.saturating_add(1),
+            "lending scan stops at the combined sentinel"
+        );
+        crate::assert_noop_ignore_postinfo!(
+            SubtensorModule::swap_coldkey(RuntimeOrigin::root(), old, dest, TaoBalance::ZERO),
+            Error::<Test>::ColdkeySwapTooHeavy
+        );
+    });
+}
+
+#[test]
+fn test_coldkey_swap_combines_stake_and_lending_toward_cap() {
+    new_test_ext(1).execute_with(|| {
+        let old = U256::from(1);
+        let dest = U256::from(2);
+        let hotkey = U256::from(10);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &old, &hotkey
+        ));
+        let stake_rows = 4u32;
+        for i in 0..stake_rows {
+            AlphaV2::<Test>::insert((hotkey, old, NetUid::from(i as u16)), SafeFloat::from(1u64));
+        }
+        // Remaining room to the sentinel is 1 once stake fills almost to the cap.
+        let stake_fill = MAX_COLDKEY_SWAP_POSITIONS.saturating_sub(2);
+        for i in stake_rows..stake_fill {
+            AlphaV2::<Test>::insert((hotkey, old, NetUid::from(i as u16)), SafeFloat::from(1u64));
+        }
+        crate::tests::mock::set_mock_lending_positions(old, 8);
+        let work = SubtensorModule::coldkey_swap_work(&old, &dest);
+        assert_eq!(
+            work.positions,
+            MAX_COLDKEY_SWAP_POSITIONS.saturating_add(1),
+            "stake + lending share one admission sentinel"
+        );
+        assert!(SubtensorModule::ensure_coldkey_swap_destination(&old, &dest).is_err());
+    });
+}
+
 #[test]
 fn test_coldkey_swap_work_union_not_undercounted_by_overlap() {
     new_test_ext(1).execute_with(|| {

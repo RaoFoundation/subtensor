@@ -104,6 +104,13 @@ class GrandpaApi:
     generate_key_ownership_proof = Method('GrandpaApi', 'generate_key_ownership_proof')
     current_set_id = Method('GrandpaApi', 'current_set_id')
 
+class LendingRuntimeApi:
+    quote_open = Method('LendingRuntimeApi', 'quote_open')
+    quote_open_for = Method('LendingRuntimeApi', 'quote_open_for')
+    quote_open_exact_for = Method('LendingRuntimeApi', 'quote_open_exact_for')
+    quote_close = Method('LendingRuntimeApi', 'quote_close')
+    quote_raise = Method('LendingRuntimeApi', 'quote_raise')
+
 class Metadata:
     metadata = Method('Metadata', 'metadata')
     metadata_at_version = Method('Metadata', 'metadata_at_version')

@@ -16,7 +16,20 @@ use subtensor_swap_interface::{
 
 use super::pallet::*;
 use super::swap_step::{BasicSwapStep, MAX_SWAP_INPUT_RESERVE_MULTIPLIER, SwapStep};
-use crate::{pallet::Balancer, pallet::balancer::BalancerError};
+use crate::{
+    pallet::Balancer,
+    pallet::balancer::{ACCURACY, BalancerError},
+};
+
+/// `floor(a * b / c)` in u128, saturating the result into u64.
+fn mul_div_floor(a: u64, b: u64, c: u64) -> u64 {
+    if c == 0 {
+        return 0;
+    }
+    let product = u128::from(a).saturating_mul(u128::from(b));
+    let quot = product.checked_div(u128::from(c)).unwrap_or(0);
+    u64::try_from(quot).unwrap_or(u64::MAX)
+}
 
 impl<T: Config> Pallet<T> {
     pub fn current_price(netuid: NetUid) -> U64F64 {
@@ -170,6 +183,78 @@ impl<T: Config> Pallet<T> {
         }
 
         (TaoBalance::ZERO, AlphaBalance::ZERO)
+    }
+
+    /// Proportionally lift `g = g_numer/g_denom` of both reserves out of the pool.
+    /// Weights are left unchanged (proportional remove preserves price). Caller must
+    /// decrease `SubnetTAO` / `SubnetAlphaIn` / `TotalStake` by the returned amounts.
+    pub(super) fn lift_protocol_liquidity(
+        netuid: NetUid,
+        g_numer: u64,
+        g_denom: u64,
+    ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
+        ensure!(g_denom > 0, Error::<T>::InvalidLiquidityValue);
+        ensure!(
+            g_numer > 0 && g_numer < g_denom,
+            Error::<T>::InvalidLiquidityValue
+        );
+
+        let alpha_reserve = u64::from(T::AlphaReserve::reserve(netuid.into()));
+        let tao_reserve = u64::from(T::TaoReserve::reserve(netuid.into()));
+        let min_reserve = T::MinimumReserve::get().get();
+
+        let lift_tao = mul_div_floor(tao_reserve, g_numer, g_denom);
+        let lift_alpha = mul_div_floor(alpha_reserve, g_numer, g_denom);
+
+        ensure!(lift_tao <= tao_reserve, Error::<T>::InsufficientLiquidity);
+        ensure!(
+            lift_alpha <= alpha_reserve,
+            Error::<T>::InsufficientLiquidity
+        );
+
+        let remaining_tao = tao_reserve.saturating_sub(lift_tao);
+        let remaining_alpha = alpha_reserve.saturating_sub(lift_alpha);
+        ensure!(remaining_tao >= min_reserve, Error::<T>::ReservesTooLow);
+        ensure!(remaining_alpha >= min_reserve, Error::<T>::ReservesTooLow);
+        // Non-zero lift required so lending never opens a zero-principal position
+        // through a rounding-to-zero proportional remove.
+        ensure!(
+            lift_tao > 0 && lift_alpha > 0,
+            Error::<T>::InsufficientLiquidity
+        );
+
+        Ok((AlphaBalance::from(lift_alpha), TaoBalance::from(lift_tao)))
+    }
+
+    /// Re-add lifted liquidity after repay / default.
+    ///
+    /// **Does not abandon Balancer.** Ordinary stake/unstake swaps still run
+    /// on the weighted pool with the stored `(w1, w2)`. Emissions still call
+    /// [`Self::adjust_protocol_liquidity`] (which may
+    /// `update_weights_for_added_liquidity`). **Only** this lending readd
+    /// bypasses the weight update: it credits the exact lift deltas into
+    /// reserves and leaves weights alone — the Balancer inverse of
+    /// [`Self::lift_protocol_liquidity`] (design (a) in `no-arbitrage.tex`).
+    ///
+    /// Routing readd through `adjust_protocol_liquidity` after intervening
+    /// swaps was the SN29 drain: it rewrote `w1`/`w2` at the post-pump mark
+    /// and inflated `L`, so a later unstake extracted more TAO than deposited.
+    pub(super) fn readd_protocol_liquidity(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance) {
+        Self::credit_protocol_liquidity(netuid, tao, alpha)
+    }
+
+    /// Credit lift legs without touching Balancer weights or reservoirs.
+    /// Same semantics as [`Self::readd_protocol_liquidity`].
+    pub(super) fn credit_protocol_liquidity(
+        _netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance) {
+        (tao, alpha)
     }
 
     fn update_tao_reservoir(netuid: NetUid, current: Option<TaoBalance>, new: TaoBalance) {
@@ -548,6 +633,75 @@ impl<T: Config> SwapHandler for Pallet<T> {
         alpha_delta: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance) {
         Self::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta)
+    }
+
+    fn lift_protocol_liquidity(
+        netuid: NetUid,
+        g_numer: u64,
+        g_denom: u64,
+    ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
+        Self::lift_protocol_liquidity(netuid, g_numer, g_denom)
+    }
+
+    fn readd_protocol_liquidity(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance) {
+        Self::readd_protocol_liquidity(netuid, tao, alpha)
+    }
+
+    fn credit_protocol_liquidity(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance) {
+        Self::credit_protocol_liquidity(netuid, tao, alpha)
+    }
+
+    fn buy_depth_threshold(netuid: NetUid, ref_tao: TaoBalance, move_bps: u16) -> TaoBalance {
+        let balancer = SwapBalancer::<T>::get(netuid);
+        TaoBalance::from(balancer.buy_depth_threshold(u64::from(ref_tao), move_bps))
+    }
+
+    fn quote_sell_on(
+        tao_reserve: TaoBalance,
+        alpha_reserve: AlphaBalance,
+        quote_weight_parts: u64,
+        delta_alpha: AlphaBalance,
+    ) -> TaoBalance {
+        let quote = Perquintill::from_parts(quote_weight_parts.min(ACCURACY));
+        Balancer::quote_sell_on(
+            u64::from(tao_reserve),
+            u64::from(alpha_reserve),
+            quote,
+            u64::from(delta_alpha),
+        )
+        .unwrap_or(0)
+        .into()
+    }
+
+    fn quote_buy_on(
+        tao_reserve: TaoBalance,
+        alpha_reserve: AlphaBalance,
+        quote_weight_parts: u64,
+        delta_tao: TaoBalance,
+    ) -> AlphaBalance {
+        let quote = Perquintill::from_parts(quote_weight_parts.min(ACCURACY));
+        Balancer::quote_buy_on(
+            u64::from(tao_reserve),
+            u64::from(alpha_reserve),
+            quote,
+            u64::from(delta_tao),
+        )
+        .unwrap_or(0)
+        .into()
+    }
+
+    fn balancer_quote_weight(netuid: NetUid) -> u64 {
+        SwapBalancer::<T>::get(netuid)
+            .get_quote_weight()
+            .deconstruct()
     }
 
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance {

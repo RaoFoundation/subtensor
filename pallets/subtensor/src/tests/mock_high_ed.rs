@@ -298,6 +298,7 @@ impl crate::Config for Test {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = pallet_subtensor_swap::Pallet<Self>;
+    type Lending = ();
     type KeySwapOnSubnetCost = InitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = ();

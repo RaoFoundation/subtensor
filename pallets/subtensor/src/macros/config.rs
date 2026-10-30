@@ -55,6 +55,9 @@ mod config {
             + SwapEngine<GetAlphaForTao<Self>>
             + SwapEngine<GetTaoForAlpha<Self>>;
 
+        /// Lending dissolution / custody integration (Jacob §13).
+        type Lending: pallet_lending::LendingInterface<Self::AccountId>;
+
         /// Interface to allow interacting with the proxy pallet.
         type ProxyInterface: crate::ProxyInterface<Self::AccountId>;
 

@@ -22,6 +22,7 @@ from . import (  # noqa: F401  (imported for registration side effects)
     hyperparameters,
     identity,
     leasing,
+    lending,
     locks,
     neurons,
     prices,

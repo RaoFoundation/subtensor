@@ -218,6 +218,7 @@ PALLET_DIRS = {
     "Commitments": "pallets/commitments",
     "Crowdloan": "pallets/crowdloan",
     "Drand": "pallets/drand",
+    "Lending": "pallets/lending",
     "LimitOrders": "pallets/limit-orders",
     "MevShield": "pallets/shield",
     "Proxy": "pallets/proxy",

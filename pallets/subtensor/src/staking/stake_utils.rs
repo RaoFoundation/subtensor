@@ -5,6 +5,7 @@ use frame_support::dispatch::{
 };
 use frame_support::storage::StorageNMap as _;
 use frame_support::weights::Weight;
+use pallet_lending::LendingInterface;
 use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
 use sp_core::Get;
@@ -1760,6 +1761,12 @@ impl<T: Config> Pallet<T> {
         ensure!(
             Self::hotkey_account_exists(hotkey),
             Error::<T>::HotKeyAccountNotExists
+        );
+
+        // §14: reject third-party stake onto the lending custody hotkey.
+        ensure!(
+            !T::Lending::is_custody_hotkey(hotkey),
+            Error::<T>::CustodyHotkey
         );
 
         // Staking to a new hotkey appends it to the coldkey's `StakingHotkeys`; keep that
