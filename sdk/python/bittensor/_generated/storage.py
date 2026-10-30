@@ -489,6 +489,7 @@ class Lending:
     Enabled = Item('Lending', 'Enabled', 'bool')
     LiftParamsStore = Item('Lending', 'LiftParamsStore', 'LiftParams')
     Lifts = Item('Lending', 'Lifts', 'LiftBook')
+    InvariantBaseline = Item('Lending', 'InvariantBaseline', 'InvariantBaselineReserves')
     LongInterestPending = Item('Lending', 'LongInterestPending', 'u64')
     LongInterestSince = Item('Lending', 'LongInterestSince', 'u32')
     Positions = Item('Lending', 'Positions', 'Position')
