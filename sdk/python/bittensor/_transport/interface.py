@@ -771,7 +771,12 @@ class SubstrateConnection:
                 + bytes(signature_length)
             )
         elif signature is None:
-            keypair = keypair.at_generation(0)
+            from ..signing import _check_signer_identity, _signer_identity
+
+            expected = _signer_identity(keypair)
+            current_key = keypair.at_generation(0)
+            _check_signer_identity(current_key, expected)
+            keypair = current_key
         era, era_block_hash = await self._normalize_era_at(era, block_hash, codec)
         return await _sign_and_assemble(
             codec,
@@ -936,7 +941,11 @@ class SubstrateConnection:
                 raise SubstrateRequestException(
                     "hashed accounts must use the current on-chain nonce; refresh and sign again"
                 )
+            from ..signing import _check_signer_identity, _signer_identity
+
+            expected = _signer_identity(keypair)
             current_key = keypair.at_generation(generation)
+            _check_signer_identity(current_key, expected)
             if bytes(current_key.hashed_current_commitment) != commitment:
                 raise SubstrateRequestException(
                     "derived hashed signing key does not match the current on-chain commitment"
@@ -946,6 +955,8 @@ class SubstrateConnection:
                 if generation_offset
                 else current_key
             )
+            if generation_offset:
+                _check_signer_identity(keypair, expected)
         elif signature == b"\x00" * 64:
             # Quote the complete envelope without disclosing a signer or
             # unlocking a public wallet. These proofs can never authorize use.
