@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from ._live import pause_live_display
 from .masked_input import masked_input
@@ -127,9 +128,9 @@ class Keyfile:
             raise PermissionError(f"keyfile at {self.path!r} is not readable")
         return path.read_bytes()
 
-    def _write_data(self, data: bytes, *, overwrite: bool) -> None:
+    def _confirm_overwrite(self, overwrite: bool) -> bool:
+        """Resolve an overwrite decision before a paired wallet write starts."""
         path = Path(self.path)
-        replace_existing = overwrite
         if path.exists() and not overwrite:
             # Only prompt when a human can answer; non-interactive callers
             # get the documented refusal instead of an input() hang/EOFError.
@@ -141,7 +142,24 @@ class Keyfile:
                 )
             if answer not in {"y", "yes"}:
                 raise FileExistsError(f"refusing to overwrite existing keyfile {self.path!r}")
-            replace_existing = True
+            return True
+        return overwrite
+
+    def _write_data(
+        self,
+        data: bytes,
+        *,
+        overwrite: bool,
+    ) -> None:
+        replace_existing = self._confirm_overwrite(overwrite)
+        tmp = self._stage_data(data)
+        try:
+            self._publish_staged(tmp, overwrite=replace_existing)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def _stage_data(self, data: bytes) -> Path:
+        path = Path(self.path)
         self.make_dirs()
         # Key material (including intentionally-plaintext hotkeys) must be
         # owner-only regardless of the caller's umask. Each writer owns an
@@ -161,21 +179,35 @@ class Keyfile:
                 os.fsync(fd)
             finally:
                 os.close(fd)
-            if replace_existing:
-                os.replace(tmp, path)
-            else:
-                # Atomically refuse a file created after the existence check.
-                # Linking publishes the complete inode without a clobber race.
-                os.link(tmp, path)
-                tmp.unlink()
-            if os.name == "posix":
-                directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-                try:
-                    os.fsync(directory)
-                finally:
-                    os.close(directory)
-        finally:
+        except BaseException:
             tmp.unlink(missing_ok=True)
+            raise
+        return tmp
+
+    def _publish_staged(
+        self,
+        tmp: Path,
+        *,
+        overwrite: bool,
+        _on_publish: Callable[[Path, tuple[int, int]], None] | None = None,
+    ) -> None:
+        path = Path(self.path)
+        published_inode = (tmp.stat().st_dev, tmp.stat().st_ino)
+        if overwrite:
+            os.replace(tmp, path)
+        else:
+            # Atomically refuse a file created after the existence check.
+            # Linking publishes the complete inode without a clobber race.
+            os.link(tmp, path)
+        if _on_publish is not None:
+            _on_publish(path, published_inode)
+        tmp.unlink(missing_ok=True)
+        if os.name == "posix":
+            directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
 
     def make_dirs(self) -> None:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -205,6 +237,16 @@ class Keyfile:
         overwrite: bool = False,
         password: str | None = None,
     ) -> None:
+        payload, resolved = self._prepare_keypair_payload(keypair, encrypt, password)
+        self._write_data(payload, overwrite=overwrite)
+        # Only after the keyfile is actually on disk: a failed or declined
+        # write must not leave the password behind in the environment.
+        if encrypt and self.should_save_to_env:
+            self.save_password_to_env(resolved)
+
+    def _prepare_keypair_payload(
+        self, keypair: Keypair, encrypt: bool, password: str | None
+    ) -> tuple[bytes, str | None]:
         plaintext = bytes(serialized_keypair_to_keyfile_data(keypair))
         if encrypt:
             # Confirm only when prompting interactively; an explicit/env
@@ -218,12 +260,9 @@ class Keyfile:
                 raise KeyfileError("password required to encrypt keyfile")
             payload = bytes(encrypt_keyfile_data(plaintext, resolved))
         else:
+            resolved = None
             payload = plaintext
-        self._write_data(payload, overwrite=overwrite)
-        # Only after the keyfile is actually on disk: a failed or declined
-        # write must not leave the password behind in the environment.
-        if encrypt and self.should_save_to_env:
-            self.save_password_to_env(resolved)
+        return payload, resolved
 
     def save_password_to_env(self, password: str | None = None) -> str:
         resolved = password or _prompt_password(

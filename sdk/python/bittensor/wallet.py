@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
+import logging
+import os
+import tempfile
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows uses the in-process lock.
+    fcntl = None
 
 from .keyfiles import Keyfile, Keypair
 from .sp_core import (
@@ -15,6 +25,72 @@ from .sp_core import (
 )
 
 DEFAULT_WALLET_PATH = str(Path.home() / ".bittensor" / "wallets")
+_DIRECTORY_LOCKS: dict[Path, threading.RLock] = {}
+_DIRECTORY_LOCKS_GUARD = threading.Lock()
+_DIRECTORY_LOCK_DEPTH = threading.local()
+
+
+@contextmanager
+def _wallet_directory_lock(directory: Path):
+    """Serialize cooperating writers without adding another wallet file."""
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory = directory.resolve()
+    with _DIRECTORY_LOCKS_GUARD:
+        lock = _DIRECTORY_LOCKS.setdefault(directory, threading.RLock())
+    with lock:
+        depths = getattr(_DIRECTORY_LOCK_DEPTH, "depths", None)
+        if depths is None:
+            depths = {}
+            _DIRECTORY_LOCK_DEPTH.depths = depths
+        depth = depths.get(directory, 0)
+        fd = None
+        if depth == 0 and fcntl is not None:
+            fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            except BaseException:
+                os.close(fd)
+                raise
+        depths[directory] = depth + 1
+        try:
+            yield
+        finally:
+            if depth == 0:
+                depths.pop(directory)
+                if fd is not None:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                    finally:
+                        os.close(fd)
+            else:
+                depths[directory] = depth
+
+
+def _cleanup_backups(backup_dir: Path, backups: dict[Path, Path]) -> None:
+    """Unlink old key inodes before removing the now-empty backup directory."""
+    logger = logging.getLogger(__name__)
+    for backup in backups.values():
+        try:
+            backup.unlink(missing_ok=True)
+        except OSError:
+            logger.error(
+                "old wallet keyfile backup could not be removed: %s", backup, exc_info=True
+            )
+            return
+    try:
+        backup_dir.rmdir()
+    except OSError:
+        logger.warning(
+            "empty wallet backup directory could not be removed: %s", backup_dir, exc_info=True
+        )
+
+
+def _keyfile_inode(path: Path) -> tuple[int, int] | None:
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return None
+    return current.st_dev, current.st_ino
 
 
 def _seed_bytes(seed: str | bytes) -> bytes:
@@ -90,6 +166,8 @@ class Wallet:
         self._coldkeypub: Keypair | None = None
         self._hotkey: Keypair | None = None
         self._hotkeypub: Keypair | None = None
+        self._preapproved_overwrites: dict[Path, tuple[tuple[int, int] | None, bool]] | None = None
+        self._last_cold_published: tuple[tuple[Path, tuple[int, int]], ...] = ()
 
         wallet_dir = Path(self.path).expanduser() / self.name
         self._coldkey_file = Keyfile(wallet_dir / "coldkey", "coldkey")
@@ -153,6 +231,143 @@ class Wallet:
         self._hotkey = keypair
         return keypair
 
+    def _set_keypair_with_public(
+        self,
+        keypair: Keypair,
+        *,
+        private_file: Keyfile,
+        public_file: Keyfile,
+        encrypt: bool,
+        overwrite: bool,
+        save_to_env: bool,
+        password: str | None,
+    ) -> tuple[tuple[Path, tuple[int, int]], ...]:
+        with _wallet_directory_lock(Path(self._coldkey_file.path).parent):
+            return self._set_keypair_with_public_locked(
+                keypair,
+                private_file=private_file,
+                public_file=public_file,
+                encrypt=encrypt,
+                overwrite=overwrite,
+                save_to_env=save_to_env,
+                password=password,
+            )
+
+    def _set_keypair_with_public_locked(
+        self,
+        keypair: Keypair,
+        *,
+        private_file: Keyfile,
+        public_file: Keyfile,
+        encrypt: bool,
+        overwrite: bool,
+        save_to_env: bool,
+        password: str | None,
+    ) -> tuple[tuple[Path, tuple[int, int]], ...]:
+        """Publish the public and private files as a recoverable pair."""
+        files = (public_file, private_file)
+        paths = tuple(Path(file.path) for file in files)
+        if any(path.is_symlink() for path in paths):
+            raise ValueError("paired wallet keyfiles cannot be symlinks")
+        if self._preapproved_overwrites is None:
+            original = tuple(_keyfile_inode(path) for path in paths)
+            # Keep the private-then-public prompt order of the original API.
+            private_approved = private_file._confirm_overwrite(overwrite)
+            public_approved = public_file._confirm_overwrite(overwrite)
+            approved = (public_approved, private_approved)
+        else:
+            entries = tuple(self._preapproved_overwrites[path] for path in paths)
+            original = tuple(entry[0] for entry in entries)
+            approved = tuple(entry[1] for entry in entries)
+        existed = tuple(inode is not None for inode in original)
+        if tuple(_keyfile_inode(path) for path in paths) != original:
+            raise FileExistsError("wallet keyfiles changed during overwrite approval")
+        for file in files:
+            file.make_dirs()
+
+        backup_dir = Path(tempfile.mkdtemp(prefix=".wallet-backup.", dir=paths[0].parent))
+        backups: dict[Path, Path] = {}
+        staged: list[Path] = []
+        published: list[tuple[Path, tuple[int, int]]] = []
+        rollback_failed = False
+        old_save_to_env = private_file.should_save_to_env
+        env_name = private_file.env_var_name()
+        old_env_value = os.environ.get(env_name)
+
+        def record_publish(path: Path, inode: tuple[int, int]) -> None:
+            published.append((path, inode))
+
+        try:
+            public_payload, _ = public_file._prepare_keypair_payload(
+                _public_only(keypair), False, None
+            )
+            private_payload, resolved = private_file._prepare_keypair_payload(
+                keypair, encrypt, password
+            )
+            staged.append(public_file._stage_data(public_payload))
+            staged.append(private_file._stage_data(private_payload))
+            for index, (path, was_present) in enumerate(zip(paths, existed)):
+                if was_present:
+                    if _keyfile_inode(path) != original[index]:
+                        raise FileExistsError(f"wallet keyfile changed during staging: {path}")
+                    backup = backup_dir / path.name
+                    os.link(path, backup, follow_symlinks=False)
+                    backups[path] = backup
+                    if _keyfile_inode(backup) != original[index]:
+                        raise FileExistsError(f"wallet keyfile changed during backup: {path}")
+
+            if tuple(_keyfile_inode(path) for path in paths) != original:
+                raise FileExistsError("wallet keyfiles changed before publication")
+
+            public_file._publish_staged(
+                staged[0],
+                overwrite=approved[0] and existed[0],
+                _on_publish=record_publish,
+            )
+            if _keyfile_inode(paths[1]) != original[1]:
+                raise FileExistsError("private keyfile changed before publication")
+            private_file._publish_staged(
+                staged[1],
+                overwrite=approved[1] and existed[1],
+                _on_publish=record_publish,
+            )
+            private_file.should_save_to_env = save_to_env
+            if encrypt and save_to_env:
+                private_file.save_password_to_env(resolved)
+        except BaseException:
+            # Restore only our published inodes. A concurrent replacement must
+            # never be overwritten by rollback.
+            for path, inode in reversed(published):
+                try:
+                    current = path.lstat()
+                    if (current.st_dev, current.st_ino) != inode:
+                        raise RuntimeError(f"keyfile changed concurrently: {path}")
+                    backup = backups.get(path)
+                    if backup is None:
+                        path.unlink()
+                    else:
+                        os.replace(backup, path)
+                except OSError as rollback_exc:
+                    rollback_failed = True
+                    raise RuntimeError(
+                        f"could not restore wallet keyfile {path}; backup remains in {backup_dir}"
+                    ) from rollback_exc
+                except RuntimeError:
+                    rollback_failed = True
+                    raise
+            private_file.should_save_to_env = old_save_to_env
+            if old_env_value is None:
+                os.environ.pop(env_name, None)
+            else:
+                os.environ[env_name] = old_env_value
+            raise
+        finally:
+            for temporary in staged:
+                temporary.unlink(missing_ok=True)
+            if not rollback_failed:
+                _cleanup_backups(backup_dir, backups)
+        return tuple(published)
+
     def _set_coldkey(
         self,
         keypair: Keypair,
@@ -161,19 +376,24 @@ class Wallet:
         save_coldkey_to_env: bool,
         coldkey_password: str | None,
     ) -> None:
-        self._coldkey = keypair
-        self._coldkey_file.should_save_to_env = save_coldkey_to_env
-        self._coldkey_file.set_keypair(
+        self._last_cold_published = ()
+        self._last_cold_published = self._set_keypair_with_public(
             keypair,
+            private_file=self._coldkey_file,
+            public_file=self._coldkeypub_file,
             encrypt=encrypt,
             overwrite=overwrite,
+            save_to_env=save_coldkey_to_env,
             password=coldkey_password,
         )
+        self._coldkey = keypair
+        self._coldkeypub = _public_only(keypair)
 
     def _set_coldkeypub(self, keypair: Keypair, overwrite: bool) -> None:
         public = _public_only(keypair)
-        self._coldkeypub = public
-        self._coldkeypub_file.set_keypair(public, encrypt=False, overwrite=overwrite)
+        with _wallet_directory_lock(Path(self._coldkey_file.path).parent):
+            self._coldkeypub_file.set_keypair(public, encrypt=False, overwrite=overwrite)
+            self._coldkeypub = public
 
     def _set_hotkey(
         self,
@@ -183,19 +403,23 @@ class Wallet:
         save_hotkey_to_env: bool,
         hotkey_password: str | None,
     ) -> None:
-        self._hotkey = keypair
-        self._hotkey_file.should_save_to_env = save_hotkey_to_env
-        self._hotkey_file.set_keypair(
+        self._set_keypair_with_public(
             keypair,
+            private_file=self._hotkey_file,
+            public_file=self._hotkeypub_file,
             encrypt=encrypt,
             overwrite=overwrite,
+            save_to_env=save_hotkey_to_env,
             password=hotkey_password,
         )
+        self._hotkey = keypair
+        self._hotkeypub = _public_only(keypair)
 
     def _set_hotkeypub(self, keypair: Keypair, overwrite: bool) -> None:
         public = _public_only(keypair)
-        self._hotkeypub = public
-        self._hotkeypub_file.set_keypair(public, encrypt=False, overwrite=overwrite)
+        with _wallet_directory_lock(Path(self._coldkey_file.path).parent):
+            self._hotkeypub_file.set_keypair(public, encrypt=False, overwrite=overwrite)
+            self._hotkeypub = public
 
     def create_new_coldkey(
         self,
@@ -230,7 +454,6 @@ class Wallet:
             save_coldkey_to_env,
             coldkey_password,
         )
-        self._set_coldkeypub(keypair, overwrite)
         return self
 
     def create_new_hotkey(
@@ -264,7 +487,6 @@ class Wallet:
             save_hotkey_to_env,
             hotkey_password,
         )
-        self._set_hotkeypub(keypair, overwrite)
         return self
 
     def regenerate_coldkey(
@@ -314,7 +536,6 @@ class Wallet:
             save_coldkey_to_env,
             coldkey_password,
         )
-        self._set_coldkeypub(keypair, overwrite)
         return self
 
     def regenerate_hotkey(
@@ -354,7 +575,6 @@ class Wallet:
             save_hotkey_to_env,
             hotkey_password,
         )
-        self._set_hotkeypub(keypair, overwrite)
         return self
 
     def regenerate_coldkeypub(
