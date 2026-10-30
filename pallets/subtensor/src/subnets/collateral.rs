@@ -646,18 +646,19 @@ impl<T: Config> Pallet<T> {
                         false,
                     )?;
                     ensure!(!bought.is_zero(), Error::<T>::AmountTooLow);
-                    // The moving-price quote can differ from the live AMM price. Keep any
-                    // overfill as ordinary free stake, and fail atomically on an underfill:
-                    // a successful call must lock exactly the alpha the caller requested.
-                    ensure!(bought >= shortfall_alpha, Error::<T>::SlippageTooHigh);
+                    // The moving-price quote can differ from the live AMM execution in either
+                    // direction. Never lock more than requested; an underfill remains a valid
+                    // partial top-up because fees and ordinary price impact make it the normal
+                    // result when the moving and spot prices agree.
+                    let bought_to_lock = bought.min(shortfall_alpha);
                     Self::credit_miner_collateral(
                         netuid,
                         &hotkey,
                         &coldkey,
-                        shortfall_alpha,
+                        bought_to_lock,
                         false,
                     )?;
-                    added = added.saturating_add(shortfall_alpha);
+                    added = added.saturating_add(bought_to_lock);
                 }
 
                 ensure!(!added.is_zero(), Error::<T>::AmountTooLow);

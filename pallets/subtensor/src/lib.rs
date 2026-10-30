@@ -3191,7 +3191,7 @@ pub mod pallet {
 
     /// Last block at which a hotkey's registration on a subnet was replaced.
     /// Timelocked commits at or before this block belong to the old registration
-    /// and are discarded by the reveal path.
+    /// and are discarded by the reveal path. Expired cutoffs are removed lazily.
     #[pallet::storage]
     pub type TimelockedCommitInvalidatedAt<T: Config> =
         StorageDoubleMap<_, Identity, NetUid, Twox64Concat, T::AccountId, u64, OptionQuery>;

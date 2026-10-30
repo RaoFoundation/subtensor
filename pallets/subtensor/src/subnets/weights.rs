@@ -35,10 +35,19 @@ impl<T: Config> Pallet<T> {
         weight.saturating_add(T::DbWeight::get().reads(1))
     }
 
-    /// Timelocked commits additionally read the registration invalidation cutoff.
+    /// Timelocked commits additionally read and may retire a registration cutoff.
     pub fn timelock_commit_weight_for_mode(netuid: NetUid, yuma: Weight, null: Weight) -> Weight {
         Self::timelock_weight_for_mode(netuid, yuma, null)
-            .saturating_add(T::DbWeight::get().reads(1))
+            .saturating_add(T::DbWeight::get().reads_writes(3, 1))
+    }
+
+    /// A cutoff only needs to survive while a pre-replacement commit could still
+    /// occupy a reveal queue. The extra epoch covers the remainder of the commit
+    /// epoch and the `tempo + 1` factor matches the longest epoch spacing.
+    fn timelocked_invalidation_is_expired(netuid: NetUid, invalidated_at: u64, now: u64) -> bool {
+        let epochs = Self::get_reveal_period(netuid).saturating_add(1);
+        let epoch_blocks = u64::from(Self::get_tempo(netuid)).saturating_add(1);
+        now > invalidated_at.saturating_add(epochs.saturating_mul(epoch_blocks))
     }
 
     pub(crate) fn timelocked_commit_is_current(
@@ -46,8 +55,15 @@ impl<T: Config> Pallet<T> {
         who: &T::AccountId,
         commit_block: u64,
     ) -> bool {
-        TimelockedCommitInvalidatedAt::<T>::get(netuid, who)
-            .is_none_or(|invalidated_at| commit_block > invalidated_at)
+        let Some(invalidated_at) = TimelockedCommitInvalidatedAt::<T>::get(netuid, who) else {
+            return Self::is_hotkey_registered_on_network(netuid, who);
+        };
+        let now = Self::get_current_block_as_u64();
+        if Self::timelocked_invalidation_is_expired(netuid, invalidated_at, now) {
+            TimelockedCommitInvalidatedAt::<T>::remove(netuid, who);
+            return Self::is_hotkey_registered_on_network(netuid, who);
+        }
+        Self::is_hotkey_registered_on_network(netuid, who) && commit_block > invalidated_at
     }
 
     /// Pre-dispatch weight of `batch_set_weights`: the batch overhead plus one full

@@ -2481,8 +2481,8 @@ fn root_sourced_child_take_does_not_dilute_alpha_validators() {
 
         let payout = |take| {
             ChildkeyTake::<Test>::insert(child, netuid, PerU16::from_parts(take));
-            let (_, (alpha, _root)) =
-                SubtensorModule::calculate_dividend_and_incentive_distribution(
+            let (_, (alpha, root, direct_root_take)) =
+                SubtensorModule::calculate_dividend_and_incentive_distribution_with_root_take(
                     netuid,
                     1_000_000u64.into(),
                     1_000_000u64.into(),
@@ -2495,6 +2495,8 @@ fn root_sourced_child_take_does_not_dilute_alpha_validators() {
             (
                 alpha.get(&alpha_peer).copied().unwrap_or_default(),
                 alpha.get(&child).copied().unwrap_or_default(),
+                root.get(&child).copied().unwrap_or_default(),
+                direct_root_take.get(&child).copied().unwrap_or_default(),
             )
         };
 
@@ -2502,7 +2504,93 @@ fn root_sourced_child_take_does_not_dilute_alpha_validators() {
         let with_take = payout(11_796); // 18%
         assert_eq!(with_take.0, without_take.0);
         assert_eq!(with_take.1, U96F32::from_num(0));
+        assert_eq!(with_take.2, U96F32::from_num(0));
+        assert!(with_take.3 > U96F32::from_num(0));
     });
+}
+
+#[test]
+fn root_sourced_child_take_pays_owner_directly_with_or_without_root_uid() {
+    for child_is_root_registered in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let netuid = add_dynamic_network(&U256::from(200), &U256::from(201));
+            let parent = U256::from(21);
+            let parent_coldkey = U256::from(22);
+            let child = U256::from(23);
+            let child_coldkey = U256::from(24);
+            let alpha_peer = U256::from(25);
+            let alpha_peer_coldkey = U256::from(26);
+            SubtensorModule::set_tao_weight(u64::MAX / 100 * 18);
+
+            Owner::<Test>::insert(parent, parent_coldkey);
+            Owner::<Test>::insert(child, child_coldkey);
+            Owner::<Test>::insert(alpha_peer, alpha_peer_coldkey);
+            ParentKeys::<Test>::insert(child, netuid, vec![(u64::MAX, parent)]);
+            ChildKeys::<Test>::insert(parent, netuid, vec![(u64::MAX, child)]);
+            ChildkeyTake::<Test>::insert(child, netuid, PerU16::from_parts(11_796));
+            Uids::<Test>::insert(NetUid::ROOT, parent, 0);
+            if child_is_root_registered {
+                Uids::<Test>::insert(NetUid::ROOT, child, 1);
+            }
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &parent,
+                &parent_coldkey,
+                NetUid::ROOT,
+                10_000_000u64.into(),
+            );
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &alpha_peer,
+                &alpha_peer_coldkey,
+                netuid,
+                10_000_000u64.into(),
+            );
+
+            let (incentives, (alpha, root, direct_root_take)) =
+                SubtensorModule::calculate_dividend_and_incentive_distribution_with_root_take(
+                    netuid,
+                    1_000_000u64.into(),
+                    1_000_000u64.into(),
+                    vec![
+                        (child, AlphaBalance::ZERO, 1_000_000u64.into()),
+                        (alpha_peer, AlphaBalance::ZERO, 1_000_000u64.into()),
+                    ],
+                    U96F32::from_num(0.18),
+                );
+            let expected = direct_root_take
+                .get(&child)
+                .copied()
+                .unwrap_or_default()
+                .saturating_to_num::<u64>();
+            assert!(expected > 0);
+            assert_eq!(
+                root.get(&child).copied().unwrap_or_default(),
+                U96F32::from_num(0)
+            );
+
+            SubtensorModule::distribute_dividends_and_incentives_with_root_take(
+                netuid,
+                AlphaBalance::ZERO,
+                incentives,
+                alpha,
+                root,
+                direct_root_take,
+            );
+
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &child,
+                    &child_coldkey,
+                    netuid,
+                ),
+                AlphaBalance::from(expected),
+            );
+            assert_eq!(
+                Uids::<Test>::contains_key(NetUid::ROOT, child),
+                child_is_root_registered
+            );
+            assert!(!PendingBasketDeposits::<Test>::contains_key(child, netuid));
+        });
+    }
 }
 
 #[test]

@@ -264,7 +264,7 @@ fn replace_neuron_invalidates_pending_weight_commits_without_scanning_epoch_queu
         ));
         assert!(SubtensorModule::timelocked_commit_is_current(
             netuid,
-            &old_hotkey,
+            &new_hotkey,
             3
         ));
     });

@@ -10,6 +10,13 @@ fn remark() -> RuntimeCall {
     RuntimeCall::System(frame_system::Call::remark { remark: vec![] })
 }
 
+fn derivative(call: RuntimeCall) -> RuntimeCall {
+    RuntimeCall::Utility(pallet_subtensor_utility::Call::as_derivative {
+        index: 0,
+        call: Box::new(call),
+    })
+}
+
 #[test]
 fn proxy_cannot_hide_a_nested_utility_batch() {
     let proxy = RuntimeCall::Proxy(pallet_subtensor_proxy::Call::proxy {
@@ -37,4 +44,32 @@ fn a_single_batch_with_wrapped_non_utility_calls_remains_allowed() {
         call: Box::new(remark()),
     });
     assert!(NoNestingCallFilter::contains(&batch(vec![proxy])));
+}
+
+#[test]
+fn ordinary_calls_and_one_top_level_batch_remain_allowed() {
+    assert!(NoNestingCallFilter::contains(&remark()));
+    assert!(NoNestingCallFilter::contains(&batch(vec![remark()])));
+}
+
+#[test]
+fn a_wrapper_around_one_top_level_batch_remains_allowed() {
+    assert!(NoNestingCallFilter::contains(&derivative(batch(vec![
+        remark(),
+    ]))));
+}
+
+#[test]
+fn the_same_wrapped_batch_is_rejected_inside_an_outer_batch() {
+    assert!(!NoNestingCallFilter::contains(&batch(vec![derivative(
+        batch(vec![remark()]),
+    )])));
+}
+
+#[test]
+fn sudo_around_one_top_level_batch_remains_allowed() {
+    let sudo = RuntimeCall::Sudo(pallet_sudo::Call::sudo {
+        call: Box::new(batch(vec![remark()])),
+    });
+    assert!(NoNestingCallFilter::contains(&sudo));
 }

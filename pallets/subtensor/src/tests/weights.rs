@@ -5234,7 +5234,6 @@ fn timelocked_commit_must_follow_latest_registration_invalidation() {
         SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
         SubtensorModule::set_weights_set_rate_limit(netuid, 0);
         TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, 10);
-
         let commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>> =
             vec![1u8; 5].try_into().expect("bounded commit");
         assert_noop!(
@@ -5280,10 +5279,28 @@ fn reveal_discards_timelocked_commit_from_previous_registration() {
             VecDeque::from([(hotkey, 5, Default::default(), 1_000)]),
         );
         TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, 10);
-
         assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
 
         assert!(TimelockedWeightCommits::<Test>::get(index, reveal_epoch).is_empty());
+    });
+}
+
+#[test]
+fn expired_registration_invalidation_is_removed_lazily() {
+    new_test_ext(100).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        add_network(netuid, 5, 0);
+        register_ok_neuron(netuid, hotkey, U256::from(2), 0);
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, 1));
+        TimelockedCommitInvalidatedAt::<Test>::insert(netuid, hotkey, 10);
+
+        assert!(SubtensorModule::timelocked_commit_is_current(
+            netuid, &hotkey, 100
+        ));
+        assert!(!TimelockedCommitInvalidatedAt::<Test>::contains_key(
+            netuid, hotkey
+        ));
     });
 }
 
