@@ -41,4 +41,12 @@ Lift identity $y_s/y=(1-\varphi)^{1/w_q}$ **reduces to** μ’s $(1-\varphi)^{1/
 
 ## Root fix
 
-Keep-weights readd (fixed shogting path). Optional proportional-join MTM hardening is separate. No undefined “ship (a)” / “design (b)” labels.
+Keep-weights readd (fixed shogting path). No undefined “ship (a)” / “design (b)” labels.
+
+## K-neutrality burn (Jacob 2026-10-30)
+
+Keep-weights stops the SN29 weight ratchet, but a shogting cycle can still raise $L=x^{w_b}y^{w_q}$ (cycle loss stays in the pool). On the last readd when the lift book returns to idle, burn a common fraction of both reserves so $L$ returns to the pre-lending baseline $L^\star$ snapshotted at first open:
+
+$$\sigma=(x^\star/x')^{w_b}(y^\star/y')^{w_q},\quad\text{keep }\sigma\text{ of each reserve (spot fixed)}.$$
+
+Floors at pre-credit reserves: never burn user funds or escrow. Works for any weights; dissolution skips.

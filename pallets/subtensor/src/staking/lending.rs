@@ -294,6 +294,41 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
     }
 
     #[transactional]
+    fn burn_protocol_reserves(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> DispatchResult {
+        if tao.is_zero() && alpha.is_zero() {
+            return Ok(());
+        }
+        ensure!(
+            Self::if_subnet_exist(netuid) || DissolveCleanupQueue::<T>::get().contains(&netuid),
+            Error::<T>::SubnetNotExists
+        );
+        if !tao.is_zero() {
+            ensure!(
+                SubnetTAO::<T>::get(netuid) >= tao,
+                Error::<T>::InsufficientLiquidity
+            );
+            let subnet = Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
+            Self::decrease_provided_tao_reserve(netuid, tao);
+            if Self::if_subnet_exist(netuid) {
+                TotalStake::<T>::mutate(|total| *total = total.saturating_sub(tao));
+            }
+            <Self as LendingPoolInterface<T::AccountId>>::burn_interest_tao(&subnet, tao)?;
+        }
+        if !alpha.is_zero() {
+            ensure!(
+                SubnetAlphaIn::<T>::get(netuid) >= alpha,
+                Error::<T>::InsufficientLiquidity
+            );
+            Self::decrease_provided_alpha_reserve(netuid, alpha);
+        }
+        Ok(())
+    }
+
+    #[transactional]
     fn forced_buy_into_custody(
         custody_cold: &T::AccountId,
         custody_hot: &T::AccountId,

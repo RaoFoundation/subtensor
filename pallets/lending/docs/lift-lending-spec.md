@@ -15,6 +15,7 @@
 * **2026-10-29: μ review — shogting cycle, fresh-fork $w_q=\tfrac12$.** Named cycle open-short→pump→close→unstake = **shogting cycle**. Base case from Finney SN29 at clone fork #9,378,125 ($w_q\approx\tfrac12$); contaminated a13/a15 $w_q\approx0.47$ appendix-only. Closed-form $\mathrm{ROI}_{\mathrm{unfix/fix}}(h)$; plot `no-arbitrage-shogting-roi.png`. Mapping to μ’s $F$ explicit. Keep-weights readd (no “ship (a)” label).
 * **2026-10-29: Jacob pass/fail + slippage chart.** Keep-weights criterion: no ≤N-action self-contained sequence yields $\Delta>0$ for $\varphi\le\varphi_{\max}$ on live SN29 / SN64 / SN51 / SN4 / SN119. Search PASS ($N=8$). Slippage $M(\varphi)\approx 1/(1-\varphi)$ — `no-arbitrage-slippage.pdf`.
 * **2026-10-29: lift/readd inverse (SN29 drain).** `readd_protocol_liquidity` preserves Balancer weights. $\varphi=$ lift fraction (not fee).
+* **2026-10-30: k-neutrality burn (Jacob).** After the last outstanding lift is re-added, burn proportional surplus TAO/alpha so Balancer $L=x^{w_b}y^{w_q}$ returns to the pre-lending baseline (spot fixed, weights unchanged). Floors at pre-credit reserves; never touches user funds or escrow. Dissolution skips. See `no-arbitrage.tex` §K-neutrality burn.
 * Economics unchanged: 25% LTV / 15% thin, 100% APR burn-all interest, escrowed longs and shorts, pro-rata partial repay, custody earns no emissions, dissolution `r` protections, new-subnet gate and ramp.
 * Touched: header, §0, §3, §5.4 (new), §8, §9, §15 (new).
 

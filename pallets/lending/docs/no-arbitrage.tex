@@ -350,11 +350,49 @@ fork happens to start at $\tfrac12$. Keep-weights only skips
 asymmetric-join reweight on \emph{lending} readd after skew.
 
 \paragraph{Recommendation.}
-Ship the keep-weights readd (the fixed shogting path). Optional later
-hardening --- restore $\Delta L$ by a current-ratio proportional join and
-mark-to-market the custody residual --- is separate and not required for
-Theorem~\ref{thm:shogting}. Do not restore \eqref{eq:reweight} on lending
-readd.
+Ship the keep-weights readd (the fixed shogting path) together with the
+k-neutrality burn of Section~\ref{sec:k-neutral}. Do not restore
+\eqref{eq:reweight} on lending readd.
+
+%----------------------------------------------------------------------
+\section{K-neutrality burn}
+\label{sec:k-neutral}
+
+Keep-weights alone stops the SN29 weight ratchet, but $\mu$ showed that a
+shogting cycle under fixed weights can only \emph{increase}
+$\sqrt{k}=L=x^{w_b}y^{w_q}$ (proved for $w_q=\tfrac12$): the cycle's loss
+stays in the pool and deepens it. Jacob (2026-10-30) requires lending
+cycles to leave $k$ unchanged, so pools get thinner/more volatile while
+a lift is outstanding, not deeper after close.
+
+\paragraph{Baseline.}
+When the lift book goes idle$\to$busy, snapshot pool reserves
+$(x^\star,y^\star)$ (storage \texttt{InvariantBaseline}). This defines
+\[
+  L^\star \;=\; (x^\star)^{w_b}(y^\star)^{w_q}
+\]
+at the live weights (unchanged by readd).
+
+\paragraph{Burn after last readd.}
+On close/repay/forfeit/expiry, after a full weight-preserving credit of
+the lift legs, if the book is again idle:
+\[
+  \sigma
+  \;=\;
+  \Bigl(\frac{x^\star}{x'}\Bigr)^{w_b}
+  \Bigl(\frac{y^\star}{y'}\Bigr)^{w_q},
+\]
+where $(x',y')$ are post-credit reserves. If $\sigma\ge 1$ ($L'\le L^\star$)
+burn nothing. Otherwise keep $\sigma$ of each reserve (spot fixed) and burn
+the rest. Floors at the pre-credit reserves ensure the burn never eats
+user funds or escrow --- only surplus from the just-credited legs.
+Dissolution skips the burn (subnet winding down) and clears the baseline.
+
+\paragraph{Any weights.}
+The same $\sigma$ works for arbitrary $(w_b,w_q)$ with $w_b+w_q=1$;
+equal weights reduce to $\sigma=L^\star/L'$. Burning TAO matches the
+existing burn-all-interest policy; surplus alpha is discarded from
+\texttt{SubnetAlphaIn}.
 
 %----------------------------------------------------------------------
 \section{Pass/fail (keep-weights), search, slippage}

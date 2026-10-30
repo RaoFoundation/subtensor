@@ -151,6 +151,24 @@ fn sqrt_k_approx() -> u128 {
     }
     x0
 }
+/// Balancer `L = x^{w_b} y^{w_q}` (f64; test assertions only).
+fn balancer_l_approx() -> f64 {
+    let x = pool_alpha() as f64;
+    let y = pool_tao() as f64;
+    let w_q = (quote_weight_parts() as f64) / (WEIGHT_ACCURACY as f64);
+    let w_b = 1.0 - w_q;
+    x.powf(w_b) * y.powf(w_q)
+}
+fn burned_tao_surplus() -> u64 {
+    read(&key(b"test/burned_tao", netuid()))
+}
+fn burned_alpha_surplus() -> u64 {
+    read(&key(b"test/burned_alpha", netuid()))
+}
+fn clear_burned_surplus() {
+    write(&key(b"test/burned_tao", netuid()), 0u64);
+    write(&key(b"test/burned_alpha", netuid()), 0u64);
+}
 /// Perquintill accuracy (matches swap `ACCURACY` / `Perquintill` parts).
 const WEIGHT_ACCURACY: u128 = 1_000_000_000_000_000_000;
 /// Counterfactual: Balancer weight update that preserves the pre-add spot
@@ -494,6 +512,32 @@ impl LendingPoolInterface<Account> for MockPool {
         alpha_in: AlphaBalance,
     ) -> DispatchResult {
         Self::readd_and_credit_inner(netuid, custody_cold, custody_hot, tao_in, alpha_in, false)
+    }
+
+    fn burn_protocol_reserves(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> DispatchResult {
+        let t = tao.to_u64();
+        let a = alpha.to_u64();
+        ensure!(pool_tao() >= t, "insufficient pool tao");
+        ensure!(pool_alpha() >= a, "insufficient pool alpha");
+        if t > 0 {
+            write(&key(b"test/pool_tao", netuid), pool_tao().saturating_sub(t));
+            // Track burned TAO/alpha for k-neutrality assertions.
+            let prev: u64 = read(&key(b"test/burned_tao", netuid));
+            write(&key(b"test/burned_tao", netuid), prev.saturating_add(t));
+        }
+        if a > 0 {
+            write(
+                &key(b"test/pool_alpha", netuid),
+                pool_alpha().saturating_sub(a),
+            );
+            let prev: u64 = read(&key(b"test/burned_alpha", netuid));
+            write(&key(b"test/burned_alpha", netuid), prev.saturating_add(a));
+        }
+        Ok(())
     }
 
     fn forced_buy_into_custody(
@@ -6081,12 +6125,12 @@ fn sn29_short_self_pump_buyback_close_preserves_weights_no_profit() {
             free_after <= free_before,
             "attacker must not profit: before={free_before} after={free_after}"
         );
-        // Reserves returned near baseline ⇒ L near baseline with fixed w.
+        // K-neutrality: surplus burn restores √k to pre-open (within rounding).
         let l_after = sqrt_k_approx();
         let drift = l_after.abs_diff(l_before) as f64 / (l_before as f64).max(1.0);
         assert!(
-            drift < 0.05,
-            "L should be conserved within fee noise: before={l_before} after={l_after} drift={drift}"
+            drift < 0.001,
+            "k-neutral burn must restore √k: before={l_before} after={l_after} drift={drift}"
         );
     });
 }
@@ -6097,8 +6141,8 @@ fn sn29_short_self_pump_buyback_close_preserves_weights_no_profit() {
 #[test]
 fn sn29_short_foreign_pump_wallet_repay_preserves_weights_no_profit() {
     new_test_ext().execute_with(|| {
-        // Production-like quote weight (~0.4717 from REPORT baseline).
-        sn29_drain_fixture(8_000_000_000_000u64, 471_700_000_000_000_000);
+        // Equal weights so mock CP preserves √(xy) = Balancer L (k-neutrality).
+        sn29_drain_fixture(8_000_000_000_000u64, 500_000_000_000_000_000);
         let w_before = quote_weight_parts();
         let l_before = sqrt_k_approx();
 
@@ -6194,9 +6238,272 @@ fn sn29_short_foreign_pump_wallet_repay_preserves_weights_no_profit() {
         );
         let l_after = sqrt_k_approx();
         let drift = l_after.abs_diff(l_before) as f64 / (l_before as f64).max(1.0);
+        // Wallet-repay readds an asymmetric residual; the floor (never burn
+        // pre-credit reserves) can leave a sub-percent L residue above baseline.
         assert!(
-            drift < 0.05,
-            "L should be conserved within fee noise: before={l_before} after={l_after} drift={drift}"
+            drift < 0.01,
+            "k-neutral burn must restore √k within 1%: before={l_before} after={l_after} drift={drift}"
         );
+    });
+}
+
+/// Jacob 2026-10-30: open → pump → close leaves Balancer `L` at its pre-open
+/// value (within rounding) and leaves `w_q` unchanged at equal weights.
+/// Skewed weights are covered by the pure burn-formula unit tests (mock swaps
+/// are constant-product, which only matches Balancer `L` at `w_q=1/2`).
+#[test]
+fn k_neutral_shogting_restores_l_at_half_weight() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        sn29_drain_fixture(8_000_000_000_000u64, 500_000_000_000_000_000);
+        let w_before = quote_weight_parts();
+        let l_before = balancer_l_approx();
+        let y_before = pool_tao();
+        let x_before = pool_alpha();
+
+        let owner = account(1);
+        let hotkey = account(2);
+        let coll = 1_200_000_000_000u64;
+        let pump = 7_000_000_000_000u64;
+        mint_tao(&owner, coll + pump + 50_000_000_000_000);
+        let free_before = tao(&owner);
+
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            coll,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let baseline = InvariantBaseline::<Test>::get(netuid()).expect("baseline");
+        assert_eq!(baseline.tao, y_before);
+        assert_eq!(baseline.alpha, x_before);
+
+        assert_ok!(MockPool::buy_alpha(
+            &owner,
+            &hotkey,
+            netuid(),
+            pump.into(),
+            0u64.into(),
+            false,
+        ));
+
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert_eq!(quote_weight_parts(), w_before, "w_q unchanged");
+        assert!(InvariantBaseline::<Test>::get(netuid()).is_none());
+
+        let l_after = balancer_l_approx();
+        let drift = (l_after - l_before).abs() / l_before.max(1.0);
+        assert!(
+            drift < 0.002,
+            "L restored: before={l_before} after={l_after} drift={drift}"
+        );
+        assert!(
+            burned_tao_surplus() > 0 || burned_alpha_surplus() > 0,
+            "expected surplus burn after pump+close"
+        );
+
+        let leftover = alpha(&owner, &hotkey, netuid());
+        if leftover > 0 {
+            assert_ok!(MockPool::sell_alpha(
+                &owner,
+                &hotkey,
+                netuid(),
+                leftover.into(),
+                0u64.into(),
+                false,
+            ));
+        }
+        assert!(tao(&owner) <= free_before, "no profitable shogting cycle");
+    });
+}
+
+/// Skewed-weight shogting: weights unchanged, no profit; surplus burn formula
+/// matches excess at the live quote weight (mock CP ≠ Balancer path for `L`).
+#[test]
+fn k_neutral_shogting_skewed_weights_no_profit_burns_formula() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let w_parts = 300_000_000_000_000_000u64; // w_q = 0.3
+        sn29_drain_fixture(8_000_000_000_000u64, w_parts);
+        let w_before = quote_weight_parts();
+
+        let owner = account(1);
+        let hotkey = account(2);
+        let coll = 1_200_000_000_000u64;
+        let pump = 7_000_000_000_000u64;
+        mint_tao(&owner, coll + pump + 50_000_000_000_000);
+        let free_before = tao(&owner);
+
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            coll,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        assert_ok!(MockPool::buy_alpha(
+            &owner,
+            &hotkey,
+            netuid(),
+            pump.into(),
+            0u64.into(),
+            false,
+        ));
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert_eq!(quote_weight_parts(), w_before, "skewed w_q unchanged");
+
+        // Formula identity at skewed weight: burn amounts for a synthetic
+        // post-credit state equal the excess above floors.
+        let (bt, ba) = MockPool::burn_amounts_to_k_baseline(
+            200u64.into(),
+            200u64.into(),
+            w_parts,
+            100u64.into(),
+            100u64.into(),
+            50u64.into(),
+            50u64.into(),
+        );
+        assert!((200 - bt.to_u64()).abs_diff(100) <= 1);
+        assert_eq!(bt.to_u64(), ba.to_u64(), "proportional at any weight");
+
+        let leftover = alpha(&owner, &hotkey, netuid());
+        if leftover > 0 {
+            let _ = MockPool::sell_alpha(
+                &owner,
+                &hotkey,
+                netuid(),
+                leftover.into(),
+                0u64.into(),
+                false,
+            );
+        }
+        assert!(tao(&owner) <= free_before, "no profitable skewed shogting cycle");
+    });
+}
+
+/// Dump path: open short → sell/dump → close restores `L` to the pre-open baseline.
+#[test]
+fn k_neutral_shogting_dump_restores_l() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        sn29_drain_fixture(8_000_000_000_000u64, 500_000_000_000_000_000);
+        let w_before = quote_weight_parts();
+
+        let owner = account(1);
+        let hotkey = account(2);
+        let dumper = account(3);
+        let dump_hk = account(4);
+        let coll = 1_200_000_000_000u64;
+        mint_tao(&owner, coll + 50_000_000_000_000);
+        mint_tao(&dumper, 5_000_000_000_000);
+
+        // Open first so the baseline is the true pre-lending book.
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            coll,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let baseline = InvariantBaseline::<Test>::get(netuid()).expect("baseline");
+        let l_baseline = (baseline.alpha as f64).powf(0.5) * (baseline.tao as f64).powf(0.5);
+
+        // Dump: buy alpha on the shallow book, then sell it back (price impact).
+        assert_ok!(MockPool::buy_alpha(
+            &dumper,
+            &dump_hk,
+            netuid(),
+            4_000_000_000_000u64.into(),
+            0u64.into(),
+            false,
+        ));
+        let dump_a = alpha(&dumper, &dump_hk, netuid());
+        assert!(dump_a > 0);
+        assert_ok!(MockPool::sell_alpha(
+            &dumper,
+            &dump_hk,
+            netuid(),
+            dump_a.into(),
+            0u64.into(),
+            false,
+        ));
+
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert_eq!(quote_weight_parts(), w_before);
+        let l_after = balancer_l_approx();
+        let drift = (l_after - l_baseline).abs() / l_baseline.max(1.0);
+        assert!(
+            drift < 0.002,
+            "dump cycle restores L to baseline: baseline={l_baseline} after={l_after} drift={drift}"
+        );
+        assert!(
+            burned_tao_surplus() > 0 || burned_alpha_surplus() > 0,
+            "dump cycle should burn surplus"
+        );
+    });
+}
+
+/// Burned surplus equals the formula excess for a synthetic post-credit state.
+#[test]
+fn k_neutral_burn_amounts_match_excess() {
+    new_test_ext().execute_with(|| {
+        set_quote_weight_parts(500_000_000_000_000_000);
+        let y = 1_000u64;
+        let x = 1_000u64;
+        let y_star = 800u64;
+        let x_star = 800u64;
+        let floor_y = 900u64;
+        let floor_x = 900u64;
+        let (bt, ba) = MockPool::burn_amounts_to_k_baseline(
+            y.into(),
+            x.into(),
+            quote_weight_parts(),
+            y_star.into(),
+            x_star.into(),
+            floor_y.into(),
+            floor_x.into(),
+        );
+        // σ = 800/1000 = 0.8 → keep 800; but floor is 900 → keep 900, burn 100.
+        assert_eq!(bt.to_u64(), 100);
+        assert_eq!(ba.to_u64(), 100);
+        assert_eq!(y - bt.to_u64(), floor_y);
+        assert_eq!(x - ba.to_u64(), floor_x);
     });
 }

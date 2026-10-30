@@ -204,6 +204,39 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         alpha: AlphaBalance,
     ) -> DispatchResult;
 
+    /// `(burn_tao, burn_alpha)` that restore Balancer `L` to a pre-lending
+    /// baseline at the current spot. Never burns below `floor_*` (pre-credit
+    /// reserves). Default delegates to
+    /// [`subtensor_swap_interface::burn_amounts_to_invariant_baseline`].
+    fn burn_amounts_to_k_baseline(
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+        quote_weight_parts: u64,
+        baseline_tao: TaoBalance,
+        baseline_alpha: AlphaBalance,
+        floor_tao: TaoBalance,
+        floor_alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance) {
+        let (bt, ba) = subtensor_swap_interface::burn_amounts_to_invariant_baseline(
+            tao.to_u64(),
+            alpha.to_u64(),
+            quote_weight_parts,
+            baseline_tao.to_u64(),
+            baseline_alpha.to_u64(),
+            floor_tao.to_u64(),
+            floor_alpha.to_u64(),
+        );
+        (bt.into(), ba.into())
+    }
+
+    /// Remove `tao` / `alpha` from pool reserves and destroy them (TAO burn /
+    /// alpha discard). Used after lending readd to enforce k-neutrality.
+    fn burn_protocol_reserves(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+    ) -> DispatchResult;
+
     /// Forced buy: spend custody TAO into the pool, credit alpha to custody stake.
     fn forced_buy_into_custody(
         custody_cold: &AccountId,
@@ -601,6 +634,30 @@ pub struct Dissolution<BlockNumber> {
     pub t_ema_flag: u64,
 }
 
+/// Pre-lending pool reserves used as the k-neutrality baseline.
+///
+/// Snapshotted when the lift book goes idle→busy (before the first lift of a
+/// nonempty period). After the last outstanding lift is re-added, excess
+/// reserves above this invariant are burned at the current spot.
+#[freeze_struct("6bbbb1de809790e")]
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+)]
+pub struct InvariantBaselineReserves {
+    pub tao: u64,
+    pub alpha: u64,
+}
+
 #[freeze_struct("5da4836dd626280e")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
@@ -700,6 +757,11 @@ pub mod pallet {
     pub type LiftParamsStore<T> = StorageValue<_, LiftParams, ValueQuery>;
     #[pallet::storage]
     pub type Lifts<T: Config> = StorageMap<_, Identity, NetUid, LiftBook, ValueQuery>;
+    /// Pool reserves `(tao, alpha)` when the lift book last went idle→busy.
+    /// Cleared when the book returns to idle after a k-neutral surplus burn.
+    #[pallet::storage]
+    pub type InvariantBaseline<T: Config> =
+        StorageMap<_, Identity, NetUid, InvariantBaselineReserves, OptionQuery>;
     #[pallet::storage]
     pub type LongInterestPending<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
     /// Block when [`LongInterestPending`] first became non-zero on this subnet.
@@ -908,6 +970,14 @@ pub mod pallet {
             alpha: u64,
         },
         Readded {
+            netuid: NetUid,
+            tao: u64,
+            alpha: u64,
+        },
+        /// Surplus burned after readd so Balancer `L` returns to the
+        /// pre-lending baseline (k-neutrality). Never exceeds the just-credited
+        /// legs; never touches user funds or escrow.
+        InvariantSurplusBurned {
             netuid: NetUid,
             tao: u64,
             alpha: u64,
@@ -2521,6 +2591,9 @@ pub mod pallet {
             let custody = Self::custody_hotkey()?;
             let reserve = Self::reserve_account(netuid);
             let escrow = position.custody.clone();
+            // Snapshot pre-lift reserves when the book is idle so close/readd
+            // can burn surplus back to this invariant (k-neutrality).
+            Self::snapshot_invariant_baseline_if_idle(netuid);
             let (g_numer, g_denom) = Self::lift_fraction(netuid, side, principal)?;
             let (lift_alpha, lift_tao) =
                 T::Pool::lift_and_debit(netuid, g_numer, g_denom, &reserve, &custody)?;
@@ -2954,6 +3027,17 @@ pub mod pallet {
                 }
             };
 
+            let (credited_tao, credited_alpha) = match side {
+                Side::Short => (position.lift_tao, position.principal),
+                Side::Long => (position.principal, position.lift_alpha),
+            };
+            Self::maybe_burn_invariant_surplus(
+                netuid,
+                credited_tao,
+                credited_alpha,
+                Dissolutions::<T>::contains_key(netuid),
+            )?;
+
             Self::remove_position(&owner, netuid, &position);
             Self::deposit_event(Event::Closed {
                 owner,
@@ -3262,6 +3346,17 @@ pub mod pallet {
                     Error::<T>::AmountTooSmall
                 );
             }
+
+            let (credited_tao, credited_alpha) = match side {
+                Side::Short => (slice_lift_tao, slice_p),
+                Side::Long => (slice_p, slice_lift_alpha),
+            };
+            Self::maybe_burn_invariant_surplus(
+                netuid,
+                credited_tao,
+                credited_alpha,
+                Dissolutions::<T>::contains_key(netuid),
+            )?;
 
             Positions::<T>::insert(&owner, netuid, position);
             Self::deposit_event(Event::Repaid {
@@ -3940,6 +4035,22 @@ pub mod pallet {
                     });
                 }
             }
+            let (credited_tao, credited_alpha) = match position.side {
+                Side::Short => (
+                    position.lift_tao.saturating_add(position.proceeds),
+                    0u64,
+                ),
+                Side::Long => (
+                    0u64,
+                    position.lift_alpha.saturating_add(position.escrow_alpha),
+                ),
+            };
+            Self::maybe_burn_invariant_surplus(
+                netuid,
+                credited_tao,
+                credited_alpha,
+                Dissolutions::<T>::contains_key(netuid),
+            )?;
             let principal_lost = position.principal;
             let side = position.side;
             Self::remove_position(owner, netuid, position);
@@ -3949,6 +4060,71 @@ pub mod pallet {
                 side,
                 principal_lost,
             });
+            Ok(())
+        }
+
+        /// Record pre-lift pool reserves when no lifts are outstanding.
+        fn snapshot_invariant_baseline_if_idle(netuid: NetUid) {
+            let book = Lifts::<T>::get(netuid);
+            if book.l_s != 0 || book.l_l != 0 {
+                return;
+            }
+            if InvariantBaseline::<T>::contains_key(netuid) {
+                return;
+            }
+            InvariantBaseline::<T>::insert(
+                netuid,
+                InvariantBaselineReserves {
+                    tao: T::Pool::pool_tao(netuid).to_u64(),
+                    alpha: T::Pool::pool_alpha(netuid).to_u64(),
+                },
+            );
+        }
+
+        /// After readd + book update: if the lift book is idle, burn surplus
+        /// reserves so Balancer `L` returns to [`InvariantBaseline`]. Floors at
+        /// pre-credit reserves (`current − credited`). Dissolution skips this
+        /// (subnet is winding down); clears the baseline either way when idle.
+        fn maybe_burn_invariant_surplus(
+            netuid: NetUid,
+            credited_tao: u64,
+            credited_alpha: u64,
+            skip_burn: bool,
+        ) -> DispatchResult {
+            let book = Lifts::<T>::get(netuid);
+            if book.l_s != 0 || book.l_l != 0 {
+                return Ok(());
+            }
+            let Some(baseline) = InvariantBaseline::<T>::take(netuid) else {
+                return Ok(());
+            };
+            if skip_burn || (credited_tao == 0 && credited_alpha == 0) {
+                return Ok(());
+            }
+            let y = T::Pool::pool_tao(netuid).to_u64();
+            let x = T::Pool::pool_alpha(netuid).to_u64();
+            let floor_y = y.saturating_sub(credited_tao);
+            let floor_x = x.saturating_sub(credited_alpha);
+            let w = T::Pool::quote_weight_parts(netuid);
+            let (burn_t, burn_a) = T::Pool::burn_amounts_to_k_baseline(
+                y.into(),
+                x.into(),
+                w,
+                baseline.tao.into(),
+                baseline.alpha.into(),
+                floor_y.into(),
+                floor_x.into(),
+            );
+            let burn_t = burn_t.to_u64().min(credited_tao);
+            let burn_a = burn_a.to_u64().min(credited_alpha);
+            if burn_t > 0 || burn_a > 0 {
+                T::Pool::burn_protocol_reserves(netuid, burn_t.into(), burn_a.into())?;
+                Self::deposit_event(Event::InvariantSurplusBurned {
+                    netuid,
+                    tao: burn_t,
+                    alpha: burn_a,
+                });
+            }
             Ok(())
         }
 
@@ -4913,7 +5089,16 @@ pub mod pallet {
             Lifts::<T>::mutate(netuid, |b| {
                 b.held_tao = 0;
                 b.held_alpha = 0;
+                b.l_s = 0;
+                b.l_l = 0;
             });
+            // Dissolution winds the subnet down — skip k-burn, drop baseline.
+            let _ = Self::maybe_burn_invariant_surplus(
+                netuid,
+                book.held_tao,
+                book.held_alpha,
+                true,
+            );
             if let Some(mut d) = Dissolutions::<T>::get(netuid) {
                 d.lifts_readded = true;
                 Dissolutions::<T>::insert(netuid, d);
@@ -5133,6 +5318,19 @@ pub mod pallet {
                         book.l_s = book.l_s.saturating_sub(position.lift_tao);
                         book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
                     });
+                    // Expiry readds lift_tao (+ recovered TAO); dissolution only
+                    // the recovered pot. Cap burn by what this settle credited.
+                    let credited_tao = if matches!(kind, SettleKind::Expiry) {
+                        position.lift_tao.saturating_add(recovered)
+                    } else {
+                        recovered
+                    };
+                    Self::maybe_burn_invariant_surplus(
+                        netuid,
+                        credited_tao,
+                        0,
+                        matches!(kind, SettleKind::Dissolution),
+                    )?;
                     Self::remove_position(owner, netuid, &position);
                     match kind {
                         SettleKind::Dissolution => {
@@ -5232,6 +5430,17 @@ pub mod pallet {
                             .long_collateral_alpha
                             .saturating_sub(position.collateral);
                     });
+                    let credited_alpha = if matches!(kind, SettleKind::Expiry) {
+                        position.lift_alpha
+                    } else {
+                        0
+                    };
+                    Self::maybe_burn_invariant_surplus(
+                        netuid,
+                        0,
+                        credited_alpha,
+                        matches!(kind, SettleKind::Dissolution),
+                    )?;
                     Self::remove_position(owner, netuid, &position);
                     match kind {
                         SettleKind::Dissolution => {
@@ -5275,6 +5484,7 @@ pub mod pallet {
             DissolutionPhase::<T>::remove(netuid);
             References::<T>::remove(netuid);
             Lifts::<T>::remove(netuid);
+            InvariantBaseline::<T>::remove(netuid);
             LongInterestPending::<T>::remove(netuid);
             LongInterestSince::<T>::remove(netuid);
             Self::forget_active_net(netuid);

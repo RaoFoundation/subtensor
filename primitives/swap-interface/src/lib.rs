@@ -9,7 +9,10 @@ use substrate_fixed::types::U64F64;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 
+mod k_neutral;
 mod order;
+
+pub use k_neutral::{WEIGHT_ACCURACY as K_NEUTRAL_WEIGHT_ACCURACY, burn_amounts_to_invariant_baseline};
 
 /// Coarse failure classification for protocol-owned basket operations. Callers may recover from
 /// an oversized input by chunking, and may explicitly write off a terminally untradeable asset;
@@ -92,6 +95,30 @@ pub trait SwapHandler {
         tao: TaoBalance,
         alpha: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance);
+
+    /// Burn amounts that restore Balancer `L` to a pre-lending baseline at the
+    /// current spot (weights unchanged). See
+    /// [`burn_amounts_to_invariant_baseline`].
+    fn burn_amounts_to_invariant_baseline(
+        tao_reserve: TaoBalance,
+        alpha_reserve: AlphaBalance,
+        quote_weight_parts: u64,
+        baseline_tao: TaoBalance,
+        baseline_alpha: AlphaBalance,
+        floor_tao: TaoBalance,
+        floor_alpha: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance) {
+        let (bt, ba) = burn_amounts_to_invariant_baseline(
+            tao_reserve.to_u64(),
+            alpha_reserve.to_u64(),
+            quote_weight_parts,
+            baseline_tao.to_u64(),
+            baseline_alpha.to_u64(),
+            floor_tao.to_u64(),
+            floor_alpha.to_u64(),
+        );
+        (bt.into(), ba.into())
+    }
 
     /// Threshold TAO depth `y*` such that a fee-free buy of `ref_tao` moves price by
     /// `move_bps` basis points: `y* = ref / ((1 + bps/10_000)^{w_b} - 1)`.
