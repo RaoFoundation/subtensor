@@ -20,6 +20,8 @@ function fixture(overrides = {}) {
     requireNativeClient: async () => native,
     runtimeAt: async () => ({ ss58Format: 42 }),
     accountNextIndex: async () => 7,
+    blockHash: async () => 'best-head',
+    finalizedHead: async () => 'stale-finalized-head',
     query: async (pallet, item) => { assert.equal(pallet + '.' + item, 'MevShield.NextKey'); return Buffer.alloc(1184, 0x42) },
     signExtrinsic: async (call, actualSigner, options) => {
       assert.equal((await actualSigner.getAccount({})).address, address)
@@ -61,6 +63,22 @@ test('raw shielding signs the inner and carrier with consecutive nonces, short e
   assert.equal(staged.length, 1)
   assert.equal(result.innerExtrinsicHash, '0x' + '01'.repeat(32))
   assert.equal(result.data.carrier_only, true)
+})
+
+test('Node shielding reads the best-head key when finality lags key rotation', async () => {
+  const blocks = []
+  const state = fixture({
+    query: async (pallet, item, params, block) => {
+      assert.equal(`${pallet}.${item}`, 'MevShield.NextKey')
+      assert.deepEqual(params, [])
+      blocks.push(block)
+      return block === 'best-head' ? Buffer.alloc(1184, 0x42) : null
+    },
+  })
+  await state.workflow.submitRawShielded(Buffer.from([1]), state.signer, { allowRawCall: true })
+  assert.deepEqual(blocks, ['best-head'])
+  assert.equal(state.submitted.length, 1)
+  await state.client.close()
 })
 
 test('raw shielding preserves explicit submission mode, nonce and metadata hash', async () => {
@@ -173,7 +191,13 @@ test('Node multisig shielding releases the expired inner reservation', async () 
   const state = fixture({
     runtimeAt: async () => runtime, blockHash: async () => '0x' + '11'.repeat(32), blockNumber: async () => 100,
     constant: async () => 100n,
-    query: async (_pallet, item) => item === 'NextKey' ? Buffer.alloc(1184, 0x42) : item === 'Multisigs' ? null : { data: { free: 1000000n } },
+    query: async (_pallet, item, _params, block) => {
+      if (item === 'NextKey') {
+        assert.equal(block, '0x' + '11'.repeat(32), 'multisig encryption must use the best head')
+        return Buffer.alloc(1184, 0x42)
+      }
+      return item === 'Multisigs' ? null : { data: { free: 1000000n } }
+    },
     composeCall: async (...args) => runtime.composeCall(...args.slice(0, 3)),
     submitSigned: async () => outer,
     rpc: async (method, params) => method === 'payment_queryInfo' ? { weight: { ref_time: 1, proof_size: 0 } } : method === 'chain_getHeader' ? { number: 108 } : method === 'chain_getFinalizedHead' ? 'final' : `block-${params[0]}`,

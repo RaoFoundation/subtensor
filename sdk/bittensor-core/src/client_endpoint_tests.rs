@@ -53,6 +53,11 @@ fn inspected_server(
                 assert_eq!(body["params"], json!([0]));
             }
             let (status, response) = match result {
+                Some(value) if value.get("error").is_some() => (
+                    "200 OK",
+                    json!({ "jsonrpc": "2.0", "id": body["id"], "error": value["error"] })
+                        .to_string(),
+                ),
                 Some(value) => (
                     "200 OK",
                     json!({ "jsonrpc": "2.0", "id": body["id"], "result": value }).to_string(),
@@ -222,6 +227,273 @@ fn earlier_failed_reservations_are_reused_without_discarding_later_plans() {
 
 fn version() -> JsonValue {
     json!({"specVersion":419,"transactionVersion":1,"specName":"node-subtensor"})
+}
+
+fn external_plan_replies() -> Vec<(&'static str, Option<JsonValue>)> {
+    vec![
+        ("system_accountNextIndex", Some(json!(7))),
+        ("state_getRuntimeVersion", Some(version())),
+        ("chain_getHeader", Some(json!({"number":"0x0"}))),
+        ("chain_getBlockHash", Some(json!(hex_prefixed(&[1; 32])))),
+        ("payment_queryInfo", Some(json!({"partialFee":"10"}))),
+    ]
+}
+
+fn external_plan(client: &Client, key: &Keypair) -> ExternalSigningPlan {
+    let call = client
+        .runtime()
+        .unwrap()
+        .compose_call(
+            "System",
+            "remark",
+            &Value::record(vec![("remark".into(), Value::Bytes(vec![1]))]),
+        )
+        .unwrap();
+    client
+        .external_signing_plan(
+            &call,
+            ExternalSigner {
+                ss58_address: key.ss58_address(),
+                public_key: key.public_key_bytes(),
+                crypto_type: key.crypto_type(),
+                requires_metadata_proof: false,
+            },
+            ExternalSigningOptions {
+                period: None,
+                metadata_hash: MetadataHashMode::Disabled,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+}
+
+#[test]
+fn failed_external_plan_and_clones_cannot_reuse_or_release_reassigned_nonce() {
+    for cancelled in [false, true] {
+        let mut replies = external_plan_replies();
+        replies.extend(external_plan_replies());
+        replies.push(("system_accountNextIndex", Some(json!(7))));
+        let (endpoint, worker) = server(replies);
+        let client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
+        let key = Keypair::from_uri("//Alice", crate::keys::CRYPTO_SR25519).unwrap();
+        let failed = external_plan(&client, &key);
+        let clone = failed.clone();
+        let signature = key.sign(&failed.payload).unwrap();
+        let token = AtomicBool::new(cancelled);
+        let error = client
+            .submit_external_with_cancel(
+                &failed,
+                if cancelled { &signature } else { &[0; 64] },
+                None,
+                TxWait::Submitted,
+                Duration::from_millis(50),
+                Some(&token),
+            )
+            .unwrap_err();
+        assert!(!error.to_string().contains("no longer usable"));
+        let replacement = external_plan(&client, &key);
+        assert_eq!(replacement.params.nonce, failed.params.nonce);
+        for stale in [&failed, &clone] {
+            let error = client
+                .submit_external(
+                    stale,
+                    &signature,
+                    None,
+                    TxWait::Submitted,
+                    Duration::from_millis(50),
+                )
+                .unwrap_err();
+            assert!(error.to_string().contains("no longer usable"));
+            assert!(client
+                .assemble_external_extrinsic(stale, &signature, None)
+                .is_err());
+            client.release_external_plan(stale).unwrap();
+        }
+        let replacement_signature = key.sign(&replacement.payload).unwrap();
+        assert!(client
+            .assemble_external_extrinsic(&replacement, &replacement_signature, None)
+            .is_ok());
+        assert_eq!(client.reserve_nonce(&key.ss58_address()).unwrap(), 8);
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn explicit_nonce_release_and_cache_reset_invalidate_detached_plans() {
+    for reset in [false, true] {
+        let mut replies = external_plan_replies();
+        if reset {
+            replies.push(("system_accountNextIndex", Some(json!(7))));
+        }
+        replies.extend(external_plan_replies());
+        replies.push(("system_accountNextIndex", Some(json!(7))));
+        let (endpoint, worker) = server(replies);
+        let client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
+        let key = Keypair::from_uri("//Alice", crate::keys::CRYPTO_SR25519).unwrap();
+        let stale = external_plan(&client, &key);
+        let clone = stale.clone();
+        if reset {
+            client.invalidate_nonce(&key.ss58_address()).unwrap();
+        } else {
+            client
+                .release_nonces(&key.ss58_address(), stale.params.nonce, 1)
+                .unwrap();
+        }
+        let replacement = external_plan(&client, &key);
+        assert_eq!(replacement.params.nonce, 7);
+        let signature = key.sign(&stale.payload).unwrap();
+        assert!(client
+            .submit_external(
+                &clone,
+                &signature,
+                None,
+                TxWait::Submitted,
+                Duration::from_millis(50)
+            )
+            .is_err());
+        assert!(client
+            .assemble_external_extrinsic(&stale, &signature, None)
+            .is_err());
+        client.release_external_plan(&stale).unwrap();
+        assert_eq!(client.reserve_nonce(&key.ss58_address()).unwrap(), 8);
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn public_plan_fields_cannot_transfer_or_discard_reservation_ownership() {
+    let mut replies = external_plan_replies();
+    replies.extend(external_plan_replies());
+    replies.push(("system_accountNextIndex", Some(json!(7))));
+    let (endpoint, worker) = server(replies);
+    let client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
+    let key = Keypair::from_uri("//Alice", crate::keys::CRYPTO_SR25519).unwrap();
+    let mut plan = external_plan(&client, &key);
+    let signature = key.sign(&plan.payload).unwrap();
+    let mut changed_nonce = plan.clone();
+    changed_nonce.params.nonce += 1;
+    let mut changed_signer = plan.clone();
+    changed_signer.signer_address = Keypair::from_uri("//Bob", crate::keys::CRYPTO_SR25519)
+        .unwrap()
+        .ss58_address();
+    for altered in [&changed_nonce, &changed_signer] {
+        let error = client
+            .submit_external(
+                altered,
+                &signature,
+                None,
+                TxWait::Submitted,
+                Duration::from_millis(50),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("reservation was modified"));
+    }
+    assert!(client
+        .assemble_external_extrinsic(&plan, &signature, None)
+        .is_ok());
+    // This legacy public field is descriptive, never the authority for cleanup.
+    plan.reserved_nonce = false;
+    assert!(client
+        .submit_external(
+            &plan,
+            &[0; 64],
+            None,
+            TxWait::Submitted,
+            Duration::from_millis(50)
+        )
+        .is_err());
+    let replacement = external_plan(&client, &key);
+    assert_eq!(replacement.params.nonce, 7);
+    client.release_external_plan(&changed_nonce).unwrap();
+    client.release_external_plan(&changed_signer).unwrap();
+    assert_eq!(client.reserve_nonce(&key.ss58_address()).unwrap(), 8);
+    worker.join().unwrap();
+}
+
+#[test]
+fn external_plan_rejection_releases_nonce_but_uncertain_delivery_retains_it() {
+    for rejected in [false, true] {
+        let mut replies = external_plan_replies();
+        replies.push((
+            "author_submitExtrinsic",
+            rejected.then(|| json!({"error":{"code":1010,"message":"Invalid Transaction"}})),
+        ));
+        replies.extend(external_plan_replies());
+        replies.push(("system_accountNextIndex", Some(json!(7))));
+        let (endpoint, worker) = server(replies);
+        let client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
+        let key = Keypair::from_uri("//Alice", crate::keys::CRYPTO_SR25519).unwrap();
+        let plan = external_plan(&client, &key);
+        let clone = plan.clone();
+        let signature = key.sign(&plan.payload).unwrap();
+        let outcome = client
+            .submit_external(
+                &plan,
+                &signature,
+                None,
+                TxWait::Submitted,
+                Duration::from_millis(50),
+            )
+            .unwrap();
+        assert_eq!(is_definite_rejection(&outcome), rejected);
+        let next = external_plan(&client, &key);
+        assert_eq!(next.params.nonce, if rejected { 7 } else { 8 });
+        assert!(client
+            .submit_external(
+                &clone,
+                &signature,
+                None,
+                TxWait::Submitted,
+                Duration::from_millis(50)
+            )
+            .is_err());
+        assert!(client
+            .assemble_external_extrinsic(&clone, &signature, None)
+            .is_err());
+        assert_eq!(
+            client.reserve_nonce(&key.ss58_address()).unwrap(),
+            next.params.nonce + 1
+        );
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn concurrent_external_plan_clones_submit_only_once() {
+    let mut replies = external_plan_replies();
+    replies.push((
+        "author_submitExtrinsic",
+        Some(json!(hex_prefixed(&[3; 32]))),
+    ));
+    replies.push(("system_accountNextIndex", Some(json!(7))));
+    let (endpoint, worker) = server(replies);
+    let client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
+    let key = Keypair::from_uri("//Alice", crate::keys::CRYPTO_SR25519).unwrap();
+    let plan = external_plan(&client, &key);
+    let clone = plan.clone();
+    let signature = key.sign(&plan.payload).unwrap();
+    let barrier = std::sync::Barrier::new(2);
+    let submit = |plan: &ExternalSigningPlan| {
+        barrier.wait();
+        client.submit_external(
+            plan,
+            &signature,
+            None,
+            TxWait::Submitted,
+            Duration::from_millis(50),
+        )
+    };
+    thread::scope(|scope| {
+        let first = scope.spawn(|| submit(&plan));
+        let second = scope.spawn(|| submit(&clone));
+        let results = [first.join().unwrap(), second.join().unwrap()];
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert!(results.iter().any(|result| result
+            .as_ref()
+            .is_err_and(|error| error.to_string().contains("no longer usable"))));
+    });
+    assert_eq!(client.reserve_nonce(&key.ss58_address()).unwrap(), 8);
+    worker.join().unwrap();
 }
 
 #[test]

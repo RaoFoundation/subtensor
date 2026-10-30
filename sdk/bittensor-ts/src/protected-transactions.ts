@@ -158,7 +158,9 @@ export class ProtectedWalletClient {
     }
     if (options.period === null || options.period != null && (options.period < 4 || options.period > 8)) throw new RangeError('shielding requires a 4..8 block era')
     const signing = { ...options, period: options.period ?? 8 }
-    const raw = await this.adapter.query('MevShield', 'NextKey', [], authority.block)
+    // Encryption keys rotate at the best head, independently of finalized
+    // signing authority. A finalized snapshot can already contain a retired key.
+    const raw = await this.adapter.query('MevShield', 'NextKey', [], await this.adapter.blockHash())
     const publicKey = typeof raw === 'string' ? hexBytes(raw) : Uint8Array.from(raw ?? [])
     if (publicKey.length !== 1184) throw new Error('Shield key unavailable')
     const inner = await this.signed(call, authority, signing, 1)
@@ -190,11 +192,24 @@ export class ProtectedWalletClient {
   private async prepareWorkflow(intent: Intent, options: ProtectedWorkflowOptions, authority: SigningAuthority) {
       const block = authority.block
       const reader = await this.adapter.intentReader(block)
-      const context: IntentContext = options.context ?? { coldkey: this.keypair.ss58Address, hotkey: options.hotkey ?? this.keypair.ss58Address, hotkeyPublicKey: options.hotkeyPublicKey, accountMode: isRotatingCrypto(this.keypair.cryptoType) ? 'legacy' : 'safe' }
+      const context: IntentContext = {
+        ...options.context,
+        coldkey: options.context?.coldkey ?? this.keypair.ss58Address,
+        hotkey: options.context?.hotkey ?? options.hotkey ?? this.keypair.ss58Address,
+        hotkeyPublicKey: options.context?.hotkeyPublicKey ?? options.hotkeyPublicKey,
+        accountMode: options.context?.accountMode ?? (isRotatingCrypto(this.keypair.cryptoType) ? 'legacy' : 'safe'),
+      }
       const role = intentSignerRole(intent), signer = context.feePayer ?? (role === 'hotkey' ? context.hotkey ?? context.coldkey : context.coldkey)
       if (hex(this.adapter.decodeAddress(signer)) !== hex(this.keypair.publicKey)) throw new Error('protected session context must use the signing account')
       if (options.proxyType != null && !PROXY_TYPES.includes(options.proxyType)) throw new Error('unknown proxy type')
       if (options.proxyFor) { context.coldkey = options.proxyFor; context.feePayer = this.keypair.ss58Address; if (role === 'hotkey') {context.hotkey = options.proxyFor;context.hotkeyPublicKey = this.adapter.decodeAddress(options.proxyFor)} }
+      if (context.hotkey) {
+        // Timelock commitments bind the dispatch AccountId, not the wallet's
+        // generation-specific or post-quantum verification key.
+        const accountId = this.adapter.decodeAddress(context.hotkey)
+        if (context.hotkeyPublicKey && hex(context.hotkeyPublicKey) !== hex(accountId)) throw new Error('hotkey public key differs from its account ID')
+        context.hotkeyPublicKey = accountId
+      }
       const wrap = (call: IntentDescriptor): IntentDescriptor => options.proxyFor ? {pallet:'Proxy',call:'proxy',params:{real:options.proxyFor,force_proxy_type:options.proxyType ?? null,call}} : call
       const prepared = await intent.prepare({ ...reader, estimateFee: (call: IntentDescriptor) => this.quote(wrap(call), authority, options), resolveFeePayer: async (call: IntentDescriptor) => (await resolveTransactionFeePayer(reader,wrap(call),this.keypair.ss58Address)).address }, context)
       if (options.expectedCallHash != null && String(prepared.extras.multisig_call_hash).toLowerCase() !== options.expectedCallHash.toLowerCase()) throw new Error('multisig call changed from expectedCallHash')

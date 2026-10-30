@@ -6,7 +6,7 @@ function littleU64(value) { const bytes = Buffer.alloc(8); bytes.writeBigUInt64L
 const remark = {pallet:'System',call:'remark',params:{remark:new Uint8Array(400).fill(4)}}
 function fixture(crypto = sdk.CRYPTO_HASHED) {
   const key = sdk.Keypair.fromSeed(Buffer.alloc(32,34),crypto)
-  const state = {generation:2n,nonce:3,pending:3,enabled:true,fee:10n,submissions:[],signatures:[],queries:[],encoded:[]}
+  const state = {generation:2n,nonce:3,pending:3,enabled:true,fee:10n,submissions:[],signatures:[],queries:[],encoded:[],runtimeBlocks:[],finalizedHead:'0x'+'22'.repeat(32),bestHead:'0x'+'33'.repeat(32)}
   const runtime = {
     supportsMldsaProfile: () => true,
     composeCall: (p,f,a) => p === 'MevShield' ? Buffer.concat([Buffer.from([9,0]),Buffer.from(a.ciphertext)]) : Buffer.concat([Buffer.from([0,0]),Buffer.from(a.remark ?? [2,3])]),
@@ -15,19 +15,19 @@ function fixture(crypto = sdk.CRYPTO_HASHED) {
   }
   const adapter = {
     decodeAddress:sdk.publicKeyFromSs58,hash:sdk.blake2_256,
-    finalizedHead: async () => '0x'+'22'.repeat(32),blockHash:async () => '0x'+'11'.repeat(32),blockNumber:async () => 100,
-    accountNextIndex:async () => state.pending,runtimeAt:async () => runtime,eraBirth:()=>64,
+    finalizedHead: async () => state.finalizedHead,blockHash:async n => n == null ? state.bestHead : '0x'+'11'.repeat(32),blockNumber:async () => 100,
+    accountNextIndex:async () => state.pending,runtimeAt:async block => {state.runtimeBlocks.push(block);return runtime},eraBirth:()=>64,
     query: async (p,s,a,b) => {
       state.queries.push([p,s,b])
       if (s === 'HashedAccountsEnabled') return state.enabled
       if (s === 'Account') return {nonce:state.nonce,data:{free:100000n}}
       if (s === 'Accounts' || s === 'MlDsaAccounts') return {descriptor:key.authorizationDescriptor(),generation:state.generation,commitment:key.atGeneration(state.generation).authorizationCurrentCommitment()}
-      if (s === 'NextKey') return Buffer.alloc(1184,1)
+      if (s === 'NextKey') return Buffer.alloc(1184,b === state.bestHead ? 1 : 9)
       return null
     },
     rpc:async () => ({partialFee:state.fee}),
     intentReader:async () => ({query:adapter.query,decodeAddress:sdk.publicKeyFromSs58}),
-    seal: (_,bytes) => {state.inner = bytes;return Buffer.alloc(1234,2)},
+    seal: (key,bytes) => {state.shieldKey = key;state.inner = bytes;return Buffer.alloc(1234,2)},
     verify:(...args) => {state.signatures.push(args);return sdk.verifyAuthorization(...args)},
     submitBytes:async (bytes,address,options) => {state.submissions.push({bytes,address,options});return {success:true,extrinsicHash:'0xabc',events:[]}},
     followShielded:async (carrier,hash,period) => ({success:true,carrier,hash,period}),
@@ -69,6 +69,70 @@ test('shielded pair shares authority with consecutive generation and nonce; over
   other.adapter.seal = () => Buffer.alloc(8193)
   await assert.rejects(other.session.submit(remark,{allowRawCall:true,mevShield:true}),/8192/)
   assert.equal(other.state.submissions.length,0)
+})
+test('protected Shield uses the best-head encryption key while signing with finalized authority', async () => {
+  const {session,state} = fixture(sdk.CRYPTO_MLDSA65)
+  await session.submit(remark,{allowRawCall:true,mevShield:true})
+  assert.deepEqual(state.queries.filter(row => row[1] === 'NextKey'),[['MevShield','NextKey',state.bestHead]])
+  assert.deepEqual(Buffer.from(state.shieldKey),Buffer.alloc(1184,1))
+  assert(state.queries.filter(row => ['MlDsaAccounts','Account'].includes(row[1])).every(row => row[2] === state.finalizedHead))
+  assert(state.runtimeBlocks.every(block => block === state.finalizedHead))
+  assert.deepEqual(state.signatures.map(row => row[3]),[3n,2n])
+})
+
+function weightsFixture(crypto) {
+  const f = fixture(crypto), query = f.adapter.query
+  const weightsState = {
+    Uids:0,CommitRevealWeightsEnabled:true,WeightsSetRateLimit:0,LastUpdate:[0],
+    MinAllowedWeights:1,MaxWeightsLimit:65535,SubnetEpochConsensus:'Yuma',
+    Tempo:30,RevealPeriodEpochs:2,LastEpochBlock:70,PendingEpochAt:111,SubnetEpochIndex:9,BlocksSinceLastStep:30,
+  }
+  f.state.weights = []
+  f.adapter.intentReader = async block => ({
+    query:async (p,s,a,b) => p === 'SubtensorModule' && s in weightsState ? weightsState[s] : query(p,s,a,b),
+    decodeAddress:sdk.publicKeyFromSs58,countStorageKeys:async () => 0,
+    blockNumber:async () => 100,blockHash:async () => block,blockTime:async () => 12,
+    encryptWeightsV2:async options => {f.state.weights.push(options);return {commit:new Uint8Array([1,2]),revealRound:42n}},
+  })
+  return f
+}
+for (const crypto of [sdk.CRYPTO_HASHED,sdk.CRYPTO_HASHED_ED25519,sdk.CRYPTO_MLDSA65,sdk.CRYPTO_MLDSA65_FIXED,sdk.CRYPTO_FALCON512,sdk.CRYPTO_FALCON512_HASHED,sdk.CRYPTO_FALCON1024,sdk.CRYPTO_FALCON1024_HASHED]) {
+  test(`protected wallet ${crypto} defaults timelocked weights to its public account ID`, async () => {
+    const {key,session,state} = weightsFixture(crypto)
+    for (const op of ['set_weights','commit_weights']) {
+      const intent = sdk.buildIntent(op,{netuid:5,weights:{1:1}})
+      const plan = await session.plan(intent)
+      assert.equal(plan.ok,true)
+      assert.equal(plan.call.call,'commit_timelocked_mechanism_weights')
+      assert.deepEqual(Buffer.from(state.weights.at(-1).hotkey),sdk.publicKeyFromSs58(key.ss58Address))
+      assert.equal(state.weights.at(-1).hotkey.length,32)
+    }
+    await session.execute(sdk.buildIntent('set_weights',{netuid:5,weights:{1:1}}))
+    assert.equal(state.submissions.length,1)
+  })
+}
+test('protected weight contexts fill omitted account IDs and resolve proxy dispatch identity', async () => {
+  const {key,session,state} = weightsFixture(sdk.CRYPTO_FALCON512_HASHED)
+  const intent = sdk.buildIntent('set_weights',{netuid:5,weights:{1:1}})
+  await session.plan(intent,{context:{coldkey:key.ss58Address}})
+  assert.deepEqual(Buffer.from(state.weights.at(-1).hotkey),sdk.publicKeyFromSs58(key.ss58Address))
+  const real = sdk.Keypair.fromUri('//Alice')
+  const plan = await session.plan(intent,{context:{coldkey:key.ss58Address},proxyFor:real.ss58Address,proxyType:'Weights'})
+  assert.equal(plan.call.call,'proxy')
+  assert.equal(plan.call.params.call.call,'commit_timelocked_mechanism_weights')
+  assert.deepEqual(Buffer.from(state.weights.at(-1).hotkey),real.publicKey)
+  await assert.rejects(session.plan(intent,{context:{coldkey:key.ss58Address,hotkeyPublicKey:real.publicKey}}),/differs from its account ID/)
+})
+test('protected batches preserve weight identity and reject mixed signer roles', async () => {
+  const {key,session,state} = weightsFixture(sdk.CRYPTO_FALCON512)
+  const weights = {op:'set_weights',netuid:5,weights:{1:1}}
+  const plan = await session.plan(sdk.buildIntent('batch',{intents:[weights]}))
+  assert.equal(plan.call.call,'batch_all')
+  assert.deepEqual(Buffer.from(state.weights.at(-1).hotkey),sdk.publicKeyFromSs58(key.ss58Address))
+  const real = sdk.Keypair.fromUri('//Alice')
+  await session.plan(sdk.buildIntent('execute_proxy_announced',{real_ss58:real.ss58Address,delegate_ss58:key.ss58Address,inner_op:'batch',inner_args:{intents:[weights]}}))
+  assert.deepEqual(Buffer.from(state.weights.at(-1).hotkey),real.publicKey)
+  await assert.rejects(session.plan(sdk.buildIntent('batch',{intents:[weights,{op:'transfer',dest_ss58:key.ss58Address,amount_tao:'0.000001'}]})),/must share a signer/)
 })
 test('watch-only fee quotations use dummy proofs and account for both carrier and tips', async () => {
   const {key,state,adapter} = fixture(sdk.CRYPTO_MLDSA65)

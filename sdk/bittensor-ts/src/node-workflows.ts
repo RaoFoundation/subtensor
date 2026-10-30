@@ -155,7 +155,7 @@ export class WorkflowClient {
       let delegated = false
       try {
       if (plan.shielded && options.nonce == null) {
-        const nextKey = chainBytes(await this.client.query('MevShield', 'NextKey', []))
+        const nextKey = chainBytes(await this.client.query('MevShield', 'NextKey', [], await this.client.blockHash()))
         if (nextKey.length !== 1184) throw new Error('MevShield.NextKey is unavailable or not an ML-KEM-768 key')
         const native = await nativeRustClient(this.client)
         if (!native) throw new Error('native workflow requires a native Client')
@@ -198,7 +198,8 @@ export class WorkflowClient {
     try {
     if (options.signal?.aborted) throw options.signal.reason ?? new Error('shielded submission aborted')
     if (options.nonce != null && (!Number.isSafeInteger(options.nonce) || options.nonce < 0 || options.nonce >= Number.MAX_SAFE_INTEGER)) throw new RangeError('invalid shielded nonce')
-    const nextKey = await this.client.query('MevShield', 'NextKey', [])
+    // Shield keys rotate every block; ordinary reads default to finalized state.
+    const nextKey = await this.client.query('MevShield', 'NextKey', [], await this.client.blockHash())
     if (nextKey == null) throw new Error('MevShield.NextKey is unavailable')
     const publicKey = chainBytes(nextKey)
     if (publicKey.length !== 1184) throw new Error('MevShield.NextKey is unavailable or not an ML-KEM-768 key')
@@ -297,7 +298,7 @@ export class NodeMultisig {
       if (violations.length) throw new Error(`multisig preflight refused: ${violations.join('; ')}`)
     }
     await checkFunding()
-    const publicKey = shielded ? chainBytes(await this.client.query('MevShield', 'NextKey', [])) : undefined
+    const publicKey = shielded ? chainBytes(await this.client.query('MevShield', 'NextKey', [], await this.client.blockHash())) : undefined
     if (shielded && publicKey?.length !== 1184) throw new Error('MevShield.NextKey is unavailable or invalid')
     let reserved = false, broadcastStarted = false, carrierReturned = false
     try {

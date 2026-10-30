@@ -1234,10 +1234,7 @@ impl<'a> Executor<'a> {
             Ok(())
         })();
         if let Err(error) = checked {
-            if plan.reserved_nonce {
-                self.client
-                    .release_nonces(&plan.signer_address, plan.params.nonce, 1)?;
-            }
+            self.client.release_external_plan(&plan)?;
             return Err(error);
         }
         Ok(plan)

@@ -542,7 +542,9 @@ export class Client {
     }
     const signingOptions = shieldOptions(options)
     if (!Number.isSafeInteger(nonce) || nonce < 0 || nonce >= Number.MAX_SAFE_INTEGER) throw new TypeError('invalid shielded nonce')
-    const rawKey = await this.query(['MevShield', 'NextKey'], [], blockHash)
+    // The planning/signing snapshot may be finalized or historical. Encryption
+    // must use the best head's short-lived key, independently of that snapshot.
+    const rawKey = await this.query(['MevShield', 'NextKey'], [], await this.blockHash())
     const key = typeof rawKey === 'string' ? hexBytes(rawKey) : rawKey instanceof Uint8Array ? rawKey : Array.isArray(rawKey) ? Uint8Array.from(rawKey) : new Uint8Array()
     if (key.length !== 1184) throw new ChainError('MevShield.NextKey is not an ML-KEM-768 key')
     const inner = await this.signPrepared(await this.prepareRaw(call, signer, { ...signingOptions, nonce: nonce + 1 }, blockHash), signer)

@@ -516,7 +516,28 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
 }
 
 function descriptor(pallet: string, call: string, params: Record<string, unknown> = {}): IntentDescriptor { return { pallet, call, params } }
-function batchCall(calls: IntentDescriptor[]): IntentDescriptor { return descriptor('Utility', 'batch_all', { calls }) }
+function batchCall(calls: IntentDescriptor[]): IntentDescriptor {
+  const flattened: IntentDescriptor[] = []
+  const append = (call: IntentDescriptor): void => {
+    // Receiving guards and other compound intents already form atomic batches.
+    // Keep their order under one transaction boundary; the runtime rejects nesting.
+    if (call.pallet === 'Utility' && call.call === 'batch_all') {
+      for (const child of call.params.calls as IntentDescriptor[]) append(child)
+    } else {
+      if (proxyContainsAtomicBatch(call)) throw new RangeError('atomic batches cannot contain a proxy with an inner batch; submit the proxy intent directly')
+      flattened.push(call)
+    }
+  }
+  for (const call of calls) append(call)
+  return descriptor('Utility', 'batch_all', { calls: flattened })
+}
+function proxyContainsAtomicBatch(call: IntentDescriptor): boolean {
+  if (call.pallet !== 'Proxy' || !['proxy', 'proxy_announced'].includes(call.call)) return false
+  const inner = call.params.call as IntentDescriptor
+  // Proxy preserves inherited filters. Moving its guards outside would change
+  // both the registration sponsor and the call hash approved by an announcement.
+  return inner.pallet === 'Utility' && inner.call === 'batch_all' || proxyContainsAtomicBatch(inner)
+}
 function globalOperation(op: string): boolean {
   return ['transfer', 'transfer_all', 'fund_evm_key', 'evm_withdraw', 'register_subnet', 'register_leased_network', 'terminate_lease', 'set_identity', 'set_take', 'increase_take', 'decrease_take', 'set_reject_staking_hotkey_growth', 'set_reject_locked_alpha', 'associate_hotkey'].includes(op) || op.includes('coldkey_swap') || op.includes('crowdloan') || op.includes('proxy') || op === 'remove_proxies'
 }

@@ -89,3 +89,23 @@ test('browser shield releases only the inner nonce after finalized expiry', asyn
     await client.close()
   }
 })
+
+test('browser Shield uses the best-head key independently of its signing snapshot', async () => {
+  const { client, signer } = await fixture(), keyBlocks = [], signingBlocks = []
+  const best = await client.blockHash(), finalized = '0x' + '22'.repeat(32)
+  client.finalizedHead = async () => finalized
+  client.query = async (item, params, block) => {
+    assert.deepEqual(item, ['MevShield', 'NextKey'])
+    assert.deepEqual(params, [])
+    keyBlocks.push(block)
+    return block === best ? new Uint8Array(1184).fill(0x42) : null
+  }
+  client.prepareRaw = async (_call, _signer, _options, block) => { signingBlocks.push(block); return {} }
+  client.signPrepared = async () => ({ bytes: new Uint8Array([1]), hash: new Uint8Array(32) })
+  client.broadcastExtrinsic = async () => ({ status: 'submitted' })
+  client.resolveShieldedInner = async result => result
+  await client.submitPreparedCall({}, signer, { mevShield: true }, finalized)
+  assert.deepEqual(keyBlocks, [best])
+  assert.deepEqual(signingBlocks, [finalized, finalized])
+  await client.close()
+})

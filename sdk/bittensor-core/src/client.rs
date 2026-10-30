@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -195,9 +195,12 @@ impl Default for ExternalSigningOptions {
     }
 }
 
-/// Fully specified transaction signing plan for external signers.
+/// Fully specified transaction signing plan for external signers. A submission
+/// attempt consumes the plan and every clone, including on definite failure.
+/// Create a fresh plan after rejection; reconcile uncertain delivery by hash.
 #[derive(Clone)]
 pub struct ExternalSigningPlan {
+    lifecycle: Arc<ExternalPlanLifecycle>,
     pub call_data: Vec<u8>,
     pub signer_address: String,
     pub public_key: [u8; 32],
@@ -215,6 +218,11 @@ pub struct ExternalSigningPlan {
     pub chain_info: Option<ChainInfo>,
     pub fee_rao: Option<u128>,
     pub warnings: Vec<String>,
+}
+
+struct ExternalPlanLifecycle {
+    used: AtomicBool,
+    reservation: Option<(String, u64)>,
 }
 
 impl TxOutcome {
@@ -879,6 +887,7 @@ impl Client {
             .nonce_reservations
             .lock()
             .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        reservations.invalidate_external_plans(&account, 0, u64::MAX);
         reservations.released.remove(&account);
         reservations.floors.insert(account, chain_next);
         Ok(())
@@ -1002,28 +1011,36 @@ impl Client {
         signer: ExternalSigner,
         options: ExternalSigningOptions,
     ) -> Result<ExternalSigningPlan, CoreError> {
-        let reserved = options.nonce.is_none();
-        let nonce = match options.nonce {
-            Some(nonce) => nonce,
-            None => self.reserve_nonce(&signer.ss58_address)?,
+        let (nonce, lifecycle) = match options.nonce {
+            Some(nonce) => (
+                nonce,
+                Arc::new(ExternalPlanLifecycle {
+                    used: AtomicBool::new(false),
+                    reservation: None,
+                }),
+            ),
+            None => {
+                let account = nonce_account_key(&signer.ss58_address)?;
+                let chain_next = self.account_next_index_remote(&signer.ss58_address)?;
+                self.nonce_reservations
+                    .lock()
+                    .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?
+                    .reserve_external(account, chain_next)?
+            }
         };
         let result = self.external_signing_plan_at(
             call_data,
-            signer.clone(),
+            signer,
             ExternalSigningOptions {
                 nonce: Some(nonce),
                 ..options
             },
+            Arc::clone(&lifecycle),
         );
         match result {
-            Ok(mut plan) => {
-                plan.reserved_nonce = reserved;
-                Ok(plan)
-            }
+            Ok(plan) => Ok(plan),
             Err(error) => {
-                if reserved {
-                    self.release_nonce(&signer.ss58_address, nonce)?;
-                }
+                self.release_external_reservation(&lifecycle)?;
                 Err(error)
             }
         }
@@ -1034,6 +1051,7 @@ impl Client {
         call_data: &[u8],
         signer: ExternalSigner,
         options: ExternalSigningOptions,
+        lifecycle: Arc<ExternalPlanLifecycle>,
     ) -> Result<ExternalSigningPlan, CoreError> {
         let address_key = public_key_from_ss58(&signer.ss58_address)?;
         if address_key != signer.public_key {
@@ -1042,7 +1060,7 @@ impl Client {
             ));
         }
         let runtime = self.current_runtime()?;
-        let reserved_nonce = options.nonce.is_none();
+        let reserved_nonce = lifecycle.reservation.is_some();
         let (params, chain_info) = self.tx_params_for_external(&runtime, &signer, options)?;
         let (included_in_extrinsic, included_in_signed_data) =
             runtime.signature_payload_parts(&params)?;
@@ -1077,6 +1095,7 @@ impl Client {
             }
         };
         Ok(ExternalSigningPlan {
+            lifecycle,
             call_data: call_data.to_vec(),
             signer_address: signer.ss58_address,
             public_key: signer.public_key,
@@ -1097,6 +1116,8 @@ impl Client {
         })
     }
 
+    /// Quote with a dummy signature. This read-only operation remains available
+    /// after a plan is consumed and never reactivates its nonce reservation.
     pub fn estimate_fee_external_plan(
         &self,
         plan: &ExternalSigningPlan,
@@ -1130,6 +1151,22 @@ impl Client {
     }
 
     pub fn assemble_external_extrinsic(
+        &self,
+        plan: &ExternalSigningPlan,
+        signature: &[u8],
+        crypto_type: Option<u8>,
+    ) -> Result<(Vec<u8>, String), CoreError> {
+        // Keep invalidation from racing assembly. A released plan must not
+        // produce bytes authorizing a nonce now owned by a different plan.
+        let reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        reservations.check_external_plan(plan)?;
+        self.encode_external_extrinsic(plan, signature, crypto_type)
+    }
+
+    fn encode_external_extrinsic(
         &self,
         plan: &ExternalSigningPlan,
         signature: &[u8],
@@ -1182,19 +1219,28 @@ impl Client {
         timeout: Duration,
         cancelled: Option<&AtomicBool>,
     ) -> Result<TxOutcome, CoreError> {
-        if let Err(error) = check_cancelled_before_submission(cancelled) {
-            if plan.reserved_nonce {
-                self.release_nonce(&plan.signer_address, plan.params.nonce)?;
+        {
+            let reservations = self
+                .nonce_reservations
+                .lock()
+                .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+            reservations.check_external_plan(plan)?;
+            // Clones share this flag, including explicit-nonce plans, so only
+            // one caller can submit or release this plan's reservation.
+            if plan.lifecycle.used.swap(true, Ordering::AcqRel) {
+                return Err(CoreError::Policy(
+                    "external signing plan is no longer usable".into(),
+                ));
             }
+        }
+        if let Err(error) = check_cancelled_before_submission(cancelled) {
+            self.release_external_plan(plan)?;
             return Err(error);
         }
-        let (extrinsic, hash) = match self.assemble_external_extrinsic(plan, signature, crypto_type)
-        {
+        let (extrinsic, hash) = match self.encode_external_extrinsic(plan, signature, crypto_type) {
             Ok(signed) => signed,
             Err(error) => {
-                if plan.reserved_nonce {
-                    self.release_nonce(&plan.signer_address, plan.params.nonce)?;
-                }
+                self.release_external_plan(plan)?;
                 return Err(error);
             }
         };
@@ -1202,20 +1248,45 @@ impl Client {
             .submit_encoded_with_wait_cancelled(&extrinsic, hash, wait, timeout, cancelled)
         {
             Ok(outcome) => outcome,
-            Err(error) if plan.reserved_nonce && is_cancelled_before_submission_error(&error) => {
-                self.release_nonce(&plan.signer_address, plan.params.nonce)?;
+            Err(error) if is_cancelled_before_submission_error(&error) => {
+                self.release_external_plan(plan)?;
                 return Err(error);
             }
             Err(error) => return Err(error),
         };
-        if plan.reserved_nonce {
+        if plan.lifecycle.reservation.is_some() {
             if is_definite_rejection(&outcome) {
-                self.release_nonce(&plan.signer_address, plan.params.nonce)?;
+                self.release_external_plan(plan)?;
             } else if outcome.block_hash.is_some() {
                 self.commit_nonce(&plan.signer_address, plan.params.nonce)?;
             }
         }
         Ok(outcome)
+    }
+
+    pub(crate) fn release_external_plan(
+        &self,
+        plan: &ExternalSigningPlan,
+    ) -> Result<(), CoreError> {
+        self.release_external_reservation(&plan.lifecycle)
+    }
+
+    fn release_external_reservation(
+        &self,
+        lifecycle: &Arc<ExternalPlanLifecycle>,
+    ) -> Result<(), CoreError> {
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        // The nonce may already have been invalidated and reassigned. An old
+        // plan must never release its successor's reservation.
+        if reservations.owns_external_reservation(lifecycle) {
+            if let Some((account, nonce)) = &lifecycle.reservation {
+                reservations.release(account.clone(), *nonce, 1);
+            }
+        }
+        Ok(())
     }
 
     /// Sign without submitting. Returns `(encoded extrinsic, 0x hash)`.
@@ -3287,9 +3358,71 @@ fn reserve_nonce_range(
 struct NonceReservations {
     floors: HashMap<String, u64>,
     released: HashMap<String, Vec<(u64, u64)>>,
+    external_plans: HashMap<String, BTreeMap<u64, Weak<ExternalPlanLifecycle>>>,
 }
 
 impl NonceReservations {
+    fn reserve_external(
+        &mut self,
+        account: String,
+        chain_next: u64,
+    ) -> Result<(u64, Arc<ExternalPlanLifecycle>), CoreError> {
+        let nonce = self.reserve(account.clone(), chain_next, 1)?;
+        let lifecycle = Arc::new(ExternalPlanLifecycle {
+            used: AtomicBool::new(false),
+            reservation: Some((account.clone(), nonce)),
+        });
+        let plans = self.external_plans.entry(account).or_default();
+        plans.retain(|_, state| state.strong_count() > 0);
+        plans.insert(nonce, Arc::downgrade(&lifecycle));
+        Ok((nonce, lifecycle))
+    }
+
+    fn owns_external_reservation(&self, lifecycle: &Arc<ExternalPlanLifecycle>) -> bool {
+        let Some((account, nonce)) = &lifecycle.reservation else {
+            return false;
+        };
+        self.external_plans
+            .get(account)
+            .and_then(|plans| plans.get(nonce))
+            .and_then(Weak::upgrade)
+            .is_some_and(|owner| Arc::ptr_eq(&owner, lifecycle))
+    }
+
+    fn check_external_plan(&self, plan: &ExternalSigningPlan) -> Result<(), CoreError> {
+        if plan.lifecycle.used.load(Ordering::Acquire)
+            || (plan.lifecycle.reservation.is_some()
+                && !self.owns_external_reservation(&plan.lifecycle))
+        {
+            return Err(CoreError::Policy(
+                "external signing plan is no longer usable".into(),
+            ));
+        }
+        if let Some((account, nonce)) = &plan.lifecycle.reservation {
+            if plan.params.nonce != *nonce || nonce_account_key(&plan.signer_address)? != *account {
+                return Err(CoreError::Policy(
+                    "external signing plan reservation was modified".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn invalidate_external_plans(&mut self, account: &str, start: u64, end: u64) {
+        if let Some(plans) = self.external_plans.get_mut(account) {
+            plans.retain(|nonce, state| {
+                if *nonce >= start && *nonce < end {
+                    if let Some(state) = state.upgrade() {
+                        state.used.store(true, Ordering::Release);
+                    }
+                    false
+                } else {
+                    state.strong_count() > 0
+                }
+            });
+        }
+    }
+
     fn reserve(&mut self, account: String, chain_next: u64, count: u64) -> Result<u64, CoreError> {
         if count == 0 {
             return Err(CoreError::Policy(
@@ -3321,12 +3454,16 @@ impl NonceReservations {
         let Some(end) = nonce.checked_add(count) else {
             return;
         };
+        let Some(&floor) = self.floors.get(&account) else {
+            return;
+        };
+        if count == 0 || end > floor {
+            return;
+        }
+        self.invalidate_external_plans(&account, nonce, end);
         let Some(floor) = self.floors.get_mut(&account) else {
             return;
         };
-        if count == 0 || end > *floor {
-            return;
-        }
         let ranges = self.released.entry(account).or_default();
         ranges.push((nonce, end));
         ranges.sort_unstable();

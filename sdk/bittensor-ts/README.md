@@ -212,6 +212,10 @@ reserve nonces; detached signing plans may reserve them. Failed preparation,
 failed signing, and definite admission rejection release unused reservations.
 Protected wallets also restore the previous generation marker on definite
 rejection, while retaining it when delivery is uncertain.
+Native external signing plans can be submitted only once, including across
+clones. A released reservation or nonce-cache reset invalidates its plan; create
+a fresh plan after a rejected or cancelled attempt. Uncertain delivery still
+requires reconciliation by transaction hash before retrying the operation.
 After reconciling an abandoned or expired transaction, use
 `await client.invalidateNonce(address)` before retrying with automatic nonces.
 Do not clear a reservation while its carrier or inner transaction may still
