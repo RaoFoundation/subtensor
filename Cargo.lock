@@ -1641,6 +1641,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hex",
  "hidapi",
+ "hkdf",
  "ledger-apdu",
  "libloading",
  "merkleized-metadata",
@@ -1659,6 +1660,7 @@ dependencies = [
  "sha2 0.10.9",
  "sodiumoxide",
  "sp-core",
+ "subtensor-hashed",
  "subtensor-macros",
  "tle",
  "twox-hash 2.1.2",
@@ -4585,8 +4587,6 @@ dependencies = [
 [[package]]
 name = "evm-gasometer"
 version = "0.43.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54aa0327b242bad8dd83ba524effd1d798e9102ff592910dfdded79c6bde4ff3"
 dependencies = [
  "environmental",
  "evm-core",
@@ -4985,6 +4985,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0399f9d26e5191ce32c498bebd31e7a3ceabc2745f0ac54af3f335126c3f24b3"
 
 [[package]]
+name = "fips204"
+version = "0.4.6"
+dependencies = [
+ "rand_core 0.6.4",
+ "sha2 0.10.9",
+ "sha3 0.10.8",
+ "zeroize",
+]
+
+[[package]]
 name = "fixed-hash"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5017,6 +5027,45 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "spin 0.9.8",
+]
+
+[[package]]
+name = "fn-dsa-comm"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28104bba227c79bff8ffe34dff7c5a5631fd790dfd4d4f0a84b01952ef7c6f46"
+dependencies = [
+ "cpufeatures 0.2.17",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "fn-dsa-kgen"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8a04fe82799cc1550d32778b415648d1962a7b4b4860ff5f2e6ca32494fc9aa"
+dependencies = [
+ "fn-dsa-comm",
+ "zeroize",
+]
+
+[[package]]
+name = "fn-dsa-sign"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ffb7d9c94e56de7e64019849b3b6110b1495690da2e9e1decef8f1744b3bab4"
+dependencies = [
+ "fn-dsa-comm",
+ "zeroize",
+]
+
+[[package]]
+name = "fn-dsa-vrfy"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc96b904b213160c8804cc2642ccd15cb968318a64648fc5ca3edab9153cda2b"
+dependencies = [
+ "fn-dsa-comm",
 ]
 
 [[package]]
@@ -8812,6 +8861,7 @@ version = "4.0.0-dev"
 dependencies = [
  "ark-serialize 0.4.2",
  "ethereum",
+ "evm",
  "fp-account",
  "fp-evm",
  "fp-rpc",
@@ -8851,10 +8901,11 @@ dependencies = [
  "pallet-evm-precompile-simple",
  "pallet-fast-unstake",
  "pallet-grandpa",
+ "pallet-hashed-accounts",
  "pallet-hotfix-sufficients",
  "pallet-insecure-randomness-collective-flip",
  "pallet-limit-orders",
- "pallet-multisig",
+ "pallet-multisig 41.0.0",
  "pallet-nomination-pools",
  "pallet-nomination-pools-runtime-api",
  "pallet-offences",
@@ -8883,6 +8934,7 @@ dependencies = [
  "rstest",
  "safe-math",
  "scale-info",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
@@ -8898,6 +8950,7 @@ dependencies = [
  "sp-inherents",
  "sp-io",
  "sp-keyring",
+ "sp-keystore",
  "sp-npos-elections",
  "sp-offchain",
  "sp-runtime",
@@ -8914,6 +8967,7 @@ dependencies = [
  "substrate-wasm-builder",
  "subtensor-chain-extensions",
  "subtensor-custom-rpc-runtime-api",
+ "subtensor-hashed",
  "subtensor-macros",
  "subtensor-precompiles",
  "subtensor-runtime-common",
@@ -10352,6 +10406,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-hashed-accounts"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-keystore",
+ "sp-runtime",
+ "subtensor-hashed",
+]
+
+[[package]]
 name = "pallet-hotfix-sufficients"
 version = "1.0.0"
 dependencies = [
@@ -10443,6 +10514,7 @@ dependencies = [
  "sp-runtime",
  "sp-std",
  "substrate-fixed",
+ "subtensor-hashed",
  "subtensor-macros",
  "subtensor-runtime-common",
  "subtensor-swap-interface",
@@ -10557,6 +10629,18 @@ dependencies = [
  "polkadot-sdk-frame",
  "scale-info",
  "sp-mmr-primitives",
+]
+
+[[package]]
+name = "pallet-multisig"
+version = "41.0.0"
+dependencies = [
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "subtensor-hashed",
 ]
 
 [[package]]
@@ -11334,6 +11418,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk-frame",
  "scale-info",
+ "subtensor-hashed",
  "subtensor-macros",
 ]
 
@@ -11411,6 +11496,7 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "subtensor-hashed",
  "subtensor-macros",
 ]
 
@@ -13142,7 +13228,7 @@ dependencies = [
  "pallet-migrations",
  "pallet-mixnet",
  "pallet-mmr",
- "pallet-multisig",
+ "pallet-multisig 41.0.0 (git+https://github.com/RaoFoundation/polkadot-sdk.git?rev=cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a)",
  "pallet-nft-fractionalization",
  "pallet-nfts",
  "pallet-nis",
@@ -14746,7 +14832,7 @@ dependencies = [
  "pallet-message-queue",
  "pallet-migrations",
  "pallet-mmr",
- "pallet-multisig",
+ "pallet-multisig 41.0.0 (git+https://github.com/RaoFoundation/polkadot-sdk.git?rev=cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a)",
  "pallet-nis",
  "pallet-offences",
  "pallet-parameters",
@@ -16468,7 +16554,6 @@ dependencies = [
 [[package]]
 name = "sc-transaction-pool"
 version = "40.1.0"
-source = "git+https://github.com/RaoFoundation/polkadot-sdk.git?rev=cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a#cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
 dependencies = [
  "async-trait",
  "futures",
@@ -19019,6 +19104,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "subtensor-hashed"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "fips204",
+ "fn-dsa-comm",
+ "fn-dsa-kgen",
+ "fn-dsa-sign",
+ "fn-dsa-vrfy",
+ "hex",
+ "parity-scale-codec",
+ "scale-info",
+ "serde_json",
+ "sha3 0.10.8",
+ "sp-core",
+ "sp-io",
+ "zeroize",
+]
+
+[[package]]
 name = "subtensor-linting"
 version = "0.1.0"
 dependencies = [
@@ -21085,7 +21190,7 @@ dependencies = [
  "pallet-meta-tx",
  "pallet-migrations",
  "pallet-mmr",
- "pallet-multisig",
+ "pallet-multisig 41.0.0 (git+https://github.com/RaoFoundation/polkadot-sdk.git?rev=cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a)",
  "pallet-nomination-pools",
  "pallet-nomination-pools-benchmarking",
  "pallet-nomination-pools-runtime-api",

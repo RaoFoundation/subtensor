@@ -30,8 +30,11 @@ type AdminAll = (SubnetManagementCalls, RootConfigCalls);
 /// `Transfer`: liquid value movement.
 type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 
-/// `Staking`: stake position management.
-type StakingAllowed = StakeManagementCalls;
+/// `Staking`: stake position management and accumulated root-dividend claims.
+type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
+
+/// `Lock`: stake conviction-lock management and nothing else.
+type LockAllowed = LockCalls;
 
 /// `Registration`: acquire a slot (POW or by burn).
 type RegistrationAllowed = (PowRegistrationCalls, BurnedRegistrationCalls);
@@ -67,7 +70,7 @@ type ValidateAllowed = (WeightCalls, NeuronServingCalls, CommitmentCalls);
 /// Contracts, and Crowdloan calls that can move value indirectly, Multisig
 /// wrappers (they re-dispatch on a fresh origin that drops this filter),
 /// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
-/// owner-key rotation, and basket trading (which needs the explicit
+/// owner-key rotation, deferred order approvals, protected-account creation, and basket trading (which needs the explicit
 /// `BasketTrading` grant). Sudo is excluded because a sudo-key principal
 /// would otherwise hand the delegate root, including forced transfers.
 /// `SudoCalls` is inventory-only: no restricted proxy grants it.
@@ -85,6 +88,7 @@ type NonTransferAllowed = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    LockCalls,
     SubtensorValueCalls,
     WeightCalls,
     NeuronServingCalls,
@@ -93,7 +97,7 @@ type NonTransferAllowed = (
 
 /// `NonFungible`: nothing that moves, locks, burns or spends TAO/alpha, no key
 /// swaps, no sudo, no Multisig wrappers (fresh-origin re-dispatch), no
-/// `store_encrypted`, and no owner-key rotation.
+/// `store_encrypted`, deferred order approvals, protected-account creation, and no owner-key rotation.
 type NonFungibleAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -112,11 +116,13 @@ type NonFungibleAllowed = (
 /// `NonCritical`: day-to-day operations including value movement, but no sudo,
 /// network dissolution, root/burned registration, coldkey swaps, Crowdloan
 /// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
-/// Multisig wrappers, `store_encrypted`, owner-key rotation, or basket
-/// trading (which needs the explicit `BasketTrading` grant).
+/// Multisig wrappers, `store_encrypted`, owner-key rotation, deferred order approvals,
+/// protected-account creation, or basket
+/// trading (which needs the explicit `BasketTrading` grant). EVM execution can
+/// reconstruct an unrestricted native origin through precompiles, so it requires
+/// full authority even when the requested target is an ordinary contract.
 type NonCriticalAllowed = (
     InfraCommonCalls,
-    EvmCalls,
     ContractsCalls,
     AdminAll,
     BalanceTransferCalls,
@@ -130,13 +136,22 @@ type NonCriticalAllowed = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    LockCalls,
     SubtensorValueCalls,
     WeightCalls,
     NeuronServingCalls,
     SubtensorCommonCalls,
 );
 
+fn supports_recipient_guards(proxy_type: &ProxyType) -> bool {
+    // Hotkey-operation grants cannot move funds and deliberately exclude wrappers.
+    !proxy_type.is_deprecated() && !matches!(proxy_type, ProxyType::Validate | ProxyType::Weights)
+}
+
 pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> bool {
+    if supports_recipient_guards(proxy_type) && RecipientGuardCalls::contains(call) {
+        return true;
+    }
     match proxy_type {
         ProxyType::Any => true,
         ProxyType::Owner => OwnerAllowed::contains(call),
@@ -154,6 +169,7 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::BasketTrading => BasketTradingCalls::contains(call),
         ProxyType::Validate => ValidateAllowed::contains(call),
         ProxyType::Weights => WeightsAllowed::contains(call),
+        ProxyType::Lock => LockAllowed::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -191,9 +207,11 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::SubnetLeaseBeneficiary
                 | ProxyType::RootClaim
                 | ProxyType::Validate
-                | ProxyType::Weights,
+                | ProxyType::Weights
+                | ProxyType::Lock,
             ) => true,
             (ProxyType::Transfer, ProxyType::SmallTransfer) => true,
+            (ProxyType::Staking, ProxyType::RootClaim) => true,
             (ProxyType::Validate, ProxyType::Weights) => true,
             _ => false,
         }
@@ -209,7 +227,7 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
 
 /// The filter mode (allow-all or an explicit allowlist) for one proxy type.
 fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
-    match proxy_type {
+    let mut mode = match proxy_type {
         ProxyType::Any => FilterMode::AllowAll,
         ProxyType::Owner => FilterMode::Allow(OwnerAllowed::call_infos()),
         ProxyType::NonCritical => FilterMode::Allow(NonCriticalAllowed::call_infos()),
@@ -226,12 +244,23 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::BasketTrading => FilterMode::Allow(BasketTradingCalls::call_infos()),
         ProxyType::Validate => FilterMode::Allow(ValidateAllowed::call_infos()),
         ProxyType::Weights => FilterMode::Allow(WeightsAllowed::call_infos()),
+        ProxyType::Lock => FilterMode::Allow(LockAllowed::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
         ProxyType::Triumvirate
         | ProxyType::Senate
         | ProxyType::Governance
         | ProxyType::RootWeights => FilterMode::Allow(Vec::new()),
+    };
+    if supports_recipient_guards(&proxy_type)
+        && let FilterMode::Allow(ref mut calls) = mode
+    {
+        for call in RecipientGuardCalls::call_infos() {
+            if !calls.contains(&call) {
+                calls.push(call);
+            }
+        }
     }
+    mode
 }
 
 /// Every proxy type with its on-chain index and deprecation flag.
@@ -317,8 +346,21 @@ mod tests {
         }
     }
 
+    fn expected_calls(calls: &[&str]) -> BTreeSet<String> {
+        calls.iter().copied().map(str::to_string).collect()
+    }
+
     fn expected(calls: &[&str]) -> BTreeSet<String> {
-        calls.iter().map(|c| c.to_string()).collect()
+        calls
+            .iter()
+            .copied()
+            .chain([
+                "HashedAccounts::check_registered",
+                "HashedAccounts::check_derived",
+                "Utility::batch_all",
+            ])
+            .map(str::to_string)
+            .collect()
     }
 
     fn all_proxy_types() -> Vec<ProxyType> {
@@ -352,7 +394,14 @@ mod tests {
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                HashedAccountsCalls,
+                LimitOrderApprovalCalls,
+                ProtectedAccountCreationCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -368,10 +417,17 @@ mod tests {
                 | &group_calls::<RootRegistrationCalls>())
                 | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
-        let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
+        let denied = &denied | &group_calls::<(LockCalls, SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                HashedAccountsCalls,
+                LimitOrderApprovalCalls,
+                ProtectedAccountCreationCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -535,6 +591,17 @@ mod tests {
             }),
             RuntimeCall::Multisig(pallet_multisig::Call::as_multi {
                 threshold: 2,
+                other_signatories: vec![other.clone()],
+                maybe_timepoint: None,
+                call: alloc::boxed::Box::new(inner.clone()),
+                max_weight: frame_support::weights::Weight::from_parts(1, 1),
+            }),
+            RuntimeCall::Multisig(pallet_multisig::Call::as_multi_threshold_1_safe {
+                other_signatories: vec![other.clone()],
+                call: alloc::boxed::Box::new(inner.clone()),
+            }),
+            RuntimeCall::Multisig(pallet_multisig::Call::as_multi_safe {
+                threshold: 2,
                 other_signatories: vec![other],
                 maybe_timepoint: None,
                 call: alloc::boxed::Box::new(inner),
@@ -558,13 +625,78 @@ mod tests {
     }
 
     #[test]
+    fn native_evm_deposit_has_transfer_permissions_without_evm_execution_authority() {
+        for value in [Some(subtensor_runtime_common::TaoBalance::new(1)), None] {
+            let call = RuntimeCall::EVM(pallet_evm::Call::deposit {
+                address: sp_core::H160::repeat_byte(1),
+                value,
+            });
+            for proxy_type in all_proxy_types() {
+                let expected = matches!(
+                    proxy_type,
+                    ProxyType::Any | ProxyType::Transfer | ProxyType::NonCritical
+                );
+                assert_eq!(proxy_type.filter(&call), expected, "{proxy_type:?}");
+                assert_eq!(allowed_calls(proxy_type).contains("EVM::deposit"), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn safe_derivative_and_pure_calls_retain_ordinary_proxy_policy() {
+        use alloc::boxed::Box;
+        let calls = [
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::as_safe_derivative {
+                index: 0,
+                call: Box::new(RuntimeCall::System(frame_system::Call::remark {
+                    remark: vec![],
+                })),
+            }),
+            RuntimeCall::Proxy(pallet_subtensor_proxy::Call::create_safe_pure {
+                proxy_type: ProxyType::Any,
+                delay: 0,
+                index: 0,
+            }),
+            RuntimeCall::Proxy(pallet_subtensor_proxy::Call::kill_safe_pure {
+                spawner: subtensor_runtime_common::AccountId::new([1; 32]).into(),
+                proxy_type: ProxyType::Any,
+                index: 0,
+                height: 1,
+                ext_index: 0,
+            }),
+        ];
+        for call in calls {
+            let metadata = call.get_call_metadata();
+            let name = format!("{}::{}", metadata.pallet_name, metadata.function_name);
+            for proxy_type in all_proxy_types() {
+                let expected = matches!(
+                    proxy_type,
+                    ProxyType::Any
+                        | ProxyType::NonTransfer
+                        | ProxyType::NonFungible
+                        | ProxyType::NonCritical
+                );
+                assert_eq!(proxy_type.filter(&call), expected, "{proxy_type:?}: {name}");
+                assert_eq!(allowed_calls(proxy_type).contains(&name), expected);
+            }
+        }
+    }
+
+    #[test]
     fn non_critical_is_everything_but_sudo_and_critical_ops() {
         let denied = &(&(&group_calls::<SudoCalls>() | &group_calls::<BurnedRegistrationCalls>())
             | &(&group_calls::<RootRegistrationCalls>() | &group_calls::<CriticalNetworkCalls>()))
             | &group_calls::<ColdkeySwapCalls>();
-        let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
+        let denied = &denied | &group_calls::<(EvmCalls, CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                HashedAccountsCalls,
+                LimitOrderApprovalCalls,
+                ProtectedAccountCreationCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
@@ -625,12 +757,12 @@ mod tests {
             assert_eq!(info.proxy_type, proxy_type as u8);
             for call in &calls {
                 let metadata = call.get_call_metadata();
-                let is_crowdloan = metadata.pallet_name == "Crowdloan";
+                let recreates_origin = matches!(metadata.pallet_name, "Crowdloan" | "EVM");
                 // Crowdloan wrappers re-dispatch as the real coldkey; they stay on Any
-                // only. EVM / Contracts remain on NonCritical.
+                // only. EVM precompiles also recreate an unrestricted origin.
                 let expected = match proxy_type {
                     ProxyType::Any => true,
-                    ProxyType::NonCritical => !is_crowdloan,
+                    ProxyType::NonCritical => !recreates_origin,
                     ProxyType::NonTransfer | ProxyType::NonFungible => false,
                     _ => false,
                 };
@@ -718,6 +850,7 @@ mod tests {
             ProxyType::RootClaim,
             ProxyType::Validate,
             ProxyType::Weights,
+            ProxyType::Lock,
         ]
         .into_iter()
         .collect::<BTreeSet<_>>();
@@ -761,6 +894,16 @@ mod tests {
     }
 
     #[test]
+    fn staking_is_a_strict_superset_of_root_claim() {
+        assert!(ProxyType::Staking.is_superset(&ProxyType::RootClaim));
+        assert!(!ProxyType::RootClaim.is_superset(&ProxyType::Staking));
+        assert!(allowed_calls(ProxyType::RootClaim).is_subset(&allowed_calls(ProxyType::Staking)));
+        assert!(
+            allowed_calls(ProxyType::Staking).len() > allowed_calls(ProxyType::RootClaim).len()
+        );
+    }
+
+    #[test]
     fn owner_allows_only_owner_settable_config() {
         let owner = allowed_calls(ProxyType::Owner);
         // Owner-settable subnet params + subnet identity.
@@ -785,7 +928,7 @@ mod tests {
         // Exactly subnet identity plus the owner-settable management config.
         let expected =
             &group_calls::<SubnetIdentityCalls>() | &group_calls::<SubnetManagementCalls>();
-        assert_eq!(owner, expected);
+        assert_eq!(owner, &expected | &group_calls::<RecipientGuardCalls>());
     }
 
     #[test]
@@ -811,6 +954,7 @@ mod tests {
                 "Balances::transfer_keep_alive",
                 "Balances::transfer_allow_death",
                 "Balances::transfer_all",
+                "EVM::deposit",
                 "SubtensorModule::transfer_stake",
                 "SubtensorModule::transfer_stake_and_hotkey",
             ])
@@ -841,6 +985,16 @@ mod tests {
                 "SubtensorModule::stake_into_basket",
                 "SubtensorModule::swap_stake",
                 "SubtensorModule::swap_stake_limit",
+                "SubtensorModule::claim_root",
+                "SubtensorModule::claim_root_with_hotkey",
+            ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::Lock),
+            expected(&[
+                "SubtensorModule::lock_stake",
+                "SubtensorModule::move_lock",
+                "SubtensorModule::set_perpetual_lock",
             ])
         );
         assert_eq!(
@@ -886,7 +1040,7 @@ mod tests {
         );
         assert_eq!(
             allowed_calls(ProxyType::Weights),
-            expected(&[
+            expected_calls(&[
                 "SubtensorModule::batch_commit_weights",
                 "SubtensorModule::batch_reveal_weights",
                 "SubtensorModule::batch_set_weights",
@@ -903,7 +1057,7 @@ mod tests {
         );
         assert_eq!(
             allowed_calls(ProxyType::Validate),
-            expected(&[
+            expected_calls(&[
                 "Commitments::set_commitment",
                 "SubtensorModule::associate_evm_key",
                 "SubtensorModule::batch_commit_weights",
@@ -948,6 +1102,7 @@ mod tests {
             ChildKeyCalls,
             RootClaimCalls,
             BasketTradingCalls,
+            LockCalls,
             SubtensorValueCalls,
             OwnerKeyCalls,
         )>();
@@ -1262,9 +1417,14 @@ mod tests {
             assert!(!allowed.contains("SubtensorModule::schedule_swap_coldkey"));
             assert!(!allowed.contains("Multisig::as_multi_threshold_1"));
             assert!(!allowed.contains("Multisig::as_multi"));
+            assert!(!allowed.contains("Multisig::as_multi_threshold_1_safe"));
+            assert!(!allowed.contains("Multisig::as_multi_safe"));
             assert!(!allowed.contains("Crowdloan::finalize"));
             assert!(!allowed.contains("Sudo::sudo"));
             assert!(!allowed.contains("MevShield::store_encrypted"));
+            assert!(!allowed.contains("LimitOrders::authorize_order"));
+            assert!(!allowed.contains("Utility::as_protected_derivative"));
+            assert!(!allowed.contains("Proxy::create_protected_pure"));
             assert!(!allowed.contains("AdminUtils::sudo_set_sn_owner_hotkey"));
         }
         // `root_dissolve_network` leaked into NonCritical specifically.
@@ -1287,6 +1447,7 @@ mod tests {
         assert!(
             small
                 .iter()
+                .filter(|info| !RecipientGuardCalls::call_infos().contains(info))
                 .all(|info| matches!(info.constraint, Some(CallConstraint::ParamLessThan { .. })))
         );
 
@@ -1418,6 +1579,7 @@ mod tests {
             ProxyType::RootWeights,
             ProxyType::Validate,
             ProxyType::Weights,
+            ProxyType::Lock,
         ] {
             assert!(
                 !proxy_type_filter(&narrow, &swap_basket),

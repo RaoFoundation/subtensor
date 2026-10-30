@@ -447,6 +447,7 @@ impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
 }
 
 impl pallet_subtensor::Config for Runtime {
+    type HotkeyOwnerPolicy = ();
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -547,6 +548,8 @@ impl frame_support::traits::InstanceFilter<RuntimeCall> for ProxyType {
 }
 
 impl pallet_subtensor_proxy::Config for Runtime {
+    type SafeDerivationWeight = ();
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = ProxyType;

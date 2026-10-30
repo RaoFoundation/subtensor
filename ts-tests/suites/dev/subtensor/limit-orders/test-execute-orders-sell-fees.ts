@@ -1,3 +1,4 @@
+import type { AccountInfo } from "@polkadot/types/interfaces";
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
 import type { ApiPromise } from "@polkadot/api";
 import type { KeyringPair } from "@moonwall/util";
@@ -5,7 +6,6 @@ import { generateKeyringPair, tao } from "../../../../utils";
 import {
     devForceSetBalance,
     devAddStake,
-    devGetAlphaStake,
     devAssociateHotKey,
     devEnableSubtoken,
     devRegisterSubnet,
@@ -63,7 +63,7 @@ describeSuite({
             title: "fee recipient receives TAO from sell order output with 1% fee",
             test: async () => {
                 const recipientBefore = (
-                    await polkadotJs.query.system.account(feeRecipient.address)
+                    await polkadotJs.query.system.account<AccountInfo>(feeRecipient.address)
                 ).data.free.toBigInt();
 
                 const signed = buildSignedOrder(polkadotJs, {
@@ -84,7 +84,7 @@ describeSuite({
                 expect(filterEvents(events, "OrderExecuted").length).toBe(1);
 
                 const recipientAfter = (
-                    await polkadotJs.query.system.account(feeRecipient.address)
+                    await polkadotJs.query.system.account<AccountInfo>(feeRecipient.address)
                 ).data.free.toBigInt();
 
                 // Fee recipient must have received something > 0

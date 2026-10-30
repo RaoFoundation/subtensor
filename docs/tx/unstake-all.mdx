@@ -21,7 +21,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1263-L1278), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2190-L2219), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1276-L1291), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2203-L2232), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L345-L399) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("unstake_all", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1265`](/code/pallets/subtensor/src/macros/dispatches.rs#L1263-L1278):
+`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1278`](/code/pallets/subtensor/src/macros/dispatches.rs#L1276-L1291):
 
 ```rust
 #[pallet::call_index(83)]
@@ -92,9 +92,9 @@ pub fn unstake_all(
 }
 ```
 
-Delegates to [`do_unstake_all_tracked`](/code/pallets/subtensor/src/staking/remove_stake.rs#L142), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1584), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L283).
+Delegates to [`do_unstake_all_tracked`](/code/pallets/subtensor/src/staking/remove_stake.rs#L142), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1677), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L283).
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2194`](/code/pallets/subtensor/src/macros/dispatches.rs#L2190-L2219):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2207`](/code/pallets/subtensor/src/macros/dispatches.rs#L2203-L2232):
 
 ```rust
 #[pallet::call_index(148)]
@@ -131,7 +131,7 @@ pub fn claim_root_with_hotkey(
 
 Delegates to [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1224), [`root_claim_admission_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1262), [`root_claim_hotkey_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1136).
 
-`Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
+`Utility.batch_all` — [`pallets/utility/src/lib.rs#L351`](/code/pallets/utility/src/lib.rs#L345-L399):
 
 ```rust
         #[pallet::call_index(2)]
@@ -190,5 +190,7 @@ Delegates to [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/
             Ok(Some(base_weight.saturating_add(weight)).into())
         }
 ```
+
+Delegates to [`batched_calls_limit`](/code/pallets/utility/src/lib.rs#L170).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

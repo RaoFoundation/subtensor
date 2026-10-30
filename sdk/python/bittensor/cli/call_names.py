@@ -32,6 +32,7 @@ import typer
 from .. import config as cfg
 from .. import wallets
 from .._generated import calls
+from ..receiving import is_receiving_address, parse_recipient
 from ..wallets import is_bittensor_address
 
 # Scalar annotations on generated call builders that mean "an account".
@@ -76,14 +77,21 @@ def _builder(target: str):
 
 def _resolve_value(app_ctx, param: str, annotation: Optional[str], value: Any, hint: str) -> Any:
     if isinstance(value, str) and annotation in _ACCOUNT_ANNOTATIONS:
-        return _resolve_account(app_ctx, param, value, hint)
+        return _resolve_account(app_ctx, param, value, hint, allow_receiving=False)
+    if annotation == "MultiAddress" and isinstance(value, dict) and set(value) == {"Id"}:
+        account = value["Id"]
+        if isinstance(account, str):
+            return {"Id": _resolve_account(app_ctx, param, account, hint, allow_receiving=False)}
     if _is_nested_call(value):
         return _resolve_nested_call(app_ctx, value, hint)
     if isinstance(value, list) and value:
         if all(_is_nested_call(item) for item in value):
             return [_resolve_nested_call(app_ctx, item, hint) for item in value]
         if param in _SIGNATORY_FIELDS and all(isinstance(item, str) for item in value):
-            return [_resolve_account(app_ctx, param, item, hint) for item in value]
+            return [
+                _resolve_account(app_ctx, param, item, hint, allow_receiving=False)
+                for item in value
+            ]
     return value
 
 
@@ -175,15 +183,30 @@ def _resolve_intent_spec(app_ctx, spec: dict, hint: str) -> dict:
 # --- the shared account resolver ------------------------------------------------------------
 
 
-def _resolve_account(app_ctx, param: str, value: str, hint: str) -> str:
+def _resolve_account(
+    app_ctx, param: str, value: str, hint: str, *, allow_receiving: bool = True
+) -> str:
     """An ss58 address for ``value``: as-is when valid, otherwise looked up in
     the address book, proxy book, or local wallets — or a did-you-mean error."""
     if is_bittensor_address(value):
         return value
-    found = _lookup(app_ctx, param, value)
-    if found is None:
-        raise typer.BadParameter(_unresolved(app_ctx, param, value), param_hint=hint)
-    address, source = found
+    if is_receiving_address(value):
+        try:
+            address = parse_recipient(value).address
+        except ValueError as error:
+            raise typer.BadParameter(str(error), param_hint=hint) from error
+        source = "receiving address"
+    else:
+        found = _lookup(app_ctx, param, value)
+        if found is None:
+            raise typer.BadParameter(_unresolved(app_ctx, param, value), param_hint=hint)
+        address, source = found
+    if is_receiving_address(address) and not allow_receiving:
+        raise typer.BadParameter(
+            "raw calls cannot safely register a receiving address; use `wallet transfer` "
+            "or a supported `tx` intent so its network and registration are checked",
+            param_hint=hint,
+        )
     app_ctx.output.name_address(address, value)
     app_ctx.output.classify_address(address, "hotkey" if "hotkey" in param else "coldkey")
     app_ctx.output.message(f"[dim]{param}: resolved {source} to {address}[/dim]")

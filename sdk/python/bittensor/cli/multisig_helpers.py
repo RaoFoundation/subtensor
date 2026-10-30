@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import shlex
@@ -14,8 +15,11 @@ from .. import config as cfg
 from .. import wallets
 from .._generated import storage as st
 from .._transport.codec import multisig_account
+from ..account_mode import validate_account_mode
+from ..receiving import is_receiving_address, parse_recipient
 from ..result import ChainError, ExtrinsicResult
 from ..wallets import is_bittensor_address
+from .wallet_addresses import public_key_from_file
 
 # One or more commas and/or whitespace between signatory refs
 # (``a,b``, ``a, b``, ``a b``, ``a, b c``).
@@ -61,13 +65,22 @@ def hex_bytes(value: bytes | str) -> str:
 
 def _soft_resolve_coldkey(app_ctx, ref: str) -> Optional[str]:
     """Resolve a coldkey ref without exiting the CLI."""
+    if is_receiving_address(ref):
+        try:
+            return app_ctx.identity_address(ref)
+        except ValueError:
+            return None
     if is_bittensor_address(ref):
         return ref
     booked = cfg.get_address(ref)
     if booked:
-        return booked
+        try:
+            return app_ctx.identity_address(booked)
+        except ValueError:
+            return None
     try:
-        return wallets.open_wallet(name=ref, path=app_ctx.wallet_path).coldkeypub.ss58_address
+        wallet = wallets.open_wallet(name=ref, path=app_ctx.wallet_path)
+        return public_key_from_file(wallet.coldkeypub_file.path).ss58_address
     except Exception:
         return None
 
@@ -181,6 +194,7 @@ def build_replay_command(
     proxy_for: Optional[str] = None,
     force_proxy_type: Optional[str] = None,
     signer_backend: Optional[str] = None,
+    account_mode: str = "legacy",
 ) -> str:
     """Build a copy-paste ``btcli call`` command for a co-signer."""
     parts = ["btcli"]
@@ -218,16 +232,23 @@ def build_replay_command(
         parts.append(f"--multisig-threshold {threshold}")
         parts.append(f"--signatories {shlex.quote(','.join(signatories))}")
         parts.append(f"-w {shlex.quote(wallet_label)}")
+    if validate_account_mode(account_mode) == "safe":
+        parts.append("--multisig-account-mode safe")
     if signer_role != "coldkey":
         parts.append(f"--signer {signer_role}")
     return " ".join(parts)
+
+
+def saved_account_mode(name: Optional[str]) -> str:
+    entry = cfg.get_multisig(name) if name else None
+    return validate_account_mode((entry or {}).get("account_mode", "legacy"))
 
 
 def _resolve_stored_signatories(app_ctx, refs: list[str]) -> list[str]:
     """Resolve a saved multisig signer list (ss58, book names, or wallets)."""
     resolved: list[str] = []
     for ref in refs:
-        address = app_ctx.resolve_address("coldkey_ss58", ref)
+        address = app_ctx.resolve_account("coldkey_ss58", ref)
         if not address:
             raise ValueError(f"cannot resolve signatory {ref!r} in multisig preset")
         resolved.append(address)
@@ -243,6 +264,7 @@ def resolve_multisig(
     other_signatories: Optional[str] = None,
     signer: str = "coldkey",
     wallet_default: Optional[str] = None,
+    account_mode: Optional[str] = None,
 ) -> tuple[Optional[int], list[str], Optional[str], list[str]]:
     """Resolve multisig settings from a preset name, inline flags, or -w wallet name."""
     inline = threshold is not None or signatories or other_signatories
@@ -257,6 +279,10 @@ def resolve_multisig(
                 f"unknown multisig {multisig_name!r}; run `btcli multisig add NAME` "
                 "or `btcli multisig list`"
             )
+        saved_mode = validate_account_mode(entry.get("account_mode", "legacy"))
+        if account_mode is not None and validate_account_mode(account_mode) != saved_mode:
+            raise ValueError("account mode does not match the saved multisig")
+        app_ctx.multisig_account_mode = saved_mode
         refs = list(entry["signatories"])
         return (
             int(entry["threshold"]),
@@ -264,6 +290,7 @@ def resolve_multisig(
             multisig_name,
             refs,
         )
+    app_ctx.multisig_account_mode = validate_account_mode(account_mode or "legacy")
     if threshold is None:
         return None, [], None, []
     if threshold < 1:
@@ -290,23 +317,23 @@ def resolve_multisig(
 def derive_saved_multisig_address(app_ctx, name: str) -> Optional[str]:
     """Derived ss58 of the saved multisig ``name``, or None when not in the book.
 
-    Fully offline: signatory refs (ss58, book names, wallet names) resolve
-    locally and the account id derivation is deterministic, so read-only
-    commands can treat a multisig book name like any other address without a
-    chain connection.
+    Signatory identities resolve locally from their public descriptors.
+    Derivation is independent of the selected chain and requires no connection.
     """
     entry = cfg.get_multisig(name)
     if entry is None:
         return None
     signatories = _resolve_stored_signatories(app_ctx, list(entry["signatories"]))
-    return multisig_account(signatories, int(entry["threshold"])).ss58_address
+    return multisig_account(
+        signatories, int(entry["threshold"]), account_mode=entry.get("account_mode", "legacy")
+    ).ss58_address
 
 
 def saved_multisig_accounts(app_ctx) -> list[tuple[str, str]]:
     """``(name, derived ss58)`` for every saved multisig resolvable locally.
 
     Same offline derivation as ``derive_saved_multisig_address``, but soft:
-    presets whose signatories cannot all be resolved on this machine are
+    invalid presets or those whose signatories cannot all be resolved here are
     skipped instead of aborting, so bulk read-only views (``wallet balance
     --all``) degrade gracefully.
     """
@@ -321,7 +348,13 @@ def saved_multisig_accounts(app_ctx) -> list[tuple[str, str]]:
         if any(address is None for address in signatories):
             continue
         unique = list(dict.fromkeys(signatories))
-        accounts.append((str(name), multisig_account(unique, threshold).ss58_address))
+        try:
+            address = multisig_account(
+                unique, threshold, account_mode=entry.get("account_mode", "legacy")
+            ).ss58_address
+        except ValueError:
+            continue
+        accounts.append((str(name), address))
     return accounts
 
 
@@ -354,13 +387,16 @@ def _address_book_signer(ref: str) -> Optional[str]:
 
 def resolve_member_ref(app_ctx, ref: str, signatories: list[str]) -> Optional[tuple[str, str]]:
     """Resolve a ``--signatory`` value to ``(name, ss58)`` when it names a member."""
-    if is_bittensor_address(ref):
-        if ref in signatories:
-            return resolve_signatory_name(app_ctx, ref), ref
+    if is_receiving_address(ref) or is_bittensor_address(ref):
+        account = parse_recipient(ref).account
+        if account in signatories:
+            return resolve_signatory_name(app_ctx, account), account
         return None
     booked = cfg.get_address(ref)
-    if booked and booked in signatories:
-        return ref, booked
+    if booked:
+        account = parse_recipient(booked).account
+        if account in signatories:
+            return ref, account
     for wallet_name, ss58 in local_signatory_wallets(app_ctx, signatories):
         if wallet_name == ref:
             return wallet_name, ss58
@@ -470,6 +506,10 @@ def plan_signatory_rounds(
                 f"pass `--signatory {ref}=vault` (or ledger/extension), or tag the "
                 f"contact once: `btcli addr add {ref} --signer vault`"
             )
+        if backend == "wallet":
+            if ss58 not in locals_by_ss58:
+                raise ValueError(f"member {ref!r} has no local wallet for --signatory {ref}=wallet")
+            name = locals_by_ss58[ss58]
         rounds.append((name, ss58, backend))
     return rounds
 
@@ -541,13 +581,17 @@ def infer_external_signer_from_signatory(app_ctx, signatories: list[str]) -> Non
         return
     _name, ss58 = member
     backend = _address_book_signer(chosen) or _address_book_signer(ss58)
+    if backend is None and any(
+        address == ss58 for _, address in local_signatory_wallets(app_ctx, signatories)
+    ):
+        return
     if backend is None:
         backend = prompt_member_backend(app_ctx, ref=chosen, ss58=ss58)
     if backend is None:
         return
     app_ctx.signer_backend = backend
     if not getattr(app_ctx, "signer_address", None):
-        app_ctx.signer_address = ss58
+        app_ctx.signer_address = chosen if backend == "vault" else ss58
 
 
 def external_signer_member(
@@ -604,11 +648,11 @@ def pick_local_signatory(app_ctx, *, preset: str, signatories: list[str]) -> tup
     locals_ = local_signatory_wallets(app_ctx, signatories)
     chosen = getattr(app_ctx, "signatory_wallet", None)
     if chosen:
+        member = resolve_member_ref(app_ctx, chosen, signatories)
         for name, ss58 in locals_:
-            if chosen in (name, ss58):
+            if chosen in (name, ss58) or (member is not None and member[1] == ss58):
                 return name, ss58
         known = ", ".join(name for name, _ in locals_) or "none found under --wallet-path"
-        member = resolve_member_ref(app_ctx, chosen, signatories)
         if member is not None:
             raise ValueError(
                 f"--signatory {chosen!r} is a member of {preset!r} but has no "
@@ -672,13 +716,14 @@ async def pending_timepoint_for_call(
     threshold: int,
     call_hash: str,
     signer_ss58: str,
+    account_mode: str = "legacy",
 ) -> Optional[dict[str, int]]:
     """Return the opening timepoint for a pending op matching ``call_hash``.
 
     Errors if this signer already approved. Returns ``None`` when nothing is
     pending (caller should open a new operation).
     """
-    ms = await client.multisig(signatories, threshold)
+    ms = await client.multisig(signatories, threshold, account_mode=account_mode)
     wanted = hex_bytes(call_hash)
     for row in await list_pending_multisig_ops(client, ms.address):
         if row["call_hash"] != wanted:
@@ -754,7 +799,9 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
     # No narration here: the pre-sign review card carries a "Multisig" stage
     # (account, threshold, signer), so a log line would only repeat it.
     if threshold == 1:
-        dispatch = MultisigThreshold1(other_signatories=others, call=call_dict)
+        dispatch = MultisigThreshold1(
+            other_signatories=others, call=call_dict, account_mode=saved_account_mode(preset)
+        )
         return MultisigThreshold1IntentAdapter(dispatch=dispatch, semantic=intent)
 
     dispatch = MultisigExecute(
@@ -762,6 +809,7 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
         other_signatories=others,
         call=call_dict,
         timepoint=None,
+        account_mode=saved_account_mode(preset),
     )
     return MultisigIntentAdapter(
         dispatch=dispatch,
@@ -772,12 +820,11 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
     )
 
 
-async def multisig_list_records(
-    client,
+def multisig_list_records(
     app_ctx,
     entries: Optional[list[dict[str, Any]]] = None,
 ) -> list[dict[str, Any]]:
-    """Build wallet-list rows for saved multisig wallets."""
+    """Build saved multisig rows locally, deriving only complete signer sets."""
     rows: list[dict[str, Any]] = []
     for entry in entries if entries is not None else cfg.load_multisigs():
         name = entry.get("name")
@@ -785,25 +832,22 @@ async def multisig_list_records(
             continue
         threshold = int(entry.get("threshold") or 0)
         refs = list(entry.get("signatories") or [])
-        signatories = [
-            address for ref in refs if (address := _soft_resolve_coldkey(app_ctx, ref)) is not None
-        ]
-        signatories = list(dict.fromkeys(signatories))
-        multisig_address = None
-        if signatories and threshold >= 1:
-            try:
-                ms = await client.multisig(signatories, threshold)
-                multisig_address = ms.address
-            except Exception:
-                pass
         signatory_rows = [
             {"name": ref, "ss58": _soft_resolve_coldkey(app_ctx, ref)} for ref in refs
         ]
+        signatories = list(dict.fromkeys(row["ss58"] for row in signatory_rows))
+        multisig_address = None
+        if signatories and None not in signatories and 1 <= threshold <= len(signatories):
+            with contextlib.suppress(ValueError):
+                multisig_address = multisig_account(
+                    signatories, threshold, account_mode=entry.get("account_mode", "legacy")
+                ).ss58_address
         rows.append(
             {
                 "name": name,
                 "kind": "multisig",
                 "threshold": threshold,
+                "account_mode": entry.get("account_mode", "legacy"),
                 "signatory_count": len(refs),
                 "ss58": multisig_address,
                 "signatories": signatory_rows,
@@ -910,10 +954,18 @@ async def resolve_call_spec(
     call_hash: str,
     call_data: Optional[str] = None,
     timepoint: Optional[dict[str, int]] = None,
+    multisig_address: Optional[str] = None,
+    account_mode: str = "legacy",
 ) -> Optional[dict[str, Any]]:
     """Resolve call target/params from cache, call_data hex, or opening extrinsic."""
     cached = cfg.get_multisig_cache(hex_bytes(call_hash))
-    if cached:
+    if cached and (
+        multisig_address is None
+        or (
+            cached.get("multisig_address") == multisig_address
+            and cached.get("account_mode", "legacy") == account_mode
+        )
+    ):
         return cached
     if call_data:
         data_hex = hex_bytes(call_data)
@@ -933,7 +985,7 @@ async def resolve_call_spec(
             height=int(timepoint["height"]),
             index=int(timepoint["index"]),
         )
-        if spec is None:
+        if spec is None or spec.get("account_mode", "legacy") != account_mode:
             return None
         if spec.get("call_hash") and hex_bytes(spec["call_hash"]) != hex_bytes(call_hash):
             return None
@@ -966,18 +1018,19 @@ async def fetch_call_from_timepoint(
     if outer.get("call_module") != "Multisig":
         return None
     args = {arg.get("name"): arg.get("value") for arg in (outer.get("call_args") or [])}
-    if outer.get("call_function") == "as_multi":
+    if outer.get("call_function") in ("as_multi", "as_multi_safe"):
         inner = args.get("call")
         if inner is None:
             return None
         spec = _call_spec_from_decoded(inner)
         if spec is None:
             return None
+        spec["account_mode"] = "safe" if outer.get("call_function") == "as_multi_safe" else "legacy"
         spec["call_data"] = hex_bytes(getattr(inner, "data", b""))
         if hasattr(inner, "call_hash"):
             spec["call_hash"] = hex_bytes(inner.call_hash)
         return spec
-    if outer.get("call_function") == "approve_as_multi":
+    if outer.get("call_function") in ("approve_as_multi", "approve_as_multi_safe"):
         return None
     return None
 
@@ -1036,7 +1089,13 @@ def multisig_executed(events: list) -> bool:
 
 
 async def await_pending_visible(
-    client, signatories: list, threshold: int, call_hash, *, attempts: int = 8
+    client,
+    signatories: list,
+    threshold: int,
+    call_hash,
+    *,
+    attempts: int = 8,
+    account_mode: str = "legacy",
 ) -> None:
     """Block until an approval's pending op is queryable at head.
 
@@ -1049,7 +1108,7 @@ async def await_pending_visible(
     """
     if not call_hash:
         return
-    ms = await client.multisig(signatories, threshold)
+    ms = await client.multisig(signatories, threshold, account_mode=account_mode)
     for _ in range(attempts):
         rows = await list_pending_multisig_ops(client, ms.address)
         if any(row.get("call_hash") == call_hash for row in rows):
@@ -1147,6 +1206,7 @@ async def build_pending_followup(
                         proxy_for=proxy_for,
                         force_proxy_type=force_proxy_type,
                         signer_backend=backend,
+                        account_mode=getattr(ms, "account_mode", "legacy"),
                     ),
                 }
             )
@@ -1165,6 +1225,7 @@ async def build_pending_followup(
         "timepoint": pending.get("timepoint"),
         "timepoint_display": pending.get("timepoint_display"),
         "multisig_address": ms.address,
+        "account_mode": getattr(ms, "account_mode", "legacy"),
         "multisig_preset": preset,
         "depositor": pending.get("depositor"),
         "depositor_label": (
@@ -1234,6 +1295,7 @@ async def multisig_followup_from_composed(
         "threshold": threshold,
         "signatories": signatories,
         "multisig_address": ms.address,
+        "account_mode": getattr(ms, "account_mode", "legacy"),
         "multisig_preset": preset,
         "network": app_ctx.network,
     }
@@ -1251,6 +1313,7 @@ async def multisig_followup_from_composed(
             "call_hash": call_hash,
             "call_data": call_data,
             "multisig_address": ms.address,
+            "account_mode": getattr(ms, "account_mode", "legacy"),
             "multisig_preset": preset,
         }
 
@@ -1304,6 +1367,7 @@ async def multisig_followup_from_composed(
             "call_hash": call_hash,
             "call_data": call_data,
             "multisig_address": ms.address,
+            "account_mode": getattr(ms, "account_mode", "legacy"),
             "multisig_preset": preset,
             "decode_note": "approval submitted but pending state is not visible yet",
             "decode_hint": "run `btcli multisig pending` shortly to inspect co-signer commands",
@@ -1335,12 +1399,15 @@ async def multisig_followup_from_composed(
 
 
 def _match_multisig_book(
-    app_ctx, signatories: list[str], threshold: int
+    app_ctx, signatories: list[str], threshold: int, *, account_mode="legacy"
 ) -> tuple[Optional[str], Optional[list[str]]]:
     """The saved multisig entry (name, refs) matching a signer set, if any."""
     wanted = set(signatories)
     for entry in cfg.load_multisigs():
-        if int(entry.get("threshold") or 0) != threshold:
+        if (
+            entry.get("account_mode", "legacy") != account_mode
+            or int(entry.get("threshold") or 0) != threshold
+        ):
             continue
         refs = list(entry.get("signatories") or [])
         resolved = {
@@ -1372,8 +1439,9 @@ async def multisig_followup_for_intent(
     if not call_hash or not call_data or threshold < 2:
         return None
     signatories = list(dict.fromkeys([*intent.other_signatories, signer_address]))
-    ms = await client.multisig(signatories, threshold)
-    preset, refs = _match_multisig_book(app_ctx, signatories, threshold)
+    account_mode = getattr(intent, "account_mode", "legacy")
+    ms = await client.multisig(signatories, threshold, account_mode=account_mode)
+    preset, refs = _match_multisig_book(app_ctx, signatories, threshold, account_mode=account_mode)
     spec = await decode_call_data(client, call_data)
     return await multisig_followup_from_composed(
         client,
@@ -1424,6 +1492,8 @@ async def list_pending_with_commands(
             call_hash=row["call_hash"],
             call_data=data_override,
             timepoint=row.get("timepoint"),
+            multisig_address=ms.address,
+            account_mode=getattr(ms, "account_mode", "legacy"),
         )
         if spec and data_override:
             cfg.save_multisig_cache_entry(
@@ -1434,6 +1504,7 @@ async def list_pending_with_commands(
                     "threshold": threshold,
                     "signatories": signatories,
                     "multisig_address": ms.address,
+                    "account_mode": getattr(ms, "account_mode", "legacy"),
                     "multisig_preset": preset,
                     "network": app_ctx.network,
                 },

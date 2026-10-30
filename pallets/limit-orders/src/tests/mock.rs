@@ -16,7 +16,7 @@ use frame_system as system;
 use sp_core::{H256, Pair};
 use sp_keyring::Sr25519Keyring as AccountKeyring;
 use sp_runtime::{
-    AccountId32, BuildStorage, MultiSignature,
+    AccountId32, BuildStorage,
     traits::{AccountIdConversion, BlakeTwo256, IdentityLookup},
 };
 use substrate_fixed::types::U64F64;
@@ -49,6 +49,7 @@ impl system::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type PalletInfo = PalletInfo;
     type MaxConsumers = ConstU32<16>;
+    type OnKilledAccount = LimitOrders;
     type Nonce = u64;
     type Block = Block;
     /// Pinned to Bittensor's real prefix (42) because `render_account` renders
@@ -137,10 +138,20 @@ pub struct MockSwap;
 
 parameter_types! {
     pub static FrozenOrderSigner: Option<AccountId> = None;
+    pub static ProtectedOrderSigner: Option<AccountId> = None;
+    pub static ReapOnDebit: Option<AccountId> = None;
 }
 
 pub struct OrderSignerFilter;
 impl frame_support::traits::Contains<AccountId> for OrderSignerFilter {
+    fn contains(signer: &AccountId) -> bool {
+        FrozenOrderSigner::get().as_ref() != Some(signer)
+            && ProtectedOrderSigner::get().as_ref() != Some(signer)
+    }
+}
+
+pub struct AuthenticatedOrderSignerFilter;
+impl frame_support::traits::Contains<AccountId> for AuthenticatedOrderSignerFilter {
     fn contains(signer: &AccountId) -> bool {
         FrozenOrderSigner::get().as_ref() != Some(signer)
     }
@@ -331,6 +342,9 @@ impl OrderSwapInterface<AccountId> for MockSwap {
                 .or_insert(0);
             *bal = bal.saturating_add(alpha_out);
         });
+        if ReapOnDebit::get().as_ref() == Some(coldkey) {
+            System::dec_providers(coldkey)?;
+        }
         Ok(AlphaBalance::from(alpha_out))
     }
 
@@ -420,6 +434,9 @@ impl OrderSwapInterface<AccountId> for MockSwap {
                 amount: amt,
             })
         });
+        if ReapOnDebit::get().as_ref() == Some(from) {
+            System::dec_providers(from)?;
+        }
         Ok(())
     }
 
@@ -548,6 +565,7 @@ pub fn fee_recipient() -> AccountId {
 impl pallet_limit_orders::Config for Test {
     type SwapInterface = MockSwap;
     type OrderSignerFilter = OrderSignerFilter;
+    type AuthenticatedOrderSignerFilter = AuthenticatedOrderSignerFilter;
     type TimeProvider = MockTime;
     type MaxOrdersPerBatch = ConstU32<64>;
     type PalletId = LimitOrdersPalletId;
@@ -619,7 +637,7 @@ pub fn make_signed_order(
     let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     }
 }
@@ -657,7 +675,7 @@ pub fn make_partial_fill_order(
     let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: Some(partial_fill),
     }
 }
@@ -702,7 +720,7 @@ pub fn make_signed_v2_order(
     let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     }
 }
@@ -719,7 +737,13 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     ext.register_extension(sp_keystore::KeystoreExt::new(keystore));
     ext.execute_with(|| {
         System::set_block_number(1);
+        for owner in [alice(), bob(), charlie(), dave(), fee_recipient()] {
+            System::inc_providers(&owner);
+        }
         FrozenOrderSigner::set(None);
+        ProtectedOrderSigner::set(None);
+        ReapOnDebit::set(None);
+        MockTime::set(1_000_000);
         MockSwap::clear_log();
         // Simulate genesis_build: register the pallet hotkey and enable the pallet.
         let pallet_acct: AccountId = LimitOrdersPalletId::get().into_account_truncating();

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, ClassVar, Optional
 
-from .._generated import calls
 from .._generated import storage as st
 from .._generated.calls import Call
 from .._generated.runtime_apis import StakeInfoRuntimeApi
+from .._pinned import approved_staking_amount, compose_staking_call
 from ..result import BittensorError
 from ..signing import public_view
 from ._money import ALL, UNBOUNDED, Money, Spend, alpha_amount
@@ -18,8 +19,8 @@ from .registry import register
 from .staking import (
     DEFAULT_RATE_TOLERANCE,
     RATE_TOLERANCE_HELP,
-    _alpha_price_rao,
     _check_rate_tolerance,
+    _stake_limit_price_rao,
 )
 
 
@@ -103,17 +104,24 @@ class AddCollateral(Intent):
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
         if self.amount_alpha == ALL:
-            rao = await _free_collateral_rao(substrate, wallet, hotkey, self.netuid)
+            rao = await approved_staking_amount("add_collateral", "alpha")
+            if rao is None:
+                rao = await _free_collateral_rao(substrate, wallet, hotkey, self.netuid)
         else:
             rao = self.amount_alpha.rao
-        price = await _alpha_price_rao(substrate, self.netuid)
-        return await substrate.compose(
-            calls.SubtensorModule.add_collateral(
+        return await compose_staking_call(
+            substrate,
+            "add_collateral",
+            dict(
                 netuid=self.netuid,
                 hotkey=hotkey,
                 alpha=rao,
-                limit_price=int(price * (1 + self.rate_tolerance)),
-            )
+            ),
+            derived={
+                "limit_price": partial(
+                    _stake_limit_price_rao, substrate, self.netuid, 1 + self.rate_tolerance
+                )
+            },
         )
 
     def summary(self) -> str:

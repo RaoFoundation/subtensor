@@ -24,7 +24,7 @@ delegation. Use `burned_register` for ordinary subnets.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L832-L836) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L836-L840) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("root_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L834`](/code/pallets/subtensor/src/macros/dispatches.rs#L832-L836):
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L838`](/code/pallets/subtensor/src/macros/dispatches.rs#L836-L840):
 
 ```rust
 #[pallet::call_index(62)]
@@ -81,6 +81,6 @@ pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResu
 }
 ```
 
-Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L110).
+Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L112).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

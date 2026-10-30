@@ -1,4 +1,4 @@
-import { subtensor } from "@polkadot-api/descriptors";
+import type { subtensor } from "@polkadot-api/descriptors";
 import type { TypedApi } from "polkadot-api";
 
 export async function getProxies(api: TypedApi<typeof subtensor>, address: string): Promise<string[]> {

@@ -5,6 +5,7 @@ import { u8aToHex } from "@polkadot/util";
 
 import { connectApi } from "../lib/api.js";
 import { createTempLogger } from "../lib/file-log.js";
+import { assertIssuanceMatch } from "../lib/issuance.js";
 
 const WS_ENDPOINT = process.env.WS_ENDPOINT ?? "ws://127.0.0.1:9944";
 const MAX_BLOCKS_TO_WAIT = Number(process.env.MAX_EDGE_EMISSION_WAIT_BLOCKS ?? 120);
@@ -43,8 +44,7 @@ async function main() {
     if (!assertMetadataAvailable()) {
       return;
     }
-    await repairIssuanceMirrorIfNeeded("pre-test setup");
-    await assertIssuanceMatch("initial");
+    await assertIssuanceMatch(api, "initial");
 
     const netuid = await findEmissionSubnet();
     console.log("selected netuid:", netuid);
@@ -73,7 +73,7 @@ async function main() {
       await restoreOriginals(netuid, original);
     }
 
-    await assertIssuanceMatch("final after restore");
+    await assertIssuanceMatch(api, "final after restore");
     console.log("balancer edge emission issuance scenarios: ok");
   } finally {
     await api?.disconnect();
@@ -183,7 +183,7 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
     quoteWeight === HIGH_QUOTE_WEIGHT ? forcedWeight >= HIGH_EDGE_FLOOR : forcedWeight <= LOW_EDGE_CEILING,
     `${label}: forced balancer weight ${forcedWeight} is no longer edge-cased`
   );
-  await assertIssuanceMatch(`${label} after force storage`);
+  await assertIssuanceMatch(api, `${label} after force storage`, blockHash);
 
   const setHeader = await api.rpc.chain.getHeader(blockHash);
   lastFinalizedBlockNumber = setHeader.number.toNumber();
@@ -199,7 +199,7 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
 
   for (let blocks = 1; blocks <= MAX_BLOCKS_TO_WAIT; blocks++) {
     const header = await waitForFinalizedBlock();
-    await assertIssuanceMatch(`${label} block ${header.number.toString()}`);
+    await assertIssuanceMatch(api, `${label} block ${header.number.toString()}`, header.hash.toHex());
 
     const after = await emissionSnapshot(netuid, header.hash);
     const sumDelta = after.taoPlusReservoir - before.taoPlusReservoir;
@@ -319,46 +319,6 @@ async function restoreOriginals(netuid, original) {
     `sudo restore edge-emission storage on netuid ${netuid}`
   );
   console.log(`restored original balancer storage for netuid ${netuid}`);
-}
-
-async function repairIssuanceMirrorIfNeeded(label) {
-  const balances = (await api.query.balances.totalIssuance()).toBigInt();
-  const subtensor: bigint = (await api.query.subtensorModule.totalIssuance()).toBigInt();
-  const diff = balances - subtensor;
-  if (diff === 0n) {
-    console.log(`${label}: issuance matched`, balances.toString());
-    return;
-  }
-
-  // The mirror must equal Balances.TotalIssuance. Writing `balances + diff`
-  // overshoots by the mismatch and flips its sign on every repair pass, so a
-  // drifted snapshot never converges (observed as ±1.5 TAO oscillation).
-  const target = balances;
-  assert.ok(target > 0n, `cannot repair issuance mirror: computed target ${target}`);
-  console.log(`${label}: repairing issuance mirror, diff ${diff} rao`);
-  await submitAndWait(
-    alice,
-    api.tx.sudo.sudo(api.tx.system.setStorage([
-      [api.query.subtensorModule.totalIssuance.key(), storageValueHex("u64", target)],
-    ])),
-    "sudo repair Subtensor TotalIssuance mirror"
-  );
-  await assertIssuanceMatch(`${label} repaired`);
-}
-
-async function assertIssuanceMatch(label) {
-  const [balancesIssuance, subtensorIssuance] = await Promise.all([
-    api.query.balances.totalIssuance(),
-    api.query.subtensorModule.totalIssuance(),
-  ]);
-  const balances = balancesIssuance.toBigInt();
-  const subtensor = subtensorIssuance.toBigInt();
-  assert.equal(
-    subtensor,
-    balances,
-    `${label}: SubtensorModule.TotalIssuance ${subtensor} does not match Balances.TotalIssuance ${balances}`
-  );
-  console.log(`${label}: issuance match`, balances.toString());
 }
 
 async function sudoSetStorage(entries, label) {

@@ -50,6 +50,11 @@ jobs:
             cargo install --force --locked cargo-audit --version 0.22.2
           fi
 
+      - name: Verify feature-dependent advisory exclusions
+        run: |
+          python3 .github/scripts/test_audit_feature_exclusions.py
+          python3 .github/scripts/check-audit-feature-exclusions.py
+
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping
         # polkadot-sdk since most originate in the patched fork's tree.

@@ -214,15 +214,21 @@ def key_export(
 @key_app.command("list")
 @with_globals
 def key_list(ctx: typer.Context):
-    """List the wallet's EVM keys: name, address, and ss58 mirror."""
+    """List EVM keys and their internal legacy mirrors; use `evm mirror` before funding."""
     app_ctx = ctx_of(ctx)
     keys = evm_keys.list_evm_keys(app_ctx.wallet_name, app_ctx.wallet_path)
     app_ctx.output.table(
         f"EVM keys in wallet {app_ctx.wallet_name}",
-        ["name", "address", "ss58 mirror"],
+        ["name", "address", "legacy ss58 mirror (internal)"],
         [[k.name, k.address, k.ss58_mirror] for k in keys],
         records=[
-            {"name": k.name, "address": k.address, "ss58_mirror": k.ss58_mirror} for k in keys
+            {
+                "name": k.name,
+                "address": k.address,
+                "ss58_mirror": k.ss58_mirror,
+                "ss58_mirror_is_legacy": True,
+            }
+            for k in keys
         ],
     )
 
@@ -233,7 +239,7 @@ def key_show(
     ctx: typer.Context,
     key: Optional[str] = typer.Argument(None, help=EVM_KEY_HELP),
 ):
-    """Show one EVM key's address, ss58 mirror, and keystore path."""
+    """Show an EVM key and its internal legacy mirror; use `evm mirror` before funding."""
     app_ctx = ctx_of(ctx)
     info = _key_info(app_ctx, key)
     app_ctx.output.detail("EVM key", _key_fields(info), json_fields=_key_json(info))

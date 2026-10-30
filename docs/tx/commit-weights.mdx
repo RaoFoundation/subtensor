@@ -16,7 +16,7 @@ commit-reveal setting.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2062-L2080) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2065-L2083) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("commit_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L2064`](/code/pallets/subtensor/src/macros/dispatches.rs#L2062-L2080):
+`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L2067`](/code/pallets/subtensor/src/macros/dispatches.rs#L2065-L2083):
 
 ```rust
 #[pallet::call_index(118)]

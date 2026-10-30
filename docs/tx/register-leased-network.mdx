@@ -19,7 +19,7 @@ perpetual and ownership never transfers.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register_leased_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1863-L1871) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register_leased_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1876-L1884) |
 
 ## Parameters
 
@@ -69,11 +69,11 @@ result = sub.execute_tool("register_leased_network", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.register_leased_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1865`](/code/pallets/subtensor/src/macros/dispatches.rs#L1863-L1871):
+`SubtensorModule.register_leased_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1878`](/code/pallets/subtensor/src/macros/dispatches.rs#L1876-L1884):
 
 ```rust
 #[pallet::call_index(110)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()))]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()).saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
 pub fn register_leased_network(
     origin: OriginFor<T>,
     emissions_share: Percent,

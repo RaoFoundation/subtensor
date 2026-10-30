@@ -212,6 +212,14 @@ class WalletSigner:
     def ss58_format(self) -> int:
         return self._public().ss58_format
 
+    @property
+    def hashed_descriptor(self) -> bytes:
+        return self._public().hashed_descriptor
+
+    def at_generation(self, generation: int) -> Any:
+        """Derive a rotating signer only after the transport reads chain state."""
+        return self._unlock().at_generation(generation)
+
     def sign(self, payload: bytes) -> bytes:
         # The first unlock can block on getpass/Keychain/dialog subprocesses;
         # when called from async transport code that blocks the event loop

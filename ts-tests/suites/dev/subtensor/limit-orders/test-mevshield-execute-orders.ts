@@ -4,7 +4,6 @@ import type { KeyringPair } from "@moonwall/util";
 import { tao, generateKeyringPair } from "../../../../utils";
 import {
     devForceSetBalance,
-    devGetAlphaStake,
     devAssociateHotKey,
     devEnableSubtoken,
     devRegisterSubnet,

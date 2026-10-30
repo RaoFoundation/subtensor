@@ -803,6 +803,7 @@ mod dispatches {
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::register()
                 .saturating_add(Pallet::<T>::registration_commit_cleanup_weight())
+                .saturating_add(Pallet::<T>::hotkey_owner_policy_weight())
         )]
         pub fn register(
             origin: OriginFor<T>,
@@ -843,6 +844,7 @@ mod dispatches {
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::burned_register()
                 .saturating_add(Pallet::<T>::registration_commit_cleanup_weight())
+                .saturating_add(Pallet::<T>::hotkey_owner_policy_weight())
         )]
         pub fn burned_register(
             origin: OriginFor<T>,
@@ -858,7 +860,8 @@ mod dispatches {
         #[pallet::call_index(152)]
         #[pallet::weight((
             <T as crate::pallet::Config>::WeightInfo::pow_register()
-                .saturating_add(Pallet::<T>::registration_commit_cleanup_weight()),
+                .saturating_add(Pallet::<T>::registration_commit_cleanup_weight())
+                .saturating_add(Pallet::<T>::hotkey_owner_policy_weight()),
             Pays::No,
         ))]
         pub fn pow_register(
@@ -1057,7 +1060,7 @@ mod dispatches {
 
         /// User register a new subnetwork
         #[pallet::call_index(59)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network())]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
         pub fn register_network(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             Self::do_register_network(origin, &hotkey, 1, None)
         }
@@ -1238,7 +1241,7 @@ mod dispatches {
 
         /// User register a new subnetwork
         #[pallet::call_index(79)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network_with_identity())]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network_with_identity().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
         pub fn register_network_with_identity(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1709,7 +1712,7 @@ mod dispatches {
         /// # Note
         /// Will charge based on the weight even if the hotkey is already associated with a coldkey.
         #[pallet::call_index(91)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::try_associate_hotkey())]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::try_associate_hotkey().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(1)))]
         pub fn try_associate_hotkey(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             let coldkey = ensure_signed(origin)?;
 
@@ -1871,7 +1874,7 @@ mod dispatches {
         ///
         /// * `end_block`: The block at which the lease will end. If not defined, the lease is perpetual.
         #[pallet::call_index(110)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()).saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
         pub fn register_leased_network(
             origin: OriginFor<T>,
             emissions_share: Percent,
@@ -2820,7 +2823,7 @@ mod dispatches {
         ///
         /// `limit_price` is expressed in the same TaoCurrency/u64 units as `Burn`.
         #[pallet::call_index(134)]
-        #[pallet::weight((<T as Config>::WeightInfo::register_limit(), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight((<T as Config>::WeightInfo::register_limit().saturating_add(Pallet::<T>::hotkey_owner_policy_weight()), DispatchClass::Normal, Pays::Yes))]
         pub fn register_limit(
             origin: OriginFor<T>,
             netuid: NetUid,
