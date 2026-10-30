@@ -60,4 +60,12 @@ ignore = [
     # decompression paths do not feed untrusted legacy frames. Fix needs a
     # newer zstd-safe major via the polkadot-sdk bump.
     "RUSTSEC-2026-0403",
+    # GHSA-6fr9-xmw9-5352 / RUSTSEC-2026-0424 (added 2026-10-30): unchecked
+    # memory usage transferring borrowed resources between wasmtime
+    # components. Same sc-executor wasmtime 8.0.1 pin as 0316/0363 — the
+    # executor resolves without `component-model`, so the affected component
+    # transfer path is not compiled into the node. Fix needs wasmtime >=36
+    # (or other patched majors); revisit on the next polkadot-sdk bump.
+    # https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-6fr9-xmw9-5352
+    "RUSTSEC-2026-0424",
 ]
