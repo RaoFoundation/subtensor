@@ -6,8 +6,8 @@
 //!
 //! | slot | role      | v1 rule                                   |
 //! |-----:|-----------|-------------------------------------------|
-//! | 0    | burn      | must be 0 (not yet enabled)               |
-//! | 1    | recycle   | must be 0 (not yet enabled)               |
+//! | 0    | burn      | with recycle, `≤ 33%` combined            |
+//! | 1    | recycle   | with burn, `≤ 33%` combined               |
 //! | 2    | owner     | `0 ≤ owner ≤ 33%`; leased subnets `≥ 18%` |
 //! | 3    | validator | `≤ 50%`, and above root's baseline share  |
 //! | 4    | miner     | `≥ 33%`                                   |
@@ -64,6 +64,8 @@ pub const fn emission_fraction(num: u64, den: u64) -> u64 {
 
 /// Owner slot may be at most 33% of emission.
 pub const MAX_OWNER_EMISSION: u64 = emission_fraction(33, 100);
+/// Burn and recycle slots together may be at most 33% of emission.
+pub const MAX_BURN_RECYCLE_EMISSION: u64 = emission_fraction(33, 100);
 /// Validator slot may be at most 50% of emission.
 pub const MAX_VALIDATOR_EMISSION: u64 = emission_fraction(50, 100);
 /// Miner slot must be at least 33% of emission.
@@ -131,9 +133,9 @@ pub struct EmissionWeightsView {
 )]
 #[repr(u16)]
 pub enum EmissionIndex {
-    /// Alpha destroyed outright. Reserved: must be zero in v1.
+    /// Alpha destroyed outright (still counts toward issuance).
     Burn = 0,
-    /// Alpha burned and un-minted from issuance. Reserved: must be zero in v1.
+    /// Alpha removed from issuance (SubnetAlphaOut and TotalAlphaIssuance).
     Recycle = 1,
     /// Subnet owner cut.
     Owner = 2,
@@ -248,12 +250,12 @@ impl<T: Config> Pallet<T> {
             .unwrap_or_default()
     }
 
-    /// Burn share (slot 0). Always zero in v1.
+    /// Burn share (slot 0).
     pub fn get_subnet_burn_emission(netuid: NetUid) -> u64 {
         Self::get_subnet_emission_weight(netuid, EmissionIndex::Burn)
     }
 
-    /// Recycle share (slot 1). Always zero in v1.
+    /// Recycle share (slot 1).
     pub fn get_subnet_recycle_emission(netuid: NetUid) -> u64 {
         Self::get_subnet_emission_weight(netuid, EmissionIndex::Recycle)
     }
@@ -403,8 +405,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Apply a sparse `(uids, values)` update on top of `current`. Omitted
-    /// slots keep their current value; burn and recycle are always treated as
-    /// zero when omitted.
+    /// slots keep their current value.
     pub fn merge_emission_weight_updates(
         current: EmissionWeights,
         uids: &[u16],
@@ -415,11 +416,6 @@ impl<T: Config> Pallet<T> {
             Error::<T>::EmissionWeightsLengthMismatch
         );
         let mut merged = current;
-        for reserved in [EmissionIndex::Burn, EmissionIndex::Recycle] {
-            if let Some(target) = merged.get_mut(reserved.position()) {
-                *target = 0;
-            }
-        }
         let mut seen = [false; EMISSION_WEIGHT_SLOTS as usize];
         for (uid, value) in uids.iter().zip(values.iter()) {
             let index =
@@ -447,13 +443,11 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let slot = |index: EmissionIndex| weights.get(index.position()).copied().unwrap_or(0);
 
+        let burn = slot(EmissionIndex::Burn);
+        let recycle = slot(EmissionIndex::Recycle);
         ensure!(
-            slot(EmissionIndex::Burn) == 0,
-            Error::<T>::BurnEmissionMustBeZero
-        );
-        ensure!(
-            slot(EmissionIndex::Recycle) == 0,
-            Error::<T>::RecycleEmissionMustBeZero
+            (burn as u128).saturating_add(recycle as u128) <= MAX_BURN_RECYCLE_EMISSION as u128,
+            Error::<T>::BurnRecycleEmissionAboveMaximum
         );
 
         let owner = slot(EmissionIndex::Owner);

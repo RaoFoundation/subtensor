@@ -1,12 +1,12 @@
 """`btcli subnets emission`: view and change how a subnet splits its alpha emission.
 
-The vector is ``[burn, recycle, owner, validator, miner]``; owners move the last
-three. ``show`` prints the vector, what root keeps, the allowed range of every
-slot and when the owner may change it next. ``set`` writes the three shares in
-one go; ``set-value``, ``increase`` and ``decrease`` move one slot and rescale
-the other two so the vector still sums to 100%. Every write is checked against
-the chain's rules locally first and a rejected change names the rule and the
-allowed range, so nothing is signed that the chain would refuse.
+The vector is ``[burn, recycle, owner, validator, miner]``. ``show`` prints the
+vector, what root keeps, the allowed range of every slot and when the owner may
+change it next. ``set`` writes owner / validator / miner (and optionally burn /
+recycle) in one go; ``set-value``, ``increase`` and ``decrease`` move one slot
+and rescale the others so the vector still sums to 100%. Every write is checked
+against the chain's rules locally first and a rejected change names the rule and
+the allowed range, so nothing is signed that the chain would refuse.
 
 Exit codes: 0 success; 1 the subnet does not exist, the change is blocked right
 now (owner rate limit) or the chain rejected it; 2 invalid input or a vector
@@ -34,19 +34,19 @@ _EXIT_CODES = (
 app = typer.Typer(
     no_args_is_help=True,
     help=(
-        "Subnet emission weights: how a subnet splits its alpha emission between the owner, "
-        "validators and miners.\n\n"
+        "Subnet emission weights: how a subnet splits its alpha emission between burn, "
+        "recycle, the owner, validators and miners.\n\n"
         "Only the subnet owner coldkey can change the vector, once every 50,400 blocks "
         "(about 7 days) per subnet. Root is paid its baseline share of emission off the top "
-        "of the validator slot every block, whatever the subnet sets. Add --dry-run to any "
-        "write to preview the before/after vector and what root and validators keep; --json "
-        "for machine-readable output.\n\n"
+        "of the validator slot every block, whatever the subnet sets. Burn + recycle together "
+        "may be at most 33%. Add --dry-run to any write to preview the before/after vector "
+        "and what root and validators keep; --json for machine-readable output.\n\n"
         f"{_EXIT_CODES}\n\nGuide: {guide_docs_url('subnets')}"
     ),
 )
 
 _NETUID_HELP = "Numeric identifier of the subnet."
-_SLOT_HELP = "Slot to change: owner, validator or miner."
+_SLOT_HELP = "Slot to change: burn, recycle, owner, validator or miner."
 _SHARE_HELP = "A percentage (41%), a 0..1 fraction (0.41), or raw u64 parts."
 _SHOW_HINT = (
     "`btcli subnets emission show --netuid {netuid}` prints the vector and every allowed range"
@@ -54,6 +54,7 @@ _SHOW_HINT = (
 
 #: Which slot each chain error is about; None for whole-vector rules.
 _ERROR_SLOT: dict[str, Optional[str]] = {
+    "BurnRecycleEmissionAboveMaximum": None,
     "BurnEmissionMustBeZero": "burn",
     "RecycleEmissionMustBeZero": "recycle",
     "OwnerEmissionAboveMaximum": "owner",
@@ -129,17 +130,10 @@ def _parse_share(app_ctx: AppContext, raw: str, flag: str) -> int:
 
 def _parse_slot(app_ctx: AppContext, raw: str) -> int:
     try:
-        slot = ew.slot_index(raw)
+        return ew.slot_index(raw)
     except ValueError as error:
         app_ctx.output.error(str(error), help=_SLOT_HELP)
         raise typer.Exit(2) from error
-    if slot not in ew.ADJUSTABLE_SLOTS:
-        app_ctx.output.error(
-            f"{ew.SLOT_NAMES[slot]} (slot {slot}) is reserved and pinned to 0 in this runtime",
-            help=_SLOT_HELP,
-        )
-        raise typer.Exit(2)
-    return slot
 
 
 def _reject(app_ctx: AppContext, info: SubnetEmissionWeights, proposed: list[int]) -> None:
@@ -153,6 +147,12 @@ def _reject(app_ctx: AppContext, info: SubnetEmissionWeights, proposed: list[int
         slot = _ERROR_SLOT.get(violation.error)
         if slot and slot in ranges and slot not in {a[0] for a in allowed}:
             allowed.append((slot, *ranges[slot]))
+        elif (
+            violation.error == "BurnRecycleEmissionAboveMaximum"
+            and "burn+recycle" in ranges
+            and "burn+recycle" not in {a[0] for a in allowed}
+        ):
+            allowed.append(("burn+recycle", *ranges["burn+recycle"]))
     if len(violations) == 1:
         text = f"the chain would reject this change: {violations[0]}"
     else:
@@ -173,6 +173,8 @@ def _card(info: SubnetEmissionWeights, preview: dict[str, Any]) -> list[tuple]:
     before, after = preview["before"]["weights"], preview["after"]["weights"]
     rows: list[tuple] = []
     for slot in ew.ADJUSTABLE_SLOTS:
+        if after[slot] == before[slot] and after[slot] == 0:
+            continue
         value = ew.format_share(after[slot])
         if after[slot] != before[slot]:
             value = f"{ew.format_share(before[slot])} -> {value}"
@@ -271,9 +273,6 @@ def show(
     vector_rows: list[tuple[str, str, Optional[str]]] = [
         (ew.SLOT_NAMES[slot], ew.format_share(info.weights[slot]), f"{info.weights[slot]} parts")
         for slot in ew.ADJUSTABLE_SLOTS
-    ] + [
-        (ew.SLOT_NAMES[slot], ew.format_share(info.weights[slot]), "reserved, pinned to 0")
-        for slot in (ew.BURN, ew.RECYCLE)
     ]
     next_value, next_note = _next_change(info.rate_limit())
     root_rows: list[tuple[str, str, Optional[str]]] = [
@@ -314,7 +313,7 @@ def show(
         ("created via lease", "yes" if info.created_via_lease else "no", None),
     ]
     ranges = _ranges(info.rules())
-    order = [ew.SLOT_NAMES[s] for s in ew.ADJUSTABLE_SLOTS] + ["burn", "recycle", "sum"]
+    order = [*list(ew.SLOT_NAMES), "burn+recycle", "sum"]
     rule_rows: list[tuple[str, str, Optional[str]]] = [(name, *ranges[name]) for name in order]
     app_ctx.output.kv_sections(
         f"subnet {netuid} emission weights",
@@ -322,7 +321,7 @@ def show(
         _record(info),
         hint=(
             f"change one slot with `btcli subnets emission set-value --netuid {netuid} "
-            "--slot owner --value 10%` (the other two rescale to fill 100%); "
+            "--slot owner --value 10%` (the other slots rescale to fill 100%); "
             "add --dry-run to preview"
         ),
     )
@@ -332,7 +331,9 @@ def show(
     "set",
     epilog=(
         "Example: btcli subnets emission set --netuid 4 --owner 18% --validator 20% --miner 62% "
-        "--dry-run\n\n"
+        "--dry-run\n"
+        "Example with burn: btcli subnets emission set --netuid 4 --burn 5% --owner 10% "
+        "--validator 40% --miner 45%\n\n"
         f"{_EXIT_CODES}"
     ),
 )
@@ -343,31 +344,35 @@ def set_weights(
     owner: str = typer.Option(..., "--owner", help=f"Owner share. {_SHARE_HELP}"),
     validator: str = typer.Option(..., "--validator", help=f"Validator share. {_SHARE_HELP}"),
     miner: str = typer.Option(..., "--miner", help=f"Miner share. {_SHARE_HELP}"),
+    burn: str = typer.Option("0", "--burn", help=f"Burn share (default 0). {_SHARE_HELP}"),
+    recycle: str = typer.Option("0", "--recycle", help=f"Recycle share (default 0). {_SHARE_HELP}"),
 ):
-    """Set the owner / validator / miner split in one go (burn and recycle stay 0).
+    """Set the full emission split in one go.
 
-    The three shares must add up to 100%; rounding dust of a few parts lands
-    in the miner slot. Root stakers always keep their baseline share: it is
-    paid off the top of the validator slot every block, so the validator
-    share must stay above it (a share at or below the baseline is rejected)
-    and alpha validators share what is left.
+    Burn + recycle together may be at most 33%. Root stakers always keep their
+    baseline share: it is paid off the top of the validator slot every block, so
+    the validator share must stay above it (a share at or below the baseline is
+    rejected) and alpha validators share what is left.
     """
     app_ctx: AppContext = ctx_of(ctx)
     info = _fetch(app_ctx, netuid)
+    burn_parts = _parse_share(app_ctx, burn, "--burn")
+    recycle_parts = _parse_share(app_ctx, recycle, "--recycle")
     owner_parts = _parse_share(app_ctx, owner, "--owner")
     validator_parts = _parse_share(app_ctx, validator, "--validator")
     miner_parts = _parse_share(app_ctx, miner, "--miner")
-    total = owner_parts + validator_parts + miner_parts
+    total = burn_parts + recycle_parts + owner_parts + validator_parts + miner_parts
     if 0 < abs(ew.ONE - total) <= 1_000:
         # Decimal shares rarely hit u64::MAX exactly; let the miner slot soak up the dust.
         miner_parts += ew.ONE - total
     elif total != ew.ONE:
         app_ctx.output.error(
-            f"owner + validator + miner must add up to 100%, not {ew.format_share(total, 4)}",
-            help="give all three shares, or use set-value to move one slot and rescale the rest",
+            f"burn + recycle + owner + validator + miner must add up to 100%, not "
+            f"{ew.format_share(total, 4)}",
+            help="give all shares, or use set-value to move one slot and rescale the rest",
         )
         raise typer.Exit(2)
-    proposed = [0, 0, owner_parts, validator_parts, miner_parts]
+    proposed = [burn_parts, recycle_parts, owner_parts, validator_parts, miner_parts]
     _submit(app_ctx, info, proposed, slots=list(range(len(ew.SLOT_NAMES))), renormalize=False)
 
 
@@ -386,10 +391,10 @@ def set_value(
     slot: str = typer.Option(..., "--slot", help=_SLOT_HELP),
     value: str = typer.Option(..., "--value", help=f"New share for the slot. {_SHARE_HELP}"),
 ):
-    """Set one slot; the other two are rescaled so the vector still sums to 100%.
+    """Set one slot; the other slots are rescaled so the vector still sums to 100%.
 
     The untouched slots keep their ratio: lowering owner from 18% to 10%
-    hands the 8% to validators and miners in their current 41:41 proportion.
+    hands the 8% to the other non-zero slots in their current proportions.
     """
     app_ctx: AppContext = ctx_of(ctx)
     info = _fetch(app_ctx, netuid)
@@ -411,7 +416,7 @@ def increase(
     slot: str = typer.Option(..., "--slot", help=_SLOT_HELP),
     by: str = typer.Option(..., "--by", help=f"Amount to add to the slot. {_SHARE_HELP}"),
 ):
-    """Raise one slot by an amount; the other two are rescaled to fill 100%."""
+    """Raise one slot by an amount; the other slots are rescaled to fill 100%."""
     app_ctx: AppContext = ctx_of(ctx)
     info = _fetch(app_ctx, netuid)
     index = _parse_slot(app_ctx, slot)
@@ -433,7 +438,7 @@ def decrease(
     slot: str = typer.Option(..., "--slot", help=_SLOT_HELP),
     by: str = typer.Option(..., "--by", help=f"Amount to take from the slot. {_SHARE_HELP}"),
 ):
-    """Lower one slot by an amount; the other two are rescaled to fill 100%."""
+    """Lower one slot by an amount; the other slots are rescaled to fill 100%."""
     app_ctx: AppContext = ctx_of(ctx)
     info = _fetch(app_ctx, netuid)
     index = _parse_slot(app_ctx, slot)

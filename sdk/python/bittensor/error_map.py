@@ -269,6 +269,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "EmissionWeightsDoNotSumToOne": _C.INVALID_ARGUMENT,
     "BurnEmissionMustBeZero": _C.POLICY_VIOLATION,
     "RecycleEmissionMustBeZero": _C.POLICY_VIOLATION,
+    "BurnRecycleEmissionAboveMaximum": _C.POLICY_VIOLATION,
     "OwnerEmissionAboveMaximum": _C.POLICY_VIOLATION,
     "LeasedSubnetOwnerCutBelowMinimum": _C.POLICY_VIOLATION,
     "ValidatorEmissionAboveMaximum": _C.POLICY_VIOLATION,

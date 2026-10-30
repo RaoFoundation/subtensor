@@ -831,18 +831,22 @@ DESCRIPTIONS: dict[str, str] = {
         "shares do not sum to exactly `u64::MAX` (1.0). Omitted slots keep their current value, "
         "so raising one slot requires lowering another in the same call. `btcli subnets "
         "emission set-value/increase/decrease` renormalise the other slots for you; with the "
-        "raw call, pass a full `[0, 0, owner, validator, miner]` vector whose parts total "
-        "18446744073709551615."
+        "raw call, pass a full `[burn, recycle, owner, validator, miner]` vector whose parts "
+        "total 18446744073709551615."
     ),
     "BurnEmissionMustBeZero": (
-        "Slot 0 (burn) of the emission weight vector was set to a non-zero share. Burning "
-        "alpha emission is reserved for a future runtime; in v1 the burn share must be 0 "
-        "(or simply omitted)."
+        "Deprecated. Slot 0 (burn) may now be non-zero; burn and recycle together may be at "
+        "most 33% (`BurnRecycleEmissionAboveMaximum`)."
     ),
     "RecycleEmissionMustBeZero": (
-        "Slot 1 (recycle) of the emission weight vector was set to a non-zero share. Recycling "
-        "alpha emission is reserved for a future runtime; in v1 the recycle share must be 0 "
-        "(or simply omitted)."
+        "Deprecated. Slot 1 (recycle) may now be non-zero; burn and recycle together may be "
+        "at most 33% (`BurnRecycleEmissionAboveMaximum`)."
+    ),
+    "BurnRecycleEmissionAboveMaximum": (
+        "Slots 0 (burn) and 1 (recycle) of the emission weight vector together exceed the 33% "
+        "ceiling. Burn destroys alpha but still counts toward issuance; recycle removes alpha "
+        "from `SubnetAlphaOut` and `TotalAlphaIssuance`. Lower burn and/or recycle so their "
+        "sum is at most 0.33."
     ),
     "OwnerEmissionAboveMaximum": (
         "Slot 2 (owner) of the emission weight vector exceeds the 33% ceiling. The subnet "

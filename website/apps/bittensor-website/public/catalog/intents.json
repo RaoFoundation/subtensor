@@ -4154,7 +4154,7 @@
   {
     "name": "set_subnet_emission_weights",
     "summary": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).",
-    "description": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).\n\nDispatches `AdminUtils.sudo_set_subnet_emission_weights` for the named\nslots. The signer must be the subnet's owner coldkey (root may also call\nit). With `renormalize` the untouched owner/validator/miner slots are\nrescaled so the vector still sums to one; without it the merged vector is\nsubmitted as given. Root stakers are paid their baseline share of emission\n(what they earn with the default validator share and the global TaoWeight)\noff the top of the validator slot every block, whatever the subnet sets \u2014\nthe pre-sign plan shows that share and what alpha validators are left\nwith, and lists every rule the chain would reject (including a validator\nshare at or below the baseline), so a bad vector is caught before signing.\nOwners may change the vector once per week per subnet.",
+    "description": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).\n\nDispatches `AdminUtils.sudo_set_subnet_emission_weights` for the named\nslots. The signer must be the subnet's owner coldkey (root may also call\nit). With `renormalize` the untouched slots are rescaled so the vector\nstill sums to one; without it the merged vector is submitted as given.\nRoot stakers are paid their baseline share of emission (what they earn\nwith the default validator share and the global TaoWeight) off the top of\nthe validator slot every block, whatever the subnet sets \u2014 the pre-sign\nplan shows that share and what alpha validators are left with, and lists\nevery rule the chain would reject (including a validator share at or below\nthe baseline), so a bad vector is caught before signing. Owners may change\nthe vector once per week per subnet.",
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": "subnet_emission_weights",
@@ -4180,7 +4180,7 @@
               "string"
             ]
           },
-          "description": "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted owner/validator/miner slots keep their current share; omitted burn/recycle are zero."
+          "description": "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted slots keep their current share."
         },
         "values": {
           "type": "array",
@@ -4191,11 +4191,11 @@
               "string"
             ]
           },
-          "description": "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage (\"41%\"), or raw u64 parts of 2^64-1. Rules: burn = recycle = 0; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five sum to exactly 1."
+          "description": "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage (\"41%\"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five sum to exactly 1."
         },
         "renormalize": {
           "type": "boolean",
-          "description": "Keep the named slots as given and rescale the other owner/validator/miner slots proportionally so the vector sums to 1 (the miner slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1."
+          "description": "Keep the named slots as given and rescale the other slots proportionally so the vector sums to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1."
         }
       },
       "required": [

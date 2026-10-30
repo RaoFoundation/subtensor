@@ -29,7 +29,7 @@ miners, root stakers and integrators should expect.
 - **New extrinsic:** `AdminUtils.sudo_set_subnet_emission_weights(netuid,
   uids, values)` — a sparse update callable by the subnet owner (once per
   50,400 blocks per subnet) or root.
-- **Rules (v1):** burn = recycle = 0; `0 ≤ owner ≤ 33%` (lease-created
+- **Rules (v1):** `burn + recycle ≤ 33%`; `0 ≤ owner ≤ 33%` (lease-created
   subnets `≥ 18%`); `validator ≤ 50%` and strictly above root's live
   baseline share; `miner ≥ 33%`; the five slots sum to exactly one.
 - **Root stays whole:** every block, root TAO stakers are paid their
@@ -82,18 +82,18 @@ emission is divided:
 
 | Slot | Name | Paid to | v1 rule |
 | --- | --- | --- | --- |
-| 0 | `burn` | nothing — alpha is destroyed | must be 0 (reserved) |
-| 1 | `recycle` | nothing — alpha returns to the unissued pool | must be 0 (reserved) |
+| 0 | `burn` | nothing — alpha is destroyed (still counts toward issuance) | with recycle, `≤ 33%` combined |
+| 1 | `recycle` | nothing — alpha leaves `SubnetAlphaOut` and `TotalAlphaIssuance` | with burn, `≤ 33%` combined |
 | 2 | `owner` | the subnet owner's hotkey at each epoch | `0 ≤ owner ≤ 33%`; lease-created subnets `≥ 18%` |
 | 3 | `validator` | root's baseline share first, then alpha validator dividends | `≤ 50%`, and strictly above root's baseline share |
 | 4 | `miner` | miner incentive, split across the subnet's mechanisms | `≥ 33%` |
 
 Each slot is a `u64` share of `u64::MAX`, so the five slots sum to exactly
-one with no rounding dust. Per block, `alpha_out × owner` accrues to the
+one with no rounding dust. Per block, `alpha_out × burn` is burned,
+`alpha_out × recycle` is recycled, `alpha_out × owner` accrues to the
 owner, `alpha_out × validator` to the validator bucket and
-`alpha_out × miner` to the miner bucket. Burn and recycle are present so the
-format does not change when they are switched on in a later runtime; today a
-non-zero value in either is rejected.
+`alpha_out × miner` to the miner bucket. Burn + recycle together may be at
+most 33%.
 
 The owner slot at zero means "no owner cut". The old `owner_cut_enabled`
 reading is now simply `owner > 0`; the auto-lock of the owner cut
@@ -107,15 +107,13 @@ AdminUtils.sudo_set_subnet_emission_weights(netuid: u16, uids: Vec<u16>, values:
 ```
 
 The update is **sparse**: `uids[i]` names a slot and `values[i]` its new
-share. Omitted owner / validator / miner slots keep their current value;
-omitted burn / recycle are treated as zero. The merged vector must pass
+share. Omitted slots keep their current value. The merged vector must pass
 every rule, and each rule has its own error so a rejection names the
 constraint:
 
 | Error | Rule |
 | --- | --- |
-| `BurnEmissionMustBeZero` | slot 0 must be 0 |
-| `RecycleEmissionMustBeZero` | slot 1 must be 0 |
+| `BurnRecycleEmissionAboveMaximum` | burn + recycle > 33% |
 | `OwnerEmissionAboveMaximum` | owner > 33% |
 | `LeasedSubnetOwnerCutBelowMinimum` | lease-created subnet with owner < 18% |
 | `ValidatorEmissionAboveMaximum` | validator > 50% |
@@ -341,11 +339,11 @@ btcli subnets emission show --netuid 4
 subnet 4 emission weights
 
 Vector
+       burn  0.00%  0 parts
+    recycle  0.00%  0 parts
       owner  18.00%  3320329489486196244 parts
   validator  41.00%  7563207292111677685 parts
       miner  41.00%  7563207292111677686 parts
-       burn  0.00%  reserved, pinned to 0
-    recycle  0.00%  reserved, pinned to 0
 
 Root
   root share of emission  5.4015%  what root TAO stakers earn from this subnet now, paid off the top of the validator slot
@@ -358,21 +356,22 @@ Root
        created via lease  no
 
 Allowed
+       burn  0.00% to 33.00%  burn + recycle together may be at most 33%
+    recycle  0.00% to 33.00%  burn + recycle together may be at most 33%
       owner  0.00% to 33.00%  0 turns the owner cut off
   validator  5.4015% to 50.0000%  must exceed root's baseline share, which is paid off the top of this slot
       miner  >= 33.00%  miner incentive floor
-       burn  = 0%  reserved for a future runtime; must stay 0
-    recycle  = 0%  reserved for a future runtime; must stay 0
+burn+recycle  <= 33.00%  combined cap on slots 0 and 1
         sum  = 100%  all five slots add up to exactly 18446744073709551615 parts
 
-  help: change one slot with btcli subnets emission set-value --netuid 4 --slot owner --value 10% (the other two rescale to fill 100%); add --dry-run to preview
+  help: change one slot with btcli subnets emission set-value --netuid 4 --slot owner --value 10% (the other slots rescale to fill 100%); add --dry-run to preview
 ```
 
 The **Allowed** table is live: the validator floor is root's baseline share
 computed from root stake, your subnet's issuance and the global weight at
 this block (the lowest accepted value is one part above it).
 
-**2. Preview the change.** Move one slot; the other two rescale to fill
+**2. Preview the change.** Move one slot; the other slots rescale to fill
 100%:
 
 ```bash

@@ -23,16 +23,15 @@ mainnet — so nothing changes until an owner decides it should.
 
 | Slot | Name | Paid to | v1 rule |
 | --- | --- | --- | --- |
-| 0 | `burn` | nothing — alpha is destroyed | must be 0 (reserved) |
-| 1 | `recycle` | nothing — alpha returns to the unissued pool | must be 0 (reserved) |
+| 0 | `burn` | nothing — alpha is destroyed (still counts toward issuance) | with recycle, `≤ 0.33` combined |
+| 1 | `recycle` | nothing — alpha leaves `SubnetAlphaOut` and `TotalAlphaIssuance` | with burn, `≤ 0.33` combined |
 | 2 | `owner` | the subnet owner's hotkey at each epoch | `0 ≤ owner ≤ 0.33`; lease-created subnets `≥ 0.18` |
 | 3 | `validator` | root's baseline share first, then alpha validator dividends | `validator ≤ 0.50`, and strictly above root's baseline share |
 | 4 | `miner` | miner incentive, split across the subnet's mechanisms | `miner ≥ 0.33` |
 
 The owner slot at zero means "no owner cut"; the legacy `owner_cut_enabled`
-hyperparameter is now simply `owner > 0`. Burn and recycle are present in
-the vector so the format does not change when they are enabled later, but a
-non-zero value in either is rejected today.
+hyperparameter is now simply `owner > 0`. Burn and recycle share a combined
+33% cap (`BurnRecycleEmissionAboveMaximum`).
 
 Per block, `alpha_out × owner` accrues to the owner, `alpha_out × validator`
 to the validator bucket and `alpha_out × miner` to the miner bucket. Root TAO

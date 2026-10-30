@@ -299,8 +299,8 @@ impl<T: Config> Pallet<T> {
 
             // Every share below is a fraction of the *total* alpha_out, read from the
             // subnet's emission weight vector `[burn, recycle, owner, validator, miner]`.
-            // Burn and recycle are pinned to zero in v1 and evaluated here so enabling them
-            // later is a constraint change, not a coinbase change.
+            // Burn destroys alpha (counts toward issuance); recycle removes it from
+            // SubnetAlphaOut and TotalAlphaIssuance. Combined burn+recycle is capped at 33%.
             let weights = Self::get_subnet_emission_weights(*netuid_i);
             let share = |index: EmissionIndex| -> U96F32 {
                 alpha_out_i.saturating_mul(Self::emission_weight_to_fixed(

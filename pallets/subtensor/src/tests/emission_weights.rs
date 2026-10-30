@@ -135,10 +135,19 @@ fn sum(weights: &EmissionWeights) -> u128 {
 }
 
 fn full_vector(owner: u64, validator: u64) -> (Vec<u16>, Vec<u64>) {
-    let miner = ONE - owner - validator;
+    full_vector_with_burn_recycle(0, 0, owner, validator)
+}
+
+fn full_vector_with_burn_recycle(
+    burn: u64,
+    recycle: u64,
+    owner: u64,
+    validator: u64,
+) -> (Vec<u16>, Vec<u64>) {
+    let miner = ONE - burn - recycle - owner - validator;
     (
         vec![BURN, RECYCLE, OWNER, VALIDATOR, MINER],
-        vec![0, 0, owner, validator, miner],
+        vec![burn, recycle, owner, validator, miner],
     )
 }
 
@@ -153,6 +162,7 @@ fn new_subnet() -> NetUid {
 #[test]
 fn test_constants_are_consistent() {
     assert_eq!(MAX_OWNER_EMISSION, pct(33));
+    assert_eq!(MAX_BURN_RECYCLE_EMISSION, pct(33));
     assert_eq!(MAX_VALIDATOR_EMISSION, pct(50));
     assert_eq!(MIN_MINER_EMISSION, pct(33));
     assert_eq!(emission_fraction(1, 1), ONE);
@@ -252,11 +262,11 @@ fn test_named_getters_mirror_slots() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_merge_keeps_omitted_slots_and_zeroes_reserved_ones() {
+fn test_merge_keeps_omitted_slots_including_burn_and_recycle() {
     let current = [7, 9, pct(10), pct(45), pct(45)];
     let merged =
         SubtensorModule::merge_emission_weight_updates(current, &[VALIDATOR], &[pct(40)]).unwrap();
-    assert_eq!(merged, [0, 0, pct(10), pct(40), pct(45)]);
+    assert_eq!(merged, [7, 9, pct(10), pct(40), pct(45)]);
 }
 
 #[test]
@@ -296,23 +306,92 @@ fn test_set_rejects_unknown_or_root_subnet() {
 }
 
 #[test]
-fn test_set_rejects_burn_and_recycle() {
+fn test_set_accepts_nonzero_burn_and_recycle_within_combined_cap() {
     new_test_ext(1).execute_with(|| {
         let netuid = new_subnet();
-        assert_noop!(
-            SubtensorModule::do_set_subnet_emission_weights(netuid, vec![BURN], vec![1]),
-            Error::<Test>::BurnEmissionMustBeZero
+        // Burn alone at the 33% combined cap, with room for miner >= 33%.
+        let (uids, values) =
+            full_vector_with_burn_recycle(MAX_BURN_RECYCLE_EMISSION, 0, 0, pct(34));
+        assert_ok!(SubtensorModule::do_set_subnet_emission_weights(
+            netuid, uids, values
+        ));
+        assert_eq!(
+            SubtensorModule::get_subnet_burn_emission(netuid),
+            MAX_BURN_RECYCLE_EMISSION
         );
-        assert_noop!(
-            SubtensorModule::do_set_subnet_emission_weights(netuid, vec![RECYCLE], vec![1]),
-            Error::<Test>::RecycleEmissionMustBeZero
+        assert_eq!(SubtensorModule::get_subnet_recycle_emission(netuid), 0);
+
+        // Recycle alone at the same inclusive bound.
+        let (uids, values) =
+            full_vector_with_burn_recycle(0, MAX_BURN_RECYCLE_EMISSION, 0, pct(34));
+        assert_ok!(SubtensorModule::do_set_subnet_emission_weights(
+            netuid, uids, values
+        ));
+        assert_eq!(SubtensorModule::get_subnet_burn_emission(netuid), 0);
+        assert_eq!(
+            SubtensorModule::get_subnet_recycle_emission(netuid),
+            MAX_BURN_RECYCLE_EMISSION
         );
-        // Explicit zeros for the reserved slots are accepted.
+
+        // Split across both slots: 20% + 13% = 33%.
+        let (uids, values) = full_vector_with_burn_recycle(pct(20), pct(13), 0, pct(34));
+        assert_ok!(SubtensorModule::do_set_subnet_emission_weights(
+            netuid, uids, values
+        ));
+        assert_eq!(SubtensorModule::get_subnet_burn_emission(netuid), pct(20));
+        assert_eq!(
+            SubtensorModule::get_subnet_recycle_emission(netuid),
+            pct(13)
+        );
+    });
+}
+
+#[test]
+fn test_set_rejects_burn_plus_recycle_above_combined_maximum() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = new_subnet();
+        // Exactly one part over the 33% combined cap.
+        let (uids, values) =
+            full_vector_with_burn_recycle(MAX_BURN_RECYCLE_EMISSION + 1, 0, 0, pct(34));
+        assert_noop!(
+            SubtensorModule::do_set_subnet_emission_weights(netuid, uids, values),
+            Error::<Test>::BurnRecycleEmissionAboveMaximum
+        );
+        let (uids, values) =
+            full_vector_with_burn_recycle(0, MAX_BURN_RECYCLE_EMISSION + 1, 0, pct(34));
+        assert_noop!(
+            SubtensorModule::do_set_subnet_emission_weights(netuid, uids, values),
+            Error::<Test>::BurnRecycleEmissionAboveMaximum
+        );
+        // Split that exceeds: 20% + 14% = 34%.
+        let (uids, values) = full_vector_with_burn_recycle(pct(20), pct(14), 0, pct(33));
+        assert_noop!(
+            SubtensorModule::do_set_subnet_emission_weights(netuid, uids, values),
+            Error::<Test>::BurnRecycleEmissionAboveMaximum
+        );
+    });
+}
+
+#[test]
+fn test_sparse_update_preserves_omitted_burn_and_recycle() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = new_subnet();
+        let (uids, values) = full_vector_with_burn_recycle(pct(10), pct(5), pct(10), pct(40));
+        assert_ok!(SubtensorModule::do_set_subnet_emission_weights(
+            netuid, uids, values
+        ));
+        // Touch only owner/validator/miner; burn and recycle must stay.
         assert_ok!(SubtensorModule::do_set_subnet_emission_weights(
             netuid,
-            vec![BURN, RECYCLE],
-            vec![0, 0]
+            vec![OWNER, VALIDATOR, MINER],
+            vec![pct(5), pct(40), ONE - pct(10) - pct(5) - pct(5) - pct(40)]
         ));
+        let weights = SubtensorModule::get_subnet_emission_weights(netuid);
+        assert_eq!(weights[0], pct(10));
+        assert_eq!(weights[1], pct(5));
+        assert_eq!(weights[2], pct(5));
+        assert_eq!(weights[3], pct(40));
+        assert_eq!(sum(&weights), ONE as u128);
     });
 }
 
@@ -924,6 +1003,140 @@ fn test_coinbase_honours_emission_weight_slots_exactly() {
             (owner + server + validator_divs + root_divs) as f64,
             alpha,
             epsilon = 400.0
+        );
+    });
+}
+
+/// One `emit_to_subnets` with an explicit burn/recycle/owner/validator vector.
+/// Returns `(alpha_emission, owner, server, validator, root, burned_delta,
+/// recycled_delta, alpha_out_delta, issuance_delta)`.
+fn emit_once_with_burn_recycle(
+    burn: u64,
+    recycle: u64,
+    owner: u64,
+    validator: u64,
+) -> (u64, u64, u64, u64, u64, u64, u64, i128, i128) {
+    let netuid = new_subnet();
+    SubtensorModule::set_tao_weight(pct(18));
+    SubnetTAO::<Test>::insert(NetUid::ROOT, TaoBalance::from(100_000_000_000_000_u64));
+    setup_reserves(
+        netuid,
+        TaoBalance::from(1_000_000_000_000_000_u64),
+        AlphaBalance::from(1_000_000_000_000_000_u64),
+    );
+    assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+    let (uids, values) = full_vector_with_burn_recycle(burn, recycle, owner, validator);
+    assert_ok!(SubtensorModule::do_set_subnet_emission_weights(
+        netuid, uids, values
+    ));
+
+    let tao_emission = U96F32::from_num(12_345_678);
+    let subnet_emissions = BTreeMap::from([(netuid, tao_emission)]);
+    let alpha_emission = SubtensorModule::get_block_emission_for_issuance(
+        SubtensorModule::get_alpha_issuance(netuid).into(),
+    )
+    .unwrap_or(0);
+    let burned_before = pallet_alpha_assets::AlphaBurned::<Test>::get(netuid).to_u64();
+    let recycled_before = pallet_alpha_assets::AlphaRecycled::<Test>::get(netuid).to_u64();
+    let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid).to_u64();
+    let issuance_before = pallet_alpha_assets::TotalAlphaIssuance::<Test>::get(netuid).to_u64();
+    let credit = SubtensorModule::mint_tao(12_345_678.into());
+    SubtensorModule::emit_to_subnets(&[netuid], &subnet_emissions, credit, true);
+    (
+        alpha_emission,
+        PendingOwnerCut::<Test>::get(netuid).to_u64(),
+        PendingServerEmission::<Test>::get(netuid).to_u64(),
+        PendingValidatorEmission::<Test>::get(netuid).to_u64(),
+        PendingRootAlphaDivs::<Test>::get(netuid).to_u64(),
+        pallet_alpha_assets::AlphaBurned::<Test>::get(netuid).to_u64() - burned_before,
+        pallet_alpha_assets::AlphaRecycled::<Test>::get(netuid).to_u64() - recycled_before,
+        SubnetAlphaOut::<Test>::get(netuid).to_u64() as i128 - alpha_out_before as i128,
+        pallet_alpha_assets::TotalAlphaIssuance::<Test>::get(netuid).to_u64() as i128
+            - issuance_before as i128,
+    )
+}
+
+#[test]
+fn test_coinbase_burn_raises_alpha_burned_and_pays_remaining_slots() {
+    new_test_ext(1).execute_with(|| {
+        let burn = pct(10);
+        let owner = pct(10);
+        let validator = pct(40);
+        let (
+            alpha_emission,
+            owner_paid,
+            server,
+            validator_divs,
+            root_divs,
+            burned,
+            recycled,
+            _alpha_out_delta,
+            _issuance_delta,
+        ) = emit_once_with_burn_recycle(burn, 0, owner, validator);
+        let alpha = alpha_emission as f64;
+        assert_abs_diff_eq!(burned as f64, alpha * 0.10, epsilon = 200.0);
+        assert_eq!(recycled, 0);
+        assert_abs_diff_eq!(owner_paid as f64, alpha * 0.10, epsilon = 200.0);
+        // Miner = 1 - 0.10 burn - 0.10 owner - 0.40 validator = 0.40.
+        assert_abs_diff_eq!(server as f64, alpha * 0.40, epsilon = 200.0);
+        assert_abs_diff_eq!(
+            (validator_divs + root_divs) as f64,
+            alpha * 0.40,
+            epsilon = 200.0
+        );
+        assert_abs_diff_eq!(
+            (burned + owner_paid + server + validator_divs + root_divs) as f64,
+            alpha,
+            epsilon = 400.0
+        );
+    });
+}
+
+#[test]
+fn test_coinbase_recycle_lowers_issuance_and_raises_alpha_recycled() {
+    new_test_ext(1).execute_with(|| {
+        let recycle = pct(10);
+        let owner = pct(10);
+        let validator = pct(40);
+        let (
+            alpha_emission,
+            owner_paid,
+            server,
+            validator_divs,
+            root_divs,
+            burned,
+            recycled,
+            alpha_out_delta,
+            issuance_delta,
+        ) = emit_once_with_burn_recycle(0, recycle, owner, validator);
+        let alpha = alpha_emission as f64;
+        assert_eq!(burned, 0);
+        assert_abs_diff_eq!(recycled as f64, alpha * 0.10, epsilon = 200.0);
+        // Recycle removes alpha from SubnetAlphaOut and TotalAlphaIssuance after mint.
+        // Net alpha_out rise is mint − recycle; issuance rise is mint − recycle
+        // (plus any pool-side alpha_in mint, which is identical across runs).
+        assert!(recycled > 0);
+        assert_abs_diff_eq!(owner_paid as f64, alpha * 0.10, epsilon = 200.0);
+        assert_abs_diff_eq!(server as f64, alpha * 0.40, epsilon = 200.0);
+        assert_abs_diff_eq!(
+            (validator_divs + root_divs) as f64,
+            alpha * 0.40,
+            epsilon = 200.0
+        );
+        // Compared to a no-recycle run, SubnetAlphaOut and issuance are lower by ~recycle.
+        let (alpha_control, _, _, _, _, _, recycled_control, alpha_out_control, issuance_control) =
+            emit_once_with_burn_recycle(0, 0, owner, validator);
+        assert_eq!(alpha_emission, alpha_control);
+        assert_eq!(recycled_control, 0);
+        assert_abs_diff_eq!(
+            (alpha_out_control - alpha_out_delta) as f64,
+            recycled as f64,
+            epsilon = 2.0
+        );
+        assert_abs_diff_eq!(
+            (issuance_control - issuance_delta) as f64,
+            recycled as f64,
+            epsilon = 2.0
         );
     });
 }

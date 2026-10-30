@@ -117,15 +117,15 @@ const page = () => {
                 <td>
                   <code>burn</code>
                 </td>
-                <td>nothing — alpha is destroyed</td>
-                <td>must be 0 (reserved)</td>
+                <td>nothing — alpha is destroyed (still counts toward issuance)</td>
+                <td>with recycle, at most 33% combined</td>
               </tr>
               <tr>
                 <td>
                   <code>recycle</code>
                 </td>
-                <td>nothing — alpha returns to the unissued pool</td>
-                <td>must be 0 (reserved)</td>
+                <td>nothing — alpha leaves issuance</td>
+                <td>with burn, at most 33% combined</td>
               </tr>
               <tr>
                 <td>
