@@ -272,8 +272,8 @@ pub const GAMMA_REFILL_BLOCKS: u64 = 7200;
 /// Smallest gamma a mint credits: 0.1 gamma.
 pub const MIN_GAMMA_AMOUNT: u64 = 100_000_000;
 
-/// Oldest TAO/USD feed, in blocks, a mint accepts.
-pub const TAO_USD_PRICE_MAX_AGE: u64 = 50;
+/// Oldest TAO/USD feed, in blocks, a mint accepts: one hour.
+pub const TAO_USD_PRICE_MAX_AGE: u64 = 300;
 
 /// Largest rise per block of the accepted TAO/USD price toward the feed: about 2% per hour.
 pub const TAO_USD_PRICE_MAX_STEP: Perbill = Perbill::from_parts(66_000);

@@ -195,8 +195,8 @@ fn mint_tao_usd_price_requires_a_fresh_feed() {
         assert_eq!(SubtensorModule::mint_tao_usd_price(100), unavailable);
 
         put(PRICE, PRICE);
-        assert_eq!(SubtensorModule::mint_tao_usd_price(150), Ok(PRICE));
-        assert_eq!(SubtensorModule::mint_tao_usd_price(151), unavailable);
+        assert_eq!(SubtensorModule::mint_tao_usd_price(400), Ok(PRICE));
+        assert_eq!(SubtensorModule::mint_tao_usd_price(401), unavailable);
 
         put(300 * GAMMA, 400 * GAMMA);
         assert_eq!(SubtensorModule::mint_tao_usd_price(100), Ok(300 * GAMMA));
