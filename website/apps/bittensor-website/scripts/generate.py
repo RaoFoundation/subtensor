@@ -103,10 +103,15 @@ def body_after_summary(doc: str) -> str:
 # --- Parameter rendering ---------------------------------------------------
 
 
+def _takes_all(fragment: dict) -> bool:
+    """Whether a money fragment accepts the ``"all"`` sentinel."""
+    return any(option.get("enum") == ["all"] for option in fragment["anyOf"])
+
+
 def schema_type(fragment: dict) -> str:
     """Human-readable type from a JSON-schema property fragment."""
     if "anyOf" in fragment:
-        return "number \\| `\"all\"`"
+        return "number \\| `\"all\"`" if _takes_all(fragment) else "number"
     t = fragment.get("type", "any")
     if isinstance(t, list):
         return " \\| ".join(t)
@@ -128,14 +133,14 @@ def cli_placeholder(field_name: str, fragment: dict) -> str:
     if field_name.endswith("_ss58"):
         return "<ss58|name>"
     if "anyOf" in fragment:
-        return "<amount|all>"
+        return "<amount|all>" if _takes_all(fragment) else "<amount>"
     t = fragment.get("type")
     if t == "integer":
         return "<int>"
     if t == "number":
         return "<number>"
     if t == "array":
-        return "<a,b,c>"
+        return "'<json>'" if fragment.get("items", {}).get("type") == "object" else "<a,b,c>"
     if t == "object":
         return "'<json>'"
     return "<value>"
