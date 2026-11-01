@@ -231,12 +231,16 @@ class Epochs(_ReadNamespace):
         """
 
 class Gamma(_ReadNamespace):
-    """Gamma deposits, mint quotes, the TAO/USD price, and service urls."""
+    """Gamma deposits, mint quotes, and the TAO/USD price."""
 
     async def gamma_deposit(self, netuid: int, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[dict]:
         """The gamma deposit at a hotkey on a subnet, or None.
 
-        `spendable_gamma` is the balance within what its daily spend cap allows now.
+        Its `netuid`, `hotkey`, `coldkey`, `spender`, and `balance_gamma`,
+        `daily_spend_cap_gamma` and `spendable_gamma` as exact decimal strings of
+        gamma. A `daily_spend_cap_gamma` of None is no cap, and "0" pauses the
+        deposit. `spendable_gamma` is the balance within what its daily spend cap
+        allows now.
         """
 
     async def gamma_deposits(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
@@ -247,28 +251,23 @@ class Gamma(_ReadNamespace):
 
         None when gamma cannot be minted: the subnet does not exist, minting or its
         subtoken is disabled, the TAO/USD price is missing or stale, the pool lacks liquidity,
-        or the amount is below the minimum.
+        or it would mint less than 0.1 gamma.
         """
 
     async def quote_mint_gamma_with_stake(self, netuid: int, amount_alpha: float, *, block: Optional[int] = None) -> Optional[dict]:
         """The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.
 
-        None when gamma cannot be minted, as for `quote_mint_gamma`.
-        """
-
-    async def service_urls(self, netuid: int, *, block: Optional[int] = None) -> dict[str, str]:
-        """Every service url published on a subnet, by hotkey.
-
-        Each points to its hotkey's own document of its services and the spender
-        to name on gamma deposits; the chain does not check what it says.
+        None when gamma cannot be minted: the subnet does not exist, minting or its
+        subtoken is disabled, the TAO/USD price is missing or stale, or it would mint less than
+        0.1 gamma.
         """
 
     async def tao_usd_price(self, *, block: Optional[int] = None) -> dict:
         """The TAO/USD price oracle, its last feed, and the accepted price at that feed.
 
         The accepted price falls to the feed at once and rises toward it by at most
-        0.0066% (66 ppm) of itself per block. Minting needs a feed at most 50
-        blocks old.
+        0.0066% (66 ppm) of itself per block. Minting needs a feed at most 300
+        blocks old, so no new mint succeeds once `blocks_since_last_feed` exceeds 300.
         """
 
 class Hyperparameters(_ReadNamespace):
@@ -691,6 +690,15 @@ class Subnets(_ReadNamespace):
 
         Returns the raw on-chain per-mechanism share values, in mechanism order; an
         empty list means no explicit split is set.
+        """
+
+    async def service_urls(self, netuid: int, *, block: Optional[int] = None) -> dict[str, dict]:
+        """Every service url published on a subnet, by hotkey.
+
+        Each points to its hotkey's own document of its services and the payments
+        they accept; the chain does not check what it says. `block` is when it was
+        published; `owner` marks the subnet owner's hotkey. A url that is not
+        printable text is returned as 0x-hex.
         """
 
     async def subnet(self, netuid: int, *, block: Optional[int] = None) -> SubnetInfo:

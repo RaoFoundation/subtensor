@@ -13,7 +13,7 @@ from .._generated.runtime_apis import GammaRuntimeApi, StakeInfoRuntimeApi
 from ..balance import Balance
 from ..hyperparams import U64_MAX
 from ..result import BittensorError
-from ..settings import GAMMA_UNITS
+from ..signing import coerce_address
 from ._money import (
     ALL,
     UNBOUNDED,
@@ -21,17 +21,28 @@ from ._money import (
     Spend,
     alpha_amount,
     gamma_amount,
+    gamma_from_units,
     gamma_units,
     tao_amount,
 )
 from .base import Intent, IntentPreflight
 from .registry import register
-from .staking import DEFAULT_RATE_TOLERANCE, _as_call, _check_rate_tolerance, _staked_rao
+from .staking import (
+    DEFAULT_RATE_TOLERANCE,
+    STAKE_HOTKEY_HELP,
+    _as_call,
+    _check_rate_tolerance,
+    _staked_rao,
+)
 
-# Most deposits one `spend_gamma` call spends from (`MAX_GAMMA_SPENDS`).
+# Most entries in one `spend_gamma` call (`MAX_GAMMA_SPENDS`).
 MAX_GAMMA_SPENDS = 512
 
 RATE_TOLERANCE_HELP = "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
+SPENDER_HELP = (
+    "The account that spends the deposit. Omit to keep its spender, which for a new deposit "
+    "is the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+)
 
 
 async def _quote(substrate, method: tuple, netuid: int, amount: int) -> tuple[int, int, int]:
@@ -41,7 +52,7 @@ async def _quote(substrate, method: tuple, netuid: int, amount: int) -> tuple[in
         raise BittensorError(
             f"gamma cannot be minted on netuid {netuid} now: the subnet does not exist, "
             "minting or its subtoken is disabled, the TAO/USD price is missing or stale, the pool "
-            "lacks liquidity, or the amount is below the minimum"
+            "lacks liquidity for a TAO mint, or it would mint less than 0.1 gamma"
         )
     return tuple(int(part) for part in quote)
 
@@ -77,7 +88,7 @@ def _own_deposit_blocks(deposit: Optional[dict], signer: str, hotkey_ss58: str) 
 
 
 def _gamma_text(units: int) -> str:
-    return f"{units / GAMMA_UNITS:,.4f} gamma"
+    return f"{Decimal(gamma_from_units(units)):,f} gamma"
 
 
 async def _with_spender(substrate, intent, mint):
@@ -153,13 +164,7 @@ class MintGamma(Intent):
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
-    spender_ss58: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "The account that spends the deposit. Omit to keep its spender, the "
-            "subnet owner's for a new deposit."
-        },
-    )
+    spender_ss58: Optional[str] = field(default=None, metadata={"help": SPENDER_HELP})
 
     def __post_init__(self):
         self.amount_tao = tao_amount(self.amount_tao)
@@ -225,20 +230,11 @@ class MintGammaWithStake(Intent):
         metadata={"help": "Hotkey of the deposit credited: an API key, not a staking hotkey."}
     )
     amount_alpha: Money = field(metadata={"help": "Alpha of stake burned."})
-    origin_hotkey_ss58: Optional[str] = field(
-        default=None,
-        metadata={"help": "Hotkey the stake is on. Defaults to the wallet hotkey."},
-    )
+    origin_hotkey_ss58: str = field(metadata={"help": STAKE_HOTKEY_HELP})
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
-    spender_ss58: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "The account that spends the deposit. Omit to keep its spender, the "
-            "subnet owner's for a new deposit."
-        },
-    )
+    spender_ss58: Optional[str] = field(default=None, metadata={"help": SPENDER_HELP})
 
     def __post_init__(self):
         self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
@@ -252,14 +248,13 @@ class MintGammaWithStake(Intent):
         return _quote(substrate, GammaRuntimeApi.sim_mint_gamma_with_stake, self.netuid, alpha)
 
     async def build(self, substrate, wallet: Any):
-        origin_hotkey = self.hotkey_address(wallet, self.origin_hotkey_ss58)
         staked = await _staked_rao(
-            substrate, wallet, origin_hotkey, self.netuid, action="burn into gamma"
+            substrate, wallet, self.origin_hotkey_ss58, self.netuid, action="burn into gamma"
         )
         _, _, gamma = await self._quote(substrate, self._burned(staked))
         mint = await substrate.compose(
             calls.SubtensorModule.mint_gamma_with_stake(
-                origin_hotkey=origin_hotkey,
+                origin_hotkey=self.origin_hotkey_ss58,
                 destination_hotkey=self.hotkey_ss58,
                 netuid=self.netuid,
                 alpha_amount=U64_MAX if self.amount_alpha == ALL else self.amount_alpha.rao,
@@ -272,8 +267,6 @@ class MintGammaWithStake(Intent):
         self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
     ) -> IntentPreflight:
         preview = await super().preflight(substrate, dispatch_origin, fee_payer, call=call)
-        if self.origin_hotkey_ss58 is None:
-            return preview  # the stake read needs the hotkey, which build() takes from the wallet
         info = await substrate.runtime_call(
             *StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
             [self.origin_hotkey_ss58, dispatch_origin, self.netuid],
@@ -287,6 +280,11 @@ class MintGammaWithStake(Intent):
         return await _mint_preflight(
             self, preview, substrate, dispatch_origin, self._quote(substrate, alpha)
         )
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.amount_alpha == ALL:
+            return ["burns the entire stake on this hotkey on this subnet"]
+        return []
 
     def summary(self) -> str:
         amount = "all" if self.amount_alpha == ALL else self.amount_alpha
@@ -324,7 +322,11 @@ class MoveGamma(Intent):
     amount_gamma: Money = field(metadata={"help": "Gamma moved."})
 
     def __post_init__(self):
+        if self.origin_hotkey_ss58 == self.destination_hotkey_ss58:
+            raise BittensorError("move_gamma: the origin and destination hotkeys are the same")
         self.amount_gamma = gamma_amount(self.amount_gamma, allow_all=True)
+        if self.amount_gamma != ALL and not gamma_units(self.amount_gamma):
+            raise BittensorError("move_gamma: the amount must be above 0")
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -342,9 +344,19 @@ class MoveGamma(Intent):
             _deposit(substrate, self.netuid, self.destination_hotkey_ss58),
         )
         blocks = _own_deposit_blocks(origin, signer_address, self.origin_hotkey_ss58)
+        if not blocks and origin and not int(origin["balance"]):
+            blocks.append(f"the gamma deposit at {self.origin_hotkey_ss58} holds no gamma")
         if destination is not None:
             blocks += _own_deposit_blocks(destination, signer_address, self.destination_hotkey_ss58)
         return blocks
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        origin = await _deposit(substrate, self.netuid, self.origin_hotkey_ss58)
+        if origin is None:
+            return []
+        if self.amount_gamma == ALL or gamma_units(self.amount_gamma) >= int(origin["balance"]):
+            return ["moves the entire balance, which closes the origin deposit"]
+        return []
 
     def summary(self) -> str:
         amount = "all" if self.amount_gamma == ALL else self.amount_gamma
@@ -377,7 +389,7 @@ class CloseGammaDeposit(Intent):
     async def blocks(self, substrate, signer_address: str) -> list[str]:
         deposit = await _deposit(substrate, self.netuid, self.hotkey_ss58)
         blocks = _own_deposit_blocks(deposit, signer_address, self.hotkey_ss58)
-        if not blocks and int(deposit["balance"]):
+        if not blocks and deposit and int(deposit["balance"]):
             blocks.append(
                 f"the deposit holds {_gamma_text(int(deposit['balance']))}; move or spend it first"
             )
@@ -426,7 +438,7 @@ class SetGammaDepositSpender(Intent):
 class SetGammaDepositDailySpendCap(Intent):
     """Set the daily spend cap of your gamma deposit.
 
-    What the spender can spend refills evenly by the cap every 7200 blocks, up
+    What the spender can spend refills linearly at the cap per 7200 blocks, up
     to the cap, and a cap of zero pauses the deposit. Omitting
     ``daily_spend_cap_gamma`` removes the cap.
     """
@@ -480,7 +492,9 @@ class SpendGamma(Intent):
     spender of, are skipped. Spent gamma is destroyed. Each entry's optional
     ``reference``, 32 bytes as hex, is repeated in its ``GammaSpent`` event;
     by convention it is the sha256 of the ``btauth/1`` payload of the request
-    it pays for. Sign as the spender, or as its ``GammaSpend`` proxy.
+    it pays for. Sign as the spender, or as its ``GammaSpend`` proxy. The
+    result's ``data["spent"]`` lists, in order, each entry that spent, with its
+    ``hotkey_ss58``, ``amount_gamma`` and ``reference``.
     """
 
     op = "spend_gamma"
@@ -498,9 +512,18 @@ class SpendGamma(Intent):
     def __post_init__(self):
         if not 1 <= len(self.spends) <= MAX_GAMMA_SPENDS:
             raise BittensorError(f"spend_gamma takes 1 to {MAX_GAMMA_SPENDS} spends")
+        for index, spend in enumerate(self.spends):
+            if not isinstance(spend, dict) or set(spend) - {"reference"} != {
+                "hotkey_ss58",
+                "amount_gamma",
+            }:
+                raise BittensorError(
+                    f"spend_gamma: entry {index + 1} must be an object of hotkey_ss58, "
+                    f"amount_gamma and an optional reference, not {spend!r}"
+                )
         self.spends = [
             {
-                "hotkey_ss58": str(spend["hotkey_ss58"]),
+                "hotkey_ss58": coerce_address(spend["hotkey_ss58"], "hotkey_ss58"),
                 "amount_gamma": gamma_amount(spend["amount_gamma"]),
                 "reference": _reference(spend.get("reference")),
             }
@@ -540,6 +563,6 @@ class SpendGamma(Intent):
     def summary(self) -> str:
         total = sum(Decimal(spend["amount_gamma"]) for spend in self.spends)
         return (
-            f"spend up to {format(total.normalize(), 'f')} gamma from {len(self.spends)} "
-            f"deposits on netuid {self.netuid}"
+            f"spend up to {format(total.normalize(), 'f')} gamma in {len(self.spends)} "
+            f"entries on netuid {self.netuid}"
         )

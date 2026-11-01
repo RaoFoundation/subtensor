@@ -37,7 +37,7 @@ from .hashed import (
 )
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
-from .intents._money import UNBOUNDED
+from .intents._money import UNBOUNDED, gamma_from_units
 from .intents.base import BuiltCall, IntentPreflight
 from .intents.proxy import check_proxy_type
 from .multisig import merge_approval_metadata, multisig_deposit_rao
@@ -54,7 +54,7 @@ from .result import (
     PolicyError,
     chain_error_from_dispatch,
 )
-from .settings import DEFAULT_ERA_PERIOD, GAMMA_UNITS, MEV_SHIELD_ERA_PERIOD
+from .settings import DEFAULT_ERA_PERIOD, MEV_SHIELD_ERA_PERIOD
 from .shielding import contains_account_registration, registration_shield_default
 from .signing import (
     WalletLike,
@@ -698,15 +698,28 @@ def _pure_created_data(result: ExtrinsicResult) -> dict[str, Any]:
 
 
 def _gamma_spent_data(result: ExtrinsicResult) -> dict[str, Any]:
-    """What a spend spent, by deposit hotkey: it skips entries and stops at caps silently."""
-    spent: dict[str, float] = {}
+    """What each spend entry spent, in order: the chain skips entries and stops at caps
+    silently, so entries that spent nothing are absent.
+
+    Nothing while the spend has not run: submitted without waiting, or a multisig
+    approval short of its threshold.
+    """
+    events = {_event_parts(entry)[:2] for entry in result.events}
+    if not events or events & {("Multisig", "NewMultisig"), ("Multisig", "MultisigApproval")}:
+        return {}
+    spent: list[dict[str, Any]] = []
     for entry in result.events:
         module_id, event_id, attributes, _ = _event_parts(entry)
         if (module_id, event_id) == ("SubtensorModule", "GammaSpent") and isinstance(
             attributes, dict
         ):
-            hotkey = str(attributes["hotkey"])
-            spent[hotkey] = spent.get(hotkey, 0) + int(attributes["amount"]) / GAMMA_UNITS
+            spent.append(
+                {
+                    "hotkey_ss58": str(attributes["hotkey"]),
+                    "amount_gamma": gamma_from_units(attributes["amount"]),
+                    "reference": str(attributes["reference"]),
+                }
+            )
     return {"spent": spent}
 
 
@@ -1460,6 +1473,8 @@ class Executor:
         )
         if result.success and semantic_intent.op == "create_pure_proxy":
             result = replace(result, data={**result.data, **_pure_created_data(result)})
+        if result.success and semantic_intent.op == "spend_gamma":
+            result = replace(result, data={**result.data, **_gamma_spent_data(result)})
         if (
             result.success
             and semantic_intent.op == "register_subnet"

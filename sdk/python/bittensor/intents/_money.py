@@ -6,7 +6,9 @@ pass a number, a decimal string (exact — the recommended form for large
 amounts), or a :class:`Balance` (validated against the expected netuid and
 rejected on mismatch). Whatever comes in, the field normalizes to a
 :class:`Balance` at construction and never holds a float, so rao amounts are
-exact end to end and the wrong unit cannot enter the one write path.
+exact end to end and the wrong unit cannot enter the one write path. A
+``*_gamma`` field is gamma, which is not a :class:`Balance` unit: it holds an
+exact decimal string and refuses a :class:`Balance`.
 
 Intents that support draining a position also accept the sentinel string
 ``"all"`` (opt-in via ``allow_all``); the concrete amount is resolved from
@@ -27,8 +29,9 @@ from ..balance import Balance, UnitMismatchError
 from ..result import BittensorError
 from ..settings import GAMMA_UNITS
 
-# What a money field accepts at the edge; it is normalized to a Balance at
-# construction. The JSON schema for these fields is number-or-string.
+# What a money field accepts at the edge; it is normalized to a Balance (an
+# exact decimal string for gamma) at construction. The JSON schema for these
+# fields is number-or-string.
 Money = Union[int, float, str, Decimal, Balance]
 
 # Sentinel accepted by opt-in money fields: "use everything available".
@@ -110,6 +113,11 @@ def gamma_amount(value: Money, *, allow_all: bool = False) -> str:
 def gamma_units(amount: str) -> int:
     """A gamma amount from :func:`gamma_amount` in the chain's units, 10^9 per gamma."""
     return int(Decimal(amount) * GAMMA_UNITS)
+
+
+def gamma_from_units(units: int) -> str:
+    """The chain's gamma units as an exact decimal string, the inverse of :func:`gamma_units`."""
+    return f"{Decimal(int(units)) / GAMMA_UNITS:f}"
 
 
 # Unit per (pallet, call, param) for pre-newtype metadata, derived from the

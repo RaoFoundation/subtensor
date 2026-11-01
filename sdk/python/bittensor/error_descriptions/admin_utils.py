@@ -60,8 +60,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "NotPermittedOnRootSubnet": (
         "An admin-utils call that only applies to regular subnets (burn half-life, burn "
-        "increase multiplier, owner-cut flags, or the subnet emission toggle) was targeted at "
-        "the root network. Check that the `netuid` argument is not the root netuid 0."
+        "increase multiplier, owner-cut flags, the subnet emission toggle, or `gamma_enabled`) "
+        "was targeted at the root network. Check that the `netuid` argument is not the root "
+        "netuid 0."
     ),
     "POWRegistrationDisabled": (
         "This legacy error is retained for older runtimes that disabled PoW registration. "

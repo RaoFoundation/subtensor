@@ -100,7 +100,7 @@ PANEL_ADDITIONAL = "Additional"
 # operations, then subnet inspection, conviction locking, and hyperparameters.
 app.add_typer(wallet.app, name="wallet")
 app.add_typer(stake.app, name="stake")
-app.add_typer(gamma.app, name="deposits")
+app.add_typer(gamma.app, name="gamma")
 app.add_typer(root.app, name="root")
 app.add_typer(subnets.app, name="subnets")
 app.add_typer(lock.app, name="conviction")

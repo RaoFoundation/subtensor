@@ -28,7 +28,7 @@ from ..settings import tx_docs_url
 from . import globals as g
 from .call_names import resolve_intent_args
 from .context import AppContext, address_cli_name, ctx_of, ss58_param_help
-from .intent_prompts import apply_intent_prompt_policy, validate_intent_prompt_policy
+from .intent_prompts import apply_intent_prompt_policy, falls_back_to_wallet
 from .prompt import PromptSpec, fill_missing, interactive, signer_specs
 from .stake_picker import required_address_spec
 
@@ -193,7 +193,7 @@ def _placeholder(annotation: str) -> Optional[str]:
         return "number"
     if base == "bool":
         return "y/n"
-    if _is_dict(annotation):
+    if _is_dict(annotation) or base == "list[dict]":
         return "JSON"
     if _is_list(annotation):
         return "comma-separated"
@@ -206,7 +206,10 @@ def _list_note(annotation: str) -> Optional[str]:
     Bare ``list`` fields (pairs like set_children) document their own JSON
     shape in the field help, so they carry no generic note.
     """
-    if _base_annotation(annotation).startswith("list["):
+    base = _base_annotation(annotation)
+    if base == "list[dict]":
+        return "A JSON list."
+    if base.startswith("list["):
         return "Comma-separated values (e.g. 1,2) or a JSON list."
     return None
 
@@ -259,7 +262,7 @@ def _make_command(intent_cls: type[Intent]):
     intent_names = {f.name for f in specs}
     # Intents with a single amount field also take a bare --amount, so the
     # unit-suffixed canonical flag never has to be guessed on the command line.
-    amount_fields = intent_names & {"amount_alpha", "amount_tao"}
+    amount_fields = intent_names & {"amount_alpha", "amount_tao", "amount_gamma"}
     amount_alias = next(iter(amount_fields)) if len(amount_fields) == 1 else None
     # Origin/destination ops are usually same-subnet; --netuid fills both so
     # `--origin-netuid 51 --dest-netuid 51` collapses to `--netuid 51`.
@@ -303,7 +306,6 @@ def _make_command(intent_cls: type[Intent]):
             )
         if missing:
             fill_missing(app_ctx, missing, kwargs)
-        validate_intent_prompt_policy(app_ctx, intent_cls.op, kwargs)
         for f in specs:
             if f.name.endswith("_ss58"):
                 kwargs[f.name] = app_ctx.resolve_address(f.name, kwargs.get(f.name))
@@ -345,8 +347,9 @@ def _make_command(intent_cls: type[Intent]):
     prompt_specs: list[PromptSpec] = []
     for f in specs:
         # The canonical own-key params may be omitted: they fall back to the
-        # configured wallet (see AppContext.resolve_address).
-        wallet_defaulted = f.name in ("hotkey_ss58", "coldkey_ss58")
+        # configured wallet (see AppContext.resolve_address), unless the op's
+        # prompt policy requires them.
+        wallet_defaulted = falls_back_to_wallet(intent_cls.op, f.name)
         required = f.default is MISSING and f.default_factory is MISSING and not wallet_defaulted
         cli_name = (
             address_cli_name(f.name)
@@ -358,7 +361,7 @@ def _make_command(intent_cls: type[Intent]):
         # schema) says what the parameter *means*; the suffix heuristics add
         # what shapes it *accepts* (ss58/name resolution, money units).
         input_note = (
-            ss58_param_help(f.name)
+            ss58_param_help(f.name, wallet_default=wallet_defaulted)
             if f.name.endswith("_ss58")
             else _unit_help(f.name) or _list_note(str(f.type))
         )
