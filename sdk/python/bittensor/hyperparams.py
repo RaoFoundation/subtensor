@@ -483,7 +483,6 @@ STORAGE_ITEMS: dict[str, st.Item] = {
     # is regenerated against spec >= 435.
     "collateral_lock_share": st.Item("SubtensorModule", "CollateralLockShare", "u16"),
     "collateral_drain_ratio": st.Item("SubtensorModule", "CollateralDrainRatio", "U64F64"),
-    "gamma_enabled": st.SubtensorModule.SubnetGammaEnabled,
     "yuma3_enabled": st.SubtensorModule.Yuma3On,
     "subnet_emission_enabled": st.SubtensorModule.SubnetEmissionEnabled,
     "bonds_reset_enabled": st.SubtensorModule.BondsResetOn,

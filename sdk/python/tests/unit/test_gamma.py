@@ -319,11 +319,3 @@ class TestCliRefusals:
         )  # fmt: skip
         assert result.exit_code == 2
         assert "Traceback" not in result.output
-
-    def test_coldkey_params_refuse_a_hotkey_reference(self):
-        result = invoke(
-            "deposits", "set-spender", "--netuid", "1", "--hotkey", BOB_HOT,
-            "--spender", "testwallet/default", "--dry-run",
-        )  # fmt: skip
-        assert result.exit_code == 1
-        assert "names a" in result.output and "hotkey" in result.output

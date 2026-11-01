@@ -48,7 +48,7 @@ Read them with `btcli sudo get --netuid N` (the [`subnet_hyperparameters`](/docs
 | [`burn_half_life`](/docs/hyperparameters/burn-half-life) | blocks (12s) | yes | shared burn/PoW decay half-life | [`BurnHalfLife`](/code/pallets/subtensor/src/lib.rs#L3809) |
 | [`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share) | fraction (u16, 65535 = 1.0) | yes | registration price share locked | [`CollateralLockShare`](/code/pallets/subtensor/src/lib.rs#L3823) |
 | [`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio) | multiplier (U64F64 bits / 2^64) | yes | collateral released per α earned | [`CollateralDrainRatio`](/code/pallets/subtensor/src/lib.rs#L3832) |
-| [`gamma_enabled`](/docs/hyperparameters/gamma-enabled) | flag | yes | gamma minting toggle | [`SubnetGammaEnabled`](/code/pallets/subtensor/src/lib.rs#L3895) |
+| [`gamma_enabled`](/docs/hyperparameters/gamma-enabled) | flag | yes | gamma minting toggle | — |
 | [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) | flag | yes | yuma3 consensus variant toggle | [`Yuma3On`](/code/pallets/subtensor/src/lib.rs#L2911) |
 | [`yuma_version`](/docs/hyperparameters/yuma-version) | integer | root only | epoch consensus variant (2 or 3) | — |
 | [`subnet_is_active`](/docs/hyperparameters/subnet-is-active) | flag | root only | subnet started (staking + emissions) | — |
