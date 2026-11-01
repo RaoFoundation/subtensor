@@ -242,7 +242,7 @@ pub const MAX_GAMMA_DEPOSITS: u32 = 64;
 /// Maximum number of entries in one `spend_gamma` call.
 pub const MAX_GAMMA_SPENDS: u32 = 512;
 
-/// Maximum number of gamma deposits one coldkey swap moves.
+/// Maximum number of gamma deposits one coldkey swap admits, counting both coldkeys.
 pub const MAX_COLDKEY_SWAP_GAMMA_DEPOSITS: u32 = 128;
 
 /// Blocks over which a daily spend cap refills in full: one day.
@@ -674,7 +674,7 @@ pub mod pallet {
     #[crate::freeze_struct("f3a5e8bdbc1b7763")]
     #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
     pub struct TaoUsdPriceState {
-        /// The price mints use, rising toward the feed.
+        /// The accepted price at `fed_at`.
         pub accepted: u64,
         /// The oracle's latest feed.
         pub feed: u64,
@@ -3919,7 +3919,7 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// MAP ( netuid ) --> gamma_price | The price a subnet's alpha mints gamma at: set to the
+    /// MAP ( netuid ) --> gamma_price | The highest price a subnet's alpha mints gamma at: set to the
     /// median subnet alpha price at registration, each block it falls to the spot price at once
     /// and rises toward it by [`SubnetFastMovingPrice`]'s weight of the gap, at most of itself.
     #[pallet::storage]

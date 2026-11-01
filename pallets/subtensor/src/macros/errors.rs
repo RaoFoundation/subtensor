@@ -380,8 +380,8 @@ mod errors {
         /// at its cap. Staking to a hotkey the coldkey already stakes through is still
         /// accepted.
         TooManyStakingHotkeys,
-        /// The coldkey stakes through more hotkeys, or holds more stake positions, than a
-        /// coldkey swap can move in one call. Consolidate (unstake or move stake) first.
+        /// The coldkey stakes through more hotkeys, holds more stake positions, or with the destination
+        /// holds more gamma deposits, than a coldkey swap can move in one call. Consolidate first.
         ColdkeySwapTooHeavy,
         /// A `swap_basket` buy would leave the destination holding above
         /// [`crate::BasketConcentrationCap`] of fund NAV (holdings marked at realizable
@@ -467,7 +467,7 @@ mod errors {
         TaoUsdPriceUnavailable,
         /// Gamma minting is disabled network-wide or on this subnet.
         GammaDisabled,
-        /// The coldkey would hold more than `MAX_GAMMA_DEPOSITS` gamma deposits on this subnet.
+        /// The coldkey would hold more than 64 gamma deposits on this subnet.
         TooManyGammaDeposits,
         /// The hotkey holds no gamma deposit on this subnet.
         GammaDepositDoesNotExist,

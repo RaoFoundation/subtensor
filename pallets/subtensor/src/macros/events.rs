@@ -936,7 +936,7 @@ mod events {
         },
         /// The oracle fed the TAO/USD price.
         TaoUsdPriceFed {
-            /// Gamma units per TAO.
+            /// Gamma units (10^9 per US dollar) per TAO.
             price: u64,
         },
         /// Gamma was minted for burned alpha.

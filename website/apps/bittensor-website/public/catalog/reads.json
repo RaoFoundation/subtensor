@@ -1732,9 +1732,9 @@
         "container": "GammaRuntimeApi",
         "name": "sim_mint_gamma_with_stake",
         "path": "pallets/subtensor/src/rpc_info/gamma_info.rs",
-        "line": 82,
-        "end_line": 90,
-        "url": "/code/pallets/subtensor/src/rpc_info/gamma_info.rs#L82-L90",
+        "line": 81,
+        "end_line": 89,
+        "url": "/code/pallets/subtensor/src/rpc_info/gamma_info.rs#L81-L89",
         "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/gamma_info.rs"
       }
     ]

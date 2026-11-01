@@ -13,8 +13,8 @@ use subtensor_runtime_common::TaoBalance;
 
 /// Stake work a coldkey swap moves: `StakingHotkeys` / basket-credit entries visited
 /// (combined across source and destination), positions moved from the source,
-/// destination lock rows scanned/purged, and network-registration queue work
-/// (total entries scanned plus owned rows rewritten).
+/// destination lock rows scanned/purged, network-registration queue work (total entries
+/// scanned plus owned rows rewritten), and gamma deposits moved from the source.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ColdkeySwapWork {
     pub hotkeys: u32,

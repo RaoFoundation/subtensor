@@ -333,7 +333,7 @@ class SubtensorModule:
 
     @staticmethod
     def feed_tao_usd_price(price: 'u64') -> Call:
-        'Feeds the TAO/USD price, in gamma units per TAO. Signed by the oracle.'
+        'Feeds the TAO/USD price in gamma units (10^9 per US dollar) per TAO. Signed by the oracle.'
         return Call('SubtensorModule', 'feed_tao_usd_price', {'price': price})
 
     @staticmethod
