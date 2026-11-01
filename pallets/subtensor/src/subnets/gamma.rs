@@ -1,9 +1,9 @@
 //! Gamma: a subnet's service credit, minted by burning its alpha and valued in US dollars.
 //!
 //! Gamma is held in [`GammaDeposits`], one per `(netuid, hotkey)`, owned by a coldkey and
-//! spent by its spender: the subnet owner (lease beneficiary on a leased subnet) when the
-//! deposit opens, unless the coldkey sets another. [`ColdkeyGammaHotkeys`] indexes a coldkey's
-//! deposits per subnet so coldkey swaps move them in a bounded walk.
+//! spent by its spender: the subnet owner (lease beneficiary while its lease owns the subnet)
+//! when the deposit opens, unless the coldkey sets another. [`ColdkeyGammaHotkeys`] indexes a
+//! coldkey's deposits per subnet so coldkey swaps move them in a bounded walk.
 
 use sp_runtime::ArithmeticError;
 use substrate_fixed::types::U64F64;
@@ -238,7 +238,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Moves up to `amount` between two of the signer's hotkeys. Emptying the origin closes
+    /// Moves up to `amount` between two of the signer's deposits. Emptying the origin closes
     /// it; a destination it opens takes the origin's spender and daily spend cap, with a
     /// full bucket.
     pub fn do_move_gamma(
@@ -382,9 +382,9 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Burns, in order, each entry's amount from the deposits the signer spends, within each
-    /// deposit's balance and daily spend cap. Entries the signer cannot spend, or that spend
-    /// nothing, are skipped.
+    /// Burns, in order, up to each entry's amount from the deposits the signer spends, within
+    /// each deposit's balance and daily spend cap. Entries the signer cannot spend, or that
+    /// spend nothing, are skipped.
     pub fn do_spend_gamma(
         origin: OriginFor<T>,
         netuid: NetUid,

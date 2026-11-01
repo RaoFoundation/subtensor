@@ -77,8 +77,7 @@ impl<T: Config> Pallet<T> {
         .ok()
     }
 
-    /// The alpha burned, TAO value and gamma `mint_gamma_with_stake` would mint for
-    /// `alpha_amount` of stake now.
+    /// `alpha_amount` and the TAO value and gamma of burning it now; it reads no stake.
     pub fn sim_mint_gamma_with_stake(
         netuid: NetUid,
         alpha_amount: AlphaBalance,

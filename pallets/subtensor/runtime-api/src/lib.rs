@@ -170,13 +170,13 @@ sp_api::decl_runtime_apis! {
     }
 
     pub trait GammaRuntimeApi {
-        /// The deposit at a hotkey on a subnet, and what its daily spend cap allows now.
+        /// The deposit at a hotkey on a subnet, and what its spender can spend from it now.
         fn get_gamma_deposit(netuid: NetUid, hotkey: AccountId32) -> Option<GammaDepositInfo<AccountId32>>;
         /// Every deposit of a coldkey, on every subnet.
         fn get_gamma_deposits_for_coldkey(coldkey: AccountId32) -> Vec<GammaDepositInfo<AccountId32>>;
         /// The alpha burned, TAO value and gamma `mint_gamma` would mint now.
         fn sim_mint_gamma(netuid: NetUid, amount: TaoBalance) -> Option<(AlphaBalance, TaoBalance, GammaBalance)>;
-        /// The alpha burned, TAO value and gamma `mint_gamma_with_stake` would mint now.
+        /// `alpha_amount` and the TAO value and gamma of burning it now; it reads no stake.
         fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Option<(AlphaBalance, TaoBalance, GammaBalance)>;
     }
 }
