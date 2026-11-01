@@ -23,9 +23,9 @@ destroyed, not moved. `spender_ss58` names the deposit's spender as for
 | `netuid` | integer | yes | Subnet of the stake burned. |
 | `hotkey_ss58` | string | yes | Hotkey of the deposit credited: an API key, not a staking hotkey. |
 | `amount_alpha` | number \| `"all"` | yes | Alpha of stake burned. |
-| `origin_hotkey_ss58` | string | no | Hotkey the stake is on. Defaults to the wallet hotkey. |
+| `origin_hotkey_ss58` | string | yes | Hotkey the stake is held on (the validator backing the position). |
 | `rate_tolerance` | number | no | Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%). |
-| `spender_ss58` | string | no | The account that spends the deposit. Omit to keep its spender, the subnet owner's for a new deposit. |
+| `spender_ss58` | string | no | The account that spends the deposit. Omit to keep its spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -39,11 +39,13 @@ submitting), then submit:
 btcli tx mint-gamma-with-stake \
   --netuid <int> \
   --hotkey <ss58|name> \
-  --amount-alpha <amount|all> --dry-run
+  --amount-alpha <amount|all> \
+  --origin-hotkey <ss58|name> --dry-run
 btcli tx mint-gamma-with-stake \
   --netuid <int> \
   --hotkey <ss58|name> \
-  --amount-alpha <amount|all> -w my_coldkey
+  --amount-alpha <amount|all> \
+  --origin-hotkey <ss58|name> -w my_coldkey
 ```
 
 ## Python
@@ -53,7 +55,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.MintGammaWithStake(netuid=1, hotkey_ss58="5F...", amount_alpha=1.0)
+intent = bt.MintGammaWithStake(netuid=1, hotkey_ss58="5F...", amount_alpha=1.0, origin_hotkey_ss58="5F...origin")
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission

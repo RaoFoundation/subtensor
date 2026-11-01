@@ -221,6 +221,20 @@ _NAME_KEYS = {"name", "wallet", "coldkey", "hotkey"}
 _INCIDENTAL_KEYS = {"path", "timepoint", "block"}
 
 
+def record_rows(label: str, records: list[dict], text=lambda key, value: str(value)) -> list:
+    """A list of records (spend entries) as one card row per record."""
+    return [
+        (
+            f"{label} {index}",
+            "  ".join(
+                f"{key.removesuffix('_ss58').replace('_', ' ')} {text(key, value)}"
+                for key, value in record.items()
+            ),
+        )
+        for index, record in enumerate(records, start=1)
+    ]
+
+
 def _looks_like_ss58(value: Any) -> bool:
     """Cheap ss58 shape check (substrate generic addresses start with '5')."""
     return (
@@ -2253,7 +2267,13 @@ class Output:
         payloads (block hash, call data) dim — they stay copyable but should
         not outshine the fee and the extrinsic id.
         """
-        rows = [(key.replace("_", " "), value) for key, value in fields.items()]
+        rows: list[tuple[str, Any]] = []
+        for key, value in fields.items():
+            label = key.replace("_", " ")
+            if value and isinstance(value, list) and all(isinstance(i, dict) for i in value):
+                rows += record_rows(label, value)
+            else:
+                rows.append((label, value))
         width = max(len(label) for label, _ in rows)
         self._out.print()
         self._out.print(Text("Result", style=STYLE_SECTION))

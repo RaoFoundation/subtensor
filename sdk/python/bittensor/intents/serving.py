@@ -176,7 +176,9 @@ class SetServiceUrl(Intent):
 
     netuid: int = field(metadata={"help": "Subnet on which to publish the url."})
     url: str = field(
-        metadata={"help": "Url of the services document, up to 256 bytes; empty clears it."}
+        metadata={
+            "help": "An http(s) url of the services document, up to 256 bytes; empty clears it."
+        }
     )
 
     def __post_init__(self):

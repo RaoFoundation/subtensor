@@ -1,20 +1,14 @@
-"""Gamma reads: deposits, mint quotes, the TAO/USD price, and service urls."""
+"""Gamma reads: deposits, mint quotes, and the TAO/USD price."""
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Optional
 
 from .._generated import runtime_apis as api
 from .._generated import storage as st
 from ..balance import Balance
-from ..settings import GAMMA_UNITS
-from .base import read, utf8_text
-
-
-def _gamma(units: Any) -> float:
-    """Chain units as gamma."""
-    return int(units) / GAMMA_UNITS
+from ..intents._money import gamma_from_units
+from .base import read
 
 
 def _deposit_record(info: dict) -> dict:
@@ -25,9 +19,9 @@ def _deposit_record(info: dict) -> dict:
         "hotkey": str(info["hotkey"]),
         "coldkey": str(deposit["coldkey"]),
         "spender": str(deposit["spender"]),
-        "balance_gamma": _gamma(deposit["balance"]),
-        "daily_spend_cap_gamma": None if cap is None else _gamma(cap),
-        "spendable_gamma": _gamma(info["spendable"]),
+        "balance_gamma": gamma_from_units(deposit["balance"]),
+        "daily_spend_cap_gamma": None if cap is None else gamma_from_units(cap),
+        "spendable_gamma": gamma_from_units(info["spendable"]),
     }
 
 
@@ -39,7 +33,7 @@ def _mint_quote(view, quote: Any, netuid: int) -> Optional[dict]:
         "netuid": netuid,
         "alpha_burned": view.balance(int(alpha), netuid),
         "tao_value": view.balance(int(tao), 0),
-        "gamma": _gamma(gamma),
+        "gamma": gamma_from_units(gamma),
     }
 
 
@@ -52,7 +46,11 @@ def _mint_quote(view, quote: Any, netuid: int) -> Optional[dict]:
 async def gamma_deposit(view, netuid: int, hotkey_ss58: str) -> Optional[dict]:
     """The gamma deposit at a hotkey on a subnet, or None.
 
-    `spendable_gamma` is the balance within what its daily spend cap allows now.
+    Its `netuid`, `hotkey`, `coldkey`, `spender`, and `balance_gamma`,
+    `daily_spend_cap_gamma` and `spendable_gamma` as exact decimal strings of
+    gamma. A `daily_spend_cap_gamma` of None is no cap, and "0" pauses the
+    deposit. `spendable_gamma` is the balance within what its daily spend cap
+    allows now.
     """
     info = await view.runtime(api.GammaRuntimeApi.get_gamma_deposit, [netuid, hotkey_ss58])
     return _deposit_record(info) if info else None
@@ -81,7 +79,7 @@ async def quote_mint_gamma(view, netuid: int, amount_tao: float) -> Optional[dic
 
     None when gamma cannot be minted: the subnet does not exist, minting or its
     subtoken is disabled, the TAO/USD price is missing or stale, the pool lacks liquidity,
-    or the amount is below the minimum.
+    or it would mint less than 0.1 gamma.
     """
     rao = Balance.from_tao(amount_tao).rao
     quote = await view.runtime(api.GammaRuntimeApi.sim_mint_gamma, [netuid, rao])
@@ -97,7 +95,9 @@ async def quote_mint_gamma(view, netuid: int, amount_tao: float) -> Optional[dic
 async def quote_mint_gamma_with_stake(view, netuid: int, amount_alpha: float) -> Optional[dict]:
     """The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.
 
-    None when gamma cannot be minted, as for `quote_mint_gamma`.
+    None when gamma cannot be minted: the subnet does not exist, minting or its
+    subtoken is disabled, the TAO/USD price is missing or stale, or it would mint less than
+    0.1 gamma.
     """
     rao = Balance.from_amount(amount_alpha, netuid).rao
     quote = await view.runtime(api.GammaRuntimeApi.sim_mint_gamma_with_stake, [netuid, rao])
@@ -110,8 +110,9 @@ async def tao_usd_price(view) -> dict:
 
     The accepted price falls to the feed at once and rises toward it by at most
     0.0066% (66 ppm) of itself per block. Minting needs a feed at most 300
-    blocks old.
+    blocks old, so no new mint succeeds once `blocks_since_last_feed` exceeds 300.
     """
+    view = await view.at()
     oracle = await view.query(st.SubtensorModule.TaoUsdPriceOracle)
     state = await view.query(st.SubtensorModule.TaoUsdPrice)
     return {
@@ -119,39 +120,5 @@ async def tao_usd_price(view) -> dict:
         "accepted_usd": state["accepted"] / 10**9 if state else None,
         "feed_usd": state["feed"] / 10**9 if state else None,
         "fed_at": int(state["fed_at"]) if state else None,
+        "blocks_since_last_feed": view.block - int(state["fed_at"]) if state else None,
     }
-
-
-@read(
-    "service_urls",
-    {"netuid": "integer"},
-    category="Gamma",
-    param_docs={"netuid": "Subnet whose service urls to list."},
-)
-async def service_urls(view, netuid: int) -> dict[str, dict]:
-    """Every service url published on a subnet, by hotkey.
-
-    Each points to its hotkey's own document of its services and the spender
-    to name on gamma deposits; the chain does not check what it says. `block` is
-    when it was published; `owner` marks the subnet owner's hotkey.
-    """
-    rows, owner = await asyncio.gather(
-        view.query_map(st.SubtensorModule.ServiceUrls, [netuid]),
-        view.query(st.SubtensorModule.SubnetOwnerHotkey, [netuid]),
-    )
-    return {
-        str(hotkey): {
-            "url": _url_text(info["url"]),
-            "block": int(info["block"]),
-            "owner": str(hotkey) == str(owner),
-        }
-        for hotkey, info in rows
-        if info["url"]
-    }
-
-
-def _url_text(raw: Any) -> str:
-    """A url as text, or as hex when it holds control or format characters a terminal would
-    act on."""
-    text = utf8_text(raw)
-    return text if text.isprintable() else "0x" + text.encode().hex()

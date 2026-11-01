@@ -365,7 +365,7 @@
     },
     "AmountTooLow": {
       "code": "limit_exceeded",
-      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage, or a gamma mint came to less than 0.1 gamma. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
+      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage, a gamma mint came to less than 0.1 gamma, or a gamma move found its origin deposit empty. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
       "docs_url": "/docs/errors/chain/AmountTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/AmountTooLow/content.md",
       "pallets": [
@@ -1310,7 +1310,7 @@
     },
     "ColdkeySwapTooHeavy": {
       "code": "limit_exceeded",
-      "description": "The coldkey stakes through more hotkeys, or holds more stake positions, than one coldkey swap can move, or holds more than 128 gamma deposits. Unstake from or move stake off unused hotkeys and subnets, or move gamma into fewer deposits, to consolidate, then retry the swap.",
+      "description": "The coldkey stakes through more hotkeys, or holds more stake positions, than one coldkey swap can move, or the two coldkeys together hold more than 128 gamma deposits. Unstake from or move stake off unused hotkeys and subnets, or move gamma into fewer deposits and close empty ones, to consolidate, then retry the swap.",
       "docs_url": "/docs/errors/chain/ColdkeySwapTooHeavy",
       "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeySwapTooHeavy/content.md",
       "pallets": [
@@ -3109,7 +3109,7 @@
     },
     "InvalidValue": {
       "code": "invalid_argument",
-      "description": "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`).",
+      "description": "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the same hotkey, or an empty `spend_gamma`.",
       "docs_url": "/docs/errors/chain/InvalidValue",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidValue/content.md",
       "pallets": [
@@ -4115,7 +4115,7 @@
     },
     "NonAssociatedColdKey": {
       "code": "not_authorized",
-      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes), or the gamma deposit at the hotkey belongs to another coldkey. Check the `Owner` storage entry for the hotkey, e.g. via `btcli wallet registrations`, and sign with the coldkey that registered it.",
+      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes), or the gamma deposit at the hotkey belongs to another coldkey. Check the hotkey's `Owner` (`btcli wallet registrations`) or the gamma deposit's coldkey (`btcli gamma show`), and sign with the coldkey that owns it.",
       "docs_url": "/docs/errors/chain/NonAssociatedColdKey",
       "markdown_url": "/llms.mdx/docs/errors/chain/NonAssociatedColdKey/content.md",
       "pallets": [
@@ -4250,7 +4250,7 @@
     },
     "NotEnoughBalanceToStake": {
       "code": "insufficient_balance",
-      "description": "The coldkey's free balance is less than the TAO required, either the stake amount in add_stake or the burn cost of a registration. Check `btcli wallet balance` against the amount or the current registration burn (`Burn` storage for the netuid).",
+      "description": "The coldkey's free balance is less than the TAO required, either the stake amount in add_stake, the TAO of a gamma mint, or the burn cost of a registration. Check `btcli wallet balance` against the amount or the current registration burn (`Burn` storage for the netuid).",
       "docs_url": "/docs/errors/chain/NotEnoughBalanceToStake",
       "markdown_url": "/llms.mdx/docs/errors/chain/NotEnoughBalanceToStake/content.md",
       "pallets": [
@@ -4378,7 +4378,7 @@
     },
     "NotPermittedOnRootSubnet": {
       "code": "invalid_argument",
-      "description": "An admin-utils call that only applies to regular subnets (burn half-life, burn increase multiplier, owner-cut flags, or the subnet emission toggle) was targeted at the root network. Check that the `netuid` argument is not the root netuid 0.",
+      "description": "An admin-utils call that only applies to regular subnets (burn half-life, burn increase multiplier, owner-cut flags, the subnet emission toggle, or `gamma_enabled`) was targeted at the root network. Check that the `netuid` argument is not the root netuid 0.",
       "docs_url": "/docs/errors/chain/NotPermittedOnRootSubnet",
       "markdown_url": "/llms.mdx/docs/errors/chain/NotPermittedOnRootSubnet/content.md",
       "pallets": [

@@ -1,24 +1,17 @@
-"""`btcli deposits`: gamma minting, deposits, and spending."""
+"""`btcli gamma`: gamma minting, deposits, and spending."""
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Optional
 
 import typer
 
-from ...intents import (
-    CloseGammaDeposit,
-    MintGamma,
-    MintGammaWithStake,
-    MoveGamma,
-    SetGammaDepositDailySpendCap,
-    SetGammaDepositSpender,
-    SpendGamma,
-)
-from ...settings import guide_docs_url
+from ...intents import SetGammaDepositDailySpendCap, SpendGamma
+from ...settings import guide_docs_url, query_docs_url, tx_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
-from ..tx import _parse_money
+from ..tx import intent_command
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -26,48 +19,30 @@ app = typer.Typer(
 )
 
 
-def _netuid_option(help: str = "Subnet of the deposit."):
-    return typer.Option(..., "--netuid", help=help)
-
-
-def _hotkey_option(param: str, help: str, help_param: Optional[str] = None):
+def _hotkey_option(help: Optional[str]):
+    """A required hotkey option, which never falls back to the wallet's hotkey."""
     return typer.Option(
-        ..., address_cli_name(param), help=f"{help} {ss58_param_help(help_param or param)}"
+        ...,
+        address_cli_name("hotkey_ss58"),
+        help=f"{help} {ss58_param_help('hotkey_ss58', wallet_default=False)}",
     )
 
 
-def _deposit_hotkey_option():
-    return _hotkey_option(
-        "hotkey_ss58",
-        "Hotkey of the deposit: an API key, not a staking hotkey.",
-        help_param="deposit_hotkey_ss58",
-    )
+def _gamma(value: Optional[str]) -> str:
+    return "no cap" if value is None else f"{Decimal(value):,f} gamma"
 
 
-def _money(app_ctx: AppContext, value: str, flag: str, allow_all: bool = False):
-    try:
-        return _parse_money(value, allow_all)
-    except ValueError as error:
-        app_ctx.output.error(f"invalid value for `{flag}`: {error}")
-        raise typer.Exit(2)
-
-
-def _spender_option():
-    return typer.Option(
-        None,
-        address_cli_name("spender_ss58"),
-        help=f"{MintGamma.field_help('spender_ss58')} {ss58_param_help('spender_ss58')}",
-    )
-
-
-@app.command("show")
+@app.command(
+    "show",
+    help="Show the gamma deposit at a hotkey on a subnet.\n\n"
+    f"Docs: {query_docs_url('gamma_deposit')}",
+)
 @with_globals
 def show_deposit(
     ctx: typer.Context,
-    netuid: int = _netuid_option(),
-    hotkey: str = _deposit_hotkey_option(),
+    netuid: int = typer.Option(..., "--netuid", help="Subnet of the deposit."),
+    hotkey: str = _hotkey_option("Hotkey of the deposit."),
 ):
-    """Show the gamma deposit at a hotkey: owner, spender, balance, cap, and spendable."""
     app_ctx: AppContext = ctx_of(ctx)
     hotkey_ss58 = app_ctx.resolve_address("hotkey_ss58", hotkey)
 
@@ -76,20 +51,39 @@ def show_deposit(
 
     deposit = app_ctx.run(_op)
     if deposit is None:
-        app_ctx.output.error(f"no gamma deposit at {hotkey_ss58} on netuid {netuid}")
+        app_ctx.output.error(
+            f"no gamma deposit at {hotkey_ss58} on netuid {netuid}",
+            help="list a coldkey's deposits with `btcli gamma list`",
+        )
         raise typer.Exit(1)
-    app_ctx.output.detail(f"gamma deposit on netuid {netuid}", deposit)
+    app_ctx.output.detail(
+        f"gamma deposit on netuid {netuid}",
+        {
+            "hotkey": deposit["hotkey"],
+            "coldkey": deposit["coldkey"],
+            "spender": deposit["spender"],
+            "balance": _gamma(deposit["balance_gamma"]),
+            "daily spend cap": _gamma(deposit["daily_spend_cap_gamma"]),
+            "spendable": _gamma(deposit["spendable_gamma"]),
+        },
+        deposit,
+    )
 
 
-@app.command("list")
+@app.command(
+    "list",
+    help="List every gamma deposit of a coldkey, on every subnet.\n\n"
+    f"Docs: {query_docs_url('gamma_deposits')}",
+)
 @with_globals
 def list_deposits(
     ctx: typer.Context,
     coldkey_ss58: Optional[str] = typer.Option(
-        None, address_cli_name("coldkey_ss58"), help=ss58_param_help("coldkey_ss58")
+        None,
+        address_cli_name("coldkey_ss58"),
+        help=f"Coldkey owning the deposits. {ss58_param_help('coldkey_ss58')}",
     ),
 ):
-    """List every gamma deposit of a coldkey, on every subnet."""
     app_ctx: AppContext = ctx_of(ctx)
     coldkey = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
 
@@ -101,199 +95,90 @@ def list_deposits(
         [
             d["netuid"],
             d["hotkey"],
+            _gamma(d["balance_gamma"]),
+            _gamma(d["daily_spend_cap_gamma"]),
+            _gamma(d["spendable_gamma"]),
             d["spender"],
-            d["balance_gamma"],
-            "none" if d["daily_spend_cap_gamma"] is None else d["daily_spend_cap_gamma"],
-            d["spendable_gamma"],
         ]
         for d in deposits
     ]
-    app_ctx.output.table(
+    app_ctx.output.columns(
         "gamma deposits",
-        ["netuid", "hotkey", "spender", "balance", "daily_spend_cap", "spendable"],
+        ["netuid", "hotkey", "balance", "daily spend cap", "spendable", "spender"],
         rows,
         deposits,
+        right_align={0, 2, 3, 4},
     )
 
 
-@app.command("price")
-@with_globals
-def show_price(ctx: typer.Context):
-    """Show the TAO/USD price oracle, its last feed, and the accepted price at that feed."""
-    app_ctx: AppContext = ctx_of(ctx)
-
-    async def _op(client):
-        return await client.read("tao_usd_price")
-
-    app_ctx.output.detail("TAO/USD price", app_ctx.run(_op))
-
-
-@app.command("mint")
-@with_tx_globals
-def mint(
-    ctx: typer.Context,
-    netuid: int = _netuid_option("Subnet whose alpha is bought and burned."),
-    hotkey: str = _deposit_hotkey_option(),
-    amount_tao: str = typer.Option(..., "--amount-tao", help=MintGamma.field_help("amount_tao")),
-    rate_tolerance: float = typer.Option(
-        0.05, "--rate-tolerance", help=MintGamma.field_help("rate_tolerance")
-    ),
-    spender: Optional[str] = _spender_option(),
+# The deposit owner's calls are the generated intent commands (`tx mint-gamma`
+# etc.), mounted as `btcli stake` mounts its verbs, so both spellings stay in sync.
+for _alias, _op in (
+    ("mint", "mint_gamma"),
+    ("mint-with-stake", "mint_gamma_with_stake"),
+    ("move", "move_gamma"),
+    ("close", "close_gamma_deposit"),
+    ("set-spender", "set_gamma_deposit_spender"),
 ):
-    """Mint gamma with TAO into your deposit at an API-key hotkey."""
-    app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(
-        MintGamma(
-            netuid=netuid,
-            hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey),
-            amount_tao=_money(app_ctx, amount_tao, "--amount-tao"),
-            rate_tolerance=rate_tolerance,
-            spender_ss58=app_ctx.resolve_address("spender_ss58", spender),
-        )
-    )
+    app.command(_alias)(intent_command(_op))
 
 
-@app.command("mint-with-stake")
-@with_tx_globals
-def mint_with_stake(
-    ctx: typer.Context,
-    netuid: int = _netuid_option("Subnet of the stake burned."),
-    hotkey: str = _deposit_hotkey_option(),
-    amount_alpha: str = typer.Option(
-        ..., "--amount-alpha", help=MintGammaWithStake.field_help("amount_alpha")
-    ),
-    origin_hotkey: Optional[str] = typer.Option(
-        None,
-        address_cli_name("origin_hotkey_ss58"),
-        help=MintGammaWithStake.field_help("origin_hotkey_ss58"),
-    ),
-    rate_tolerance: float = typer.Option(
-        0.05, "--rate-tolerance", help=MintGammaWithStake.field_help("rate_tolerance")
-    ),
-    spender: Optional[str] = _spender_option(),
-):
-    """Mint gamma by burning your stake into your deposit at an API-key hotkey."""
-    app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(
-        MintGammaWithStake(
-            netuid=netuid,
-            hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey),
-            amount_alpha=_money(app_ctx, amount_alpha, "--amount-alpha", allow_all=True),
-            origin_hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", origin_hotkey),
-            rate_tolerance=rate_tolerance,
-            spender_ss58=app_ctx.resolve_address("spender_ss58", spender),
-        )
-    )
-
-
-@app.command("move")
-@with_tx_globals
-def move(
-    ctx: typer.Context,
-    netuid: int = _netuid_option("Subnet of both deposits."),
-    origin_hotkey: str = _hotkey_option(
-        "origin_hotkey_ss58", MoveGamma.field_help("origin_hotkey_ss58")
-    ),
-    destination_hotkey: str = _hotkey_option(
-        "destination_hotkey_ss58", MoveGamma.field_help("destination_hotkey_ss58")
-    ),
-    amount_gamma: str = typer.Option(
-        ..., "--amount-gamma", help=MoveGamma.field_help("amount_gamma")
-    ),
-):
-    """Move gamma between two of your deposits on a subnet."""
-    app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(
-        MoveGamma(
-            netuid=netuid,
-            origin_hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", origin_hotkey),
-            destination_hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", destination_hotkey),
-            amount_gamma=_money(app_ctx, amount_gamma, "--amount-gamma", allow_all=True),
-        )
-    )
-
-
-@app.command("close")
-@with_tx_globals
-def close(
-    ctx: typer.Context, netuid: int = _netuid_option(), hotkey: str = _deposit_hotkey_option()
-):
-    """Close your empty gamma deposit, releasing its hotkey."""
-    app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(
-        CloseGammaDeposit(netuid=netuid, hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey))
-    )
-
-
-@app.command("set-spender")
-@with_tx_globals
-def set_spender(
-    ctx: typer.Context,
-    netuid: int = _netuid_option(),
-    hotkey: str = _deposit_hotkey_option(),
-    spender: str = typer.Option(
-        ...,
-        address_cli_name("spender_ss58"),
-        help=(
-            f"{SetGammaDepositSpender.field_help('spender_ss58')} {ss58_param_help('spender_ss58')}"
-        ),
-    ),
-):
-    """Set who may spend your gamma deposit."""
-    app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(
-        SetGammaDepositSpender(
-            netuid=netuid,
-            hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey),
-            spender_ss58=app_ctx.resolve_address("spender_ss58", spender),
-        )
-    )
-
-
-@app.command("set-cap")
+@app.command(
+    "set-cap",
+    help="Set or remove the daily spend cap of your gamma deposit.\n\n"
+    "What the spender can spend refills at the cap per 7200 blocks, up to the cap, and a cap "
+    "of 0 pauses the deposit.\n\n"
+    f"Docs: {tx_docs_url(SetGammaDepositDailySpendCap.op)}",
+)
 @with_tx_globals
 def set_cap(
     ctx: typer.Context,
-    netuid: int = _netuid_option(),
-    hotkey: str = _deposit_hotkey_option(),
+    netuid: int = typer.Option(
+        ..., "--netuid", help=SetGammaDepositDailySpendCap.field_help("netuid")
+    ),
+    hotkey: str = _hotkey_option(SetGammaDepositDailySpendCap.field_help("hotkey_ss58")),
     daily_spend_cap: Optional[str] = typer.Option(
-        None, "--daily-spend-cap", help="The cap, in gamma."
+        None,
+        "--daily-spend-cap-gamma",
+        help="The cap, in gamma; 0 pauses the deposit.",
     ),
     no_cap: bool = typer.Option(False, "--no-cap", help="Remove the cap."),
 ):
-    """Set or remove the daily spend cap of your gamma deposit."""
     app_ctx: AppContext = ctx_of(ctx)
     if (daily_spend_cap is None) != no_cap:
-        app_ctx.output.error("pass exactly one of `--daily-spend-cap` or `--no-cap`")
+        app_ctx.output.error("pass exactly one of `--daily-spend-cap-gamma` or `--no-cap`")
         raise typer.Exit(2)
     app_ctx.submit(
         SetGammaDepositDailySpendCap(
             netuid=netuid,
             hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey),
-            daily_spend_cap_gamma=None
-            if daily_spend_cap is None
-            else _money(app_ctx, daily_spend_cap, "--daily-spend-cap"),
+            daily_spend_cap_gamma=daily_spend_cap,
         )
     )
 
 
-@app.command("spend")
+@app.command(
+    "spend",
+    help="Spend gamma from the deposits you are the spender of.\n\n"
+    "Each --spend spends, in order, up to its AMOUNT from the deposit at its HOTKEY, within the "
+    "deposit's balance and daily spend cap, and spent gamma is destroyed. Entries whose hotkey has "
+    "no deposit, or whose deposit you are not the spender of, are skipped. Sign as the spender, "
+    "or as its GammaSpend proxy with --proxy-for SPENDER.\n\n"
+    f"Docs: {tx_docs_url(SpendGamma.op)}",
+)
 @with_tx_globals
 def spend(
     ctx: typer.Context,
-    netuid: int = _netuid_option("Subnet of the deposits."),
+    netuid: int = typer.Option(..., "--netuid", help=SpendGamma.field_help("netuid")),
     spends: list[str] = typer.Option(
         ...,
         "--spend",
-        help="HOTKEY=AMOUNT or HOTKEY=AMOUNT:REFERENCE, the gamma spent from the deposit at "
-        "HOTKEY, with an optional 32-byte hex reference. Repeatable.",
+        help="HOTKEY=AMOUNT or HOTKEY=AMOUNT:REFERENCE, spending up to AMOUNT gamma from the "
+        "deposit at HOTKEY, with an optional 32-byte hex reference that the entry's GammaSpent "
+        "event repeats. Repeatable. HOTKEY is an "
+        f"{ss58_param_help('hotkey_ss58', wallet_default=False).replace('HOTKEY', 'NAME')}",
     ),
 ):
-    """Spend gamma from the deposits you are the spender of.
-
-    Entries whose hotkey has no deposit, or whose deposit you are not the
-    spender of, are skipped. Sign as the spender, or as its `GammaSpend` proxy.
-    """
     app_ctx: AppContext = ctx_of(ctx)
     entries = []
     for entry in spends:
@@ -304,8 +189,8 @@ def spend(
         amount, _, reference = amount.partition(":")
         entries.append(
             {
-                "hotkey_ss58": app_ctx.resolve_address("hotkey_ss58", hotkey),
-                "amount_gamma": _money(app_ctx, amount, "--spend"),
+                "hotkey_ss58": app_ctx.resolve_address("hotkey_ss58", hotkey, flag="--spend"),
+                "amount_gamma": amount,
                 "reference": reference or None,
             }
         )

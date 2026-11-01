@@ -192,7 +192,12 @@ INTENT_SAMPLES: dict[str, dict] = {
     "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
     "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
     "mint_gamma": {"netuid": 1, "hotkey_ss58": BOB_HOT, "amount_tao": 1.0},
-    "mint_gamma_with_stake": {"netuid": 1, "hotkey_ss58": BOB_HOT, "amount_alpha": 1.0},
+    "mint_gamma_with_stake": {
+        "netuid": 1,
+        "hotkey_ss58": BOB_HOT,
+        "origin_hotkey_ss58": ALICE_HOT,
+        "amount_alpha": 1.0,
+    },
     "move_gamma": {
         "netuid": 1,
         "origin_hotkey_ss58": ALICE_HOT,
@@ -375,14 +380,8 @@ READ_SAMPLES: dict[str, dict] = {
 
 
 def seed_gamma(substrate, owner: str) -> None:
-    """Empty gamma deposits at the samples' hotkeys, owned and spent by ``owner``, a stake
-    to burn, and mint quotes."""
-    for hotkey in (ALICE_HOT, BOB_HOT):
-        deposit = {"coldkey": owner, "spender": owner, "balance": 0, "bucket": (0, 0)}
+    """Gamma deposits at the samples' hotkeys, owned and spent by ``owner`` (the one at
+    ``BOB_HOT`` empty, so it can close)."""
+    for hotkey, balance in ((ALICE_HOT, 10**9), (BOB_HOT, 0)):
+        deposit = {"coldkey": owner, "spender": owner, "balance": balance, "bucket": (0, 0)}
         substrate.seed("SubtensorModule", "GammaDeposits", [1, hotkey], deposit)
-    quote = (10**9, 10**9, 400 * 10**9)
-    substrate.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", quote)
-    substrate.seed_runtime("GammaRuntimeApi", "sim_mint_gamma_with_stake", quote)
-    substrate.seed_runtime(
-        "StakeInfoRuntimeApi", "get_stake_info_for_hotkey_coldkey_netuid", {"stake": 10**9}
-    )

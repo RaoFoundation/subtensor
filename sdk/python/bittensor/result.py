@@ -307,10 +307,10 @@ _SUBSTRING_FALLBACK: tuple[tuple[str, ErrorCode], ...] = (
 # than the per-code defaults above.
 _NAME_HELP_OVERRIDES: dict[str, str] = {
     "SlippageTooHigh": (
-        "the price moved past the slippage-protection limit (stake trades are "
-        "protected by default with a 5% tolerance); retry, raise the tolerance "
-        "(`--rate-tolerance 0.1` / rate_tolerance=0.1), or disable protection "
-        "entirely (`--no-slippage-protection` / slippage_protection=False)"
+        "the price moved past the slippage-protection limit (stake trades and gamma "
+        "mints are protected by default with a 5% tolerance); retry, raise the tolerance "
+        "(`--rate-tolerance 0.1` / rate_tolerance=0.1), or, for stake trades, disable "
+        "protection entirely (`--no-slippage-protection` / slippage_protection=False)"
     ),
     "ColdkeySwapAnnounced": (
         "this coldkey has a pending swap announcement that blocks transfers "
@@ -358,16 +358,20 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "mint at least 0.1 gamma; check with `btcli stake list` / subnet price"
     ),
     "NonAssociatedColdKey": (
-        "sign with the coldkey that owns the hotkey (`btcli wallet registrations`); a "
-        "gamma deposit at a hotkey another coldkey holds stays theirs, so mint to a fresh hotkey"
+        "sign with the coldkey that owns the hotkey (`btcli wallet registrations`) or its "
+        "gamma deposit (`btcli gamma show`)"
     ),
     "TaoUsdPriceUnavailable": (
-        "the TAO/USD price is missing or over 300 blocks old; check `btcli deposits price` "
+        "the TAO/USD price is missing or over 300 blocks old; check `btcli query tao-usd-price` "
         "and retry once the oracle feeds"
     ),
     "GammaDepositNotEmpty": (
-        "move the balance out with `btcli deposits move --amount-gamma all`, which closes "
+        "move the balance out with `btcli gamma move --amount-gamma all`, which closes "
         "the deposit, or close it once its spender has spent it"
+    ),
+    "TooManyGammaDeposits": (
+        "move gamma into an existing deposit with `btcli gamma move`, or close an empty one "
+        "with `btcli gamma close`"
     ),
     "StakeAmountTooLow": (
         "raise the stake amount above the minimum, or stake more to the hotkey if "
@@ -382,7 +386,7 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "(`btcli stake list`); lock target and stake hotkey can differ"
     ),
     "NotEnoughBalanceToStake": (
-        "fund the coldkey or reduce the stake/registration amount; check with "
+        "fund the coldkey or reduce the stake, mint or registration amount; check with "
         "`btcli wallet balance`"
     ),
     "StakeUnavailable": (

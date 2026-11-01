@@ -354,7 +354,8 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "gamma_enabled": Hyperparam(
         "bool",
-        "Whether gamma can be minted on this subnet; the root subnet cannot enable it.",
+        "Whether this subnet allows gamma minting, which also needs gamma enabled "
+        "network-wide; the root subnet cannot enable it.",
         short="gamma minting toggle",
     ),
     "yuma3_enabled": Hyperparam(

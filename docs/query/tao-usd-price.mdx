@@ -7,7 +7,7 @@ description: "The TAO/USD price oracle, its last feed, and the accepted price at
 
 The accepted price falls to the feed at once and rises toward it by at most
 0.0066% (66 ppm) of itself per block. Minting needs a feed at most 300
-blocks old.
+blocks old, so no new mint succeeds once `blocks_since_last_feed` exceeds 300.
 
 **Category:** Gamma
 

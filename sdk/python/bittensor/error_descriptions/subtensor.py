@@ -61,8 +61,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "AmountTooLow": (
         "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the "
-        "minimum stake threshold after fees and slippage, or a gamma mint came to less than "
-        "0.1 gamma. Compare the amount against the "
+        "minimum stake threshold after fees and slippage, a gamma mint came to less than "
+        "0.1 gamma, or a gamma move found its origin deposit empty. Compare the amount against the "
         "`DefaultMinStake` storage item and the subnet's alpha price before retrying with a "
         "larger amount."
     ),
@@ -498,7 +498,8 @@ DESCRIPTIONS: dict[str, str] = {
         "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, "
         "emission splits summing away from 65535, max UIDs or take bounds. Check the specific "
         "argument against the min/max storage items the extrinsic validates (e.g. "
-        "`MinAllowedUids`, `MaxMechanismCount`)."
+        "`MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the "
+        "same hotkey, or an empty `spend_gamma`."
     ),
     "InvalidVotingPowerEmaAlpha": (
         "The alpha passed to set the voting power EMA exceeds 10^18, which represents 1.0. "
@@ -626,8 +627,8 @@ DESCRIPTIONS: dict[str, str] = {
     "NonAssociatedColdKey": (
         "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, "
         "serve, children or take changes), or the gamma deposit at the hotkey belongs to "
-        "another coldkey. Check the `Owner` storage entry for the hotkey, e.g. "
-        "via `btcli wallet registrations`, and sign with the coldkey that registered it."
+        "another coldkey. Check the hotkey's `Owner` (`btcli wallet registrations`) or the "
+        "gamma deposit's coldkey (`btcli gamma show`), and sign with the coldkey that owns it."
     ),
     "NotEnoughAlphaOutToRecycle": (
         "A recycle or burn of alpha requested more than the subnet's outstanding alpha supply. "
@@ -646,8 +647,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "NotEnoughBalanceToStake": (
         "The coldkey's free balance is less than the TAO required, either the stake amount in "
-        "add_stake or the burn cost of a registration. Check `btcli wallet balance` against the "
-        "amount or the current registration burn (`Burn` storage for the netuid)."
+        "add_stake, the TAO of a gamma mint, or the burn cost of a registration. Check "
+        "`btcli wallet balance` against the amount or the current registration burn (`Burn` "
+        "storage for the netuid)."
     ),
     "NotEnoughStake": (
         "The caller's hotkey holds less stake than the action requires; a generic "
@@ -1014,9 +1016,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "ColdkeySwapTooHeavy": (
         "The coldkey stakes through more hotkeys, or holds more stake positions, than one "
-        "coldkey swap can move, or holds more than 128 gamma deposits. Unstake from or move "
-        "stake off unused hotkeys and subnets, or move gamma into fewer deposits, to "
-        "consolidate, then retry the swap."
+        "coldkey swap can move, or the two coldkeys together hold more than 128 gamma deposits. "
+        "Unstake from or move stake off unused hotkeys and subnets, or move gamma into fewer "
+        "deposits and close empty ones, to consolidate, then retry the swap."
     ),
     "TaoUsdPriceUnavailable": (
         "Gamma cannot be minted because the TAO/USD price is unusable: there is no feed, or "

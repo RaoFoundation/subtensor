@@ -187,6 +187,7 @@ class SyncClient:
     chain: _SyncNamespace
     delegation: _SyncNamespace
     epochs: _SyncNamespace
+    gamma: _SyncNamespace
     hyperparameters: _SyncNamespace
     identity: _SyncNamespace
     leasing: _SyncNamespace
@@ -230,6 +231,7 @@ class SyncClient:
         self.chain = _SyncNamespace(self._client.chain, self._call)
         self.delegation = _SyncNamespace(self._client.delegation, self._call)
         self.epochs = _SyncNamespace(self._client.epochs, self._call)
+        self.gamma = _SyncNamespace(self._client.gamma, self._call)
         self.hyperparameters = _SyncNamespace(self._client.hyperparameters, self._call)
         self.identity = _SyncNamespace(self._client.identity, self._call)
         self.leasing = _SyncNamespace(self._client.leasing, self._call)

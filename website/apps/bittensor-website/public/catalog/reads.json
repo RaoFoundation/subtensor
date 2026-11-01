@@ -913,7 +913,7 @@
   {
     "name": "gamma_deposit",
     "summary": "The gamma deposit at a hotkey on a subnet, or None.",
-    "description": "The gamma deposit at a hotkey on a subnet, or None.\n\n`spendable_gamma` is the balance within what its daily spend cap allows now.",
+    "description": "The gamma deposit at a hotkey on a subnet, or None.\n\nIts `netuid`, `hotkey`, `coldkey`, `spender`, and `balance_gamma`,\n`daily_spend_cap_gamma` and `spendable_gamma` as exact decimal strings of\ngamma. A `daily_spend_cap_gamma` of None is no cap, and \"0\" pauses the\ndeposit. `spendable_gamma` is the balance within what its daily spend cap\nallows now.",
     "params": {
       "netuid": "integer",
       "hotkey_ss58": "string"
@@ -1684,7 +1684,7 @@
   {
     "name": "quote_mint_gamma",
     "summary": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.",
-    "description": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.\n\nNone when gamma cannot be minted: the subnet does not exist, minting or its\nsubtoken is disabled, the TAO/USD price is missing or stale, the pool lacks liquidity,\nor the amount is below the minimum.",
+    "description": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.\n\nNone when gamma cannot be minted: the subnet does not exist, minting or its\nsubtoken is disabled, the TAO/USD price is missing or stale, the pool lacks liquidity,\nor it would mint less than 0.1 gamma.",
     "params": {
       "netuid": "integer",
       "amount_tao": "number"
@@ -1713,7 +1713,7 @@
   {
     "name": "quote_mint_gamma_with_stake",
     "summary": "The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.",
-    "description": "The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.\n\nNone when gamma cannot be minted, as for `quote_mint_gamma`.",
+    "description": "The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.\n\nNone when gamma cannot be minted: the subnet does not exist, minting or its\nsubtoken is disabled, the TAO/USD price is missing or stale, or it would mint less than\n0.1 gamma.",
     "params": {
       "netuid": "integer",
       "amount_alpha": "number"
@@ -1989,17 +1989,17 @@
   {
     "name": "service_urls",
     "summary": "Every service url published on a subnet, by hotkey.",
-    "description": "Every service url published on a subnet, by hotkey.\n\nEach points to its hotkey's own document of its services and the spender\nto name on gamma deposits; the chain does not check what it says. `block` is\nwhen it was published; `owner` marks the subnet owner's hotkey.",
+    "description": "Every service url published on a subnet, by hotkey.\n\nEach points to its hotkey's own document of its services and the payments\nthey accept; the chain does not check what it says. `block` is when it was\npublished; `owner` marks the subnet owner's hotkey. A url that is not\nprintable text is returned as 0x-hex.",
     "params": {
       "netuid": "integer"
     },
     "param_docs": {
       "netuid": "Subnet whose service urls to list."
     },
-    "category": "Gamma",
+    "category": "Subnets",
     "docs_url": "/docs/query/service-urls",
     "markdown_url": "/llms.mdx/docs/query/service-urls/content.md",
-    "python": "sub.gamma.service_urls(...)",
+    "python": "sub.subnets.service_urls(...)",
     "hits": [
       {
         "kind": "storage",
@@ -2779,7 +2779,7 @@
   {
     "name": "tao_usd_price",
     "summary": "The TAO/USD price oracle, its last feed, and the accepted price at that feed.",
-    "description": "The TAO/USD price oracle, its last feed, and the accepted price at that feed.\n\nThe accepted price falls to the feed at once and rises toward it by at most\n0.0066% (66 ppm) of itself per block. Minting needs a feed at most 300\nblocks old.",
+    "description": "The TAO/USD price oracle, its last feed, and the accepted price at that feed.\n\nThe accepted price falls to the feed at once and rises toward it by at most\n0.0066% (66 ppm) of itself per block. Minting needs a feed at most 300\nblocks old, so no new mint succeeds once `blocks_since_last_feed` exceeds 300.",
     "params": {},
     "param_docs": {},
     "category": "Gamma",
