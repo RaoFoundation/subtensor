@@ -362,7 +362,7 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "gamma deposit at a hotkey another coldkey holds stays theirs, so mint to a fresh hotkey"
     ),
     "TaoUsdPriceUnavailable": (
-        "the TAO/USD price is missing or over 50 blocks old; check `btcli deposits price` "
+        "the TAO/USD price is missing or over 300 blocks old; check `btcli deposits price` "
         "and retry once the oracle feeds"
     ),
     "GammaDepositNotEmpty": (

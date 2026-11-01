@@ -109,7 +109,7 @@ async def tao_usd_price(view) -> dict:
     """The TAO/USD price oracle, its last feed, and the accepted price at that feed.
 
     The accepted price falls to the feed at once and rises toward it by at most
-    0.0066% (66 ppm) of itself per block. Minting needs a feed at most 50
+    0.0066% (66 ppm) of itself per block. Minting needs a feed at most 300
     blocks old.
     """
     oracle = await view.query(st.SubtensorModule.TaoUsdPriceOracle)

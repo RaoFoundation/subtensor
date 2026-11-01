@@ -1020,7 +1020,7 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "TaoUsdPriceUnavailable": (
         "Gamma cannot be minted because the TAO/USD price is unusable: there is no feed, or "
-        "the last feed is more than 50 blocks old. Check `tao_usd_price` and retry once the "
+        "the last feed is more than 300 blocks old. Check `tao_usd_price` and retry once the "
         "oracle has fed."
     ),
     "GammaDisabled": (

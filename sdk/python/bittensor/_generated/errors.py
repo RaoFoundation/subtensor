@@ -230,7 +230,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 187): ErrorInfo('SubtensorModule', 'EmissionWeightsNotSettableOnRoot', '`set_subnet_emission_weights`: the root subnet has no emission vector.'),
     (7, 188): ErrorInfo('SubtensorModule', 'ColdkeySwapDestinationReserved', 'This account is reserved as the destination of an in-flight coldkey-swap announcement, so it cannot be registered as a hotkey (and another coldkey cannot announce to it) until that announcement is executed, cleared, released by the destination, reset, or the reservation TTL expires. Prevents recovery-delay griefing after announce reveals the dest.'),
     (7, 189): ErrorInfo('SubtensorModule', 'ColdkeySwapDestinationReservationNotFound', 'No live coldkey-swap destination reservation exists for this account.'),
-    (7, 190): ErrorInfo('SubtensorModule', 'TaoUsdPriceUnavailable', 'Minting gamma needs a TAO/USD feed at most `TAO_USD_PRICE_MAX_AGE` blocks old.'),
+    (7, 190): ErrorInfo('SubtensorModule', 'TaoUsdPriceUnavailable', 'Minting gamma needs a TAO/USD feed at most 300 blocks old.'),
     (7, 191): ErrorInfo('SubtensorModule', 'GammaDisabled', 'Gamma minting is disabled network-wide or on this subnet.'),
     (7, 192): ErrorInfo('SubtensorModule', 'TooManyGammaDeposits', 'The coldkey would hold more than `MAX_GAMMA_DEPOSITS` gamma deposits on this subnet.'),
     (7, 193): ErrorInfo('SubtensorModule', 'GammaDepositDoesNotExist', 'The hotkey holds no gamma deposit on this subnet.'),

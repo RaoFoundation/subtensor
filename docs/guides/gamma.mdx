@@ -222,7 +222,7 @@ A url is removed when its neuron is deregistered and follows a hotkey swap.
 An oracle set by root feeds the TAO/USD price. The accepted price falls to a
 lower feed at once and rises toward a higher one by at most 0.0066% (66 ppm)
 per block, about 2% per hour. A mint values TAO at the accepted price and needs
-a feed at most 50 blocks old; otherwise it fails with
+a feed at most 300 blocks (one hour) old; otherwise it fails with
 [`TaoUsdPriceUnavailable`](/docs/errors/chain/TaoUsdPriceUnavailable). Setting
 or removing the oracle clears the price, so no gamma can be minted until an
 oracle feeds. Read it with [`tao-usd-price`](/docs/query/tao-usd-price):
