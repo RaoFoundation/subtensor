@@ -888,7 +888,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx create-crowdloan --deposit-tao <amount|all> --min-contribution-tao <amount|all> --cap-tao <amount|all> --end <int>",
+    "cli": "btcli tx create-crowdloan --deposit-tao <amount> --min-contribution-tao <amount> --cap-tao <amount> --end <int>",
     "python_class": "CreateCrowdloan",
     "markdown_url": "/llms.mdx/docs/tx/create-crowdloan/content.md",
     "sources": [
@@ -1514,7 +1514,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx mint-gamma --netuid <int> --hotkey <ss58|name> --amount-tao <amount|all>",
+    "cli": "btcli tx mint-gamma --netuid <int> --hotkey <ss58|name> --amount-tao <amount>",
     "python_class": "MintGamma",
     "markdown_url": "/llms.mdx/docs/tx/mint-gamma/content.md",
     "sources": [
@@ -4051,7 +4051,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx set-min-collateral --netuid <int> --min-alpha <amount|all>",
+    "cli": "btcli tx set-min-collateral --netuid <int> --min-alpha <amount>",
     "python_class": "SetMinCollateral",
     "markdown_url": "/llms.mdx/docs/tx/set-min-collateral/content.md",
     "sources": [
@@ -4237,7 +4237,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx set-root-claim-threshold --threshold <amount|all>",
+    "cli": "btcli tx set-root-claim-threshold --threshold <amount>",
     "python_class": "SetRootClaimThreshold",
     "markdown_url": "/llms.mdx/docs/tx/set-root-claim-threshold/content.md",
     "sources": [
@@ -4676,7 +4676,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx spend-gamma --netuid <int> --spends <a,b,c>",
+    "cli": "btcli tx spend-gamma --netuid <int> --spends '<json>'",
     "python_class": "SpendGamma",
     "markdown_url": "/llms.mdx/docs/tx/spend-gamma/content.md",
     "sources": [
@@ -4744,7 +4744,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx stake-burn --netuid <int> --amount-tao <amount|all>",
+    "cli": "btcli tx stake-burn --netuid <int> --amount-tao <amount>",
     "python_class": "StakeBurn",
     "markdown_url": "/llms.mdx/docs/tx/stake-burn/content.md",
     "sources": [
@@ -4983,7 +4983,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx swap-basket-many --hotkey <ss58|name> --legs <a,b,c>",
+    "cli": "btcli tx swap-basket-many --hotkey <ss58|name> --legs '<json>'",
     "python_class": "SwapBasketMany",
     "markdown_url": "/llms.mdx/docs/tx/swap-basket-many/content.md",
     "sources": [
@@ -5670,7 +5670,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx update-crowdloan-cap --crowdloan-id <int> --new-cap-tao <amount|all>",
+    "cli": "btcli tx update-crowdloan-cap --crowdloan-id <int> --new-cap-tao <amount>",
     "python_class": "UpdateCrowdloanCap",
     "markdown_url": "/llms.mdx/docs/tx/update-crowdloan-cap/content.md",
     "sources": [
@@ -5773,7 +5773,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx update-crowdloan-min-contribution --crowdloan-id <int> --new-min-contribution-tao <amount|all>",
+    "cli": "btcli tx update-crowdloan-min-contribution --crowdloan-id <int> --new-min-contribution-tao <amount>",
     "python_class": "UpdateCrowdloanMinContribution",
     "markdown_url": "/llms.mdx/docs/tx/update-crowdloan-min-contribution/content.md",
     "sources": [

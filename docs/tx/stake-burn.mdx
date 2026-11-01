@@ -26,7 +26,7 @@ against a configured spend cap.
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet whose alpha is bought and burned. |
-| `amount_tao` | number \| `"all"` | yes | Spent from the coldkey to buy alpha that is then burned. |
+| `amount_tao` | number | yes | Spent from the coldkey to buy alpha that is then burned. |
 | `limit_price` | integer | no | Worst acceptable price in rao per alpha; the call fails rather than filling beyond it. Defaults to the current pool price plus `rate_tolerance`. |
 | `rate_tolerance` | number | no | Maximum price move accepted when `limit_price` is omitted, as a fraction (0.05 = 5%). Ignored when `limit_price` is given. |
 | `hotkey_ss58` | string | no | Hotkey the burn is routed through; defaults to the wallet's hotkey. |
@@ -42,10 +42,10 @@ submitting), then submit:
 ```bash
 btcli tx stake-burn \
   --netuid <int> \
-  --amount-tao <amount|all> --dry-run
+  --amount-tao <amount> --dry-run
 btcli tx stake-burn \
   --netuid <int> \
-  --amount-tao <amount|all> -w my_coldkey
+  --amount-tao <amount> -w my_coldkey
 ```
 
 ## Python
