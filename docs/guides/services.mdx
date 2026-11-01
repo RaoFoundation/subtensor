@@ -1,0 +1,55 @@
+---
+title: Subnet services
+description: Service urls that registered hotkeys publish on their subnet, pointing to a document of their services and the payments they accept.
+---
+
+Any hotkey registered on a subnet can publish a url to a document of its
+services with [`set-service-url`](/docs/tx/set-service-url), so that apps and
+agents can find what the subnet serves and how it is paid for. Publishing an
+empty url clears it. Publishing pays a normal fee, charged to the hotkey's
+coldkey, and uses the subnet's
+[`serving_rate_limit`](/docs/hyperparameters/serving-rate-limit), so a url can be
+changed or cleared only that many blocks after its own last update, whatever
+the hotkey's axon does.
+
+```bash
+btcli tx set-service-url --netuid 51 --url https://example.com/services.json -w my_coldkey -H my_hotkey
+btcli query service-urls --netuid 51
+```
+
+```python
+await client.execute(bt.SetServiceUrl(netuid=51, url="https://example.com/services.json"), hotkey_wallet)
+urls = await client.subnets.service_urls(netuid=51)  # {hotkey: {url, block, owner}}
+```
+
+A url follows a hotkey swap and is removed when its neuron is deregistered.
+`owner` marks the url of the subnet owner's hotkey.
+
+## The document
+
+The chain stores only the url. The document says what the services are, how to
+reach them, and how they are paid for:
+
+```json
+{
+  "version": 1,
+  "services": [
+    { "type": "openapi", "endpoint": "https://…", "spec": "https://…/openapi.json" },
+    { "type": "mcp", "endpoint": "https://…/mcp" }
+  ],
+  "payments": [
+    { "type": "gamma", "spender": "5F…" },
+    { "type": "x402" }
+  ]
+}
+```
+
+- A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma). Its
+  `spender` is the spender to name on a deposit. Without one, a new deposit is
+  spent by the subnet owner, or its lease's beneficiary.
+- An [`x402`](https://www.x402.org) payment states its price and payee in each
+  HTTP 402 response.
+- Readers skip service and payment types they do not know.
+
+A document can name any spender, and that spender can spend the deposits that
+name it without serving, so prefer the url marked `owner`.

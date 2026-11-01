@@ -49,7 +49,7 @@ Prefer the narrowest type that covers the job:
 * **Any** — everything, including transfers. Avoid: leaking an `Any` proxy is
   exactly as bad as leaking the coldkey.
 * **NonTransfer** — everything *except* balance transfers, stake transfers,
-  coldkey swaps, and gamma mints, moves and spends. Notably it can manage the
+  coldkey swaps, basket trading, and gamma mints, moves and spends. Notably it can manage the
   account's other proxies, which makes it the natural "manager" proxy.
 * **Transfer** — balance transfers and stake transfers (`transfer_stake` /
   `transfer_stake_and_hotkey`) only.
@@ -77,7 +77,7 @@ Prefer the narrowest type that covers the job:
   and `Commitments.set_commitment`. No stake, transfer, registration, key swap,
   child-key, or take call, and no `Utility` / `Proxy` / `Multisig` wrapper.
   The real is the hotkey, so the hotkey signs `add_proxy`. A leaked
-  `Validate` key can set bad weights and re-point the axon or EVM key; it
+  `Validate` key can set bad weights and re-point the axon, service url or EVM key; it
   cannot move TAO or alpha.
 * **Weights** — the weights calls only. Strictly inside `Validate`: use it
   for a third-party weight setter (auditor model) that must not be able to
@@ -86,7 +86,8 @@ Prefer the narrowest type that covers the job:
 * **GammaSpend** — `spend_gamma` only: spend the gamma deposits that name the
   real account as spender. See [Gamma](/docs/guides/gamma#spending).
 * **Owner** — subnet-owner admin calls; **NonCritical** — everything except
-  registrations, coldkey swaps, and subnet dissolution;
+  registrations, coldkey swaps, subnet dissolution, basket trading, and gamma
+  spends;
   **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.
 
 `Triumvirate`, `Senate`, `Governance`, and `RootWeights` are deprecated on the
