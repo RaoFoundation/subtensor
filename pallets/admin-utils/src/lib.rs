@@ -2899,7 +2899,7 @@ pub mod pallet {
 
         /// Sets the account that feeds the TAO/USD price; `None` removes it. The stored price
         /// is cleared, so the next feed is accepted as it is. Root-only.
-        #[pallet::call_index(115)]
+        #[pallet::call_index(116)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_tao_usd_price_oracle())]
         pub fn sudo_set_tao_usd_price_oracle(
             origin: OriginFor<T>,
@@ -2915,7 +2915,7 @@ pub mod pallet {
 
         /// Enables or disables gamma minting on a subnet. Callable by the subnet owner or
         /// root; the root subnet is refused.
-        #[pallet::call_index(116)]
+        #[pallet::call_index(117)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_subnet_gamma_enabled())]
         pub fn sudo_set_subnet_gamma_enabled(
             origin: OriginFor<T>,
@@ -2947,7 +2947,7 @@ pub mod pallet {
 
         /// Enables or disables gamma minting network-wide; a subnet also needs its own flag.
         /// Root-only.
-        #[pallet::call_index(117)]
+        #[pallet::call_index(118)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_gamma_enabled())]
         pub fn sudo_set_gamma_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
             ensure_root(origin)?;

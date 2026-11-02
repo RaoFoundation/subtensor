@@ -53,6 +53,16 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`epoch-status`](/docs/query/epoch-status) | Where a subnet is in its epoch cycle, in one block-pinned read. |
 | [`next-epoch-start-block`](/docs/query/next-epoch-start-block) | Block at which the subnet's next epoch is expected to fire, or None if tempo is 0. |
 
+## Gamma
+
+| Query | Summary |
+| --- | --- |
+| [`gamma-deposit`](/docs/query/gamma-deposit) | The gamma deposit at a hotkey on a subnet, or None. |
+| [`gamma-deposits`](/docs/query/gamma-deposits) | Every gamma deposit of a coldkey, on every subnet. |
+| [`quote-mint-gamma`](/docs/query/quote-mint-gamma) | The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now. |
+| [`quote-mint-gamma-with-stake`](/docs/query/quote-mint-gamma-with-stake) | The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now. |
+| [`tao-usd-price`](/docs/query/tao-usd-price) | The TAO/USD price oracle, its last feed, and the accepted price at this block. |
+
 ## Hyperparameters
 
 | Query | Summary |
@@ -161,6 +171,7 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`mechanism-count`](/docs/query/mechanism-count) | Current mechanism count configured for a subnet. |
 | [`mechanism-emission-split`](/docs/query/mechanism-emission-split) | Emission split between mechanisms on a subnet. |
 | [`metagraph`](/docs/query/metagraph) | The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...). |
+| [`services`](/docs/query/services) | Every service published on a subnet, by hotkey. |
 | [`subnet`](/docs/query/subnet) | Tempo, burn, and neuron count for one subnet (the three reads run concurrently). |
 | [`subnet-emission-weights`](/docs/query/subnet-emission-weights) | The subnet's emission weight vector `[burn, recycle, owner, validator, |
 | [`subnet-hyperparameters`](/docs/query/subnet-hyperparameters) | All hyperparameters for a subnet, as a flat name -> raw value mapping. |

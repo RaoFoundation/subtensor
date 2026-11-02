@@ -36,7 +36,7 @@ MINT_STAKE = {
 MOVE = {"netuid": 1, "origin_hotkey_ss58": ALICE_HOT, "destination_hotkey_ss58": BOB_HOT}
 DEPOSIT = {"netuid": 1, "hotkey_ss58": BOB_HOT}
 SIGNER = ALICE_HOT  # any account, as the dispatch origin
-GAMMA_DISABLED = {"Module": {"index": 7, "error": "0xbf000000"}}
+GAMMA_DISABLED = {"Module": {"index": 7, "error": "0xc0000000"}}
 
 
 def _deposit(coldkey: str = SIGNER, balance: int = 0, **fields) -> dict:
