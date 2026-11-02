@@ -568,6 +568,11 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         netuid: NetUid,
         amount: u64,
     ) {
+        // `lock_alpha_collateral` / `ensure_hotkey_account` require Owner[hotkey].
+        // Stake helpers alone leave that map empty, so open_exact / raise benches
+        // fail with HotKeyAccountNotExists before measuring the extrinsic body
+        // (Auditor fid:b5518844).
+        let _ = Self::create_account_if_non_existent(who, hotkey);
         let alpha: AlphaBalance = amount.into();
         let _ = Self::try_increase_stake_for_hotkey_and_coldkey_on_subnet(hotkey, netuid, alpha);
         Self::increase_stake_for_hotkey_and_coldkey_on_subnet(hotkey, who, netuid, alpha);
