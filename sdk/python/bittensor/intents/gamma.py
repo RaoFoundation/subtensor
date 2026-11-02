@@ -564,5 +564,5 @@ class SpendGamma(Intent):
         total = sum(Decimal(spend["amount_gamma"]) for spend in self.spends)
         return (
             f"spend up to {format(total.normalize(), 'f')} gamma in {len(self.spends)} "
-            f"entries on netuid {self.netuid}"
+            f"{'entry' if len(self.spends) == 1 else 'entries'} on netuid {self.netuid}"
         )
