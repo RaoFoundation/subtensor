@@ -653,17 +653,22 @@ def intent_page(op: str, cls) -> str:
     # Intents may pin a friendlier CLI spelling (e.g. root registration goes
     # through the ordinary `subnets register` command); default to the
     # generic tx command.
-    cli_parts = [getattr(cls, "cli_example", None) or f"btcli tx {kebab(op)}"]
-    for name in required:
-        cli_parts.append(cli_arg(name, props[name]))
-    cli_cmd = " \\\n  ".join(cli_parts)
-
+    # Setters that take exactly one of their optional values show one.
     examples = {
         "trim_subnet": {"max_n": "64"},
         "trim_null_subnet_batch": {"target": "64"},
+        "set_gamma_deposit_spender": {"spender_ss58": '"5F..."'},
+        "set_gamma_deposit_daily_spend_cap": {"daily_spend_cap_gamma": "10"},
     }.get(op, {})
+    shown = required + [n for n in examples if n not in required]
+
+    cli_parts = [getattr(cls, "cli_example", None) or f"btcli tx {kebab(op)}"]
+    for name in shown:
+        cli_parts.append(cli_arg(name, props[name]))
+    cli_cmd = " \\\n  ".join(cli_parts)
+
     py_args = ", ".join(
-        f"{n}={examples.get(n, py_placeholder(n, props[n]))}" for n in required
+        f"{n}={examples.get(n, py_placeholder(n, props[n]))}" for n in shown
     )
     class_name = cls.__name__
 

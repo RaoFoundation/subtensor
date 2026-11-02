@@ -134,11 +134,13 @@ btcli gamma close --netuid 51 --hotkey API_KEY
 ## Spenders and daily spend caps
 
 The spender stays the same if the subnet changes hands. Name another account
-with [`set-gamma-deposit-spender`](/docs/tx/set-gamma-deposit-spender), or
-`--default-spender` for the subnet's current owner, or its lease's beneficiary:
+with [`set-gamma-deposit-spender`](/docs/tx/set-gamma-deposit-spender) and
+`--spender SPENDER`, a service's spender with `--service-hotkey SERVICE_HOTKEY`,
+or `--default-spender` for the subnet's current owner, or its lease's
+beneficiary:
 
 ```bash
-btcli gamma set-spender --netuid 51 --hotkey API_KEY --spender SERVICE
+btcli gamma set-spender --netuid 51 --hotkey API_KEY --service-hotkey SERVICE_HOTKEY
 ```
 
 A daily spend cap, set with
@@ -146,8 +148,8 @@ A daily spend cap, set with
 bounds what the spender can take. What it allows refills linearly at the cap
 per 7200 blocks, up to the cap. A cap set where there was none starts full, and
 a changed cap keeps what it allows now, up to the new cap, so ending a pause
-refills from nothing. A cap of zero pauses the deposit, and `--no-cap` removes
-the cap.
+refills from nothing. A cap of zero pauses the deposit, and `--remove-cap`
+removes the cap.
 
 While a deposit has a cap, a spender takes at most the highest cap plus its
 refill over any period. A deposit opened with a cap starts full.

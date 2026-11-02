@@ -102,7 +102,7 @@ async def _service_spender(substrate, netuid: int, hotkey_ss58: str) -> str:
 
 
 async def _named_spender(intent, substrate) -> Optional[str]:
-    """The spender a mint names: its own, its service's, or none."""
+    """The spender an intent names: its own, its service's, or none."""
     if intent.service_hotkey_ss58 is None:
         return intent.spender_ss58
     return await _service_spender(substrate, intent.netuid, intent.service_hotkey_ss58)
@@ -509,9 +509,8 @@ class CloseGammaDeposit(Intent):
 class SetGammaDepositSpender(Intent):
     """Set who may spend your gamma deposit.
 
-    Takes effect at once; a deposit opened by a move inherits it. Omitting
-    ``spender_ss58`` sets the default spender, the subnet owner or its lease's
-    beneficiary while a lease owns the subnet.
+    Takes effect at once; a deposit opened by a move inherits it. Set exactly
+    one of ``spender_ss58``, ``service_hotkey_ss58`` or ``default_spender``.
     """
 
     op = "set_gamma_deposit_spender"
@@ -521,17 +520,31 @@ class SetGammaDepositSpender(Intent):
     netuid: int = field(metadata={"help": "Subnet of the deposit."})
     hotkey_ss58: str = field(metadata={"help": "Hotkey of the deposit."})
     spender_ss58: Optional[str] = field(
-        default=None,
+        default=None, metadata={"help": "The account that spends the deposit."}
+    )
+    service_hotkey_ss58: Optional[str] = field(default=None, metadata={"help": SERVICE_HELP})
+    default_spender: bool = field(
+        default=False,
         metadata={
-            "help": "The account that spends the deposit. Omit to set the default spender, the "
-            "subnet owner or its lease's beneficiary while a lease owns the subnet."
+            "help": "Name the default spender, the subnet owner or its lease's beneficiary while "
+            "a lease owns the subnet."
         },
     )
+
+    def __post_init__(self):
+        named = [self.spender_ss58 is not None, self.service_hotkey_ss58 is not None]
+        if sum(named) + self.default_spender != 1:
+            raise BittensorError(
+                f"{self.op}: set exactly one of spender_ss58, service_hotkey_ss58 or "
+                "default_spender"
+            )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
             calls.SubtensorModule.set_gamma_deposit_spender(
-                hotkey=self.hotkey_ss58, netuid=self.netuid, spender=self.spender_ss58
+                hotkey=self.hotkey_ss58,
+                netuid=self.netuid,
+                spender=await _named_spender(self, substrate),
             )
         )
 
@@ -540,21 +553,24 @@ class SetGammaDepositSpender(Intent):
         return _own_deposit_blocks(deposit, signer_address, self.hotkey_ss58)
 
     def summary(self) -> str:
+        if self.service_hotkey_ss58 is not None:
+            spender = f"the spender of the service at {self.service_hotkey_ss58}"
+        else:
+            spender = self.spender_ss58 or DEFAULT_SPENDER
         return (
-            f"let {self.spender_ss58 or DEFAULT_SPENDER} spend the gamma deposit at"
-            f" {self.hotkey_ss58} on netuid {self.netuid}"
+            f"let {spender} spend the gamma deposit at {self.hotkey_ss58} on netuid {self.netuid}"
         )
 
 
 @register
 @dataclass
 class SetGammaDepositDailySpendCap(Intent):
-    """Set the daily spend cap of your gamma deposit.
+    """Set or remove the daily spend cap of your gamma deposit.
 
     What the spender can spend refills linearly at the cap per 7200 blocks, up
     to the cap, and a cap of zero pauses the deposit. A changed cap keeps what
-    the spender can spend now, up to the new cap. Omitting
-    ``daily_spend_cap_gamma`` removes the cap.
+    the spender can spend now, up to the new cap. Set exactly one of
+    ``daily_spend_cap_gamma`` or ``remove_cap``.
     """
 
     op = "set_gamma_deposit_daily_spend_cap"
@@ -564,10 +580,15 @@ class SetGammaDepositDailySpendCap(Intent):
     netuid: int = field(metadata={"help": "Subnet of the deposit."})
     hotkey_ss58: str = field(metadata={"help": "Hotkey of the deposit."})
     daily_spend_cap_gamma: Optional[Money] = field(
-        default=None, metadata={"help": "The cap, in gamma. Omit to remove it."}
+        default=None, metadata={"help": "The cap, in gamma; 0 pauses the deposit."}
     )
+    remove_cap: bool = field(default=False, metadata={"help": "Remove the cap."})
 
     def __post_init__(self):
+        if (self.daily_spend_cap_gamma is None) != self.remove_cap:
+            raise BittensorError(
+                f"{self.op}: set exactly one of daily_spend_cap_gamma or remove_cap"
+            )
         self.daily_spend_cap_gamma = _daily_spend_cap(self.daily_spend_cap_gamma)
 
     async def build(self, substrate, wallet: Any):

@@ -7,7 +7,7 @@ from typing import Optional
 
 import typer
 
-from ...intents import SetGammaDepositDailySpendCap, SetGammaDepositSpender, SpendGamma
+from ...intents import SpendGamma
 from ...settings import guide_docs_url, query_docs_url, tx_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -118,80 +118,10 @@ for _alias, _op in (
     ("mint-with-stake", "mint_gamma_with_stake"),
     ("move", "move_gamma"),
     ("close", "close_gamma_deposit"),
+    ("set-spender", "set_gamma_deposit_spender"),
+    ("set-cap", "set_gamma_deposit_daily_spend_cap"),
 ):
     app.command(_alias)(intent_command(_op))
-
-
-@app.command(
-    "set-spender",
-    help="Set who may spend your gamma deposit.\n\n"
-    "Takes effect at once; a deposit opened by a move inherits it.\n\n"
-    f"Docs: {tx_docs_url(SetGammaDepositSpender.op)}",
-)
-@with_tx_globals
-def set_spender(
-    ctx: typer.Context,
-    netuid: int = typer.Option(..., "--netuid", help=SetGammaDepositSpender.field_help("netuid")),
-    hotkey: str = _hotkey_option(SetGammaDepositSpender.field_help("hotkey_ss58")),
-    spender: Optional[str] = typer.Option(
-        None,
-        address_cli_name("spender_ss58"),
-        help=f"The account that spends the deposit. {ss58_param_help('spender_ss58')}",
-    ),
-    default_spender: bool = typer.Option(
-        False,
-        "--default-spender",
-        help="Set the default spender, the subnet owner or its lease's beneficiary while a "
-        "lease owns the subnet.",
-    ),
-):
-    app_ctx: AppContext = ctx_of(ctx)
-    if (spender is None) != default_spender:
-        app_ctx.output.error("pass exactly one of `--spender` or `--default-spender`")
-        raise typer.Exit(2)
-    app_ctx.submit(
-        SetGammaDepositSpender(
-            netuid=netuid,
-            hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey),
-            spender_ss58=None
-            if spender is None
-            else app_ctx.resolve_address("spender_ss58", spender),
-        )
-    )
-
-
-@app.command(
-    "set-cap",
-    help="Set or remove the daily spend cap of your gamma deposit.\n\n"
-    "What the spender can spend refills at the cap per 7200 blocks, up to the cap, and a cap "
-    "of 0 pauses the deposit.\n\n"
-    f"Docs: {tx_docs_url(SetGammaDepositDailySpendCap.op)}",
-)
-@with_tx_globals
-def set_cap(
-    ctx: typer.Context,
-    netuid: int = typer.Option(
-        ..., "--netuid", help=SetGammaDepositDailySpendCap.field_help("netuid")
-    ),
-    hotkey: str = _hotkey_option(SetGammaDepositDailySpendCap.field_help("hotkey_ss58")),
-    daily_spend_cap: Optional[str] = typer.Option(
-        None,
-        "--daily-spend-cap-gamma",
-        help="The cap, in gamma; 0 pauses the deposit.",
-    ),
-    no_cap: bool = typer.Option(False, "--no-cap", help="Remove the cap."),
-):
-    app_ctx: AppContext = ctx_of(ctx)
-    if (daily_spend_cap is None) != no_cap:
-        app_ctx.output.error("pass exactly one of `--daily-spend-cap-gamma` or `--no-cap`")
-        raise typer.Exit(2)
-    app_ctx.submit(
-        SetGammaDepositDailySpendCap(
-            netuid=netuid,
-            hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey),
-            daily_spend_cap_gamma=daily_spend_cap,
-        )
-    )
 
 
 @app.command(
