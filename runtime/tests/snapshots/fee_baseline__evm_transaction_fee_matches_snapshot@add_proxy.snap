@@ -3,4 +3,4 @@ source: runtime/tests/fee_baseline.rs
 description: add_proxy
 expression: fee_rao
 ---
-271410
+450940

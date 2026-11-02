@@ -463,6 +463,8 @@ mod errors {
         ColdkeySwapDestinationReserved,
         /// No live coldkey-swap destination reservation exists for this account.
         ColdkeySwapDestinationReservationNotFound,
+        /// An ownership change would weaken a protected account's authorization.
+        HotkeyOwnerPolicyViolation,
         /// Minting gamma needs a TAO/USD feed at most 300 blocks old.
         TaoUsdPriceUnavailable,
         /// Gamma minting is disabled network-wide or on this subnet.

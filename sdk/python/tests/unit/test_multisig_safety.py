@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 import bittensor.executor as executor_module
-from bittensor import Policy
+from bittensor import Balance, Policy
 from bittensor._generated import calls
 from bittensor.cli import multisig_helpers
 from bittensor.client import Client
@@ -23,6 +23,33 @@ from bittensor.intents.root import SetSubnetEmissionEnabled
 from bittensor.multisig import Multisig
 from tests.harness.fake_substrate import FakeSubstrate, success_result
 from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, dev_wallet
+
+
+@pytest.mark.parametrize("code", [4, 6])
+@pytest.mark.asyncio
+async def test_sdk_multisig_normalizes_receiving_members(code):
+    from bittensor.receiving import receiving_address
+    from bittensor.sp_core import Keypair
+
+    key = Keypair.create_from_seed(bytes([code]) * 32, code)
+    client = Client("local", substrate=FakeSubstrate())
+    canonical = await client.multisig([key.ss58_address, ALICE, BOB], 2)
+    received = await client.multisig([BOB, receiving_address(key), ALICE], 2)
+    assert received.address == canonical.address
+    assert received.signatories == canonical.signatories
+
+
+@pytest.mark.parametrize("shielded", [False, True])
+@pytest.mark.asyncio
+async def test_sdk_multisig_rejects_nonmember_before_signing(shielded):
+    client = Client("local", substrate=FakeSubstrate())
+    multi = await client.multisig([ALICE, BOB], 2)
+    client.compose = AsyncMock()
+    with pytest.raises(ValueError, match="not a member"):
+        await multi.approve(
+            calls.System.remark(remark="0x00"), dev_wallet("//Charlie"), shielded=shielded
+        )
+    client.compose.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -108,7 +135,10 @@ async def test_saved_multisig_preserves_inner_policy_and_mev_contract(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_required_mev_shield_survives_multisig_dispatch():
+@pytest.mark.parametrize(
+    "options,expected_period", [({}, 8), ({"period": None}, 8), ({"period": 16}, 16)]
+)
+async def test_required_mev_shield_survives_multisig_dispatch(options, expected_period):
     semantic = BurnedRegister(netuid=7, hotkey_ss58=ALICE_HOT)
     dispatch = MultisigThreshold1(
         other_signatories=[BOB],
@@ -120,7 +150,7 @@ async def test_required_mev_shield_survives_multisig_dispatch():
     executor.submit_shielded = AsyncMock(return_value=expected)
     wallet = Mock()
 
-    result = await executor.execute(wrapped, wallet)
+    result = await executor.execute(wrapped, wallet, **options)
 
     assert result is expected
     executor.submit_shielded.assert_awaited_once_with(
@@ -129,16 +159,22 @@ async def test_required_mev_shield_survives_multisig_dispatch():
         policy=None,
         proxy_for=None,
         proxy_type=None,
+        period=expected_period,
         wait_for_inclusion=True,
         wait_for_finalization=True,
         wait_for_registration=True,
         registration_timeout=None,
         on_progress=None,
+        max_registration_deposit=None,
+        on_registration_sponsorship=None,
     )
 
 
 @pytest.mark.asyncio
-async def test_required_mev_shield_passes_proxy_for():
+@pytest.mark.parametrize(
+    "options,expected_period", [({}, 8), ({"period": None}, 8), ({"period": 16}, 16)]
+)
+async def test_required_mev_shield_passes_proxy_for(options, expected_period):
     semantic = BurnedRegister(netuid=7, hotkey_ss58=ALICE_HOT)
     dispatch = MultisigThreshold1(
         other_signatories=[BOB],
@@ -149,8 +185,18 @@ async def test_required_mev_shield_passes_proxy_for():
     expected = Mock()
     executor.submit_shielded = AsyncMock(return_value=expected)
     wallet = Mock()
+    max_deposit = Balance.from_rao(200_000_000)
+    on_sponsorship = Mock(return_value=True)
 
-    result = await executor.execute(wrapped, wallet, proxy_for=BOB, proxy_type="Staking")
+    result = await executor.execute(
+        wrapped,
+        wallet,
+        proxy_for=BOB,
+        proxy_type="Staking",
+        max_registration_deposit=max_deposit,
+        on_registration_sponsorship=on_sponsorship,
+        **options,
+    )
 
     assert result is expected
     executor.submit_shielded.assert_awaited_once_with(
@@ -159,11 +205,14 @@ async def test_required_mev_shield_passes_proxy_for():
         policy=None,
         proxy_for=BOB,
         proxy_type="Staking",
+        period=expected_period,
         wait_for_inclusion=True,
         wait_for_finalization=True,
         wait_for_registration=True,
         registration_timeout=None,
         on_progress=None,
+        max_registration_deposit=max_deposit,
+        on_registration_sponsorship=on_sponsorship,
     )
 
 

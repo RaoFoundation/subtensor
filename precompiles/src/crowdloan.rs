@@ -131,8 +131,8 @@ where
         end: u32,
         target_address: Address,
     ) -> EvmResult<()> {
-        let who = handle.caller_account_id::<R>();
-        let target_address = R::AddressMapping::into_account_id(target_address.0);
+        let who = handle.caller_account_id::<R>()?;
+        let target_address = handle.mapped_account_id::<R>(target_address.0)?;
         let call = pallet_crowdloan::Call::<R>::create {
             deposit: deposit.into(),
             min_contribution: min_contribution.into(),
@@ -152,7 +152,7 @@ where
         crowdloan_id: u32,
         amount: u64,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_crowdloan::Call::<R>::contribute {
             crowdloan_id,
             amount: amount.into(),
@@ -164,7 +164,7 @@ where
     #[precompile::public("withdraw(uint32)")]
     #[precompile::payable]
     fn withdraw(handle: &mut impl PrecompileHandle, crowdloan_id: u32) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_crowdloan::Call::<R>::withdraw { crowdloan_id };
 
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
@@ -173,7 +173,7 @@ where
     #[precompile::public("finalize(uint32)")]
     #[precompile::payable]
     fn finalize(handle: &mut impl PrecompileHandle, crowdloan_id: u32) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_crowdloan::Call::<R>::finalize { crowdloan_id };
 
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
@@ -182,7 +182,7 @@ where
     #[precompile::public("refund(uint32)")]
     #[precompile::payable]
     fn refund(handle: &mut impl PrecompileHandle, crowdloan_id: u32) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_crowdloan::Call::<R>::refund { crowdloan_id };
 
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
@@ -191,7 +191,7 @@ where
     #[precompile::public("dissolve(uint32)")]
     #[precompile::payable]
     fn dissolve(handle: &mut impl PrecompileHandle, crowdloan_id: u32) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_crowdloan::Call::<R>::dissolve { crowdloan_id };
 
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
@@ -204,7 +204,7 @@ where
         crowdloan_id: u32,
         new_min_contribution: u64,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_crowdloan::Call::<R>::update_min_contribution {
             crowdloan_id,
             new_min_contribution: new_min_contribution.into(),
@@ -220,7 +220,7 @@ where
         crowdloan_id: u32,
         new_end: u32,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_crowdloan::Call::<R>::update_end {
             crowdloan_id,
             new_end: new_end.into(),
@@ -236,7 +236,7 @@ where
         crowdloan_id: u32,
         new_cap: u64,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_crowdloan::Call::<R>::update_cap {
             crowdloan_id,
             new_cap: new_cap.into(),
@@ -252,7 +252,7 @@ where
         has_max_contribution: bool,
         max_contribution: u64,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_crowdloan::Call::<R>::set_max_contribution {
             crowdloan_id,
             new_max_contribution: has_max_contribution.then_some(max_contribution.into()),

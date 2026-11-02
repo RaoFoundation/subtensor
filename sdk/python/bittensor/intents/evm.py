@@ -11,12 +11,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-from .._generated import calls
 from .._generated import storage as st
-from ..evm.addresses import h160_to_ss58, normalize_h160, ss58_to_h160_truncated
+from .._generated.calls import Call
+from .._pinned import approved_amount, compose_pinned_call
+from ..evm.addresses import (
+    h160_to_ss58,
+    normalize_h160,
+    resolve_evm_deposit,
+    resolve_evm_funding_recipient,
+    resolve_evm_recipient,
+)
 from ..result import BittensorError
 from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
-from .base import Intent
+from .base import BuiltCall, Intent
 from .registry import register
 
 
@@ -25,18 +32,22 @@ from .registry import register
 class FundEvmKey(Intent):
     """Fund an EVM (h160) address with TAO from the signing coldkey.
 
-    An EVM account's native balance lives at its ss58 *mirror* address
-    (``blake2_256("evm:" ++ h160)``). This intent computes the mirror and
-    transfers TAO to it; the funds then appear as the EVM account's balance
+    An ordinary EVM account's native balance lives at its legacy ss58 mirror.
+    Registered hashed aliases instead share their full native account's balance.
+    On supported runtimes the transaction resolves the active mapping during
+    execution, so an alias change cannot redirect funds to an obsolete mirror;
+    the funds then appear as the EVM account's balance
     in MetaMask or any Ethereum tool (displayed with 18 decimals there:
-    1 TAO = 1e18). Like any transfer this is irreversible — and only the
-    holder of the EVM private key can move the funds afterwards, so
-    double-check the address.
+    1 TAO = 1e18). Like any transfer this is irreversible, so double-check
+    the address. Protected aliases require their native hashed authorization.
+    On older runtimes, when hashed aliases are enabled, native funding of unprotected aliases is
+    refused: their mapping cannot be guarded against a concurrent registration.
+    Send to those H160 addresses from an EVM wallet instead.
     """
 
     op = "fund_evm_key"
     signer = "coldkey"
-    wraps = (("Balances", "transfer_keep_alive"),)
+    wraps = (("Balances", "transfer_keep_alive"), ("EVM", "deposit"))
     all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_tao",)
 
     evm_address: str = field(metadata={"help": "EVM address to fund, as 0x-prefixed h160 hex."})
@@ -48,22 +59,47 @@ class FundEvmKey(Intent):
 
     @property
     def mirror_ss58(self) -> str:
+        """The legacy mirror only; actual funding resolves the chain's active mapping."""
         return h160_to_ss58(self.evm_address)
 
     async def build(self, substrate, wallet: Any):
-        if self.amount_tao == ALL:
+        from ..hashed import prepare_recipient_intent, with_recipient_registration
+        from .transfer import Transfer
+
+        if await substrate.constant("EVM", "NativeDepositSupported") is True:
             return await substrate.compose(
-                calls.Balances.transfer_all(dest=self.mirror_ss58, keep_alive=True)
+                Call(
+                    "EVM",
+                    "deposit",
+                    {
+                        "address": self.evm_address,
+                        "value": None if self.amount_tao == ALL else self.amount_tao.rao,
+                    },
+                )
             )
-        return await substrate.compose(
-            calls.Balances.transfer_keep_alive(dest=self.mirror_ss58, value=self.amount_tao.rao)
+        recipient = await resolve_evm_funding_recipient(substrate, self.evm_address)
+        transfer = Transfer(dest_ss58=recipient.address, amount_tao=self.amount_tao)
+        prepared, recipients = await prepare_recipient_intent(substrate, transfer)
+        call = await prepared.build(substrate, wallet)
+        call, extras = await with_recipient_registration(
+            substrate, wallet, prepared, call, recipients=recipients
         )
+        return BuiltCall(call, extras) if extras else call
 
     def summary(self) -> str:
         amount = "ALL TAO" if self.amount_tao == ALL else str(self.amount_tao)
-        return f"fund EVM address {self.evm_address} (mirror {self.mirror_ss58}) with {amount}"
+        return f"fund EVM address {self.evm_address} with {amount}"
+
+    async def effects(self, substrate, signer_address: str) -> list[str]:
+        if await substrate.constant("EVM", "NativeDepositSupported") is True:
+            return [self.summary()]
+        recipient = await resolve_evm_funding_recipient(substrate, self.evm_address)
+        return [f"{self.summary()} (native receiving address {recipient.address})"]
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
+        recipient = await resolve_evm_recipient(substrate, self.evm_address)
+        if recipient.account != self.mirror_ss58:
+            return ["this EVM alias credits its registered hashed native account directly"]
         return [
             "only the EVM private key for this address can move the funds afterwards",
         ]
@@ -80,11 +116,10 @@ class EvmWithdraw(Intent):
     """Claim TAO deposited to the coldkey's truncated EVM mirror.
 
     Every native account controls one EVM address: the first 20 bytes of its
-    public key (the *truncated* mapping). TAO sent from MetaMask to that
-    address's mirror can be pulled into the native account with this call —
-    the EVM-to-substrate path that needs no EVM gas. The flow: send TAO from
-    the EVM wallet to the address shown by ``btcli evm deposit-address``, then
-    claim it with ``btcli evm claim-deposit`` (or ``btcli tx evm-withdraw``).
+    AccountId (the *truncated* mapping). For an unbound address, EVM deposits
+    arrive at its legacy mirror and can be claimed without EVM gas. A registered
+    alias credits the native account directly; this call only recovers any
+    separate balance left at its legacy mirror, such as a delayed payout.
     This is not ``btcli evm send-to-ss58``, which spends from a stored EVM key
     via the balance-transfer precompile. Fails if the mirror holds less than
     the amount. Pass ``all`` to claim the entire deposit.
@@ -103,16 +138,22 @@ class EvmWithdraw(Intent):
         self.amount_tao = tao_amount(self.amount_tao, allow_all=True)
 
     async def build(self, substrate, wallet: Any):
-        truncated = ss58_to_h160_truncated(self.coldkey_address(wallet))
+        truncated, _ = await resolve_evm_deposit(substrate, self.coldkey_address(wallet))
+        # Runtime withdrawal always debits the legacy mirror, including when
+        # new EVM deposits already credit a registered native alias directly.
+        mirror = h160_to_ss58(truncated)
         if self.amount_tao == ALL:
-            mirror = h160_to_ss58(truncated)
-            account = await substrate.query(*st.System.Account, [mirror])
-            rao = int(((account or {}).get("data") or {}).get("free") or 0)
+            rao = await approved_amount("EVM", "withdraw", "value")
+            if rao is None:
+                account = await substrate.query(*st.System.Account, [mirror])
+                rao = int(((account or {}).get("data") or {}).get("free") or 0)
             if rao <= 0:
-                raise BittensorError("nothing to claim: the EVM deposit address is empty")
+                raise BittensorError("nothing to claim: the legacy EVM mirror is empty")
         else:
             rao = self.amount_tao.rao
-        return await substrate.compose(calls.EVM.withdraw(address=truncated, value=rao))
+        return await compose_pinned_call(
+            substrate, "EVM", "withdraw", dict(address=truncated, value=rao)
+        )
 
     def summary(self) -> str:
         amount = "ALL TAO" if self.amount_tao == ALL else str(self.amount_tao)

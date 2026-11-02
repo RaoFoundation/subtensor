@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 
 from .._generated import calls
 from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
@@ -45,6 +45,12 @@ class Transfer(Intent):
     )
     amount_tao: Money = field(metadata={"help": "How much to send."})
     keep_alive: bool = field(default=True, metadata={"help": KEEP_ALIVE_HELP})
+    hashed_descriptor: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Public descriptor hex for initial registration of a remote hashed wallet."
+        },
+    )
 
     def __post_init__(self):
         self.amount_tao = tao_amount(self.amount_tao, allow_all=True)
@@ -99,6 +105,12 @@ class TransferAll(Intent):
         metadata={"help": "Destination account that receives the TAO (a coldkey, not a hotkey)."}
     )
     keep_alive: bool = field(default=True, metadata={"help": KEEP_ALIVE_HELP})
+    hashed_descriptor: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Public descriptor hex for initial registration of a remote hashed wallet."
+        },
+    )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(

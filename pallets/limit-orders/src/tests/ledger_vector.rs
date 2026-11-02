@@ -54,7 +54,7 @@
 
 use frame_support::{assert_ok, traits::Get};
 use sp_core::{H256, Pair, crypto::Ss58Codec, hexdisplay::HexDisplay};
-use sp_runtime::{MultiSignature, Perbill, traits::Verify};
+use sp_runtime::Perbill;
 use subtensor_runtime_common::NetUid;
 use subtensor_swap_interface::OrderSwapInterface;
 
@@ -229,7 +229,7 @@ fn device_signature_is_over_the_blake2_256_digest_only() {
     new_test_ext().execute_with(|| {
         let signer = AccountId::new(DEVICE_PUBLIC_KEY);
         let signature =
-            MultiSignature::Ed25519(sp_core::ed25519::Signature::from_raw(DEVICE_SIGNATURE));
+            crate::OrderSignature::Ed25519(sp_core::ed25519::Signature::from_raw(DEVICE_SIGNATURE));
         let payload = wrapped_payload();
         let message = ORDER_MESSAGE.as_bytes();
 
@@ -278,10 +278,10 @@ fn software_vector_forms_are_mutually_unverifiable() {
         );
 
         let signer = AccountId::new(SOFTWARE_PUBLIC_KEY);
-        let over_payload = MultiSignature::Ed25519(sp_core::ed25519::Signature::from_raw(
+        let over_payload = crate::OrderSignature::Ed25519(sp_core::ed25519::Signature::from_raw(
             SOFTWARE_SIGNATURE_OVER_PAYLOAD,
         ));
-        let over_digest = MultiSignature::Ed25519(sp_core::ed25519::Signature::from_raw(
+        let over_digest = crate::OrderSignature::Ed25519(sp_core::ed25519::Signature::from_raw(
             SOFTWARE_SIGNATURE_OVER_DIGEST,
         ));
         let payload = wrapped_payload();
@@ -399,7 +399,7 @@ fn executable_vector_is_accepted_by_verify_readable_and_is_order_valid() {
 
         let signed = crate::SignedOrder {
             order: VersionedOrder::V1(executable_vector_order()),
-            signature: MultiSignature::Ed25519(sp_core::ed25519::Signature::from_raw(
+            signature: crate::OrderSignature::Ed25519(sp_core::ed25519::Signature::from_raw(
                 EXECUTABLE_VECTOR_SIGNATURE,
             )),
             partial_fill: None,
@@ -706,7 +706,9 @@ fn device_v2_vectors() -> [DeviceV2Vector; 5] {
 fn device_v2_signed(vector: &DeviceV2Vector) -> crate::SignedOrder<AccountId> {
     crate::SignedOrder {
         order: VersionedOrder::V2((vector.order)()),
-        signature: MultiSignature::Ed25519(sp_core::ed25519::Signature::from_raw(vector.signature)),
+        signature: crate::OrderSignature::Ed25519(sp_core::ed25519::Signature::from_raw(
+            vector.signature,
+        )),
         partial_fill: None,
     }
 }
@@ -786,8 +788,9 @@ fn device_v2_signatures_are_over_the_blake2_256_digest_only() {
         let signer = AccountId::new(DEVICE_PUBLIC_KEY);
 
         for vector in device_v2_vectors() {
-            let signature =
-                MultiSignature::Ed25519(sp_core::ed25519::Signature::from_raw(vector.signature));
+            let signature = crate::OrderSignature::Ed25519(sp_core::ed25519::Signature::from_raw(
+                vector.signature,
+            ));
             let payload = wrap(vector.message.as_bytes());
 
             assert!(
@@ -841,9 +844,9 @@ fn device_v2_signatures_do_not_transplant_between_orders() {
                 }
                 let transplanted = crate::SignedOrder {
                     order: VersionedOrder::V2((target.order)()),
-                    signature: MultiSignature::Ed25519(sp_core::ed25519::Signature::from_raw(
-                        source.signature,
-                    )),
+                    signature: crate::OrderSignature::Ed25519(
+                        sp_core::ed25519::Signature::from_raw(source.signature),
+                    ),
                     partial_fill: None,
                 };
                 assert!(
@@ -953,7 +956,7 @@ fn defect_rendering_is_rejected_by_verify_readable() {
         let sign = |message: &str| {
             let payload = wrap(message.as_bytes());
             assert!(payload.len() > LEDGER_MAX_SIGN_SIZE);
-            MultiSignature::Ed25519(pair.sign(&sp_core::hashing::blake2_256(&payload)))
+            crate::OrderSignature::Ed25519(pair.sign(&sp_core::hashing::blake2_256(&payload)))
         };
 
         let signed_over_defect = crate::SignedOrder {

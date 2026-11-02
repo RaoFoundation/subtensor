@@ -58,6 +58,9 @@ mod config {
         /// Interface to allow interacting with the proxy pallet.
         type ProxyInterface: crate::ProxyInterface<Self::AccountId>;
 
+        /// Preserve protected hotkey authorization across ownership changes.
+        type HotkeyOwnerPolicy: crate::HotkeyOwnerPolicy<Self::AccountId>;
+
         /// Interface to get commitments.
         type GetCommitments: GetCommitments<Self::AccountId>;
 

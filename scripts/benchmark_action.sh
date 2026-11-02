@@ -21,6 +21,7 @@ EXTRINSICS="${EXTRINSICS:-*}"
 # Scheduled/default-branch and PR-label runs retain the full-suite behavior.
 if [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" &&
       "${GITHUB_REF_NAME:-}" != "${GITHUB_DEFAULT_BRANCH:-main}" &&
+      -z "${PALLET_DIRS:-}" && "$EXTRINSICS" == "*" &&
       -f "$ROOT_DIR/.maintain/benchmark-focus.json" ]]; then
   PALLET_DIRS="${PALLET_DIRS:-$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["pallet_dirs"]))' "$ROOT_DIR/.maintain/benchmark-focus.json")}"
   EXTRINSICS=$(python3 -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["extrinsics"]))' "$ROOT_DIR/.maintain/benchmark-focus.json")
@@ -41,7 +42,7 @@ selective_patch_weights_file() {
 }
 
 # ── Auto-discover pallets ────────────────────────────────────────────────────
-declare -A OUTPUTS
+declare -A OUTPUTS=()
 while read -r name path; do
   OUTPUTS[$name]="$path"
 done < <("$SCRIPT_DIR/discover_pallets.sh")
@@ -52,19 +53,18 @@ done < <("$SCRIPT_DIR/discover_pallets.sh")
 # pallet-only diffs) restricts the run to the changed pallets. Unset/empty
 # means the full suite.
 if [[ -n "${PALLET_DIRS:-}" ]]; then
-  declare -A KEEP
+  declare -A KEEP=()
   for dir in $PALLET_DIRS; do
     for pallet in "${!OUTPUTS[@]}"; do
       [[ "${OUTPUTS[$pallet]}" == "pallets/$dir/"* ]] && KEEP[$pallet]="${OUTPUTS[$pallet]}"
     done
   done
   if (( ${#KEEP[@]} == 0 )); then
-    echo "Changed pallets ($PALLET_DIRS) have no registered benchmarks; nothing to validate."
-    exit 0
+    die "Selected pallets ($PALLET_DIRS) have no registered benchmarks"
   fi
   echo "Restricting to changed pallets: ${!KEEP[*]}"
   unset OUTPUTS
-  declare -A OUTPUTS
+  declare -A OUTPUTS=()
   for pallet in "${!KEEP[@]}"; do OUTPUTS[$pallet]="${KEEP[$pallet]}"; done
 fi
 
@@ -81,7 +81,39 @@ PATCHED=()
 SUMMARY=()
 FAILED=0
 
-for pallet in "${!OUTPUTS[@]}"; do
+# Stable ordering keeps the small hashed-account pallet ahead of Subtensor's
+# long-running suite. Save each completed pallet before starting the next one.
+mapfile -t PALLETS < <(printf '%s\n' "${!OUTPUTS[@]}" | LC_ALL=C sort)
+HEAD_SHA=$(git -C "$ROOT_DIR" rev-parse HEAD)
+mkdir -p "$PATCH_DIR/generated"
+rm -f "$PATCH_DIR/generated/"*.rs "$PATCH_DIR/generated/"*.rs.tmp
+
+save_progress() {
+  local status="$1"
+  if (( ${#PATCHED[@]} > 0 )); then
+    # Use a private index so checkpoints neither include nor reset staged work.
+    local patch_index
+    patch_index=$(mktemp)
+    rm -f "$patch_index"
+    GIT_INDEX_FILE="$patch_index" git -C "$ROOT_DIR" read-tree HEAD
+    GIT_INDEX_FILE="$patch_index" git -C "$ROOT_DIR" add -- "${PATCHED[@]}"
+    GIT_INDEX_FILE="$patch_index" git -C "$ROOT_DIR" diff --cached --binary HEAD -- "${PATCHED[@]}" > "$PATCH_DIR/benchmark_patch.diff.tmp"
+    rm -f "$patch_index"
+    mv "$PATCH_DIR/benchmark_patch.diff.tmp" "$PATCH_DIR/benchmark_patch.diff"
+  else
+    rm -f "$PATCH_DIR/benchmark_patch.diff"
+  fi
+  {
+    echo "Head SHA: $HEAD_SHA"
+    echo "Status: $status"
+    echo "Completed pallets: ${#SUMMARY[@]}/${#PALLETS[@]}"
+    printf '%s\n' "${SUMMARY[@]}"
+  } > "$PATCH_DIR/summary.txt.tmp"
+  mv "$PATCH_DIR/summary.txt.tmp" "$PATCH_DIR/summary.txt"
+}
+
+save_progress INCOMPLETE
+for pallet in "${PALLETS[@]}"; do
   output="${OUTPUTS[$pallet]}"
   committed="$ROOT_DIR/$output"
   tmp=$(mktemp)
@@ -111,8 +143,15 @@ for pallet in "${!OUTPUTS[@]}"; do
     "${analysis_args[@]}" \
     --output="$tmp" \
     --template="$TEMPLATE" 2>&1; then
-    SUMMARY+=("$pallet: FAILED"); FAILED=1; rm -f "$tmp"; continue
+    SUMMARY+=("$pallet: FAILED"); FAILED=1; rm -f "$tmp"
+    save_progress INCOMPLETE
+    continue
   fi
+
+  # Retain the complete reference output (including per-byte coefficients),
+  # even if comparison fails or its drift falls below the patch threshold.
+  cp "$tmp" "$PATCH_DIR/generated/$pallet.rs.tmp"
+  mv "$PATCH_DIR/generated/$pallet.rs.tmp" "$PATCH_DIR/generated/$pallet.rs"
 
   # A filtered reference run measures only requested methods. Merge those
   # methods into a temporary complete file before comparison so unrelated
@@ -165,28 +204,22 @@ PY_METHODS
     rm -f "$compare_log"
   fi
   rm -f "$tmp"
+  save_progress INCOMPLETE
 done
 
 echo ""; printf '%s\n' "${SUMMARY[@]}"
 
 # Preserve successful reference measurements even if another pallet fails.
 # The run remains red; a partial patch is evidence, not a passing gate.
+if (( FAILED )); then
+  save_progress FAILED
+  echo "Completed reference results saved in $PATCH_DIR; failed pallets remain unmeasured."
+  exit 1
+fi
+save_progress COMPLETE
 if (( ${#PATCHED[@]} == 0 )); then
-  printf '%s\n' "${SUMMARY[@]}" > "$PATCH_DIR/summary.txt"
-  (( FAILED )) && exit 1
   echo "All weights within tolerance."
   exit 0
-fi
-
-# Prepare patch
-cd "$ROOT_DIR"
-git add "${PATCHED[@]}"
-{ echo "Head SHA: $(git rev-parse HEAD)"; echo ""; printf '%s\n' "${SUMMARY[@]}"; echo ""; git diff --cached --stat; } > "$PATCH_DIR/summary.txt"
-git diff --cached --binary > "$PATCH_DIR/benchmark_patch.diff"
-git reset HEAD -- "${PATCHED[@]}" >/dev/null 2>&1 || true
-if (( FAILED )); then
-  echo "Partial reference patch saved at $PATCH_DIR/benchmark_patch.diff; failed pallets remain unmeasured."
-  exit 1
 fi
 echo "Patch ready at $PATCH_DIR/benchmark_patch.diff — add 'apply-benchmark-patch' label to apply."
 exit 2

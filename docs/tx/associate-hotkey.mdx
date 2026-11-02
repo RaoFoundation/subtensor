@@ -66,7 +66,7 @@ result = sub.execute_tool("associate_hotkey", {...}, wallet)
 
 ```rust
 #[pallet::call_index(91)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::try_associate_hotkey())]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::try_associate_hotkey().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(1)))]
 pub fn try_associate_hotkey(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
     let coldkey = ensure_signed(origin)?;
 

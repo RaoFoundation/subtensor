@@ -6,5 +6,9 @@ pub mod conditional_evm_block_import;
 pub mod consensus;
 pub mod dev_keystore;
 pub mod ethereum;
+pub mod execution_admission;
 pub mod rpc;
 pub mod service;
+
+#[cfg(test)]
+mod pool_revalidation_tests;

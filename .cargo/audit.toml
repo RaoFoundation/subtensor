@@ -18,17 +18,17 @@ ignore = [
     # is not compiled. Revisit if executor features or the SDK fork change.
     # https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-jqpg-j7w6-42pr
     "RUSTSEC-2026-0316",
-    # RUSTSEC-2026-0344 (added 2026-10-20): ruzstd 0.4/0.6 decompression bomb.
-    # Only pulled by smoldot (light-client sync helpers). `cargo tree -p
-    # node-subtensor -i smoldot` / `-i ruzstd` print nothing — neither crate
-    # is in the node binary's build graph. Fix needs >=0.9.1 (semver break);
-    # revisit when smoldot consumers move.
-    "RUSTSEC-2026-0344",
-    # RUSTSEC-2026-0363 (added 2026-10-20): wasmtime 8.0.1 component-model
-    # handle tables uncapped. Same pin and feature set as 0316 above — the
-    # executor resolves wasmtime without `component-model`, so the affected
-    # tables are not compiled into the node. Fix needs wasmtime >=36.
+    # Component-model resource tables are not compiled into our core-Wasm
+    # executor. check-audit-feature-exclusions.py fails if component-model is
+    # enabled in any workspace build, including all features and targets.
+    # https://rustsec.org/advisories/RUSTSEC-2026-0363.html
     "RUSTSEC-2026-0363",
+    # The old ruzstd versions belong to optional smoldot light-client paths
+    # retained in Cargo.lock. Neither is in the active workspace build graph.
+    # The same guard fails if any affected ruzstd version becomes reachable;
+    # it must then be upgraded, not silently covered by this exclusion.
+    # https://rustsec.org/advisories/RUSTSEC-2026-0344.html
+    "RUSTSEC-2026-0344",
     # RUSTSEC-2026-0379/0380 (added 2026-10-20): Cranelift aarch64 br_table
     # misjump and bit-packing overflow in wasmtime 8.0.1. Same sc-executor
     # pin as above; fixes need much newer wasmtime majors. Accepted as a

@@ -71,6 +71,10 @@ from .reads import (
     SubnetLifecycleState,
     SwapQuote,
 )
+from .registration_sponsorship import (
+    RegistrationSponsorship,
+    RegistrationSponsorshipRequired,
+)
 from .result import (
     BittensorError,
     ChainError,
@@ -142,6 +146,8 @@ __all__ = [
     "SubnetInfo",
     "SubnetLifecycleState",
     "Balance",
+    "RegistrationSponsorship",
+    "RegistrationSponsorshipRequired",
     "UnitMismatchError",
     "tao",
     "alpha",

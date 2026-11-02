@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Optional
 
 from .._generated import calls
+from .._pinned import compose_staking_call
 from ._money import Money, Spend, tao_amount
 from .base import Intent
 from .registry import register
-from .staking import DEFAULT_RATE_TOLERANCE, _alpha_price_rao, _check_rate_tolerance
+from .staking import DEFAULT_RATE_TOLERANCE, _check_rate_tolerance, _stake_limit_price_rao
 
 
 @register
@@ -140,19 +142,15 @@ class StakeBurn(Intent):
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        params = dict(hotkey=hotkey, netuid=self.netuid, amount=self.amount_tao.rao)
+        derived = {}
         if self.limit_price is not None:
-            limit = self.limit_price
+            params["limit"] = self.limit_price
         else:
-            price = await _alpha_price_rao(substrate, self.netuid)
-            limit = int(price * (1 + self.rate_tolerance))
-        return await substrate.compose(
-            calls.SubtensorModule.add_stake_burn(
-                hotkey=hotkey,
-                netuid=self.netuid,
-                amount=self.amount_tao.rao,
-                limit=limit,
+            derived["limit"] = partial(
+                _stake_limit_price_rao, substrate, self.netuid, 1 + self.rate_tolerance
             )
-        )
+        return await compose_staking_call(substrate, "add_stake_burn", params, derived=derived)
 
     def summary(self) -> str:
         return f"stake burn {self.amount_tao} on netuid {self.netuid}"

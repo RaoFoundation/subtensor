@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describeSuite, expect } from "@moonwall/cli";
 import { contracts, MultiAddress, subtensor } from "@polkadot-api/descriptors";
-import { getInkClient, InkClient } from "@polkadot-api/ink-contracts";
+import { getInkClient, type InkClient } from "@polkadot-api/ink-contracts";
 import type { KeyringPair } from "@polkadot/keyring/types";
 import fs from "node:fs";
 import { Binary, type TypedApi } from "polkadot-api";
@@ -187,7 +187,9 @@ describeSuite({
                     Binary.fromBytes(data.asBytes())
                 );
 
-                expect(response.result.success).toBeTruthy();
+                if (response.result.success === false) {
+                    throw new Error(`Contract call failed: ${response.result.value.type}`);
+                }
                 const result = queryMessage.decode(response.result.value).value.value;
 
                 if (
@@ -227,7 +229,7 @@ describeSuite({
                 await addStakeViaContract();
                 const stake = await getContractStake();
 
-                let amount = stake / BigInt(2);
+                const amount = stake / BigInt(2);
                 const message = inkClient.message("remove_stake");
                 const data = message.encode({
                     hotkey: Binary.fromBytes(hotkey.publicKey),
@@ -358,7 +360,7 @@ describeSuite({
                 )?.stake;
 
                 expect(stakeBeforeOrigin > BigInt(0)).toBeTruthy();
-                expect(stakeBeforeDest).toBeDefined();
+                if (stakeBeforeDest == null) throw new Error("Destination stake is missing before transfer");
 
                 // Transfer stake
                 const transferAmount = stakeBeforeOrigin / BigInt(2);
@@ -383,9 +385,9 @@ describeSuite({
                     )
                 )?.stake;
 
-                expect(stakeAfterDest).toBeDefined();
+                if (stakeAfterDest == null) throw new Error("Destination stake is missing after transfer");
                 expect(stakeAfterOrigin < stakeBeforeOrigin).toBeTruthy();
-                expect(stakeAfterDest > stakeBeforeDest!).toBeTruthy();
+                expect(stakeAfterDest > stakeBeforeDest).toBeTruthy();
             },
         });
 
@@ -564,7 +566,7 @@ describeSuite({
                 });
                 await sendWasmContractExtrinsic(api, coldkey, contractAddress, data);
 
-                let autoStakeHotkey = await api.query.SubtensorModule.AutoStakeDestination.getValue(
+                const autoStakeHotkey = await api.query.SubtensorModule.AutoStakeDestination.getValue(
                     contractAddress,
                     netuid
                 );
@@ -583,7 +585,7 @@ describeSuite({
                     delegate: Binary.fromBytes(hotkey.publicKey),
                 });
                 await sendWasmContractExtrinsic(api, coldkey, contractAddress, data);
-                let proxies = await api.query.Proxy.Proxies.getValue(contractAddress);
+                const proxies = await api.query.Proxy.Proxies.getValue(contractAddress);
                 expect(proxies).toBeDefined();
                 expect(proxies.length > 0 && proxies[0].length > 0).toBeTruthy();
                 expect(proxies[0][0].delegate).toEqual(convertPublicKeyToSs58(hotkey.publicKey));
@@ -594,7 +596,7 @@ describeSuite({
                 });
                 await sendWasmContractExtrinsic(api, coldkey, contractAddress, removeData);
 
-                let proxiesAfterRemove = await api.query.Proxy.Proxies.getValue(contractAddress);
+                const proxiesAfterRemove = await api.query.Proxy.Proxies.getValue(contractAddress);
                 expect(proxiesAfterRemove).toBeDefined();
                 expect(proxiesAfterRemove[0].length).toEqual(0);
             },
@@ -618,7 +620,9 @@ describeSuite({
                     Binary.fromBytes(data.asBytes())
                 );
 
-                expect(response.result.success).toBeTruthy();
+                if (response.result.success === false) {
+                    throw new Error(`Contract call failed: ${response.result.value.type}`);
+                }
                 const result = message.decode(response.result.value).value.value;
 
                 expect(result).toBeDefined();
@@ -751,7 +755,7 @@ describeSuite({
                         undefined,
                         Binary.fromBytes(data.asBytes())
                     );
-                    if (response.result.success) {
+                    if (response.result.success === true) {
                         throw new Error("Caller-authorized contract operation unexpectedly executed");
                     }
                     expect(response.result.value.type).toEqual("BadOrigin");
@@ -828,7 +832,9 @@ describeSuite({
                     Binary.fromBytes(data.asBytes())
                 );
 
-                expect(response.result.success).toBeTruthy();
+                if (response.result.success === false) {
+                    throw new Error(`Contract call failed: ${response.result.value.type}`);
+                }
                 const result = queryMessage.decode(response.result.value).value.value;
                 if (
                     typeof result === "object" &&
@@ -865,7 +871,9 @@ describeSuite({
                         undefined,
                         Binary.fromBytes(data.asBytes())
                     );
-                    expect(response.result.success).toBeTruthy();
+                    if (response.result.success === false) {
+                        throw new Error(`Contract call failed: ${response.result.value.type}`);
+                    }
                     return queryMessage.decode(response.result.value).value.value as
                         | {
                               locked_mass: bigint;
@@ -927,7 +935,9 @@ describeSuite({
                     Binary.fromBytes(data.asBytes())
                 );
 
-                expect(response.result.success).toBeTruthy();
+                if (response.result.success === false) {
+                    throw new Error(`Contract call failed: ${response.result.value.type}`);
+                }
                 const result = queryMessage.decode(response.result.value).value.value;
                 if (
                     typeof result === "object" &&

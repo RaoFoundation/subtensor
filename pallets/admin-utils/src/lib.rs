@@ -42,6 +42,11 @@ pub mod pallet {
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
+    /// Enables hashed account registration and authorization.
+    /// Existing account records and authority protections survive disabling.
+    #[pallet::storage]
+    pub type HashedAccountsEnabled<T: Config> = StorageValue<_, bool, ValueQuery>;
+
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
     pub trait Config:
@@ -186,6 +191,11 @@ pub mod pallet {
         BasketMinTradeTaoSet {
             /// Minimum TAO value through each trade leg, in rao.
             min_trade_rao: u64,
+        },
+        /// Hashed account registration and authorization were toggled.
+        HashedAccountsToggled {
+            /// Whether registration and authorization are enabled.
+            enabled: bool,
         },
         /// The TAO/USD price oracle was set.
         TaoUsdPriceOracleSet {
@@ -2857,6 +2867,22 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Enables or disables registration and signing for all hashed SR/ED and
+        /// fixed/rotating ML-DSA accounts. Ordinary SR/ED signing is unaffected. Root-only.
+        /// Defaults off. Disabling pauses existing accounts too; their records,
+        /// generations, EVM aliases and restrictions on alternate authority remain.
+        #[pallet::call_index(115)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_hashed_accounts_enabled())]
+        pub fn sudo_set_hashed_accounts_enabled(
+            origin: OriginFor<T>,
+            enabled: bool,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            HashedAccountsEnabled::<T>::put(enabled);
+            Self::deposit_event(Event::HashedAccountsToggled { enabled });
+            Ok(())
+        }
+
         /// Sets the per-block cap on subnet epochs (dynamic tempo throttle).
         #[pallet::call_index(96)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_max_epochs_per_block())]
@@ -2873,7 +2899,7 @@ pub mod pallet {
 
         /// Sets the account that feeds the TAO/USD price; `None` removes it. The stored price
         /// is cleared, so the next feed is accepted as it is. Root-only.
-        #[pallet::call_index(115)]
+        #[pallet::call_index(116)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_tao_usd_price_oracle())]
         pub fn sudo_set_tao_usd_price_oracle(
             origin: OriginFor<T>,
@@ -2889,7 +2915,7 @@ pub mod pallet {
 
         /// Enables or disables gamma minting on a subnet. Callable by the subnet owner or
         /// root; the root subnet is refused.
-        #[pallet::call_index(116)]
+        #[pallet::call_index(117)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_subnet_gamma_enabled())]
         pub fn sudo_set_subnet_gamma_enabled(
             origin: OriginFor<T>,
@@ -2921,7 +2947,7 @@ pub mod pallet {
 
         /// Enables or disables gamma minting network-wide; a subnet also needs its own flag.
         /// Root-only.
-        #[pallet::call_index(117)]
+        #[pallet::call_index(118)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_gamma_enabled())]
         pub fn sudo_set_gamma_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
             ensure_root(origin)?;

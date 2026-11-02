@@ -193,7 +193,9 @@ impl<T: Config> Pallet<T> {
     /// caller's balance, the hotkey account (created if missing), the coldkey's
     /// `StakingHotkeys`, and the subnet's capacity and prune candidate.
     pub fn registration_precheck_weight() -> Weight {
-        T::DbWeight::get().reads_writes(20, 4)
+        T::DbWeight::get()
+            .reads_writes(20, 4)
+            .saturating_add(Self::hotkey_owner_policy_weight())
     }
 
     /// [`Self::do_register`] that charges a registration refused by its pre-checks
@@ -420,6 +422,9 @@ impl<T: Config> Pallet<T> {
         );
 
         // --- 3. Ensure the supplied work passes the difficulty.
+        // H256::from_slice requires exactly 32 bytes. Reject malformed public
+        // input before conversion so it cannot panic while importing a block.
+        ensure!(work.len() == 32, Error::<T>::InvalidSeal);
         let difficulty: U256 = U256::from(1_000_000); // Base faucet difficulty.
         let work_hash: H256 = Self::vec_to_hash(work.clone());
         ensure!(

@@ -13,7 +13,7 @@ account become permanently inaccessible, so empty it first.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.kill_pure`](/code/pallets/proxy/src/lib.rs#L399-L427) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.kill_pure`](/code/pallets/proxy/src/lib.rs#L429-L457), [`Proxy.kill_safe_pure`](/code/pallets/proxy/src/lib.rs#L806-L831) |
 
 ## Parameters
 
@@ -24,6 +24,7 @@ account become permanently inaccessible, so empty it first.
 | `index` | integer | no | Index the pure proxy was created with (must match exactly). |
 | `height` | integer | no | Block number of the creating create_pure_proxy call. |
 | `ext_index` | integer | no | Extrinsic index of the creating call within that block. |
+| `account_mode` | string | no | Derivation mode used when the pure proxy was created. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -66,7 +67,7 @@ result = sub.execute_tool("kill_pure_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.kill_pure` — [`pallets/proxy/src/lib.rs#L401`](/code/pallets/proxy/src/lib.rs#L399-L427):
+`Proxy.kill_pure` — [`pallets/proxy/src/lib.rs#L431`](/code/pallets/proxy/src/lib.rs#L429-L457):
 
 ```rust
 #[pallet::call_index(5)]
@@ -100,6 +101,39 @@ pub fn kill_pure(
 }
 ```
 
-Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L931).
+Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L1033).
+
+`Proxy.kill_safe_pure` — [`pallets/proxy/src/lib.rs#L809`](/code/pallets/proxy/src/lib.rs#L806-L831):
+
+```rust
+#[pallet::call_index(14)]
+#[pallet::weight(T::WeightInfo::kill_pure(T::MaxProxies::get())
+    .saturating_add(T::SafeDerivationWeight::get()))]
+pub fn kill_safe_pure(
+    origin: OriginFor<T>,
+    spawner: AccountIdLookupOf<T>,
+    proxy_type: T::ProxyType,
+    index: u16,
+    #[pallet::compact] height: BlockNumberFor<T>,
+    #[pallet::compact] ext_index: u32,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+    let spawner = T::Lookup::lookup(spawner)?;
+    let pure =
+        Self::safe_pure_account(&spawner, &proxy_type, index, Some((height, ext_index)))?;
+    ensure!(pure == who, Error::<T>::NoPermission);
+    let (_, deposit) = Proxies::<T>::take(&who);
+    T::Currency::unreserve(&spawner, deposit);
+    Self::deposit_event(Event::PureKilled {
+        pure: who,
+        spawner,
+        proxy_type,
+        disambiguation_index: index,
+    });
+    Ok(())
+}
+```
+
+Delegates to [`safe_pure_account`](/code/pallets/proxy/src/lib.rs#L1060).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

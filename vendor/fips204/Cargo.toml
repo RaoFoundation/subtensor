@@ -1,0 +1,30 @@
+[package]
+name = "fips204"
+version = "0.4.6"
+edition = "2021"
+rust-version = "1.70"
+authors = ["Eric Schorn <eschorn@integritychain.com>"]
+description = "FIPS 204 with Subtensor consensus verification bounds"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/integritychain/fips204"
+publish = false
+
+[workspace]
+
+[features]
+default = ["ml-dsa-65"]
+default-rng = ["rand_core/getrandom"]
+ml-dsa-44 = []
+ml-dsa-65 = []
+ml-dsa-87 = []
+dudect = []
+
+[dependencies]
+rand_core = { version = "0.6.4", default-features = false }
+sha2 = { version = "0.10.8", default-features = false }
+sha3 = { version = "0.10.8", default-features = false }
+zeroize = { version = "1.6.0", default-features = false, features = ["zeroize_derive"] }
+
+[dev-dependencies]
+rand = "0.8.5"
+rand_chacha = "0.3.1"

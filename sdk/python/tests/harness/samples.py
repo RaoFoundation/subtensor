@@ -379,6 +379,43 @@ READ_SAMPLES: dict[str, dict] = {
 }
 
 
+# Account-aware order authorization preserves the complete economic schema.
+_ORDER_SAMPLE = {
+    "V1": {
+        "signer": ALICE,
+        "hotkey": ALICE_HOT,
+        "netuid": 1,
+        "order_type": "LimitBuy",
+        "amount": 1000000,
+        "limit_price": 1000000000,
+        "expiry": 2000000000000,
+        "fee_rate": 0,
+        "fee_recipient": BOB,
+        "relayer": None,
+        "max_slippage": None,
+        "chain_id": 42,
+        "partial_fills_enabled": False,
+    }
+}
+INTENT_SAMPLES.update(
+    {
+        "authorize_order": {"nonce": 1, "order": _ORDER_SAMPLE},
+        "cancel_order": {"nonce": 1, "order": _ORDER_SAMPLE},
+        "execute_orders": {
+            "orders": [
+                {
+                    "order": {"Authorized": {"nonce": 1, "terms": _ORDER_SAMPLE}},
+                    "signature": "AccountApproved",
+                    "partial_fill": None,
+                }
+            ]
+        },
+    }
+)
+
+INTENT_SAMPLES["execute_batched_orders"] = {**INTENT_SAMPLES["execute_orders"], "netuid": 1}
+
+
 def seed_gamma(substrate, owner: str) -> None:
     """Gamma deposits at the samples' hotkeys, owned and spent by ``owner`` (the one at
     ``BOB_HOT`` empty, so it can close)."""

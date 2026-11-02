@@ -302,30 +302,6 @@ impl Runtime {
         )
     }
 
-    /// Whether values of `id` are written as a list or tuple (byte carriers
-    /// and account ids take bytes or strings instead).
-    fn takes_list(&self, id: u32) -> bool {
-        let Ok(_depth) = DepthGuard::enter() else {
-            return false;
-        };
-        let Ok(ty) = self.resolve(id) else {
-            return false;
-        };
-        if ty.path.segments.last().map(String::as_str) == Some("AccountId32") {
-            return false;
-        }
-        match &ty.type_def {
-            TypeDef::Sequence(s) => !self.is_u8_encode(s.type_param.id),
-            TypeDef::Array(a) => !self.is_u8_encode(a.type_param.id),
-            TypeDef::Tuple(t) => !t.fields.is_empty(),
-            TypeDef::Composite(c) => match c.fields.as_slice() {
-                [only] if only.name.is_none() => self.takes_list(only.ty.id),
-                fields => fields.len() > 1 && fields.iter().all(|f| f.name.is_none()),
-            },
-            _ => false,
-        }
-    }
-
     /// Composite-body encode: named fields from a dict, single unnamed from
     /// the bare value, several unnamed from a list/tuple.
     fn encode_fields(
@@ -360,21 +336,23 @@ impl Runtime {
             // with one unnamed field, e.g. BoundedVec) consumed one
             // list-nesting level, so legacy callers double-wrap sequence
             // payloads — `CommitmentInfo { fields: [[{"Raw5": ...}]] }`.
-            // Unwrap that shape when the inner type is a sequence and the sole
-            // element reads as the whole payload: its elements take no list,
-            // or every candidate element is one. A flat one-entry list of
-            // tuples, `[(who, amount)]`, stays untouched.
-            if let (Value::List(items) | Value::Tuple(items), Ok(TypeDef::Sequence(s))) =
-                (value, self.resolve(fields[0].ty.id).map(|t| &t.type_def))
-            {
-                if let [Value::List(inner)] = items.as_slice() {
-                    if !self.takes_list(s.type_param.id)
-                        || inner
-                            .iter()
-                            .all(|v| matches!(v, Value::List(_) | Value::Tuple(_)))
-                    {
-                        return self.encode_id(fields[0].ty.id, &items[0], out);
+            // Prefer the bare sequence: its sole item can itself be a list
+            // (a tuple or nested sequence). Only retry the legacy wrapper
+            // when the canonical shape does not encode.
+            if let Value::List(items) | Value::Tuple(items) = value {
+                if items.len() == 1
+                    && matches!(items[0], Value::List(_))
+                    && matches!(
+                        self.resolve(fields[0].ty.id).map(|t| &t.type_def),
+                        Ok(TypeDef::Sequence(_))
+                    )
+                {
+                    let start = out.len();
+                    if self.encode_id(fields[0].ty.id, value, out).is_ok() {
+                        return Ok(());
                     }
+                    out.truncate(start);
+                    return self.encode_id(fields[0].ty.id, &items[0], out);
                 }
             }
             return self.encode_id(fields[0].ty.id, value, out);

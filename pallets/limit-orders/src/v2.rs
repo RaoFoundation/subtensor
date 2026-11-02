@@ -119,6 +119,7 @@ pub struct LinkedOutput<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + 
 /// Version-agnostic projection used by every validation/execution path.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct OrderView<AccountId> {
+    pub authorization_nonce: Option<u64>,
     pub signer: AccountId,
     pub hotkey: AccountId,
     pub netuid: NetUid,
@@ -138,6 +139,7 @@ pub struct OrderView<AccountId> {
 impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> OrderView<AccountId> {
     pub fn from_v1(order: &Order<AccountId>) -> Self {
         Self {
+            authorization_nonce: None,
             signer: order.signer.clone(),
             hotkey: order.hotkey.clone(),
             netuid: order.netuid,
@@ -157,6 +159,7 @@ impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> OrderView<Ac
 
     pub fn from_v2(order: &OrderV2<AccountId>) -> Self {
         Self {
+            authorization_nonce: None,
             signer: order.signer.clone(),
             hotkey: order.hotkey.clone(),
             netuid: order.netuid,
