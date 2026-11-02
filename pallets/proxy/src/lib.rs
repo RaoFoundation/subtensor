@@ -36,6 +36,8 @@ mod tests;
 pub mod weights;
 
 extern crate alloc;
+#[cfg(feature = "try-runtime")]
+use alloc::vec::Vec;
 use alloc::{boxed::Box, vec};
 #[cfg(feature = "try-runtime")]
 use frame::try_runtime::TryRuntimeError;
