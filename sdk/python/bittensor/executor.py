@@ -698,8 +698,8 @@ def _pure_created_data(result: ExtrinsicResult) -> dict[str, Any]:
 
 
 def _gamma_spent_data(result: ExtrinsicResult) -> dict[str, Any]:
-    """What each spend entry spent, in order: the chain skips entries and stops at caps
-    silently, so entries that spent nothing are absent.
+    """What each spend entry spent, in order: the chain skips entries silently, so skipped
+    entries are absent.
 
     Nothing while the spend has not run: submitted without waiting, or a multisig
     approval short of its threshold.

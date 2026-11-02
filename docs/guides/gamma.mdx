@@ -180,9 +180,10 @@ result = await client.execute(
 )
 ```
 
-Each entry spends the smallest of its amount, the deposit's balance, and what
-its daily spend cap allows now, and the spent gamma is destroyed. Entries whose
-hotkey has no deposit, or whose deposit names another spender, are skipped.
+Each entry spends its whole amount, and the spent gamma is destroyed. Entries
+whose hotkey has no deposit, whose deposit names another spender, or whose
+amount is zero or above the deposit's balance or what its daily spend cap
+allows now, are skipped.
 `spendable_gamma` in [`gamma-deposit`](/docs/query/gamma-deposit) is what an
 entry can spend now. Once the spend runs, `result.data["spent"]` lists each
 entry that spent, with its `hotkey_ss58`, `amount_gamma` as an exact decimal

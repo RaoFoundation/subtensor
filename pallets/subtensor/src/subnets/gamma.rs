@@ -413,9 +413,9 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Burns, in order, up to each entry's amount from the deposits the signer spends, within
-    /// each deposit's balance and daily spend cap. Entries the signer cannot spend, or that
-    /// spend nothing, are skipped.
+    /// Burns, in order, each entry's amount from the deposits the signer spends. Entries the
+    /// signer cannot spend, or whose amount is zero or above the deposit's balance or what its
+    /// daily spend cap allows, are skipped.
     pub fn do_spend_gamma(
         origin: OriginFor<T>,
         netuid: NetUid,
@@ -433,15 +433,15 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
             let allowance = Self::gamma_allowance(&deposit, now);
-            let spent = (*amount)
-                .min(deposit.balance)
-                .min(allowance.unwrap_or(deposit.balance));
-            if spent.is_zero() {
+            if amount.is_zero()
+                || *amount > deposit.balance
+                || allowance.is_some_and(|allowance| *amount > allowance)
+            {
                 continue;
             }
-            deposit.balance = deposit.balance.saturating_sub(spent);
+            deposit.balance = deposit.balance.saturating_sub(*amount);
             if let Some(allowance) = allowance {
-                deposit.bucket = (allowance.saturating_sub(spent), now);
+                deposit.bucket = (allowance.saturating_sub(*amount), now);
             }
             let coldkey = deposit.coldkey.clone();
             GammaDeposits::<T>::insert(netuid, hotkey, deposit);
@@ -450,7 +450,7 @@ impl<T: Config> Pallet<T> {
                 coldkey,
                 hotkey: hotkey.clone(),
                 spender: signer.clone(),
-                amount: spent,
+                amount: *amount,
                 reference: *reference,
             });
         }
