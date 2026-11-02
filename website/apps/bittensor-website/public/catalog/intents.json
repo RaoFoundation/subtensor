@@ -3295,7 +3295,7 @@
   {
     "name": "set_gamma_deposit_daily_spend_cap",
     "summary": "Set the daily spend cap of your gamma deposit.",
-    "description": "Set the daily spend cap of your gamma deposit.\n\nWhat the spender can spend refills linearly at the cap per 7200 blocks, up\nto the cap, and a cap of zero pauses the deposit. Omitting\n`daily_spend_cap_gamma` removes the cap.",
+    "description": "Set the daily spend cap of your gamma deposit.\n\nWhat the spender can spend refills linearly at the cap per 7200 blocks, up\nto the cap, and a cap of zero pauses the deposit. A changed cap keeps what\nthe spender can spend now, up to the new cap. Omitting\n`daily_spend_cap_gamma` removes the cap.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,

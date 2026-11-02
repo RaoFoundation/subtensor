@@ -3231,8 +3231,8 @@ mod dispatches {
             Self::do_set_gamma_deposit_spender(origin, hotkey, netuid, spender)
         }
 
-        /// Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None`
-        /// removes it.
+        /// Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it.
+        /// A changed cap keeps what the deposit can spend now, up to the new cap.
         #[pallet::call_index(163)]
         #[pallet::weight((<T as Config>::WeightInfo::set_gamma_deposit_daily_spend_cap(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_gamma_deposit_daily_spend_cap(

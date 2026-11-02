@@ -542,7 +542,8 @@ class SetGammaDepositDailySpendCap(Intent):
     """Set the daily spend cap of your gamma deposit.
 
     What the spender can spend refills linearly at the cap per 7200 blocks, up
-    to the cap, and a cap of zero pauses the deposit. Omitting
+    to the cap, and a cap of zero pauses the deposit. A changed cap keeps what
+    the spender can spend now, up to the new cap. Omitting
     ``daily_spend_cap_gamma`` removes the cap.
     """
 

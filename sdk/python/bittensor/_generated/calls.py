@@ -508,7 +508,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_gamma_deposit_daily_spend_cap(hotkey: 'AccountId32', netuid: 'NetUid', daily_spend_cap: 'Any') -> Call:
-        "Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it."
+        "Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it. A changed cap keeps what the deposit can spend now, up to the new cap."
         return Call('SubtensorModule', 'set_gamma_deposit_daily_spend_cap', {'hotkey': hotkey, 'netuid': netuid, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
