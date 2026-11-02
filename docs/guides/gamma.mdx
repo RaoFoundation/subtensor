@@ -188,15 +188,17 @@ result = await client.execute(
 Each entry spends its whole amount, and the spent gamma is destroyed. Entries
 whose hotkey has no deposit, whose deposit names another spender, or whose
 amount is zero or above the deposit's balance or what its daily spend cap
-allows now, are skipped, and pay only for reading the deposit.
+allows now, are skipped, and cost less as they write nothing.
 `spendable_gamma` in [`gamma-deposit`](/docs/query/gamma-deposit) is what an
 entry can spend now. Once the spend runs, `result.data["spent"]` lists each
 entry that spent, with its `hotkey_ss58`, `amount_gamma` as an exact decimal
-string, and `reference`.
+string, and `reference`, and `result.data["skipped"]` lists each entry that was
+skipped, with the chain error that skipped it as `reason`, such as
+`InsufficientGammaBalance`.
 
 A reference is any 32 bytes, all zero when omitted. The chain repeats it in the
-entry's `GammaSpent` event and reads it nowhere else, so an entry sent twice
-spends twice. By convention it is the service's own 32-byte id for the request
+entry's `GammaSpent` or `GammaSpendSkipped` event and reads it nowhere else, so
+an entry sent twice spends twice. By convention it is the service's own 32-byte id for the request
 the entry pays for, returned with its response, so the customer can match each
 spend to its own request.
 

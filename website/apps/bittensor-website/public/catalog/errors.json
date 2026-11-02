@@ -2296,6 +2296,24 @@
         }
       ]
     },
+    "GammaDepositDailySpendCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "A spend entry was skipped because its amount is above what the gamma deposit's daily spend cap allows now. The cap refills over a day. The `gamma_deposit` read gives `spendable_gamma`, what an entry can spend now.",
+      "docs_url": "/docs/errors/chain/GammaDepositDailySpendCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositDailySpendCapExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 487,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L487",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "GammaDepositDailySpendCapMismatch": {
       "code": "invalid_argument",
       "description": "A mint named a daily spend cap, but the gamma deposit it credits has another. A named cap opens a new deposit and must match an existing one's. Mint without naming one, or change the deposit's cap with `set_gamma_deposit_daily_spend_cap` first.",
@@ -2725,6 +2743,24 @@
           "line": 158,
           "url": "/code/pallets/swap/src/pallet/mod.rs#L158",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
+    "InsufficientGammaBalance": {
+      "code": "insufficient_balance",
+      "description": "A spend entry was skipped because its amount is above the gamma deposit's balance. An entry spends its whole amount or nothing. The `gamma_deposit` read gives `spendable_gamma`, what an entry can spend now.",
+      "docs_url": "/docs/errors/chain/InsufficientGammaBalance",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientGammaBalance/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 485,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L485",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
@@ -4606,6 +4642,24 @@
           "line": 898,
           "url": "/code/pallets/proxy/src/lib.rs#L898",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
+    "NotGammaDepositSpender": {
+      "code": "not_authorized",
+      "description": "A spend entry was skipped because its gamma deposit names another spender. Only the deposit's spender, or its `GammaSpend` proxy, spends it.",
+      "docs_url": "/docs/errors/chain/NotGammaDepositSpender",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotGammaDepositSpender/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 483,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L483",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },

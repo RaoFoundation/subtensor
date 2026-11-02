@@ -1019,6 +1019,21 @@ mod events {
             /// The spend entry's reference.
             reference: [u8; 32],
         },
+        /// A spend entry was skipped, and spent nothing.
+        GammaSpendSkipped {
+            /// Subnet of the spend.
+            netuid: NetUid,
+            /// Hotkey of the entry.
+            hotkey: T::AccountId,
+            /// The spender that signed the spend.
+            spender: T::AccountId,
+            /// The entry's amount.
+            amount: GammaBalance,
+            /// The spend entry's reference.
+            reference: [u8; 32],
+            /// Why the entry was skipped.
+            reason: sp_runtime::DispatchError,
+        },
         /// A hotkey set its service on a subnet.
         ServiceSet {
             /// Subnet of the service.

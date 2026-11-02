@@ -252,6 +252,9 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "GammaDepositNotEmpty": _C.INVALID_ARGUMENT,
     "GammaDepositSpenderMismatch": _C.INVALID_ARGUMENT,
     "GammaDepositDailySpendCapMismatch": _C.INVALID_ARGUMENT,
+    "NotGammaDepositSpender": _C.NOT_AUTHORIZED,
+    "InsufficientGammaBalance": _C.INSUFFICIENT_BALANCE,
+    "GammaDepositDailySpendCapExceeded": _C.LIMIT_EXCEEDED,
     # Pending announcement blocks nearly all signed calls until the swap is
     # executed or the announcement is cleared (guards/check_coldkey_swap.rs).
     # Bucketed as disabled (feature/path blocked), not already_exists.

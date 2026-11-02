@@ -3247,8 +3247,9 @@ mod dispatches {
         /// Spends, in order, each entry's amount from the gamma deposit at its hotkey. Entries
         /// whose hotkey has no deposit, whose deposit names another spender, or whose amount is
         /// zero or above the deposit's balance or what its daily spend cap allows, are skipped.
-        /// Each entry's reference is repeated in its `GammaSpent` event and not otherwise read.
-        /// A skipped entry is charged one read.
+        /// Each entry's reference is repeated in its `GammaSpent` event, or in its
+        /// `GammaSpendSkipped` event with the reason, and not otherwise read. A skipped entry is
+        /// charged as a spent one, less its write.
         #[pallet::call_index(164)]
         #[pallet::weight((<T as Config>::WeightInfo::spend_gamma(spends.len() as u32), DispatchClass::Normal, Pays::Yes))]
         pub fn spend_gamma(
@@ -3260,8 +3261,8 @@ mod dispatches {
             let skipped = (spends.len() as u32).saturating_sub(spent);
             Ok((
                 Some(
-                    <T as Config>::WeightInfo::spend_gamma(spent)
-                        .saturating_add(T::DbWeight::get().reads(skipped.into())),
+                    <T as Config>::WeightInfo::spend_gamma(spends.len() as u32)
+                        .saturating_sub(T::DbWeight::get().writes(skipped.into())),
                 ),
                 Pays::Yes,
             )

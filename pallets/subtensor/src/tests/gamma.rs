@@ -109,7 +109,8 @@ fn gamma_events() -> Vec<Event<Test>> {
                 | Event::GammaDepositClosed { .. }
                 | Event::GammaDepositSpenderSet { .. }
                 | Event::GammaDepositDailySpendCapSet { .. }
-                | Event::GammaSpent { .. }),
+                | Event::GammaSpent { .. }
+                | Event::GammaSpendSkipped { .. }),
             ) => Some(event),
             _ => None,
         })
@@ -1251,13 +1252,23 @@ fn daily_spend_cap_bucket_rules() {
         cap(Some(40 * GAMMA));
         assert_eq!(spendable(), 40 * GAMMA);
 
-        // Zero pauses the deposit: an entry spends nothing and emits nothing. Ending the pause
-        // refills from nothing.
+        // Zero pauses the deposit: an entry spends nothing. Ending the pause refills from
+        // nothing.
         cap(Some(0));
         wait(day);
         System::reset_events();
         spend(GAMMA);
-        assert!(gamma_events().is_empty());
+        assert_eq!(
+            gamma_events(),
+            vec![Event::GammaSpendSkipped {
+                netuid,
+                hotkey: U256::from(HOTKEY),
+                spender: U256::from(OWNER_COLDKEY),
+                amount: GAMMA.into(),
+                reference: [0; 32],
+                reason: Error::<Test>::GammaDepositDailySpendCapExceeded.into(),
+            }]
+        );
         cap(Some(100 * GAMMA));
         assert_eq!(spendable(), 0);
         wait(day / 4);
@@ -1291,8 +1302,8 @@ fn spend_gamma_spends_whole_amounts_within_balance_and_allowance() {
         System::reset_events();
 
         // In order: an entry above the balance or the allowance left by earlier entries is
-        // skipped, and one within them spends its whole amount. A skipped entry is charged one
-        // read.
+        // skipped, and one within them spends its whole amount. A skipped entry is charged as a
+        // spent one, less its write.
         let post_info = SubtensorModule::spend_gamma(
             owner,
             netuid,
@@ -1309,8 +1320,8 @@ fn spend_gamma_spends_whole_amounts_within_balance_and_allowance() {
         assert_eq!(
             post_info.actual_weight,
             Some(
-                <Test as Config>::WeightInfo::spend_gamma(4)
-                    .saturating_add(<Test as frame_system::Config>::DbWeight::get().reads(2))
+                <Test as Config>::WeightInfo::spend_gamma(6)
+                    .saturating_sub(<Test as frame_system::Config>::DbWeight::get().writes(2))
             )
         );
         let spent = |hotkey: u64, amount: u64| Event::GammaSpent {
@@ -1321,11 +1332,25 @@ fn spend_gamma_spends_whole_amounts_within_balance_and_allowance() {
             amount: amount.into(),
             reference: [0; 32],
         };
+        let skipped = |hotkey: u64, amount: u64, reason: Error<Test>| Event::GammaSpendSkipped {
+            netuid,
+            hotkey: U256::from(hotkey),
+            spender: U256::from(OWNER_COLDKEY),
+            amount: amount.into(),
+            reference: [0; 32],
+            reason: reason.into(),
+        };
         assert_eq!(
             gamma_events(),
             vec![
                 spent(HOTKEY, GAMMA),
                 spent(HOTKEY + 1, GAMMA + 1),
+                skipped(HOTKEY, gamma, Error::<Test>::InsufficientGammaBalance),
+                skipped(
+                    HOTKEY + 1,
+                    GAMMA,
+                    Error::<Test>::GammaDepositDailySpendCapExceeded
+                ),
                 spent(HOTKEY, gamma - GAMMA),
                 spent(HOTKEY + 1, GAMMA - 1),
             ]
@@ -1377,29 +1402,59 @@ fn gamma_spent_repeats_each_entry_reference() {
 }
 
 #[test]
-fn spend_gamma_skips_silently() {
+fn spend_gamma_skips_with_the_reason() {
     new_test_ext(1).execute_with(|| {
         let netuid = gamma_subnet();
         let owner = U256::from(OWNER_COLDKEY);
         mint(netuid, COLDKEY, HOTKEY, TAO);
         let before = deposit(netuid, HOTKEY);
+        let above = before.balance.to_u64() + 1;
         System::reset_events();
 
         assert_ok!(SubtensorModule::spend_gamma(
             RuntimeOrigin::signed(owner),
             netuid,
-            spends(&[
-                (HOTKEY + 1, GAMMA),
-                (HOTKEY, 0),
-                (HOTKEY, before.balance.to_u64() + 1)
-            ])
+            spends(&[(HOTKEY + 1, GAMMA), (HOTKEY, 0), (HOTKEY, above)])
         ));
         assert_ok!(SubtensorModule::spend_gamma(
             RuntimeOrigin::signed(U256::from(COLDKEY)),
             netuid,
             spends(&[(HOTKEY, GAMMA)])
         ));
-        assert!(gamma_events().is_empty());
+        let skipped = |hotkey: u64, spender: u64, amount: u64, reason: Error<Test>| {
+            Event::GammaSpendSkipped {
+                netuid,
+                hotkey: U256::from(hotkey),
+                spender: U256::from(spender),
+                amount: amount.into(),
+                reference: [0; 32],
+                reason: reason.into(),
+            }
+        };
+        assert_eq!(
+            gamma_events(),
+            vec![
+                skipped(
+                    HOTKEY + 1,
+                    OWNER_COLDKEY,
+                    GAMMA,
+                    Error::<Test>::GammaDepositDoesNotExist
+                ),
+                skipped(HOTKEY, OWNER_COLDKEY, 0, Error::<Test>::AmountTooLow),
+                skipped(
+                    HOTKEY,
+                    OWNER_COLDKEY,
+                    above,
+                    Error::<Test>::InsufficientGammaBalance
+                ),
+                skipped(
+                    HOTKEY,
+                    COLDKEY,
+                    GAMMA,
+                    Error::<Test>::NotGammaDepositSpender
+                ),
+            ]
+        );
         assert_eq!(deposit(netuid, HOTKEY), before);
     });
 }
@@ -1688,6 +1743,7 @@ fn gamma_events_reconstruct_deposits() {
                 Event::GammaSpent { hotkey, amount, .. } => {
                     rebuilt.get_mut(&hotkey).unwrap().2 -= amount;
                 }
+                Event::GammaSpendSkipped { .. } => {}
                 _ => unreachable!(),
             }
         }

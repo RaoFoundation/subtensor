@@ -1058,6 +1058,20 @@ DESCRIPTIONS: dict[str, str] = {
         "cap opens a new deposit and must match an existing one's. Mint without naming one, or "
         "change the deposit's cap with `set_gamma_deposit_daily_spend_cap` first."
     ),
+    "NotGammaDepositSpender": (
+        "A spend entry was skipped because its gamma deposit names another spender. Only the "
+        "deposit's spender, or its `GammaSpend` proxy, spends it."
+    ),
+    "InsufficientGammaBalance": (
+        "A spend entry was skipped because its amount is above the gamma deposit's balance. An "
+        "entry spends its whole amount or nothing. The `gamma_deposit` read gives "
+        "`spendable_gamma`, what an entry can spend now."
+    ),
+    "GammaDepositDailySpendCapExceeded": (
+        "A spend entry was skipped because its amount is above what the gamma deposit's daily "
+        "spend cap allows now. The cap refills over a day. The `gamma_deposit` read gives "
+        "`spendable_gamma`, what an entry can spend now."
+    ),
     "ColdkeySwapDestinationReserved": (
         "This account is reserved as the destination of an in-flight coldkey-swap "
         "announcement, so it cannot be registered as a hotkey and another coldkey cannot "

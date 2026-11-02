@@ -479,5 +479,11 @@ mod errors {
         GammaDepositSpenderMismatch,
         /// A mint named a daily spend cap other than its gamma deposit's.
         GammaDepositDailySpendCapMismatch,
+        /// The signer is not the gamma deposit's spender.
+        NotGammaDepositSpender,
+        /// The gamma deposit's balance is below the amount.
+        InsufficientGammaBalance,
+        /// The amount is above what the gamma deposit's daily spend cap allows now.
+        GammaDepositDailySpendCapExceeded,
     }
 }
