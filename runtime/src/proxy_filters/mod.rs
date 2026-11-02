@@ -71,11 +71,10 @@ type ValidateAllowed = (WeightCalls, NeuronServingCalls, CommitmentCalls);
 /// wrappers (they re-dispatch on a fresh origin that drops this filter),
 /// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
 /// owner-key rotation, deferred order approvals, protected-account creation,
-/// crediting gamma to a hotkey or naming a service's
-/// spender, and basket trading and gamma spending (which need the explicit
-/// `BasketTrading` and `GammaSpend` grants). Sudo is excluded because a
-/// sudo-key principal would otherwise hand the delegate root, including forced
-/// transfers.
+/// crediting gamma to a hotkey or naming a service's spender, and basket trading
+/// and gamma spending (which need the explicit `BasketTrading` and `GammaSpend`
+/// grants). Sudo is excluded because a sudo-key principal would otherwise hand
+/// the delegate root, including forced transfers.
 /// `SudoCalls` and `TaoUsdPriceFeedCalls` are inventory-only: no restricted
 /// proxy grants them.
 type NonTransferAllowed = (
@@ -121,9 +120,8 @@ type NonFungibleAllowed = (
 /// network dissolution, root/burned registration, coldkey swaps, Crowdloan
 /// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
 /// Multisig wrappers, `store_encrypted`, owner-key rotation, deferred order approvals,
-/// protected-account creation, or basket
-/// trading or gamma spending (which need the explicit `BasketTrading` and
-/// `GammaSpend` grants). EVM execution can
+/// protected-account creation, basket trading or gamma spending (which need the
+/// explicit `BasketTrading` and `GammaSpend` grants). EVM execution can
 /// reconstruct an unrestricted native origin through precompiles, so it requires
 /// full authority even when the requested target is an ordinary contract.
 type NonCriticalAllowed = (
@@ -1119,9 +1117,9 @@ mod tests {
             ChildKeyCalls,
             RootClaimCalls,
             BasketTradingCalls,
-            LockCalls,
             GammaSpendCalls,
             GammaCreditCalls,
+            LockCalls,
             SubtensorValueCalls,
             OwnerKeyCalls,
         )>();

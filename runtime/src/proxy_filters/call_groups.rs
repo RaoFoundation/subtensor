@@ -556,7 +556,8 @@ call_filter_group!(
 
 // pallet-subtensor calls that spend or destroy the signer's TAO or alpha
 // without being a transfer or a stake-position change: burning stake in,
-// recycling/burning alpha, paying a network lock cost, and managing gamma deposits.
+// recycling/burning alpha, paying a network lock cost, and managing gamma
+// deposits.
 // Granted to the broad value-capable proxies, never to `NonFungible`.
 call_filter_group!(
     SubtensorValueCalls,

@@ -465,7 +465,7 @@ mod errors {
         ColdkeySwapDestinationReservationNotFound,
         /// An ownership change would weaken a protected account's authorization.
         HotkeyOwnerPolicyViolation,
-        /// Minting gamma needs a TAO/USD feed at most `TAO_USD_PRICE_MAX_AGE` blocks old.
+        /// Minting gamma needs a TAO/USD feed at most 300 blocks old.
         TaoUsdPriceUnavailable,
         /// Gamma minting is disabled network-wide or on this subnet.
         GammaDisabled,

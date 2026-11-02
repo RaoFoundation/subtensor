@@ -276,15 +276,14 @@ mod tests {
         assert_eq!(u8::from(ProxyType::Validate), 19);
         assert_eq!(u8::from(ProxyType::Weights), 20);
         assert_eq!(u8::from(ProxyType::Lock), 21);
-        assert_eq!(u8::from(ProxyType::GammaSpend), 22);
         assert_eq!(ProxyType::try_from(19), Ok(ProxyType::Validate));
         assert_eq!(ProxyType::try_from(20), Ok(ProxyType::Weights));
         assert_eq!(ProxyType::try_from(21), Ok(ProxyType::Lock));
+        assert_eq!(u8::from(ProxyType::GammaSpend), 22);
         assert_eq!(ProxyType::try_from(22), Ok(ProxyType::GammaSpend));
         assert_eq!(ProxyType::try_from(23), Err(()));
         assert!(!ProxyType::Validate.is_deprecated());
         assert!(!ProxyType::Weights.is_deprecated());
         assert!(!ProxyType::Lock.is_deprecated());
-        assert!(!ProxyType::GammaSpend.is_deprecated());
     }
 }
