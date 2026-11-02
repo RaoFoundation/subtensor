@@ -35,7 +35,7 @@ pub mod mock;
 use common::{api, enactment_state};
 use std::sync::Arc;
 
-pub use api::FullChainApi;
+pub use api::{FullChainApi, PoolValidation};
 pub use builder::{Builder, TransactionPoolHandle, TransactionPoolOptions, TransactionPoolType};
 pub use common::notification_future;
 pub use fork_aware_txpool::{ForkAwareTxPool, ForkAwareTxPoolTask};

@@ -7,8 +7,8 @@ Validators and miners talk to each other over plain HTTP; the chain only
 stores where to find each other (see [Mining](/docs/guides/mining)). What
 those requests need is **identity**: proof that a request came from a specific
 hotkey, was addressed to yours, covers exactly the bytes received, and is
-recent. `bittensor.http_auth` provides that as two pure functions — `sign`
-produces headers, `verify` checks them — with no HTTP server or client
+recent. `bittensor.http_auth` provides that through `sign`, which produces
+headers, and `verify`, which checks them, with no HTTP server or client
 attached. Bring your own framework; recipes for FastAPI and httpx are below.
 
 ```python
@@ -37,8 +37,39 @@ Resolve `trusted_sender_crypto_type` from server-owned configuration or the
 account registry for the claimed sender. Never copy `X-Bittensor-Crypto` into
 `expected_crypto_type`: the header is attacker-controlled, and a bare SS58
 address does not encode its scheme. Verification rejects a conflicting header
-before checking the signature. This pin is required for every scheme, including
-hashed accounts; the wire format and existing signature bytes are unchanged.
+before checking the signature. A trusted scheme is required for every sender,
+including hashed accounts; the wire format and existing signature bytes are
+unchanged.
+
+## Keep existing verification calls
+
+Existing calls that omit `expected_crypto_type` can remain unchanged after
+configuring trusted sender schemes once at server startup:
+
+```python
+bt.http_auth.configure_verifier(
+    my_hotkey,
+    trusted_sender_schemes={validator_hotkey: bt.CRYPTO_SR25519},
+)
+
+caller = bt.http_auth.verify(
+    request_headers, body_bytes,
+    method="POST", path="/generate", self_hotkey_ss58=my_hotkey,
+)
+```
+
+Load this mapping from trusted configuration or a synchronized account registry,
+never from request headers. It supports ordinary and hashed Sr25519/Ed25519;
+ML-DSA and Falcon HTTP authentication remain unsupported. A missing configuration
+or unknown sender raises `BadSignature`, rather than guessing a scheme. Sender
+lookup uses the exact SS58 string supplied in the request.
+
+Configuration is process-local and scoped to the receiving hotkey. Configure
+every server worker; applications sharing a process and receiver share its
+configuration. `configure_verifier` copies the mapping, so call it again with
+an updated snapshot to refresh registry data. `clear_verifier(my_hotkey)` removes
+that receiver's configuration. An explicit `expected_crypto_type` still takes
+precedence over the configured mapping.
 
 ## Hashed SR/ED hotkeys
 
@@ -152,6 +183,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 MY_HOTKEY = bt.Wallet(name="my_coldkey", hotkey="my_hotkey").hotkey.ss58_address
 # Populate this from trusted configuration or a synchronized account registry.
 TRUSTED_SENDER_SCHEMES: dict[str, int] = {}
+bt.http_auth.configure_verifier(
+    MY_HOTKEY, trusted_sender_schemes=TRUSTED_SENDER_SCHEMES,
+)
 
 app = FastAPI()
 
@@ -164,17 +198,11 @@ async def authenticated(request: Request) -> bt.http_auth.Caller:
     if request.scope["query_string"]:
         target += "?" + request.scope["query_string"].decode()
     try:
-        expected_scheme = TRUSTED_SENDER_SCHEMES.get(
-            request.headers.get(bt.http_auth.HEADER_HOTKEY, "")
-        )
-        if expected_scheme is None:
-            raise HTTPException(status_code=401, detail="Unknown sender scheme")
         return bt.http_auth.verify(
             request.headers, body,
             method=request.method,
             path=target,
             self_hotkey_ss58=MY_HOTKEY,
-            expected_crypto_type=expected_scheme,
         )
     except bt.http_auth.AuthError as e:
         raise HTTPException(status_code=401, detail=str(e))

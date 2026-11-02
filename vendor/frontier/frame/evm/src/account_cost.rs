@@ -2,6 +2,8 @@
 //!
 //! These are storage-operation counts, priced with the runtime's existing DB
 //! weights, not substitute benchmark measurements for hashed registration.
+//! They consume Frontier's external resource budget without changing Ethereum's
+//! intrinsic gas, opcode costs or gas forwarded to a child call.
 
 use crate::{AddressMapping, Config, EvmConfig, GasWeightMapping};
 use frame_support::{traits::Get, weights::Weight};
@@ -39,21 +41,32 @@ pub fn transaction_weight<T: Config>(create: bool, authorizations: usize) -> Wei
 	)
 }
 
-pub fn config<T: Config>(config: &EvmConfig) -> EvmConfig {
-	let mut config = config.clone();
-	config.gas_transaction_call = config
-		.gas_transaction_call
-		.saturating_add(gas::<T>(transaction_weight::<T>(false, 0)));
-	config.gas_transaction_create = config
-		.gas_transaction_create
-		.saturating_add(gas::<T>(transaction_weight::<T>(true, 0)));
-	let authorization = gas::<T>(weight::<T>(6));
-	config.gas_per_empty_account_cost = config
-		.gas_per_empty_account_cost
-		.saturating_add(authorization);
-	// The policy/read surcharge must not be refunded for an existing authority.
-	config.gas_auth_base_cost = config.gas_auth_base_cost.saturating_add(authorization);
-	config
+/// Stateful mappings need a resource meter even when PoV metering is disabled.
+/// Admission and execution must use the same fallback so unaffordable mapping
+/// work is rejected before authorization recovery or any execution writes.
+/// An explicit budget may tighten the gas-derived bound, but must not permit
+/// effective gas (and therefore the fee) to exceed the transaction's gas limit.
+pub fn external_weight_limit<T: Config>(
+	gas_limit: u64,
+	weight_limit: Option<Weight>,
+) -> Option<Weight> {
+	if T::AddressMapping::extra_read_weight() == Weight::zero() {
+		return weight_limit;
+	}
+	let gas_weight = T::GasWeightMapping::gas_to_weight(gas_limit, false);
+	Some(match weight_limit {
+		Some(limit) => Weight::from_parts(
+			limit.ref_time().min(gas_weight.ref_time()),
+			if T::GasLimitPovSizeRatio::get() > 0 {
+				limit.proof_size().min(gas_weight.proof_size())
+			} else {
+				// With no PoV gas ratio an explicit proof budget is independent
+				// of gas, and must not be replaced by a zero derived proof bound.
+				limit.proof_size()
+			},
+		),
+		None => gas_weight,
+	})
 }
 
 /// Cheap admission before signature recovery, including callers skipping validate.
@@ -70,7 +83,6 @@ pub fn check_budget<T: Config>(
 	if authorizations > 255 {
 		return Err(TransactionValidationError::AuthorizationListTooLarge);
 	}
-	let config = self::config::<T>(config);
 	let minimum = (if create {
 		config.gas_transaction_create
 	} else {
@@ -84,7 +96,7 @@ pub fn check_budget<T: Config>(
 	if gas_limit < minimum {
 		return Err(TransactionValidationError::GasLimitTooLow);
 	}
-	if let Some(limit) = weight_limit {
+	if let Some(limit) = external_weight_limit::<T>(gas_limit, weight_limit) {
 		let cost = transaction_weight::<T>(create, authorizations);
 		if limit.ref_time() < cost.ref_time()
 			|| proof_size_base_cost
@@ -97,12 +109,12 @@ pub fn check_budget<T: Config>(
 }
 
 /// Charge a precompile's mapping lookup before the infallible mapper reads storage.
-/// Both gas and external weight must be available, including on failure paths.
+/// External costs survive failed child calls and are included in effective gas
+/// settlement; they must not reduce the child's standard EVM gas allowance.
 pub fn record_precompile_mapping_cost<T: Config>(
 	handle: &mut (impl crate::PrecompileHandle + ?Sized),
 ) -> Result<(), crate::ExitError> {
 	let cost = weight::<T>(1);
-	handle.record_cost(gas::<T>(cost))?;
 	handle.record_external_cost(Some(cost.ref_time()), Some(cost.proof_size()), None)?;
 	Ok(())
 }
