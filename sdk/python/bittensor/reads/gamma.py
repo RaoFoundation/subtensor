@@ -11,6 +11,10 @@ from ..intents._money import gamma_from_units
 from ..result import chain_error_from_dispatch
 from .base import read
 
+# Most the accepted TAO/USD price rises per block, in parts per billion of itself
+# (`TAO_USD_PRICE_MAX_STEP`).
+TAO_USD_PRICE_MAX_STEP = 66_000
+
 
 def _deposit_record(info: dict) -> dict:
     deposit = info["deposit"]
@@ -105,19 +109,29 @@ async def quote_mint_gamma_with_stake(view, netuid: int, amount_alpha: float) ->
 
 @read("tao_usd_price", {}, category="Gamma")
 async def tao_usd_price(view) -> dict:
-    """The TAO/USD price oracle, its last feed, and the accepted price at that feed.
+    """The TAO/USD price oracle, its last feed, and the accepted price at this block.
 
     The accepted price falls to the feed at once and rises toward it by at most
-    0.0066% (66 ppm) of itself per block. Minting needs a feed at most 300
-    blocks old, so no new mint succeeds once `blocks_since_last_feed` exceeds 300.
+    0.0066% (66 ppm) of itself per block, and mints value TAO at it. Minting needs a
+    feed at most 300 blocks old, so no new mint succeeds once `blocks_since_last_feed`
+    exceeds 300.
     """
     view = await view.at()
     oracle = await view.query(st.SubtensorModule.TaoUsdPriceOracle)
     state = await view.query(st.SubtensorModule.TaoUsdPrice)
+    blocks = view.block - int(state["fed_at"]) if state else None
     return {
         "oracle": str(oracle) if oracle else None,
-        "accepted_usd": state["accepted"] / 10**9 if state else None,
+        "accepted_usd": _accepted_price(state, blocks) / 10**9 if state else None,
         "feed_usd": state["feed"] / 10**9 if state else None,
         "fed_at": int(state["fed_at"]) if state else None,
-        "blocks_since_last_feed": view.block - int(state["fed_at"]) if state else None,
+        "blocks_since_last_feed": blocks,
     }
+
+
+def _accepted_price(state: dict, blocks: int) -> int:
+    """The accepted price `blocks` after its feed: raised by `TAO_USD_PRICE_MAX_STEP` of
+    itself, rounded up, per block, up to the feed, as the chain's `tao_usd_price_at`."""
+    accepted = int(state["accepted"])
+    step = -(-accepted * TAO_USD_PRICE_MAX_STEP // 10**9)
+    return min(int(state["feed"]), accepted + step * blocks)

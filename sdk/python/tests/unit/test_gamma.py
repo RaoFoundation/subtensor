@@ -218,7 +218,22 @@ class TestGammaReads:
         quote = asyncio.run(gamma.quote_mint_gamma(netuid=1, amount_tao=1))
         assert quote["gamma"] == "9007199.254740993"
         price = asyncio.run(gamma.tao_usd_price())
-        assert (price["accepted_usd"], price["blocks_since_last_feed"]) == (312.45, 7)
+        assert (price["accepted_usd"], price["blocks_since_last_feed"]) == (312.5, 7)
+
+    @pytest.mark.parametrize(
+        ("accepted", "feed", "blocks", "price"),
+        [(312_450_000_000, 312_500_000_000, 0, 312.45),
+         (312_450_000_000, 312_500_000_000, 1, 312.4706217),
+         (1, 312_500_000_000, 2, 3e-9)],
+    )  # fmt: skip
+    def test_the_accepted_price_rises_by_the_step_up_to_the_feed(
+        self, accepted, feed, blocks, price
+    ):
+        sub = FakeSubstrate()
+        state = {"accepted": accepted, "feed": feed, "fed_at": sub.block - blocks}
+        sub.seed("SubtensorModule", "TaoUsdPrice", None, state)
+        gamma = Client("local", substrate=sub).gamma
+        assert asyncio.run(gamma.tao_usd_price())["accepted_usd"] == price
 
     def test_quotes_ask_in_chain_units(self):
         sub, asked = FakeSubstrate(), []

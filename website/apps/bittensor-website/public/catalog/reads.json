@@ -2778,8 +2778,8 @@
   },
   {
     "name": "tao_usd_price",
-    "summary": "The TAO/USD price oracle, its last feed, and the accepted price at that feed.",
-    "description": "The TAO/USD price oracle, its last feed, and the accepted price at that feed.\n\nThe accepted price falls to the feed at once and rises toward it by at most\n0.0066% (66 ppm) of itself per block. Minting needs a feed at most 300\nblocks old, so no new mint succeeds once `blocks_since_last_feed` exceeds 300.",
+    "summary": "The TAO/USD price oracle, its last feed, and the accepted price at this block.",
+    "description": "The TAO/USD price oracle, its last feed, and the accepted price at this block.\n\nThe accepted price falls to the feed at once and rises toward it by at most\n0.0066% (66 ppm) of itself per block, and mints value TAO at it. Minting needs a\nfeed at most 300 blocks old, so no new mint succeeds once `blocks_since_last_feed`\nexceeds 300.",
     "params": {},
     "param_docs": {},
     "category": "Gamma",

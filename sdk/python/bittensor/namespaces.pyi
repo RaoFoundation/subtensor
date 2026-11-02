@@ -261,11 +261,12 @@ class Gamma(_ReadNamespace):
         """
 
     async def tao_usd_price(self, *, block: Optional[int] = None) -> dict:
-        """The TAO/USD price oracle, its last feed, and the accepted price at that feed.
+        """The TAO/USD price oracle, its last feed, and the accepted price at this block.
 
         The accepted price falls to the feed at once and rises toward it by at most
-        0.0066% (66 ppm) of itself per block. Minting needs a feed at most 300
-        blocks old, so no new mint succeeds once `blocks_since_last_feed` exceeds 300.
+        0.0066% (66 ppm) of itself per block, and mints value TAO at it. Minting needs a
+        feed at most 300 blocks old, so no new mint succeeds once `blocks_since_last_feed`
+        exceeds 300.
         """
 
 class Hyperparameters(_ReadNamespace):
