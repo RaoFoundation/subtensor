@@ -157,7 +157,7 @@ everywhere, and it moved only with root stake, issuance and the global knob.
 Etao keeps exactly that payout and detaches it from the owner's choice of
 `V`:
 
-### Root off the top
+### Root labor-backed floor (unified validator pile)
 
 Every block, for every subnet, the chain computes root's **baseline share**
 
@@ -168,28 +168,33 @@ r = V0 × x / (x + A)        with x = root_tao × TaoWeight
 `V0` is the validator share of the default vector (0.41 on mainnet, derived
 from the default owner cut; one global constant, no per-subnet storage).
 `r` is what root would earn from the subnet right now if the owner had never
-touched the vector. Root is then paid
+touched the vector. The full validator slot accrues as one pile
+`P = V × alpha_out`. At epoch, root is paid
 
 ```
-root_alpha = min(V, r) × alpha_out
+R_pay = min(P, max(R_nat, a · R_0))
 ```
 
-off the top of the validator slot, and alpha validators share the remainder,
-`(V − min(V, r)) × alpha_out`. The owner and miner slots are untouched.
+with classic baseline `R_0 = r × alpha_out`, natural root claim `R_nat` from
+the stake-mix split of `P`, and labor factor
+`a = clamp(ȳ_R / ȳ, 0, 1)` (alpha dividends per alpha stake for root∩alpha
+keys versus the subnet average; pure-root keys are excluded, so `a = 0` when
+no dual stake exists). Alpha validators receive `P − R_pay`. The owner and
+miner slots are untouched.
 
-Because `r` is recomputed from live state on every block, root's payout
-tracks the baseline **continuously**: as alpha issuance grows against root
-TAO, as root stake moves, or as governance changes `TaoWeight`, root earns
-exactly what an untouched subnet would pay at that block — with no further
-call from anyone. A subnet whose owner has never changed the vector pays
-`V0 × x / (x + A)`, identical to the chain before Etao.
+Because `r` is recomputed from live state on every block, the unscaled floor
+tracks root stake, issuance and `TaoWeight` continuously. A subnet whose
+owner has never changed the vector still uses the same classic `R_0` shape
+as before Etao; the labor factor can shrink the guaranteed cut when
+root-linked keys earn little alpha yield, while strong root competition can
+still beat the floor via `R_nat`.
 
 Two consequences:
 
-- **The owner cannot move root's payout.** Lowering `V` from 41% to 20%
-  takes the whole 21 points from alpha validators; root's slice is the same
-  before and after. Raising `V` likewise pays only alpha validators more.
-  There is no per-subnet weight to solve, store or ratchet.
+- **The owner cannot erase the classic baseline.** Lowering `V` from 41% to
+  20% takes the cut from alpha validators; set-time still rejects `V ≤ r`
+  on the unscaled baseline. Raising `V` pays alpha validators more of the
+  pile above the floor.
 - **Everything else is the plain global `TaoWeight`.** Stake weighting
   inside Yuma Consensus, the TAO-versus-alpha split of validator dividends,
   the child/parent stake inheritance and the pool side all use the global
@@ -199,8 +204,8 @@ Two consequences:
 
 The set call fails with `ValidatorEmissionTooLowToPreserveRoot` when the
 requested validator share is **at or below root's live baseline**,
-`V_new ≤ r`: root would take the entire slot and alpha validators would
-receive nothing. The floor is therefore `r` itself, not a multiple of it.
+`V_new ≤ r`: the unscaled floor would consume the entire slot. The guard
+uses unscaled `r`, not the labor-scaled `a · r`.
 
 On a mainnet subnet with 5.44M TAO on root, 6.46M alpha issued and
 `TaoWeight = 0.18`, the baseline `r` is about 5.40% of emission, so the
@@ -214,14 +219,14 @@ preserve and any positive validator share is accepted.
 
 The check runs at set time; the baseline keeps moving afterwards. If a subnet
 sets `V` just above today's `r` and the baseline later grows past it (root
-stake rises, issuance falls, or governance raises `TaoWeight`), root's cut is
-**capped at the whole validator slot**: root is paid `V × alpha_out` and alpha
-validators receive nothing until the owner raises `V` again. Root is never
-paid more than the slot, and the owner can always restore validators by
-raising the share (root is exempt from the rate limit, so governance can fix
-a stuck subnet immediately). `btcli subnets emission show` flags the capped
-state and the runtime API reports both `root_baseline_share` and the
-`root_share` actually paid.
+stake rises, issuance falls, or governance raises `TaoWeight`), the floor is
+**capped at the whole validator pile** when `a ≈ 1`: root can take all of
+`P` and alpha validators receive nothing until the owner raises `V` again.
+Root is never paid more than the pile, and the owner can always restore
+validators by raising the share (root is exempt from the rate limit, so
+governance can fix a stuck subnet immediately). `btcli subnets emission show`
+flags the capped state and the runtime API reports `root_baseline_share`
+(`r`) and `root_share` (`a · min(V, r)`).
 
 ### What does not change
 
@@ -289,8 +294,9 @@ keyed by subnet in `LastRateLimitedBlock`; constant
 **Runtime API / RPC:** `SubnetInfoRuntimeApi.get_subnet_emission_weights(netuid)
 → Option<SubnetEmissionWeightsInfo { netuid, weights, burn, recycle, owner,
 validator, miner, root_baseline_share, root_share, created_via_lease }>` (API
-version 3). `root_baseline_share` is `r` and `root_share` is `min(V, r)`, both
-in `u64::MAX` parts at the queried block.
+version 3). `root_baseline_share` is classic `r` and `root_share` is the
+effective labor floor `a · min(V, r)` (`a` from the last epoch, default 1),
+both in `u64::MAX` parts at the queried block.
 `get_subnet_hyperparams_v3` also reports `owner_emission`,
 `validator_emission` and `miner_emission` as `u64` parts.
 

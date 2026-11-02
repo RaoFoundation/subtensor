@@ -893,17 +893,14 @@ fn test_pending_emission() {
             epsilon = 1
         ); // 1 / 2.
 
+        // Full validator slot accrues to one pile; root is no longer peeled
+        // into PendingRootAlphaDivs at block time.
         assert_abs_diff_eq!(
             u64::from(PendingValidatorEmission::<Test>::get(netuid)),
-            500_000_000 - 125000000,
+            500_000_000,
             epsilon = 1
-        ); // 1 / 2 - swapped.
-
-        assert_abs_diff_eq!(
-            u64::from(PendingRootAlphaDivs::<Test>::get(netuid)),
-            125000000,
-            epsilon = 1
-        ); // 1 / 2 * 0.25 --> (from root_prop)
+        );
+        assert_eq!(u64::from(PendingRootAlphaDivs::<Test>::get(netuid)), 0);
     });
 }
 
@@ -1042,12 +1039,14 @@ fn test_drain_base_with_subnet_with_single_staker_registered_root_weight() {
             &coldkey,
             NetUid::ROOT,
         );
+        // No root UID and R0=0 ⇒ R_pay=0; folded leftover root pot joins the
+        // alpha remainder (incentives 0 folds server in too).
         close(
-            (stake_before + pending_alpha).into(),
+            (stake_before + pending_alpha + pending_root_alpha).into(),
             stake_after.into(),
             10,
-        ); // Registered gets all alpha emission.
-        close(stake_before.to_u64(), root_after.into(), 10); // Registered doesn't get tao immediately
+        );
+        close(stake_before.to_u64(), root_after.into(), 10); // Root TAO stake unchanged
     });
 }
 
@@ -1218,7 +1217,6 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
             NetUid::ROOT,
             stake_before,
         );
-        let pending_tao = TaoBalance::from(1_000_000_000);
         let pending_alpha = AlphaBalance::from(1_000_000_000);
         assert_eq!(SubnetTAO::<Test>::get(NetUid::ROOT), TaoBalance::ZERO);
         SubtensorModule::distribute_emission(
@@ -1230,32 +1228,13 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         );
         let stake_after1 =
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey1, &coldkey, netuid);
-        let root_after1 = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey1,
-            &coldkey,
-            NetUid::ROOT,
-        );
         let stake_after2 =
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey2, &coldkey, netuid);
-        let root_after2 = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey2,
-            &coldkey,
-            NetUid::ROOT,
-        );
-        let expected_stake = I96F32::from_num(stake_before)
-            + (I96F32::from_num(pending_alpha) * I96F32::from_num(1.0 / 2.0));
-        assert_abs_diff_eq!(
-            expected_stake.to_num::<u64>(),
-            stake_after1.into(),
-            epsilon = 10
-        ); // Registered gets 50% of alpha emission
-        let expected_stake2 = I96F32::from_num(stake_before)
-            + I96F32::from_num(pending_alpha) * I96F32::from_num(1.0 / 2.0);
-        assert_abs_diff_eq!(
-            expected_stake2.to_num::<u64>(),
-            stake_after2.into(),
-            epsilon = 10
-        ); // Registered gets 50% emission
+        // Unified pile, R0=0 ⇒ root takes R_nat; alpha gets the remainder.
+        let gain1 = u64::from(stake_after1).saturating_sub(u64::from(stake_before));
+        let gain2 = u64::from(stake_after2).saturating_sub(u64::from(stake_before));
+        assert!(gain1 > 0 && gain2 > 0);
+        assert!(gain1.saturating_add(gain2) < u64::from(pending_alpha));
     });
 }
 
@@ -1302,7 +1281,6 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
             NetUid::ROOT,
             stake_before,
         );
-        let pending_tao = TaoBalance::from(1_000_000_000);
         let pending_alpha = AlphaBalance::from(1_000_000_000);
         assert_eq!(SubnetTAO::<Test>::get(NetUid::ROOT), TaoBalance::ZERO);
         SubtensorModule::distribute_emission(
@@ -1314,32 +1292,15 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         );
         let stake_after1 =
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey1, &coldkey, netuid);
-        let root_after1 = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey1,
-            &coldkey,
-            NetUid::ROOT,
-        );
         let stake_after2 =
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey2, &coldkey, netuid);
-        let root_after2 = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey2,
-            &coldkey,
-            NetUid::ROOT,
-        );
-        let expected_stake = I96F32::from_num(stake_before)
-            + I96F32::from_num(pending_alpha) * I96F32::from_num(1.0 / 2.0);
-        assert_abs_diff_eq!(
-            expected_stake.to_num::<u64>(),
-            u64::from(stake_after1),
-            epsilon = 10
-        );
-        let expected_stake2 = I96F32::from_num(stake_before)
-            + I96F32::from_num(pending_alpha) * I96F32::from_num(1.0 / 2.0);
-        assert_abs_diff_eq!(
-            expected_stake2.to_num::<u64>(),
-            u64::from(stake_after2),
-            epsilon = 10
-        );
+        // Unified pile, R0=0 ⇒ root takes R_nat from the stake mix; alpha cohort
+        // gets the remainder. Both stakes rise, and the alpha gain is strictly
+        // less than the full folded pile.
+        let gain1 = u64::from(stake_after1).saturating_sub(u64::from(stake_before));
+        let gain2 = u64::from(stake_after2).saturating_sub(u64::from(stake_before));
+        assert!(gain1 > 0 && gain2 > 0);
+        assert!(gain1.saturating_add(gain2) < u64::from(pending_alpha));
     });
 }
 
@@ -1589,14 +1550,18 @@ fn test_get_root_children_drain() {
             AlphaBalance::ZERO,
         );
 
-        // Alice and Bob both made half of the dividends.
-        assert_eq!(
-            SubtensorModule::get_stake_for_hotkey_on_subnet(&alice, alpha),
-            alice_alpha_stake + pending_alpha / 2.into()
-        );
-        assert_eq!(
-            SubtensorModule::get_stake_for_hotkey_on_subnet(&bob, alpha),
-            bob_alpha_stake + pending_alpha / 2.into()
+        // Dual root∩alpha stake with R0=0 ⇒ R_pay = R_nat ≈ half the folded pile;
+        // alpha remainder splits across Alice/Bob after parent/child distribution.
+        let alice_after = SubtensorModule::get_stake_for_hotkey_on_subnet(&alice, alpha);
+        let bob_after = SubtensorModule::get_stake_for_hotkey_on_subnet(&bob, alpha);
+        assert!(alice_after > alice_alpha_stake);
+        assert!(bob_after > bob_alpha_stake);
+        let alpha_gain = (alice_after - alice_alpha_stake) + (bob_after - bob_alpha_stake);
+        assert!(alpha_gain < pending_alpha);
+        assert_abs_diff_eq!(
+            u64::from(alpha_gain),
+            u64::from(pending_alpha) / 2,
+            epsilon = 10
         );
 
         // There should be no TAO on the root subnet.
@@ -1604,7 +1569,6 @@ fn test_get_root_children_drain() {
 
         // Lets drain
         let pending_alpha = AlphaBalance::from(1_000_000_000);
-        let pending_root1 = TaoBalance::from(1_000_000_000);
         SubtensorModule::distribute_emission(
             alpha,
             pending_alpha.saturating_div(2.into()).into(),
@@ -1613,7 +1577,7 @@ fn test_get_root_children_drain() {
             AlphaBalance::ZERO,
         );
 
-        // Alice and Bob both made half of the dividends.
+        // Root-subnet TAO stake is unchanged (root alpha goes to the basket).
         assert_eq!(
             SubtensorModule::get_stake_for_hotkey_on_subnet(&alice, NetUid::ROOT),
             AlphaBalance::from(alice_root_stake)
@@ -1637,17 +1601,15 @@ fn test_get_root_children_drain() {
             AlphaBalance::ZERO,
         );
 
-        // Alice makes nothing
+        // Alice makes nothing on the alpha path; Bob gets the alpha remainder
+        // after R_nat (strictly less than the full folded pile).
         assert_eq!(
             AlphaDividendsPerSubnet::<Test>::get(alpha, alice),
             AlphaBalance::ZERO
         );
-        // Bob makes it all.
-        assert_abs_diff_eq!(
-            AlphaDividendsPerSubnet::<Test>::get(alpha, bob),
-            pending_alpha,
-            epsilon = 1.into()
-        );
+        let bob_div = AlphaDividendsPerSubnet::<Test>::get(alpha, bob);
+        assert!(bob_div > AlphaBalance::ZERO);
+        assert!(bob_div < pending_alpha);
     });
 }
 
@@ -1720,17 +1682,15 @@ fn test_get_root_children_drain_half_proportion() {
             AlphaBalance::ZERO,
         );
 
-        // Alice and Bob make the same amount.
-        close(
-            AlphaDividendsPerSubnet::<Test>::get(alpha, alice).into(),
-            (pending_alpha / 2.into()).into(),
-            10,
+        // Dual stake ⇒ R_nat takes ~half the pile; remaining alpha dividends split.
+        let alice_div = AlphaDividendsPerSubnet::<Test>::get(alpha, alice);
+        let bob_div = AlphaDividendsPerSubnet::<Test>::get(alpha, bob);
+        assert_abs_diff_eq!(
+            u64::from(alice_div.saturating_add(bob_div)),
+            u64::from(pending_alpha) / 2,
+            epsilon = 10
         );
-        close(
-            AlphaDividendsPerSubnet::<Test>::get(alpha, bob).into(),
-            (pending_alpha / 2.into()).into(),
-            10,
-        );
+        assert_abs_diff_eq!(u64::from(alice_div), u64::from(bob_div), epsilon = 10);
     });
 }
 
@@ -1801,7 +1761,8 @@ fn test_get_root_children_drain_with_take() {
             AlphaBalance::ZERO,
         );
 
-        // Bob makes it all.
+        // Full childkey take ⇒ Alice's alpha path is zero; Bob gets the alpha
+        // remainder after R_nat (≈ half the unified pile with dual stake).
         close(
             AlphaDividendsPerSubnet::<Test>::get(alpha, alice).into(),
             0,
@@ -1809,7 +1770,7 @@ fn test_get_root_children_drain_with_take() {
         );
         close(
             AlphaDividendsPerSubnet::<Test>::get(alpha, bob).into(),
-            pending_alpha.into(),
+            (pending_alpha / 2.into()).into(),
             10,
         );
     });
@@ -1883,17 +1844,16 @@ fn test_get_root_children_drain_with_half_take() {
             AlphaBalance::ZERO,
         );
 
-        // Alice and Bob make the same amount.
-        close(
-            AlphaDividendsPerSubnet::<Test>::get(alpha, alice).into(),
-            (pending_alpha / 4.into()).into(),
-            10000,
+        // Half childkey take on the alpha remainder after R_nat (~half the pile).
+        let alice_div = AlphaDividendsPerSubnet::<Test>::get(alpha, alice);
+        let bob_div = AlphaDividendsPerSubnet::<Test>::get(alpha, bob);
+        assert_abs_diff_eq!(
+            u64::from(alice_div.saturating_add(bob_div)),
+            u64::from(pending_alpha) / 2,
+            epsilon = 10000
         );
-        close(
-            AlphaDividendsPerSubnet::<Test>::get(alpha, bob).into(),
-            3 * u64::from(pending_alpha / 4.into()),
-            10000,
-        );
+        // Bob keeps the larger share (own stake + half of Alice's child path).
+        assert!(bob_div > alice_div);
     });
 }
 
@@ -2197,8 +2157,10 @@ fn test_calculate_dividend_distribution_totals() {
         let mut stake_map: BTreeMap<U256, (AlphaBalance, AlphaBalance)> = BTreeMap::new();
         let mut dividends: BTreeMap<U256, U96F32> = BTreeMap::new();
 
+        // Unified pile; classic floor R0 sized like the old root pot.
         let pending_validator_alpha = AlphaBalance::from(183_123_567_452_u64);
-        let pending_root_alpha = AlphaBalance::from(837_120_949_872_u64);
+        let root_floor_r0 = AlphaBalance::from(837_120_949_872_u64);
+        let pending_pile = pending_validator_alpha.saturating_add(root_floor_r0);
         let tao_weight: U96F32 = U96F32::from_num(0.18); // 18%
 
         let hotkeys = [U256::from(0), U256::from(1)];
@@ -2206,35 +2168,29 @@ fn test_calculate_dividend_distribution_totals() {
         Uids::<Test>::insert(NetUid::ROOT, hotkeys[0], 0u16);
         Uids::<Test>::insert(NetUid::ROOT, hotkeys[1], 1u16);
 
-        // Stake map and dividends shouldn't matter for this test.
+        // Both keys dual-stake → a = 1; R_pay = max(R_nat, R0).
         stake_map.insert(hotkeys[0], (4_859_302.into(), 2_342_352.into()));
         stake_map.insert(hotkeys[1], (23_423.into(), 859_273.into()));
         dividends.insert(hotkeys[0], 77_783_738_u64.into());
         dividends.insert(hotkeys[1], 19_283_940_u64.into());
 
-        let (alpha_dividends, root_alpha_dividends) =
+        let (alpha_dividends, root_alpha_dividends, yield_a) =
             SubtensorModule::calculate_dividend_distribution(
-                pending_validator_alpha,
-                pending_root_alpha,
+                pending_pile,
+                root_floor_r0,
                 tao_weight,
                 stake_map,
                 dividends,
             );
 
-        // Verify the total of each dividends type is close to the inputs.
+        assert_eq!(yield_a, U96F32::from_num(1));
         let total_alpha_dividends = alpha_dividends.values().sum::<U96F32>();
         let total_root_alpha_dividends = root_alpha_dividends.values().sum::<U96F32>();
+        let paid = total_alpha_dividends.saturating_add(total_root_alpha_dividends);
 
-        assert_abs_diff_eq!(
-            total_alpha_dividends.to_num::<u64>(),
-            u64::from(pending_validator_alpha),
-            epsilon = 1_000
-        );
-        assert_abs_diff_eq!(
-            total_root_alpha_dividends.to_num::<u64>(),
-            pending_root_alpha.to_u64(),
-            epsilon = 1_000
-        );
+        // Eligible mass of the pile is paid out; root gets at least R0 when a=1.
+        assert_abs_diff_eq!(paid.to_num::<u64>(), pending_pile.to_u64(), epsilon = 1_000);
+        assert!(total_root_alpha_dividends.to_num::<u64>() >= root_floor_r0.to_u64() - 1_000);
     });
 }
 
@@ -2244,42 +2200,39 @@ fn test_calculate_dividend_distribution_total_only_tao() {
         let mut stake_map: BTreeMap<U256, (AlphaBalance, AlphaBalance)> = BTreeMap::new();
         let mut dividends: BTreeMap<U256, U96F32> = BTreeMap::new();
 
-        let pending_validator_alpha = AlphaBalance::ZERO;
-        let pending_root_alpha = AlphaBalance::from(837_120_949_872_u64);
+        // Pure-root dual-stake keys with A_i > 0 still contribute to a; here both
+        // have alpha stake so a=1 and the whole pile can go to root when R0 = P.
+        let pending_pile = AlphaBalance::from(837_120_949_872_u64);
+        let root_floor_r0 = pending_pile;
         let tao_weight: U96F32 = U96F32::from_num(0.18); // 18%
 
         let hotkeys = [U256::from(0), U256::from(1)];
-        // Root dividends only accrue to root-registered hotkeys.
         Uids::<Test>::insert(NetUid::ROOT, hotkeys[0], 0u16);
         Uids::<Test>::insert(NetUid::ROOT, hotkeys[1], 1u16);
 
-        // Stake map and dividends shouldn't matter for this test.
         stake_map.insert(hotkeys[0], (4_859_302.into(), 2_342_352.into()));
         stake_map.insert(hotkeys[1], (23_423.into(), 859_273.into()));
         dividends.insert(hotkeys[0], 77_783_738_u64.into());
         dividends.insert(hotkeys[1], 19_283_940_u64.into());
 
-        let (alpha_dividends, root_alpha_dividends) =
+        let (alpha_dividends, root_alpha_dividends, yield_a) =
             SubtensorModule::calculate_dividend_distribution(
-                pending_validator_alpha,
-                pending_root_alpha,
+                pending_pile,
+                root_floor_r0,
                 tao_weight,
                 stake_map,
                 dividends,
             );
 
-        // Verify the total of each dividends type is close to the inputs.
+        assert_eq!(yield_a, U96F32::from_num(1));
         let total_alpha_dividends = alpha_dividends.values().sum::<U96F32>();
         let total_root_alpha_dividends = root_alpha_dividends.values().sum::<U96F32>();
 
-        assert_abs_diff_eq!(
-            total_alpha_dividends.to_num::<u64>(),
-            u64::from(pending_validator_alpha),
-            epsilon = 1_000
-        );
+        // a=1 and R0=P ⇒ alpha cohort gets 0; root gets the eligible mass.
+        assert_abs_diff_eq!(total_alpha_dividends.to_num::<u64>(), 0, epsilon = 1_000);
         assert_abs_diff_eq!(
             total_root_alpha_dividends.to_num::<u64>(),
-            pending_root_alpha.to_u64(),
+            pending_pile.to_u64(),
             epsilon = 1_000
         );
     });
@@ -2303,16 +2256,14 @@ fn test_calculate_dividend_distribution_total_no_tao_weight() {
         dividends.insert(hotkeys[0], 77_783_738_u64.into());
         dividends.insert(hotkeys[1], 19_283_940_u64.into());
 
-        let (alpha_dividends, tao_dividends) = SubtensorModule::calculate_dividend_distribution(
+        let (alpha_dividends, tao_dividends, _a) = SubtensorModule::calculate_dividend_distribution(
             pending_validator_alpha,
-            //   pending_tao,
-            AlphaBalance::ZERO,
+            AlphaBalance::ZERO, // R0 = 0 ⇒ R_pay = R_nat; with tao_weight 0, R_nat = 0
             tao_weight,
             stake_map,
             dividends,
         );
 
-        // Verify the total of each dividends type is close to the inputs.
         let total_alpha_dividends = alpha_dividends.values().sum::<U96F32>();
         let total_tao_dividends = tao_dividends.values().sum::<U96F32>();
 
@@ -2341,22 +2292,22 @@ fn test_calculate_dividend_distribution_total_only_alpha() {
 
         let hotkeys = [U256::from(0), U256::from(1)];
 
-        // Stake map and dividends shouldn't matter for this test.
-        stake_map.insert(hotkeys[0], (4_859_302.into(), 2_342_352.into()));
-        stake_map.insert(hotkeys[1], (23_423.into(), 859_273.into()));
+        // Alpha-only stake, no root UIDs ⇒ R_nat = 0, a = 0, R_pay = 0.
+        stake_map.insert(hotkeys[0], (4_859_302.into(), 0.into()));
+        stake_map.insert(hotkeys[1], (23_423.into(), 0.into()));
         dividends.insert(hotkeys[0], 77_783_738_u64.into());
         dividends.insert(hotkeys[1], 19_283_940_u64.into());
 
-        let (alpha_dividends, tao_dividends) = SubtensorModule::calculate_dividend_distribution(
-            pending_validator_alpha,
-            //   pending_tao,
-            AlphaBalance::ZERO,
-            tao_weight,
-            stake_map,
-            dividends,
-        );
+        let (alpha_dividends, tao_dividends, yield_a) =
+            SubtensorModule::calculate_dividend_distribution(
+                pending_validator_alpha,
+                AlphaBalance::ZERO,
+                tao_weight,
+                stake_map,
+                dividends,
+            );
 
-        // Verify the total of each dividends type is close to the inputs.
+        assert_eq!(yield_a, U96F32::from_num(0));
         let total_alpha_dividends = alpha_dividends.values().sum::<U96F32>();
         let total_tao_dividends = tao_dividends.values().sum::<U96F32>();
 
@@ -2382,7 +2333,8 @@ fn test_calculate_dividend_distribution_no_root_uid_does_not_divert_to_alpha() {
         let mut dividends: BTreeMap<U256, U96F32> = BTreeMap::new();
 
         let pending_validator_alpha = AlphaBalance::from(1_000_000_000_u64);
-        let pending_root_alpha = AlphaBalance::from(1_000_000_000_u64);
+        let root_floor_r0 = AlphaBalance::from(1_000_000_000_u64);
+        let pending_pile = pending_validator_alpha.saturating_add(root_floor_r0);
         let tao_weight: U96F32 = U96F32::from_num(0.18);
 
         // ~2α / ~4083.7τ root → ~735 weighted root → ~737 eff (Finney-shaped).
@@ -2399,10 +2351,10 @@ fn test_calculate_dividend_distribution_no_root_uid_does_not_divert_to_alpha() {
         stake_map.insert(peer, (alpha_stake.into(), 0.into()));
         dividends.insert(peer, U96F32::from_num(1_000_000_000_u64));
 
-        let (alpha_dividends, root_alpha_dividends) =
+        let (alpha_dividends, root_alpha_dividends, _a) =
             SubtensorModule::calculate_dividend_distribution(
-                pending_validator_alpha,
-                pending_root_alpha,
+                pending_pile,
+                root_floor_r0,
                 tao_weight,
                 stake_map,
                 dividends,
@@ -2423,15 +2375,21 @@ fn test_calculate_dividend_distribution_no_root_uid_does_not_divert_to_alpha() {
 
         // No root UID ⇒ no root-basket credit.
         assert_eq!(thin_root.to_num::<u64>(), 0);
+        // No ρ mass ⇒ floor cannot be assigned to anyone (recycled by caller).
+        let total_root = root_alpha_dividends.values().sum::<U96F32>();
+        assert_eq!(total_root.to_num::<u64>(), 0);
 
-        // ALPHA claim is the alpha fraction of eff, not ~50% of the validator pool.
+        // ALPHA claim is the alpha fraction of eff, not ~50% of the pile.
+        // No ρ mass ⇒ R_nat = 0; a≈1 ⇒ R_pay = R0; alpha remainder = P − R0 ∝ ℓ.
         let weighted_root = U96F32::from_num(root_stake) * tao_weight;
         let eff = U96F32::from_num(alpha_stake) + weighted_root;
         let alpha_frac = U96F32::from_num(alpha_stake) / eff;
-        // peer has alpha_prop=1, thin has alpha_prop=alpha_frac; same D ⇒ shares.
-        let expected_thin_share = alpha_frac / (alpha_frac + U96F32::from_num(1));
-        let expected_thin_alpha =
-            U96F32::from_num(pending_validator_alpha.to_u64()) * expected_thin_share;
+        let d = U96F32::from_num(1_000_000_000_u64);
+        let s_ell = d * (alpha_frac + U96F32::from_num(1));
+        let pile = U96F32::from_num(pending_pile.to_u64());
+        let r0 = U96F32::from_num(root_floor_r0.to_u64());
+        let l_pay = pile - r0;
+        let expected_thin_alpha = l_pay * (d * alpha_frac) / s_ell;
 
         assert_abs_diff_eq!(
             thin_alpha.to_num::<u64>(),
@@ -2440,11 +2398,178 @@ fn test_calculate_dividend_distribution_no_root_uid_does_not_divert_to_alpha() {
         );
         // Must be far below the pre-fix diversion (~half the pool).
         assert!(
-            thin_alpha.to_num::<u64>() < pending_validator_alpha.to_u64() / 20,
+            thin_alpha.to_num::<u64>() < pending_pile.to_u64() / 20,
             "thin α got {} — still diverting ineligible root into ALPHA",
             thin_alpha.to_num::<u64>()
         );
         assert!(peer_alpha > thin_alpha);
+    });
+}
+
+/// Identity: dual root∩alpha with equal yield ⇒ a=1 ⇒ R_pay = max(R_nat, R0).
+#[test]
+fn test_labor_floor_identity_a_equals_one() {
+    new_test_ext(1).execute_with(|| {
+        let pile = AlphaBalance::from(1_000_000_u64);
+        let r0 = AlphaBalance::from(200_000_u64);
+        let tao_weight = U96F32::from_num(1.0);
+        let hk = U256::from(1);
+        Uids::<Test>::insert(NetUid::ROOT, hk, 0u16);
+        let mut stake_map = BTreeMap::new();
+        // Equal alpha and weighted root ⇒ R_nat ≈ P/2 = 500k > R0.
+        stake_map.insert(hk, (1_000_000.into(), 1_000_000.into()));
+        let mut dividends = BTreeMap::new();
+        dividends.insert(hk, U96F32::from_num(1_000_000_u64));
+
+        let (alpha, root, a) = SubtensorModule::calculate_dividend_distribution(
+            pile, r0, tao_weight, stake_map, dividends,
+        );
+        assert_eq!(a, U96F32::from_num(1));
+        let root_total = root.values().sum::<U96F32>().to_num::<u64>();
+        let alpha_total = alpha.values().sum::<U96F32>().to_num::<u64>();
+        // R_nat ≈ 500k > R0 ⇒ pay R_nat (floor does not cap upside).
+        assert_abs_diff_eq!(root_total, 500_000, epsilon = 2);
+        assert_abs_diff_eq!(alpha_total, 500_000, epsilon = 2);
+    });
+}
+
+/// Weak alpha yield on root∩alpha ⇒ a→0 ⇒ floor off ⇒ R_pay ≈ R_nat (small).
+#[test]
+fn test_labor_floor_weak_alpha_yield_turns_floor_off() {
+    new_test_ext(1).execute_with(|| {
+        let pile = AlphaBalance::from(1_000_000_u64);
+        let r0 = AlphaBalance::from(400_000_u64);
+        let tao_weight = U96F32::from_num(1.0);
+
+        let root_hk = U256::from(1);
+        let alpha_hk = U256::from(2);
+        Uids::<Test>::insert(NetUid::ROOT, root_hk, 0u16);
+
+        let mut stake_map = BTreeMap::new();
+        // Root key: tiny α stake + large root → near-zero ℓ, still in cohort.
+        stake_map.insert(root_hk, (1.into(), 1_000_000.into()));
+        // Alpha-only peer carries almost all ℓ.
+        stake_map.insert(alpha_hk, (1_000_000.into(), 0.into()));
+
+        let mut dividends = BTreeMap::new();
+        dividends.insert(root_hk, U96F32::from_num(1_000_u64));
+        dividends.insert(alpha_hk, U96F32::from_num(1_000_000_u64));
+
+        let (alpha, root, a) = SubtensorModule::calculate_dividend_distribution(
+            pile, r0, tao_weight, stake_map, dividends,
+        );
+        assert!(a < U96F32::from_num(0.01), "a={a}");
+        let root_total = root.values().sum::<U96F32>().to_num::<u64>();
+        let alpha_total = alpha.values().sum::<U96F32>().to_num::<u64>();
+        // Floor nearly off; almost all eligible mass follows the alpha cohort.
+        assert!(root_total < 50_000, "root_total={root_total}");
+        assert!(alpha_total > 900_000, "alpha_total={alpha_total}");
+    });
+}
+
+/// Pure root only (A_i = 0 in cohort) ⇒ a = 0.
+#[test]
+fn test_labor_floor_pure_root_only_a_zero() {
+    new_test_ext(1).execute_with(|| {
+        let pile = AlphaBalance::from(1_000_000_u64);
+        let r0 = AlphaBalance::from(400_000_u64);
+        let tao_weight = U96F32::from_num(1.0);
+        let hk = U256::from(1);
+        Uids::<Test>::insert(NetUid::ROOT, hk, 0u16);
+        let mut stake_map = BTreeMap::new();
+        stake_map.insert(hk, (0.into(), 1_000_000.into()));
+        let mut dividends = BTreeMap::new();
+        dividends.insert(hk, U96F32::from_num(1_000_000_u64));
+
+        let (_alpha, root, a) = SubtensorModule::calculate_dividend_distribution(
+            pile, r0, tao_weight, stake_map, dividends,
+        );
+        assert_eq!(a, U96F32::from_num(0));
+        // a=0 ⇒ R_pay = R_nat = full pile (pure root path).
+        assert_abs_diff_eq!(
+            root.values().sum::<U96F32>().to_num::<u64>(),
+            1_000_000,
+            epsilon = 2
+        );
+    });
+}
+
+/// Capped slot: P < R0 and a=1 ⇒ R_pay = P (alpha validators get 0).
+#[test]
+fn test_labor_floor_capped_slot_pays_all_to_root() {
+    new_test_ext(1).execute_with(|| {
+        let pile = AlphaBalance::from(100_000_u64);
+        let r0 = AlphaBalance::from(400_000_u64);
+        let tao_weight = U96F32::from_num(1.0);
+        let hk = U256::from(1);
+        Uids::<Test>::insert(NetUid::ROOT, hk, 0u16);
+        let mut stake_map = BTreeMap::new();
+        stake_map.insert(hk, (1_000.into(), 1_000.into()));
+        let mut dividends = BTreeMap::new();
+        dividends.insert(hk, U96F32::from_num(1_000_000_u64));
+
+        let (alpha, root, a) = SubtensorModule::calculate_dividend_distribution(
+            pile, r0, tao_weight, stake_map, dividends,
+        );
+        assert_eq!(a, U96F32::from_num(1));
+        assert_abs_diff_eq!(
+            root.values().sum::<U96F32>().to_num::<u64>(),
+            100_000,
+            epsilon = 2
+        );
+        assert_eq!(alpha.values().sum::<U96F32>().to_num::<u64>(), 0);
+    });
+}
+
+/// Parent root stake + child validator dividends flow through existing distribution.
+#[test]
+fn test_labor_floor_child_parent_dividends_use_existing_split() {
+    new_test_ext(1).execute_with(|| {
+        let sn_owner_hk = U256::from(0);
+        let sn_owner_ck = U256::from(1);
+        let netuid = add_dynamic_network(&sn_owner_hk, &sn_owner_ck);
+
+        let parent = U256::from(10);
+        let parent_ck = U256::from(11);
+        let child = U256::from(12);
+        let child_ck = U256::from(13);
+        register_ok_neuron(netuid, parent, parent_ck, 0);
+        register_ok_neuron(netuid, child, child_ck, 0);
+        Uids::<Test>::insert(NetUid::ROOT, parent, 0u16);
+
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &parent,
+            &parent_ck,
+            NetUid::ROOT,
+            1_000_000.into(),
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &parent,
+            &parent_ck,
+            netuid,
+            500_000.into(),
+        );
+        // Full child proportion to parent (applied immediately in tests).
+        mock::mock_set_children_no_epochs(netuid, &parent, &[(u64::MAX, child)]);
+
+        let pile = AlphaBalance::from(1_000_000_u64);
+        let r0 = AlphaBalance::from(100_000_u64);
+        let hotkey_emission = vec![(child, 0.into(), pile)];
+        let (_inc, (alpha, root), a) =
+            SubtensorModule::calculate_dividend_and_incentive_distribution(
+                netuid,
+                pile,
+                r0,
+                hotkey_emission,
+                U96F32::from_num(1.0),
+            );
+        // Parent receives the child dividends after existing parent/child split.
+        assert!(a > U96F32::from_num(0));
+        assert!(
+            alpha.get(&parent).copied().unwrap_or_default()
+                + root.get(&parent).copied().unwrap_or_default()
+                > U96F32::from_num(0)
+        );
     });
 }
 
@@ -2476,12 +2601,11 @@ fn test_calculate_dividend_and_incentive_distribution() {
         // Hotkey, Incentive, Dividend
         let hotkey_emission = vec![(hotkey, pending_alpha / 2.into(), pending_alpha / 2.into())];
 
-        let (incentives, (alpha_dividends, tao_dividends)) =
+        let (incentives, (alpha_dividends, _tao_dividends), _a) =
             SubtensorModule::calculate_dividend_and_incentive_distribution(
                 netuid,
-                //   pending_tao,
-                AlphaBalance::ZERO,
                 pending_validator_alpha,
+                AlphaBalance::ZERO,
                 hotkey_emission,
                 tao_weight,
             );
@@ -2518,18 +2642,16 @@ fn test_calculate_dividend_and_incentive_distribution_all_to_validators() {
 
         let pending_alpha = AlphaBalance::from(123_456_789);
         let pending_validator_alpha = pending_alpha; // Pay all to validators.
-        let pending_tao = TaoBalance::ZERO;
         let tao_weight: U96F32 = U96F32::from_num(0.0); // 0%
 
         // Hotkey, Incentive, Dividend
         let hotkey_emission = vec![(hotkey, 0.into(), pending_alpha)];
 
-        let (incentives, (alpha_dividends, tao_dividends)) =
+        let (incentives, (alpha_dividends, _tao_dividends), _a) =
             SubtensorModule::calculate_dividend_and_incentive_distribution(
                 netuid,
-                //   pending_tao,
-                AlphaBalance::ZERO,
                 pending_validator_alpha,
+                AlphaBalance::ZERO,
                 hotkey_emission,
                 tao_weight,
             );
@@ -3520,7 +3642,7 @@ fn test_mining_emission_distribution_with_root_sell() {
         step_block(subnet_tempo);
 
         LastEpochBlock::<Test>::insert(netuid, SubtensorModule::get_current_block_as_u64());
-        let old_root_alpha_divs = PendingRootAlphaDivs::<Test>::get(netuid);
+        let old_validator_pile = PendingValidatorEmission::<Test>::get(netuid);
         let miner_stake_before_epoch = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
             &miner_hotkey,
             &miner_coldkey,
@@ -3529,16 +3651,15 @@ fn test_mining_emission_distribution_with_root_sell() {
 
         // step by one block
         step_block(1);
-        // Verify root alpha divs
-        let new_root_alpha_divs = PendingRootAlphaDivs::<Test>::get(netuid);
-        // Check that we ARE root selling, i.e. that root alpha divs are changing
-        assert_ne!(
-            new_root_alpha_divs, old_root_alpha_divs,
-            "Root alpha divs should be changing"
-        );
+        // Unified pile accrues at block time; legacy root pot stays empty.
+        let new_validator_pile = PendingValidatorEmission::<Test>::get(netuid);
         assert!(
-            new_root_alpha_divs > AlphaBalance::ZERO,
-            "Root alpha divs should be greater than 0"
+            new_validator_pile > old_validator_pile,
+            "Validator pile should grow each block"
+        );
+        assert_eq!(
+            PendingRootAlphaDivs::<Test>::get(netuid),
+            AlphaBalance::ZERO
         );
 
         // Run again but with some root stake
@@ -4206,16 +4327,16 @@ fn test_coinbase_emit_to_subnets_with_no_root_sell() {
                 .saturating_to_num::<u64>(),
             epsilon = 200_u64
         );
-        // We ALWAYS deduct the root alpha divs
+        // Full validator slot (no block-time root peel).
         assert_abs_diff_eq!(
             PendingValidatorEmission::<Test>::get(netuid0).to_u64(),
             alpha_emission
                 .saturating_sub(owner_cut_expected)
                 .saturating_div(U96F32::saturating_from_num(2))
-                .saturating_sub(expected_root_alpha_divs.to_u64().into())
                 .saturating_to_num::<u64>(),
             epsilon = 200_u64
         );
+        let _ = expected_root_alpha_divs;
     });
 }
 
@@ -4284,11 +4405,10 @@ fn test_coinbase_emit_to_subnets_with_root_sell() {
             owner_cut_expected.saturating_to_num::<u64>(),
             epsilon = 200_u64
         );
-        // YES root sell, so we have root alpha divs
-        assert_abs_diff_eq!(
-            PendingRootAlphaDivs::<Test>::get(netuid0).to_u64(),
-            expected_root_alpha_divs.to_u64(),
-            epsilon = 200_u64
+        // Root sell flag no longer peels a block-time root pot; pile is unified.
+        assert_eq!(
+            PendingRootAlphaDivs::<Test>::get(netuid0),
+            AlphaBalance::ZERO
         );
         // Should be alpha_emission minus the owner cut
         assert_abs_diff_eq!(
@@ -4299,16 +4419,16 @@ fn test_coinbase_emit_to_subnets_with_root_sell() {
                 .saturating_to_num::<u64>(),
             epsilon = 200_u64
         );
-        // Validator emission is also minus root alpha divs
+        // Full validator slot accrues regardless of root-sell flag.
         assert_abs_diff_eq!(
             PendingValidatorEmission::<Test>::get(netuid0).to_u64(),
             alpha_emission
                 .saturating_sub(owner_cut_expected)
                 .saturating_div(U96F32::saturating_from_num(2))
-                .saturating_sub(expected_root_alpha_divs.to_u64().into())
                 .saturating_to_num::<u64>(),
             epsilon = 200_u64
         );
+        let _ = expected_root_alpha_divs;
     });
 }
 

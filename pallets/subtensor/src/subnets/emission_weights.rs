@@ -12,23 +12,19 @@
 //! | 3    | validator | `≤ 50%`, and above root's baseline share  |
 //! | 4    | miner     | `≥ 33%`                                   |
 //!
-//! Root holders are paid **off the top** of the validator slot. Every block,
-//! root's alpha on a subnet is `min(V, r) · alpha_out` where `r` is root's
-//! *baseline* share ([`Pallet::baseline_root_emission_share`]): what root
-//! earns on this subnet at this block with the default validator share `V0`
-//! and the global `TaoWeight`, `r = V0 · x_g / (x_g + A)` with
-//! `x_g = root_tao · TaoWeight` and `A` the subnet's alpha issuance. This is
-//! exactly what a subnet on the default split pays root, and it is recomputed
-//! from live chain state every block, so root's income tracks root stake,
-//! alpha issuance and the global `TaoWeight` with no per-subnet state and no
-//! further calls. Alpha validators receive the rest of the slot,
-//! `V · alpha_out − root_alpha`. The owner and miner slots are untouched.
+//! The full validator slot accrues as one pile. At epoch, root is paid
+//! `R_pay = min(P, max(R_nat, a · R_0))` where `P` is the drained validator
+//! pile, `R_nat` is root's stake-mix claim on that pile, `R_0 = r · α_out`
+//! is the classic baseline (`r = V0 · x_g / (x_g + A)` with
+//! `x_g = root_tao · TaoWeight`), and `a ∈ [0, 1]` is root's alpha-dividend
+//! yield versus the subnet average (labor-backed floor). Alpha validators
+//! receive the remainder. The owner and miner slots are untouched.
 //!
 //! A set is rejected when the new validator share is at or below the live
-//! baseline (`V_new ≤ r`): validators would get nothing. If the baseline later
-//! grows past `V` (root stake up, issuance down, `TaoWeight` up), root's cut
-//! is capped at the whole validator slot and alpha validators get zero until
-//! the owner raises `V` or the baseline recedes.
+//! baseline (`V_new ≤ r`): the unscaled floor would consume the whole slot.
+//! If the baseline later grows past `V`, the floor is capped at `P` and
+//! alpha validators can still receive nothing until the owner raises `V` or
+//! the baseline recedes (subject to `a`).
 //!
 //! Consensus stake weighting, the root/alpha dividend split and child/parent
 //! contributions all use the global `TaoWeight`, exactly as before per-subnet
@@ -85,11 +81,10 @@ pub fn emission_share_to_parts(share: U96F32) -> u64 {
         .saturating_to_num::<u64>()
 }
 
-/// Root's share of a subnet's emission: `V · x / (x + A)` with
-/// `x = root_tao · tao_weight` and `A` the subnet's alpha issuance. With the
-/// default validator share and the global `TaoWeight` this is root's
-/// baseline, the amount `emit_to_subnets` pays root off the top of the
-/// validator slot every block.
+/// Root's classic baseline share of a subnet's emission: `V · x / (x + A)`
+/// with `x = root_tao · tao_weight` and `A` the subnet's alpha issuance. With
+/// the default validator share and the global `TaoWeight` this is `R_0`'s
+/// fraction of `alpha_out` — the labor floor's unscaled ceiling at epoch.
 pub fn root_emission_share(
     validator: U96F32,
     tao_weight: U96F32,
@@ -101,6 +96,52 @@ pub fn root_emission_share(
         .checked_div(weighted_root_tao.saturating_add(alpha_issuance))
         .unwrap_or(U96F32::saturating_from_num(0))
         .saturating_mul(validator)
+}
+
+/// Labor-backed yield factor `a = clamp(ȳ_R / ȳ, 0, 1)`.
+///
+/// Yields are alpha-dividend mass per alpha stake. Pure-root keys (`A = 0`)
+/// are excluded from both averages; if the root∩alpha cohort is empty,
+/// returns 0 (floor off).
+pub fn root_alpha_yield_factor(
+    root_cohort_ell: U96F32,
+    root_cohort_alpha: U96F32,
+    subnet_ell: U96F32,
+    subnet_alpha: U96F32,
+) -> U96F32 {
+    let zero = U96F32::saturating_from_num(0);
+    if root_cohort_alpha == zero || subnet_alpha == zero || subnet_ell == zero {
+        return zero;
+    }
+    let y_r = root_cohort_ell.safe_div(root_cohort_alpha);
+    let y = subnet_ell.safe_div(subnet_alpha);
+    if y == zero {
+        return zero;
+    }
+    y_r.safe_div(y).min(U96F32::saturating_from_num(1))
+}
+
+/// Epoch root pay from a unified validator pile:
+/// `R_pay = min(P, max(R_nat, a · R_0))`.
+pub fn root_pay_with_labor_floor(pile: U96F32, r_nat: U96F32, r0: U96F32, a: U96F32) -> U96F32 {
+    let floor = a.saturating_mul(r0);
+    let uncapped = if r_nat > floor { r_nat } else { floor };
+    if uncapped > pile { pile } else { uncapped }
+}
+
+/// Classic baseline `R_0` in alpha for a drained validator pile `P ≈ V · α_out`:
+/// `min(P, P · r / V)`.
+pub fn root_floor_alpha_for_validator_pile(
+    pile: U96F32,
+    baseline_r: U96F32,
+    validator_v: U96F32,
+) -> U96F32 {
+    let zero = U96F32::saturating_from_num(0);
+    if pile == zero || validator_v == zero {
+        return zero;
+    }
+    let r0 = pile.saturating_mul(baseline_r).safe_div(validator_v);
+    if r0 > pile { pile } else { r0 }
 }
 
 /// Snapshot of the storage items behind a subnet's emission weight view, each
@@ -332,17 +373,30 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    /// Root's share of `netuid`'s emission this block: the baseline, capped at
-    /// the validator slot, `min(V, r)`. Root is paid this off the top of the
-    /// validator slot and alpha validators get `V − min(V, r)`; the cap only
-    /// binds when the baseline has grown past `V` since the owner set it.
+    /// Classic floor ceiling for `netuid`: baseline capped at the validator
+    /// slot, `min(V, r)`. Used as unscaled `R_0` (before the labor yield
+    /// factor `a`) and for the set-time `ValidatorEmissionTooLowToPreserveRoot`
+    /// guard. Effective epoch pay may be lower when `a < 1`.
     pub fn get_root_emission_share(netuid: NetUid) -> U96F32 {
         Self::baseline_root_emission_share(netuid)
             .min(Self::get_float_subnet_validator_emission_cut(netuid))
     }
 
-    /// Whether root's baseline share exceeds the validator slot, so alpha
-    /// validators on `netuid` receive nothing this block.
+    /// Labor yield factor `a` from the last epoch that drained this subnet
+    /// (`u16::MAX` = 1.0). Defaults to 1.0 before the first drain.
+    pub fn get_last_root_alpha_yield_factor(netuid: NetUid) -> U96F32 {
+        U96F32::saturating_from_num(LastRootAlphaYieldFactor::<T>::get(netuid))
+            .safe_div(U96F32::saturating_from_num(u16::MAX))
+    }
+
+    /// Effective labor floor share of emission: `a · min(V, r)`.
+    pub fn get_effective_root_floor_share(netuid: NetUid) -> U96F32 {
+        Self::get_root_emission_share(netuid)
+            .saturating_mul(Self::get_last_root_alpha_yield_factor(netuid))
+    }
+
+    /// Whether root's classic baseline exceeds the validator slot (floor
+    /// ceiling would consume the whole slot when `a = 1`).
     pub fn is_root_emission_share_capped(netuid: NetUid) -> bool {
         Self::baseline_root_emission_share(netuid)
             > Self::get_float_subnet_validator_emission_cut(netuid)
@@ -366,6 +420,7 @@ impl<T: Config> Pallet<T> {
         SubnetEmissionWeights::<T>::insert(netuid, Self::emission_weights_to_vec(weights));
         SubnetCreatedViaLease::<T>::remove(netuid);
         SubnetOwnerCutAccrued::<T>::insert(netuid, AlphaBalance::ZERO);
+        LastRootAlphaYieldFactor::<T>::remove(netuid);
     }
 
     /// The owner α the pre-emission-weights lock refund deducted:

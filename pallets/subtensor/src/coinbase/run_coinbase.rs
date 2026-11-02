@@ -266,7 +266,7 @@ impl<T: Config> Pallet<T> {
         subnets_to_emit_to: &[NetUid],
         subnet_emissions: &BTreeMap<NetUid, U96F32>,
         credit: CreditOf<T>,
-        root_sell_flag: bool,
+        _root_sell_flag: bool,
     ) {
         // --- 1. Get subnet terms (tao_in, alpha_in, and alpha_out)
         // and excess_tao amounts.
@@ -330,45 +330,24 @@ impl<T: Config> Pallet<T> {
                 });
             }
 
-            // Validator slot: exactly what validator dividends draw from, before the root
-            // carve-out. Miner slot: exactly what miner incentive draws from.
+            // Validator slot: full pile for epoch dividend distribution (labor-backed
+            // root floor applied at drain, not peeled here). Miner slot: miner incentive.
             let total_validator_alpha = share(EmissionIndex::Validator);
             let pending_server_alpha = share(EmissionIndex::Miner);
             log::debug!("total_validator_alpha: {total_validator_alpha:?}");
             log::debug!("pending_server_alpha: {pending_server_alpha:?}");
 
-            // Root is paid off the top of the validator slot: its baseline share of the
-            // emission (default validator share × root proportion with the global
-            // `TaoWeight`, recomputed from live state every block), capped at the whole
-            // slot. This is what a subnet on the default split pays root, independent of
-            // the validator share the owner chose.
-            let root_share = Self::get_root_emission_share(*netuid_i);
-            log::debug!("root_share: {root_share:?}");
-            let root_alpha: U96F32 = alpha_out_i
-                .saturating_mul(root_share)
-                .min(total_validator_alpha);
-            log::debug!("root_alpha: {root_alpha:?}");
-            let pending_validator_alpha = total_validator_alpha.saturating_sub(root_alpha);
-            log::debug!("pending_validator_alpha: {pending_validator_alpha:?}");
-
             // Accumulate the server alpha emission.
             PendingServerEmission::<T>::mutate(*netuid_i, |total| {
                 *total = total.saturating_add(tou64!(pending_server_alpha).into());
             });
-            // Accumulate the validator alpha emission.
+            // Accumulate the full validator slot into one pile. Root's classic
+            // baseline is enforced as a labor-scaled floor at epoch distribute;
+            // do not pre-fill PendingRootAlphaDivs here.
             PendingValidatorEmission::<T>::mutate(*netuid_i, |total| {
-                *total = total.saturating_add(tou64!(pending_validator_alpha).into());
+                *total = total.saturating_add(tou64!(total_validator_alpha).into());
             });
-
-            if root_sell_flag {
-                // Only accumulate root alpha divs if root sell is allowed.
-                PendingRootAlphaDivs::<T>::mutate(*netuid_i, |total| {
-                    *total = total.saturating_add(tou64!(root_alpha).into());
-                });
-            } else {
-                // If we are not selling the root alpha, we should recycle it.
-                Self::recycle_subnet_alpha(*netuid_i, AlphaBalance::from(tou64!(root_alpha)));
-            }
+            // Root recycle / sell is decided at epoch pay-out.
         }
     }
 
@@ -592,52 +571,53 @@ impl<T: Config> Pallet<T> {
         (incentives, dividends)
     }
 
+    /// Split a unified validator pile `pending_pile` into alpha and root cohort
+    /// pays with labor-backed floor `R_pay = min(P, max(R_nat, a · R_0))`.
+    ///
+    /// `root_floor_r0` is classic baseline alpha for this drain (`R_0`).
+    /// Returns `(alpha_dividends, root_alpha_dividends, yield_factor_a)`.
     pub fn calculate_dividend_distribution(
-        pending_alpha: AlphaBalance,
-        pending_root_alpha: AlphaBalance,
+        pending_pile: AlphaBalance,
+        root_floor_r0: AlphaBalance,
         tao_weight: U96F32,
         stake_map: BTreeMap<T::AccountId, (AlphaBalance, AlphaBalance)>,
         dividends: BTreeMap<T::AccountId, U96F32>,
     ) -> (
         BTreeMap<T::AccountId, U96F32>,
         BTreeMap<T::AccountId, U96F32>,
+        U96F32,
     ) {
         log::debug!("dividends: {dividends:?}");
         log::debug!("stake_map: {stake_map:?}");
-        log::debug!("pending_alpha: {pending_alpha:?}");
-        log::debug!("pending_root_alpha: {pending_root_alpha:?}");
+        log::debug!("pending_pile: {pending_pile:?}");
+        log::debug!("root_floor_r0: {root_floor_r0:?}");
         log::debug!("tao_weight: {tao_weight:?}");
 
-        // Setup.
         let zero: U96F32 = asfloat!(0.0);
+        let pile = asfloat!(pending_pile);
+        let r0 = asfloat!(root_floor_r0);
 
-        // Accumulate root alpha divs and alpha_divs. For each hotkey we compute their
-        // local and root dividend proportion based on their alpha_stake/root_stake
-        let mut total_root_divs: U96F32 = asfloat!(0);
-        let mut total_alpha_divs: U96F32 = asfloat!(0);
+        // Attribute each hotkey's dividend into ℓ (alpha) and ρ (root) by stake mix.
+        let mut total_root_divs: U96F32 = zero;
+        let mut total_alpha_divs: U96F32 = zero;
         let mut root_dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
         let mut alpha_dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
+        // Yield cohorts: alpha-dividend mass and alpha stake (A_i > 0 only).
+        let mut subnet_ell: U96F32 = zero;
+        let mut subnet_alpha_stake: U96F32 = zero;
+        let mut root_cohort_ell: U96F32 = zero;
+        let mut root_cohort_alpha: U96F32 = zero;
+
         for (hotkey, dividend) in dividends {
             if let Some((alpha_stake, root_stake)) = stake_map.get(&hotkey) {
-                let alpha_stake = alpha_stake.to_u64();
-                let root_stake = root_stake.to_u64();
-                // Get hotkey ALPHA on subnet.
-                let alpha_stake = asfloat!(alpha_stake);
-                // Get hotkey TAO on root.
-                let root_stake = asfloat!(root_stake);
+                let alpha_stake = asfloat!(alpha_stake.to_u64());
+                let root_stake = asfloat!(root_stake.to_u64());
 
                 // Always convert root TAO to weighted alpha for the split denominator so
                 // ALPHA only ever claims the true alpha fraction of the hotkey's dividend.
-                // Root-basket credit additionally requires a root UID (caps the basket-fund
-                // population / pending-deposit queue at the root UID table). If the hotkey
-                // is not on root, that root-weighted slice is unassigned — it must not be
-                // redirected to ALPHA (that diversion let thin ALPHA farm outsized yield
-                // off ineligible root stake). Unclaimed root pool then redistributes across
-                // root-registered validators or recycles when none qualify.
-                //
-                // Zero total stake (e.g. a childkey-take recipient with no local alpha/root)
-                // has nothing to split against: keep the whole dividend on the ALPHA path,
-                // matching the prior 0/0 → alpha_divs = dividend behaviour.
+                // Root-basket credit additionally requires a root UID. If the hotkey is not
+                // on root, that root-weighted slice is unassigned — never redirected to
+                // ALPHA. Zero total stake keeps the whole dividend on the ALPHA path.
                 let weighted_root = root_stake.saturating_mul(tao_weight);
                 let total_alpha = alpha_stake.saturating_add(weighted_root);
                 let alpha_divs = if total_alpha == zero {
@@ -646,68 +626,81 @@ impl<T: Config> Pallet<T> {
                     let alpha_prop = alpha_stake.checked_div(total_alpha).unwrap_or(zero);
                     dividend.saturating_mul(alpha_prop)
                 };
-                let root_divs = if Uids::<T>::contains_key(NetUid::ROOT, &hotkey) {
+                let on_root = Uids::<T>::contains_key(NetUid::ROOT, &hotkey);
+                let root_divs = if on_root {
                     dividend.saturating_sub(alpha_divs)
                 } else {
                     zero
                 };
-                // Record the alpha dividends.
+
                 alpha_dividends
                     .entry(hotkey.clone())
                     .and_modify(|e| *e = e.saturating_add(alpha_divs))
                     .or_insert(alpha_divs);
-                // Accumulate total alpha divs.
                 total_alpha_divs = total_alpha_divs.saturating_add(alpha_divs);
-                // Record the root dividends.
                 root_dividends
                     .entry(hotkey.clone())
                     .and_modify(|e| *e = e.saturating_add(root_divs))
                     .or_insert(root_divs);
-                // Accumulate total root divs.
                 total_root_divs = total_root_divs.saturating_add(root_divs);
+
+                // Labor yield: exclude pure-root (A_i = 0) from both averages.
+                if alpha_stake > zero {
+                    subnet_ell = subnet_ell.saturating_add(alpha_divs);
+                    subnet_alpha_stake = subnet_alpha_stake.saturating_add(alpha_stake);
+                    if on_root {
+                        root_cohort_ell = root_cohort_ell.saturating_add(alpha_divs);
+                        root_cohort_alpha = root_cohort_alpha.saturating_add(alpha_stake);
+                    }
+                }
             }
         }
-        log::debug!("alpha_dividends: {alpha_dividends:?}");
-        log::debug!("root_dividends: {root_dividends:?}");
-        log::debug!("total_root_divs: {total_root_divs:?}");
-        log::debug!("total_alpha_divs: {total_alpha_divs:?}");
 
-        // Compute root alpha divs. Here we take
+        let a = root_alpha_yield_factor(
+            root_cohort_ell,
+            root_cohort_alpha,
+            subnet_ell,
+            subnet_alpha_stake,
+        );
+        log::debug!("yield_factor_a: {a:?}");
+
+        // Natural root claim: ρ mass over (ℓ+ρ). Ineligible root-weighted slices
+        // (no root UID) are not diverted into α — they simply do not claim ρ —
+        // and the alpha remainder is always `P − R_pay` paid ∝ ℓ (same as the
+        // old separate-pot model where the alpha pot was fully distributed).
+        let eligible_weight = total_root_divs.saturating_add(total_alpha_divs);
+        let r_nat = if eligible_weight > zero {
+            pile.saturating_mul(total_root_divs)
+                .checked_div(eligible_weight)
+                .unwrap_or(zero)
+        } else {
+            zero
+        };
+        let r_pay = root_pay_with_labor_floor(pile, r_nat, r0, a);
+        let l_pay = pile.saturating_sub(r_pay);
+        log::debug!("r_nat: {r_nat:?}, r_pay: {r_pay:?}, l_pay: {l_pay:?}");
+
         let mut root_alpha_dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
         for (hotkey, root_divs) in root_dividends {
-            // Root proportion.
             let root_share: U96F32 = root_divs.checked_div(total_root_divs).unwrap_or(zero);
-            log::debug!("hotkey: {hotkey:?}, root_share: {root_share:?}");
-            // Root proportion in alpha
-            let root_alpha: U96F32 = asfloat!(pending_root_alpha).saturating_mul(root_share);
-            log::debug!("hotkey: {hotkey:?}, root_alpha: {root_alpha:?}");
-            // Record root dividends as TAO.
+            let root_alpha: U96F32 = r_pay.saturating_mul(root_share);
             root_alpha_dividends
                 .entry(hotkey)
                 .and_modify(|e| *e = root_alpha)
                 .or_insert(root_alpha);
         }
-        log::debug!("root_alpha_dividends: {root_alpha_dividends:?}");
 
-        // Compute proportional alpha divs using the pending alpha and total alpha divs from the epoch.
         let mut prop_alpha_dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
         for (hotkey, alpha_divs) in alpha_dividends {
-            // Alpha proportion.
             let alpha_share: U96F32 = alpha_divs.checked_div(total_alpha_divs).unwrap_or(zero);
-            log::debug!("hotkey: {hotkey:?}, alpha_share: {alpha_share:?}");
-
-            // Compute the proportional pending_alpha to this hotkey.
-            let prop_alpha = asfloat!(pending_alpha).saturating_mul(alpha_share);
-            log::debug!("hotkey: {hotkey:?}, prop_alpha: {prop_alpha:?}");
-            // Record the proportional alpha dividends.
+            let prop_alpha = l_pay.saturating_mul(alpha_share);
             prop_alpha_dividends
                 .entry(hotkey.clone())
                 .and_modify(|e| *e = prop_alpha)
                 .or_insert(prop_alpha);
         }
-        log::debug!("prop_alpha_dividends: {prop_alpha_dividends:?}");
 
-        (prop_alpha_dividends, root_alpha_dividends)
+        (prop_alpha_dividends, root_alpha_dividends, a)
     }
 
     fn get_owner_hotkeys(netuid: NetUid, coldkey: &T::AccountId) -> Vec<T::AccountId> {
@@ -956,8 +949,8 @@ impl<T: Config> Pallet<T> {
 
     pub fn calculate_dividend_and_incentive_distribution(
         netuid: NetUid,
-        pending_root_alpha: AlphaBalance,
-        pending_validator_alpha: AlphaBalance,
+        pending_pile: AlphaBalance,
+        root_floor_r0: AlphaBalance,
         hotkey_emission: Vec<(T::AccountId, AlphaBalance, AlphaBalance)>,
         tao_weight: U96F32,
     ) -> (
@@ -966,21 +959,23 @@ impl<T: Config> Pallet<T> {
             BTreeMap<T::AccountId, U96F32>,
             BTreeMap<T::AccountId, U96F32>,
         ),
+        U96F32,
     ) {
         let (incentives, dividends) =
             Self::calculate_dividends_and_incentives(netuid, hotkey_emission);
 
         let stake_map = Self::get_stake_map(netuid, dividends.keys().collect::<Vec<_>>());
 
-        let (alpha_dividends, root_alpha_dividends) = Self::calculate_dividend_distribution(
-            pending_validator_alpha,
-            pending_root_alpha,
-            tao_weight,
-            stake_map,
-            dividends,
-        );
+        let (alpha_dividends, root_alpha_dividends, yield_a) =
+            Self::calculate_dividend_distribution(
+                pending_pile,
+                root_floor_r0,
+                tao_weight,
+                stake_map,
+                dividends,
+            );
 
-        (incentives, (alpha_dividends, root_alpha_dividends))
+        (incentives, (alpha_dividends, root_alpha_dividends), yield_a)
     }
 
     pub fn distribute_emission(
@@ -996,21 +991,28 @@ impl<T: Config> Pallet<T> {
 
         let tao_weight = Self::get_tao_weight();
 
-        // Run the epoch, using the alpha going to both the servers and the validators.
+        // Fold any leftover pre-carve root pot into the unified validator pile.
+        let validator_pile = pending_validator_alpha.saturating_add(pending_root_alpha);
+
+        // Classic R_0 for this drain from the validator-slot pile (not including
+        // any server alpha that may later fold in when incentives are zero).
+        let r0_alpha: AlphaBalance = tou64!(root_floor_alpha_for_validator_pile(
+            asfloat!(validator_pile),
+            Self::baseline_root_emission_share(netuid),
+            Self::get_float_subnet_validator_emission_cut(netuid),
+        ))
+        .into();
+
+        // Epoch budgets: one dividend pile (no separate root budget).
         let hotkey_emission: Vec<(T::AccountId, AlphaBalance, AlphaBalance)> =
             Self::epoch_with_mechanism_budgets(
                 netuid,
                 pending_server_alpha,
-                pending_validator_alpha,
-                pending_root_alpha,
+                validator_pile,
+                AlphaBalance::ZERO,
             );
         log::debug!("hotkey_emission: {hotkey_emission:?}");
 
-        // Compute the pending validator alpha.
-        // This is the total alpha being injected,
-        // minus the the alpha for the miners, (50%)
-        // and minus the alpha swapped for TAO (pending_swapped).
-        // Important! If the incentives are 0, then Validators get 100% of the alpha.
         let incentive_sum = hotkey_emission
             .iter()
             .fold(AlphaBalance::default(), |acc, (_, incentive, _)| {
@@ -1018,34 +1020,57 @@ impl<T: Config> Pallet<T> {
             });
         log::debug!("incentive_sum: {incentive_sum:?}");
 
-        let validator_alpha = if !incentive_sum.is_zero() {
-            pending_validator_alpha
+        // If incentives are 0, validators also absorb the miner slot.
+        let pending_pile = if !incentive_sum.is_zero() {
+            validator_pile
         } else {
-            // If the incentive is 0, then Alpha Validators get both the server and validator alpha.
-            pending_validator_alpha.saturating_add(pending_server_alpha)
+            validator_pile.saturating_add(pending_server_alpha)
         };
-        let root_alpha = pending_root_alpha;
         let owner_cut = pending_owner_cut;
 
-        let (incentives, (alpha_dividends, root_alpha_dividends)) =
+        let (incentives, (alpha_dividends, mut root_alpha_dividends), yield_a) =
             Self::calculate_dividend_and_incentive_distribution(
                 netuid,
-                root_alpha,
-                validator_alpha,
+                pending_pile,
+                r0_alpha,
                 hotkey_emission,
                 tao_weight,
             );
 
-        // If no dividend earner qualifies for root dividends (none is registered on the
-        // root network, or eligible root-weighted slices are all zero), the whole root
-        // allocation is unassignable: recycle it instead of leaving it counted in
-        // `SubnetAlphaOut` with no owner.
-        if !root_alpha.is_zero()
-            && root_alpha_dividends
-                .values()
-                .all(|divs| divs.saturating_to_num::<u64>() == 0)
-        {
-            Self::recycle_subnet_alpha(netuid, root_alpha);
+        LastRootAlphaYieldFactor::<T>::insert(
+            netuid,
+            yield_a
+                .saturating_mul(asfloat!(u16::MAX))
+                .saturating_to_num::<u16>(),
+        );
+
+        // Recycle unassigned mass (ineligible root-weighted slices and unpaid
+        // root floor when no root UID qualifies).
+        let paid_alpha: u64 = alpha_dividends
+            .values()
+            .fold(0u64, |acc, v| acc.saturating_add(tou64!(*v)));
+        let paid_root: u64 = root_alpha_dividends
+            .values()
+            .fold(0u64, |acc, v| acc.saturating_add(tou64!(*v)));
+        let unassigned =
+            u64::from(pending_pile).saturating_sub(paid_alpha.saturating_add(paid_root));
+        if unassigned > 0 {
+            Self::recycle_subnet_alpha(netuid, AlphaBalance::from(unassigned));
+        }
+
+        // When root sell is disabled network-wide, recycle the root cohort pay
+        // instead of enqueueing basket deposits (same economic outcome as the
+        // former block-time recycle of the peeled root pot).
+        let subnets: Vec<NetUid> = Self::get_all_subnet_netuids()
+            .into_iter()
+            .filter(|n| *n != NetUid::ROOT)
+            .collect();
+        if !Self::get_network_root_sell_flag(&subnets) {
+            let root_total = AlphaBalance::from(paid_root);
+            if !root_total.is_zero() {
+                Self::recycle_subnet_alpha(netuid, root_total);
+                root_alpha_dividends.clear();
+            }
         }
 
         Self::distribute_dividends_and_incentives(

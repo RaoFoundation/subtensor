@@ -912,14 +912,9 @@ fn test_coinbase_honours_emission_weight_slots_exactly() {
         assert_abs_diff_eq!(owner as f64, alpha * 0.10, epsilon = 200.0);
         // Miner slot = 1 - 0.10 - 0.40 = 0.50 of emission, untouched by root.
         assert_abs_diff_eq!(server as f64, alpha * 0.50, epsilon = 200.0);
-        // Validator slot = 0.40 of emission, root carved out of it.
-        assert_abs_diff_eq!(
-            (validator_divs + root_divs) as f64,
-            alpha * 0.40,
-            epsilon = 200.0
-        );
-        assert!(root_divs > 0);
-        // Nothing is created or lost.
+        // Full validator slot accrues to one pile; root pot stays empty at block time.
+        assert_abs_diff_eq!(validator_divs as f64, alpha * 0.40, epsilon = 200.0);
+        assert_eq!(root_divs, 0);
         assert_abs_diff_eq!(
             (owner + server + validator_divs + root_divs) as f64,
             alpha,
@@ -929,32 +924,27 @@ fn test_coinbase_honours_emission_weight_slots_exactly() {
 }
 
 #[test]
-fn test_root_payout_is_invariant_to_validator_share() {
+fn test_validator_pile_tracks_v_without_root_peel() {
     new_test_ext(1).execute_with(|| {
-        // Baseline: default vector, V = V₀ = 0.5 (mock owner cut is 0).
-        let (alpha_a, _, _, _, root_a) = emit_once(None);
-        assert!(root_a > 0);
+        // Default V = 0.5 (mock owner cut is 0): full slot to the validator pile.
+        let (alpha_a, _, _, validator_a, root_a) = emit_once(None);
+        assert_eq!(root_a, 0);
+        assert_abs_diff_eq!(validator_a as f64, alpha_a as f64 * 0.5, epsilon = 200.0);
 
-        // Halve V to 0.25 (owner 10%, miner 65%) under the same pre-state: root is paid
-        // its baseline off the top, so its alpha is exactly where it was.
+        // Halve V to 0.25 (owner 10%, miner 65%): pile shrinks with V; no root peel.
         let (alpha_b, _, server_b, validator_b, root_b) = emit_once(Some(ONE / 4));
         assert_eq!(alpha_a, alpha_b);
-        // Root's share of the smaller validator slot is larger...
-        let root_share_b = root_b as f64 / (validator_b + root_b) as f64;
-        let root_share_a = root_a as f64 / alpha_a as f64 * 2.0;
-        assert!(root_share_b > root_share_a);
-        // ...and root's absolute alpha is preserved.
-        assert_abs_diff_eq!(root_b as f64, root_a as f64, epsilon = root_a as f64 * 1e-6);
-        // Validators absorbed the cut, miners gained.
+        assert_eq!(root_b, 0);
+        assert_abs_diff_eq!(validator_b as f64, alpha_b as f64 * 0.25, epsilon = 200.0);
         assert_abs_diff_eq!(server_b as f64, alpha_b as f64 * 0.65, epsilon = 200.0);
     });
 }
 
-/// Through the real coinbase: after one set, root's alpha per block equals
-/// `baseline · alpha_out` as root TAO, alpha issuance and the global TaoWeight
-/// drift, with no further call. Alpha validators get the rest of the slot.
+/// Through the real coinbase: after one set, the unified validator pile equals
+/// `V · alpha_out` and the implied classic floor `R_0 = r · alpha_out` tracks
+/// live baseline as root TAO, issuance and TaoWeight drift.
 #[test]
-fn test_coinbase_pays_root_its_live_baseline_every_block_without_further_sets() {
+fn test_coinbase_validator_pile_and_r0_track_live_baseline_without_further_sets() {
     new_test_ext(1).execute_with(|| {
         InitialSubnetOwnerCut::set(11_796);
         let netuid = new_subnet();
@@ -971,7 +961,6 @@ fn test_coinbase_pays_root_its_live_baseline_every_block_without_further_sets() 
 
         let emissions = BTreeMap::from([(netuid, U96F32::from_num(1_000_000_000_u64))]);
         let mut blocks = 0u32;
-        // Issuance stays under the 21M alpha cap so a block still emits alpha.
         for (root_tao, alpha_out, tao_weight) in [
             (100_000_000 * TAO, 1_000_000 * TAO, pct(18)),
             (100_000_000 * TAO, 10_000_000 * TAO, pct(18)),
@@ -988,21 +977,24 @@ fn test_coinbase_pays_root_its_live_baseline_every_block_without_further_sets() 
             let baseline = baseline_share(root_tao as f64, issuance);
             assert!(baseline < 0.5, "{baseline}");
 
-            let root_before = PendingRootAlphaDivs::<Test>::get(netuid).to_u64();
             let validator_before = PendingValidatorEmission::<Test>::get(netuid).to_u64();
             let credit = SubtensorModule::mint_tao(1_000_000_000_u64.into());
             SubtensorModule::emit_to_subnets(&[netuid], &emissions, credit, true);
             let emitted = SubnetAlphaOutEmission::<Test>::get(netuid).to_u64() as f64;
             assert!(emitted > 0.0);
-            let root_alpha =
-                (PendingRootAlphaDivs::<Test>::get(netuid).to_u64() - root_before) as f64;
             let validator_alpha =
                 (PendingValidatorEmission::<Test>::get(netuid).to_u64() - validator_before) as f64;
+            assert_eq!(PendingRootAlphaDivs::<Test>::get(netuid).to_u64(), 0);
 
-            assert_abs_diff_eq!(root_alpha, baseline * emitted, epsilon = emitted * 1e-6);
+            assert_abs_diff_eq!(validator_alpha, 0.5 * emitted, epsilon = emitted * 1e-6);
+            let r0 = root_floor_alpha_for_validator_pile(
+                U96F32::from_num(validator_alpha),
+                U96F32::from_num(baseline),
+                U96F32::from_num(0.5),
+            );
             assert_abs_diff_eq!(
-                root_alpha + validator_alpha,
-                0.5 * emitted,
+                r0.to_num::<f64>(),
+                baseline * emitted,
                 epsilon = emitted * 1e-6
             );
             blocks += 1;
@@ -1012,10 +1004,10 @@ fn test_coinbase_pays_root_its_live_baseline_every_block_without_further_sets() 
     });
 }
 
-/// Through the real coinbase: a subnet that lowered `V` pays root exactly
-/// what a subnet on the default split pays, block after block.
+/// Through the real coinbase: a subnet that lowered `V` still accrues its full
+/// validator slot, and the implied classic `R_0` matches a default-split subnet.
 #[test]
-fn test_coinbase_root_alpha_matches_default_split_subnet() {
+fn test_coinbase_r0_matches_default_split_subnet() {
     new_test_ext(1).execute_with(|| {
         InitialSubnetOwnerCut::set(11_796);
         let owner = SubtensorModule::default_owner_emission();
@@ -1046,16 +1038,22 @@ fn test_coinbase_root_alpha_matches_default_split_subnet() {
                 SubnetAlphaOutEmission::<Test>::get(lowered),
                 SubnetAlphaOutEmission::<Test>::get(control)
             );
-            assert_abs_diff_eq!(
-                PendingRootAlphaDivs::<Test>::get(lowered).to_u64() as f64,
-                PendingRootAlphaDivs::<Test>::get(control).to_u64() as f64,
-                epsilon = 2.0
+            assert_eq!(PendingRootAlphaDivs::<Test>::get(lowered).to_u64(), 0);
+            assert_eq!(PendingRootAlphaDivs::<Test>::get(control).to_u64(), 0);
+            let pile_l = PendingValidatorEmission::<Test>::get(lowered).to_u64();
+            let pile_c = PendingValidatorEmission::<Test>::get(control).to_u64();
+            assert!(pile_l < pile_c);
+            let r0_l = root_floor_alpha_for_validator_pile(
+                U96F32::from_num(pile_l),
+                SubtensorModule::baseline_root_emission_share(lowered),
+                SubtensorModule::get_float_subnet_validator_emission_cut(lowered),
             );
-            assert!(PendingRootAlphaDivs::<Test>::get(lowered).to_u64() > 0);
-            assert!(
-                PendingValidatorEmission::<Test>::get(lowered)
-                    < PendingValidatorEmission::<Test>::get(control)
+            let r0_c = root_floor_alpha_for_validator_pile(
+                U96F32::from_num(pile_c),
+                SubtensorModule::baseline_root_emission_share(control),
+                SubtensorModule::get_float_subnet_validator_emission_cut(control),
             );
+            assert_abs_diff_eq!(r0_l.to_num::<f64>(), r0_c.to_num::<f64>(), epsilon = 2.0);
             assert!(
                 PendingServerEmission::<Test>::get(lowered)
                     > PendingServerEmission::<Test>::get(control)
@@ -1692,5 +1690,81 @@ fn test_registration_seed_clears_stale_lease_marker_even_without_cleanup() {
         SubtensorModule::seed_subnet_emission_weights(netuid);
         assert!(!SubtensorModule::get_subnet_created_via_lease(netuid));
         assert_eq!(SubnetOwnerCutAccrued::<Test>::get(netuid).to_u64(), 0);
+    });
+}
+
+#[test]
+fn test_root_alpha_yield_factor_and_pay_helpers() {
+    let one = U96F32::from_num(1);
+    let zero = U96F32::from_num(0);
+    // Equal yields ⇒ a = 1.
+    assert_eq!(root_alpha_yield_factor(one, one, one, one), one);
+    // Empty root∩alpha cohort ⇒ a = 0.
+    assert_eq!(root_alpha_yield_factor(zero, zero, one, one), zero);
+    // Root yield half of subnet ⇒ a = 0.5.
+    assert_abs_diff_eq!(
+        root_alpha_yield_factor(
+            U96F32::from_num(1),
+            U96F32::from_num(2),
+            U96F32::from_num(1),
+            U96F32::from_num(1),
+        )
+        .to_num::<f64>(),
+        0.5,
+        epsilon = 1e-9
+    );
+    // Strong competition: R_nat > a·R0 ⇒ pay R_nat.
+    let pay = root_pay_with_labor_floor(
+        U96F32::from_num(1000),
+        U96F32::from_num(600),
+        U96F32::from_num(400),
+        one,
+    );
+    assert_eq!(pay, U96F32::from_num(600));
+    // Floor binds when R_nat small.
+    let pay_floor = root_pay_with_labor_floor(
+        U96F32::from_num(1000),
+        U96F32::from_num(100),
+        U96F32::from_num(400),
+        one,
+    );
+    assert_eq!(pay_floor, U96F32::from_num(400));
+    // Cap at P.
+    let pay_cap = root_pay_with_labor_floor(
+        U96F32::from_num(100),
+        U96F32::from_num(50),
+        U96F32::from_num(400),
+        one,
+    );
+    assert_eq!(pay_cap, U96F32::from_num(100));
+    // R0 from pile: P · r / V.
+    let r0 = root_floor_alpha_for_validator_pile(
+        U96F32::from_num(500),
+        U96F32::from_num(0.1),
+        U96F32::from_num(0.5),
+    );
+    assert_abs_diff_eq!(r0.to_num::<f64>(), 100.0, epsilon = 1e-6);
+}
+
+#[test]
+fn test_etao_set_still_rejects_v_at_or_below_unscaled_r0() {
+    new_test_ext(1).execute_with(|| {
+        InitialSubnetOwnerCut::set(11_796);
+        let netuid = new_subnet();
+        SubtensorModule::set_tao_weight(pct(18));
+        SubnetTAO::<Test>::insert(NetUid::ROOT, TaoBalance::from(5_443_000 * TAO));
+        setup_reserves(
+            netuid,
+            TaoBalance::from(1_000_000 * TAO),
+            AlphaBalance::from(6_457_000 * TAO),
+        );
+        let r = SubtensorModule::baseline_root_emission_share(netuid);
+        let r_parts = emission_share_to_parts(r);
+        let (uids, values) = full_vector(pct(10), r_parts);
+        assert_noop!(
+            SubtensorModule::do_set_subnet_emission_weights(netuid, uids, values),
+            Error::<Test>::ValidatorEmissionTooLowToPreserveRoot
+        );
+        InitialSubnetOwnerCut::set(0);
     });
 }

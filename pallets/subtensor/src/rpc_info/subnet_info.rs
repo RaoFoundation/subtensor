@@ -177,11 +177,12 @@ pub type SubnetHyperparamsV3 = Vec<HyperparamEntry>;
 /// Every share is a `u64` part of `u64::MAX`. `weights` is the full
 /// `[burn, recycle, owner, validator, miner]` vector; the named fields repeat
 /// each slot for callers that want them by name. `root_baseline_share` is
-/// root's live baseline share `r = V0 · x_g / (x_g + A)` at this block (what
-/// root earns here on the default split); `root_share` is what root is paid
-/// off the top of the validator slot this block, `min(validator, r)`. Alpha
-/// validators receive `validator − root_share`.
-#[freeze_struct("4cd41617c4b67f55")]
+/// root's live classic baseline `r = V0 · x_g / (x_g + A)` (unscaled floor
+/// ceiling). `root_share` is the effective labor floor
+/// `a · min(validator, r)` from the last epoch's yield factor `a` (defaults
+/// to `a = 1` before the first drain). Epoch pay may still exceed this floor
+/// via `R_nat`.
+#[freeze_struct("e4172c010571a28b")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SubnetEmissionWeightsInfo {
     pub netuid: Compact<NetUid>,
@@ -497,6 +498,15 @@ impl<T: Config> Pallet<T> {
         let validator = slot(EmissionIndex::Validator);
         let root_baseline_share =
             emission_share_to_parts(Self::baseline_root_emission_share(netuid));
+        // Classic ceiling in parts, then scale by last-epoch `a` (u16::MAX = 1).
+        // Multiplying in integer space keeps `a = 1` identical to the former
+        // `min(baseline, validator)` report.
+        let classic_ceiling = root_baseline_share.min(validator.0);
+        let a = u128::from(LastRootAlphaYieldFactor::<T>::get(netuid));
+        let root_share = u128::from(classic_ceiling)
+            .saturating_mul(a)
+            .checked_div(u128::from(u16::MAX))
+            .unwrap_or(0) as u64;
         Some(SubnetEmissionWeightsInfo {
             netuid: netuid.into(),
             weights: view.weights.iter().map(|w| Compact(*w)).collect(),
@@ -506,7 +516,7 @@ impl<T: Config> Pallet<T> {
             validator,
             miner: slot(EmissionIndex::Miner),
             root_baseline_share: Compact(root_baseline_share),
-            root_share: Compact(root_baseline_share.min(validator.0)),
+            root_share: Compact(root_share),
             created_via_lease: view.created_via_lease,
         })
     }

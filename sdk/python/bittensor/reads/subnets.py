@@ -315,14 +315,13 @@ class SubnetEmissionWeights:
     """A subnet's emission weight vector and the rule inputs that bound it.
 
     Shares are u64 parts of ``u64::MAX``; ``shares`` carries the same values as
-    0..1 floats keyed by slot name. ``baseline_root_share`` is root's baseline
-    share of this subnet's emission at ``block`` (what root earns with the
-    default validator share and the global ``TaoWeight``, from ``root_tao``,
-    ``alpha_issuance`` in rao and ``global_tao_weight``); the chain pays root
-    that off the top of the validator slot every block, capped at the slot, so
-    ``root_share = min(validator, baseline_root_share)`` and alpha validators
-    get ``validator_share_after_root``. ``root_capped`` is True when the
-    baseline has grown past the validator slot and validators get nothing.
+    0..1 floats keyed by slot name. ``baseline_root_share`` is root's classic
+    baseline ``r`` at ``block`` (default validator share × root proportion from
+    ``root_tao``, ``alpha_issuance`` and ``global_tao_weight``). ``root_share``
+    is the effective labor floor ``a · min(validator, r)`` from the last epoch
+    yield factor ``a`` (defaults to 1). Epoch pay may still exceed that floor
+    via root's natural stake-mix claim. ``root_capped`` is True when the
+    classic baseline has grown past the validator slot.
     ``baseline_root_parts`` is the baseline in exact u64 parts (what the
     runtime API reports); ``min_validator`` is the lowest validator share
     (parts) the chain accepts at this block: one part above it.

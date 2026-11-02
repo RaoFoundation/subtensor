@@ -383,6 +383,7 @@ impl<T: Config> Pallet<T> {
         PendingValidatorEmission::<T>::remove(netuid);
         PendingServerEmission::<T>::remove(netuid);
         PendingRootAlphaDivs::<T>::remove(netuid);
+        LastRootAlphaYieldFactor::<T>::remove(netuid);
         PendingOwnerCut::<T>::remove(netuid);
         MinerBurned::<T>::remove(netuid);
         BlocksSinceLastStep::<T>::remove(netuid);

@@ -62,38 +62,42 @@ r = V0 × x / (x + A)        with x = root_tao × TaoWeight
 where `V0` is the validator share of the default vector (0.41 on mainnet,
 derived from the default owner cut — a single global constant) — what root
 would earn from this subnet right now if the owner had never touched the
-vector. Root is paid `min(V, r) × alpha_out` off the top of the validator
-slot and alpha validators share the rest, `(V − min(V, r)) × alpha_out`
-(`get_root_emission_share` in
-[`emission_weights.rs`](/code/pallets/subtensor/src/subnets/emission_weights.rs),
-applied in [`run_coinbase.rs`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs)).
+vector. The full validator slot `P = V × alpha_out` accrues as one pile.
+At epoch, root is paid
+
+```
+R_pay = min(P, max(R_nat, a · R_0))
+```
+
+with classic baseline `R_0 = r × alpha_out`, natural root claim `R_nat` from
+the stake-mix split of `P`, and labor factor
+`a = clamp(ȳ_R / ȳ, 0, 1)` (root∩alpha alpha-dividend yield versus the
+subnet average). Alpha validators receive `P − R_pay`. See
+[`emission_weights.rs`](/code/pallets/subtensor/src/subnets/emission_weights.rs)
+and [`run_coinbase.rs`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs).
 The owner and miner slots are untouched.
 
-Because `r` is recomputed from live state every block, root's payout tracks
-the baseline continuously — as issuance grows against root TAO, as root stake
-moves, or as governance changes `TaoWeight` — with no call from anyone. An
-owner lowering `V` from 41% to 20% takes the whole 21 points from alpha
-validators; root's slice is identical before and after, and no sequence of
-changes can ratchet it in either direction. There is no per-subnet TAO
-weight: stake weighting inside Yuma Consensus, the TAO-vs-alpha split of
-validator dividends, child/parent stake and the pool side all use the global
-`TaoWeight` exactly as before.
+Because `r` is recomputed from live state every block, the unscaled floor
+tracks root stake, issuance and `TaoWeight` with no call from anyone. An
+owner lowering `V` from 41% to 20% takes the cut from alpha validators; the
+classic baseline `R_0` is unchanged. The labor factor `a` can shrink the
+guaranteed floor when root-linked keys earn little alpha yield. There is no
+per-subnet TAO weight: stake weighting inside Yuma Consensus, the
+TAO-vs-alpha split of validator dividends, child/parent stake and the pool
+side all use the global `TaoWeight` exactly as before.
 
 A set call fails with `ValidatorEmissionTooLowToPreserveRoot` when
-`V_new ≤ r`: root would take the entire slot and alpha validators would get
-nothing, so the floor at this block is `r` itself. On a mainnet subnet with
-5.4M TAO on root, 6.5M alpha issued and `TaoWeight = 0.18`, `r` is about
-5.40% of emission and the validator share can go down to anything strictly
-above that. The floor moves with root stake, issuance and the global weight,
-so `btcli subnets emission show` prints the current value. With no root
-stake there is nothing to preserve and any positive `V` is accepted.
+`V_new ≤ r`: the unscaled floor would consume the whole slot. On a mainnet
+subnet with 5.4M TAO on root, 6.5M alpha issued and `TaoWeight = 0.18`, `r`
+is about 5.40% of emission and the validator share can go down to anything
+strictly above that. With no root stake there is nothing to preserve and any
+positive `V` is accepted.
 
 The check runs at set time while the baseline keeps moving. If `r` later
-grows past a subnet's `V`, root's cut is **capped at the whole validator
-slot** (`V × alpha_out`) and alpha validators receive nothing until the owner
-raises `V`; root is never paid more than the slot. `show` reports this as
-capped, and the runtime API returns both `root_baseline_share` (`r`) and
-`root_share` (`min(V, r)`).
+grows past a subnet's `V`, the floor is capped at the whole validator pile
+and alpha validators may receive nothing until the owner raises `V` (when
+`a ≈ 1`). `show` reports this as capped, and the runtime API returns
+`root_baseline_share` (`r`) and `root_share` (`a · min(V, r)`).
 
 The **pool side** is unchanged. `tao_in`, `alpha_in` and the alpha-injection
 cap in `get_subnet_terms` use the pool-side
