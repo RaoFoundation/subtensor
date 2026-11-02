@@ -142,7 +142,7 @@ def spend(
         "--spend",
         help="HOTKEY=AMOUNT or HOTKEY=AMOUNT:REFERENCE, spending AMOUNT gamma from the "
         "deposit at HOTKEY, with an optional 32-byte hex reference that the entry's GammaSpent "
-        "event repeats. Repeatable. HOTKEY is an "
+        "or GammaSpendSkipped event repeats. Repeatable. HOTKEY is an "
         f"{ss58_param_help('hotkey_ss58', wallet_default=False).replace('HOTKEY', 'NAME')}",
     ),
 ):

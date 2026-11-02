@@ -414,7 +414,7 @@ impl<T: Config> Pallet<T> {
 
     /// Burns, in order, each entry's amount from the deposits the signer spends. Entries the
     /// signer cannot spend, or whose amount is zero or above the deposit's balance or what its
-    /// daily spend cap allows, are skipped.
+    /// daily spend cap allows, are skipped with the reason. Returns how many entries spent.
     pub fn do_spend_gamma(
         origin: OriginFor<T>,
         netuid: NetUid,
@@ -426,36 +426,63 @@ impl<T: Config> Pallet<T> {
         let now = Self::get_current_block_as_u64();
         let mut spent: u32 = 0;
         for (hotkey, amount, reference) in spends {
-            let Some(mut deposit) = GammaDeposits::<T>::get(netuid, hotkey) else {
-                continue;
-            };
-            if deposit.spender != signer {
-                continue;
+            match Self::spend_gamma_entry(netuid, &signer, hotkey, *amount, now) {
+                Ok(coldkey) => {
+                    Self::deposit_event(Event::GammaSpent {
+                        netuid,
+                        coldkey,
+                        hotkey: hotkey.clone(),
+                        spender: signer.clone(),
+                        amount: *amount,
+                        reference: *reference,
+                    });
+                    spent = spent.saturating_add(1);
+                }
+                Err(reason) => Self::deposit_event(Event::GammaSpendSkipped {
+                    netuid,
+                    hotkey: hotkey.clone(),
+                    spender: signer.clone(),
+                    amount: *amount,
+                    reference: *reference,
+                    reason: reason.into(),
+                }),
             }
-            let allowance = Self::gamma_allowance(&deposit, now);
-            if amount.is_zero()
-                || *amount > deposit.balance
-                || allowance.is_some_and(|allowance| *amount > allowance)
-            {
-                continue;
-            }
-            deposit.balance = deposit.balance.saturating_sub(*amount);
-            if let Some(allowance) = allowance {
-                deposit.bucket = (allowance.saturating_sub(*amount), now);
-            }
-            let coldkey = deposit.coldkey.clone();
-            GammaDeposits::<T>::insert(netuid, hotkey, deposit);
-            Self::deposit_event(Event::GammaSpent {
-                netuid,
-                coldkey,
-                hotkey: hotkey.clone(),
-                spender: signer.clone(),
-                amount: *amount,
-                reference: *reference,
-            });
-            spent = spent.saturating_add(1);
         }
         Ok(spent)
+    }
+
+    /// Burns `amount` from the deposit at `hotkey` if `spender` can spend all of it now, and
+    /// returns the deposit's coldkey; otherwise the error says why the entry is skipped.
+    fn spend_gamma_entry(
+        netuid: NetUid,
+        spender: &T::AccountId,
+        hotkey: &T::AccountId,
+        amount: GammaBalance,
+        now: u64,
+    ) -> Result<T::AccountId, Error<T>> {
+        let mut deposit =
+            GammaDeposits::<T>::get(netuid, hotkey).ok_or(Error::<T>::GammaDepositDoesNotExist)?;
+        ensure!(
+            deposit.spender == *spender,
+            Error::<T>::NotGammaDepositSpender
+        );
+        ensure!(!amount.is_zero(), Error::<T>::AmountTooLow);
+        ensure!(
+            amount <= deposit.balance,
+            Error::<T>::InsufficientGammaBalance
+        );
+        let allowance = Self::gamma_allowance(&deposit, now);
+        ensure!(
+            allowance.is_none_or(|allowance| amount <= allowance),
+            Error::<T>::GammaDepositDailySpendCapExceeded
+        );
+        deposit.balance = deposit.balance.saturating_sub(amount);
+        if let Some(allowance) = allowance {
+            deposit.bucket = (allowance.saturating_sub(amount), now);
+        }
+        let coldkey = deposit.coldkey.clone();
+        GammaDeposits::<T>::insert(netuid, hotkey, deposit);
+        Ok(coldkey)
     }
 
     /// Moves the old coldkey's deposits on `netuid` to the new coldkey, terms unchanged; fails

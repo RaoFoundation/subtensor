@@ -575,7 +575,7 @@ class SubtensorModule:
 
     @staticmethod
     def spend_gamma(netuid: 'NetUid', spends: 'BoundedVec') -> Call:
-        "Spends, in order, each entry's amount from the gamma deposit at its hotkey. Entries whose hotkey has no deposit, whose deposit names another spender, or whose amount is zero or above the deposit's balance or what its daily spend cap allows, are skipped. Each entry's reference is repeated in its `GammaSpent` event and not otherwise read. A skipped entry is charged one read."
+        "Spends, in order, each entry's amount from the gamma deposit at its hotkey. Entries whose hotkey has no deposit, whose deposit names another spender, or whose amount is zero or above the deposit's balance or what its daily spend cap allows, are skipped. Each entry's reference is repeated in its `GammaSpent` event, or in its `GammaSpendSkipped` event with the reason, and not otherwise read. A skipped entry is charged as a spent one, less its write."
         return Call('SubtensorModule', 'spend_gamma', {'netuid': netuid, 'spends': spends})
 
     @staticmethod

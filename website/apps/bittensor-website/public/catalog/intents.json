@@ -4579,9 +4579,9 @@
         "pallet": "SubtensorModule",
         "call": "set_service",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3277,
-        "end_line": 3284,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3275-L3284",
+        "line": 3278,
+        "end_line": 3285,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3276-L3285",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4931,7 +4931,7 @@
   {
     "name": "spend_gamma",
     "summary": "Spend gamma from the deposits you are the spender of.",
-    "description": "Spend gamma from the deposits you are the spender of.\n\nSpends, in order, each entry's `amount_gamma` from the deposit at its\n`hotkey_ss58`. Entries whose hotkey has no deposit, whose deposit you are\nnot the spender of, or whose amount is zero or above the deposit's balance\nor what its daily spend cap allows, are skipped. Spent gamma is destroyed.\nEach entry's optional `reference`, 32 bytes as hex, is repeated in its\n`GammaSpent` event; by convention it is the service's own id for the\nrequest it pays for, returned with its response. Sign as the spender, or as\nits `GammaSpend` proxy. The result's `data[\"spent\"]` lists, in order,\neach entry that spent, with its `hotkey_ss58`, `amount_gamma` and\n`reference`.",
+    "description": "Spend gamma from the deposits you are the spender of.\n\nSpends, in order, each entry's `amount_gamma` from the deposit at its\n`hotkey_ss58`. Entries whose hotkey has no deposit, whose deposit you are\nnot the spender of, or whose amount is zero or above the deposit's balance\nor what its daily spend cap allows, are skipped. Spent gamma is destroyed.\nEach entry's optional `reference`, 32 bytes as hex, is repeated in its\n`GammaSpent` or `GammaSpendSkipped` event; by convention it is the\nservice's own id for the request it pays for, returned with its response.\nSign as the spender, or as its `GammaSpend` proxy. The result's\n`data[\"spent\"]` lists, in order, each entry that spent, with its\n`hotkey_ss58`, `amount_gamma` and `reference`, and\n`data[\"skipped\"]` each entry that was skipped, with the chain error that\nskipped it as `reason`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -4971,9 +4971,9 @@
         "pallet": "SubtensorModule",
         "call": "spend_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3254,
-        "end_line": 3269,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3252-L3269",
+        "line": 3255,
+        "end_line": 3270,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3253-L3270",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

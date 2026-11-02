@@ -10,15 +10,17 @@ Spends, in order, each entry's `amount_gamma` from the deposit at its
 not the spender of, or whose amount is zero or above the deposit's balance
 or what its daily spend cap allows, are skipped. Spent gamma is destroyed.
 Each entry's optional `reference`, 32 bytes as hex, is repeated in its
-`GammaSpent` event; by convention it is the service's own id for the
-request it pays for, returned with its response. Sign as the spender, or as
-its `GammaSpend` proxy. The result's `data["spent"]` lists, in order,
-each entry that spent, with its `hotkey_ss58`, `amount_gamma` and
-`reference`.
+`GammaSpent` or `GammaSpendSkipped` event; by convention it is the
+service's own id for the request it pays for, returned with its response.
+Sign as the spender, or as its `GammaSpend` proxy. The result's
+`data["spent"]` lists, in order, each entry that spent, with its
+`hotkey_ss58`, `amount_gamma` and `reference`, and
+`data["skipped"]` each entry that was skipped, with the chain error that
+skipped it as `reason`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.spend_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3252-L3269) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.spend_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3253-L3270) |
 
 ## Parameters
 
@@ -70,7 +72,7 @@ result = sub.execute_tool("spend_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.spend_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3254`](/code/pallets/subtensor/src/macros/dispatches.rs#L3252-L3269):
+`SubtensorModule.spend_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3255`](/code/pallets/subtensor/src/macros/dispatches.rs#L3253-L3270):
 
 ```rust
 #[pallet::call_index(164)]
@@ -84,8 +86,8 @@ pub fn spend_gamma(
     let skipped = (spends.len() as u32).saturating_sub(spent);
     Ok((
         Some(
-            <T as Config>::WeightInfo::spend_gamma(spent)
-                .saturating_add(T::DbWeight::get().reads(skipped.into())),
+            <T as Config>::WeightInfo::spend_gamma(spends.len() as u32)
+                .saturating_sub(T::DbWeight::get().writes(skipped.into())),
         ),
         Pays::Yes,
     )

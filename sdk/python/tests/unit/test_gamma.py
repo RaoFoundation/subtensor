@@ -561,34 +561,54 @@ def _spent(hotkey, amount, reference):
                       "attributes": attributes}}  # fmt: skip
 
 
+def _skipped(hotkey, amount, reference, error):
+    attributes = {
+        "hotkey": hotkey,
+        "amount": amount,
+        "reference": reference,
+        "reason": {"Module": {"index": 7, "error": error}},
+    }
+    return {"event": {"module_id": "SubtensorModule", "event_id": "GammaSpendSkipped",
+                      "attributes": attributes}}  # fmt: skip
+
+
 PAID = {"event": {"module_id": "TransactionPayment", "event_id": "TransactionFeePaid"}}
 APPROVAL = {"event": {"module_id": "Multisig", "event_id": "MultisigApproval"}}
 
 
 @pytest.mark.parametrize(
-    ("events", "spent"),
+    ("events", "spent", "skipped"),
     [
         (
             [_spent(ALICE_HOT, RAO, "0x" + "01" * 32),
+             _skipped(BOB_HOT, RAO, "0x" + "03" * 32, "0xc7000000"),
              _spent(ALICE_HOT, RAO // 4, "0x" + "02" * 32),
              _spent(BOB_HOT, RAO // 2, "0x" + "00" * 32)],
             [{"hotkey_ss58": ALICE_HOT, "amount_gamma": "1", "reference": "0x" + "01" * 32},
              {"hotkey_ss58": ALICE_HOT, "amount_gamma": "0.25", "reference": "0x" + "02" * 32},
              {"hotkey_ss58": BOB_HOT, "amount_gamma": "0.5", "reference": "0x" + "00" * 32}],
+            [{"hotkey_ss58": BOB_HOT, "amount_gamma": "1", "reference": "0x" + "03" * 32,
+              "reason": "InsufficientGammaBalance"}],
         ),
-        ([PAID], []),
-        ([], None),
-        ([PAID, APPROVAL], None),
+        (
+            [PAID, _skipped(ALICE_HOT, 0, "0x" + "00" * 32, "0x52000000")],
+            [],
+            [{"hotkey_ss58": ALICE_HOT, "amount_gamma": "0", "reference": "0x" + "00" * 32,
+              "reason": "AmountTooLow"}],
+        ),
+        ([], None, None),
+        ([PAID, APPROVAL], None, None),
     ],
     ids=["spent", "all-skipped", "not-waited", "multisig-pending"],
 )  # fmt: skip
 @pytest.mark.asyncio
-async def test_execute_reports_what_each_entry_spent(wallet, events, spent):
+async def test_execute_reports_what_each_entry_spent(wallet, events, spent, skipped):
     sub = FakeSubstrate()
     sub.queue_result(ExtrinsicResult(success=True, message="", events=events))
     intent = build("spend_gamma", INTENT_SAMPLES["spend_gamma"])
     result = await Client("local", substrate=sub).execute(intent, wallet)
     assert result.data.get("spent") == spent
+    assert result.data.get("skipped") == skipped
 
 
 def _minted(cap):

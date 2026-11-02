@@ -698,8 +698,8 @@ def _pure_created_data(result: ExtrinsicResult) -> dict[str, Any]:
 
 
 def _gamma_spent_data(result: ExtrinsicResult) -> dict[str, Any]:
-    """What each spend entry spent, in order: the chain skips entries silently, so skipped
-    entries are absent.
+    """What each spend entry did, in order: ``spent`` lists the entries that spent, and
+    ``skipped`` the others with the chain error that skipped them as ``reason``.
 
     Nothing while the spend has not run: submitted without waiting, or a multisig
     approval short of its threshold.
@@ -708,19 +708,24 @@ def _gamma_spent_data(result: ExtrinsicResult) -> dict[str, Any]:
     if not events or events & {("Multisig", "NewMultisig"), ("Multisig", "MultisigApproval")}:
         return {}
     spent: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
     for entry in result.events:
         module_id, event_id, attributes, _ = _event_parts(entry)
-        if (module_id, event_id) == ("SubtensorModule", "GammaSpent") and isinstance(
-            attributes, dict
-        ):
-            spent.append(
-                {
-                    "hotkey_ss58": str(attributes["hotkey"]),
-                    "amount_gamma": gamma_from_units(attributes["amount"]),
-                    "reference": str(attributes["reference"]),
-                }
-            )
-    return {"spent": spent}
+        if module_id != "SubtensorModule" or not isinstance(attributes, dict):
+            continue
+        if event_id not in ("GammaSpent", "GammaSpendSkipped"):
+            continue
+        entry_data = {
+            "hotkey_ss58": str(attributes["hotkey"]),
+            "amount_gamma": gamma_from_units(attributes["amount"]),
+            "reference": str(attributes["reference"]),
+        }
+        if event_id == "GammaSpent":
+            spent.append(entry_data)
+        else:
+            reason = chain_error_from_dispatch(attributes["reason"])
+            skipped.append({**entry_data, "reason": reason.name or reason.message})
+    return {"spent": spent, "skipped": skipped}
 
 
 def _gamma_minted_data(result: ExtrinsicResult) -> dict[str, Any]:
