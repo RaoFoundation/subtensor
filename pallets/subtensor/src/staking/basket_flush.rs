@@ -93,17 +93,15 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Weight of the work reported by [`Self::flush_basket_deposits_for_hotkey`]: quotes are
-    /// priced like NAV-sweep rows (read-only sim-swap valuations) plus one EMA read each, a
-    /// conservative upper bound for the anchored NAV and credit marks; executed rows — stake
-    /// and queue writes each — are priced like redeemed `claim_root` rows, the benchmarked
-    /// figure for one swap-and-write row (an upper bound: an in-place credit swaps nothing).
-    /// Zero when nothing was queued.
+    /// priced like NAV-sweep rows (read-only sim-swap valuations); executed rows — stake and
+    /// queue writes each — are priced like redeemed `claim_root` rows, the benchmarked figure
+    /// for one swap-and-write row (an upper bound: an in-place credit swaps nothing), plus the
+    /// credit's fast-EMA read. Zero when nothing was queued.
     pub fn basket_flush_weight(work: BasketFlushWork) -> Weight {
         let quotes = if work.quotes == 0 {
             Weight::zero()
         } else {
             Self::basket_nav_sweep_weight(work.quotes)
-                .saturating_add(T::DbWeight::get().reads(work.quotes))
         };
         let rows = if work.rows == 0 {
             Weight::zero()
@@ -111,6 +109,7 @@ impl<T: Config> Pallet<T> {
             <T as crate::pallet::Config>::WeightInfo::claim_root(
                 u32::try_from(work.rows).unwrap_or(u32::MAX),
             )
+            .saturating_add(T::DbWeight::get().reads(work.rows))
         };
         quotes.saturating_add(rows)
     }
@@ -497,9 +496,11 @@ impl<T: Config> Pallet<T> {
     ///
     /// Each credit is valued as the realizable delta on its origin holding alone: crediting
     /// stake moves no pool, so every other holding's quote is unchanged and a full-fund
-    /// `nav_after` sweep collapses to one extra quote per origin. Both the pre-deposit NAV and
-    /// each added-value delta are capped at the fast-EMA mark, so a transient pool pump cannot
-    /// manufacture shares while the numerator and denominator stay on the same price basis.
+    /// `nav_after` sweep collapses to one extra quote per origin. Each added-value delta is
+    /// capped at the fast-EMA mark, so a transient origin-pool pump cannot manufacture shares.
+    /// The pre-deposit NAV stays realizable (live), matching the NAV those shares redeem
+    /// against; anchoring unrelated holdings would underprice shares while they trade above
+    /// their EMA.
     /// The origins are distinct pools, so the per-origin deltas are independent and sum to
     /// exactly the value the batch added against the shared `nav_before` snapshot.
     /// Realizable valuation keeps deposit pricing honest on thin pools exactly as it does for
@@ -512,7 +513,7 @@ impl<T: Config> Pallet<T> {
         escrow_root: u64,
     ) -> DispatchResult {
         let escrow = Self::get_beta_escrow_account_id();
-        let nav_before: u64 = Self::try_get_validator_basket_anchored_nav_tao(hotkey)?;
+        let nav_before: u64 = Self::try_get_validator_basket_nav_tao(hotkey)?;
 
         // Each credit's accumulation is isolated: an unknown valuation failure re-queues
         // that credit alone and the batch goes on with the others.

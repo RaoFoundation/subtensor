@@ -1385,3 +1385,72 @@ fn test_pumped_origin_cannot_overmint_dividend_shares() {
         );
     });
 }
+
+/// Dividend shares are redeemed against live NAV, so their mint price must use that same NAV.
+/// Anchoring an unrelated existing holding below its live value would underprice the new shares
+/// and let them claim value which belonged to the passive holders before the dividend arrived.
+#[test]
+fn test_above_anchor_holding_does_not_underprice_dividend_shares() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(3101);
+        let hotkey = U256::from(3102);
+        let existing = add_dynamic_network(&hotkey, &owner);
+        let origin = add_dynamic_network(&U256::from(3103), &U256::from(3104));
+        for netuid in [existing, origin] {
+            remove_owner_registration_stake(netuid);
+            fund_pool(netuid);
+        }
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        register_on_root(&hotkey, 0);
+
+        let staker = U256::from(3105);
+        let root_stake = 100_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &staker,
+            NetUid::ROOT,
+            root_stake.into(),
+        );
+
+        // The existing fund is worth about 200m live but only 100m at its unchanged EMA.
+        let existing_alpha = 100_000_000u64;
+        let shares_before = 100_000_000u64;
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            existing,
+            existing_alpha.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, shares_before);
+        SubnetTAO::<Test>::insert(existing, TaoBalance::from(2_000_000_000_000u64));
+
+        let nav_before = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        assert!(nav_before > 19 * existing_alpha / 10);
+
+        // A separate, price-1 origin contributes a 10m-alpha dividend worth about 10m TAO.
+        let credit = 10_000_000u64;
+        let credit_live_value = SubtensorModule::realizable_tao_for_alpha(origin, credit);
+        SubtensorModule::distribute_root_alpha_to_basket(&hotkey, origin, credit.into());
+
+        let shares_after = fund_shares(&hotkey);
+        let minted = shares_after.saturating_sub(shares_before);
+        let nav_after = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        let minted_redemption =
+            SubtensorModule::basket_payout_from(minted, nav_after, shares_after);
+        assert!(
+            minted_redemption <= credit_live_value + ROUNDING_EPS,
+            "new shares claim {minted_redemption}, above dividend value {credit_live_value}"
+        );
+
+        let passive_before =
+            SubtensorModule::basket_payout_from(shares_before, nav_before, shares_before);
+        let passive_after =
+            SubtensorModule::basket_payout_from(shares_before, nav_after, shares_after);
+        assert!(
+            passive_after + ROUNDING_EPS >= passive_before,
+            "dividend diluted passive shares: {passive_after} < {passive_before}"
+        );
+    });
+}
