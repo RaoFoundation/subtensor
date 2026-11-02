@@ -3244,10 +3244,10 @@ mod dispatches {
             Self::do_set_gamma_deposit_daily_spend_cap(origin, hotkey, netuid, daily_spend_cap)
         }
 
-        /// Spends, in order, up to each entry's amount from the gamma deposit at its hotkey,
-        /// within the deposit's balance and daily spend cap. Entries whose hotkey has no
-        /// deposit, or whose deposit names another spender, are skipped. Each entry's
-        /// reference is repeated in its `GammaSpent` event and not otherwise read.
+        /// Spends, in order, each entry's amount from the gamma deposit at its hotkey. Entries
+        /// whose hotkey has no deposit, whose deposit names another spender, or whose amount is
+        /// zero or above the deposit's balance or what its daily spend cap allows, are skipped.
+        /// Each entry's reference is repeated in its `GammaSpent` event and not otherwise read.
         #[pallet::call_index(164)]
         #[pallet::weight((<T as Config>::WeightInfo::spend_gamma(spends.len() as u32), DispatchClass::Normal, Pays::Yes))]
         pub fn spend_gamma(

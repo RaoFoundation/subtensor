@@ -1222,7 +1222,7 @@ fn daily_spend_cap_bucket_rules() {
             .into(),
         );
         assert_eq!(spendable(), 100 * GAMMA);
-        spend(u64::MAX);
+        spend(100 * GAMMA);
         assert_eq!(spendable(), 0);
         wait(day / 4);
         assert_eq!(spendable(), 25 * GAMMA);
@@ -1261,7 +1261,7 @@ fn daily_spend_cap_bucket_rules() {
 // =============================================================================
 
 #[test]
-fn spend_gamma_spends_the_smallest_of_amount_balance_and_allowance() {
+fn spend_gamma_spends_whole_amounts_within_balance_and_allowance() {
     new_test_ext(1).execute_with(|| {
         let netuid = gamma_subnet();
         let owner = RuntimeOrigin::signed(U256::from(OWNER_COLDKEY));
@@ -1276,17 +1276,18 @@ fn spend_gamma_spends_the_smallest_of_amount_balance_and_allowance() {
         ));
         System::reset_events();
 
-        // In order: the amount, then the rest of the balance, then nothing; the allowance
-        // bounds the capped deposit across its two entries.
+        // In order: an entry above the balance or the allowance left by earlier entries is
+        // skipped, and one within them spends its whole amount.
         assert_ok!(SubtensorModule::spend_gamma(
             owner,
             netuid,
             spends(&[
                 (HOTKEY, GAMMA),
                 (HOTKEY + 1, GAMMA + 1),
-                (HOTKEY, u64::MAX),
-                (HOTKEY + 1, u64::MAX),
-                (HOTKEY, GAMMA),
+                (HOTKEY, gamma),
+                (HOTKEY + 1, GAMMA),
+                (HOTKEY, gamma - GAMMA),
+                (HOTKEY + 1, GAMMA - 1),
             ])
         ));
         let spent = |hotkey: u64, amount: u64| Event::GammaSpent {
@@ -1364,7 +1365,11 @@ fn spend_gamma_skips_silently() {
         assert_ok!(SubtensorModule::spend_gamma(
             RuntimeOrigin::signed(owner),
             netuid,
-            spends(&[(HOTKEY + 1, GAMMA), (HOTKEY, 0)])
+            spends(&[
+                (HOTKEY + 1, GAMMA),
+                (HOTKEY, 0),
+                (HOTKEY, before.balance.to_u64() + 1)
+            ])
         ));
         assert_ok!(SubtensorModule::spend_gamma(
             RuntimeOrigin::signed(U256::from(COLDKEY)),
@@ -1589,7 +1594,7 @@ fn gamma_events_reconstruct_deposits() {
         assert_ok!(SubtensorModule::spend_gamma(
             RuntimeOrigin::signed(U256::from(OWNER_COLDKEY)),
             netuid,
-            spends(&[(HOTKEY + 1, u64::MAX)])
+            spends(&[(HOTKEY + 1, deposit(netuid, HOTKEY + 1).balance.to_u64())])
         ));
         assert_ok!(SubtensorModule::close_gamma_deposit(
             signed(),

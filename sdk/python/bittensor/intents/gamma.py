@@ -586,15 +586,16 @@ class SetGammaDepositDailySpendCap(Intent):
 class SpendGamma(Intent):
     """Spend gamma from the deposits you are the spender of.
 
-    Spends, in order, up to each entry's ``amount_gamma`` from the deposit at
-    its ``hotkey_ss58``, within the deposit's balance and daily spend cap.
-    Entries whose hotkey has no deposit, or whose deposit you are not the
-    spender of, are skipped. Spent gamma is destroyed. Each entry's optional
-    ``reference``, 32 bytes as hex, is repeated in its ``GammaSpent`` event;
-    by convention it is the sha256 of the ``btauth/1`` payload of the request
-    it pays for. Sign as the spender, or as its ``GammaSpend`` proxy. The
-    result's ``data["spent"]`` lists, in order, each entry that spent, with its
-    ``hotkey_ss58``, ``amount_gamma`` and ``reference``.
+    Spends, in order, each entry's ``amount_gamma`` from the deposit at its
+    ``hotkey_ss58``. Entries whose hotkey has no deposit, whose deposit you are
+    not the spender of, or whose amount is zero or above the deposit's balance
+    or what its daily spend cap allows, are skipped. Spent gamma is destroyed.
+    Each entry's optional ``reference``, 32 bytes as hex, is repeated in its
+    ``GammaSpent`` event; by convention it is the sha256 of the ``btauth/1``
+    payload of the request it pays for. Sign as the spender, or as its
+    ``GammaSpend`` proxy. The result's ``data["spent"]`` lists, in order, each
+    entry that spent, with its ``hotkey_ss58``, ``amount_gamma`` and
+    ``reference``.
     """
 
     op = "spend_gamma"
@@ -663,6 +664,6 @@ class SpendGamma(Intent):
     def summary(self) -> str:
         total = sum(Decimal(spend["amount_gamma"]) for spend in self.spends)
         return (
-            f"spend up to {format(total.normalize(), 'f')} gamma in {len(self.spends)} "
+            f"spend {format(total.normalize(), 'f')} gamma in {len(self.spends)} "
             f"{'entry' if len(self.spends) == 1 else 'entries'} on netuid {self.netuid}"
         )

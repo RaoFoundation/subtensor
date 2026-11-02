@@ -197,10 +197,10 @@ def set_cap(
 @app.command(
     "spend",
     help="Spend gamma from the deposits you are the spender of.\n\n"
-    "Each --spend spends, in order, up to its AMOUNT from the deposit at its HOTKEY, within the "
-    "deposit's balance and daily spend cap, and spent gamma is destroyed. Entries whose hotkey has "
-    "no deposit, or whose deposit you are not the spender of, are skipped. Sign as the spender, "
-    "or as its GammaSpend proxy with --proxy-for SPENDER.\n\n"
+    "Each --spend spends, in order, its AMOUNT from the deposit at its HOTKEY, and spent gamma is "
+    "destroyed. Entries whose hotkey has no deposit, whose deposit you are not the spender of, or "
+    "whose AMOUNT is zero or above the deposit's balance or what its daily spend cap allows, are "
+    "skipped. Sign as the spender, or as its GammaSpend proxy with --proxy-for SPENDER.\n\n"
     f"Docs: {tx_docs_url(SpendGamma.op)}",
 )
 @with_tx_globals
@@ -210,7 +210,7 @@ def spend(
     spends: list[str] = typer.Option(
         ...,
         "--spend",
-        help="HOTKEY=AMOUNT or HOTKEY=AMOUNT:REFERENCE, spending up to AMOUNT gamma from the "
+        help="HOTKEY=AMOUNT or HOTKEY=AMOUNT:REFERENCE, spending AMOUNT gamma from the "
         "deposit at HOTKEY, with an optional 32-byte hex reference that the entry's GammaSpent "
         "event repeats. Repeatable. HOTKEY is an "
         f"{ss58_param_help('hotkey_ss58', wallet_default=False).replace('HOTKEY', 'NAME')}",
