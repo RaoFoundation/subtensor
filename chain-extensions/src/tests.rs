@@ -41,6 +41,18 @@ fn unstake_all_exit_weight(declared: Weight, coldkey: &AccountId) -> Weight {
         .saturating_add(<mock::Test as frame_system::Config>::DbWeight::get().reads(1))
 }
 
+fn stake_availability_weight(coldkey: &AccountId) -> Weight {
+    <mock::Test as frame_system::Config>::DbWeight::get()
+        .reads(1)
+        .saturating_add(
+            pallet_subtensor::Pallet::<mock::Test>::staking_hotkeys_walk_actual(coldkey),
+        )
+        .saturating_add(
+            <mock::Test as frame_system::Config>::DbWeight::get()
+                .reads(pallet_subtensor::STAKING_HOTKEYS_WALK_READS_PER_ENTRY),
+        )
+}
+
 #[derive(Clone)]
 struct MockEnv {
     func_id: u16,
@@ -1944,7 +1956,10 @@ fn get_stake_availability_returns_zeroes_without_stake_or_lock() {
 
         let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
         assert_success(ret);
-        assert!(env.charged_weight().is_none());
+        assert_eq!(
+            env.charged_weight(),
+            Some(stake_availability_weight(&coldkey))
+        );
 
         let availability = StakeAvailability::decode(&mut &env.output()[..]).unwrap();
         assert_eq!(
@@ -1989,7 +2004,10 @@ fn get_stake_availability_returns_partial_lock_breakdown() {
 
         let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
         assert_success(ret);
-        assert!(env.charged_weight().is_none());
+        assert_eq!(
+            env.charged_weight(),
+            Some(stake_availability_weight(&coldkey))
+        );
 
         let availability = StakeAvailability::decode(&mut &env.output()[..]).unwrap();
         assert_eq!(
@@ -2039,7 +2057,10 @@ fn get_stake_availability_uses_rolled_forward_lock() {
 
         let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
         assert_success(ret);
-        assert!(env.charged_weight().is_none());
+        assert_eq!(
+            env.charged_weight(),
+            Some(stake_availability_weight(&coldkey))
+        );
 
         let availability = StakeAvailability::decode(&mut &env.output()[..]).unwrap();
         assert_eq!(availability.netuid, netuid);
