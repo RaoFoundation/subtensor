@@ -5813,12 +5813,16 @@ pub mod pallet {
                 }
             };
 
+            // Burn before the leftover-collateral sale so solvent expiry matches
+            // a manual close that returns alpha then sells it after the burn.
             Self::maybe_burn_invariant_surplus(netuid, credited_tao, credited_alpha, false)?;
-            Self::remove_position(owner, netuid, &position);
-            // No hotkey at expiry: `close` would return this collateral as alpha;
-            // sell it at spot and pay TAO instead (a sub-unit sale leaves dust).
+            // No hotkey at expiry: `close` would return leftover long collateral
+            // as alpha. Sell it at spot and pay TAO instead — **before**
+            // `remove_position`, so a failed sale rolls the whole settle back
+            // and preserves the claim (Skeptic fid:e0befc9f). Dust that rounds
+            // to zero is forfeited in place rather than blocking expiry.
             if leftover_collateral > 0 {
-                if let Ok(out) = T::Pool::forced_sell_into_escrow(
+                match T::Pool::forced_sell_into_escrow(
                     &escrow,
                     &custody,
                     owner,
@@ -5826,9 +5830,20 @@ pub mod pallet {
                     leftover_collateral.into(),
                     0u64.into(),
                 ) {
-                    refund = refund.saturating_add(out.to_u64());
+                    Ok(out) => {
+                        refund = refund.saturating_add(out.to_u64());
+                    }
+                    Err(e) if T::Pool::quote_may_round_to_zero(&e) => {
+                        Self::deposit_event(Event::DustForfeited {
+                            netuid,
+                            recipient: owner.clone(),
+                            tao: 0,
+                        });
+                    }
+                    Err(e) => return Err(e),
                 }
             }
+            Self::remove_position(owner, netuid, &position);
             Self::deposit_event(Event::Expired {
                 owner: owner.clone(),
                 netuid,
