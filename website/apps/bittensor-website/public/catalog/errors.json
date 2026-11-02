@@ -6123,7 +6123,7 @@
     },
     "TxRateLimitExceeded": {
       "code": "rate_limited",
-      "description": "An owner or admin transaction (e.g. `set_children`, tempo or hyperparameter updates, setting the owner hotkey) was repeated within its rate-limit window for that key and subnet. Check when the same transaction type last succeeded and wait for the limit to pass.",
+      "description": "An owner or admin transaction (e.g. `set_children`, tempo or hyperparameter updates, setting the owner hotkey) was repeated within its rate-limit window for that key and subnet, or the oracle fed the TAO/USD price twice in one block. Check when the same transaction type last succeeded and wait for the limit to pass.",
       "docs_url": "/docs/errors/chain/TxRateLimitExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/TxRateLimitExceeded/content.md",
       "pallets": [

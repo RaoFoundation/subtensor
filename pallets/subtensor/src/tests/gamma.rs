@@ -206,7 +206,7 @@ fn mint_tao_usd_price_requires_a_fresh_feed() {
 }
 
 #[test]
-fn feed_is_free_for_the_oracle_and_refused_for_other_signers_and_zero() {
+fn feed_is_free_for_the_oracle_once_per_block_and_refused_otherwise() {
     new_test_ext(1).execute_with(|| {
         let oracle = RuntimeOrigin::signed(U256::from(ORACLE));
         assert_noop!(
@@ -227,16 +227,22 @@ fn feed_is_free_for_the_oracle_and_refused_for_other_signers_and_zero() {
             Ok(Pays::No.into())
         );
 
-        // A lower feed is accepted at once; a higher one is risen toward.
+        // A lower feed is accepted at once; a higher one is risen toward. A second feed in a
+        // block is refused, and pays.
         System::set_block_number(2);
         assert_ok!(SubtensorModule::feed_tao_usd_price(
             oracle.clone(),
             PRICE / 2
         ));
+        assert_noop!(
+            SubtensorModule::feed_tao_usd_price(oracle.clone(), PRICE),
+            Error::<Test>::TxRateLimitExceeded
+        );
+        System::set_block_number(3);
         assert_ok!(SubtensorModule::feed_tao_usd_price(oracle, PRICE));
         assert_eq!(TaoUsdPrice::<Test>::get().unwrap().accepted, PRICE / 2);
         assert_eq!(
-            SubtensorModule::mint_tao_usd_price(3),
+            SubtensorModule::mint_tao_usd_price(4),
             Ok(PRICE / 2 + TAO_USD_PRICE_MAX_STEP.mul_ceil(PRICE / 2))
         );
     });
