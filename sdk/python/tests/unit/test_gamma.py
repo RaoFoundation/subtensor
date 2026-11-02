@@ -277,6 +277,15 @@ class TestMintPreview:
         facts = dict(preview.facts)
         assert "200" in facts["gamma"] and "190" in facts["minimum"]
         assert preview.blocks == []
+        assert preview.preview == {
+            "gamma": "200",
+            "minimum_gamma": "190",
+            "alpha_burned": "1",
+            "tao_value": "0.5",
+            "deposit_balance_gamma": None,
+            "spender_ss58": None,
+            "daily_spend_cap_gamma": None,
+        }
 
     @pytest.mark.asyncio
     async def test_another_coldkeys_deposit_blocks(self):
