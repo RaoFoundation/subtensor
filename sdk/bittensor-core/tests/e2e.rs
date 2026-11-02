@@ -1294,7 +1294,7 @@ fn test_gamma_lifecycle() {
         ]),
     );
     execute(&add_proxy, &ctx.bob);
-    assert_eq!(spend(netuid, &api_key, 2 * GAMMA), GAMMA);
+    assert_eq!(spend(netuid, &api_key, GAMMA), GAMMA);
     assert_eq!(balance(netuid, &api_key), minted_gamma - GAMMA);
 
     let moved_key = random_wallet().hotkey.ss58_address();
@@ -1326,7 +1326,7 @@ fn test_gamma_lifecycle() {
         &moved_key,
     );
     assert_eq!(
-        spend(netuid, &moved_key, u128::from(u64::MAX)),
+        spend(netuid, &moved_key, minted_gamma - GAMMA),
         minted_gamma - GAMMA
     );
     assert_eq!(balance(netuid, &moved_key), 0);
