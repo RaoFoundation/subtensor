@@ -2777,10 +2777,10 @@ impl_runtime_apis! {
         fn get_gamma_deposits_for_coldkey(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::gamma_info::GammaDepositInfo<AccountId32>> {
             SubtensorModule::get_gamma_deposits_for_coldkey(&coldkey)
         }
-        fn sim_mint_gamma(netuid: NetUid, amount: TaoBalance) -> Option<(AlphaBalance, TaoBalance, GammaBalance)> {
+        fn sim_mint_gamma(netuid: NetUid, amount: TaoBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), sp_runtime::DispatchError> {
             SubtensorModule::sim_mint_gamma(netuid, amount)
         }
-        fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Option<(AlphaBalance, TaoBalance, GammaBalance)> {
+        fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), sp_runtime::DispatchError> {
             SubtensorModule::sim_mint_gamma_with_stake(netuid, alpha_amount)
         }
     }

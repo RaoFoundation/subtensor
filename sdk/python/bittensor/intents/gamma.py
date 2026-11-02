@@ -12,7 +12,7 @@ from .._generated import storage as st
 from .._generated.runtime_apis import GammaRuntimeApi, StakeInfoRuntimeApi
 from ..balance import Balance
 from ..hyperparams import U64_MAX
-from ..result import BittensorError
+from ..result import BittensorError, chain_error_from_dispatch
 from ..signing import coerce_address
 from ..sp_core import ss58_decode
 from ._money import (
@@ -57,15 +57,11 @@ DEFAULT_SPENDER = "the subnet owner (a leased subnet's beneficiary)"
 
 
 async def _quote(substrate, method: tuple, netuid: int, amount: int) -> tuple[int, int, int]:
-    """A mint's alpha burned, TAO value, and gamma; raises when gamma cannot be minted."""
+    """A mint's alpha burned, TAO value, and gamma; raises the chain error that stops it."""
     quote = await substrate.runtime_call(*method, [netuid, amount])
-    if not quote:
-        raise BittensorError(
-            f"gamma cannot be minted on netuid {netuid} now: the subnet does not exist, "
-            "minting or its subtoken is disabled, the TAO/USD price is missing or stale, the pool "
-            "lacks liquidity for a TAO mint, or it would mint less than 0.1 gamma"
-        )
-    return tuple(int(part) for part in quote)
+    if "Err" in quote:
+        raise chain_error_from_dispatch(quote["Err"])
+    return tuple(int(part) for part in quote["Ok"])
 
 
 def _min_out(gamma: int, tolerance: float) -> int:

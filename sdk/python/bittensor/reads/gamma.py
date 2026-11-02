@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from .._generated import runtime_apis as api
 from .._generated import storage as st
 from ..balance import Balance
 from ..intents._money import gamma_from_units
+from ..result import chain_error_from_dispatch
 from .base import read
 
 
@@ -25,10 +26,10 @@ def _deposit_record(info: dict) -> dict:
     }
 
 
-def _mint_quote(view, quote: Any, netuid: int) -> Optional[dict]:
-    if not quote:
-        return None
-    alpha, tao, gamma = quote
+def _mint_quote(view, quote: dict, netuid: int) -> dict:
+    if "Err" in quote:
+        raise chain_error_from_dispatch(quote["Err"])
+    alpha, tao, gamma = quote["Ok"]
     return {
         "netuid": netuid,
         "alpha_burned": view.balance(int(alpha), netuid),
@@ -74,12 +75,11 @@ async def gamma_deposits(view, coldkey_ss58: str) -> list[dict]:
     category="Gamma",
     param_docs={"netuid": "Subnet to mint on.", "amount_tao": "TAO spent buying alpha."},
 )
-async def quote_mint_gamma(view, netuid: int, amount_tao: float) -> Optional[dict]:
+async def quote_mint_gamma(view, netuid: int, amount_tao: float) -> dict:
     """The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.
 
-    None when gamma cannot be minted: the subnet does not exist, minting or its
-    subtoken is disabled, the TAO/USD price is missing or stale, the pool lacks liquidity,
-    or it would mint less than 0.1 gamma.
+    Raises the chain error that stops the mint, such as `TaoUsdPriceUnavailable`
+    when the TAO/USD price is missing or stale, or `AmountTooLow` below 0.1 gamma.
     """
     rao = Balance.from_tao(amount_tao).rao
     quote = await view.runtime(api.GammaRuntimeApi.sim_mint_gamma, [netuid, rao])
@@ -92,12 +92,11 @@ async def quote_mint_gamma(view, netuid: int, amount_tao: float) -> Optional[dic
     category="Gamma",
     param_docs={"netuid": "Subnet to mint on.", "amount_alpha": "Alpha of stake burned."},
 )
-async def quote_mint_gamma_with_stake(view, netuid: int, amount_alpha: float) -> Optional[dict]:
+async def quote_mint_gamma_with_stake(view, netuid: int, amount_alpha: float) -> dict:
     """The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.
 
-    None when gamma cannot be minted: the subnet does not exist, minting or its
-    subtoken is disabled, the TAO/USD price is missing or stale, or it would mint less than
-    0.1 gamma.
+    Raises the chain error that stops the mint, such as `TaoUsdPriceUnavailable`
+    when the TAO/USD price is missing or stale, or `AmountTooLow` below 0.1 gamma.
     """
     rao = Balance.from_amount(amount_alpha, netuid).rao
     quote = await view.runtime(api.GammaRuntimeApi.sim_mint_gamma_with_stake, [netuid, rao])

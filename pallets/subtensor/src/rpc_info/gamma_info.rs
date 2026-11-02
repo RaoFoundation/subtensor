@@ -57,11 +57,12 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
-    /// The alpha burned, TAO value and gamma `mint_gamma` would mint for `amount` now.
+    /// The alpha burned, TAO value and gamma `mint_gamma` would mint for `amount` now, or the
+    /// error that stops it.
     pub fn sim_mint_gamma(
         netuid: NetUid,
         amount: TaoBalance,
-    ) -> Option<(AlphaBalance, TaoBalance, GammaBalance)> {
+    ) -> Result<(AlphaBalance, TaoBalance, GammaBalance), DispatchError> {
         with_transaction(|| {
             TransactionOutcome::Rollback((|| {
                 Self::ensure_gamma_mintable(netuid)?;
@@ -74,17 +75,17 @@ impl<T: Config> Pallet<T> {
                 Ok::<_, DispatchError>((alpha, value, gamma))
             })())
         })
-        .ok()
     }
 
-    /// `alpha_amount` and the TAO value and gamma of burning it now; it reads no stake.
+    /// `alpha_amount` and the TAO value and gamma of burning it now, or the error that stops
+    /// it; it reads no stake.
     pub fn sim_mint_gamma_with_stake(
         netuid: NetUid,
         alpha_amount: AlphaBalance,
-    ) -> Option<(AlphaBalance, TaoBalance, GammaBalance)> {
-        Self::ensure_gamma_mintable(netuid).ok()?;
+    ) -> Result<(AlphaBalance, TaoBalance, GammaBalance), DispatchError> {
+        Self::ensure_gamma_mintable(netuid)?;
         let mark = Self::gamma_mark(netuid);
-        let (value, gamma) = Self::gamma_for_alpha(alpha_amount, mark).ok()?;
-        Some((alpha_amount, value, gamma))
+        let (value, gamma) = Self::gamma_for_alpha(alpha_amount, mark)?;
+        Ok((alpha_amount, value, gamma))
     }
 }
