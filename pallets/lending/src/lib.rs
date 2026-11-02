@@ -1451,7 +1451,9 @@ pub mod pallet {
         ///
         /// `hotkey` is the alpha source and destination, as in [`Pallet::close`].
         #[pallet::call_index(6)]
-        #[pallet::weight(T::WeightInfo::repay())]
+        // Full repay delegates to `do_close`; charge the heavier of the two measured
+        // paths so the close-path R/W budget is never undercharged (Auditor fid:424daaa1).
+        #[pallet::weight(T::WeightInfo::close().max(T::WeightInfo::repay()))]
         #[transactional]
         pub fn repay(
             origin: OriginFor<T>,

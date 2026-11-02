@@ -167,6 +167,8 @@ mod benchmarks {
     fn repay() {
         // Escrow partial buyback (not wallet repay) so reference measurements
         // cover the expensive settlement branch (Auditor fid:59fefdd6).
+        // Full-principal repay delegates to close; the extrinsic weight takes
+        // `close().max(repay())` so that path is not undercharged (fid:424daaa1).
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
