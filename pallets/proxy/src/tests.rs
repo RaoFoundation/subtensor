@@ -985,9 +985,10 @@ fn runtime_upgrade_invalidates_legacy_announcements_without_trapping_the_deposit
         let announcement_deposit = Balances::reserved_balance(1);
         assert!(announcement_deposit > 0);
 
-        System::set_block_number(2);
+        // Executive runs the upgrade before System::initialize advances block 1 to 2.
         <Proxy as Hooks<u64>>::on_runtime_upgrade();
         assert_eq!(AnnouncementValidFrom::<Test>::get(), Some(2));
+        System::set_block_number(2);
 
         assert_noop!(
             Proxy::proxy_announced(RuntimeOrigin::signed(4), 1, 5, None, deferred.clone(),),
@@ -1006,6 +1007,9 @@ fn runtime_upgrade_invalidates_legacy_announcements_without_trapping_the_deposit
         // Announcements created at or after the boundary retain normal relayer semantics.
         assert_ok!(Proxy::announce(RuntimeOrigin::signed(1), 5, call_hash));
         System::set_block_number(3);
+        // Later upgrades must not move the one-time boundary or invalidate safe entries.
+        <Proxy as Hooks<u64>>::on_runtime_upgrade();
+        assert_eq!(AnnouncementValidFrom::<Test>::get(), Some(2));
         assert_ok!(Proxy::proxy_announced(
             RuntimeOrigin::signed(4),
             1,

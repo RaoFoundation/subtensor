@@ -2474,6 +2474,7 @@ fn test_revert_claim_root_with_swap_hotkey() {
             AlphaBalance::ZERO,
         );
 
+        crate::tests::claim_root::flush_baskets();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
             hk1
@@ -2974,6 +2975,7 @@ fn test_swap_hotkey_root_claims_unchanged_if_not_root() {
             AlphaBalance::ZERO,
         );
 
+        crate::tests::claim_root::flush_baskets();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(staker_coldkey),
             neuron_hotkey
@@ -3059,6 +3061,7 @@ fn test_swap_hotkey_root_claims_changed_if_root() {
             AlphaBalance::ZERO,
         );
 
+        crate::tests::claim_root::flush_baskets();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(staker_coldkey),
             neuron_hotkey
@@ -3146,6 +3149,7 @@ fn test_swap_hotkey_root_claims_changed_if_all_subnets() {
             AlphaBalance::ZERO,
         );
 
+        crate::tests::claim_root::flush_baskets();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(staker_coldkey),
             neuron_hotkey

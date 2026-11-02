@@ -421,11 +421,16 @@ impl<T: Config> Pallet<T> {
         let precheck = Self::stake_into_basket_precheck_weight();
         Self::check_stake_into_basket(&coldkey, &hotkey, tao)
             .map_err(|err| (precheck, err.into()))?;
-        // Deposit queued dividend credits first so the share mint below prices against
-        // the fund's full, current NAV. The flush work is priced into the post-dispatch
-        // weight; the declared weight carries its flat allowance.
-        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(&hotkey);
+        // Require the block drain to settle material credits before changing fund ownership
+        // or its escrow root stake. Charge the queue check even on refusal.
+        let (flush_work, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
         let flush_weight = Self::basket_flush_weight(flush_work);
+        if !completed {
+            return Err((
+                precheck.saturating_add(flush_weight),
+                Error::<T>::BasketDepositPending.into(),
+            ));
+        }
 
         // The deployment slots are the holdings the deposit mirrors, or the single root
         // cash slot that opens an empty fund. Each slot can add at most one new holding, so
@@ -659,8 +664,9 @@ impl<T: Config> Pallet<T> {
         ignore_minimum_condition: bool,
         outcome: &mut RootClaimOutcome,
     ) -> DispatchResult {
-        // Deposit any queued dividend credits first so the claim redeems against the
-        // fund's full, current state. The flush work is priced into the outcome.
+        // Require queued dividend credits to be settled before redemption against the
+        // fund's full, current state. Dispatches only check settlement; the block drain
+        // performs the actual dividend mint. Queue-check work is priced into the outcome.
         let (flush_work, _, flush_completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
         outcome.flush = flush_work;
 
@@ -1157,7 +1163,7 @@ impl<T: Config> Pallet<T> {
     /// scan-only work, and the flat pending-deposit flush allowance
     /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes.
     pub fn root_claim_declared_weight_for(limit: u32) -> Weight {
-        Self::root_claim_weight_for_work(limit, Self::basket_flush_work_bound())
+        Self::root_claim_weight_for_work(limit, Self::basket_pending_work_bound())
     }
 
     /// Coldkey-wide declared weight: the 256-unit envelope plus the flush allowance.
@@ -1577,7 +1583,7 @@ impl<T: Config> Pallet<T> {
     ) -> (bool, Option<Vec<u8>>) {
         // Budget covers stake reads, AMM swap bookkeeping, TAO transfer, root-slot credit,
         // and the conversion event for one non-empty holding.
-        let per_key = T::DbWeight::get().reads_writes(25, 20);
+        let per_key = T::DbWeight::get().reads_writes(32, 20);
         let escrow = Self::get_beta_escrow_account_id();
 
         let mut keys = match &last_key {
@@ -1593,6 +1599,25 @@ impl<T: Config> Pallet<T> {
                 return (false, cursor);
             }
             weight_meter.consume(per_key);
+            // Conversion creates escrow root stake, which must not capture a fraction of
+            // dividends earned before it existed. Preserve this cursor and retry after the
+            // block drain, rather than skipping the fund and letting teardown erase it.
+            let held = Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid);
+            if !held.is_zero()
+                && PendingBasketDeposits::<T>::iter_key_prefix(&hotkey)
+                    .next()
+                    .is_some()
+            {
+                let check_weight = Self::root_pending_dividend_weight(true);
+                if !weight_meter.can_consume(check_weight) {
+                    return (false, cursor);
+                }
+                weight_meter.consume(check_weight);
+                let (_, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
+                if !completed {
+                    return (false, cursor);
+                }
+            }
             Self::convert_basket_holding_to_root(&hotkey, &escrow, netuid);
             cursor = Some(BasketShares::<T>::hashed_key_for(hotkey));
         }

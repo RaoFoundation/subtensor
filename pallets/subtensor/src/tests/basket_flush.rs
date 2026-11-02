@@ -241,7 +241,19 @@ fn test_flush_root_eviction_deposits_pending_credits() {
         queue_credit(&hot, netuid, credit);
         let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
 
-        SubtensorModule::replace_neuron(NetUid::ROOT, uid, &replacement, 1);
+        assert!(!SubtensorModule::replace_neuron(
+            NetUid::ROOT,
+            uid,
+            &replacement,
+            1
+        ));
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert!(SubtensorModule::replace_neuron(
+            NetUid::ROOT,
+            uid,
+            &replacement,
+            1
+        ));
 
         assert!(
             !PendingBasketDeposits::<Test>::contains_key(hot, netuid),
@@ -322,7 +334,7 @@ fn test_flush_root_eviction_recycles_dust_after_membership_drop() {
 fn test_flush_root_eviction_waits_for_deferred_dividend() {
     new_test_ext(1).execute_with(|| {
         SubtensorModule::set_tao_weight(u64::MAX);
-        zero_claim_threshold();
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(500_000));
 
         let cold = U256::from(2201);
         let hot = U256::from(3201);
@@ -362,6 +374,7 @@ fn test_flush_root_eviction_waits_for_deferred_dividend() {
         assert_eq!(fund_shares(&hot), 0);
 
         SubnetTAO::<Test>::insert(netuid, tao_before);
+        SubtensorModule::flush_pending_basket_deposits_block();
         assert!(SubtensorModule::replace_neuron(
             NetUid::ROOT,
             uid,
@@ -417,7 +430,7 @@ fn test_flush_happy_path_accumulates_in_place_with_bounded_ops() {
             .collect();
 
         reset_basket_op_counters();
-        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (work, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(completed);
         assert!(fund_shares(&hotkey) > 0);
@@ -502,7 +515,7 @@ fn test_flush_shared_failure_requeues_batch_without_retry() {
             .collect();
 
         reset_basket_op_counters();
-        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (work, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(!completed);
         assert_eq!(BasketShares::<Test>::get(hotkey), 0);
@@ -585,7 +598,7 @@ fn test_flush_isolates_terminal_credit_and_deposits_the_rest() {
         let b_alpha_out_before = SubnetAlphaOut::<Test>::get(origin_b);
 
         reset_basket_op_counters();
-        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (work, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(
             completed,
@@ -664,7 +677,7 @@ fn test_flush_work_stays_within_declared_bound_for_failing_wide_batch() {
         let holdings = SubtensorModule::get_basket_holdings(&hotkey).len() as u64;
         assert_eq!(holdings, count);
 
-        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (work, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(!completed);
         assert_eq!(BasketShares::<Test>::get(hotkey), 0);
@@ -759,6 +772,28 @@ fn test_root_register_declared_weight_includes_basket_flush_bound() {
     });
 }
 
+#[test]
+fn test_dispatch_pending_check_refuses_oversized_dust_queue_with_bounded_work() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(3991);
+        register_on_root(&hotkey, 1);
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(u64::MAX));
+        for i in 1..=MAX_BASKET_ROWS.saturating_mul(2) {
+            let netuid = NetUid::from(i as u16);
+            crate::NetworksAdded::<Test>::insert(netuid, true);
+            PendingBasketDeposits::<Test>::insert(hotkey, netuid, AlphaBalance::from(1u64));
+        }
+        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        assert!(!completed);
+        assert_eq!(work.quotes, MAX_BASKET_ROWS + 1);
+        assert_eq!(work.rows, 0);
+        assert!(
+            SubtensorModule::basket_flush_weight(work)
+                .all_lte(SubtensorModule::root_pending_dividend_weight(true))
+        );
+    });
+}
+
 /// A dividend credit from a terminally shallow pool is recycled and removed instead of being
 /// re-queued forever. Because it never entered the fund, no shares or basket holding are minted.
 #[test]
@@ -780,7 +815,7 @@ fn test_flush_terminal_origin_recycles_credit_without_pinning_queue() {
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000u64));
         queue_credit(&hotkey, netuid, 1_000u64);
 
-        let (_, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (_, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(completed);
         assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, netuid));
@@ -882,7 +917,7 @@ fn test_escrow_only_fund_keeps_its_own_dividend() {
         let credit = 500_000_000u64;
         queue_credit(&hotkey, netuid, credit);
 
-        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let _ = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         let nav_after = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
         assert!(
@@ -934,7 +969,7 @@ fn test_shareless_escrow_only_credit_is_recycled() {
         let credit = 500_000_000u64;
         queue_credit(&hotkey, netuid, credit);
 
-        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let _ = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(
             !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),

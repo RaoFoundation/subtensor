@@ -928,7 +928,11 @@ pub mod pallet {
             if AnnouncementValidFrom::<T>::exists() {
                 return T::DbWeight::get().reads(1);
             }
-            AnnouncementValidFrom::<T>::put(T::BlockNumberProvider::current_block_number());
+            // Executive calls upgrades BEFORE System::initialize: the provider still
+            // exposes the last block executed by the old runtime. Exclude that block too.
+            AnnouncementValidFrom::<T>::put(
+                T::BlockNumberProvider::current_block_number().saturating_add(One::one()),
+            );
             T::DbWeight::get().reads_writes(1, 1)
         }
 

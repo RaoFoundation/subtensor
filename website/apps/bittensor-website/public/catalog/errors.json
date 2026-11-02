@@ -581,7 +581,7 @@
     },
     "BasketDepositPending": {
       "code": "too_early",
-      "description": "A queued root-dividend deposit on this validator could not be settled yet, so an operation that changes the hotkey's root claimant base was refused. Wait for the affected basket prices to return to their fast-EMA band, then retry the operation; its eager flush will settle the pending dividend before changing root stake.",
+      "description": "A queued root-dividend deposit on this validator could not be settled yet, so an operation that changes the claimant base or basket was refused. Wait for the block queue processor to settle the dividend, then retry. Settlement also requires the affected basket prices to be within their fast-EMA band; user calls cannot force a dividend mint between pool swaps.",
       "docs_url": "/docs/errors/chain/BasketDepositPending",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketDepositPending/content.md",
       "pallets": [
