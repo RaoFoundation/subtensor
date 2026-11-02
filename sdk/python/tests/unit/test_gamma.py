@@ -545,6 +545,44 @@ async def test_execute_reports_what_each_entry_spent(wallet, events, spent):
     assert result.data.get("spent") == spent
 
 
+def _minted(cap):
+    attributes = {
+        "netuid": 1,
+        "hotkey": BOB_HOT,
+        "spender": ALICE,
+        "daily_spend_cap": cap,
+        "tao": RAO,
+        "alpha": RAO // 2,
+        "value": RAO // 4,
+        "gamma": 100 * RAO + 1,
+    }
+    return {"event": {"module_id": "SubtensorModule", "event_id": "GammaMinted",
+                      "attributes": attributes}}  # fmt: skip
+
+
+MINTED = {"hotkey_ss58": BOB_HOT, "spender_ss58": ALICE, "daily_spend_cap_gamma": None,
+          "alpha_burned": "0.5", "tao_value": "0.25", "gamma": "100.000000001"}  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("events", "minted"),
+    [
+        ([PAID, _minted(None)], MINTED),
+        ([_minted(RAO // 2)], {**MINTED, "daily_spend_cap_gamma": "0.5"}),
+        ([], None),
+        ([PAID, APPROVAL], None),
+    ],
+    ids=["minted", "capped", "not-waited", "multisig-pending"],
+)  # fmt: skip
+@pytest.mark.asyncio
+async def test_execute_reports_what_a_mint_credited(wallet, events, minted):
+    sub = FakeSubstrate()
+    sub.queue_result(ExtrinsicResult(success=True, message="", events=events))
+    intent = build("mint_gamma", INTENT_SAMPLES["mint_gamma"])
+    result = await Client("local", substrate=sub).execute(intent, wallet)
+    assert result.data.get("minted") == minted
+
+
 class TestCli:
     @pytest.fixture()
     def submitted(self, isolated_cli, monkeypatch):  # noqa: F811

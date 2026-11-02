@@ -11,7 +11,8 @@ on `origin_hotkey_ss58` and credits its value in gamma to the deposit at
 destroyed, not moved. `spender_ss58`, `service_hotkey_ss58` and
 `daily_spend_cap_gamma` name the deposit's spender and cap as for
 `mint_gamma`. Fails rather than minting less than the current quote
-less `rate_tolerance`.
+less `rate_tolerance`. Its result's `data["minted"]` is as for
+`mint_gamma`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |

@@ -207,7 +207,9 @@ class MintGamma(Intent):
     no daily spend cap unless ``daily_spend_cap_gamma`` sets one. A mint
     naming either fails on a deposit with another.
     Fails rather than minting less than the current quote less
-    ``rate_tolerance``.
+    ``rate_tolerance``. The result's ``data["minted"]`` holds the deposit's
+    ``hotkey_ss58``, ``spender_ss58`` and ``daily_spend_cap_gamma``, and the
+    ``alpha_burned``, ``tao_value`` and ``gamma`` minted.
     """
 
     op = "mint_gamma"
@@ -280,7 +282,8 @@ class MintGammaWithStake(Intent):
     destroyed, not moved. ``spender_ss58``, ``service_hotkey_ss58`` and
     ``daily_spend_cap_gamma`` name the deposit's spender and cap as for
     ``mint_gamma``. Fails rather than minting less than the current quote
-    less ``rate_tolerance``.
+    less ``rate_tolerance``. Its result's ``data["minted"]`` is as for
+    ``mint_gamma``.
     """
 
     op = "mint_gamma_with_stake"

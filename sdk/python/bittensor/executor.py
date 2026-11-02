@@ -620,6 +620,29 @@ def _gamma_spent_data(result: ExtrinsicResult) -> dict[str, Any]:
     return {"spent": spent}
 
 
+def _gamma_minted_data(result: ExtrinsicResult) -> dict[str, Any]:
+    """What a mint credited, from its ``GammaMinted`` event.
+
+    Nothing while the mint has not run: submitted without waiting, or a multisig
+    approval short of its threshold.
+    """
+    attributes = _find_event(result.events, "SubtensorModule", "GammaMinted")
+    if not isinstance(attributes, dict):
+        return {}
+    cap = attributes["daily_spend_cap"]
+    alpha = Balance.from_rao(int(attributes["alpha"]), int(attributes["netuid"]))
+    return {
+        "minted": {
+            "hotkey_ss58": str(attributes["hotkey"]),
+            "spender_ss58": str(attributes["spender"]),
+            "daily_spend_cap_gamma": None if cap is None else gamma_from_units(cap),
+            "alpha_burned": format(alpha.decimal, "f"),
+            "tao_value": format(Balance.from_rao(int(attributes["value"])).decimal, "f"),
+            "gamma": gamma_from_units(attributes["gamma"]),
+        }
+    }
+
+
 class Executor:
     def __init__(self, substrate: Substrate, policy: Optional[Policy] = None):
         self.substrate = substrate
@@ -881,6 +904,8 @@ class Executor:
                 data.update(_pure_created_data(result))
             if semantic_intent.op == "spend_gamma":
                 data.update(_gamma_spent_data(result))
+            if semantic_intent.op in ("mint_gamma", "mint_gamma_with_stake"):
+                data.update(_gamma_minted_data(result))
             data.update(plan.extras)
             if data != result.data:
                 result = replace(result, data=data)
@@ -1019,6 +1044,8 @@ class Executor:
         )
         if result.success and semantic_intent.op == "spend_gamma":
             result = replace(result, data={**result.data, **_gamma_spent_data(result)})
+        if result.success and semantic_intent.op in ("mint_gamma", "mint_gamma_with_stake"):
+            result = replace(result, data={**result.data, **_gamma_minted_data(result)})
         if (
             result.success
             and semantic_intent.op == "register_subnet"

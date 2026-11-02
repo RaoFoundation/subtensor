@@ -1455,7 +1455,7 @@
   {
     "name": "mint_gamma",
     "summary": "Mint gamma with TAO into your deposit at an API-key hotkey.",
-    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy.\nA new deposit's spender is the subnet owner, or a leased subnet's\nbeneficiary, unless `spender_ss58` names another or `service_hotkey_ss58`\nnames a service published on the subnet, whose spender it takes. It has\nno daily spend cap unless `daily_spend_cap_gamma` sets one. A mint\nnaming either fails on a deposit with another.\nFails rather than minting less than the current quote less\n`rate_tolerance`.",
+    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy.\nA new deposit's spender is the subnet owner, or a leased subnet's\nbeneficiary, unless `spender_ss58` names another or `service_hotkey_ss58`\nnames a service published on the subnet, whose spender it takes. It has\nno daily spend cap unless `daily_spend_cap_gamma` sets one. A mint\nnaming either fails on a deposit with another.\nFails rather than minting less than the current quote less\n`rate_tolerance`. The result's `data[\"minted\"]` holds the deposit's\n`hotkey_ss58`, `spender_ss58` and `daily_spend_cap_gamma`, and the\n`alpha_burned`, `tao_value` and `gamma` minted.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1541,7 +1541,7 @@
   {
     "name": "mint_gamma_with_stake",
     "summary": "Mint gamma by burning your stake into your deposit at an API-key hotkey.",
-    "description": "Mint gamma by burning your stake into your deposit at an API-key hotkey.\n\nBurns up to `amount_alpha` (`all` for the whole stake) of your stake\non `origin_hotkey_ss58` and credits its value in gamma to the deposit at\n`hotkey_ss58`, valued as `mint_gamma` values bought alpha. The stake is\ndestroyed, not moved. `spender_ss58`, `service_hotkey_ss58` and\n`daily_spend_cap_gamma` name the deposit's spender and cap as for\n`mint_gamma`. Fails rather than minting less than the current quote\nless `rate_tolerance`.",
+    "description": "Mint gamma by burning your stake into your deposit at an API-key hotkey.\n\nBurns up to `amount_alpha` (`all` for the whole stake) of your stake\non `origin_hotkey_ss58` and credits its value in gamma to the deposit at\n`hotkey_ss58`, valued as `mint_gamma` values bought alpha. The stake is\ndestroyed, not moved. `spender_ss58`, `service_hotkey_ss58` and\n`daily_spend_cap_gamma` name the deposit's spender and cap as for\n`mint_gamma`. Fails rather than minting less than the current quote\nless `rate_tolerance`. Its result's `data[\"minted\"]` is as for\n`mint_gamma`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
