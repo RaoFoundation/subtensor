@@ -405,7 +405,12 @@ class RaiseLoan(Intent):
     )
     sell_alpha: Optional[Money] = field(
         default=None,
-        metadata={"help": "Unlocked alpha to sell for free TAO; omit to sell none."},
+        metadata={
+            "help": (
+                "Unlocked alpha to sell for free TAO; omit to sell the newly "
+                "escrowed alpha (runtime sell_alpha.unwrap_or(realised_a))."
+            )
+        },
     )
     min_tao_out: Money = field(
         default=0,

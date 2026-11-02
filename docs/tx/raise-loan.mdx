@@ -11,7 +11,7 @@ legs succeed or the call rolls back. `valid_until` is a block deadline.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_long_and_sell`](/code/pallets/lending/src/lib.rs#L1295-L1326) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_long_and_sell`](/code/pallets/lending/src/lib.rs#L1366-L1397) |
 
 ## Parameters
 
@@ -23,7 +23,7 @@ legs succeed or the call rolls back. `valid_until` is a block deadline.
 | `borrow_tao` | number \| `"all"` | no | Exact TAO principal to borrow; omit to size from collateral_alpha. |
 | `max_collateral_alpha` | number \| `"all"` | no | Ceiling on alpha collateral when sizing from borrow_tao. |
 | `min_borrow_tao` | number \| `"all"` | no | Floor on borrowed TAO principal. |
-| `sell_alpha` | number \| `"all"` | no | Unlocked alpha to sell for free TAO; omit to sell none. |
+| `sell_alpha` | number \| `"all"` | no | Unlocked alpha to sell for free TAO; omit to sell the newly escrowed alpha (runtime sell_alpha.unwrap_or(realised_a)). |
 | `min_tao_out` | number \| `"all"` | no | Minimum free TAO from the raise sale leg. |
 | `min_escrow_alpha` | number \| `"all"` | no | Minimum escrowed alpha after the long's forced buy. |
 | `valid_until` | integer | no | Latest block number that may include this raise. |
@@ -69,7 +69,7 @@ result = sub.execute_tool("raise_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open_long_and_sell` — [`pallets/lending/src/lib.rs#L1298`](/code/pallets/lending/src/lib.rs#L1295-L1326):
+`Lending.open_long_and_sell` — [`pallets/lending/src/lib.rs#L1369`](/code/pallets/lending/src/lib.rs#L1366-L1397):
 
 ```rust
 #[pallet::call_index(3)]

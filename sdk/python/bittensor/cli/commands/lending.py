@@ -47,6 +47,23 @@ def _raise_sale_needs_quoted_floor(min_tao_out: Balance) -> bool:
     return cast(Balance, min_tao_out).rao == 0
 
 
+# Default inclusion window when ``--valid-until`` is omitted (~10 minutes at
+# 12s blocks). Only ``raise`` resolves a head-relative deadline in the CLI;
+# ``open`` / ``close`` leave the intent default (``2**32 - 1``).
+DEFAULT_RAISE_VALIDITY_BLOCKS = 50
+
+
+async def _resolve_valid_until(client, valid_until: Optional[int]) -> int:
+    """Return an explicit deadline, or head + :data:`DEFAULT_RAISE_VALIDITY_BLOCKS`.
+
+    Uses :meth:`Client.block` — never ``client.substrate`` (the public Client
+    has no such attribute).
+    """
+    if valid_until is not None:
+        return valid_until
+    return (await client.block()) + DEFAULT_RAISE_VALIDITY_BLOCKS
+
+
 async def _provided_collateral(client, minimum: Balance, netuid: int, owner: str, percent: float):
     """Add quote tolerance and the old coupon's conservative submission window."""
     maximum = (1 << 64) - 1
@@ -428,10 +445,12 @@ def raise_loan(
         help="Quote tolerance (percent) for the raise sale floor when --min-tao-out is 0.",
     ),
 ):
-    """Atomic raise: escrowed long plus optional spot sale of unlocked alpha.
+    """Atomic raise: escrowed long plus spot sale of unlocked alpha.
 
-    Pass --collateral (alpha) or --amount (TAO to borrow), not both. Optionally
-    sell unlocked alpha with --sell. Fails unless both legs clear.
+    Pass --collateral (alpha) or --amount (TAO to borrow), not both. Omitting
+    --sell sells the newly escrowed alpha (runtime default); pass an explicit
+    --sell amount to sell a different unlocked quantity. Fails unless both
+    legs clear.
 
     Use --ltv to see max borrowable at current LTV/capacity and to request a
     lower LTV than the subnet max (validated client-side before submit).
@@ -451,18 +470,8 @@ def raise_loan(
         raise typer.Exit(2)
     hotkey = context.resolve_address("hotkey_ss58", hotkey_ss58)
 
-    async def deadline(client):
-        if valid_until is not None:
-            return valid_until
-        header = await client.substrate.get_block_header()
-        number = header.get("header", {}).get("number") if isinstance(header, dict) else None
-        if not isinstance(number, int):
-            raise BittensorError("current block number is unavailable")
-        # Default: allow ~10 minutes of inclusion delay at 12s blocks.
-        return number + 50
-
     with context.output.activity("resolving raise deadline…"):
-        until = context.run(deadline)
+        until = context.run(lambda client: _resolve_valid_until(client, valid_until))
 
     # Quote at max LTV first so --ltv can show headroom and validate locally.
     async def max_quote(client):
