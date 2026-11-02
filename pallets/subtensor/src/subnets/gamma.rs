@@ -419,11 +419,12 @@ impl<T: Config> Pallet<T> {
         origin: OriginFor<T>,
         netuid: NetUid,
         spends: &[(T::AccountId, GammaBalance, [u8; 32])],
-    ) -> DispatchResult {
+    ) -> Result<u32, DispatchError> {
         let signer = ensure_signed(origin)?;
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(!spends.is_empty(), Error::<T>::InvalidValue);
         let now = Self::get_current_block_as_u64();
+        let mut spent: u32 = 0;
         for (hotkey, amount, reference) in spends {
             let Some(mut deposit) = GammaDeposits::<T>::get(netuid, hotkey) else {
                 continue;
@@ -452,8 +453,9 @@ impl<T: Config> Pallet<T> {
                 amount: *amount,
                 reference: *reference,
             });
+            spent = spent.saturating_add(1);
         }
-        Ok(())
+        Ok(spent)
     }
 
     /// Moves the old coldkey's deposits on `netuid` to the new coldkey, terms unchanged; fails

@@ -4579,9 +4579,9 @@
         "pallet": "SubtensorModule",
         "call": "set_service",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3267,
-        "end_line": 3274,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3265-L3274",
+        "line": 3277,
+        "end_line": 3284,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3275-L3284",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4971,9 +4971,9 @@
         "pallet": "SubtensorModule",
         "call": "spend_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3253,
-        "end_line": 3259,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3251-L3259",
+        "line": 3254,
+        "end_line": 3269,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3252-L3269",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

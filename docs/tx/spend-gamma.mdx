@@ -18,7 +18,7 @@ each entry that spent, with its `hotkey_ss58`, `amount_gamma` and
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.spend_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3251-L3259) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.spend_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3252-L3269) |
 
 ## Parameters
 
@@ -70,7 +70,7 @@ result = sub.execute_tool("spend_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.spend_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3253`](/code/pallets/subtensor/src/macros/dispatches.rs#L3251-L3259):
+`SubtensorModule.spend_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3254`](/code/pallets/subtensor/src/macros/dispatches.rs#L3252-L3269):
 
 ```rust
 #[pallet::call_index(164)]
@@ -79,8 +79,17 @@ pub fn spend_gamma(
     origin: OriginFor<T>,
     netuid: NetUid,
     spends: BoundedVec<(T::AccountId, GammaBalance, [u8; 32]), ConstU32<MAX_GAMMA_SPENDS>>,
-) -> DispatchResult {
-    Self::do_spend_gamma(origin, netuid, &spends)
+) -> DispatchResultWithPostInfo {
+    let spent = Self::do_spend_gamma(origin, netuid, &spends)?;
+    let skipped = (spends.len() as u32).saturating_sub(spent);
+    Ok((
+        Some(
+            <T as Config>::WeightInfo::spend_gamma(spent)
+                .saturating_add(T::DbWeight::get().reads(skipped.into())),
+        ),
+        Pays::Yes,
+    )
+        .into())
 }
 ```
 
