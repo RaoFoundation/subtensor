@@ -825,10 +825,11 @@ mod dispatches {
         /// of auto parent delegation. Pruning a seat clears that
         /// validator's protocol auto-parent edges.
         ///
-        /// Declared weight is `WeightInfo::root_register` plus a
-        /// `TotalNetworks`-scaled `DbWeight` term for the per-subnet
-        /// persist (and prune cleanup). Re-benchmark on reference
-        /// hardware so the base measurement includes that work.
+        /// Declared weight is `WeightInfo::root_register` plus a worst-case
+        /// pending-dividend flush allowance and a `TotalNetworks`-scaled
+        /// `DbWeight` term for the per-subnet persist (and prune cleanup).
+        /// Re-benchmark on reference hardware so the base measurement
+        /// includes that work.
         #[pallet::call_index(62)]
         #[pallet::weight(Pallet::<T>::root_register_dispatch_weight())]
         pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {

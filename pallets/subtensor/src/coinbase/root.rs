@@ -65,10 +65,11 @@ impl<T: Config> Pallet<T> {
 
     /// Declared weight for [`crate::Pallet::root_register`].
     ///
-    /// `WeightInfo::root_register` is the pre-auto-parent measurement.
-    /// The extra term is `TotalNetworks`-scaled `DbWeight` for one persist
-    /// per subnet on apply, and one more persist per subnet if a seat is
-    /// pruned. This is not a substitute for a reference re-benchmark.
+    /// `WeightInfo::root_register` is the pre-auto-parent and pre-basket-flush
+    /// measurement. The extra terms cover a worst-case pending-dividend flush
+    /// when a seat is pruned, plus `TotalNetworks`-scaled `DbWeight` for one
+    /// persist per subnet on apply and one more persist per subnet on prune.
+    /// This is not a substitute for a reference re-benchmark.
     pub fn root_register_dispatch_weight() -> Weight {
         let n = TotalNetworks::<T>::get() as u64;
         // Per persist: subnet exists, owner, child set, pending, parent
@@ -78,6 +79,7 @@ impl<T: Config> Pallet<T> {
         const PROOF_PER_PERSIST: u64 = 256;
         let persists = n.saturating_mul(2);
         <T as crate::pallet::Config>::WeightInfo::root_register()
+            .saturating_add(Self::basket_flush_weight_bound())
             .saturating_add(Self::hotkey_owner_policy_weight())
             .saturating_add(T::DbWeight::get().reads(1))
             .saturating_add(T::DbWeight::get().reads(persists.saturating_mul(READS_PER_PERSIST)))

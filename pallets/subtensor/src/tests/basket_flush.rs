@@ -12,9 +12,10 @@ use crate::tests::claim_root::{
     escrow_alpha, fund_pool, fund_shares, register_on_root, zero_claim_threshold,
 };
 use crate::tests::mock::*;
+use crate::weights::WeightInfo;
 use crate::{
     AlphaV2, BasketShares, IsNetworkMember, Keys, PendingBasketDeposits, PendingBasketFlushCursor,
-    RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetTAO, Uids,
+    RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetTAO, TotalNetworks, Uids,
 };
 use frame_support::assert_ok;
 use sp_core::U256;
@@ -738,6 +739,23 @@ fn test_basket_flush_fits_declared_budget_bounds_queued_rows() {
         assert!(!SubtensorModule::root_claim_fits_declared_budget(&[
             hot_a, hot_b, hot_c
         ]));
+    });
+}
+
+/// Root replacement may synchronously flush the pruned validator's full pending-dividend queue.
+/// Keep that worst-case allowance in the dispatch weight even when the flush aborts registration.
+#[test]
+fn test_root_register_declared_weight_includes_basket_flush_bound() {
+    new_test_ext(1).execute_with(|| {
+        // Remove the independently-accounted auto-parent term so the expected fixed allowance is
+        // exact and this test fails if the basket-flush component is dropped.
+        TotalNetworks::<Test>::put(0);
+        let expected = <Test as crate::Config>::WeightInfo::root_register()
+            .saturating_add(SubtensorModule::basket_flush_weight_bound())
+            .saturating_add(SubtensorModule::hotkey_owner_policy_weight())
+            .saturating_add(<Test as frame_system::Config>::DbWeight::get().reads(1));
+
+        assert_eq!(SubtensorModule::root_register_dispatch_weight(), expected);
     });
 }
 
