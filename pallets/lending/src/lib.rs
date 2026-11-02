@@ -3221,9 +3221,7 @@ pub mod pallet {
                         // cannot cover the buyback (Auditor fid:70e48032).
                         let pot = Self::add(slice_e_s, slice_c)?;
                         let needed = Self::tao_to_buy_alpha(netuid, slice_p)?;
-                        let usable = T::Pool::buy_spendable_tao(&escrow)
-                            .to_u64()
-                            .min(pot);
+                        let usable = T::Pool::buy_spendable_tao(&escrow).to_u64().min(pot);
                         let top_up = needed.saturating_sub(usable);
                         if top_up > 0 {
                             ensure!(needed <= max_payment, Error::<T>::SlippageExceeded);
