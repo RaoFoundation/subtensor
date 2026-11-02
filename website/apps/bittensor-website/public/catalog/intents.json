@@ -4237,7 +4237,7 @@
   {
     "name": "set_service",
     "summary": "Publish this hotkey's service on a subnet, with the url where it describes",
-    "description": "Publish this hotkey's service on a subnet, with the url where it describes\nits services and the spender customers name on their gamma deposits.\n\nThe chain stores the url and the spender only; the document the url points\nto (the services and their interfaces) is the publisher's. Without\n`spender_ss58` the hotkey spends. Signed by the hotkey, which must be\nregistered on the subnet, and free, as serving an axon is. An empty url\nclears the service. Updates wait out the subnet's `serving_rate_limit`.",
+    "description": "Publish this hotkey's service on a subnet, with the url where it describes\nits services and the spender customers name on their gamma deposits.\n\nThe chain stores the url and the spender only; the document the url points\nto (the services and their interfaces) is the publisher's. Without\n`spender_ss58` the service keeps its spender, which for a new service is\nthe hotkey. Signed by the hotkey, which must be registered on the subnet,\nand free, as serving an axon is. An empty url clears the service. Updates\nwait out the subnet's `serving_rate_limit`.",
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
@@ -4261,7 +4261,7 @@
         },
         "spender_ss58": {
           "type": "string",
-          "description": "The spender customers name for the service. Omit to spend with the hotkey."
+          "description": "The spender customers name for the service. Omit to keep the current one, which for a new service is the hotkey."
         }
       },
       "required": [
@@ -4278,9 +4278,9 @@
         "pallet": "SubtensorModule",
         "call": "set_service",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3266,
-        "end_line": 3273,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3264-L3273",
+        "line": 3267,
+        "end_line": 3274,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3265-L3274",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

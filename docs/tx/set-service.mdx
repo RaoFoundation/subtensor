@@ -9,13 +9,14 @@ its services and the spender customers name on their gamma deposits.
 
 The chain stores the url and the spender only; the document the url points
 to (the services and their interfaces) is the publisher's. Without
-`spender_ss58` the hotkey spends. Signed by the hotkey, which must be
-registered on the subnet, and free, as serving an axon is. An empty url
-clears the service. Updates wait out the subnet's `serving_rate_limit`.
+`spender_ss58` the service keeps its spender, which for a new service is
+the hotkey. Signed by the hotkey, which must be registered on the subnet,
+and free, as serving an axon is. An empty url clears the service. Updates
+wait out the subnet's `serving_rate_limit`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_service`](/code/pallets/subtensor/src/macros/dispatches.rs#L3264-L3273) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_service`](/code/pallets/subtensor/src/macros/dispatches.rs#L3265-L3274) |
 
 ## Parameters
 
@@ -23,7 +24,7 @@ clears the service. Updates wait out the subnet's `serving_rate_limit`.
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet on which to publish the service. |
 | `url` | string | yes | An http(s) url of the services document, up to 256 bytes; empty clears it. |
-| `spender_ss58` | string | no | The spender customers name for the service. Omit to spend with the hotkey. |
+| `spender_ss58` | string | no | The spender customers name for the service. Omit to keep the current one, which for a new service is the hotkey. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -68,7 +69,7 @@ result = sub.execute_tool("set_service", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_service` — [`pallets/subtensor/src/macros/dispatches.rs#L3266`](/code/pallets/subtensor/src/macros/dispatches.rs#L3264-L3273):
+`SubtensorModule.set_service` — [`pallets/subtensor/src/macros/dispatches.rs#L3267`](/code/pallets/subtensor/src/macros/dispatches.rs#L3265-L3274):
 
 ```rust
 #[pallet::call_index(165)]

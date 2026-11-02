@@ -3259,8 +3259,9 @@ mod dispatches {
         }
 
         /// Sets the url where the signing hotkey describes its services on the subnet, and the
-        /// spender customers name for them; `None` names the hotkey. The hotkey must be
-        /// registered on the subnet, and is limited to one change per serving rate limit.
+        /// spender customers name for them; `None` keeps the current spender, which for a new
+        /// service is the hotkey. The hotkey must be registered on the subnet, and is limited to
+        /// one change per serving rate limit.
         #[pallet::call_index(165)]
         #[pallet::weight((<T as Config>::WeightInfo::set_service(), DispatchClass::Normal, Pays::No))]
         pub fn set_service(

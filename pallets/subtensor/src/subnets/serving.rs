@@ -168,6 +168,11 @@ impl<T: Config> Pallet<T> {
         let hotkey = ensure_signed(origin)?;
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         Self::validate_set_service(&hotkey, netuid)?;
+        let spender = match spender {
+            _ if url.is_empty() => None,
+            Some(spender) => (spender != hotkey).then_some(spender),
+            None => Services::<T>::get(netuid, &hotkey).and_then(|service| service.spender),
+        };
         let block = Self::get_current_block_as_u64();
         Services::<T>::insert(
             netuid,

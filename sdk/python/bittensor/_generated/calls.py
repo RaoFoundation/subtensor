@@ -553,7 +553,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_service(netuid: 'NetUid', url: 'BoundedVec', spender: 'Any') -> Call:
-        'Sets the url where the signing hotkey describes its services on the subnet, and the spender customers name for them; `None` names the hotkey. The hotkey must be registered on the subnet, and is limited to one change per serving rate limit.'
+        'Sets the url where the signing hotkey describes its services on the subnet, and the spender customers name for them; `None` keeps the current spender, which for a new service is the hotkey. The hotkey must be registered on the subnet, and is limited to one change per serving rate limit.'
         return Call('SubtensorModule', 'set_service', {'netuid': netuid, 'url': url, 'spender': spender})
 
     @staticmethod
