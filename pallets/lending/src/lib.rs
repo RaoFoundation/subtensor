@@ -1662,6 +1662,13 @@ pub mod pallet {
 
         fn ensure_lending_live(netuid: NetUid) -> DispatchResult {
             ensure!(Enabled::<T>::get(), Error::<T>::Disabled);
+            Self::ensure_subnet_repayable(netuid)
+        }
+
+        /// Lifecycle gate shared by close / repay and their quotes: subnet must
+        /// be alive and not dissolving. Does **not** require [`Enabled`] —
+        /// disabling new borrowing must not block repayment (Auditor fid:160e365a).
+        fn ensure_subnet_repayable(netuid: NetUid) -> DispatchResult {
             // Use `network_alive` (registration + dynamic mechanism) — not
             // `subnet_exists`, which also requires SubtokenEnabled. Otherwise a
             // registered-but-unstarted subnet fails here as SubnetUnavailable
@@ -5595,6 +5602,10 @@ pub mod pallet {
         /// Whether escrow + collateral can fully repay principal through the
         /// pool at the current spot (no wallet top-up). Used by expiry to choose
         /// between a solvent close and the collateral-exhaustion forfeit path.
+        ///
+        /// Long legs dry-run the same fee-bearing `forced_sell_into_escrow`
+        /// path as settlement (rolled back), so fee-free `quote_sell_on` cannot
+        /// misclassify a marginally solvent long (Auditor fid:8a7b4914).
         fn can_fully_close_from_escrow(
             netuid: NetUid,
             position: &Position<T::AccountId, BlockNumberFor<T>>,
@@ -5609,36 +5620,55 @@ pub mod pallet {
                     }
                 }
                 Side::Long => {
-                    let w = T::Pool::quote_weight_parts(netuid);
-                    let mut y = T::Pool::pool_tao(netuid).to_u64();
-                    let mut x = T::Pool::pool_alpha(netuid).to_u64();
-                    let mut raised = 0u64;
-                    if position.escrow_alpha > 0 {
-                        let out = T::Pool::quote_sell_on(
-                            y.into(),
-                            x.into(),
-                            w,
-                            position.escrow_alpha.into(),
-                        )
-                        .to_u64();
-                        raised = Self::add(raised, out)?;
-                        y = y.saturating_sub(out);
-                        x = x.saturating_add(position.escrow_alpha);
-                    }
-                    let coll_left = position.collateral;
-                    if raised < position.principal && coll_left > 0 {
-                        let need = position.principal.saturating_sub(raised);
-                        let sell = match Self::alpha_to_raise_tao_on(y, x, w, need) {
-                            Ok(needed_alpha) => needed_alpha.min(coll_left),
-                            Err(_) => coll_left,
-                        };
-                        if sell > 0 {
-                            let out =
-                                T::Pool::quote_sell_on(y.into(), x.into(), w, sell.into()).to_u64();
-                            raised = Self::add(raised, out)?;
+                    use frame_support::storage::{TransactionOutcome, with_transaction};
+                    with_transaction(|| {
+                        let probe = (|| -> Result<bool, DispatchError> {
+                            let custody = Self::custody_hotkey()?;
+                            let escrow = position.custody.clone();
+                            let mut raised = 0u64;
+                            if position.escrow_alpha > 0 {
+                                let out = T::Pool::forced_sell_into_escrow(
+                                    &escrow,
+                                    &custody,
+                                    &escrow,
+                                    netuid,
+                                    position.escrow_alpha.into(),
+                                    0u64.into(),
+                                )?;
+                                raised = Self::add(raised, out.to_u64())?;
+                            }
+                            let mut coll_left = position.collateral;
+                            if raised < position.principal && coll_left > 0 {
+                                let need = position.principal.saturating_sub(raised);
+                                let sell = match Self::alpha_to_raise_tao(netuid, need) {
+                                    Ok(needed_alpha) => needed_alpha.min(coll_left),
+                                    Err(_) => coll_left,
+                                };
+                                if sell > 0 {
+                                    let out = T::Pool::forced_sell_into_escrow(
+                                        &escrow,
+                                        &custody,
+                                        &escrow,
+                                        netuid,
+                                        sell.into(),
+                                        0u64.into(),
+                                    )?;
+                                    raised = Self::add(raised, out.to_u64())?;
+                                    coll_left = coll_left.saturating_sub(sell);
+                                    let _ = coll_left;
+                                }
+                            }
+                            Ok(raised >= position.principal)
+                        })();
+                        // Always undo the probe trades; propagate infrastructure Err
+                        // so expiry can ExpiryRetry instead of forfeiting.
+                        match probe {
+                            Ok(solvent) => {
+                                TransactionOutcome::Rollback(Ok::<bool, DispatchError>(solvent))
+                            }
+                            Err(e) => TransactionOutcome::Rollback(Err(e)),
                         }
-                    }
-                    Ok(raised >= position.principal)
+                    })
                 }
             }
         }
@@ -6093,8 +6123,9 @@ pub mod pallet {
             hotkey: Option<&T::AccountId>,
             repay_from_wallet: bool,
         ) -> Result<ClosingQuote, DispatchError> {
-            // Match `do_close`: disabled / dissolving before position work.
-            Self::ensure_lending_live(netuid)?;
+            // Match `do_close` / `do_repay`: repayments stay available when new
+            // borrowing is disabled (`Enabled = false`).
+            Self::ensure_subnet_repayable(netuid)?;
             let position = Positions::<T>::get(owner, netuid).ok_or(Error::<T>::PositionMissing)?;
             let (interest, _) =
                 Self::interest_due(&position, frame_system::Pallet::<T>::block_number(), true)?;
@@ -6194,7 +6225,7 @@ pub mod pallet {
             principal_part: u64,
             repay_from_wallet: bool,
         ) -> Result<ClosingQuote, DispatchError> {
-            Self::ensure_lending_live(netuid)?;
+            Self::ensure_subnet_repayable(netuid)?;
             ensure!(principal_part > 0, Error::<T>::PrincipalZero);
             let position = Positions::<T>::get(owner, netuid).ok_or(Error::<T>::PositionMissing)?;
             ensure!(

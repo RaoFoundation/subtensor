@@ -115,6 +115,14 @@ fn alpha_out() -> u64 {
 fn set_alpha_out(v: u64) {
     write(&key(b"test/alpha_out", netuid()), v);
 }
+/// Optional sell fee in bps applied by MockPool `sell_alpha` / `quote_sell`
+/// (fee-from-input). Zero by default so most fixtures stay fee-free.
+fn sell_fee_bps() -> u64 {
+    read(&key(b"test/sell_fee_bps", netuid()))
+}
+fn set_sell_fee_bps(bps: u64) {
+    write(&key(b"test/sell_fee_bps", netuid()), bps);
+}
 fn burned() -> u64 {
     tao(&account(255))
 }
@@ -298,15 +306,19 @@ impl OrderSwapInterface<Account> for MockPool {
         let x = pool_alpha();
         let a = alpha_amount.to_u64();
         ensure!(alpha(coldkey, hotkey, netuid) >= a, "insufficient alpha");
-        // Constant-product sell: tao_out = y * a / (x + a)
-        let t = (u128::from(y) * u128::from(a) / u128::from(x.saturating_add(a))) as u64;
+        // Fee-from-input (mirrors production sim_swap): only `traded` hits the
+        // constant-product curve; the fee alpha is burned from alpha_out.
+        let fee = a.saturating_mul(sell_fee_bps()) / 10_000;
+        let traded = a.saturating_sub(fee);
+        ensure!(traded > 0, "zero out");
+        let t = (u128::from(y) * u128::from(traded) / u128::from(x.saturating_add(traded))) as u64;
         ensure!(t > 0, "zero out");
         write(
             &key(b"test/alpha", (coldkey, hotkey, netuid)),
             alpha(coldkey, hotkey, netuid).saturating_sub(a),
         );
         set_alpha_out(alpha_out().saturating_sub(a));
-        write(&key(b"test/pool_alpha", netuid), x.saturating_add(a));
+        write(&key(b"test/pool_alpha", netuid), x.saturating_add(traded));
         write(&key(b"test/pool_tao", netuid), y.saturating_sub(t));
         mint_tao(coldkey, t);
         Ok(t.into())
@@ -402,7 +414,13 @@ impl LendingPoolInterface<Account> for MockPool {
         // reserve×1000, so probing it always fails on deep/realistic pools.
         let fillable = x.saturating_mul(FILLABLE_SELL_RESERVE_MULTIPLIER);
         ensure!(a <= fillable, "SlippageTooHigh");
-        Ok(((u128::from(y) * u128::from(a) / u128::from(x.saturating_add(a))) as u64).into())
+        let fee = a.saturating_mul(sell_fee_bps()) / 10_000;
+        let traded = a.saturating_sub(fee);
+        ensure!(traded > 0, "zero out");
+        Ok(
+            ((u128::from(y) * u128::from(traded) / u128::from(x.saturating_add(traded))) as u64)
+                .into(),
+        )
     }
 
     fn quote_buy(netuid: NetUid, tao_in: TaoBalance) -> Result<AlphaBalance, DispatchError> {
@@ -4675,6 +4693,133 @@ fn insolvent_long_expiry_forfeits_no_retry() {
             ),
             (0, 0, 0, 0, 0)
         );
+    });
+}
+
+/// Auditor fid:8a7b4914 — fee-free solvency probes must not keep a long open
+/// when fee-bearing settlement cannot raise `P`.
+#[test]
+fn long_expiry_forfeits_when_fees_make_escrow_insolvent() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = position.expires_at;
+                p.annual_interest = 0;
+                p.interest_remainder = 0;
+            }
+        });
+        let sell_all = position.escrow_alpha.saturating_add(position.collateral);
+        let p = position.principal;
+        let x = pool_alpha();
+        // Pick pool TAO so fee-free sale of A+C just covers P, then a 25% input
+        // fee drops net proceeds below P (Auditor fid:8a7b4914 boundary).
+        // fee-free: y·a/(x+a) ≥ P  ⇒  y ≥ P·(x+a)/a
+        let y_min = ((u128::from(p).saturating_mul(u128::from(x.saturating_add(sell_all)))
+            / u128::from(sell_all.max(1)))
+        .saturating_add(1)) as u64;
+        write(&key(b"test/pool_tao", netuid()), y_min);
+        let fee_free = MockPool::quote_sell(netuid(), sell_all.into())
+            .expect("fee-free quote")
+            .to_u64();
+        assert!(
+            fee_free >= p,
+            "precondition: fee-free liquidation covers P ({fee_free} vs {p})"
+        );
+        set_sell_fee_bps(2_500); // 25%
+        let fee_aware = MockPool::quote_sell(netuid(), sell_all.into())
+            .expect("fee-aware quote")
+            .to_u64();
+        assert!(
+            fee_aware < p,
+            "precondition: fee-aware liquidation misses P ({fee_aware} >= {p})"
+        );
+
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter);
+
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. }))),
+            "fee-aware insolvency must forfeit, not Expired/retry"
+        );
+        assert!(
+            System::events()
+                .into_iter()
+                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. })))
+        );
+        assert_no_expiry_retry_left(&owner);
+    });
+}
+
+/// Auditor fid:160e365a — quotes must track close/repay when borrowing is off.
+#[test]
+fn quote_close_and_repay_available_when_borrowing_disabled() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            5_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let principal = Positions::<Test>::get(&owner, netuid()).unwrap().principal;
+        Enabled::<Test>::put(false);
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Long,
+                1_000_000_000_000,
+                Some(hotkey.clone()),
+                1,
+                0,
+                1,
+                deadline(),
+            ),
+            Error::<Test>::Disabled
+        );
+        assert_ok!(Lending::quote_close(&owner, netuid(), Some(&hotkey), false));
+        assert_ok!(Lending::quote_repay(
+            &owner,
+            netuid(),
+            Some(&hotkey),
+            principal / 2,
+            false
+        ));
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey,
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
     });
 }
 
