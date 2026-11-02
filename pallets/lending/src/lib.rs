@@ -4224,13 +4224,26 @@ pub mod pallet {
             }
         }
 
+        /// Advance or clear the interest due-queue head. Always kills
+        /// [`DueBucketCursor`]: the cursor is exclusive to the previous head
+        /// bucket, and applying it to a successor skips earlier keys then
+        /// orphans them when an empty-looking drain unlinks the bucket
+        /// (Skeptic fid:2d4a1d05).
+        fn set_next_due_head(new_head: Option<BlockNumberFor<T>>) {
+            match new_head {
+                Some(n) => NextDue::<T>::put(n),
+                None => NextDue::<T>::kill(),
+            }
+            DueBucketCursor::<T>::kill();
+        }
+
         fn unlink_due_bucket(due: BlockNumberFor<T>) {
             let prev = DuePrev::<T>::take(due);
             let next = DueNext::<T>::take(due);
             match (prev, next) {
                 (None, None) => {
                     if NextDue::<T>::get() == Some(due) {
-                        NextDue::<T>::kill();
+                        Self::set_next_due_head(None);
                     }
                     if DueTail::<T>::get() == Some(due) {
                         DueTail::<T>::kill();
@@ -4239,7 +4252,7 @@ pub mod pallet {
                 (None, Some(n)) => {
                     DuePrev::<T>::remove(n);
                     if NextDue::<T>::get() == Some(due) {
-                        NextDue::<T>::put(n);
+                        Self::set_next_due_head(Some(n));
                     }
                 }
                 (Some(p), None) => {
@@ -4277,13 +4290,14 @@ pub mod pallet {
             // linear mid-list walk on the hot path.
             match (NextDue::<T>::get(), DueTail::<T>::get()) {
                 (None, _) => {
-                    NextDue::<T>::put(due);
+                    Self::set_next_due_head(Some(due));
                     DueTail::<T>::put(due);
                 }
                 (Some(head), _) if due < head => {
                     DueNext::<T>::insert(due, head);
                     DuePrev::<T>::insert(head, due);
-                    NextDue::<T>::put(due);
+                    // New head — drop any cursor belonging to the old head.
+                    Self::set_next_due_head(Some(due));
                 }
                 (_, Some(tail)) if due > tail => {
                     DueNext::<T>::insert(tail, due);
@@ -4315,13 +4329,24 @@ pub mod pallet {
             }
         }
 
+        /// Advance or clear the expiry-queue head. Always kills
+        /// [`ExpiryBucketCursor`] for the same reason as [`Self::set_next_due_head`]
+        /// (Skeptic fid:2d4a1d05).
+        fn set_next_expiry_head(new_head: Option<BlockNumberFor<T>>) {
+            match new_head {
+                Some(n) => NextExpiry::<T>::put(n),
+                None => NextExpiry::<T>::kill(),
+            }
+            ExpiryBucketCursor::<T>::kill();
+        }
+
         fn unlink_expiry_bucket(at: BlockNumberFor<T>) {
             let prev = ExpiryPrev::<T>::take(at);
             let next = ExpiryNext::<T>::take(at);
             match (prev, next) {
                 (None, None) => {
                     if NextExpiry::<T>::get() == Some(at) {
-                        NextExpiry::<T>::kill();
+                        Self::set_next_expiry_head(None);
                     }
                     if ExpiryTail::<T>::get() == Some(at) {
                         ExpiryTail::<T>::kill();
@@ -4330,7 +4355,7 @@ pub mod pallet {
                 (None, Some(n)) => {
                     ExpiryPrev::<T>::remove(n);
                     if NextExpiry::<T>::get() == Some(at) {
-                        NextExpiry::<T>::put(n);
+                        Self::set_next_expiry_head(Some(n));
                     }
                 }
                 (Some(p), None) => {
@@ -4365,13 +4390,13 @@ pub mod pallet {
             }
             match (NextExpiry::<T>::get(), ExpiryTail::<T>::get()) {
                 (None, _) => {
-                    NextExpiry::<T>::put(at);
+                    Self::set_next_expiry_head(Some(at));
                     ExpiryTail::<T>::put(at);
                 }
                 (Some(head), _) if at < head => {
                     ExpiryNext::<T>::insert(at, head);
                     ExpiryPrev::<T>::insert(head, at);
-                    NextExpiry::<T>::put(at);
+                    Self::set_next_expiry_head(Some(at));
                 }
                 (_, Some(tail)) if at > tail => {
                     ExpiryNext::<T>::insert(tail, at);

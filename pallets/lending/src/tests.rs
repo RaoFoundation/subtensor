@@ -3626,6 +3626,165 @@ fn coldkey_swap_rewinds_expiry_cursor_so_due_loan_still_settles() {
     });
 }
 
+/// Skeptic fid:2d4a1d05 — closing the due-queue head while a mid-bucket
+/// cursor is set must not apply that cursor to the successor bucket.
+#[test]
+fn closing_due_head_clears_bucket_cursor_so_successor_is_fully_drained() {
+    new_test_ext().execute_with(|| {
+        let head_a = account(1);
+        let head_b = account(2);
+        let next_a = account(3);
+        let next_b = account(4);
+        for o in [&head_a, &head_b, &next_a, &next_b] {
+            mint_tao(o, 50_000_000_000_000);
+        }
+        let period = <<Test as Config>::InterestPeriod as Get<u64>>::get();
+        // Head bucket: two shorts opening now.
+        for o in [&head_a, &head_b] {
+            assert_ok!(Lending::open(
+                RuntimeOrigin::signed((*o).clone()),
+                netuid(),
+                Side::Short,
+                5_000_000_000_000,
+                None,
+                1,
+                1,
+                0,
+                deadline(),
+            ));
+        }
+        let head_due = Positions::<Test>::get(&head_a, netuid()).unwrap().due;
+        assert_eq!(NextDue::<Test>::get(), Some(head_due));
+
+        // Successor bucket: open later so due is strictly after head_due.
+        System::set_block_number(System::block_number().saturating_add(1));
+        for o in [&next_a, &next_b] {
+            assert_ok!(Lending::open(
+                RuntimeOrigin::signed((*o).clone()),
+                netuid(),
+                Side::Short,
+                5_000_000_000_000,
+                None,
+                1,
+                1,
+                0,
+                deadline(),
+            ));
+        }
+        let next_due = Positions::<Test>::get(&next_a, netuid()).unwrap().due;
+        assert!(next_due > head_due);
+        assert_eq!(next_due, head_due.saturating_add(1));
+
+        // Simulate idle pausing mid-head with a cursor that sorts after every
+        // successor entry — without the fix, the next drain would skip them
+        // and unlink the bucket while rows remain.
+        DueBucketCursor::<Test>::put((account(255), netuid()));
+
+        // Signed closes empty the head bucket (advances NextDue → next_due).
+        for o in [&head_a, &head_b] {
+            assert_ok!(Lending::close(
+                RuntimeOrigin::signed((*o).clone()),
+                netuid(),
+                account(10),
+                false,
+                u64::MAX,
+                0,
+                deadline(),
+            ));
+        }
+        assert_eq!(NextDue::<Test>::get(), Some(next_due));
+        assert!(
+            DueBucketCursor::<Test>::get().is_none(),
+            "head removal must clear DueBucketCursor (fid:2d4a1d05)"
+        );
+
+        System::set_block_number(next_due);
+        let _ = <Lending as Hooks<_>>::on_idle(next_due, Weight::MAX);
+        for o in [next_a, next_b] {
+            let pos = Positions::<Test>::get(&o, netuid()).expect("successor loan kept");
+            assert_eq!(
+                pos.due,
+                next_due.saturating_add(period),
+                "successor entry must be charged, not orphaned"
+            );
+            assert!(Due::<Test>::contains_key(pos.due, (&o, netuid())));
+            assert!(!Due::<Test>::contains_key(next_due, (&o, netuid())));
+        }
+    });
+}
+
+/// Skeptic fid:2d4a1d05 — same cursor leak on the expiry queue.
+#[test]
+fn closing_expiry_head_clears_bucket_cursor_so_successor_still_settles() {
+    new_test_ext().execute_with(|| {
+        let head_a = account(1);
+        let head_b = account(2);
+        let next_o = account(3);
+        for o in [&head_a, &head_b, &next_o] {
+            mint_tao(o, 50_000_000_000_000);
+        }
+        for o in [&head_a, &head_b] {
+            assert_ok!(Lending::open(
+                RuntimeOrigin::signed((*o).clone()),
+                netuid(),
+                Side::Short,
+                5_000_000_000_000,
+                None,
+                1,
+                1,
+                0,
+                deadline(),
+            ));
+        }
+        let head_exp = Positions::<Test>::get(&head_a, netuid())
+            .unwrap()
+            .expires_at;
+        // Open one block later → expires_at is head_exp+1 (BlocksPerYear from now).
+        System::set_block_number(System::block_number().saturating_add(1));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(next_o.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let later = Positions::<Test>::get(&next_o, netuid())
+            .unwrap()
+            .expires_at;
+        assert_eq!(later, head_exp.saturating_add(1));
+        assert_eq!(NextExpiry::<Test>::get(), Some(head_exp));
+
+        ExpiryBucketCursor::<Test>::put((account(255), netuid()));
+        for o in [&head_a, &head_b] {
+            assert_ok!(Lending::close(
+                RuntimeOrigin::signed((*o).clone()),
+                netuid(),
+                account(10),
+                false,
+                u64::MAX,
+                0,
+                deadline(),
+            ));
+        }
+        assert_eq!(NextExpiry::<Test>::get(), Some(later));
+        assert!(
+            ExpiryBucketCursor::<Test>::get().is_none(),
+            "expiry head removal must clear ExpiryBucketCursor (fid:2d4a1d05)"
+        );
+
+        System::set_block_number(later);
+        let _ = <Lending as Hooks<_>>::on_idle(later, Weight::MAX);
+        assert!(
+            Positions::<Test>::get(&next_o, netuid()).is_none(),
+            "successor expiry must settle, not be orphaned by a leaked cursor"
+        );
+    });
+}
+
 #[test]
 fn fixed_term_partial_repay_keeps_expiry_after_increase_restart() {
     new_test_ext().execute_with(|| {

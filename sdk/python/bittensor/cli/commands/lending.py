@@ -37,6 +37,16 @@ def _bound(amount: Balance, percent: float, *, ceiling: bool = False) -> Balance
     return Balance.from_rao(max(rao, 0), amount.netuid)
 
 
+def _raise_sale_needs_quoted_floor(min_tao_out: Balance) -> bool:
+    """True when the raise sale still needs a quoted ``min_tao_out`` floor.
+
+    The runtime always sells on raise: an omitted ``--sell`` defaults to the
+    newly escrowed alpha. A zero ``min_tao_out`` therefore means the user has
+    not supplied protection and the CLI must quote one (Skeptic fid:abef2402).
+    """
+    return cast(Balance, min_tao_out).rao == 0
+
+
 async def _provided_collateral(client, minimum: Balance, netuid: int, owner: str, percent: float):
     """Add quote tolerance and the old coupon's conservative submission window."""
     maximum = (1 << 64) - 1
@@ -533,7 +543,11 @@ def raise_loan(
         intent.max_collateral_alpha = alpha_amount(collateral, netuid)
         intent.min_borrow_tao = tao_amount(borrow_tao)
 
-    if sell is not None and cast(Balance, intent.min_tao_out).rao == 0 and max_slippage > 0:
+    # Runtime defaults an omitted --sell to the newly escrowed alpha
+    # (`sell_alpha.unwrap_or(realised_a)`), so the default raise still executes
+    # a sale. Quote a floor whenever --min-tao-out is unset (Skeptic
+    # fid:abef2402); max_slippage=0 yields an exact quoted floor.
+    if _raise_sale_needs_quoted_floor(cast(Balance, intent.min_tao_out)):
 
         async def floor(client):
             view = await client.at()
