@@ -22,7 +22,7 @@ impl<T: Config> CheckServingEndpoints<T> {
             Call::serve_axon { .. }
                 | Call::serve_axon_tls { .. }
                 | Call::serve_prometheus { .. }
-                | Call::set_service_url { .. }
+                | Call::set_service { .. }
         )
     }
 
@@ -69,9 +69,7 @@ impl<T: Config> CheckServingEndpoints<T> {
                 Pallet::<T>::validate_serve_prometheus(who, *netuid, *version, *ip, *port, *ip_type)
                     .map(|_| ())
             }
-            Call::set_service_url { netuid, .. } => {
-                Pallet::<T>::validate_set_service_url(who, *netuid)
-            }
+            Call::set_service { netuid, .. } => Pallet::<T>::validate_set_service(who, *netuid),
             _ => Ok(()),
         }
     }
@@ -170,10 +168,11 @@ mod tests {
         })
     }
 
-    fn set_service_url_call(netuid: NetUid) -> RuntimeCall {
-        RuntimeCall::SubtensorModule(SubtensorCall::set_service_url {
+    fn set_service_call(netuid: NetUid) -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::set_service {
             netuid,
             url: b"https://example.com".to_vec().try_into().unwrap(),
+            spender: None,
         })
     }
 
@@ -210,7 +209,7 @@ mod tests {
             serve_axon_call(netuid),
             serve_axon_tls_call(netuid),
             serve_prometheus_call(netuid),
-            set_service_url_call(netuid),
+            set_service_call(netuid),
         ] {
             assert_eq!(
                 <CheckServingEndpoints<Test> as DispatchExtension<RuntimeCall>>::weight(&call),

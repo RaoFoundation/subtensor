@@ -111,7 +111,7 @@
     "mechanism-count",
     "mechanism-emission-split",
     "metagraph",
-    "service-urls",
+    "services",
     "subnet",
     "subnet-emission-weights",
     "subnet-hyperparameters",

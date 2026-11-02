@@ -20,7 +20,7 @@ TAO. Amounts are in gamma, with 10^9 units per gamma.
 |---|---|
 | Coldkey | mint into its deposits, move gamma between them, set each deposit's spender and daily spend cap, close empty deposits |
 | Hotkey | nothing on chain; it signs requests to the service |
-| Registered hotkey | publish a [service url](/docs/guides/services) on its subnet |
+| Registered hotkey | publish a [service](/docs/guides/services) and its spender on its subnet |
 | Spender | spend the deposits that name it, directly or through a `GammaSpend` proxy |
 | Subnet owner | enable gamma on its subnet with [`gamma_enabled`](/docs/hyperparameters/gamma-enabled); spender of the deposits a mint opens while it owns the subnet, unless a lease owns it |
 | Lease beneficiary | enable gamma through its `SubnetLeaseBeneficiary` proxy; spender of the deposits a mint opens while its lease owns the subnet |
@@ -31,17 +31,23 @@ TAO. Amounts are in gamma, with 10^9 units per gamma.
 
 Minting needs gamma enabled on the subnet and a fresh
 [TAO/USD price](#the-taousd-price). Mint with TAO into a deposit at a fresh
-hotkey:
+hotkey, for a service the subnet lists with [`services`](/docs/query/services):
 
 ```bash
 btcli wallet new-hotkey -H API_KEY
-btcli gamma mint --netuid 51 --hotkey API_KEY --amount-tao 10
+btcli query services --netuid 51
+btcli gamma mint --netuid 51 --hotkey API_KEY --amount-tao 10 --service-hotkey SERVICE_HOTKEY
 ```
 
 ```python
 quote = await client.gamma.quote_mint_gamma(netuid=51, amount_tao=10)
-await client.execute(bt.MintGamma(netuid=51, hotkey_ss58=api_key, amount_tao=10), wallet)
+await client.execute(
+    bt.MintGamma(netuid=51, hotkey_ss58=api_key, amount_tao=10, service_hotkey_ss58=service), wallet
+)
 ```
+
+`--service-hotkey` names the spender the service publishes, so the service can
+spend the deposit.
 
 [`mint-gamma`](/docs/tx/mint-gamma) buys alpha with the TAO and burns it, with
 the same pool and flow accounting as [`stake-burn`](/docs/tx/stake-burn), and
@@ -147,9 +153,10 @@ any period. A deposit opened with a cap starts full.
 btcli gamma set-cap --netuid 51 --hotkey API_KEY --daily-spend-cap-gamma 20
 ```
 
-A mint can name a new deposit's terms with `--spender SERVICE` and
-`--daily-spend-cap-gamma 20`, so the deposit never opens on others. A deposit
-that already has other terms fails the mint with
+A mint can name a new deposit's terms with `--spender SPENDER` or
+`--service-hotkey SERVICE_HOTKEY`, and `--daily-spend-cap-gamma 20`, so the
+deposit never opens on others. A deposit that already has other terms fails the
+mint with
 [`GammaDepositSpenderMismatch`](/docs/errors/chain/GammaDepositSpenderMismatch)
 or
 [`GammaDepositDailySpendCapMismatch`](/docs/errors/chain/GammaDepositDailySpendCapMismatch).

@@ -2379,7 +2379,7 @@
     },
     "HotKeyNotRegisteredInNetwork": {
       "code": "not_registered",
-      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus`/`set_service_url` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
+      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus`/`set_service` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
       "docs_url": "/docs/errors/chain/HotKeyNotRegisteredInNetwork",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyNotRegisteredInNetwork/content.md",
       "pallets": [
@@ -5277,7 +5277,7 @@
     },
     "ServingRateLimitExceeded": {
       "code": "rate_limited",
-      "description": "`serve_axon`, `serve_prometheus` or `set_service_url` was called again before enough blocks passed since that record's last update. Check its block in `Axons`, `Prometheus` or `ServiceUrls` against the `ServingRateLimit` (serving_rate_limit hyperparameter) and wait.",
+      "description": "`serve_axon`, `serve_prometheus` or `set_service` was called again before enough blocks passed since that record's last update. Check its block in `Axons`, `Prometheus` or `Services` against the `ServingRateLimit` (serving_rate_limit hyperparameter) and wait.",
       "docs_url": "/docs/errors/chain/ServingRateLimitExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/ServingRateLimitExceeded/content.md",
       "pallets": [

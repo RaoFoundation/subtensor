@@ -1371,26 +1371,30 @@ fn test_gamma_lifecycle() {
     assert!(value_contains_str(&deposits, &staked_key));
     assert!(!value_contains_str(&deposits, &moved_key));
 
-    // The owner's hotkey publishes where its services are described.
+    // The owner's hotkey publishes its service, spent by the hotkey.
     let url = "https://example.com/services.json";
     let publish = IntentCall::new(
-        "set_service_url",
+        "set_service",
         SignerRole::Hotkey,
         "SubtensorModule",
-        "set_service_url",
-        record([("netuid", u(netuid)), ("url", bytes(url))]),
+        "set_service",
+        record([
+            ("netuid", u(netuid)),
+            ("url", bytes(url)),
+            ("spender", Value::Null),
+        ]),
     );
     let result = execute(&publish, &ctx.alice);
-    assert!(event_attributes(&result, "SubtensorModule", "ServiceUrlSet").is_some());
+    assert!(event_attributes(&result, "SubtensorModule", "ServiceSet").is_some());
     let published = ctx
         .client
         .query(
             "SubtensorModule",
-            "ServiceUrls",
+            "Services",
             &[u(netuid), s(ctx.alice.hotkey.ss58_address())],
             None,
         )
-        .expect("service url read");
+        .expect("service read");
     assert_eq!(
         field(&published, "url").and_then(text_bytes).as_deref(),
         Some(url)

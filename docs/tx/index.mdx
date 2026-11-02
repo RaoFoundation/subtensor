@@ -116,7 +116,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`set-reject-locked-alpha`](/docs/tx/set-reject-locked-alpha) | coldkey | signed account (pallet role may apply) | Opt the signing coldkey in or out of receiving locked alpha. |
 | [`set-reject-staking-hotkey-growth`](/docs/tx/set-reject-staking-hotkey-growth) | coldkey | signed account (pallet role may apply) | Refuse new staking hotkeys introduced by other accounts. |
 | [`set-root-claim-threshold`](/docs/tx/set-root-claim-threshold) | coldkey | root (chain sudo) | Set the minimum TAO payout for a root dividend claim (root only). |
-| [`set-service-url`](/docs/tx/set-service-url) | hotkey | signed account (pallet role may apply) | Publish the url where this hotkey describes its services on a subnet. |
+| [`set-service`](/docs/tx/set-service) | hotkey | signed account (pallet role may apply) | Publish this hotkey's service on a subnet, with the url where it describes |
 | [`set-subnet-identity`](/docs/tx/set-subnet-identity) | coldkey | subnet owner | Publish identity metadata for a subnet (signer must be the subnet owner). |
 | [`set-take`](/docs/tx/set-take) | coldkey | signed account (pallet role may apply) | Set the delegate take to an absolute value. |
 | [`set-weights`](/docs/tx/set-weights) | hotkey | signed account (pallet role may apply) | Set validator weights, auto-selecting plaintext or commit-reveal. |

@@ -292,7 +292,7 @@ class SubtensorModule:
     Axons = Item('SubtensorModule', 'Axons', 'AxonInfo')
     NeuronCertificates = Item('SubtensorModule', 'NeuronCertificates', 'NeuronCertificate')
     Prometheus = Item('SubtensorModule', 'Prometheus', 'PrometheusInfo')
-    ServiceUrls = Item('SubtensorModule', 'ServiceUrls', 'ServiceUrlInfo')
+    Services = Item('SubtensorModule', 'Services', 'ServiceInfo')
     IdentitiesV2 = Item('SubtensorModule', 'IdentitiesV2', 'ChainIdentityV2')
     SubnetIdentitiesV3 = Item('SubtensorModule', 'SubnetIdentitiesV3', 'SubnetIdentityV3')
     TransactionKeyLastBlock = Item('SubtensorModule', 'TransactionKeyLastBlock', 'u64')

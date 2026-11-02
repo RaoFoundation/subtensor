@@ -371,7 +371,7 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     ),
     "GammaDepositSpenderMismatch": (
         "the deposit already names another spender (`btcli gamma show`); mint without "
-        "`--spender`, or change it with `btcli gamma set-spender` first"
+        "`--spender` or `--service-hotkey`, or change it with `btcli gamma set-spender` first"
     ),
     "GammaDepositDailySpendCapMismatch": (
         "the deposit already has another daily spend cap (`btcli gamma show`); mint without "

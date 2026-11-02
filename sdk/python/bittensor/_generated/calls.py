@@ -552,9 +552,9 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_reject_staking_hotkey_growth', {'enabled': enabled})
 
     @staticmethod
-    def set_service_url(netuid: 'NetUid', url: 'BoundedVec') -> Call:
-        'Sets the url where the signing hotkey describes its services on the subnet. The hotkey must be registered on the subnet, and is limited to one change per serving rate limit.'
-        return Call('SubtensorModule', 'set_service_url', {'netuid': netuid, 'url': url})
+    def set_service(netuid: 'NetUid', url: 'BoundedVec', spender: 'Any') -> Call:
+        'Sets the url where the signing hotkey describes its services on the subnet, and the spender customers name for them; `None` names the hotkey. The hotkey must be registered on the subnet, and is limited to one change per serving rate limit.'
+        return Call('SubtensorModule', 'set_service', {'netuid': netuid, 'url': url, 'spender': spender})
 
     @staticmethod
     def set_subnet_identity(netuid: 'NetUid', subnet_name: 'Any', github_repo: 'Any', subnet_contact: 'Any', subnet_url: 'Any', discord: 'Any', description: 'Any', logo_url: 'Any', additional: 'Any') -> Call:

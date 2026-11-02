@@ -75,11 +75,11 @@ Prefer the narrowest type that covers the job:
 * **Validate** — run a validator *hotkey* from an operations key:
   every weights call (`set_weights`, `commit_weights`, `reveal_weights`,
   their mechanism, timelocked, CRv3 and batch variants), `serve_axon`,
-  `serve_axon_tls`, `serve_prometheus`, `set_service_url`, `associate_evm_key`,
+  `serve_axon_tls`, `serve_prometheus`, `set_service`, `associate_evm_key`,
   and `Commitments.set_commitment`. No stake, transfer, registration, key swap,
   child-key, or take call, and no `Utility` / `Proxy` / `Multisig` wrapper.
   The real is the hotkey, so the hotkey signs `add_proxy`. A leaked
-  `Validate` key can set bad weights and re-point the axon, service url or EVM key; it
+  `Validate` key can set bad weights and re-point the axon, service or EVM key; it
   cannot move TAO or alpha.
 * **Weights** — the weights calls only. Strictly inside `Validate`: use it
   for a third-party weight setter (auditor model) that must not be able to

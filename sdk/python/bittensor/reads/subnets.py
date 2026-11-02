@@ -540,26 +540,29 @@ async def subnet_registration_cost(view) -> Balance:
 
 
 @read(
-    "service_urls",
+    "services",
     {"netuid": "integer"},
     category="Subnets",
-    param_docs={"netuid": "Subnet whose service urls to list."},
+    param_docs={"netuid": "Subnet whose services to list."},
 )
-async def service_urls(view, netuid: int) -> dict[str, dict]:
-    """Every service url published on a subnet, by hotkey.
+async def services(view, netuid: int) -> dict[str, dict]:
+    """Every service published on a subnet, by hotkey.
 
-    Each points to its hotkey's own document of its services and the payments
-    they accept; the chain does not check what it says. `block` is when it was
-    published; `owner` marks the subnet owner's hotkey. A url that is not
-    printable text is returned as 0x-hex.
+    Each `url` points to its hotkey's own document of its services and the
+    payments they accept; the chain does not check what it says. `spender` is
+    the spender customers name on gamma deposits for the service, the one it
+    published or else its hotkey. `block` is when it was published; `owner`
+    marks the subnet owner's hotkey. A url that is not printable text is returned as
+    0x-hex.
     """
     rows, owner = await asyncio.gather(
-        view.query_map(st.SubtensorModule.ServiceUrls, [netuid]),
+        view.query_map(st.SubtensorModule.Services, [netuid]),
         view.query(st.SubtensorModule.SubnetOwnerHotkey, [netuid]),
     )
     return {
         str(hotkey): {
             "url": _url_text(info["url"]),
+            "spender": str(info["spender"] or hotkey),
             "block": int(info["block"]),
             "owner": str(hotkey) == str(owner),
         }

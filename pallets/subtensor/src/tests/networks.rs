@@ -802,12 +802,13 @@ fn dissolve_clears_all_per_subnet_storages() {
             owner_cold,
             BoundedVec::truncate_from(vec![owner_hot]),
         );
-        ServiceUrls::<Test>::insert(
+        Services::<Test>::insert(
             net,
             owner_hot,
-            ServiceUrlInfo {
+            ServiceInfo {
                 block: 1,
                 url: BoundedVec::truncate_from(b"u".to_vec()),
+                spender: None,
             },
         );
 
@@ -988,7 +989,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         assert!(!SubnetGammaPrice::<Test>::contains_key(net));
         assert!(!GammaDeposits::<Test>::contains_key(net, owner_hot));
         assert!(!ColdkeyGammaHotkeys::<Test>::contains_key(net, owner_cold));
-        assert!(!ServiceUrls::<Test>::contains_key(net, owner_hot));
+        assert!(!Services::<Test>::contains_key(net, owner_hot));
 
         // ------------------------------------------------------------------
         // Final subnet removal confirmation

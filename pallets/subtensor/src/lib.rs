@@ -452,14 +452,16 @@ pub mod pallet {
         pub ip_type: u8,
     }
 
-    /// Data structure for a hotkey's service url.
-    #[crate::freeze_struct("726d187131f8348e")]
+    /// Data structure for a hotkey's service.
+    #[crate::freeze_struct("239000c87cc41fc4")]
     #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug)]
-    pub struct ServiceUrlInfo {
-        /// Service url serving block.
+    pub struct ServiceInfo<AccountId> {
+        /// Service serving block.
         pub block: u64,
         /// Url of the document describing the hotkey's services.
         pub url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
+        /// The spender customers name for the service; `None` is the hotkey.
+        pub spender: Option<AccountId>,
     }
 
     ///  Struct for ChainIdentities. (DEPRECATED for V2)
@@ -3174,15 +3176,15 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// MAP ( netuid, hotkey ) --> service_url_info
+    /// MAP ( netuid, hotkey ) --> service_info
     #[pallet::storage]
-    pub type ServiceUrls<T: Config> = StorageDoubleMap<
+    pub type Services<T: Config> = StorageDoubleMap<
         _,
         Identity,
         NetUid,
         Blake2_128Concat,
         T::AccountId,
-        ServiceUrlInfo,
+        ServiceInfo<T::AccountId>,
         OptionQuery,
     >;
 

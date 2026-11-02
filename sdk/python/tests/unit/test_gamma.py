@@ -1,4 +1,4 @@
-"""Gamma intents, previews, results and reads, the service-url checks, and the
+"""Gamma intents, previews, results and reads, the service checks, and the
 `btcli gamma` input checks."""
 
 from __future__ import annotations
@@ -146,10 +146,10 @@ class TestMintWithStake:
         assert build("mint_gamma_with_stake", MINT_STAKE).spend() is UNBOUNDED
 
 
-class TestServiceUrl:
+class TestService:
     @pytest.mark.parametrize("url", ["", "https://" + "a" * 248])
     def test_accepts_an_empty_url_and_256_bytes(self, url):
-        build("set_service_url", {"netuid": 1, "url": url})
+        build("set_service", {"netuid": 1, "url": url})
 
     @pytest.mark.parametrize(
         "url",
@@ -163,27 +163,42 @@ class TestServiceUrl:
     )
     def test_rejects_non_http_and_over_256_utf8_bytes(self, url):
         with pytest.raises(BittensorError):
-            build("set_service_url", {"netuid": 1, "url": url})
+            build("set_service", {"netuid": 1, "url": url})
+
+    @pytest.mark.parametrize("spender", [None, ALICE])
+    @pytest.mark.asyncio
+    async def test_names_the_spender(self, spender, wallet):
+        intent = build(
+            "set_service", {"netuid": 1, "url": "https://a.example", "spender_ss58": spender}
+        )
+        assert (await intent.build(FakeSubstrate(), wallet)).params["spender"] == spender
 
 
-class TestServiceUrlsRead:
+class TestServicesRead:
     def test_urls_with_control_or_format_characters_read_as_hex(self):
         sub = FakeSubstrate()
         spoof = "https://a.example\x1b[1A\x1b[2K"
+        service = {"block": 1, "spender": None}
         sub.seed_map(
             "SubtensorModule",
-            "ServiceUrls",
+            "Services",
             [
-                (ALICE_HOT, {"block": 1, "url": "https://a.example"}),
-                (BOB_HOT, {"block": 1, "url": spoof}),
-                (BOB_HOT + "x", {"block": 1, "url": "https://\u202eexample"}),
-                (BOB_HOT + "y", {"block": 1, "url": "0x41"}),
-                (BOB, {"block": 2, "url": ""}),
+                (ALICE_HOT, {**service, "url": "https://a.example"}),
+                (BOB_HOT, {**service, "url": spoof, "spender": ALICE}),
+                (BOB_HOT + "x", {**service, "url": "https://\u202eexample"}),
+                (BOB_HOT + "y", {**service, "url": "0x41"}),
+                (BOB, {**service, "block": 2, "url": ""}),
             ],
         )
         sub.seed("SubtensorModule", "SubnetOwnerHotkey", [1], ALICE_HOT)
-        urls = asyncio.run(Client("local", substrate=sub).subnets.service_urls(netuid=1))
-        assert urls[ALICE_HOT] == {"url": "https://a.example", "block": 1, "owner": True}
+        urls = asyncio.run(Client("local", substrate=sub).subnets.services(netuid=1))
+        assert urls[ALICE_HOT] == {
+            "url": "https://a.example",
+            "spender": ALICE_HOT,
+            "block": 1,
+            "owner": True,
+        }
+        assert urls[BOB_HOT]["spender"] == ALICE
         assert urls[BOB_HOT]["url"] == "0x" + spoof.encode().hex()
         assert not urls[BOB_HOT]["owner"]
         assert urls[BOB_HOT + "x"]["url"].startswith("0x")
@@ -323,6 +338,32 @@ class TestMintTerms:
         intent = build("mint_gamma", {**MINT, "daily_spend_cap_gamma": "2.5"})
         preview = await intent.preflight(FakeSubstrate(), SIGNER, SIGNER)
         assert ("daily spend cap", "2.5 gamma") in preview.facts
+
+    @pytest.mark.parametrize(("published", "spender"), [(None, ALICE_HOT), (BOB, BOB)])
+    @pytest.mark.parametrize(
+        ("op", "args"), [("mint_gamma", MINT), ("mint_gamma_with_stake", MINT_STAKE)]
+    )
+    @pytest.mark.asyncio
+    async def test_a_service_names_its_spender(self, op, args, published, spender, wallet):
+        sub = FakeSubstrate()
+        service = {"block": 1, "url": "https://a.example", "spender": published}
+        sub.seed("SubtensorModule", "Services", [1, ALICE_HOT], service)
+        intent = build(op, {**args, "service_hotkey_ss58": ALICE_HOT})
+        assert (await intent.build(sub, wallet)).params["spender"] == spender
+        assert ("spender", spender) in (await intent.preflight(sub, SIGNER, SIGNER)).facts
+
+    @pytest.mark.parametrize("service", [None, {"block": 1, "url": "", "spender": BOB}])
+    @pytest.mark.asyncio
+    async def test_a_service_must_be_published(self, service, wallet):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "Services", [1, ALICE_HOT], service)
+        intent = build("mint_gamma", {**MINT, "service_hotkey_ss58": ALICE_HOT})
+        with pytest.raises(BittensorError, match="publishes no service"):
+            await intent.build(sub, wallet)
+
+    def test_a_mint_names_a_spender_or_a_service(self):
+        with pytest.raises(BittensorError, match="not both"):
+            build("mint_gamma", {**MINT, "spender_ss58": ALICE, "service_hotkey_ss58": ALICE_HOT})
 
 
 class TestDepositPreviews:

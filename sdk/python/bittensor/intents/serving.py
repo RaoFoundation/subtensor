@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import ipaddress
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlsplit
 
 from .._generated import calls
@@ -161,45 +161,58 @@ class ServePrometheus(Intent):
 
 @register
 @dataclass
-class SetServiceUrl(Intent):
-    """Publish the url where this hotkey describes its services on a subnet.
+class SetService(Intent):
+    """Publish this hotkey's service on a subnet, with the url where it describes
+    its services and the spender customers name on their gamma deposits.
 
-    The chain stores the url only; the document it points to (the services,
-    their interfaces, and the spender to name on gamma deposits) is the
-    publisher's. Signed by the hotkey, which must be registered on the subnet.
-    An empty url clears it. Updates wait out the subnet's ``serving_rate_limit``.
+    The chain stores the url and the spender only; the document the url points
+    to (the services and their interfaces) is the publisher's. Without
+    ``spender_ss58`` the hotkey spends. Signed by the hotkey, which must be
+    registered on the subnet, and free, as serving an axon is. An empty url
+    clears the service. Updates wait out the subnet's ``serving_rate_limit``.
     """
 
-    op = "set_service_url"
+    op = "set_service"
     signer = "hotkey"
-    wraps = (("SubtensorModule", "set_service_url"),)
+    wraps = (("SubtensorModule", "set_service"),)
 
-    netuid: int = field(metadata={"help": "Subnet on which to publish the url."})
+    netuid: int = field(metadata={"help": "Subnet on which to publish the service."})
     url: str = field(
         metadata={
             "help": "An http(s) url of the services document, up to 256 bytes; empty clears it."
         }
     )
+    spender_ss58: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The spender customers name for the service. Omit to spend with the hotkey."
+        },
+    )
 
     def __post_init__(self):
         if len(self.url.encode()) > MAX_SERVICE_URL_LEN:
             raise BittensorError(
-                f"set_service_url: the url is {len(self.url.encode())} bytes, "
+                f"set_service: the url is {len(self.url.encode())} bytes, "
                 f"at most {MAX_SERVICE_URL_LEN} are allowed"
             )
         parts = urlsplit(self.url)
         if self.url and not (parts.scheme in ("http", "https") and parts.netloc):
-            raise BittensorError(f"set_service_url: {self.url!r} is not an http(s) url")
+            raise BittensorError(f"set_service: {self.url!r} is not an http(s) url")
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
-            calls.SubtensorModule.set_service_url(netuid=self.netuid, url=self.url.encode())
+            calls.SubtensorModule.set_service(
+                netuid=self.netuid, url=self.url.encode(), spender=self.spender_ss58
+            )
         )
 
     def summary(self) -> str:
         if not self.url:
-            return f"clear service url on netuid {self.netuid}"
-        return f"set service url {self.url} on netuid {self.netuid}"
+            return f"clear the service on netuid {self.netuid}"
+        return (
+            f"set the service {self.url} on netuid {self.netuid}, spent by "
+            f"{self.spender_ss58 or 'the hotkey'}"
+        )
 
 
 @register

@@ -935,7 +935,7 @@ mod tests {
                 "SubtensorModule::serve_axon_tls",
                 "SubtensorModule::serve_prometheus",
                 "SubtensorModule::set_mechanism_weights",
-                "SubtensorModule::set_service_url",
+                "SubtensorModule::set_service",
                 "SubtensorModule::set_weights",
             ])
         );

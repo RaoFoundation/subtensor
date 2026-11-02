@@ -1455,7 +1455,7 @@
   {
     "name": "mint_gamma",
     "summary": "Mint gamma with TAO into your deposit at an API-key hotkey.",
-    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy.\nA new deposit's spender is the subnet owner, or a leased subnet's\nbeneficiary, unless `spender_ss58` names another. It has no daily spend\ncap unless `daily_spend_cap_gamma` sets one. A mint naming either fails\non a deposit with another.\nFails rather than minting less than the current quote less\n`rate_tolerance`.",
+    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy.\nA new deposit's spender is the subnet owner, or a leased subnet's\nbeneficiary, unless `spender_ss58` names another or `service_hotkey_ss58`\nnames a service published on the subnet, whose spender it takes. It has\nno daily spend cap unless `daily_spend_cap_gamma` sets one. A mint\nnaming either fails on a deposit with another.\nFails rather than minting less than the current quote less\n`rate_tolerance`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1498,6 +1498,10 @@
           "type": "string",
           "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet."
         },
+        "service_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes."
+        },
         "daily_spend_cap_gamma": {
           "anyOf": [
             {
@@ -1537,7 +1541,7 @@
   {
     "name": "mint_gamma_with_stake",
     "summary": "Mint gamma by burning your stake into your deposit at an API-key hotkey.",
-    "description": "Mint gamma by burning your stake into your deposit at an API-key hotkey.\n\nBurns up to `amount_alpha` (`all` for the whole stake) of your stake\non `origin_hotkey_ss58` and credits its value in gamma to the deposit at\n`hotkey_ss58`, valued as `mint_gamma` values bought alpha. The stake is\ndestroyed, not moved. `spender_ss58` and `daily_spend_cap_gamma` name\nthe deposit's spender and cap as for `mint_gamma`. Fails rather than\nminting less than the current quote less `rate_tolerance`.",
+    "description": "Mint gamma by burning your stake into your deposit at an API-key hotkey.\n\nBurns up to `amount_alpha` (`all` for the whole stake) of your stake\non `origin_hotkey_ss58` and credits its value in gamma to the deposit at\n`hotkey_ss58`, valued as `mint_gamma` values bought alpha. The stake is\ndestroyed, not moved. `spender_ss58`, `service_hotkey_ss58` and\n`daily_spend_cap_gamma` name the deposit's spender and cap as for\n`mint_gamma`. Fails rather than minting less than the current quote\nless `rate_tolerance`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1589,6 +1593,10 @@
         "spender_ss58": {
           "type": "string",
           "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+        },
+        "service_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes."
         },
         "daily_spend_cap_gamma": {
           "anyOf": [
@@ -4227,29 +4235,33 @@
     ]
   },
   {
-    "name": "set_service_url",
-    "summary": "Publish the url where this hotkey describes its services on a subnet.",
-    "description": "Publish the url where this hotkey describes its services on a subnet.\n\nThe chain stores the url only; the document it points to (the services,\ntheir interfaces, and the spender to name on gamma deposits) is the\npublisher's. Signed by the hotkey, which must be registered on the subnet.\nAn empty url clears it. Updates wait out the subnet's `serving_rate_limit`.",
+    "name": "set_service",
+    "summary": "Publish this hotkey's service on a subnet, with the url where it describes",
+    "description": "Publish this hotkey's service on a subnet, with the url where it describes\nits services and the spender customers name on their gamma deposits.\n\nThe chain stores the url and the spender only; the document the url points\nto (the services and their interfaces) is the publisher's. Without\n`spender_ss58` the hotkey spends. Signed by the hotkey, which must be\nregistered on the subnet, and free, as serving an axon is. An empty url\nclears the service. Updates wait out the subnet's `serving_rate_limit`.",
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
     "wraps": [
       [
         "SubtensorModule",
-        "set_service_url"
+        "set_service"
       ]
     ],
-    "docs_url": "/docs/tx/set-service-url",
+    "docs_url": "/docs/tx/set-service",
     "input_schema": {
       "type": "object",
       "properties": {
         "netuid": {
           "type": "integer",
-          "description": "Subnet on which to publish the url."
+          "description": "Subnet on which to publish the service."
         },
         "url": {
           "type": "string",
           "description": "An http(s) url of the services document, up to 256 bytes; empty clears it."
+        },
+        "spender_ss58": {
+          "type": "string",
+          "description": "The spender customers name for the service. Omit to spend with the hotkey."
         }
       },
       "required": [
@@ -4258,17 +4270,17 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx set-service-url --netuid <int> --url <value>",
-    "python_class": "SetServiceUrl",
-    "markdown_url": "/llms.mdx/docs/tx/set-service-url/content.md",
+    "cli": "btcli tx set-service --netuid <int> --url <value>",
+    "python_class": "SetService",
+    "markdown_url": "/llms.mdx/docs/tx/set-service/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
-        "call": "set_service_url",
+        "call": "set_service",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 3266,
-        "end_line": 3272,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3264-L3272",
+        "end_line": 3273,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3264-L3273",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

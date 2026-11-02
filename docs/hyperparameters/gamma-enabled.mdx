@@ -11,15 +11,15 @@ while it is off.
 ## How it works
 
 The flag lives in
-[`SubnetGammaEnabled`](/code/pallets/subtensor/src/lib.rs#L3895) storage and
+[`SubnetGammaEnabled`](/code/pallets/subtensor/src/lib.rs#L3897) storage and
 defaults to **false**. A mint also needs gamma enabled network-wide, in
-[`GammaEnabled`](/code/pallets/subtensor/src/lib.rs#L3891), which defaults to
+[`GammaEnabled`](/code/pallets/subtensor/src/lib.rs#L3893), which defaults to
 **false** and only root sets
 ([`sudo_set_gamma_enabled`](/code/pallets/admin-utils/src/lib.rs#L2926-L2932)).
 A subnet can turn its flag on before that, and mints once both are on.
 
 Neither flag touches the subnet's gamma price
-([`SubnetGammaPrice`](/code/pallets/subtensor/src/lib.rs#L3926)), which every
+([`SubnetGammaPrice`](/code/pallets/subtensor/src/lib.rs#L3928)), which every
 subnet but root keeps
 ([`update_gamma_price`](/code/pallets/subtensor/src/staking/stake_utils.rs#L116-L127));
 a mint values alpha at the lower of the gamma price and the spot price

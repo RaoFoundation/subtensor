@@ -122,11 +122,11 @@ impl<T: Config> Pallet<T> {
         // Drop a stale rename edge if this SS58 was previously swapped away.
         Self::clear_stale_hotkey_successor(netuid, new_hotkey);
 
-        // 4. Clear neuron axons, certificates, prometheus info and service url
+        // 4. Clear neuron axons, certificates, prometheus info and service
         Axons::<T>::remove(netuid, &old_hotkey);
         NeuronCertificates::<T>::remove(netuid, &old_hotkey);
         Prometheus::<T>::remove(netuid, &old_hotkey);
-        ServiceUrls::<T>::remove(netuid, &old_hotkey);
+        Services::<T>::remove(netuid, &old_hotkey);
 
         // 5. Reset new neuron's values.
         Self::clear_neuron(netuid, uid_to_replace);
@@ -365,7 +365,7 @@ impl<T: Config> Pallet<T> {
                         Axons::<T>::remove(netuid, &hotkey);
                         NeuronCertificates::<T>::remove(netuid, &hotkey);
                         Prometheus::<T>::remove(netuid, &hotkey);
-                        ServiceUrls::<T>::remove(netuid, &hotkey);
+                        Services::<T>::remove(netuid, &hotkey);
                         if netuid.is_root() {
                             let _ = Self::flush_basket_deposits_for_hotkey(&hotkey);
                         }

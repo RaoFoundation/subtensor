@@ -84,7 +84,7 @@
     "set-reject-locked-alpha",
     "set-reject-staking-hotkey-growth",
     "set-root-claim-threshold",
-    "set-service-url",
+    "set-service",
     "set-subnet-identity",
     "set-take",
     "set-weights",

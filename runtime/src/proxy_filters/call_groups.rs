@@ -537,7 +537,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::serve_axon),
         RuntimeCall::SubtensorModule(SubtensorCall::serve_axon_tls),
         RuntimeCall::SubtensorModule(SubtensorCall::serve_prometheus),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_service_url),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_service),
         RuntimeCall::SubtensorModule(SubtensorCall::associate_evm_key),
     ]
 );
