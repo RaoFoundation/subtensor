@@ -26,8 +26,8 @@ impl<T: Config> Pallet<T> {
             .ok_or(Error::<T>::TaoUsdPriceUnavailable)
     }
 
-    /// Stores the oracle's feed. The accepted price settles at the current block, never above
-    /// the feed; the first feed is accepted as it is.
+    /// Stores the oracle's feed, at most one per block. The accepted price settles at the
+    /// current block, never above the feed; the first feed is accepted as it is.
     pub fn do_feed_tao_usd_price(origin: OriginFor<T>, price: u64) -> DispatchResult {
         let who = ensure_signed(origin)?;
         ensure!(
@@ -36,7 +36,12 @@ impl<T: Config> Pallet<T> {
         );
         ensure!(price != 0, Error::<T>::InvalidValue);
         let now = Self::get_current_block_as_u64();
-        let accepted = TaoUsdPrice::<T>::get()
+        let state = TaoUsdPrice::<T>::get();
+        ensure!(
+            state.as_ref().is_none_or(|state| state.fed_at < now),
+            Error::<T>::TxRateLimitExceeded
+        );
+        let accepted = state
             .map_or(price, |state| Self::tao_usd_price_at(&state, now))
             .min(price);
         TaoUsdPrice::<T>::put(TaoUsdPriceState {

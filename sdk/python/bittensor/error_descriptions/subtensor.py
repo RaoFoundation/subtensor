@@ -956,8 +956,8 @@ DESCRIPTIONS: dict[str, str] = {
     "TxRateLimitExceeded": (
         "An owner or admin transaction (e.g. `set_children`, tempo or hyperparameter updates, "
         "setting the owner hotkey) was repeated within its rate-limit window for that key and "
-        "subnet. Check when the same transaction type last succeeded and wait for the limit to "
-        "pass."
+        "subnet, or the oracle fed the TAO/USD price twice in one block. Check when the same "
+        "transaction type last succeeded and wait for the limit to pass."
     ),
     "UidMapCouldNotBeCleared": (
         "During a UID reshuffle or trim, clearing the subnet's `Uids` map left residual entries "
