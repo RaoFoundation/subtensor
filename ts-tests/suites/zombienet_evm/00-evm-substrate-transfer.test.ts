@@ -58,8 +58,7 @@ async function transferAndGetFee(
     const tx = {
         to: wallet2.address,
         value: raoToEth(tao(1)).toString(),
-        // Estimate the execution separately so invalid fee tests reach admission.
-        gasLimit: await wallet.estimateGas({ to: wallet2.address, value: raoToEth(tao(1)) }),
+        gasLimit: 21000,
         maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
         maxFeePerGas: maxFeePerGas.toString(),
     };
@@ -72,6 +71,7 @@ async function transferAndGetFee(
     if (receipt == null) {
         throw new Error("transfer receipt is missing");
     }
+    expect(receipt.gasUsed).toEqual(21000n);
     return { fee: ethBalanceBefore - ethBalanceAfter - raoToEth(tao(1)), gasUsed: receipt.gasUsed };
 }
 
@@ -118,13 +118,13 @@ describeSuite({
 
                 const estimatedGas = await provider.estimateGas(tx);
 
-                const txResponse = await ethWallet.sendTransaction({ ...tx, gasLimit: estimatedGas });
+                const txResponse = await ethWallet.sendTransaction({ ...tx, gasLimit: 21000 });
                 const receipt = await txResponse.wait();
                 if (receipt == null) throw new Error("Transaction was not mined");
                 expect(receipt.status).toEqual(1);
                 transferGasUsed = receipt.gasUsed;
                 expect(estimatedGas).toBeGreaterThanOrEqual(transferGasUsed);
-                expect(transferGasUsed).toBeGreaterThan(21000n);
+                expect(transferGasUsed).toEqual(21000n);
 
                 const senderBalanceAfter = await getEthBalance(provider, ethWallet.address);
                 const receiverBalanceAfter = await getEthBalance(provider, ethWallet2.address);
@@ -462,8 +462,9 @@ describeSuite({
                         GWEI * BigInt(maxFeeGwei),
                         GWEI * BigInt(maxPriorityGwei)
                     );
-                    // Include metered alias reads; priority fees remain disabled.
-                    expect(actualFee).toEqual(gasUsed * 5n * GWEI);
+                    // Plain sends retain their standard gas cost; priority fees remain disabled.
+                    expect(gasUsed).toEqual(21000n);
+                    expect(actualFee).toEqual(21000n * 5n * GWEI);
                 }
             },
         });

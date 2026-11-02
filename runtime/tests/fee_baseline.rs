@@ -7,6 +7,7 @@
 //! Changes beyond that range require an explicit snapshot update and review.
 //! Signed Ethereum transactions also pin actual gas fees for native transfers
 //! and balance-transfer, staking V2 (root add/remove), and proxy precompiles.
+//! These EVM snapshots require exact matches to guard gas-schedule compatibility.
 //! Transfer/stake principal and reserved proxy deposits are excluded from fees.
 //!
 //! Regenerate snapshots after a deliberate fee change:
@@ -461,8 +462,8 @@ enum EvmFeeCase {
     AddProxy,
 }
 
-// These snapshots include the hashed-account mapping surcharge and the
-// protected-account policy work in proxy dispatch.
+// Plain transfers retain the standard 21,000 gas limit. Precompile snapshots
+// also cover dispatch costs and the protected-account policy work in proxy dispatch.
 #[rstest]
 #[case::no_tip(EvmFeeCase::BalanceTransfer, 0)]
 #[case::priority_tip(EvmFeeCase::BalanceTransfer, 2_000_000_000)]
@@ -521,8 +522,13 @@ fn evm_transaction_fee_matches_snapshot(
             EvmFeeCase::RemoveStake => (H160::from_low_u64_be(StakingPrecompileV2::<Runtime>::INDEX), encode_with_selector(selector("removeStake(bytes32,uint256,uint256)"), (hotkey, U256::from(amount), U256::zero())), 0, i128::from(amount).checked_neg().expect("unstaking proceeds fit")),
             EvmFeeCase::AddProxy => (H160::from_low_u64_be(ProxyPrecompile::<Runtime>::INDEX), encode_with_selector(selector("addProxy(bytes32,uint8,uint32)"), (destination, 0u8, 0u32)), 0, 0),
         };
-        // Larger than the expected consumption so the check exercises gas refunds.
-        let gas_limit = U256::from(5_000_000);
+        // Exercise the fixed gas limit used for plain sends; precompile cases
+        // retain a larger limit so their checks also exercise gas refunds.
+        let gas_limit = U256::from(if matches!(case, EvmFeeCase::BalanceTransfer) {
+            21_000
+        } else {
+            5_000_000
+        });
         let decimals = U256::from(1_000_000_000);
         let (base_fee, _) = <Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price();
         // Subtensor's vendored EVM runner currently overrides the requested
@@ -583,7 +589,12 @@ fn evm_transaction_fee_matches_snapshot(
         }
         .expect("expected EIP-1559 receipt");
         assert_eq!(receipt.status_code, 1, "EVM transaction succeeds");
-        assert!(receipt.used_gas > U256::zero() && receipt.used_gas < gas_limit);
+        if matches!(case, EvmFeeCase::BalanceTransfer) {
+            assert_eq!(receipt.used_gas, U256::from(21_000));
+        } else {
+            assert!(receipt.used_gas > U256::zero() && receipt.used_gas < gas_limit);
+        }
+        assert_eq!(pallet_evm::Pallet::<Runtime>::account_basic(&sender).0.nonce, U256::one());
         match case {
             EvmFeeCase::BalanceTransfer => assert_eq!(Balances::free_balance(&receiver_account).to_u64().checked_sub(receiver_before), Some(amount)),
             EvmFeeCase::BalancePrecompile => assert_eq!(Balances::free_balance(&destination_account).to_u64().checked_sub(destination_before), Some(amount)),
@@ -621,7 +632,6 @@ fn evm_transaction_fee_matches_snapshot(
         fee_rao
     });
     with_settings!({
-        comparator => Box::new(FeeToleranceComparator),
         description => ctx.description.unwrap_or_default(),
         snapshot_suffix => ctx.description.unwrap_or_default(),
     }, {
