@@ -109,6 +109,7 @@ class LendingRuntimeApi:
     quote_open_for = Method('LendingRuntimeApi', 'quote_open_for')
     quote_open_exact_for = Method('LendingRuntimeApi', 'quote_open_exact_for')
     quote_close = Method('LendingRuntimeApi', 'quote_close')
+    quote_repay = Method('LendingRuntimeApi', 'quote_repay')
     quote_raise = Method('LendingRuntimeApi', 'quote_raise')
 
 class Metadata:
