@@ -266,6 +266,9 @@ impl OrderSwapInterface<Account> for MockPool {
         _: TaoBalance,
         _: bool,
     ) -> Result<AlphaBalance, DispatchError> {
+        // Mirror production: a disabled subtoken must roll expiry/close trades
+        // back onto ExpiryRetry rather than clearing the position.
+        ensure!(Self::subtoken_enabled(netuid), "SubtokenDisabled");
         let y = pool_tao();
         let x = pool_alpha();
         ensure!(y > 0 && x > 0, "empty pool");
@@ -290,6 +293,7 @@ impl OrderSwapInterface<Account> for MockPool {
         _: TaoBalance,
         _: bool,
     ) -> Result<TaoBalance, DispatchError> {
+        ensure!(Self::subtoken_enabled(netuid), "SubtokenDisabled");
         let y = pool_tao();
         let x = pool_alpha();
         let a = alpha_amount.to_u64();
@@ -3091,7 +3095,7 @@ fn fixed_term_expiry_restores_long_held_alpha() {
 }
 
 #[test]
-fn long_expiry_preserves_collateral_when_pot_payout_fails() {
+fn long_expiry_preserves_collateral_when_subtoken_disabled() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let hotkey = account(2);
@@ -3121,13 +3125,9 @@ fn long_expiry_preserves_collateral_when_pot_payout_fails() {
         let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
         let alpha_before = alpha(&escrow, &custody, netuid());
         assert!(alpha_before > 0);
-        // (A+C)·r ≫ pool TAO → pay_from_pot fails; settle must fully roll back.
-        References::<Test>::mutate(netuid(), |r| {
-            if let Some(r) = r {
-                r.price = U64F64::from_num(100u64);
-            }
-        });
-        set_pool(1, pool_alpha());
+        // Solvent economically; subtoken off makes the forced sale fail so settle
+        // rolls back onto ExpiryRetry (infrastructure, not insolvency/forfeit).
+        set_subtoken_enabled(false);
         System::set_block_number(snap.expires_at);
         System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(snap.expires_at, Weight::MAX);
@@ -3156,10 +3156,11 @@ fn long_expiry_preserves_collateral_when_pot_payout_fails() {
         assert_eq!(NextExpiryRetry::<Test>::get(), Some(retry_at));
         assert_eq!(ExpiryRetryPending::<Test>::get(), 1);
         assert!(
-            System::events()
-                .into_iter()
-                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. }))),
-            "must not emit Expired after a failed payout"
+            System::events().into_iter().all(|e| !matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Expired { .. } | Event::Forfeited { .. })
+            )),
+            "must not emit Expired/Forfeited after a rolled-back settle"
         );
     });
 }
@@ -3288,12 +3289,8 @@ fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
                 p.last_accrued = snap.expires_at;
             }
         });
-        References::<Test>::mutate(netuid(), |r| {
-            if let Some(r) = r {
-                r.price = U64F64::from_num(100u64);
-            }
-        });
-        set_pool(1, pool_alpha());
+        // Infrastructure failure (subtoken off) → ExpiryRetry, not forfeit.
+        set_subtoken_enabled(false);
         System::set_block_number(snap.expires_at);
         let _ = <Lending as Hooks<_>>::on_idle(snap.expires_at, Weight::MAX);
         let deferred = Positions::<Test>::get(&owner, netuid()).unwrap();
@@ -3319,13 +3316,8 @@ fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
                 .expiry_due,
             retry_at
         );
-        // Restore pot liquidity and settle under the new owner on the retry slot.
-        References::<Test>::mutate(netuid(), |r| {
-            if let Some(r) = r {
-                r.price = MockPool::price();
-            }
-        });
-        set_pool(1_000_000_000_000_000, pool_alpha());
+        // Re-enable trading and settle under the new owner on the retry slot.
+        set_subtoken_enabled(true);
         System::set_block_number(retry_at);
         System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(retry_at, Weight::MAX);
@@ -3493,13 +3485,8 @@ fn failed_expiry_does_not_block_later_bucket() {
                 p.last_accrued = ok_exp;
             }
         });
-        // Force the earlier long settle to miss the pot.
-        References::<Test>::mutate(netuid(), |r| {
-            if let Some(r) = r {
-                r.price = U64F64::from_num(100u64);
-            }
-        });
-        set_pool(1, pool_alpha());
+        // Infrastructure failure on the earlier long: subtoken off → ExpiryRetry.
+        set_subtoken_enabled(false);
         System::set_block_number(fail_exp);
         let _ = <Lending as Hooks<_>>::on_idle(fail_exp, Weight::MAX);
         assert!(
@@ -3532,9 +3519,9 @@ fn failed_expiry_does_not_block_later_bucket() {
             retry_at,
             (&owner_fail, netuid())
         ));
-        // Short settlement does not need pot TAO — it must clear once due,
-        // even though the deferred long sits on the side retry queue (which may
-        // be scheduled after ok_exp when ExpiryRetryDelay is production-sized).
+        // Re-enable trading so the later short can settle while the deferred
+        // long still sits on the O(1) expiry-retry side queue.
+        set_subtoken_enabled(true);
         System::set_block_number(ok_exp);
         System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(ok_exp, Weight::MAX);
@@ -4453,7 +4440,7 @@ fn assert_no_expiry_retry_left(owner: &Account) {
 }
 
 #[test]
-fn underwater_short_expiry_records_shortfall_no_retry() {
+fn underwater_short_expiry_forfeits_no_retry() {
     new_test_ext().execute_with(|| {
         clear_burned_surplus();
         let owner = account(1);
@@ -4471,6 +4458,8 @@ fn underwater_short_expiry_records_shortfall_no_retry() {
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
         let pot = position.proceeds.saturating_add(position.collateral);
+        let expected_readd = position.lift_tao.saturating_add(position.proceeds);
+        let collateral = position.collateral;
         // Shrink the alpha reserve: buying P now costs far more than E_S + C.
         write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 10);
         let quoted = Lending::quote_close(&owner, netuid(), None, false).unwrap();
@@ -4479,9 +4468,16 @@ fn underwater_short_expiry_records_shortfall_no_retry() {
             "precondition: pot {pot} < buy cost {}",
             quoted.payment
         );
+        // Skip the year of interest so the collateral burn assertion is exact.
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = position.expires_at;
+            }
+        });
         // Spare wallet TAO must not be touched at expiry.
         mint_tao(&owner, 1_000_000_000_000_000);
         let wallet_before = tao(&owner);
+        let burn_sink_before = tao(&account(255));
 
         System::set_block_number(position.expires_at);
         System::reset_events();
@@ -4490,32 +4486,42 @@ fn underwater_short_expiry_records_shortfall_no_retry() {
         assert_eq!(
             tao(&owner),
             wallet_before,
-            "expiry must not touch the wallet"
+            "forfeit returns nothing to the borrower"
         );
         assert_no_expiry_retry_left(&owner);
         assert!(!Expiry::<Test>::contains_key(
             position.expires_at,
             (&owner, netuid())
         ));
-        let (payment, refund, _, shortfall_alpha, shortfall_tao) = expired_event(&owner);
-        assert!(
-            shortfall_alpha > 0,
-            "underwater short records alpha shortfall"
-        );
-        assert!(
-            shortfall_alpha < position.principal,
-            "best-effort buyback bought some alpha"
-        );
-        assert_eq!(shortfall_tao, 0);
-        assert_eq!(refund, 0);
-        assert!(payment <= pot);
-        let book = Lifts::<Test>::get(netuid());
-        assert_eq!((book.l_s, book.held_tao, book.escrow_tao), (0, 0, 0));
         assert!(
             System::events()
                 .into_iter()
-                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Readded { .. })))
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. }))),
+            "underwater short must forfeit at expiry"
         );
+        assert!(
+            System::events()
+                .into_iter()
+                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. }))),
+            "forfeit path must not emit Expired"
+        );
+        let readded = System::events().into_iter().find_map(|e| match e.event {
+            RuntimeEvent::Lending(Event::Readded { tao, alpha, .. }) => Some((tao, alpha)),
+            _ => None,
+        });
+        assert_eq!(
+            readded,
+            Some((expected_readd, 0)),
+            "forfeit readds lift TAO + escrowed proceeds, 0 alpha"
+        );
+        assert_eq!(
+            tao(&account(255)).saturating_sub(burn_sink_before),
+            collateral,
+            "remaining short collateral must be burned"
+        );
+        assert_eq!(tao(&position.custody), 0, "escrow emptied");
+        let book = Lifts::<Test>::get(netuid());
+        assert_eq!((book.l_s, book.held_tao, book.escrow_tao), (0, 0, 0));
 
         // Nothing is queued for later: further blocks produce no new settles.
         System::reset_events();
@@ -4525,11 +4531,12 @@ fn underwater_short_expiry_records_shortfall_no_retry() {
             .saturating_add(1);
         System::set_block_number(later);
         let _ = <Lending as Hooks<_>>::on_idle(later, Weight::MAX);
-        assert!(
-            System::events()
-                .into_iter()
-                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. })))
-        );
+        assert!(System::events().into_iter().all(|e| {
+            !matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Expired { .. } | Event::Forfeited { .. })
+            )
+        }));
         assert_eq!(tao(&owner), wallet_before);
     });
 }
@@ -4551,6 +4558,7 @@ fn underwater_short_expiry_when_principal_exceeds_pool_alpha() {
             deadline(),
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let expected_readd = position.lift_tao.saturating_add(position.proceeds);
         // The pool no longer holds P alpha: the full buyback cannot even be quoted.
         write(&key(b"test/pool_alpha", netuid()), position.principal / 2);
         mint_tao(&owner, 1_000_000_000_000_000);
@@ -4563,15 +4571,28 @@ fn underwater_short_expiry_when_principal_exceeds_pool_alpha() {
 
         assert_eq!(tao(&owner), wallet_before);
         assert_no_expiry_retry_left(&owner);
-        let (_, _, _, shortfall_alpha, _) = expired_event(&owner);
-        assert!(shortfall_alpha > 0 && shortfall_alpha <= position.principal);
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. })))
+        );
+        assert!(
+            System::events()
+                .into_iter()
+                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. })))
+        );
+        let readded = System::events().into_iter().find_map(|e| match e.event {
+            RuntimeEvent::Lending(Event::Readded { tao, alpha, .. }) => Some((tao, alpha)),
+            _ => None,
+        });
+        assert_eq!(readded, Some((expected_readd, 0)));
         let book = Lifts::<Test>::get(netuid());
         assert_eq!((book.l_s, book.held_tao, book.escrow_tao), (0, 0, 0));
     });
 }
 
 #[test]
-fn insolvent_long_expiry_records_tao_shortfall_no_retry() {
+fn insolvent_long_expiry_forfeits_no_retry() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let hotkey = account(2);
@@ -4588,10 +4609,26 @@ fn insolvent_long_expiry_records_tao_shortfall_no_retry() {
             deadline(),
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let expected_readd_alpha = position.lift_alpha.saturating_add(position.escrow_alpha);
+        let collateral = position.collateral;
+        let custody = position.custody.clone();
+        let custody_hot = Lending::custody_hotkey().unwrap();
         // Crash the price: selling all of A + C raises less than P.
         write(&key(b"test/pool_tao", netuid()), pool_tao() / 1_000);
+        // Skip the year of interest so the burn assertion sees the full C.
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = position.expires_at;
+            }
+        });
         let wallet_before = tao(&owner);
         let stake_before = alpha(&owner, &hotkey, netuid());
+        let custody_alpha_before = alpha(&custody, &custody_hot, netuid());
+        assert_eq!(
+            custody_alpha_before,
+            position.escrow_alpha.saturating_add(collateral),
+            "precondition: custody holds A + C"
+        );
 
         System::set_block_number(position.expires_at);
         System::reset_events();
@@ -4599,13 +4636,34 @@ fn insolvent_long_expiry_records_tao_shortfall_no_retry() {
         Lending::collect_expiry(position.expires_at, &mut meter);
 
         assert_no_expiry_retry_left(&owner);
-        let (payment, refund, _, shortfall_alpha, shortfall_tao) = expired_event(&owner);
-        assert!(shortfall_tao > 0, "insolvent long records TAO shortfall");
-        assert_eq!(shortfall_alpha, 0);
-        assert_eq!(refund, 0);
-        assert_eq!(payment.saturating_add(shortfall_tao), position.principal);
-        assert_eq!(tao(&owner), wallet_before);
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. }))),
+            "insolvent long must forfeit at expiry"
+        );
+        assert!(
+            System::events()
+                .into_iter()
+                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. }))),
+            "forfeit path must not emit Expired"
+        );
+        let readded = System::events().into_iter().find_map(|e| match e.event {
+            RuntimeEvent::Lending(Event::Readded { tao, alpha, .. }) => Some((tao, alpha)),
+            _ => None,
+        });
+        assert_eq!(
+            readded,
+            Some((0, expected_readd_alpha)),
+            "forfeit readds 0 TAO + lift alpha + escrowed A"
+        );
+        assert_eq!(tao(&owner), wallet_before, "nothing returned to borrower");
         assert_eq!(alpha(&owner, &hotkey, netuid()), stake_before);
+        assert_eq!(
+            alpha(&custody, &custody_hot, netuid()),
+            0,
+            "custody alpha emptied (C burned, A readded)"
+        );
         let book = Lifts::<Test>::get(netuid());
         assert_eq!(
             (

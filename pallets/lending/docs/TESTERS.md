@@ -50,10 +50,12 @@ expiry == a default close, not an EMA settlement. There is no wallet top-up and
 no slippage limit (MEV at expiry is accepted), and the owner's free TAO is never
 touched. Alpha a close would return (long collateral left after covering `P`,
 short buyback dust) is sold at spot and paid as TAO because expiry has no hotkey.
-An underwater short buys back what escrow + collateral allow; the unpaid alpha
-is reported as `shortfall_alpha` on `Lending.Expired` (an insolvent long reports
-`shortfall_tao`) and the position is removed, so it never loops in the retry
-queue. `Expired.rate` is the spot price before the closing trades.
+An underwater short or insolvent long reuses the collateral-exhaustion
+`Lending.Forfeited` path instead of recording a shortfall: lift + escrowed
+proceeds are re-added (weight-preserving), remaining collateral is burned,
+nothing returns to the borrower, and the k-neutral burn runs as usual. Solvent
+positions still emit `Lending.Expired` (`rate` = spot before the closing trades).
+Neither path loops in the retry queue.
 
 ## Cards and list columns
 
