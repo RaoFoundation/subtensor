@@ -16,7 +16,7 @@ Fails rather than minting less than the current quote less
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3143-L3153), [`SubtensorModule.set_gamma_deposit_spender`](/code/pallets/subtensor/src/macros/dispatches.rs#L3204-L3213), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3145-L3155), [`SubtensorModule.set_gamma_deposit_spender`](/code/pallets/subtensor/src/macros/dispatches.rs#L3206-L3215), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -73,7 +73,7 @@ result = sub.execute_tool("mint_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.mint_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3145`](/code/pallets/subtensor/src/macros/dispatches.rs#L3143-L3153):
+`SubtensorModule.mint_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3147`](/code/pallets/subtensor/src/macros/dispatches.rs#L3145-L3155):
 
 ```rust
 #[pallet::call_index(158)]
@@ -91,7 +91,7 @@ pub fn mint_gamma(
 
 Delegates to [`do_mint_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L179).
 
-`SubtensorModule.set_gamma_deposit_spender` — [`pallets/subtensor/src/macros/dispatches.rs#L3206`](/code/pallets/subtensor/src/macros/dispatches.rs#L3204-L3213):
+`SubtensorModule.set_gamma_deposit_spender` — [`pallets/subtensor/src/macros/dispatches.rs#L3208`](/code/pallets/subtensor/src/macros/dispatches.rs#L3206-L3215):
 
 ```rust
 #[pallet::call_index(162)]

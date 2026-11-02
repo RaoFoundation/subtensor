@@ -9,7 +9,7 @@ Takes effect at once; a deposit opened by a move inherits it.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_gamma_deposit_spender`](/code/pallets/subtensor/src/macros/dispatches.rs#L3204-L3213) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_gamma_deposit_spender`](/code/pallets/subtensor/src/macros/dispatches.rs#L3206-L3215) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("set_gamma_deposit_spender", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_gamma_deposit_spender` — [`pallets/subtensor/src/macros/dispatches.rs#L3206`](/code/pallets/subtensor/src/macros/dispatches.rs#L3204-L3213):
+`SubtensorModule.set_gamma_deposit_spender` — [`pallets/subtensor/src/macros/dispatches.rs#L3208`](/code/pallets/subtensor/src/macros/dispatches.rs#L3206-L3215):
 
 ```rust
 #[pallet::call_index(162)]

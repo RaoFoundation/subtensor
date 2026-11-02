@@ -3131,11 +3131,13 @@ mod dispatches {
             Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
         }
 
-        /// Feeds the TAO/USD price in gamma units (10^9 per US dollar) per TAO. Signed by the oracle.
+        /// Feeds the TAO/USD price in gamma units (10^9 per US dollar) per TAO. Signed by the
+        /// oracle, which pays no fee when the feed succeeds.
         #[pallet::call_index(157)]
         #[pallet::weight((<T as Config>::WeightInfo::feed_tao_usd_price(), DispatchClass::Normal, Pays::Yes))]
-        pub fn feed_tao_usd_price(origin: OriginFor<T>, price: u64) -> DispatchResult {
-            Self::do_feed_tao_usd_price(origin, price)
+        pub fn feed_tao_usd_price(origin: OriginFor<T>, price: u64) -> DispatchResultWithPostInfo {
+            Self::do_feed_tao_usd_price(origin, price)?;
+            Ok(Pays::No.into())
         }
 
         /// Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the
