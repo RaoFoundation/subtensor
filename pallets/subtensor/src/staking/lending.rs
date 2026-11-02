@@ -74,6 +74,14 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         )
     }
 
+    fn free_tao(account: &T::AccountId) -> TaoBalance {
+        <T as Config>::Currency::reducible_balance(
+            account,
+            Preservation::Preserve,
+            Fortitude::Polite,
+        )
+    }
+
     #[transactional]
     fn lock_alpha_collateral(
         from: &T::AccountId,

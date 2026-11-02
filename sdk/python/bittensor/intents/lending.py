@@ -420,9 +420,14 @@ class RaiseLoan(Intent):
         default=0,
         metadata={"help": "Minimum escrowed alpha after the long's forced buy."},
     )
-    valid_until: int = field(
-        default=0,
-        metadata={"help": "Latest block number that may include this raise."},
+    valid_until: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": (
+                "Latest block number that may include this raise. "
+                "Omit to use head + 50 at build time."
+            )
+        },
     )
 
     def __post_init__(self):
@@ -441,14 +446,19 @@ class RaiseLoan(Intent):
             self.sell_alpha = alpha_amount(self.sell_alpha, self.netuid)
         self.min_tao_out = tao_amount(self.min_tao_out)
         self.min_escrow_alpha = alpha_amount(self.min_escrow_alpha, self.netuid)
-        if not isinstance(self.valid_until, int) or isinstance(self.valid_until, bool):
-            raise BittensorError("valid_until must be a block number")
-        if self.valid_until < 0:
-            raise BittensorError("valid_until must be non-negative")
+        if self.valid_until is not None:
+            if not isinstance(self.valid_until, int) or isinstance(self.valid_until, bool):
+                raise BittensorError("valid_until must be a block number")
+            if self.valid_until < 0:
+                raise BittensorError("valid_until must be non-negative")
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
         self._built_hotkey = hotkey
+        until = self.valid_until
+        if until is None:
+            until = (await substrate.block_number()) + 50
+            self.valid_until = until
         params = {
             "netuid": self.netuid,
             "hotkey": hotkey,
@@ -461,7 +471,7 @@ class RaiseLoan(Intent):
             "sell_alpha": (None if self.sell_alpha is None else cast(Balance, self.sell_alpha).rao),
             "min_tao_out": cast(Balance, self.min_tao_out).rao,
             "min_escrow_alpha": cast(Balance, self.min_escrow_alpha).rao,
-            "valid_until": self.valid_until,
+            "valid_until": until,
         }
         return await substrate.compose(Call("Lending", "open_long_and_sell", params))
 
@@ -610,6 +620,156 @@ class CloseLoan(Intent):
         # The ceiling also bounds any wallet TAO repayment. An AMM short close
         # uses escrow, so this can overstate free-TAO spend but cannot understate it.
         # Explicit alpha amounts are validated against stored side before dispatch.
+        if isinstance(self.max_payment, Balance) and self.max_payment.netuid != 0:
+            return None
+        return cast(Balance, tao_amount(self.max_payment))
+
+
+@register
+@dataclass
+class RepayLoan(Intent):
+    """Partially repay principal on a subnet loan (§4.4).
+
+    Same wallet vs escrow paths as :class:`CloseLoan`, but settles a
+    ``principal_part`` slice (`k = principal_part / principal`). When
+    ``principal_part`` equals the full principal the runtime closes. Units
+    and hotkey rules match close: ``principal_part`` is alpha for a short and
+    TAO for a long; ``max_payment`` / ``min_refund`` follow the close-path
+    asset for the saved side and ``repay_from_wallet`` flag.
+
+    On fork / clone chains without a live MEV decryptor, submit with
+    ``--no-mev-shield``.
+    """
+
+    op = "repay_loan"
+    signer = "coldkey"
+    wraps = (("Lending", "repay"),)
+    mev_shield_default = True
+
+    netuid: int = field(metadata={"help": "Subnet of the position to repay."})
+    principal_part: Money = field(
+        metadata={
+            "help": (
+                "Principal to repay: alpha for a short, TAO for a long. "
+                "Must be > 0 and ≤ stored principal; equals full principal to close."
+            )
+        },
+    )
+    max_payment: Money = field(
+        metadata={"help": "Maximum repayment: TAO, or alpha for a wallet-repaid short."}
+    )
+    min_refund: Money = field(
+        default=0,
+        metadata={"help": "Minimum returned collateral: TAO for shorts, alpha for longs."},
+    )
+    hotkey_ss58: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": (
+                "Hotkey for alpha repay (short wallet path) or alpha refund "
+                "(long repay). Required whenever alpha moves; short escrow "
+                "buyback (repay_from_wallet=False) may omit it."
+            )
+        },
+    )
+    repay_from_wallet: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "False (default): buy short alpha back from escrow / sell long escrow. "
+                "True: repay short alpha from hotkey stake, or pay long TAO from wallet."
+            )
+        },
+    )
+    valid_until: int = field(
+        default=2**32 - 1,
+        metadata={"help": "Latest block number that may include this repay."},
+    )
+
+    def __post_init__(self):
+        _check_netuid(self.netuid)
+        self.principal_part = _contextual_amount(self.principal_part)
+        self.max_payment = _contextual_amount(self.max_payment)
+        self.min_refund = _contextual_amount(self.min_refund)
+        if not isinstance(self.valid_until, int) or isinstance(self.valid_until, bool):
+            raise BittensorError("valid_until must be a block number")
+        if self.valid_until < 0:
+            raise BittensorError("valid_until must be non-negative")
+
+    async def build(self, substrate, wallet: Any):
+        owner = self.coldkey_address(wallet)
+        position = await substrate.query(*POSITIONS, [owner, self.netuid])
+        if not isinstance(position, dict):
+            raise BittensorError(f"no lending position on netuid {self.netuid}")
+        side = position["side"]
+        if isinstance(side, dict):
+            side = next(iter(side))
+        side = check_side(str(side))
+        principal = cast(
+            Balance,
+            (
+                alpha_amount(self.principal_part, self.netuid)
+                if side == "Short"
+                else tao_amount(self.principal_part)
+            ),
+        )
+        if principal.rao <= 0:
+            raise BittensorError("principal_part must be positive")
+        stored = position.get("principal")
+        if isinstance(stored, bool) or not isinstance(stored, int) or stored < 0:
+            raise BittensorError("stored principal is unavailable")
+        if principal.rao > stored:
+            raise BittensorError(
+                f"principal_part {principal.rao} exceeds stored principal {stored}"
+            )
+        payment = cast(
+            Balance,
+            (
+                alpha_amount(self.max_payment, self.netuid)
+                if side == "Short" and self.repay_from_wallet
+                else tao_amount(self.max_payment)
+            ),
+        )
+        refund = cast(
+            Balance,
+            (
+                tao_amount(self.min_refund)
+                if side == "Short"
+                else alpha_amount(self.min_refund, self.netuid)
+            ),
+        )
+        self.principal_part = principal
+        self.max_payment = payment
+        self.min_refund = refund
+        needs_hotkey = side == "Long" or self.repay_from_wallet
+        if needs_hotkey:
+            if not self.hotkey_ss58:
+                raise BittensorError(
+                    "repay_loan requires hotkey_ss58 when alpha is repaid or refunded"
+                )
+            hotkey = self.hotkey_ss58
+        else:
+            hotkey = self.hotkey_ss58 or owner
+        return await substrate.compose(
+            Call(
+                "Lending",
+                "repay",
+                {
+                    "netuid": self.netuid,
+                    "hotkey": hotkey,
+                    "principal_part": principal.rao,
+                    "repay_from_wallet": self.repay_from_wallet,
+                    "max_payment": payment.rao,
+                    "min_refund": refund.rao,
+                    "valid_until": self.valid_until,
+                },
+            )
+        )
+
+    def summary(self) -> str:
+        return f"partially repay lending position on netuid {self.netuid}"
+
+    def spend(self) -> Spend:
         if isinstance(self.max_payment, Balance) and self.max_payment.netuid != 0:
             return None
         return cast(Balance, tao_amount(self.max_payment))

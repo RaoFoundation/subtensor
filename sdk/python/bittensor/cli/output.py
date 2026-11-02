@@ -973,12 +973,14 @@ class Output:
         records: Optional[list[dict]] = None,
         *,
         legend: Optional[list[tuple[str, str]]] = None,
+        truncate: bool = True,
     ) -> None:
         """A collection as a table (human) or a list of objects (json).
 
         ``records`` supplies the JSON shape; when omitted it is derived by zipping
         ``columns`` with each row. ``legend`` is a human-only list of
-        ``(term, meaning)`` pairs explaining the columns.
+        ``(term, meaning)`` pairs explaining the columns. Pass ``truncate=False``
+        to keep full owner/amount strings (Rich default ellipsis off).
         """
         if self.json_mode:
             self._json(
@@ -991,7 +993,15 @@ class Output:
             return
         table = Table(title=title, title_style=STYLE_TITLE, header_style=STYLE_KEY)
         for column in columns:
-            table.add_column(column, style=_value_style(column) or None)
+            if truncate:
+                table.add_column(column, style=_value_style(column) or None)
+            else:
+                table.add_column(
+                    column,
+                    style=_value_style(column) or None,
+                    overflow="fold",
+                    no_wrap=False,
+                )
         for row in rows:
             table.add_row(
                 *(

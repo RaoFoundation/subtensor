@@ -3,7 +3,7 @@
 DESCRIPTIONS: dict[str, str] = {
     "Disabled": (
         "New borrowing, including position increases, is disabled. Governance can enable "
-        "borrowing; closes remain available."
+        "borrowing; closes and repays remain available."
     ),
     "SubnetUnavailable": (
         "The subnet is absent, is root, or is dissolving. Check its lifecycle before borrowing "
@@ -11,7 +11,7 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "ReferenceUnavailable": (
         "The subnet has no lending price reference. Submit warm_reference for the netuid, then "
-        "wait until valid_after before borrowing."
+        "wait until valid_after before borrowing. Inspect lending_reserves / the reference EMA."
     ),
     "ReferenceWarmingUp": (
         "The dedicated lending EMA is still warming up after warm_reference. Retry after its "
@@ -28,9 +28,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "AmountTooSmall": (
         "The loan opening value (or remaining dust after a partial repay) is below the runtime "
-        "minimum (~0.001 TAO), and side capacity is not the binder. Increase collateral / "
-        "principal, or close the remainder fully. When the side cap is what blocks a minimum "
-        "loan, the call returns SideCapacity instead."
+        "minimum (~0.001 TAO / Lending MinimumLoanValue), and side capacity is not the binder. "
+        "Increase collateral or principal, or close the remainder fully. When the side cap is "
+        "what blocks a minimum loan, the call returns SideCapacity instead."
     ),
     "PrincipalZero": (
         "Principal, principal_part, or borrow amount is zero. Pass a positive amount; a young "
@@ -41,14 +41,15 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "SideCapacity": (
         "Side-cap headroom cannot fit this borrow (or any MinimumLoanValue-sized borrow) even "
-        "at full Cap. A large top-up can still hit this when remaining capacity is exhausted. "
-        "Reduce size or wait for repayment; inspect lending_reserves for headroom. When only "
-        "the new-subnet Cap ramp is binding, the call returns SideCapacityRamping instead."
+        "at full Cap. This is capacity headroom, not AMM reserve depth — check the quote's "
+        "long_cap_headroom / lending_reserves lift book, reduce size, or wait for repayment. "
+        "When only the new-subnet Cap ramp is binding, the call returns SideCapacityRamping."
     ),
     "SideCapacityRamping": (
-        "Side capacity is binding only because this subnet is still inside the ~30-day Cap "
-        "ramp after the new-subnet gate. Full Cap would allow the borrow — try again later "
-        "as the ramp rises, or reduce size to fit the current ramped headroom."
+        "Side capacity is binding only because this subnet is still inside the Cap ramp after "
+        "the new-subnet gate (LiftParams.new_subnet_ramp; default ~30 days after "
+        "new_subnet_min_age). Full Cap would allow the borrow — check live LiftParams, try "
+        "again later as the ramp rises, or reduce size to fit current ramped headroom."
     ),
     "DepthBelowThreshold": (
         "Legacy depth refusal. Prefer EmptyPool / PrincipalExceedsAlphaIn / "
@@ -71,8 +72,9 @@ DESCRIPTIONS: dict[str, str] = {
         "the cap or lower collateral."
     ),
     "DynamicCollateral": (
-        "Collateral is below the Karl dynamic valuation requirement at the current LTV tier. "
-        "Add collateral or reduce principal; quote lending_raise_quote / lending_open_quote."
+        "Collateral is below the dynamic valuation requirement at the current LTV tier. "
+        "Add collateral or reduce principal; re-quote with lending_raise_quote / "
+        "lending_open_quote (or btcli lending show)."
     ),
     "TooManyPositions": (
         "The subnet or pallet has reached its bounded position count. Wait for another position "
@@ -83,20 +85,28 @@ DESCRIPTIONS: dict[str, str] = {
         "no assets."
     ),
     "AboveMaximumPayment": (
-        "Repayment exceeds the caller's payment ceiling. Requote the full close before "
-        "resubmitting."
+        "Repayment exceeds the caller's payment ceiling. Requote the close or repay before "
+        "resubmitting (stale quote or tighten --max-slippage carefully)."
     ),
     "BelowMinimumRefund": (
         "The remaining collateral refund is below the caller's minimum. Requote after accrued "
-        "interest."
+        "interest, or lower the refund floor."
     ),
     "InsufficientEscrow": (
-        "Remaining escrow or collateral cannot cover this operation. Inspect accrued interest "
-        "and the complete close quote."
+        "Escrow plus the slice's collateral cannot cover this repay/close path. Check "
+        "lending_close_quote / lending_repay_quote for payment, refund, and shortfall; for an "
+        "underwater short, fund free TAO for the top-up or use --repay-from-wallet with alpha "
+        "on --hotkey. Accrued interest reduces usable collateral."
+    ),
+    "CloseTopUpNeeded": (
+        "Free TAO on the signer cannot cover the underwater short close top-up. Read the close "
+        "quote's shortfall field for the exact TAO needed, fund the signing account, or pass "
+        "--repay-from-wallet with alpha on --hotkey instead of the escrow buyback."
     ),
     "InsufficientCollateral": (
         "The requested additional debt needs more collateral under V_dyn / LTV checks. Quote "
-        "lending_required_collateral for this amount. The failed call moves no assets."
+        "lending_required_collateral for this amount (or pass more --collateral). The failed "
+        "call moves no assets."
     ),
     "InsufficientSellStake": (
         "Unlocked alpha on the hotkey is below collateral plus the raise sale amount. Stake "
@@ -104,23 +114,25 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "SlippageExceeded": (
         "A forced trade missed the caller min-out / max-payment limit (open, raise, close, or "
-        "repay). Requote and widen slippage or reduce size."
+        "repay). The quote is likely stale — re-quote and raise --max-slippage, or reduce size. "
+        "Do not leave --max-slippage at 0."
     ),
     "DeadlinePassed": (
-        "The extrinsic's valid_until block has passed. Resubmit with a later deadline."
+        "The extrinsic's valid_until block has passed. Resubmit with a later deadline "
+        "(raise defaults to head+50 when --valid-until is omitted; open/close default to none)."
     ),
     "SubnetTooNew": (
-        "Subnet age is below new_subnet_min_age (default ~7 days). Wait until "
-        "now − NetworkRegisteredAt clears that floor; start call and warm_reference are "
-        "separate errors (SubnetNotStarted / Reference* / GemaWarmingUp)."
+        "Subnet age is below LiftParams.new_subnet_min_age (live value; default ~7 days / "
+        "50_400 blocks). Wait until now − NetworkRegisteredAt clears that floor. Owner start "
+        "and warm_reference are separate (SubnetNotStarted / Reference* / GemaWarmingUp)."
     ),
     "SubnetNotStarted": (
-        "Subtoken trading is not enabled on this subnet (owner has not made the start call). "
-        "Opens and quotes refuse until SubtokenEnabled is true."
+        "Subtoken trading is not enabled on this subnet — the subnet owner must call start "
+        "first. Opens and quotes refuse until SubtokenEnabled is true."
     ),
     "GemaWarmingUp": (
         "Lending G_ema is missing or has not aged one full EMA window after seeding. Warm the "
-        "reference and wait settle_ema_blocks before opening."
+        "reference and wait LiftParams.settle_ema_blocks before opening."
     ),
     "CustodyHotkey": ("Third-party stake onto the lending custody hotkey is rejected."),
     "EscrowInUse": (
@@ -131,15 +143,16 @@ DESCRIPTIONS: dict[str, str] = {
     "PriceTooFarFromEma": (
         "The post-trade spot would leave the directional EMA band on the exploitable side "
         "(longs above EMA·(1+band), shorts below EMA·(1−band); default band 15%). Wait for "
-        "spot to mean-revert, open the other side, or close/repay an existing position "
-        "(exits are never blocked by this check)."
+        "spot to mean-revert, open the other side, reduce size, or close/repay an existing "
+        "position (exits are never blocked by this check). Confirm free balance / unlocked "
+        "stake before retrying a large collateral quote."
     ),
     "ConflictingSizing": (
         "Provide exactly one of collateral or borrow amount for a raise, not both and not neither."
     ),
     "InvalidLiftParams": (
         "Lift parameters are out of range (for example floor/thin_floor above ceiling). Check "
-        "set_lift_params bounds."
+        "set_lift_params bounds against the live LiftParams storage."
     ),
     "PositionSideMismatch": (
         "The existing position's side does not match this call. Close first or use the saved side."

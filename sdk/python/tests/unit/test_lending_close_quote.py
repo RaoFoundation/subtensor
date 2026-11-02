@@ -1,11 +1,12 @@
-"""lending_close_quote must pass optional hotkey into quote_close."""
+"""lending_close_quote / repay quote and CloseLoan / RepayLoan build checks."""
 
 from __future__ import annotations
 
 import pytest
 
 from bittensor.balance import Balance
-from bittensor.intents import CloseLoan
+from bittensor.cli.commands.lending import _require_slippage
+from bittensor.intents import CloseLoan, RepayLoan
 from bittensor.reads import lending as lending_reads
 from bittensor.result import BittensorError
 
@@ -25,6 +26,7 @@ class _RecordingView:
                 "payment": 10**9,
                 "refund": 10**9,
                 "escrow_return": 0,
+                "shortfall": 123,
             }
         }
 
@@ -64,6 +66,7 @@ async def test_lending_close_quote_passes_hotkey_as_optional_param():
         view, owner, 1, hotkey, repay_from_wallet=False
     )
     assert result["payment"].rao == 10**9
+    assert result["shortfall"].rao == 123
     assert len(view.runtime_calls) == 1
     method, params = view.runtime_calls[0]
     assert method == lending_reads.QUOTE_CLOSE
@@ -119,3 +122,70 @@ async def test_close_loan_short_escrow_allows_omitted_hotkey():
     intent = CloseLoan(netuid=1, max_payment="1", min_refund="0", repay_from_wallet=False)
     await intent.build(substrate, _Wallet())
     assert substrate.composed.params["hotkey"] == "5Owner"
+
+
+@pytest.mark.asyncio
+async def test_lending_repay_quote_passes_principal_and_hotkey():
+    view = _RecordingView()
+    owner = "5Owner"
+    hotkey = "5Hotkey"
+    result = await lending_reads.lending_repay_quote(
+        view, owner, 1, "0.5", hotkey, repay_from_wallet=False
+    )
+    assert result["payment"].rao == 10**9
+    assert result["principal_part"].rao == 5 * 10**8
+    assert result["principal_part"].netuid == 1
+    method, params = view.runtime_calls[0]
+    assert method == lending_reads.QUOTE_REPAY
+    assert params == [owner, 1, hotkey, 5 * 10**8, False]
+
+
+@pytest.mark.asyncio
+async def test_repay_loan_build_composes_lending_repay():
+    substrate = _CloseSubstrate("Short")
+    intent = RepayLoan(
+        netuid=1,
+        principal_part="0.5",
+        max_payment="1",
+        min_refund="0",
+        repay_from_wallet=False,
+    )
+    await intent.build(substrate, _Wallet())
+    assert substrate.composed.module == "Lending"
+    assert substrate.composed.function == "repay"
+    assert substrate.composed.params["principal_part"] == 5 * 10**8
+    assert substrate.composed.params["hotkey"] == "5Owner"
+    assert substrate.composed.params["repay_from_wallet"] is False
+
+
+@pytest.mark.asyncio
+async def test_repay_loan_requires_hotkey_for_long():
+    substrate = _CloseSubstrate("Long")
+    intent = RepayLoan(
+        netuid=1,
+        principal_part="0.5",
+        max_payment="1",
+        min_refund="0",
+        repay_from_wallet=False,
+    )
+    with pytest.raises(BittensorError, match="hotkey_ss58"):
+        await intent.build(substrate, _Wallet())
+
+
+@pytest.mark.asyncio
+async def test_repay_loan_rejects_principal_above_stored():
+    substrate = _CloseSubstrate("Short")
+    intent = RepayLoan(
+        netuid=1,
+        principal_part="2",
+        max_payment="1",
+        min_refund="0",
+        repay_from_wallet=False,
+    )
+    with pytest.raises(BittensorError, match="exceeds stored principal"):
+        await intent.build(substrate, _Wallet())
+
+
+def test_repay_cli_rejects_zero_slippage():
+    with pytest.raises(BittensorError, match="cannot be 0"):
+        _require_slippage(0.0)

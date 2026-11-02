@@ -40,7 +40,7 @@ from .governance import (
 from .hyperparameters import OWNER_HYPERPARAMETERS, SetHyperparameter
 from .identity import SetIdentity, SetSubnetIdentity
 from .leasing import RegisterLeasedNetwork, TerminateLease
-from .lending import CloseLoan, OpenLoan, RaiseLoan
+from .lending import CloseLoan, OpenLoan, RaiseLoan, RepayLoan
 from .lock import LockStake, MoveLock, SetPerpetualLock, SetRejectLockedAlpha
 from .multisig import (
     MultisigApprove,
@@ -147,6 +147,7 @@ __all__ = [
     "RemoveProxy",
     "RemoveStake",
     "RemoveStakeLimit",
+    "RepayLoan",
     "ResetAxon",
     "RevealWeights",
     "RootRegister",

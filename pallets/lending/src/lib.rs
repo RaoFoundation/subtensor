@@ -67,6 +67,11 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn buy_spendable_tao(_account: &AccountId) -> TaoBalance {
         u64::MAX.into()
     }
+    /// Free TAO the account can spend while preserving its existential deposit.
+    /// Used to preflight underwater-short close top-ups (E2E F4).
+    fn free_tao(_account: &AccountId) -> TaoBalance {
+        u64::MAX.into()
+    }
     fn refund_dissolution_tao(
         from: &AccountId,
         to: &AccountId,
@@ -671,7 +676,7 @@ pub struct OpeningQuote {
     pub escrow_estimate: u64,
 }
 
-#[freeze_struct("432492aae8580c0d")]
+#[freeze_struct("ff18c1df3354af35")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -679,6 +684,10 @@ pub struct ClosingQuote {
     pub payment: u64,
     pub refund: u64,
     pub escrow_return: u64,
+    /// TAO the owner must supply from free balance for an underwater short
+    /// escrow buyback (`payment.saturating_sub(pot)`). Zero when the pot
+    /// covers the buy or the path is wallet-repay / long.
+    pub shortfall: u64,
 }
 
 #[freeze_struct("16dfaee81372751a")]
@@ -704,7 +713,8 @@ pub struct RaiseQuote {
 const EMA_WEIGHT_BITS: u128 = 1_775_790_721_272_497;
 pub const MAX_BUYBACK_STEPS: u32 = 6;
 const BPS_DENOM: u128 = 10_000;
-const BISECTION_STEPS: u32 = 16;
+/// Steps for principal/collateral bisections once a tight `[lo, hi]` is known.
+const BISECTION_STEPS: u32 = 64;
 
 /// Why a position is being settled at a smoothed rate (no AMM liquidation).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1077,6 +1087,10 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             principal_tao_equiv: u64,
+            /// Native principal: alpha for shorts, TAO for longs (E2E F7).
+            principal: u64,
+            /// TAO paid toward the debt / into the pool.
+            payment: u64,
             tao_to_pool: u64,
             tao_refund: u64,
             rate: U64F64,
@@ -1113,6 +1127,10 @@ pub mod pallet {
         AboveMaximumPayment,
         BelowMinimumRefund,
         InsufficientEscrow,
+        /// Free TAO on the signer cannot cover the underwater short close top-up.
+        /// Check the close quote's `shortfall` field for the exact amount needed,
+        /// fund the signing account, or use repay_from_wallet with alpha.
+        CloseTopUpNeeded,
         InvalidQuote,
         Arithmetic,
         CustodyUnavailable,
@@ -2829,13 +2847,21 @@ pub mod pallet {
                     } else {
                         // Buy back P alpha with E_S + collateral. When the price
                         // rose so pot < cost, the owner tops up free-balance TAO
-                        // (no liquidations — close must stay possible). Total
-                        // payment stays ≤ max_payment.
+                        // (no liquidations — close must stay possible). Size the
+                        // top-up from *spendable* escrow balance (Preserve ED),
+                        // not the accounting pot, so buyback cannot stall on a
+                        // zero-capacity step (E2E F4).
                         let pot = Self::add(position.proceeds, position.collateral)?;
                         let needed = Self::tao_to_buy_alpha(netuid, position.principal)?;
-                        let top_up = needed.saturating_sub(pot);
+                        // Usable escrow is the lesser of the accounting pot and
+                        // Preserve-spendable free balance (ED). Cap MAX mock
+                        // spendable by pot so tests still size top_up correctly.
+                        let usable = T::Pool::buy_spendable_tao(&escrow).to_u64().min(pot);
+                        let top_up = needed.saturating_sub(usable);
                         if top_up > 0 {
                             ensure!(needed <= max_payment, Error::<T>::SlippageExceeded);
+                            let free = T::Pool::free_tao(&owner).to_u64();
+                            ensure!(free >= top_up, Error::<T>::CloseTopUpNeeded);
                             T::Pool::transfer_tao(&owner, &escrow, top_up.into())?;
                         }
                         let budget = Self::add(pot, top_up)?;
@@ -2847,27 +2873,41 @@ pub mod pallet {
                             budget,
                         )?;
                         ensure!(paid <= max_payment, Error::<T>::SlippageExceeded);
-                        let refund = budget.saturating_sub(paid);
+                        let mut refund = budget.saturating_sub(paid);
                         ensure!(refund >= min_refund, Error::<T>::BelowMinimumRefund);
-                        if refund > 0 {
-                            T::Pool::transfer_tao(&escrow, &owner, refund.into())?;
-                        }
-                        // Return any surplus alpha from overshoot before readd.
-                        // Escrow buyback is a TAO-refund path: do not require the
-                        // destination hotkey to already exist (validate_receiver
-                        // = false). Quote parity treats this path as hotkey-free.
+                        // Fold buyback overshoot into the TAO refund — never stake
+                        // dust to an unregistered wallet hotkey (E2E F5).
                         let excess = bought.saturating_sub(position.principal);
                         if excess > 0 {
-                            T::Pool::transfer_staked_alpha(
-                                &escrow,
-                                &custody,
-                                &owner,
-                                &hotkey,
-                                netuid,
-                                excess.into(),
-                                false,
-                                false,
-                            )?;
+                            match T::Pool::ensure_hotkey_account(&hotkey) {
+                                Ok(()) => {
+                                    T::Pool::transfer_staked_alpha(
+                                        &escrow,
+                                        &custody,
+                                        &owner,
+                                        &hotkey,
+                                        netuid,
+                                        excess.into(),
+                                        false,
+                                        false,
+                                    )?;
+                                }
+                                Err(_) => {
+                                    if let Ok(dust) = T::Pool::sell_alpha(
+                                        &escrow,
+                                        &custody,
+                                        netuid,
+                                        excess.into(),
+                                        0u64.into(),
+                                        false,
+                                    ) {
+                                        refund = refund.saturating_add(dust.to_u64());
+                                    }
+                                }
+                            }
+                        }
+                        if refund > 0 {
+                            T::Pool::transfer_tao(&escrow, &owner, refund.into())?;
                         }
                         // Move bought principal alpha to reserve and readd.
                         T::Pool::transfer_staked_alpha(
@@ -2887,6 +2927,11 @@ pub mod pallet {
                             position.lift_tao.into(),
                             position.principal.into(),
                         )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: position.lift_tao,
+                            alpha: position.principal,
+                        });
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_s = book.l_s.saturating_sub(position.lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
@@ -2926,6 +2971,11 @@ pub mod pallet {
                             position.principal.into(),
                             position.lift_alpha.into(),
                         )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: position.principal,
+                            alpha: position.lift_alpha,
+                        });
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_l = book.l_l.saturating_sub(position.principal);
                             book.b_l = book.b_l.saturating_sub(position.principal);
@@ -3008,6 +3058,11 @@ pub mod pallet {
                             position.principal.into(),
                             position.lift_alpha.into(),
                         )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: position.principal,
+                            alpha: position.lift_alpha,
+                        });
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_l = book.l_l.saturating_sub(position.principal);
                             book.b_l = book.b_l.saturating_sub(position.principal);
@@ -3202,6 +3257,11 @@ pub mod pallet {
                             slice_lift_tao.into(),
                             slice_p.into(),
                         )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: slice_lift_tao,
+                            alpha: slice_p,
+                        });
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_s = book.l_s.saturating_sub(slice_lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(slice_lift_tao);
@@ -3236,6 +3296,11 @@ pub mod pallet {
                             slice_p.into(),
                             slice_lift_alpha.into(),
                         )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: slice_p,
+                            alpha: slice_lift_alpha,
+                        });
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_l = book.l_l.saturating_sub(slice_p);
                             book.b_l = book.b_l.saturating_sub(slice_p);
@@ -3307,6 +3372,11 @@ pub mod pallet {
                             slice_p.into(),
                             slice_lift_alpha.into(),
                         )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: slice_p,
+                            alpha: slice_lift_alpha,
+                        });
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_l = book.l_l.saturating_sub(slice_p);
                             book.b_l = book.b_l.saturating_sub(slice_p);
@@ -3989,13 +4059,13 @@ pub mod pallet {
                     if position.proceeds > 0 {
                         T::Pool::transfer_tao(&escrow, &reserve, position.proceeds.into())?;
                     }
-                    T::Pool::readd_and_credit(
+                    let tao = position.lift_tao.saturating_add(position.proceeds);
+                    T::Pool::readd_and_credit(netuid, &reserve, &custody, tao.into(), 0u64.into())?;
+                    Self::deposit_event(Event::Readded {
                         netuid,
-                        &reserve,
-                        &custody,
-                        position.lift_tao.saturating_add(position.proceeds).into(),
-                        0u64.into(),
-                    )?;
+                        tao,
+                        alpha: 0,
+                    });
                     Lifts::<T>::mutate(netuid, |book| {
                         book.l_s = book.l_s.saturating_sub(position.lift_tao);
                         book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
@@ -4024,6 +4094,11 @@ pub mod pallet {
                         0u64.into(),
                         alpha.into(),
                     )?;
+                    Self::deposit_event(Event::Readded {
+                        netuid,
+                        tao: 0,
+                        alpha,
+                    });
                     Lifts::<T>::mutate(netuid, |book| {
                         book.l_l = book.l_l.saturating_sub(position.principal);
                         book.b_l = book.b_l.saturating_sub(position.principal);
@@ -5301,6 +5376,11 @@ pub mod pallet {
                             position.lift_tao.into(),
                             0u64.into(),
                         )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: position.lift_tao,
+                            alpha: 0,
+                        });
                         Lifts::<T>::mutate(netuid, |book| {
                             book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
                         });
@@ -5375,6 +5455,8 @@ pub mod pallet {
                                 netuid,
                                 side: Side::Short,
                                 principal_tao_equiv: debt,
+                                principal: position.principal,
+                                payment: to_pot,
                                 tao_to_pool: to_pot,
                                 tao_refund: refund,
                                 rate: r,
@@ -5417,6 +5499,11 @@ pub mod pallet {
                             0u64.into(),
                             position.lift_alpha.into(),
                         )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: 0,
+                            alpha: position.lift_alpha,
+                        });
                         Lifts::<T>::mutate(netuid, |book| {
                             book.held_alpha = book.held_alpha.saturating_sub(position.lift_alpha);
                         });
@@ -5485,6 +5572,8 @@ pub mod pallet {
                                 netuid,
                                 side: Side::Long,
                                 principal_tao_equiv: position.principal,
+                                principal: position.principal,
+                                payment: shortfall,
                                 tao_to_pool: shortfall,
                                 tao_refund: paid_remainder,
                                 rate: r,
@@ -5752,17 +5841,20 @@ pub mod pallet {
                             payment: position.principal,
                             refund: pot,
                             escrow_return: position.proceeds,
+                            shortfall: 0,
                         }
                     } else {
                         // Escrow buyback: payment ≈ TAO to buy P alpha. When
-                        // payment > pot the short is underwater — refund is 0
-                        // and the shortfall (payment − pot) must come from the
-                        // owner's free balance; max_payment must cover payment.
+                        // payment > pot the short is underwater — report the
+                        // exact shortfall so CLI/SDK can size max_payment and
+                        // surface a clear free-balance requirement (E2E F4).
                         let payment = Self::tao_to_buy_alpha(netuid, position.principal)?;
+                        let shortfall = payment.saturating_sub(pot);
                         ClosingQuote {
                             payment,
                             refund: pot.saturating_sub(payment),
                             escrow_return: 0,
+                            shortfall,
                         }
                     }
                 }
@@ -5772,6 +5864,7 @@ pub mod pallet {
                             payment: position.principal,
                             refund: remaining.saturating_add(position.escrow_alpha),
                             escrow_return: position.escrow_alpha,
+                            shortfall: 0,
                         }
                     } else {
                         // Sell A, then minimal C for the shortfall; refund leftover C as alpha.
@@ -5807,6 +5900,7 @@ pub mod pallet {
                             payment: position.principal,
                             refund: coll_left,
                             escrow_return: 0,
+                            shortfall: 0,
                         }
                     }
                 }
@@ -5816,6 +5910,104 @@ pub mod pallet {
             // require a registered destination — see `do_close`).
             // `None` skips the check (must not panic); callers that omit it
             // accept that the extrinsic may still refuse an unregistered hotkey.
+            if Self::close_requires_hotkey(position.side, repay_from_wallet, &quoted) {
+                if let Some(hk) = hotkey {
+                    T::Pool::ensure_hotkey_account(hk)?;
+                }
+            }
+            Ok(quoted)
+        }
+
+        /// Partial-repay quote: same `ClosingQuote` shape as [`Self::quote_close`],
+        /// sized for `principal_part` via the same pro-rata slice as `do_repay`.
+        /// `principal_part == principal` delegates to `quote_close`.
+        pub fn quote_repay(
+            owner: &T::AccountId,
+            netuid: NetUid,
+            hotkey: Option<&T::AccountId>,
+            principal_part: u64,
+            repay_from_wallet: bool,
+        ) -> Result<ClosingQuote, DispatchError> {
+            Self::ensure_lending_live(netuid)?;
+            ensure!(principal_part > 0, Error::<T>::PrincipalZero);
+            let position = Positions::<T>::get(owner, netuid).ok_or(Error::<T>::PositionMissing)?;
+            ensure!(
+                principal_part <= position.principal,
+                Error::<T>::AmountTooSmall
+            );
+            if principal_part == position.principal {
+                return Self::quote_close(owner, netuid, hotkey, repay_from_wallet);
+            }
+            let (interest, _) =
+                Self::interest_due(&position, frame_system::Pallet::<T>::block_number(), true)?;
+            let remaining = position.collateral.saturating_sub(interest);
+            let p = position.principal;
+            let slice_p = principal_part;
+            let slice_c = Self::scale_part(remaining, slice_p, p);
+            let slice_e_s = Self::scale_part(position.proceeds, slice_p, p);
+            let slice_a = Self::scale_part(position.escrow_alpha, slice_p, p);
+            let quoted = match position.side {
+                Side::Short => {
+                    let pot = Self::add(slice_c, slice_e_s)?;
+                    if repay_from_wallet {
+                        ClosingQuote {
+                            payment: slice_p,
+                            refund: pot,
+                            escrow_return: slice_e_s,
+                            shortfall: 0,
+                        }
+                    } else {
+                        let payment = Self::tao_to_buy_alpha(netuid, slice_p)?;
+                        let shortfall = payment.saturating_sub(pot);
+                        ClosingQuote {
+                            payment,
+                            refund: pot.saturating_sub(payment),
+                            escrow_return: 0,
+                            shortfall,
+                        }
+                    }
+                }
+                Side::Long => {
+                    if repay_from_wallet {
+                        ClosingQuote {
+                            payment: slice_p,
+                            refund: slice_c.saturating_add(slice_a),
+                            escrow_return: slice_a,
+                            shortfall: 0,
+                        }
+                    } else {
+                        let w = T::Pool::quote_weight_parts(netuid);
+                        let mut y = T::Pool::pool_tao(netuid).to_u64();
+                        let mut x = T::Pool::pool_alpha(netuid).to_u64();
+                        let mut raised = 0u64;
+                        if slice_a > 0 {
+                            let out = T::Pool::quote_sell_on(y.into(), x.into(), w, slice_a.into())
+                                .to_u64();
+                            raised = Self::add(raised, out)?;
+                            y = y.saturating_sub(out);
+                            x = x.saturating_add(slice_a);
+                        }
+                        let mut coll_left = slice_c;
+                        if raised < slice_p && coll_left > 0 {
+                            let need = slice_p.saturating_sub(raised);
+                            let needed_alpha = Self::alpha_to_raise_tao_on(y, x, w, need)?;
+                            let sell = needed_alpha.min(coll_left);
+                            ensure!(sell > 0, Error::<T>::InsufficientEscrow);
+                            let out =
+                                T::Pool::quote_sell_on(y.into(), x.into(), w, sell.into()).to_u64();
+                            raised = Self::add(raised, out)?;
+                            coll_left = coll_left.saturating_sub(sell);
+                        }
+                        ensure!(raised >= slice_p, Error::<T>::InsufficientEscrow);
+                        ClosingQuote {
+                            payment: slice_p,
+                            refund: coll_left,
+                            escrow_return: 0,
+                            shortfall: 0,
+                        }
+                    }
+                }
+            };
             if Self::close_requires_hotkey(position.side, repay_from_wallet, &quoted) {
                 if let Some(hk) = hotkey {
                     T::Pool::ensure_hotkey_account(hk)?;
@@ -5898,17 +6090,13 @@ pub mod pallet {
                 let ltv = Self::ltv_tier_bps(netuid, Side::Long, &params);
                 let delta_l = Self::lift_tao_for_principal(netuid, Side::Long, p)?;
                 Self::ensure_side_capacity(netuid, Side::Long, delta_l)?;
-                let mut lo = 1u64;
-                let mut hi = u64::MAX / 4;
-                let mut best = None;
-                for _ in 0..BISECTION_STEPS {
-                    if lo > hi {
-                        break;
-                    }
-                    let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
-                    let total_c =
-                        Self::add(existing.as_ref().map(|x| x.collateral).unwrap_or(0), mid)?;
-                    if Self::principal_feasible(
+                // Exponential search for a feasible upper bound, then bisect.
+                // A fixed hi=u64::MAX/4 with only 16 steps left a 2^46 artifact
+                // (Skeptic/E2E F2); doubling finds a tight window in ≤63 steps.
+                let old_c = existing.as_ref().map(|x| x.collateral).unwrap_or(0);
+                let feasible = |mid: u64| -> Result<bool, DispatchError> {
+                    let total_c = Self::add(old_c, mid)?;
+                    Self::principal_feasible(
                         netuid,
                         Side::Long,
                         total_p,
@@ -5918,7 +6106,36 @@ pub mod pallet {
                         &reference,
                         ltv,
                         &params,
-                    )? {
+                    )
+                };
+                let mut hi = 1u64;
+                let mut found_hi = false;
+                while hi < u64::MAX / 4 {
+                    if feasible(hi)? {
+                        found_hi = true;
+                        break;
+                    }
+                    let next = hi.saturating_mul(2);
+                    if next <= hi {
+                        break;
+                    }
+                    hi = next;
+                }
+                ensure!(
+                    found_hi || feasible(hi)?,
+                    Error::<T>::InsufficientCollateral
+                );
+                let mut lo = hi / 2;
+                if lo == 0 {
+                    lo = 1;
+                }
+                let mut best = Some(hi);
+                for _ in 0..BISECTION_STEPS {
+                    if lo > hi {
+                        break;
+                    }
+                    let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
+                    if feasible(mid)? {
                         best = Some(mid);
                         hi = mid.saturating_sub(1);
                     } else {

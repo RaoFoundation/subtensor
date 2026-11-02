@@ -2852,6 +2852,22 @@ impl_runtime_apis! {
             )
         }
 
+        fn quote_repay(
+            owner: AccountId,
+            netuid: u16,
+            hotkey: Option<AccountId>,
+            principal_part: u64,
+            repay_from_wallet: bool,
+        ) -> Result<pallet_lending::ClosingQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_repay(
+                &owner,
+                netuid.into(),
+                hotkey.as_ref(),
+                principal_part,
+                repay_from_wallet,
+            )
+        }
+
         fn quote_raise(
             owner: AccountId,
             netuid: u16,

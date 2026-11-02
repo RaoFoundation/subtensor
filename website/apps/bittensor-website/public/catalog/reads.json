@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2881,
-        "end_line": 2891,
-        "url": "/code/runtime/src/lib.rs#L2881-L2891",
+        "line": 2897,
+        "end_line": 2907,
+        "url": "/code/runtime/src/lib.rs#L2897-L2907",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1187,7 +1187,7 @@
   {
     "name": "lending_position",
     "summary": "A coldkey's fixed-principal loan on one subnet, or None.",
-    "description": "A coldkey's fixed-principal loan on one subnet, or None.\n\nPrincipal increases when more is borrowed and never falls when interest is\ncollected. This record reports the combined position. Amounts retain their\ncurrency: short collateral is TAO and short debt is alpha; long collateral\nis alpha and long debt is TAO. The retained `proceeds` compatibility field\nis zero for newly opened shorts; it is not a borrowed-alpha sale balance.\nInterest and\nremaining runway are estimates at the selected block, not a close quote.",
+    "description": "A coldkey's fixed-principal loan on one subnet, or None.\n\nPrincipal increases when more is borrowed and never falls when interest is\ncollected. This record reports the combined position. Amounts retain their\ncurrency: short collateral is TAO and short debt is alpha; long collateral\nis alpha and long debt is TAO. `proceeds` is the short's escrowed TAO\n(E_S) from the forced alpha sale at open; it is zero for longs.\n`escrow_alpha` is the long's escrowed alpha (A); zero for shorts.\n`expires_at` is the fixed one-year term end (increases restart it).\n`runway_days` is capped at days remaining until `expires_at`. Interest\nand runway are estimates at the selected block, not a close quote.",
     "params": {
       "coldkey_ss58": "string",
       "netuid": "integer"
@@ -1240,6 +1240,29 @@
     "docs_url": "/docs/query/lending-raise-quote",
     "markdown_url": "/llms.mdx/docs/query/lending-raise-quote/content.md",
     "python": "sub.prices.lending_raise_quote(...)"
+  },
+  {
+    "name": "lending_repay_quote",
+    "summary": "Runtime quote of a partial-repay payment and refund.",
+    "description": "Runtime quote of a partial-repay payment and refund.\n\nSame payment/refund/shortfall units as :func:`lending_close_quote`, sized\nfor `principal_part`. Full principal delegates to the close quote on\nchain.",
+    "params": {
+      "coldkey_ss58": "string",
+      "netuid": "integer",
+      "principal_part": "string",
+      "hotkey_ss58": "string",
+      "repay_from_wallet": "boolean"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Position owner.",
+      "netuid": "Subnet of the position.",
+      "principal_part": "Principal to repay: alpha for a short, TAO for a long. Must be > 0 and \u2264 stored principal; full principal matches lending_close_quote.",
+      "hotkey_ss58": "Optional per-call hotkey for alpha repay (short wallet path) or alpha refund (long repay). Omit for short escrow buyback (TAO only).",
+      "repay_from_wallet": "False (default): quote the escrow AMM path for the slice. True: repay short alpha from a call-supplied hotkey stake."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-repay-quote",
+    "markdown_url": "/llms.mdx/docs/query/lending-repay-quote/content.md",
+    "python": "sub.prices.lending_repay_quote(...)"
   },
   {
     "name": "lending_required_collateral",
@@ -1788,9 +1811,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2893,
-        "end_line": 2921,
-        "url": "/code/runtime/src/lib.rs#L2893-L2921",
+        "line": 2909,
+        "end_line": 2937,
+        "url": "/code/runtime/src/lib.rs#L2909-L2937",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1817,9 +1840,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2923,
-        "end_line": 2951,
-        "url": "/code/runtime/src/lib.rs#L2923-L2951",
+        "line": 2939,
+        "end_line": 2967,
+        "url": "/code/runtime/src/lib.rs#L2939-L2967",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

@@ -22,6 +22,7 @@ QUOTE_OPEN = Method("LendingRuntimeApi", "quote_open")
 QUOTE_OPEN_FOR = Method("LendingRuntimeApi", "quote_open_for")
 QUOTE_OPEN_EXACT_FOR = Method("LendingRuntimeApi", "quote_open_exact_for")
 QUOTE_CLOSE = Method("LendingRuntimeApi", "quote_close")
+QUOTE_REPAY = Method("LendingRuntimeApi", "quote_repay")
 QUOTE_RAISE = Method("LendingRuntimeApi", "quote_raise")
 
 
@@ -105,21 +106,46 @@ def _position_record(
         annual * accrued_blocks + int(raw.get("interest_remainder") or 0)
     ) // blocks_per_year
     collateral = int(raw["collateral"])
+    principal = int(raw["principal"])
+    proceeds = int(raw["proceeds"])
+    escrow_alpha = int(raw.get("escrow_alpha") or 0)
+    # Fixed one-year term end; absent only on pre-term storage layouts.
+    expires_at = int(raw["expires_at"]) if raw.get("expires_at") is not None else None
+    # Storage has no opened_at; expose when a future layout adds it.
+    opened_at = int(raw["opened_at"]) if raw.get("opened_at") is not None else None
+    runway_days = None
+    if annual:
+        runway_days = max(collateral - interest_due, 0) * 365 / annual
+        # Cap at the fixed term: interest runway cannot outlast expires_at.
+        if expires_at is not None and blocks_per_year > 0:
+            days_to_expiry = max(expires_at - now, 0) * 365 / blocks_per_year
+            runway_days = min(runway_days, days_to_expiry)
+    remaining = max(collateral - interest_due, 0)
+    underwater = remaining <= 0 and principal > 0
     return {
         "coldkey": owner,
         "netuid": netuid,
         "side": side,
-        "principal": view.balance(int(raw["principal"]), principal_unit),
+        "principal": view.balance(principal, principal_unit),
         "collateral": view.balance(collateral, collateral_unit),
-        "proceeds": Balance.from_rao(int(raw["proceeds"])),
-        "escrow_alpha": view.balance(int(raw.get("escrow_alpha") or 0), netuid),
+        # Short escrow TAO (E_S). Zero for longs — not a "unused" field on shorts.
+        "proceeds": Balance.from_rao(proceeds),
+        "escrow_alpha": view.balance(escrow_alpha, netuid),
+        "escrow": (
+            Balance.from_rao(proceeds)
+            if side == "Short"
+            else view.balance(escrow_alpha, netuid)
+        ),
         "lift_tao": view.balance(int(raw.get("lift_tao") or 0), 0),
         "lift_alpha": view.balance(int(raw.get("lift_alpha") or 0), netuid),
         "annual_interest": view.balance(annual, collateral_unit),
         "interest_due": view.balance(interest_due, collateral_unit),
         "last_accrued": int(raw["last_accrued"]),
         "due": int(raw["due"]),
-        "runway_days": max(collateral - interest_due, 0) * 365 / annual if annual else None,
+        "expires_at": expires_at,
+        "opened_at": opened_at,
+        "underwater": underwater,
+        "runway_days": runway_days,
     }
 
 
@@ -135,10 +161,12 @@ async def lending_position(view, coldkey_ss58: str, netuid: int) -> Optional[dic
     Principal increases when more is borrowed and never falls when interest is
     collected. This record reports the combined position. Amounts retain their
     currency: short collateral is TAO and short debt is alpha; long collateral
-    is alpha and long debt is TAO. The retained ``proceeds`` compatibility field
-    is zero for newly opened shorts; it is not a borrowed-alpha sale balance.
-    Interest and
-    remaining runway are estimates at the selected block, not a close quote.
+    is alpha and long debt is TAO. ``proceeds`` is the short's escrowed TAO
+    (E_S) from the forced alpha sale at open; it is zero for longs.
+    ``escrow_alpha`` is the long's escrowed alpha (A); zero for shorts.
+    ``expires_at`` is the fixed one-year term end (increases restart it).
+    ``runway_days`` is capped at days remaining until ``expires_at``. Interest
+    and runway are estimates at the selected block, not a close quote.
     """
     view = await view.at()
     raw = await view.query(POSITIONS, [coldkey_ss58, netuid])
@@ -358,6 +386,11 @@ async def lending_open_quote(
         "principal": view.balance(int(raw["principal"]), netuid if side == "Short" else 0),
         "annual_interest": view.balance(int(raw["annual_interest"]), collateral_unit),
         "opening_value": Balance.from_rao(int(raw["opening_value"])),
+        "collateral": view.balance(
+            int(raw.get("collateral") or collateral_amount.rao), collateral_unit
+        ),
+        "v_dyn": Balance.from_rao(int(raw.get("v_dyn") or 0)),
+        "escrow_estimate": view.balance(int(raw.get("escrow_estimate") or 0), netuid),
     }
 
 
@@ -541,4 +574,76 @@ async def lending_close_quote(
     return {
         "payment": view.balance(int(raw["payment"]), netuid if short and repay_from_wallet else 0),
         "refund": view.balance(int(raw["refund"]), 0 if short else netuid),
+        "escrow_return": view.balance(int(raw.get("escrow_return") or 0), 0 if short else netuid),
+        "shortfall": Balance.from_rao(int(raw.get("shortfall") or 0)),
+    }
+
+
+@read(
+    "lending_repay_quote",
+    {
+        "coldkey_ss58": "string",
+        "netuid": "integer",
+        "principal_part": "string",
+        "hotkey_ss58": "string",
+        "repay_from_wallet": "boolean",
+    },
+    category="Prices & swaps",
+    param_docs={
+        "coldkey_ss58": "Position owner.",
+        "netuid": "Subnet of the position.",
+        "principal_part": (
+            "Principal to repay: alpha for a short, TAO for a long. Must be "
+            "> 0 and ≤ stored principal; full principal matches lending_close_quote."
+        ),
+        "hotkey_ss58": (
+            "Optional per-call hotkey for alpha repay (short wallet path) or "
+            "alpha refund (long repay). Omit for short escrow buyback (TAO only)."
+        ),
+        "repay_from_wallet": (
+            "False (default): quote the escrow AMM path for the slice. "
+            "True: repay short alpha from a call-supplied hotkey stake."
+        ),
+    },
+)
+async def lending_repay_quote(
+    view,
+    coldkey_ss58: str,
+    netuid: int,
+    principal_part: str,
+    hotkey_ss58: Optional[str] = None,
+    repay_from_wallet: bool = False,
+) -> dict:
+    """Runtime quote of a partial-repay payment and refund.
+
+    Same payment/refund/shortfall units as :func:`lending_close_quote`, sized
+    for ``principal_part``. Full principal delegates to the close quote on
+    chain.
+    """
+    view = await view.at()
+    position = await lending_position(view, coldkey_ss58, netuid)
+    if position is None:
+        raise BittensorError(f"no lending position on netuid {netuid}")
+    short = position["side"] == "Short"
+    part = cast(
+        Balance,
+        alpha_amount(principal_part, netuid) if short else tao_amount(principal_part),
+    )
+    if part.rao <= 0:
+        raise BittensorError("principal_part must be positive")
+    stored = position["principal"]
+    if not isinstance(stored, Balance) or part.rao > stored.rao:
+        raise BittensorError(f"principal_part {part} exceeds stored principal {stored}")
+    raw = _ok(
+        await view.runtime(
+            QUOTE_REPAY,
+            [coldkey_ss58, netuid, hotkey_ss58, part.rao, repay_from_wallet],
+        )
+    )
+    return {
+        "payment": view.balance(int(raw["payment"]), netuid if short and repay_from_wallet else 0),
+        "refund": view.balance(int(raw["refund"]), 0 if short else netuid),
+        "escrow_return": view.balance(int(raw.get("escrow_return") or 0), 0 if short else netuid),
+        "shortfall": Balance.from_rao(int(raw.get("shortfall") or 0)),
+        "principal_part": part,
     }

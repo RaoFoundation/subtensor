@@ -7,7 +7,7 @@ use pallet_lending::{ClosingQuote, OpeningQuote, RaiseQuote, Side};
 use sp_runtime::DispatchError;
 
 sp_api::decl_runtime_apis! {
-    #[api_version(6)]
+    #[api_version(7)]
     pub trait LendingRuntimeApi<AccountId> where AccountId: Codec {
         /// Full opening principal and fixed collateral interest, including swap fees.
         fn quote_open(netuid: u16, side: Side, collateral: u64) -> Result<OpeningQuote, DispatchError>;
@@ -25,6 +25,17 @@ sp_api::decl_runtime_apis! {
         /// `hotkey` may be `None` to skip the hotkey-existence check (escrow TAO
         /// paths never need it; alpha repay/refund paths still should pass one).
         fn quote_close(owner: AccountId, netuid: u16, hotkey: Option<AccountId>, repay_from_wallet: bool) -> Result<ClosingQuote, DispatchError>;
+
+        /// Partial-repay payment and refund for `principal_part` (§4.4), same
+        /// `ClosingQuote` fields as [`Self::quote_close`]. Full repay
+        /// (`principal_part == principal`) matches `quote_close`.
+        fn quote_repay(
+            owner: AccountId,
+            netuid: u16,
+            hotkey: Option<AccountId>,
+            principal_part: u64,
+            repay_from_wallet: bool,
+        ) -> Result<ClosingQuote, DispatchError>;
 
         /// Atomic raise quote: escrowed long sizing plus optional unlocked-alpha sale.
         #[allow(clippy::too_many_arguments)]

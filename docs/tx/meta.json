@@ -30,6 +30,7 @@
     "close-loan",
     "open-loan",
     "raise-loan",
+    "repay-loan",
     "---Multisig---",
     "multisig-approve",
     "multisig-cancel",

@@ -1196,6 +1196,11 @@ class AppContext:
                 shortfall = self.run(_shield_fee_warning)
                 if shortfall is not None:
                     plan.warnings.append(shortfall)
+            # Dry-run with -y still shows command context cards (Loan /
+            # Repayment / Raise) so quoted payment/refund/outcome rows appear
+            # before the plan summary. Quiet/json suppress the card.
+            if card_sections:
+                self.output.transaction_card(card_sections)
             self.output.plan(plan, command=replay_command())
             if not plan.ok:
                 raise typer.Exit(1)

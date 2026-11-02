@@ -704,9 +704,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1344,
-        "end_line": 1363,
-        "url": "/code/pallets/lending/src/lib.rs#L1341-L1363",
+        "line": 1362,
+        "end_line": 1381,
+        "url": "/code/pallets/lending/src/lib.rs#L1359-L1381",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2079,18 +2079,18 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1278,
-        "end_line": 1302,
-        "url": "/code/pallets/lending/src/lib.rs#L1276-L1302",
+        "line": 1296,
+        "end_line": 1320,
+        "url": "/code/pallets/lending/src/lib.rs#L1294-L1320",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
         "pallet": "Lending",
         "call": "open_exact",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1307,
-        "end_line": 1334,
-        "url": "/code/pallets/lending/src/lib.rs#L1305-L1334",
+        "line": 1325,
+        "end_line": 1352,
+        "url": "/code/pallets/lending/src/lib.rs#L1323-L1352",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2293,7 +2293,7 @@
         },
         "valid_until": {
           "type": "integer",
-          "description": "Latest block number that may include this raise."
+          "description": "Latest block number that may include this raise. Omit to use head + 50 at build time."
         }
       },
       "required": [
@@ -2309,9 +2309,9 @@
         "pallet": "Lending",
         "call": "open_long_and_sell",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1369,
-        "end_line": 1397,
-        "url": "/code/pallets/lending/src/lib.rs#L1366-L1397",
+        "line": 1387,
+        "end_line": 1415,
+        "url": "/code/pallets/lending/src/lib.rs#L1384-L1415",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2803,6 +2803,101 @@
         "end_line": 362,
         "url": "/code/pallets/utility/src/lib.rs#L308-L362",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "repay_loan",
+    "summary": "Partially repay principal on a subnet loan (\u00a74.4).",
+    "description": "Partially repay principal on a subnet loan (\u00a74.4).\n\nSame wallet vs escrow paths as :class:`CloseLoan`, but settles a\n`principal_part` slice (`k = principal_part / principal`). When\n`principal_part` equals the full principal the runtime closes. Units\nand hotkey rules match close: `principal_part` is alpha for a short and\nTAO for a long; `max_payment` / `min_refund` follow the close-path\nasset for the saved side and `repay_from_wallet` flag.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "repay"
+      ]
+    ],
+    "docs_url": "/docs/tx/repay-loan",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the position to repay."
+        },
+        "principal_part": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Principal to repay: alpha for a short, TAO for a long. Must be > 0 and \u2264 stored principal; equals full principal to close."
+        },
+        "max_payment": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Maximum repayment: TAO, or alpha for a wallet-repaid short."
+        },
+        "min_refund": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum returned collateral: TAO for shorts, alpha for longs."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey for alpha repay (short wallet path) or alpha refund (long repay). Required whenever alpha moves; short escrow buyback (repay_from_wallet=False) may omit it."
+        },
+        "repay_from_wallet": {
+          "type": "boolean",
+          "description": "False (default): buy short alpha back from escrow / sell long escrow. True: repay short alpha from hotkey stake, or pay long TAO from wallet."
+        },
+        "valid_until": {
+          "type": "integer",
+          "description": "Latest block number that may include this repay."
+        }
+      },
+      "required": [
+        "netuid",
+        "principal_part",
+        "max_payment"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx repay-loan --netuid <int> --principal-part <amount|all> --max-payment <amount|all>",
+    "python_class": "RepayLoan",
+    "markdown_url": "/llms.mdx/docs/tx/repay-loan/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "repay",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 1442,
+        "end_line": 1463,
+        "url": "/code/pallets/lending/src/lib.rs#L1439-L1463",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
   },

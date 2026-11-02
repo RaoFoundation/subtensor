@@ -104,6 +104,13 @@ DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
         "payment": 10**9,
         "refund": 10**9,
         "escrow_return": 10**9,
+        "shortfall": 0,
+    },
+    ("LendingRuntimeApi", "quote_repay"): {
+        "payment": 10**9,
+        "refund": 5 * 10**8,
+        "escrow_return": 5 * 10**8,
+        "shortfall": 0,
     },
     ("LendingRuntimeApi", "quote_raise"): {
         "principal_tao": 10**9,

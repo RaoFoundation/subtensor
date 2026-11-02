@@ -514,6 +514,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "AboveMaximumPayment": _C.INVALID_ARGUMENT,
     "BelowMinimumRefund": _C.INVALID_ARGUMENT,
     "InsufficientEscrow": _C.INSUFFICIENT_BALANCE,
+    "CloseTopUpNeeded": _C.INSUFFICIENT_BALANCE,
     "InsufficientCollateral": _C.INSUFFICIENT_BALANCE,
     "InsufficientSellStake": _C.INSUFFICIENT_BALANCE,
     "SlippageExceeded": _C.INSUFFICIENT_LIQUIDITY,

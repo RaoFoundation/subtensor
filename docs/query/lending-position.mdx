@@ -8,10 +8,12 @@ description: "A coldkey's fixed-principal loan on one subnet, or None."
 Principal increases when more is borrowed and never falls when interest is
 collected. This record reports the combined position. Amounts retain their
 currency: short collateral is TAO and short debt is alpha; long collateral
-is alpha and long debt is TAO. The retained `proceeds` compatibility field
-is zero for newly opened shorts; it is not a borrowed-alpha sale balance.
-Interest and
-remaining runway are estimates at the selected block, not a close quote.
+is alpha and long debt is TAO. `proceeds` is the short's escrowed TAO
+(E_S) from the forced alpha sale at open; it is zero for longs.
+`escrow_alpha` is the long's escrowed alpha (A); zero for shorts.
+`expires_at` is the fixed one-year term end (increases restart it).
+`runway_days` is capped at days remaining until `expires_at`. Interest
+and runway are estimates at the selected block, not a close quote.
 
 **Category:** Prices & swaps
 

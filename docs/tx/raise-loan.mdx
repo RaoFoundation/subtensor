@@ -11,7 +11,7 @@ legs succeed or the call rolls back. `valid_until` is a block deadline.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_long_and_sell`](/code/pallets/lending/src/lib.rs#L1366-L1397) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_long_and_sell`](/code/pallets/lending/src/lib.rs#L1384-L1415) |
 
 ## Parameters
 
@@ -26,7 +26,7 @@ legs succeed or the call rolls back. `valid_until` is a block deadline.
 | `sell_alpha` | number \| `"all"` | no | Unlocked alpha to sell for free TAO; omit to sell the newly escrowed alpha (runtime sell_alpha.unwrap_or(realised_a)). |
 | `min_tao_out` | number \| `"all"` | no | Minimum free TAO from the raise sale leg. |
 | `min_escrow_alpha` | number \| `"all"` | no | Minimum escrowed alpha after the long's forced buy. |
-| `valid_until` | integer | no | Latest block number that may include this raise. |
+| `valid_until` | integer | no | Latest block number that may include this raise. Omit to use head + 50 at build time. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -69,7 +69,7 @@ result = sub.execute_tool("raise_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open_long_and_sell` — [`pallets/lending/src/lib.rs#L1369`](/code/pallets/lending/src/lib.rs#L1366-L1397):
+`Lending.open_long_and_sell` — [`pallets/lending/src/lib.rs#L1387`](/code/pallets/lending/src/lib.rs#L1384-L1415):
 
 ```rust
 #[pallet::call_index(3)]

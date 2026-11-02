@@ -79,6 +79,7 @@
     "lending-position",
     "lending-positions",
     "lending-raise-quote",
+    "lending-repay-quote",
     "lending-required-collateral",
     "lending-reserves",
     "quote-stake",

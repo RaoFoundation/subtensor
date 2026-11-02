@@ -266,6 +266,15 @@ INTENT_SAMPLES: dict[str, dict] = {
         "repay_from_wallet": False,
         "valid_until": 10**9,
     },
+    "repay_loan": {
+        "netuid": 1,
+        "hotkey_ss58": ALICE_HOT,
+        "principal_part": 0.5,
+        "max_payment": 10.0,
+        "min_refund": 0,
+        "repay_from_wallet": False,
+        "valid_until": 10**9,
+    },
 }
 
 
@@ -321,6 +330,13 @@ READ_SAMPLES: dict[str, dict] = {
         "netuid": 1,
         "hotkey_ss58": ALICE_HOT,
         "repay_from_wallet": True,
+    },
+    "lending_repay_quote": {
+        "coldkey_ss58": ALICE,
+        "netuid": 1,
+        "principal_part": "0.5",
+        "hotkey_ss58": ALICE_HOT,
+        "repay_from_wallet": False,
     },
     "lending_open_quote": {
         "netuid": 1,

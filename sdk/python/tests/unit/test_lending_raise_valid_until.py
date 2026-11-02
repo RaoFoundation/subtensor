@@ -11,7 +11,7 @@ from bittensor.cli.commands.lending import (
     DEFAULT_RAISE_VALIDITY_BLOCKS,
     _resolve_valid_until,
 )
-from bittensor.intents.lending import CloseLoan, OpenLoan, RaiseLoan
+from bittensor.intents.lending import CloseLoan, OpenLoan, RaiseLoan, RepayLoan
 
 
 class _FakeClient:
@@ -56,6 +56,12 @@ def test_raise_sell_alpha_help_describes_runtime_default_sale():
 
 
 def test_open_and_close_default_valid_until_is_far_future():
-    # Confirm open/close never needed the broken head-relative Client.substrate path.
+    # Confirm open/close/repay never needed the broken head-relative Client.substrate path.
     assert OpenLoan.__dataclass_fields__["valid_until"].default == 2**32 - 1
     assert CloseLoan.__dataclass_fields__["valid_until"].default == 2**32 - 1
+    assert RepayLoan.__dataclass_fields__["valid_until"].default == 2**32 - 1
+
+
+def test_raise_loan_default_valid_until_is_none():
+    # Raise resolves head + 50 in RaiseLoan.build (or via CLI _resolve_valid_until).
+    assert RaiseLoan.__dataclass_fields__["valid_until"].default is None

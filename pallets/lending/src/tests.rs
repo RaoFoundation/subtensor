@@ -4782,9 +4782,13 @@ fn underwater_short_escrow_close_with_extra_tao() {
             quoted.payment,
             pot
         );
+        let shortfall = quoted.payment.saturating_sub(pot);
+        assert_eq!(
+            quoted.shortfall, shortfall,
+            "quoted.shortfall must equal payment − pot"
+        );
 
         // Fund free balance so the shortfall is coverable.
-        let shortfall = quoted.payment.saturating_sub(pot);
         mint_tao(&owner, shortfall.saturating_mul(2));
         let bal_before = tao(&owner);
         assert_ok!(Lending::close(
@@ -6069,6 +6073,69 @@ fn quote_raise_ok_implies_open_long_and_sell_ok() {
         ));
         let opened = Positions::<Test>::get(&owner, netuid()).unwrap();
         assert_eq!(opened.principal, quoted.principal_tao);
+    });
+}
+
+#[test]
+fn quote_raise_amount_mode_matches_execution() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        let borrow = 1_000_000_000_000u64; // 1_000 τ
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        let quoted =
+            Lending::quote_raise(&owner, netuid(), &hotkey, Some(borrow), None, None).unwrap();
+        assert_eq!(quoted.principal_tao, borrow);
+        assert!(
+            quoted.collateral_alpha > 0,
+            "amount-mode quote must solve a positive collateral"
+        );
+        // Skeptic/E2E F2: a fixed hi=u64::MAX/4 with only 16 bisection steps
+        // left a ~2^46 artifact; exponential search must land near LTV size.
+        assert!(
+            quoted.collateral_alpha < (1u64 << 46),
+            "collateral {} looks like a loose bisection artifact (2^46)",
+            quoted.collateral_alpha
+        );
+        // At ~25% LTV and price≈1, collateral ≈ 4× borrow (±50% headroom).
+        assert!(
+            quoted.collateral_alpha < borrow.saturating_mul(8),
+            "collateral {} far above 4× borrow {}",
+            quoted.collateral_alpha,
+            borrow
+        );
+        let alpha_before = alpha(&owner, &hotkey, netuid());
+        assert_ok!(Lending::open_long_and_sell(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            None,
+            Some(borrow),
+            quoted.collateral_alpha,
+            borrow,
+            Some(quoted.sell_alpha),
+            0,
+            0,
+            deadline(),
+        ));
+        let opened = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(opened.principal, borrow);
+        let used = alpha_before.saturating_sub(alpha(&owner, &hotkey, netuid()));
+        // Collateral locked is quote.collateral_alpha (sale comes from unlocked
+        // wallet alpha separately). Compare quote vs position collateral.
+        let diff = quoted.collateral_alpha.abs_diff(opened.collateral);
+        assert!(
+            diff <= quoted.collateral_alpha / 100 + 1,
+            "quote collateral {} vs executed {} (diff {})",
+            quoted.collateral_alpha,
+            opened.collateral,
+            diff
+        );
+        assert!(
+            used >= opened.collateral,
+            "wallet alpha spent {used} must cover locked collateral {}",
+            opened.collateral
+        );
     });
 }
 

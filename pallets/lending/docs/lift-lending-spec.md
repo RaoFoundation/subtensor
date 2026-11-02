@@ -198,12 +198,12 @@ Notation: `C` = collateral, `P` = principal, `(α_L, τ_L)` = the lift legs, `E_
   * `readd(k·P, k·α_L)`; `L_L −= k·P`; `B_L −= k·P`;
   * release remaining slice `C` (and `k·A` if repaid from the wallet) as stake to `(call hotkey, owner)`.
 * **Pro-rata release, not "release down to LTV".** Every position field (`P`, `τ_L`/`α_L`, `E_S`/`A`, `C`, `annual_interest`) scales by `(1 − k)`. The remaining position therefore keeps exactly the LTV, `V_dyn` headroom and interest backing it was opened with, and no revaluation is needed on a non-open path, consistent with no re-check and no liquidation (§5). **Jacob's call (optional):** also allow releasing extra collateral down to the tier LTV against a fresh `V_dyn`. This is more capital-efficient but adds a valuation step to repay.
-* **Dust:** the remainder must be either 0 or have opening value `≥ MinimumLoanValue` (1 τ), else `AmountTooSmall` (close in full instead). A later increase re-runs `V_dyn` on the whole position, as now.
+* **Dust:** the remainder must be either 0 or have opening value `≥ MinimumLoanValue` (runtime: `0.001 τ` / `1_000_000` rao on mainnet), else `AmountTooSmall` (close in full instead). A later increase re-runs `V_dyn` on the whole position, as now.
 * Capacity frees up immediately (`L_side` falls). Dissolution settles whatever remains (§13.3). Once dissolving, `repay` fails with `SubnetUnavailable`, like `close`.
 
 ## 5. Opening checks
 * Enabled; subnet past the new-subnet gate (§2.3); subnet live and **not flagged dissolving** (`do_dissolve_network` has not run, §13.1). There is deliberately **no** block for being the prune candidate, being near the dereg threshold, or a low price (§13). Reference warmed up (#3211 `References`, `ReferenceWarmup`).
-* `opening_value ≥ MinimumLoanValue = 1 τ`.
+* `opening_value ≥ MinimumLoanValue` (mainnet: `0.001 τ`).
 * **LTV (locked):**
   * shorts 25%;
   * longs (including the raise) 25%, and **15% where `G_ref < 3,000 τ`** (thin tier, §10.5);
@@ -241,7 +241,7 @@ require P ≤ LTV_tier · V_dyn
 * `A_ahead` in `V_dyn` already captures the realistic part of the dump: other longs' collateral and pending interest.
 
 ### 5.2 Execution limits: slippage and deadline on every trading extrinsic
-* **Deadline.** Every user extrinsic that trades or moves position funds (`open`, `open_exact`, `repay`, `close`, `open_long_and_sell`) takes `valid_until: BlockNumber` and fails with `DeadlinePassed` if `now > valid_until`. This comes on top of transaction mortality, which wallets often set long. CLI default: `--deadline-blocks 10`.
+* **Deadline.** Every user extrinsic that trades or moves position funds (`open`, `open_exact`, `repay`, `close`, `open_long_and_sell`) takes `valid_until: BlockNumber` and fails with `DeadlinePassed` if `now > valid_until`. This comes on top of transaction mortality, which wallets often set long. CLI: `btcli lending raise` defaults `--valid-until` to head+50 (~10 minutes) when omitted; `open` / `close` / `repay` leave the intent sentinel `2**32−1` ("none" / effectively no CLI deadline) unless set explicitly.
 * **Limits on forced trades** (amounts are the user's floors and ceilings; `0` / `u64::MAX` mean no limit, and the CLI never sends those):
 
 | extrinsic / path | forced trade | user limit | fails with |
@@ -389,7 +389,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
 * `opening_quote`, `ensure_historical_collateral`, `executable_quote`;
 * `burn_interest_tao`;
 * `ConversionCursor`/`convert_pending` (reworked for paced long sales);
-* custody accounts, dissolution settlement, hooks, benchmarks, SDK/CLI intents and docs (CLI conventions: `btcli lending open|close|list`, `--max-slippage`, review/sign/MEV-shield flow).
+* custody accounts, dissolution settlement, hooks, benchmarks, SDK/CLI intents and docs (CLI conventions: `btcli lending open|close|repay|raise|list|show`, `--max-slippage`, review/sign/MEV-shield flow; partial repay and shortfall top-up on underwater short closes).
 
 **Drop from #3211:**
 * the superellipse (curve, migration, `swap_step`/`impls` changes);
@@ -510,7 +510,7 @@ Implementer notes, CLI UX detail and a test matrix are in `lift-lending-raise-cl
   * Rejected names:
     * `add_stake_borrow_and_sell` is wrong: nothing is staked. The sale leg is an unstake.
     * `borrow_tao_raise` suggests the borrowed TAO is what gets raised, which is the free-long misconception v5 removes.
-* **CLI:** `btcli lending raise` (Jacob: "extra command for borrowing TAO on alpha in the CLI which does the full TAO loan atomically"). It sits alongside `btcli lending open|close|list` and inherits their wallet, review, signing, MEV-shield and `--max-slippage` conventions.
+* **CLI:** `btcli lending raise` (Jacob: "extra command for borrowing TAO on alpha in the CLI which does the full TAO loan atomically"). It sits alongside `btcli lending open|close|repay|list|show` and inherits their wallet, review, signing, MEV-shield and `--max-slippage` conventions.
 * **SDK intent:** `RaiseLoan` (next to `OpenLoan`/`CloseLoan`).
 
 ### 12.2 Call signature
@@ -579,20 +579,29 @@ btcli lending raise --netuid 32 --hotkey <hotkey> --collateral 1200000 -w mywall
 # Sell a different amount of own alpha (net price impact ≠ 0; review shows it).
 btcli lending raise --netuid 32 --hotkey <hotkey> --amount 500 --sell 150000 -w mywallet
 
-# Tighter slippage and a 20-block deadline.
-btcli lending raise --netuid 32 --hotkey <hotkey> --amount 500 --max-slippage 0.5 --deadline-blocks 20 -w mywallet
+# Tighter slippage and an explicit inclusion deadline.
+btcli lending raise --netuid 32 --hotkey <hotkey> --amount 500 --max-slippage 0.5 --valid-until <block> -w mywallet
+
+# Partial repay (pro-rata collateral release; does not restart the 1-year term).
+btcli lending repay --netuid 32 --principal 10 --hotkey <hotkey> -w mywallet
+
+# Underwater short close: escrow buyback may need a free-TAO top-up (quote.shortfall);
+# fund the coldkey or use --repay-from-wallet with alpha on --hotkey.
+btcli lending close --netuid 32 -w mywallet
+btcli lending show --netuid 32 -w mywallet   # position + close quote (incl. shortfall)
 ```
 * Flags:
   * `--amount` / `--collateral` (mutually exclusive, as in `open`); `--ltv` (optional, amount-mode helper);
   * `--sell <alpha>` (default: match escrow `A`); `--max-slippage` (default 1%: sets `max_collateral_alpha`, `min_borrow_tao`, `min_tao_out` and `min_escrow_alpha`);
-  * `--deadline-blocks` (default 10 → `valid_until`); `--hotkey`; `-w`.
+  * `--valid-until` (raise default: head+50 when omitted; open/close/repay default: none / `2**32−1`); `--hotkey`; `-w`.
 * Flow:
   1. Quote with runtime API `lending_raise_quote(netuid, coldkey, hotkey, amount|collateral, sell?)`. It returns `P, C, A, S, free_tao_out, price_before/after_buy/after, V_dyn, cap headroom, annual_interest`.
   2. Check the caller's unlocked stake ≥ `C + S` and the signer's fee balance.
-  3. Show the review: borrowed (escrowed), collateral locked, alpha sold, **free TAO you receive (from the sale)**, annual interest (burned), net price impact.
+  3. Show the review: borrowed (escrowed), collateral locked, alpha sold, **free TAO you receive (from the sale)**, annual interest (burned), net price impact, new `expires_at` (increases restart the 1-year term).
   4. Sign and submit through the MEV-shield flow.
 * The review states plainly: *"The loan's TAO stays escrowed as alpha. The TAO you receive comes from selling S of your own alpha."*
 * `--sell 0` is rejected with a pointer to `btcli lending open --side long`.
+* **Repay / shortfall:** `btcli lending repay` takes `--principal` / `--amount` for a pro-rata slice. Close/repay quotes expose `payment`, `refund`, and `shortfall`; underwater short escrow buybacks need free TAO ≥ shortfall (or `--repay-from-wallet`). `CloseTopUpNeeded` / `InsufficientEscrow` point at that shortfall.
 
 ## 13. Subnet deregistration / dissolution settlement
 > **Core requirement (Jacob, locked): shorters must make money on a dereg event.** Shorting a subnet down to deregistration should pay them a reasonable amount. Dissolution must **never** confiscate their short escrow `E_S` or sweep it into the dissolution pot. New shorts are **not** blocked near the dereg threshold; that is intended. Opens are blocked only once the subnet is actually flagged dissolving.
