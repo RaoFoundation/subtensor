@@ -3294,8 +3294,8 @@
   },
   {
     "name": "set_gamma_deposit_daily_spend_cap",
-    "summary": "Set the daily spend cap of your gamma deposit.",
-    "description": "Set the daily spend cap of your gamma deposit.\n\nWhat the spender can spend refills linearly at the cap per 7200 blocks, up\nto the cap, and a cap of zero pauses the deposit. A changed cap keeps what\nthe spender can spend now, up to the new cap. Omitting\n`daily_spend_cap_gamma` removes the cap.",
+    "summary": "Set or remove the daily spend cap of your gamma deposit.",
+    "description": "Set or remove the daily spend cap of your gamma deposit.\n\nWhat the spender can spend refills linearly at the cap per 7200 blocks, up\nto the cap, and a cap of zero pauses the deposit. A changed cap keeps what\nthe spender can spend now, up to the new cap. Set exactly one of\n`daily_spend_cap_gamma` or `remove_cap`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -3328,7 +3328,11 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "The cap, in gamma. Omit to remove it."
+          "description": "The cap, in gamma; 0 pauses the deposit."
+        },
+        "remove_cap": {
+          "type": "boolean",
+          "description": "Remove the cap."
         }
       },
       "required": [
@@ -3355,7 +3359,7 @@
   {
     "name": "set_gamma_deposit_spender",
     "summary": "Set who may spend your gamma deposit.",
-    "description": "Set who may spend your gamma deposit.\n\nTakes effect at once; a deposit opened by a move inherits it. Omitting\n`spender_ss58` sets the default spender, the subnet owner or its lease's\nbeneficiary while a lease owns the subnet.",
+    "description": "Set who may spend your gamma deposit.\n\nTakes effect at once; a deposit opened by a move inherits it. Set exactly\none of `spender_ss58`, `service_hotkey_ss58` or `default_spender`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -3379,7 +3383,15 @@
         },
         "spender_ss58": {
           "type": "string",
-          "description": "The account that spends the deposit. Omit to set the default spender, the subnet owner or its lease's beneficiary while a lease owns the subnet."
+          "description": "The account that spends the deposit."
+        },
+        "service_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes."
+        },
+        "default_spender": {
+          "type": "boolean",
+          "description": "Name the default spender, the subnet owner or its lease's beneficiary while a lease owns the subnet."
         }
       },
       "required": [

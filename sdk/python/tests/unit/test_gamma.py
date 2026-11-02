@@ -80,11 +80,12 @@ class TestAmounts:
             {"hotkey": BOB_HOT, "netuid": 1, "daily_spend_cap": 2_500_000_000}),
         ("set_gamma_deposit_daily_spend_cap", {**DEPOSIT, "daily_spend_cap_gamma": 0},
             {"hotkey": BOB_HOT, "netuid": 1, "daily_spend_cap": 0}),
-        ("set_gamma_deposit_daily_spend_cap", DEPOSIT,
+        ("set_gamma_deposit_daily_spend_cap", {**DEPOSIT, "remove_cap": True},
             {"hotkey": BOB_HOT, "netuid": 1, "daily_spend_cap": None}),
         ("set_gamma_deposit_spender", {**DEPOSIT, "spender_ss58": ALICE},
             {"hotkey": BOB_HOT, "netuid": 1, "spender": ALICE}),
-        ("set_gamma_deposit_spender", DEPOSIT, {"hotkey": BOB_HOT, "netuid": 1, "spender": None}),
+        ("set_gamma_deposit_spender", {**DEPOSIT, "default_spender": True},
+            {"hotkey": BOB_HOT, "netuid": 1, "spender": None}),
         ("spend_gamma", {"netuid": 1, "spends": [{"hotkey_ss58": BOB_HOT, "amount_gamma": "0.5",
             "reference": "ab" * 32}]},
             {"netuid": 1, "spends": [(BOB_HOT, RAO // 2, "0x" + "ab" * 32)]}),
@@ -406,6 +407,27 @@ class TestMintTerms:
         with pytest.raises(BittensorError, match="not both"):
             build("mint_gamma", {**MINT, "spender_ss58": ALICE, "service_hotkey_ss58": ALICE_HOT})
 
+    @pytest.mark.parametrize(("published", "spender"), [(None, ALICE_HOT), (BOB, BOB)])
+    @pytest.mark.asyncio
+    async def test_the_spender_setter_names_a_services_spender(self, published, spender, wallet):
+        sub = FakeSubstrate()
+        service = {"block": 1, "url": "https://a.example", "spender": published}
+        sub.seed("SubtensorModule", "Services", [1, ALICE_HOT], service)
+        intent = build("set_gamma_deposit_spender", {**DEPOSIT, "service_hotkey_ss58": ALICE_HOT})
+        assert (await intent.build(sub, wallet)).params["spender"] == spender
+
+    @pytest.mark.parametrize(
+        ("op", "named"),
+        [("set_gamma_deposit_spender", {}),
+         ("set_gamma_deposit_spender", {"spender_ss58": ALICE, "default_spender": True}),
+         ("set_gamma_deposit_spender", {"spender_ss58": ALICE, "service_hotkey_ss58": ALICE_HOT}),
+         ("set_gamma_deposit_daily_spend_cap", {}),
+         ("set_gamma_deposit_daily_spend_cap", {"daily_spend_cap_gamma": 1, "remove_cap": True})],
+    )  # fmt: skip
+    def test_a_setter_names_exactly_one_value(self, op, named):
+        with pytest.raises(BittensorError, match="exactly one"):
+            build(op, {**DEPOSIT, **named})
+
 
 class TestDepositPreviews:
     @pytest.mark.parametrize(
@@ -636,11 +658,11 @@ class TestCli:
 
     @pytest.mark.parametrize(
         ("flags", "cap"),
-        [(["--no-cap"], None), (["--daily-spend-cap-gamma", "0"], "0"), ([], "refused"),
-         (["--no-cap", "--daily-spend-cap-gamma", "1"], "refused"),
+        [(["--remove-cap"], None), (["--daily-spend-cap-gamma", "0"], "0"), ([], "refused"),
+         (["--remove-cap", "--daily-spend-cap-gamma", "1"], "refused"),
          (["--daily-spend-cap-gamma", "1e-10"], "refused")],
     )  # fmt: skip
-    def test_set_cap_takes_exactly_one_of_a_cap_or_no_cap(self, submitted, flags, cap):
+    def test_set_cap_takes_exactly_one_of_a_cap_or_its_removal(self, submitted, flags, cap):
         result = invoke("gamma", "set-cap", "--netuid", "1", "--hotkey", BOB_HOT, *flags)
         if cap == "refused":
             assert result.exit_code == 2 and not submitted
@@ -649,19 +671,25 @@ class TestCli:
             assert [intent.daily_spend_cap_gamma for intent in submitted] == [cap]
 
     @pytest.mark.parametrize(
-        ("flags", "spender"),
-        [(["--spender", ALICE], ALICE), (["--default-spender"], None), ([], "refused"),
-         (["--spender", ALICE, "--default-spender"], "refused")],
+        ("flags", "named"),
+        [(["--spender", ALICE], (ALICE, None, False)),
+         (["--service-hotkey", ALICE_HOT], (None, ALICE_HOT, False)),
+         (["--default-spender"], (None, None, True)), ([], "refused"),
+         (["--spender", ALICE, "--default-spender"], "refused"),
+         (["--spender", ALICE, "--service-hotkey", ALICE_HOT], "refused")],
     )  # fmt: skip
-    def test_set_spender_takes_exactly_one_of_a_spender_or_the_default(
-        self, submitted, flags, spender
+    def test_set_spender_takes_exactly_one_of_a_spender_a_service_or_the_default(
+        self, submitted, flags, named
     ):
         result = invoke("gamma", "set-spender", "--netuid", "1", "--hotkey", BOB_HOT, *flags)
-        if spender == "refused":
+        if named == "refused":
             assert result.exit_code == 2 and not submitted
         else:
             assert result.exit_code == 0, result.output
-            assert [intent.spender_ss58 for intent in submitted] == [spender]
+            assert [
+                (intent.spender_ss58, intent.service_hotkey_ss58, intent.default_spender)
+                for intent in submitted
+            ] == [named]
 
     def test_bad_rate_tolerance_is_an_error_line(self, submitted):
         result = invoke(
