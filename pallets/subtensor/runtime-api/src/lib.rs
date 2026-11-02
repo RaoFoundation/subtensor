@@ -21,7 +21,7 @@ use pallet_subtensor::rpc_info::{
     },
 };
 use pallet_subtensor::staking::lock::LockState;
-use sp_runtime::AccountId32;
+use sp_runtime::{AccountId32, DispatchError};
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{
     AlphaBalance, GammaBalance, MechId, NetUid, ProxyFilterInfo, ProxyTypeInfo, TaoBalance,
@@ -171,9 +171,9 @@ sp_api::decl_runtime_apis! {
         fn get_gamma_deposit(netuid: NetUid, hotkey: AccountId32) -> Option<GammaDepositInfo<AccountId32>>;
         /// Every deposit of a coldkey, on every subnet.
         fn get_gamma_deposits_for_coldkey(coldkey: AccountId32) -> Vec<GammaDepositInfo<AccountId32>>;
-        /// The alpha burned, TAO value and gamma `mint_gamma` would mint now.
-        fn sim_mint_gamma(netuid: NetUid, amount: TaoBalance) -> Option<(AlphaBalance, TaoBalance, GammaBalance)>;
-        /// `alpha_amount` and the TAO value and gamma of burning it now; it reads no stake.
-        fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Option<(AlphaBalance, TaoBalance, GammaBalance)>;
+        /// The alpha burned, TAO value and gamma `mint_gamma` would mint now, or the error that stops it.
+        fn sim_mint_gamma(netuid: NetUid, amount: TaoBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), DispatchError>;
+        /// `alpha_amount` and the TAO value and gamma of burning it now, or the error that stops it; it reads no stake.
+        fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), DispatchError>;
     }
 }

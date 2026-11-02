@@ -12,7 +12,7 @@ from bittensor import Client
 from bittensor.cli.context import AppContext
 from bittensor.intents import build
 from bittensor.intents._money import UNBOUNDED, gamma_amount, gamma_units
-from bittensor.result import BittensorError, ExtrinsicResult
+from bittensor.result import BittensorError, ChainError, ExtrinsicResult
 from bittensor.sp_core import ss58_encode
 from tests.harness.fake_substrate import FakeSubstrate
 from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, INTENT_SAMPLES, dev_wallet
@@ -36,6 +36,7 @@ MINT_STAKE = {
 MOVE = {"netuid": 1, "origin_hotkey_ss58": ALICE_HOT, "destination_hotkey_ss58": BOB_HOT}
 DEPOSIT = {"netuid": 1, "hotkey_ss58": BOB_HOT}
 SIGNER = ALICE_HOT  # any account, as the dispatch origin
+GAMMA_DISABLED = {"Module": {"index": 7, "error": "0xbf000000"}}
 
 
 def _deposit(coldkey: str = SIGNER, balance: int = 0, **fields) -> dict:
@@ -103,16 +104,17 @@ class TestMinOut:
     @pytest.mark.asyncio
     async def test_quote_less_tolerance(self, wallet, tolerance, gamma, minimum):
         sub = FakeSubstrate()
-        sub.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", (RAO, RAO, gamma))
+        sub.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", {"Ok": (RAO, RAO, gamma)})
         call = await build("mint_gamma", {**MINT, "rate_tolerance": tolerance}).build(sub, wallet)
         assert call.params["min_amount_out"] == minimum
 
     @pytest.mark.asyncio
-    async def test_no_quote_refuses(self, wallet):
+    async def test_a_refused_quote_raises_the_chain_error(self, wallet):
         sub = FakeSubstrate()
-        sub.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", None)
-        with pytest.raises(BittensorError, match="cannot be minted"):
+        sub.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", {"Err": GAMMA_DISABLED})
+        with pytest.raises(ChainError) as refused:
             await build("mint_gamma", MINT).build(sub, wallet)
+        assert refused.value.name == "GammaDisabled"
 
 
 class TestMintWithStake:
@@ -127,7 +129,7 @@ class TestMintWithStake:
         sub.seed_runtime(
             "GammaRuntimeApi",
             "sim_mint_gamma_with_stake",
-            lambda p: quoted.append(p[1]) or (p[1], p[1], 100 * RAO),
+            lambda p: quoted.append(p[1]) or {"Ok": (p[1], p[1], 100 * RAO)},
         )
         intent = build("mint_gamma_with_stake", {**MINT_STAKE, "amount_alpha": amount})
         call = await intent.build(sub, wallet)
@@ -209,7 +211,7 @@ class TestServicesRead:
 class TestGammaReads:
     def test_amounts_are_exact_and_the_feed_has_an_age(self):
         sub = FakeSubstrate()
-        sub.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", (RAO, RAO, 2**53 + 1))
+        sub.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", {"Ok": (RAO, RAO, 2**53 + 1)})
         price = {"accepted": 312_450_000_000, "feed": 312_500_000_000, "fed_at": sub.block - 7}
         sub.seed("SubtensorModule", "TaoUsdPrice", None, price)
         gamma = Client("local", substrate=sub).gamma
@@ -221,11 +223,26 @@ class TestGammaReads:
     def test_quotes_ask_in_chain_units(self):
         sub, asked = FakeSubstrate(), []
         for method in ("sim_mint_gamma", "sim_mint_gamma_with_stake"):
-            sub.seed_runtime("GammaRuntimeApi", method, lambda p: asked.append(p) or (1, 2, 3))
+            sub.seed_runtime(
+                "GammaRuntimeApi", method, lambda p: asked.append(p) or {"Ok": (1, 2, 3)}
+            )
         gamma = Client("local", substrate=sub).gamma
         asyncio.run(gamma.quote_mint_gamma(netuid=3, amount_tao=1.5))
         asyncio.run(gamma.quote_mint_gamma_with_stake(netuid=3, amount_alpha=2))
         assert asked == [[3, 1_500_000_000], [3, 2 * RAO]]
+
+    @pytest.mark.parametrize(
+        ("method", "read", "amount"),
+        [("sim_mint_gamma", "quote_mint_gamma", {"amount_tao": 1}),
+         ("sim_mint_gamma_with_stake", "quote_mint_gamma_with_stake", {"amount_alpha": 1})],
+    )  # fmt: skip
+    def test_a_refused_quote_raises_the_chain_error(self, method, read, amount):
+        sub = FakeSubstrate()
+        sub.seed_runtime("GammaRuntimeApi", method, {"Err": GAMMA_DISABLED})
+        gamma = Client("local", substrate=sub).gamma
+        with pytest.raises(ChainError) as refused:
+            asyncio.run(getattr(gamma, read)(netuid=1, **amount))
+        assert refused.value.name == "GammaDisabled"
 
     def test_deposit_reads_are_exact_and_tell_no_cap_from_a_paused_one(self):
         def info(cap):
@@ -255,7 +272,7 @@ class TestMintPreview:
     async def test_quote_facts(self):
         sub = FakeSubstrate()
         # 1 TAO buys alpha valued at 0.5 TAO, 200 gamma at $400.
-        sub.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", (RAO, RAO // 2, 200 * RAO))
+        sub.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", {"Ok": (RAO, RAO // 2, 200 * RAO)})
         preview = await build("mint_gamma", MINT).preflight(sub, SIGNER, SIGNER)
         facts = dict(preview.facts)
         assert "200" in facts["gamma"] and "190" in facts["minimum"]
@@ -629,10 +646,10 @@ def test_amount_flags(fake, argv, field, value):  # noqa: F811
 
 def test_unmintable_mint_submits_nothing(fake, monkeypatch):  # noqa: F811
     monkeypatch.setattr(AppContext, "confirm", lambda self, prompt, **kw: True)
-    fake.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", None)
+    fake.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", {"Err": GAMMA_DISABLED})
     result = invoke(
         "gamma", "mint", "--netuid", "1", "--hotkey", BOB_HOT, "--amount", "1", "-w", _WALLET_NAME
     )
     assert result.exit_code == 1
-    assert "cannot be minted" in result.output
+    assert "GammaDisabled" in result.output
     assert fake.submissions == []

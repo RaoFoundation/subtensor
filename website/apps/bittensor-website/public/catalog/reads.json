@@ -1684,7 +1684,7 @@
   {
     "name": "quote_mint_gamma",
     "summary": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.",
-    "description": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.\n\nNone when gamma cannot be minted: the subnet does not exist, minting or its\nsubtoken is disabled, the TAO/USD price is missing or stale, the pool lacks liquidity,\nor it would mint less than 0.1 gamma.",
+    "description": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.\n\nRaises the chain error that stops the mint, such as `TaoUsdPriceUnavailable`\nwhen the TAO/USD price is missing or stale, or `AmountTooLow` below 0.1 gamma.",
     "params": {
       "netuid": "integer",
       "amount_tao": "number"
@@ -1703,9 +1703,9 @@
         "container": "GammaRuntimeApi",
         "name": "sim_mint_gamma",
         "path": "pallets/subtensor/src/rpc_info/gamma_info.rs",
-        "line": 61,
+        "line": 62,
         "end_line": 78,
-        "url": "/code/pallets/subtensor/src/rpc_info/gamma_info.rs#L61-L78",
+        "url": "/code/pallets/subtensor/src/rpc_info/gamma_info.rs#L62-L78",
         "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/gamma_info.rs"
       }
     ]
@@ -1713,7 +1713,7 @@
   {
     "name": "quote_mint_gamma_with_stake",
     "summary": "The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.",
-    "description": "The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.\n\nNone when gamma cannot be minted: the subnet does not exist, minting or its\nsubtoken is disabled, the TAO/USD price is missing or stale, or it would mint less than\n0.1 gamma.",
+    "description": "The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.\n\nRaises the chain error that stops the mint, such as `TaoUsdPriceUnavailable`\nwhen the TAO/USD price is missing or stale, or `AmountTooLow` below 0.1 gamma.",
     "params": {
       "netuid": "integer",
       "amount_alpha": "number"
@@ -1732,9 +1732,9 @@
         "container": "GammaRuntimeApi",
         "name": "sim_mint_gamma_with_stake",
         "path": "pallets/subtensor/src/rpc_info/gamma_info.rs",
-        "line": 81,
-        "end_line": 89,
-        "url": "/code/pallets/subtensor/src/rpc_info/gamma_info.rs#L81-L89",
+        "line": 82,
+        "end_line": 90,
+        "url": "/code/pallets/subtensor/src/rpc_info/gamma_info.rs#L82-L90",
         "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/gamma_info.rs"
       }
     ]

@@ -1992,10 +1992,14 @@ fn sim_mint_gamma_equals_mint_gamma() {
         );
 
         SubnetGammaEnabled::<Test>::insert(netuid, false);
-        assert_eq!(SubtensorModule::sim_mint_gamma(netuid, TAO.into()), None);
+        let disabled = Err(Error::<Test>::GammaDisabled.into());
+        assert_eq!(
+            SubtensorModule::sim_mint_gamma(netuid, TAO.into()),
+            disabled
+        );
         assert_eq!(
             SubtensorModule::sim_mint_gamma_with_stake(netuid, stake),
-            None
+            disabled
         );
     });
 }

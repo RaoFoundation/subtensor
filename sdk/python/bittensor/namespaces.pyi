@@ -246,20 +246,18 @@ class Gamma(_ReadNamespace):
     async def gamma_deposits(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
         """Every gamma deposit of a coldkey, on every subnet."""
 
-    async def quote_mint_gamma(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> Optional[dict]:
+    async def quote_mint_gamma(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> dict:
         """The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.
 
-        None when gamma cannot be minted: the subnet does not exist, minting or its
-        subtoken is disabled, the TAO/USD price is missing or stale, the pool lacks liquidity,
-        or it would mint less than 0.1 gamma.
+        Raises the chain error that stops the mint, such as `TaoUsdPriceUnavailable`
+        when the TAO/USD price is missing or stale, or `AmountTooLow` below 0.1 gamma.
         """
 
-    async def quote_mint_gamma_with_stake(self, netuid: int, amount_alpha: float, *, block: Optional[int] = None) -> Optional[dict]:
+    async def quote_mint_gamma_with_stake(self, netuid: int, amount_alpha: float, *, block: Optional[int] = None) -> dict:
         """The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.
 
-        None when gamma cannot be minted: the subnet does not exist, minting or its
-        subtoken is disabled, the TAO/USD price is missing or stale, or it would mint less than
-        0.1 gamma.
+        Raises the chain error that stops the mint, such as `TaoUsdPriceUnavailable`
+        when the TAO/USD price is missing or stale, or `AmountTooLow` below 0.1 gamma.
         """
 
     async def tao_usd_price(self, *, block: Optional[int] = None) -> dict:

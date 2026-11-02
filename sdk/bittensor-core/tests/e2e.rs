@@ -1246,7 +1246,7 @@ fn test_gamma_lifecycle() {
     let api_key = random_wallet().hotkey.ss58_address();
     let amount = amount_tao(10);
     let quote = read("sim_mint_gamma", &[u(netuid), u128v(amount)]);
-    let quoted = as_u128(&tuple(&quote)[2]).expect("quoted gamma");
+    let quoted = as_u128(&tuple(field(&quote, "Ok").expect("quote"))[2]).expect("quoted gamma");
     let mint = gamma(
         "mint_gamma",
         record([
@@ -1345,10 +1345,11 @@ fn test_gamma_lifecycle() {
     feed();
     let staked_key = random_wallet().hotkey.ss58_address();
     let alpha = amount_tao(1);
-    assert!(!matches!(
-        read("sim_mint_gamma_with_stake", &[u(netuid), u128v(alpha)]),
-        Value::Null
-    ));
+    assert!(field(
+        &read("sim_mint_gamma_with_stake", &[u(netuid), u128v(alpha)]),
+        "Ok"
+    )
+    .is_some());
     let mint = gamma(
         "mint_gamma_with_stake",
         record([
