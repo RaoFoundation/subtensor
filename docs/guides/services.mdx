@@ -7,8 +7,10 @@ Any hotkey registered on a subnet can publish a service with
 [`set-service`](/docs/tx/set-service), so that apps and agents can find what the
 subnet serves and how it is paid for. A service is a url to a document of its
 services and the spender its customers name on [gamma](/docs/guides/gamma)
-deposits. Without a spender, the hotkey spends, so it signs the spends and pays
-their fees. Publishing an empty url clears the service. Publishing is free, as serving an axon is, and uses the subnet's
+deposits. A service published without a spender is spent by its hotkey, which
+signs the spends and pays their fees, and publishing again without a spender
+keeps the one it has. Publishing an empty url clears the service. Publishing is
+free, as serving an axon is, and uses the subnet's
 [`serving_rate_limit`](/docs/hyperparameters/serving-rate-limit), so a service
 can be changed or cleared only that many blocks after its own last update,
 whatever the hotkey's axon does.

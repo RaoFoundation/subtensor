@@ -167,9 +167,10 @@ class SetService(Intent):
 
     The chain stores the url and the spender only; the document the url points
     to (the services and their interfaces) is the publisher's. Without
-    ``spender_ss58`` the hotkey spends. Signed by the hotkey, which must be
-    registered on the subnet, and free, as serving an axon is. An empty url
-    clears the service. Updates wait out the subnet's ``serving_rate_limit``.
+    ``spender_ss58`` the service keeps its spender, which for a new service is
+    the hotkey. Signed by the hotkey, which must be registered on the subnet,
+    and free, as serving an axon is. An empty url clears the service. Updates
+    wait out the subnet's ``serving_rate_limit``.
     """
 
     op = "set_service"
@@ -185,7 +186,8 @@ class SetService(Intent):
     spender_ss58: Optional[str] = field(
         default=None,
         metadata={
-            "help": "The spender customers name for the service. Omit to spend with the hotkey."
+            "help": "The spender customers name for the service. Omit to keep the current one, "
+            "which for a new service is the hotkey."
         },
     )
 
@@ -209,10 +211,8 @@ class SetService(Intent):
     def summary(self) -> str:
         if not self.url:
             return f"clear the service on netuid {self.netuid}"
-        return (
-            f"set the service {self.url} on netuid {self.netuid}, spent by "
-            f"{self.spender_ss58 or 'the hotkey'}"
-        )
+        spender = "" if self.spender_ss58 is None else f", spent by {self.spender_ss58}"
+        return f"set the service {self.url} on netuid {self.netuid}{spender}"
 
 
 @register

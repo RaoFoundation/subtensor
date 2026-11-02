@@ -1186,12 +1186,23 @@ fn test_set_service_sets_the_url_and_spender() {
             spender: None,
         };
         assert_eq!(call.get_dispatch_info().pays_fee, Pays::No);
-        for spender in [None, Some(spender)] {
+        // A new service's spender is the hotkey, `None` keeps the spender, naming the hotkey
+        // stores `None`, and clearing the service clears its spender.
+        let cleared = BoundedVec::new();
+        for (url, named, spender) in [
+            (&url, None, None),
+            (&url, Some(spender), Some(spender)),
+            (&url, None, Some(spender)),
+            (&url, Some(hotkey), None),
+            (&url, Some(spender), Some(spender)),
+            (&cleared, None, None),
+            (&url, None, None),
+        ] {
             assert_ok!(SubtensorModule::set_service(
                 RuntimeOrigin::signed(hotkey),
                 netuid,
                 url.clone(),
-                spender
+                named
             ));
             let block = SubtensorModule::get_current_block_as_u64();
             assert_eq!(
