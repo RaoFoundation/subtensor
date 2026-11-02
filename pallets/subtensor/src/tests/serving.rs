@@ -1213,7 +1213,15 @@ fn test_set_service_sets_the_url_and_spender() {
                     spender
                 })
             );
-            System::assert_last_event(Event::ServiceSet { netuid, hotkey }.into());
+            System::assert_last_event(
+                Event::ServiceSet {
+                    netuid,
+                    hotkey,
+                    url: url.clone(),
+                    spender: spender.unwrap_or(hotkey),
+                }
+                .into(),
+            );
         }
     });
 }
