@@ -1584,3 +1584,70 @@ fn test_origin_rally_preserves_dividend_value_for_root_stakers() {
         assert_abs_diff_eq!(incumbent_after, nav_before, epsilon = ROUNDING_EPS);
     });
 }
+
+/// A price-band deferral must freeze the root claimant base as well as the dividend. Otherwise
+/// stake arriving while the credit is queued can capture shares earned by the earlier stakers.
+#[test]
+fn test_deferred_dividend_cannot_be_captured_by_new_root_stake() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(3401);
+        let origin = add_dynamic_network(&hotkey, &U256::from(3402));
+        remove_owner_registration_stake(origin);
+        fund_pool(origin);
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        register_on_root(&hotkey, 0);
+        crate::SubtokenEnabled::<Test>::insert(NetUid::ROOT, true);
+
+        let incumbent = U256::from(3403);
+        let newcomer = U256::from(3404);
+        let root_stake = 100_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &incumbent,
+            NetUid::ROOT,
+            root_stake.into(),
+        );
+        add_balance_to_coldkey_account(&newcomer, TaoBalance::from(2 * root_stake));
+
+        let credit = 10_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(origin, |total| {
+            *total = total.saturating_add(credit.into())
+        });
+        SubtensorModule::enqueue_basket_deposit(&hotkey, origin, credit.into());
+
+        // Move spot outside the immutable fast-EMA band. The eager flush performed by the
+        // root stake call must fail closed before the newcomer changes the claimant base.
+        let tao_before = SubnetTAO::<Test>::get(origin);
+        SubnetTAO::<Test>::insert(origin, tao_before.saturating_div(4u64.into()));
+        assert_noop!(
+            SubtensorModule::do_add_stake(
+                RuntimeOrigin::signed(newcomer),
+                hotkey,
+                NetUid::ROOT,
+                root_stake.into(),
+            ),
+            Error::<Test>::BasketDepositPending
+        );
+        assert_eq!(root_stake_of(&hotkey, &newcomer), 0);
+        assert!(PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
+
+        // Once spot recovers, the retry first settles the old dividend against the incumbent
+        // claimant base and only then admits the new root stake.
+        SubnetTAO::<Test>::insert(origin, tao_before);
+        assert_ok!(SubtensorModule::do_add_stake(
+            RuntimeOrigin::signed(newcomer),
+            hotkey,
+            NetUid::ROOT,
+            root_stake.into(),
+        ));
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
+        assert!(root_stake_of(&hotkey, &newcomer) > 0);
+        assert!(SubtensorModule::get_basket_owed_shares(&hotkey, &incumbent) > 0);
+        assert_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &newcomer),
+            0,
+            "new root stake captured shares from the deferred dividend"
+        );
+    });
+}

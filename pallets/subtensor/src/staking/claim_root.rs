@@ -661,13 +661,17 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         // Deposit any queued dividend credits first so the claim redeems against the
         // fund's full, current state. The flush work is priced into the outcome.
-        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
+        let (flush_work, _, flush_completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
         outcome.flush = flush_work;
 
         let owed_shares: u64 = Self::get_basket_owed_shares(hotkey, coldkey);
         if owed_shares == 0 {
             return Ok(()); // no-op
         }
+        // A successful claim establishes or grows root stake. Do not let that new claimant
+        // base participate in dividend credits earned before this claim but deferred by a
+        // transient valuation failure.
+        ensure!(flush_completed, Error::<T>::BasketDepositPending);
         // A retained root-swap credit is discoverable without a staking-list entry.
         // Redeeming it establishes root stake, so the caller's overall cap applies.
         Self::ensure_staking_hotkeys_can_grow(coldkey, hotkey)?;

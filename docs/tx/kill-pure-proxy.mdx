@@ -13,7 +13,7 @@ account become permanently inaccessible, so empty it first.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.kill_pure`](/code/pallets/proxy/src/lib.rs#L429-L457), [`Proxy.kill_safe_pure`](/code/pallets/proxy/src/lib.rs#L806-L831) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.kill_pure`](/code/pallets/proxy/src/lib.rs#L429-L457), [`Proxy.kill_safe_pure`](/code/pallets/proxy/src/lib.rs#L810-L835) |
 
 ## Parameters
 
@@ -101,9 +101,9 @@ pub fn kill_pure(
 }
 ```
 
-Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L1033).
+Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L1051).
 
-`Proxy.kill_safe_pure` — [`pallets/proxy/src/lib.rs#L809`](/code/pallets/proxy/src/lib.rs#L806-L831):
+`Proxy.kill_safe_pure` — [`pallets/proxy/src/lib.rs#L813`](/code/pallets/proxy/src/lib.rs#L810-L835):
 
 ```rust
 #[pallet::call_index(14)]
@@ -134,6 +134,6 @@ pub fn kill_safe_pure(
 }
 ```
 
-Delegates to [`safe_pure_account`](/code/pallets/proxy/src/lib.rs#L1060).
+Delegates to [`safe_pure_account`](/code/pallets/proxy/src/lib.rs#L1078).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
