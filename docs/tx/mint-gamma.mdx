@@ -15,9 +15,13 @@ names a service published on the subnet, whose spender it takes. It has
 no daily spend cap unless `daily_spend_cap_gamma` sets one. A mint
 naming either fails on a deposit with another.
 Fails rather than minting less than the current quote less
-`rate_tolerance`. The result's `data["minted"]` holds the deposit's
-`hotkey_ss58`, `spender_ss58` and `daily_spend_cap_gamma`, and the
-`alpha_burned`, `tao_value` and `gamma` minted.
+`rate_tolerance`. A plan's `preview` holds the quote's `gamma`,
+`minimum_gamma`, `alpha_burned` and `tao_value`, and the deposit's
+balance, spender and cap as `deposit_balance_gamma` (None when the mint
+opens it), `spender_ss58` (None for the default spender) and
+`daily_spend_cap_gamma`. The result's `data["minted"]` holds the
+deposit's `hotkey_ss58`, `spender_ss58` and `daily_spend_cap_gamma`,
+and the `alpha_burned`, `tao_value` and `gamma` minted.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |

@@ -172,23 +172,30 @@ async def _mint_preflight(
                 f"{intent.hotkey_ss58} is a staking hotkey of {owner}; requests signed with a "
                 "deposit's hotkey are paid from the deposit, so use a fresh hotkey"
             )
-    if deposit is not None and named is None:
-        spender = str(deposit["spender"])
-    else:
-        spender = named or DEFAULT_SPENDER
+    spender = str(deposit["spender"]) if deposit is not None and named is None else named
     if deposit is not None:
         cap = deposit["daily_spend_cap"]
+    minimum = _min_out(gamma, intent.rate_tolerance)
     preview.facts = [
         ("gamma", f"~{_gamma_text(gamma)}"),
-        ("minimum", _gamma_text(_min_out(gamma, intent.rate_tolerance))),
+        ("minimum", _gamma_text(minimum)),
         ("alpha burned", f"~{Balance.from_rao(alpha, intent.netuid)}"),
         ("value", f"~{Balance.from_rao(value)}"),
         ("deposit", "new" if deposit is None else f"holds {_gamma_text(int(deposit['balance']))}"),
-        ("spender", spender),
+        ("spender", spender or DEFAULT_SPENDER),
         ("daily spend cap", "none" if cap is None else _gamma_text(cap)),
         *preview.facts,
     ]
     preview.facts_title = "Quote"
+    preview.preview = {
+        "gamma": gamma_from_units(gamma),
+        "minimum_gamma": gamma_from_units(minimum),
+        "alpha_burned": format(Balance.from_rao(alpha, intent.netuid).decimal, "f"),
+        "tao_value": format(Balance.from_rao(value).decimal, "f"),
+        "deposit_balance_gamma": None if deposit is None else gamma_from_units(deposit["balance"]),
+        "spender_ss58": spender,
+        "daily_spend_cap_gamma": None if cap is None else gamma_from_units(cap),
+    }
     return preview
 
 
@@ -207,9 +214,13 @@ class MintGamma(Intent):
     no daily spend cap unless ``daily_spend_cap_gamma`` sets one. A mint
     naming either fails on a deposit with another.
     Fails rather than minting less than the current quote less
-    ``rate_tolerance``. The result's ``data["minted"]`` holds the deposit's
-    ``hotkey_ss58``, ``spender_ss58`` and ``daily_spend_cap_gamma``, and the
-    ``alpha_burned``, ``tao_value`` and ``gamma`` minted.
+    ``rate_tolerance``. A plan's ``preview`` holds the quote's ``gamma``,
+    ``minimum_gamma``, ``alpha_burned`` and ``tao_value``, and the deposit's
+    balance, spender and cap as ``deposit_balance_gamma`` (None when the mint
+    opens it), ``spender_ss58`` (None for the default spender) and
+    ``daily_spend_cap_gamma``. The result's ``data["minted"]`` holds the
+    deposit's ``hotkey_ss58``, ``spender_ss58`` and ``daily_spend_cap_gamma``,
+    and the ``alpha_burned``, ``tao_value`` and ``gamma`` minted.
     """
 
     op = "mint_gamma"
@@ -282,8 +293,8 @@ class MintGammaWithStake(Intent):
     destroyed, not moved. ``spender_ss58``, ``service_hotkey_ss58`` and
     ``daily_spend_cap_gamma`` name the deposit's spender and cap as for
     ``mint_gamma``. Fails rather than minting less than the current quote
-    less ``rate_tolerance``. Its result's ``data["minted"]`` is as for
-    ``mint_gamma``.
+    less ``rate_tolerance``. Its plan's ``preview`` and result's
+    ``data["minted"]`` are as for ``mint_gamma``.
     """
 
     op = "mint_gamma_with_stake"
