@@ -543,10 +543,14 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         use frame_support::traits::Currency;
         if !Self::if_subnet_exist(netuid) {
             NetworksAdded::<T>::insert(netuid, true);
-            SubtokenEnabled::<T>::insert(netuid, true);
             SubnetMechanism::<T>::insert(netuid, 1u16);
-            NetworkRegisteredAt::<T>::insert(netuid, 0u64);
         }
+        // Always enable trading and backdate registration. Genesis / benchmark
+        // presets may already register `netuid` without a start-call or with a
+        // recent `NetworkRegisteredAt`; without these, opens fail with
+        // `SubnetNotStarted` / `SideCapacityRamping` before measuring bodies.
+        SubtokenEnabled::<T>::insert(netuid, true);
+        NetworkRegisteredAt::<T>::insert(netuid, 0u64);
         SubnetTAO::<T>::set(netuid, tao.into());
         SubnetAlphaIn::<T>::set(netuid, alpha.into());
         TotalStake::<T>::mutate(|total| *total = total.saturating_add(tao.into()));

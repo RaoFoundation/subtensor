@@ -1,8 +1,7 @@
 //! Benchmarks for lift-based lending.
 //!
-//! Extrinsic bodies are invoked so the frame-benchmarking CLI can measure them
-//! on reference hardware. Until that run lands, committed `SubstrateWeight`
-//! values are conservative R/W-derived placeholders (see `weights.rs`).
+//! Extrinsic bodies are invoked so the frame-benchmarking CLI can measure them.
+//! Committed `SubstrateWeight` values in `weights.rs` come from that CLI run.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
@@ -19,12 +18,16 @@ mod benchmarks {
     /// that is already past `valid_after` so measured opens succeed.
     fn seed_lending_ready<T: Config>(netuid: NetUid, caller: &T::AccountId, hotkey: &T::AccountId) {
         Enabled::<T>::put(true);
+        // Full Cap immediately: `capacity_ramp` is 0 while `age <= min_age`, so
+        // with `min_age = 0` we still need `age >= 1` (and a finished ramp).
         LiftParamsStore::<T>::put(LiftParams {
             new_subnet_min_age: 0,
             new_subnet_ramp: 1,
             ..LiftParams::default()
         });
         T::Pool::benchmark_seed_pool(netuid, 1_000_000_000_000_000, 1_000_000_000_000_000);
+        // Past registration (0) + finished 1-block ramp → 100% Cap.
+        frame_system::Pallet::<T>::set_block_number(10_000u32.into());
         T::Pool::benchmark_mint_tao(caller, 50_000_000_000_000);
         T::Pool::benchmark_mint_alpha(caller, hotkey, netuid, 50_000_000_000_000);
         assert_ok!(Pallet::<T>::initialize_custody());
@@ -49,7 +52,8 @@ mod benchmarks {
         }
         Lifts::<T>::mutate(netuid, |book| {
             book.g_ema = T::Pool::pool_tao(netuid).to_u64();
-            book.last = LiftParams::default().settle_ema_blocks;
+            // Gate also requires G_ema aged one settle window past registration.
+            book.last = LiftParams::default().settle_ema_blocks.max(1);
         });
     }
 
@@ -230,11 +234,14 @@ mod benchmarks {
         let period: u64 = T::InterestPeriod::get().saturated_into::<u64>().max(1);
         let due = Positions::<T>::mutate(&caller, netuid, |maybe| {
             let position = maybe.as_mut().expect("fixture opened a short");
-            // Accrue ≥ collateral over one InterestPeriod so collect forfeits.
-            position.annual_interest = position
-                .collateral
+            // Short interest burns TAO from collateral + escrowed proceeds. Size
+            // the coupon so one InterestPeriod exhausts the whole pot and
+            // forfeits (otherwise collect just reschedules).
+            let pot = position.collateral.saturating_add(position.proceeds);
+            position.annual_interest = pot
                 .saturating_mul(year)
                 .saturating_div(period)
+                .saturating_add(1)
                 .max(1);
             position.interest_remainder = 0;
             position.due
