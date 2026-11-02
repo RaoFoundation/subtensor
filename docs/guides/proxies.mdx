@@ -49,10 +49,11 @@ Prefer the narrowest type that covers the job:
 * **Any** — everything, including transfers. Avoid: leaking an `Any` proxy is
   exactly as bad as leaking the coldkey.
 * **NonTransfer** — everything *except* balance transfers, stake transfers,
-  coldkey swaps, basket trading, and gamma mints, moves and spends. It can still set a gamma
-  deposit's spender and daily spend cap, so it can let a spender of its choice spend the
-  deposit, as it can burn alpha. Notably it can manage the account's other proxies, which makes
-  it the natural "manager" proxy.
+  coldkey swaps, basket trading, gamma mints, moves and spends, and
+  `set_service`. It can still set a gamma deposit's spender and daily spend
+  cap, so it can let a spender of its choice spend the deposit, as it can burn
+  alpha. Notably it can manage the account's other proxies, which makes it the
+  natural "manager" proxy.
 * **Transfer** — balance transfers and stake transfers (`transfer_stake` /
   `transfer_stake_and_hotkey`) only.
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
@@ -75,11 +76,11 @@ Prefer the narrowest type that covers the job:
 * **Validate** — run a validator *hotkey* from an operations key:
   every weights call (`set_weights`, `commit_weights`, `reveal_weights`,
   their mechanism, timelocked, CRv3 and batch variants), `serve_axon`,
-  `serve_axon_tls`, `serve_prometheus`, `set_service`, `associate_evm_key`,
+  `serve_axon_tls`, `serve_prometheus`, `associate_evm_key`,
   and `Commitments.set_commitment`. No stake, transfer, registration, key swap,
   child-key, or take call, and no `Utility` / `Proxy` / `Multisig` wrapper.
   The real is the hotkey, so the hotkey signs `add_proxy`. A leaked
-  `Validate` key can set bad weights and re-point the axon, service or EVM key; it
+  `Validate` key can set bad weights and re-point the axon or EVM key; it
   cannot move TAO or alpha.
 * **Weights** — the weights calls only. Strictly inside `Validate`: use it
   for a third-party weight setter (auditor model) that must not be able to

@@ -457,14 +457,16 @@ call_filter_group!(
     [RuntimeCall::SubtensorModule(SubtensorCall::spend_gamma),]
 );
 
-// Crediting gamma to a deposit at any hotkey, which hands its use to that hotkey; granted
-// only to proxies that may transfer.
+// Crediting gamma to a deposit at any hotkey, which hands its use to that hotkey, and naming
+// the spender a service's customers name on their deposits; granted only to proxies that may
+// transfer.
 call_filter_group!(
     GammaCreditCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma),
         RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma_with_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::move_gamma),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_service),
     ]
 );
 
@@ -527,17 +529,16 @@ call_filter_group!(
     ]
 );
 
-// A neuron's network presence: axon / prometheus endpoints, its service url
-// and the EVM key it answers for. Hotkey-signed, no value. These re-point where
-// a subnet reaches (and may pay) the neuron, so they stay out of `Weights` and
-// belong to `Validate` only.
+// A neuron's network presence: axon / prometheus endpoints and the EVM key it
+// answers for. Hotkey-signed, no value. These re-point where a subnet reaches
+// (and may pay) the neuron, so they stay out of `Weights` and belong to
+// `Validate` only.
 call_filter_group!(
     NeuronServingCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::serve_axon),
         RuntimeCall::SubtensorModule(SubtensorCall::serve_axon_tls),
         RuntimeCall::SubtensorModule(SubtensorCall::serve_prometheus),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_service),
         RuntimeCall::SubtensorModule(SubtensorCall::associate_evm_key),
     ]
 );

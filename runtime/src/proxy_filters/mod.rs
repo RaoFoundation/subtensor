@@ -67,10 +67,11 @@ type ValidateAllowed = (WeightCalls, NeuronServingCalls, CommitmentCalls);
 /// Contracts, and Crowdloan calls that can move value indirectly, Multisig
 /// wrappers (they re-dispatch on a fresh origin that drops this filter),
 /// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
-/// owner-key rotation, crediting gamma to a hotkey, and basket trading and
-/// gamma spending (which need the explicit `BasketTrading` and `GammaSpend`
-/// grants). Sudo is excluded because a sudo-key principal would otherwise hand
-/// the delegate root, including forced transfers.
+/// owner-key rotation, crediting gamma to a hotkey or naming a service's
+/// spender, and basket trading and gamma spending (which need the explicit
+/// `BasketTrading` and `GammaSpend` grants). Sudo is excluded because a
+/// sudo-key principal would otherwise hand the delegate root, including forced
+/// transfers.
 /// `SudoCalls` and `TaoUsdPriceFeedCalls` are inventory-only: no restricted
 /// proxy grants them.
 type NonTransferAllowed = (
@@ -935,7 +936,6 @@ mod tests {
                 "SubtensorModule::serve_axon_tls",
                 "SubtensorModule::serve_prometheus",
                 "SubtensorModule::set_mechanism_weights",
-                "SubtensorModule::set_service",
                 "SubtensorModule::set_weights",
             ])
         );
@@ -964,6 +964,8 @@ mod tests {
             ChildKeyCalls,
             RootClaimCalls,
             BasketTradingCalls,
+            GammaSpendCalls,
+            GammaCreditCalls,
             SubtensorValueCalls,
             OwnerKeyCalls,
         )>();

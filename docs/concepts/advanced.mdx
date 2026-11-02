@@ -31,8 +31,8 @@ Prefer the narrowest type that covers the job:
 
 - **Any** — everything the account can do, including transfers. Avoid.
 - **NonTransfer** — everything *except* balance transfers, stake transfers,
-  coldkey swaps, basket trading, and gamma mints, moves and spends. Notably it
-  can manage the account's other proxies.
+  coldkey swaps, basket trading, gamma mints, moves and spends, and
+  `set_service`. Notably it can manage the account's other proxies.
 - **Transfer** — balance transfers and stake transfers (`transfer_stake` /
   `transfer_stake_and_hotkey`) only.
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
@@ -49,7 +49,7 @@ Prefer the narrowest type that covers the job:
 - **BasketTrading** — `swap_basket` and `swap_basket_many` only.
 - **GammaSpend** — `spend_gamma` only.
 - **Validate** — validator hotkey operations: all weights calls,
-  `serve_axon` / `serve_axon_tls` / `serve_prometheus`, `set_service`,
+  `serve_axon` / `serve_axon_tls` / `serve_prometheus`,
   `associate_evm_key`,
   and `Commitments.set_commitment`. Nothing that moves stake or TAO. The real
   account is the hotkey, which signs the grant.
