@@ -18,7 +18,7 @@ from typing import Any
 
 from eth_abi import decode as abi_decode
 from eth_abi import encode as abi_encode
-from eth_utils import function_abi_to_4byte_selector
+from eth_utils import function_signature_to_4byte_selector
 
 from .addresses import is_h160, pubkey_to_ss58, ss58_to_pubkey
 
@@ -359,7 +359,7 @@ def encode_call(fn_abi: dict, args: "list[Any]") -> str:
         names = ", ".join(f"{i['type']} {i['name']}" for i in fn_abi["inputs"])
         raise ValueError(f"{fn_abi['name']} expects {len(types)} argument(s): ({names})")
     coerced = [coerce_argument(t, a) for t, a in zip(types, args)]
-    selector = function_abi_to_4byte_selector(fn_abi)
+    selector = function_signature_to_4byte_selector(f"{fn_abi['name']}({','.join(types)})")
     return "0x" + (selector + abi_encode(types, coerced)).hex()
 
 

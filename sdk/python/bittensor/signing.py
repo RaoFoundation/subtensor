@@ -36,7 +36,7 @@ choke points normalize all of them.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Awaitable, Optional, Protocol, Union, runtime_checkable
 
 from .ledger import LedgerSigner  # noqa: F401  (re-export: hardware signing backend)
 from .wallet import Wallet
@@ -67,7 +67,7 @@ class Signer(Protocol):
     @property
     def crypto_type(self) -> int: ...
 
-    def sign(self, payload: bytes) -> bytes: ...
+    def sign(self, payload: bytes) -> Union[bytes, Awaitable[bytes]]: ...
 
 
 @runtime_checkable
@@ -252,8 +252,6 @@ def resolve_signer(
         )
     if isinstance(wallet, Signer):
         return wallet
-    if getattr(wallet, "uses_extension_signing", False):
-        return wallet
     if isinstance(wallet, KeyedWallet):
         return wallet.coldkey if role == "coldkey" else wallet.hotkey
     raise TypeError(
@@ -277,7 +275,10 @@ def public_view(wallet: WalletLike, role: str = "coldkey") -> Any:
         try:
             # Prefer the public-only hotkey view; not every wallet-shaped
             # object (or legacy wallet on disk) has one.
-            return wallet.hotkeypub
+            public = getattr(wallet, "hotkeypub", None)
+            if public is not None:
+                return public
         except (AttributeError, FileNotFoundError):
-            return wallet.hotkey
+            pass
+        return wallet.hotkey
     return wallet

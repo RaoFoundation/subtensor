@@ -247,7 +247,7 @@ def _make_command(name: str, spec):
     for p in g.parameters("read"):
         annotations[p.name] = p.annotation
         params.append(p)
-    command.__signature__ = inspect.Signature(params)
+    g.set_command_metadata(command, __signature__=inspect.Signature(params))
     command.__annotations__ = annotations
     # The docs page also lists the storage items / runtime APIs the read hits,
     # with source links into the chain code.

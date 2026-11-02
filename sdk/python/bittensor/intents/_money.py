@@ -48,6 +48,17 @@ UNBOUNDED = _Unbounded()
 Spend = Union[Balance, _Unbounded, None]
 
 
+def normalized_balance(value: object) -> Balance:
+    """Read a money field after construction has normalized it.
+
+    A primitive or ``all`` here indicates a missing resolution step; never
+    silently reinterpret it as rao or allow a policy check to fail open.
+    """
+    if not isinstance(value, Balance):
+        raise BittensorError("Expected a normalized Balance; resolve the amount first.")
+    return value
+
+
 def _amount(value: Money, netuid: int, label: str, *, allow_all: bool = False) -> "Balance | str":
     if isinstance(value, str) and value.strip().lower() == ALL:
         if not allow_all:

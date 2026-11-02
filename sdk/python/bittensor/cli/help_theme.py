@@ -28,21 +28,29 @@ from .output import PASTEL_RED
 # informational, so exit 0. Genuine usage errors still exit 2.
 NoArgsIsHelpError.exit_code = 0
 
-# Option and command names: emphasis without hue.
-_help.STYLE_OPTION = "bold"
-_help.STYLE_SWITCH = "bold"
-_help.STYLE_NEGATIVE_OPTION = "bold"
-_help.STYLE_NEGATIVE_SWITCH = "bold"
-_help.STYLE_COMMANDS_TABLE_FIRST_COLUMN = "bold"
-
-# Metadata (argument types, the "Usage:" label, env vars) recedes.
-_help.STYLE_TYPES = "dim"
-_help.STYLE_USAGE = "dim"
-_help.STYLE_OPTION_ENVVAR = "dim"
-
-# Error state is the only color, in the shared pastel shade.
-_help.STYLE_REQUIRED_SHORT = PASTEL_RED
-_help.STYLE_REQUIRED_LONG = f"dim {PASTEL_RED}"
-_help.STYLE_DEPRECATED = PASTEL_RED
-_help.STYLE_ERRORS_PANEL_BORDER = PASTEL_RED
-_help.STYLE_ABORTED = PASTEL_RED
+# These are Typer's runtime configuration attributes. Its inferred literal
+# defaults describe the shipped palette, not the values accepted by Rich.
+_STYLES = {
+    # Option and command names: emphasis without hue.
+    "STYLE_OPTION": "bold",
+    "STYLE_SWITCH": "bold",
+    "STYLE_NEGATIVE_OPTION": "bold",
+    "STYLE_NEGATIVE_SWITCH": "bold",
+    "STYLE_COMMANDS_TABLE_FIRST_COLUMN": "bold",
+    # Metadata recedes.
+    "STYLE_TYPES": "dim",
+    "STYLE_USAGE": "dim",
+    "STYLE_OPTION_ENVVAR": "dim",
+    # Error state is the only color, in the shared pastel shade.
+    "STYLE_REQUIRED_SHORT": PASTEL_RED,
+    "STYLE_REQUIRED_LONG": f"dim {PASTEL_RED}",
+    "STYLE_DEPRECATED": PASTEL_RED,
+    "STYLE_ERRORS_PANEL_BORDER": PASTEL_RED,
+    "STYLE_ABORTED": PASTEL_RED,
+}
+for _name, _style in _STYLES.items():
+    # Catch renamed/removed hooks on a Typer upgrade instead of silently
+    # creating an attribute the renderer never reads.
+    if not isinstance(getattr(_help, _name), str):
+        raise TypeError(f"Typer help style {_name} must be a string")
+    setattr(_help, _name, _style)

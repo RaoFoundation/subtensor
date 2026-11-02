@@ -15,7 +15,7 @@ from .._generated import calls
 from .._generated import storage as st
 from ..evm.addresses import h160_to_ss58, normalize_h160, ss58_to_h160_truncated
 from ..result import BittensorError
-from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
+from ._money import ALL, UNBOUNDED, Money, Spend, normalized_balance, tao_amount
 from .base import Intent
 from .registry import register
 
@@ -56,7 +56,9 @@ class FundEvmKey(Intent):
                 calls.Balances.transfer_all(dest=self.mirror_ss58, keep_alive=True)
             )
         return await substrate.compose(
-            calls.Balances.transfer_keep_alive(dest=self.mirror_ss58, value=self.amount_tao.rao)
+            calls.Balances.transfer_keep_alive(
+                dest=self.mirror_ss58, value=normalized_balance(self.amount_tao).rao
+            )
         )
 
     def summary(self) -> str:
@@ -71,7 +73,7 @@ class FundEvmKey(Intent):
     def spend(self) -> Spend:
         if self.amount_tao == ALL:
             return UNBOUNDED
-        return self.amount_tao
+        return normalized_balance(self.amount_tao)
 
 
 @register
@@ -111,7 +113,7 @@ class EvmWithdraw(Intent):
             if rao <= 0:
                 raise BittensorError("nothing to claim: the EVM deposit address is empty")
         else:
-            rao = self.amount_tao.rao
+            rao = normalized_balance(self.amount_tao).rao
         return await substrate.compose(calls.EVM.withdraw(address=truncated, value=rao))
 
     def summary(self) -> str:

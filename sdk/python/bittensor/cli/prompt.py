@@ -682,6 +682,7 @@ def _run_app(app: typer.Typer) -> None:
                 _missing_error(app_ctx, [spec.flag for spec in specs])
             # Wallet-using commands confirm the signing wallet before their own
             # params (has a default, so it is never part of the missing error).
+            assert error.ctx is not None
             wallet_spec = _signing_wallet_spec(error.ctx.command, app_ctx, args)
             if wallet_spec is not None:
                 specs.insert(0, wallet_spec)

@@ -458,9 +458,10 @@ def call(
             fresh operation and risk running the call twice.
             """
             result = None
+            assert rounds is not None
             for index, (name, ss58, backend) in enumerate(rounds):
                 if index:
-                    if ms_helpers.multisig_executed(result.events):
+                    if result is not None and ms_helpers.multisig_executed(result.events):
                         app_ctx.output.message(
                             f"[green]the call executed after {index} approval(s) — "
                             "skipping the remaining signatories[/green]"

@@ -112,7 +112,9 @@ def _read_ciphertext(app_ctx: AppContext, data: Optional[str], file: Optional[st
         if text and all(c in string.hexdigits for c in text.removeprefix("0x")):
             return Timelocked.parse(text)
         return Timelocked.parse(raw)
-    return Timelocked.parse(data)  # type: ignore[arg-type]
+    if data is None:
+        raise typer.BadParameter("provide ciphertext or a file")
+    return Timelocked.parse(data)
 
 
 def _reveal_note(sealed: Timelocked) -> str:
@@ -196,7 +198,10 @@ def encrypt_cmd(
     if file is None and data is not None and _is_file(data):
         file = data
         app_ctx.output.message(f"sealing file {file}")
-    payload: str | bytes = Path(file).read_bytes() if file else data  # type: ignore[assignment]
+    if file is None and data is None:
+        raise typer.BadParameter("provide a payload or a file")
+    payload = Path(file).read_bytes() if file else data
+    assert payload is not None
 
     try:
         sealed = timelock_encrypt(

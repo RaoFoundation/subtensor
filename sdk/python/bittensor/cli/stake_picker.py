@@ -124,6 +124,7 @@ def _pick_target(
             index = int(raw)
             if 1 <= index <= len(local):
                 chosen = local[index - 1]
+                assert chosen.ss58 is not None
                 app_ctx.output.name_address(chosen.ss58, f"{app_ctx.wallet_name}/{chosen.name}")
                 kwargs[hotkey_field] = chosen.ss58
                 return [flag, chosen.ss58]
@@ -333,11 +334,11 @@ def _pick(
     that actually hold stake), so the position list covers just that subnet.
     Returns the argv tokens for the skip-the-prompts hint.
     """
-    owner, owner_label = owner if owner is not None else _stake_owner(app_ctx, kwargs)
+    owner_address, owner_label = owner if owner is not None else _stake_owner(app_ctx, kwargs)
     netuid = kwargs.get(netuid_field) if netuid_field else None
 
     async def _fetch(client):
-        valuation = await client.read("stake_value_for_coldkey", coldkey_ss58=owner)
+        valuation = await client.read("stake_value_for_coldkey", coldkey_ss58=owner_address)
         positions = [p for p in valuation.positions if p.stake.rao > 0]
         names = local_address_names(app_ctx.wallet_path)
         unnamed = [p.hotkey for p in positions if p.hotkey not in names]
@@ -369,8 +370,8 @@ def _pick(
 
         async def _lock(client):
             return await asyncio.gather(
-                client.read("coldkey_lock", coldkey_ss58=owner, netuid=netuid),
-                client.read("stake_availability", coldkey_ss58=owner, netuid=netuid),
+                client.read("coldkey_lock", coldkey_ss58=owner_address, netuid=netuid),
+                client.read("stake_availability", coldkey_ss58=owner_address, netuid=netuid),
             )
 
         lock, availability = app_ctx.run(_lock)

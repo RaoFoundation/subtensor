@@ -396,6 +396,7 @@ class SetWeights(Intent):
         )
         if self.raw_u16:
             await _ensure_raw_null(substrate, self.netuid)
+        assert self.uids is not None and self.weights is not None
         norm_uids, norm_vals = _conform(
             self.uids, self.weights, preflight, self.netuid, self.raw_u16
         )
@@ -432,10 +433,12 @@ class SetWeights(Intent):
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         if self.raw_u16:
             return []
+        assert self.weights is not None
         warning = await _would_clip(substrate, self.netuid, self.weights)
         return [warning] if warning else []
 
     def summary(self) -> str:
+        assert self.uids is not None
         return f"set weights on netuid {self.netuid} for {len(self.uids)} uids"
 
 
@@ -486,6 +489,7 @@ class CommitWeights(Intent):
         )
         if self.raw_u16:
             await _ensure_raw_null(substrate, self.netuid)
+        assert self.uids is not None and self.weights is not None
         norm_uids, norm_vals = _conform(
             self.uids, self.weights, preflight, self.netuid, self.raw_u16
         )
@@ -503,10 +507,12 @@ class CommitWeights(Intent):
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         if self.raw_u16:
             return []
+        assert self.weights is not None
         warning = await _would_clip(substrate, self.netuid, self.weights)
         return [warning] if warning else []
 
     def summary(self) -> str:
+        assert self.uids is not None
         return f"commit weights on netuid {self.netuid} for {len(self.uids)} uids"
 
 

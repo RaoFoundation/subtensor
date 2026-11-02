@@ -175,7 +175,7 @@ class Balance:
     def __ge__(self, other: "Balance | int | float") -> bool:
         return self.rao >= self._rao_of(other)
 
-    def _rao_of(self, other: "Balance | int") -> int:
+    def _rao_of(self, other: object) -> int:
         if isinstance(other, Balance):
             self._same_unit(other)
             return other.rao

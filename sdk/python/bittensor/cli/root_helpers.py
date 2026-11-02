@@ -282,12 +282,12 @@ def pick_claim_hotkey(
         if label not in matchable:
             matchable[label] = pos
 
-    prompt = Text("  ")
-    prompt.append(flag.lstrip("-"), style=STYLE_COMMAND)
-    prompt.append(" [1]", style=STYLE_HINT)
-    prompt.append(": ", style=STYLE_COMMAND)
+    prompt_text = Text("  ")
+    prompt_text.append(flag.lstrip("-"), style=STYLE_COMMAND)
+    prompt_text.append(" [1]", style=STYLE_HINT)
+    prompt_text.append(": ", style=STYLE_COMMAND)
     while True:
-        raw = console.input(prompt).strip()
+        raw = console.input(prompt_text).strip()
         if not raw:
             return held[0]
         if raw in matchable:

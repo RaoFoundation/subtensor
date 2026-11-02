@@ -234,6 +234,7 @@ class SetTake(Intent):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
         item = st.SubtensorModule.Delegates
         current = int(await substrate.query(item[0], item[1], [hotkey]) or 0)
+        assert isinstance(self.take, int)
         if self.take == current:
             raise BittensorError(f"delegate take is already {current}/{U16_MAX}; nothing to change")
         call = (
@@ -244,4 +245,5 @@ class SetTake(Intent):
         return await substrate.compose(call)
 
     def summary(self) -> str:
+        assert isinstance(self.take, int)
         return f"set delegate take to {self.take / U16_MAX:.2%} ({self.take} as u16)"

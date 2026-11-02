@@ -98,7 +98,9 @@ def _prompt_set_args(
             PromptSpec(field="value", flag="--value", help=_VALUE_HELP, parse=_parse_value)
         )
     fill_missing(app_ctx, specs, kwargs)
-    return kwargs["name"], kwargs["value"]
+    name, value = kwargs["name"], kwargs["value"]
+    assert isinstance(name, str) and isinstance(value, str)
+    return name, value
 
 
 @app.command("set", rich_help_panel=PANEL_SUBNETS)
@@ -219,7 +221,9 @@ def _prompt_take(app_ctx: AppContext, hotkey: str) -> int:
         [PromptSpec(field="take", flag="--take", help=_TAKE_HELP, parse=_parse)],
         kwargs,
     )
-    return kwargs["take"]
+    take = kwargs["take"]
+    assert isinstance(take, int)
+    return take
 
 
 @app.command("set-take", rich_help_panel=PANEL_VALIDATORS)

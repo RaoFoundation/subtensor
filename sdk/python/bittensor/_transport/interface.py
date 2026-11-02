@@ -494,7 +494,7 @@ class SubstrateConnection:
                 era = dict(era)
                 era["current"] = await self.get_finalized_block_number()
             codec = await self._runtimes.codec_at(None)
-            birth = codec.era_birth(era, era.get("current"))
+            birth = codec.era_birth(era, era["current"])
             return era, await self.get_block_hash(birth)
         raise ValueError(f"unsupported era: {era!r}")
 
@@ -769,7 +769,10 @@ class SubstrateConnection:
             [multisig_account.ss58_address, "0x" + codec.call_hash(call).hex()],
         )
         maybe_timepoint = pending["when"] if pending else None
-        signer_address = _ss58_encode(bytes(keypair.public_key), self.ss58_format)
+        public_key = keypair.public_key
+        if public_key is None:
+            raise ValueError("multisig signer requires a public key")
+        signer_address = _ss58_encode(bytes(public_key), self.ss58_format)
         other_signatories = [
             address for address in multisig_account.signatories if address != signer_address
         ]

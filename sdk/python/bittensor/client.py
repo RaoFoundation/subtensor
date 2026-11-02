@@ -20,7 +20,7 @@ import asyncio
 import contextlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Optional, Union
+from typing import Any, AsyncIterator, Optional, Sequence, Union
 
 from . import config
 from . import reads as read_registry
@@ -62,7 +62,7 @@ from .sp_core import ss58_decode
 
 # A generated descriptor is a (container, name) pair (see bittensor/_generated);
 # a plain 2-tuple of strings works for items missing from the generated catalog.
-Descriptor = tuple[str, str]
+Descriptor = Union[tuple[str, str], _st.Item]
 
 # A moment in time: datetime, unix timestamp, or ISO-8601 string.
 WhenLike = Union[datetime, str, int, float]
@@ -307,7 +307,7 @@ class Client:
         workers: int = 4,
         max_seconds: float = 300,
         backend: str = "auto",
-        device_ids: tuple[int, ...] | None = None,
+        device_ids: Sequence[int] | None = None,
     ):
         """Mine a fresh PowRegister intent using public addresses only.
 

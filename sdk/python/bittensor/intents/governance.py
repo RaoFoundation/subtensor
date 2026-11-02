@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .._generated import calls
-from ._money import Money, Spend, tao_amount
+from ._money import Money, Spend, normalized_balance, tao_amount
 from .base import Intent
 from .registry import register
 from .staking import DEFAULT_RATE_TOLERANCE, _alpha_price_rao, _check_rate_tolerance
@@ -149,7 +149,7 @@ class StakeBurn(Intent):
             calls.SubtensorModule.add_stake_burn(
                 hotkey=hotkey,
                 netuid=self.netuid,
-                amount=self.amount_tao.rao,
+                amount=normalized_balance(self.amount_tao).rao,
                 limit=limit,
             )
         )
@@ -158,7 +158,7 @@ class StakeBurn(Intent):
         return f"stake burn {self.amount_tao} on netuid {self.netuid}"
 
     def spend(self) -> Spend:
-        return self.amount_tao
+        return normalized_balance(self.amount_tao)
 
 
 @register
