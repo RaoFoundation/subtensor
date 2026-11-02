@@ -1235,19 +1235,26 @@ fn daily_spend_cap_bucket_rules() {
         spend(100 * GAMMA);
         assert_eq!(spendable(), 0);
 
-        // Raising adds the increase; lowering clamps.
+        // A changed cap keeps what is available, up to the new cap, and refills at it.
         wait(day / 2);
         cap(Some(200 * GAMMA));
-        assert_eq!(spendable(), 150 * GAMMA);
+        assert_eq!(spendable(), 50 * GAMMA);
+        wait(day / 4);
+        assert_eq!(spendable(), 100 * GAMMA);
         cap(Some(40 * GAMMA));
         assert_eq!(spendable(), 40 * GAMMA);
 
-        // Zero pauses the deposit: an entry spends nothing and emits nothing.
+        // Zero pauses the deposit: an entry spends nothing and emits nothing. Ending the pause
+        // refills from nothing.
         cap(Some(0));
         wait(day);
         System::reset_events();
         spend(GAMMA);
         assert!(gamma_events().is_empty());
+        cap(Some(100 * GAMMA));
+        assert_eq!(spendable(), 0);
+        wait(day / 4);
+        assert_eq!(spendable(), 25 * GAMMA);
 
         // `None` removes the cap.
         cap(None);

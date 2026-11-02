@@ -384,8 +384,9 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Sets the deposit's daily spend cap. A new cap starts with a full bucket, raising it
-    /// adds the increase to the bucket, lowering it clamps the bucket, and `None` removes it.
+    /// Sets the deposit's daily spend cap, or removes it when `daily_spend_cap` is `None`. A cap
+    /// set where there was none starts with a full bucket, and a changed cap keeps what the
+    /// bucket allows now, up to the new cap.
     pub fn do_set_gamma_deposit_daily_spend_cap(
         origin: OriginFor<T>,
         hotkey: T::AccountId,
@@ -396,9 +397,7 @@ impl<T: Config> Pallet<T> {
         let mut deposit = Self::own_gamma_deposit(netuid, &hotkey, &coldkey)?;
         let now = Self::get_current_block_as_u64();
         let available = match (Self::gamma_allowance(&deposit, now), daily_spend_cap) {
-            (Some(allowance), Some(cap)) => allowance
-                .saturating_add(cap.saturating_sub(deposit.daily_spend_cap.unwrap_or_default()))
-                .min(cap),
+            (Some(allowance), Some(cap)) => allowance.min(cap),
             _ => daily_spend_cap.unwrap_or_default(),
         };
         deposit.daily_spend_cap = daily_spend_cap;

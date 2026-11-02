@@ -142,12 +142,13 @@ btcli gamma set-spender --netuid 51 --hotkey API_KEY --spender SERVICE
 A daily spend cap, set with
 [`set-gamma-deposit-daily-spend-cap`](/docs/tx/set-gamma-deposit-daily-spend-cap),
 bounds what the spender can take. What it allows refills linearly at the cap
-per 7200 blocks, up to the cap. A new cap starts full, raising it adds the
-increase, and lowering it clamps what is left. A cap of zero pauses the
-deposit, and `--no-cap` removes the cap.
+per 7200 blocks, up to the cap. A cap set where there was none starts full, and
+a changed cap keeps what it allows now, up to the new cap, so ending a pause
+refills from nothing. A cap of zero pauses the deposit, and `--no-cap` removes
+the cap.
 
-While the cap is unchanged, a spender takes at most the cap plus its refill over
-any period. A deposit opened with a cap starts full.
+While a deposit has a cap, a spender takes at most the highest cap plus its
+refill over any period. A deposit opened with a cap starts full.
 
 ```bash
 btcli gamma set-cap --netuid 51 --hotkey API_KEY --daily-spend-cap-gamma 20
