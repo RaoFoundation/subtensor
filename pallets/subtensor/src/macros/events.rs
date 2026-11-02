@@ -1040,6 +1040,10 @@ mod events {
             netuid: NetUid,
             /// Hotkey that set it.
             hotkey: T::AccountId,
+            /// The service's url, empty when cleared.
+            url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
+            /// The spender customers name, the hotkey when the service names none.
+            spender: T::AccountId,
         },
     }
 }

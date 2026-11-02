@@ -179,11 +179,16 @@ impl<T: Config> Pallet<T> {
             &hotkey,
             ServiceInfo {
                 block,
-                url,
-                spender,
+                url: url.clone(),
+                spender: spender.clone(),
             },
         );
-        Self::deposit_event(Event::ServiceSet { netuid, hotkey });
+        Self::deposit_event(Event::ServiceSet {
+            netuid,
+            spender: spender.unwrap_or_else(|| hotkey.clone()),
+            hotkey,
+            url,
+        });
         Ok(())
     }
 
