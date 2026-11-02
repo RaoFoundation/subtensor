@@ -204,7 +204,7 @@ fn mint_tao_usd_price_requires_a_fresh_feed() {
 }
 
 #[test]
-fn feed_is_refused_for_other_signers_and_zero() {
+fn feed_is_free_for_the_oracle_and_refused_for_other_signers_and_zero() {
     new_test_ext(1).execute_with(|| {
         let oracle = RuntimeOrigin::signed(U256::from(ORACLE));
         assert_noop!(
@@ -220,7 +220,10 @@ fn feed_is_refused_for_other_signers_and_zero() {
             SubtensorModule::feed_tao_usd_price(oracle.clone(), 0),
             Error::<Test>::InvalidValue
         );
-        assert_ok!(SubtensorModule::feed_tao_usd_price(oracle.clone(), PRICE));
+        assert_eq!(
+            SubtensorModule::feed_tao_usd_price(oracle.clone(), PRICE),
+            Ok(Pays::No.into())
+        );
 
         // A lower feed is accepted at once; a higher one is risen toward.
         System::set_block_number(2);
