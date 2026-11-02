@@ -100,6 +100,23 @@ impl<T: Config> Pallet<T> {
             .fold(0u64, |nav, (_, _, value)| nav.saturating_add(value)))
     }
 
+    /// Fallible NAV for dividend share issuance. Each live quote is capped at the holding's
+    /// fast-EMA mark, so an in-block pump cannot inflate either side of the mint price.
+    pub(crate) fn try_get_validator_basket_anchored_nav_tao(
+        hotkey: &T::AccountId,
+    ) -> Result<u64, DispatchError> {
+        Ok(Self::try_valued_basket_holdings(hotkey)?.into_iter().fold(
+            0u64,
+            |nav, (netuid, alpha, value)| {
+                nav.saturating_add(Self::anchored_basket_holding_value(
+                    netuid,
+                    alpha.to_u64(),
+                    value,
+                ))
+            },
+        ))
+    }
+
     /// Single source of truth for redemption sizing: a staker's owed shares are worth
     /// `owed * N / P` TAO (fund NAV over outstanding shares), capped at the NAV so a claim can
     /// never be marked above what the fund holds.

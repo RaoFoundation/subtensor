@@ -9,8 +9,8 @@ use crate::{
     MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys,
     PendingBasketDeposits, RegistrationsThisInterval, RootAlphaDividendsPerSubnet,
     RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
-    SubnetAlphaOut, SubnetLimit, SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow,
-    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
+    SubnetAlphaOut, SubnetFastMovingPrice, SubnetLimit, SubnetMovingPrice, SubnetOwnerHotkey,
+    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -34,6 +34,9 @@ pub(super) fn fund_pool(netuid: NetUid) {
     let tao = TaoBalance::from(1_000_000_000_000u64);
     SubnetTAO::<Test>::insert(netuid, tao);
     SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+    // Production seeds the fast EMA from spot on its first block update. These tests install
+    // reserves directly, so mirror that lifecycle step explicitly.
+    SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
     if let Some(subnet_account) = SubtensorModule::get_subnet_account_id(netuid) {
         add_balance_to_coldkey_account(&subnet_account, tao);
     }
@@ -2834,6 +2837,7 @@ fn test_root_basket_large_magnitudes_no_saturation() {
         // Very deep pool at price 1 so a 2e13 trade has negligible slippage.
         SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
 
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();

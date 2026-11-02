@@ -1351,6 +1351,10 @@ impl<T: Config> Pallet<T> {
                 {
                     false
                 }
+                // An announcement authorizes a future call by hash, after this origin's
+                // restrictions are gone. Since the payload is unavailable here, a restricted
+                // proxy cannot prove that the deferred call would pass its current filter.
+                Some(Call::announce { .. }) if def.proxy_type != T::ProxyType::default() => false,
                 _ => def.proxy_type.filter(c),
             }
         });

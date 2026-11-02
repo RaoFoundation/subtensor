@@ -2457,6 +2457,7 @@ fn test_revert_claim_root_with_swap_hotkey() {
         // Route the validator's beta basket back into this subnet so dividends accrue.
         SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
         Uids::<Test>::insert(NetUid::ROOT, hk1, 0u16);
         Weights::<Test>::insert(
             NetUidStorageIndex::ROOT,
@@ -2955,6 +2956,7 @@ fn test_swap_hotkey_root_claims_unchanged_if_not_root() {
         // Route the validator's beta basket back into this subnet so dividends accrue.
         SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
         Uids::<Test>::insert(NetUid::ROOT, neuron_hotkey, 0u16);
         Weights::<Test>::insert(
             NetUidStorageIndex::ROOT,
@@ -3039,6 +3041,7 @@ fn test_swap_hotkey_root_claims_changed_if_root() {
         // Route the validator's beta basket back into this subnet so dividends accrue.
         SubnetTAO::<Test>::insert(netuid_1, TaoBalance::from(1_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid_1, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid_1, U64F64::from_num(1));
         Uids::<Test>::insert(NetUid::ROOT, neuron_hotkey, 0u16);
         Weights::<Test>::insert(
             NetUidStorageIndex::ROOT,
@@ -3125,6 +3128,7 @@ fn test_swap_hotkey_root_claims_changed_if_all_subnets() {
         // Route the validator's beta basket back into this subnet so dividends accrue.
         SubnetTAO::<Test>::insert(netuid_1, TaoBalance::from(1_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid_1, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid_1, U64F64::from_num(1));
         Uids::<Test>::insert(NetUid::ROOT, neuron_hotkey, 0u16);
         Weights::<Test>::insert(
             NetUidStorageIndex::ROOT,

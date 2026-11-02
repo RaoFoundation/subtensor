@@ -1318,3 +1318,70 @@ fn test_stake_into_basket_cannot_skim_compounding() {
         assert_shares_fully_owed(&hotkey, &[alice, bob], ROUNDING_EPS);
     });
 }
+
+/// A same-block pump of the origin pool must not turn a small queued dividend into a large
+/// share mint. The live quote may move with the manipulated reserves, but dividend issuance
+/// is capped at the fast-EMA value and passive holders cannot be diluted when the pump unwinds.
+#[test]
+fn test_pumped_origin_cannot_overmint_dividend_shares() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(3001);
+        let hotkey = U256::from(3002);
+        let origin = add_dynamic_network(&hotkey, &owner);
+        remove_owner_registration_stake(origin);
+        fund_pool(origin);
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        register_on_root(&hotkey, 0);
+
+        let alice = U256::from(3003);
+        let bob = U256::from(3004);
+        let stake = 10_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            stake.into(),
+        );
+        add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * stake));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
+            hotkey,
+            stake.into(),
+        ));
+
+        let shares_before = fund_shares(&hotkey);
+        let bob_payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
+        let credit = 1_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(origin, |total| {
+            *total = total.saturating_add(credit.into())
+        });
+        SubtensorModule::enqueue_basket_deposit(&hotkey, origin, credit.into());
+
+        let tao_before = SubnetTAO::<Test>::get(origin);
+        // Raise the live pool price 1,000x without advancing the EMA, as a same-block pump
+        // would. The realizable quote demonstrates that the uncapped mint numerator moved.
+        SubnetTAO::<Test>::insert(origin, TaoBalance::from(1_000_000_000_000_000u64));
+        let pumped_live_value = SubtensorModule::realizable_tao_for_alpha(origin, credit);
+        assert!(
+            pumped_live_value > 100 * credit,
+            "test setup did not materially pump the live quote: {pumped_live_value}"
+        );
+
+        flush_baskets();
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
+        let minted = fund_shares(&hotkey).saturating_sub(shares_before);
+        assert!(
+            minted > credit / 3 && minted <= credit,
+            "pumped live quote over-minted dividend shares: {minted} for {credit} alpha"
+        );
+
+        // Once the transient reserve change is gone, the passive holder has not lost value.
+        SubnetTAO::<Test>::insert(origin, tao_before);
+        let bob_payout_after = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
+        assert!(
+            bob_payout_after >= bob_payout_before,
+            "pump diluted passive holder: {bob_payout_after} < {bob_payout_before}"
+        );
+    });
+}

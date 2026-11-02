@@ -921,6 +921,52 @@ fn nested_announced_proxy_intersects_outer_and_inner_authority() {
 }
 
 #[test]
+fn restricted_proxy_cannot_create_deferred_authority() {
+    new_test_ext().execute_with(|| {
+        // Account 2 has restricted proxy administration over 1, while 1 has an unrestricted
+        // delayed proxy over 5. Letting 2 plant an announcement as 1 would detach the future
+        // call from the JustProxy filter and let any relayer execute it with account 5's full
+        // authority.
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::JustProxy,
+            0
+        ));
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(5),
+            1,
+            ProxyType::Any,
+            1
+        ));
+
+        let deferred = Box::new(RuntimeCall::Proxy(ProxyCall::add_proxy {
+            delegate: 2,
+            proxy_type: ProxyType::Any,
+            delay: 0,
+        }));
+        let call_hash = BlakeTwo256::hash_of(&deferred);
+        let announce = RuntimeCall::Proxy(ProxyCall::announce { real: 5, call_hash });
+
+        assert_ok!(Proxy::proxy(
+            RuntimeOrigin::signed(2),
+            1,
+            Some(ProxyType::JustProxy),
+            Box::new(announce),
+        ));
+        assert!(System::events().iter().any(|event| event.event
+            == RuntimeEvent::Proxy(ProxyEvent::ProxyExecuted {
+                result: Err(SystemError::CallFiltered.into()),
+            })));
+        assert!(Announcements::<Test>::get(1).0.is_empty());
+
+        // Direct announcements by the actual delegate keep their existing relayer semantics.
+        assert_ok!(Proxy::announce(RuntimeOrigin::signed(1), 5, call_hash));
+        assert_eq!(Announcements::<Test>::get(1).0.len(), 1);
+    });
+}
+
+#[test]
 fn add_remove_proxies_works() {
     new_test_ext().execute_with(|| {
         assert_ok!(Proxy::add_proxy(
