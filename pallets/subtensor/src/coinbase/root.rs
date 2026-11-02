@@ -108,6 +108,7 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     /// * `DispatchResult`: A result type indicating success or failure of the registration.
     ///
+    #[frame_support::transactional]
     pub fn do_root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
         // --- 0. Get the unique identifier (UID) for the root network.
         let current_block_number: u64 = Self::get_current_block_as_u64();
@@ -193,7 +194,10 @@ impl<T: Config> Pallet<T> {
                 uid
             }
             Some((lowest_uid, replaced_hotkey)) => {
-                Self::replace_neuron(NetUid::ROOT, lowest_uid, &hotkey, current_block_number);
+                ensure!(
+                    Self::replace_neuron(NetUid::ROOT, lowest_uid, &hotkey, current_block_number),
+                    Error::<T>::BasketDepositPending
+                );
                 log::debug!(
                     "replace neuron: {replaced_hotkey:?} with {hotkey:?} on uid {lowest_uid:?}"
                 );

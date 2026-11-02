@@ -314,6 +314,67 @@ fn test_flush_root_eviction_recycles_dust_after_membership_drop() {
     });
 }
 
+/// A root neuron whose selected dividend batch is deferred must keep its membership and
+/// claimant base. Once the manipulated price recovers, a retry settles the dividend first and
+/// only then permits replacement.
+#[test]
+fn test_flush_root_eviction_waits_for_deferred_dividend() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let cold = U256::from(2201);
+        let hot = U256::from(3201);
+        let replacement = U256::from(3202);
+        let owner = U256::from(9201);
+        let owner_hot = U256::from(9301);
+        let netuid = add_dynamic_network(&owner_hot, &owner);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+
+        let uid = 1u16;
+        Uids::<Test>::insert(NetUid::ROOT, hot, uid);
+        Keys::<Test>::insert(NetUid::ROOT, uid, hot);
+        IsNetworkMember::<Test>::insert(hot, NetUid::ROOT, true);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &cold,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        let credit = 750_000u64;
+        queue_credit(&hot, netuid, credit);
+        let tao_before = SubnetTAO::<Test>::get(netuid);
+        SubnetTAO::<Test>::insert(netuid, tao_before.saturating_div(4u64.into()));
+
+        assert!(!SubtensorModule::replace_neuron(
+            NetUid::ROOT,
+            uid,
+            &replacement,
+            1
+        ));
+        assert_eq!(Keys::<Test>::get(NetUid::ROOT, uid), hot);
+        assert_eq!(Uids::<Test>::get(NetUid::ROOT, hot), Some(uid));
+        assert!(!Uids::<Test>::contains_key(NetUid::ROOT, replacement));
+        assert!(PendingBasketDeposits::<Test>::contains_key(hot, netuid));
+        assert_eq!(fund_shares(&hot), 0);
+
+        SubnetTAO::<Test>::insert(netuid, tao_before);
+        assert!(SubtensorModule::replace_neuron(
+            NetUid::ROOT,
+            uid,
+            &replacement,
+            2
+        ));
+        assert_eq!(Keys::<Test>::get(NetUid::ROOT, uid), replacement);
+        assert!(!Uids::<Test>::contains_key(NetUid::ROOT, hot));
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hot, netuid));
+        assert!(fund_shares(&hot) > 0);
+        assert!(escrow_alpha(&hot, netuid) > 0);
+    });
+}
+
 /// Happy path: a multi-origin flush credits each dividend in place on its origin subnet in
 /// one batch — no swaps at all — and the work counters match the deposit formula
 /// (`H + 2C` quotes on top of the scan, one in-place row per credit).

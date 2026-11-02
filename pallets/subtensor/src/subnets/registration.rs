@@ -169,7 +169,10 @@ impl<T: Config> Pallet<T> {
         } else {
             match Self::get_neuron_to_prune(netuid) {
                 Some(uid_to_replace) => {
-                    Self::replace_neuron(netuid, uid_to_replace, hotkey, block_number);
+                    ensure!(
+                        Self::replace_neuron(netuid, uid_to_replace, hotkey, block_number),
+                        Error::<T>::NoNeuronIdAvailable
+                    );
                     log::debug!("prune neuron");
                     Ok(uid_to_replace)
                 }
