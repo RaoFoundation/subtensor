@@ -140,6 +140,8 @@ mod benchmarks {
 
     #[benchmark]
     fn close() {
+        // Escrow buyback path (not wallet repay): inverse-price search,
+        // stepwise buyback, optional dust sale (Auditor fid:59fefdd6).
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
@@ -150,7 +152,7 @@ mod benchmarks {
             RawOrigin::Signed(caller),
             netuid,
             hotkey,
-            true,
+            false,
             u64::MAX,
             0u64,
             now.saturating_add(100u32.into()),
@@ -159,18 +161,24 @@ mod benchmarks {
 
     #[benchmark]
     fn repay() {
+        // Escrow partial buyback (not wallet repay) so reference measurements
+        // cover the expensive settlement branch (Auditor fid:59fefdd6).
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
+        let half = Positions::<T>::get(&caller, netuid)
+            .expect("fixture opened a short")
+            .principal
+            / 2;
         let now = frame_system::Pallet::<T>::block_number();
         #[extrinsic_call]
         _(
             RawOrigin::Signed(caller),
             netuid,
             hotkey,
-            1u64,
-            true,
+            half.max(1),
+            false,
             u64::MAX,
             0u64,
             now.saturating_add(100u32.into()),
@@ -289,15 +297,25 @@ mod benchmarks {
 
     #[benchmark]
     fn settle() {
+        // Measure fixed-term expiry-as-close (spot buyback / readd / k-burn),
+        // the path `collect_expiry` charges via `WeightInfo::settle`
+        // (Auditor fid:59fefdd6). Dissolution settle remains a separate flow.
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
-        assert_ok!(Pallet::<T>::start_dissolution(netuid));
+        let expires_at = Positions::<T>::get(&caller, netuid)
+            .expect("fixture opened a short")
+            .expires_at;
+        frame_system::Pallet::<T>::set_block_number(expires_at);
         #[block]
         {
             let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-            let _ = Pallet::<T>::settle_lending(netuid, &mut meter);
+            Pallet::<T>::collect_expiry(expires_at, &mut meter);
         }
+        assert!(
+            !Positions::<T>::contains_key(&caller, netuid),
+            "settle benchmark must expire the fixture via the AMM close path"
+        );
     }
 }
