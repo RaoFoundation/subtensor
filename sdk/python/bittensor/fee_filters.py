@@ -26,7 +26,7 @@ COLDKEY_PAYS_FEE_CALLS: frozenset[tuple[str, str]] = frozenset(
         ("SubtensorModule", "serve_axon"),
         ("SubtensorModule", "serve_axon_tls"),
         ("SubtensorModule", "serve_prometheus"),
-        ("SubtensorModule", "set_service_url"),
+        ("SubtensorModule", "set_service"),
         ("SubtensorModule", "associate_evm_key"),
         ("Commitments", "set_commitment"),
     }

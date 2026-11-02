@@ -1170,43 +1170,54 @@ fn test_set_subnet_identity_dispatch_info_ok() {
 }
 
 #[test]
-fn test_set_service_url_sets_the_url() {
+fn test_set_service_sets_the_url_and_spender() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(1);
+        let spender = U256::from(2);
         let netuid = NetUid::from(1);
         let url: BoundedVec<u8, _> = BoundedVec::truncate_from(b"https://example.com".to_vec());
         add_network(netuid, 13, 0);
         register_ok_neuron(netuid, hotkey, U256::from(66), 0);
+        SubtensorModule::set_serving_rate_limit(netuid, 0);
 
-        let call = SubtensorCall::set_service_url {
+        let call = SubtensorCall::set_service {
             netuid,
             url: url.clone(),
+            spender: None,
         };
-        assert_eq!(call.get_dispatch_info().pays_fee, Pays::Yes);
-        assert_ok!(SubtensorModule::set_service_url(
-            RuntimeOrigin::signed(hotkey),
-            netuid,
-            url.clone()
-        ));
-        let block = SubtensorModule::get_current_block_as_u64();
-        assert_eq!(
-            ServiceUrls::<Test>::get(netuid, hotkey),
-            Some(ServiceUrlInfo { block, url })
-        );
-        System::assert_last_event(Event::ServiceUrlSet { netuid, hotkey }.into());
+        assert_eq!(call.get_dispatch_info().pays_fee, Pays::No);
+        for spender in [None, Some(spender)] {
+            assert_ok!(SubtensorModule::set_service(
+                RuntimeOrigin::signed(hotkey),
+                netuid,
+                url.clone(),
+                spender
+            ));
+            let block = SubtensorModule::get_current_block_as_u64();
+            assert_eq!(
+                Services::<Test>::get(netuid, hotkey),
+                Some(ServiceInfo {
+                    block,
+                    url: url.clone(),
+                    spender
+                })
+            );
+            System::assert_last_event(Event::ServiceSet { netuid, hotkey }.into());
+        }
     });
 }
 
 #[test]
-fn test_set_service_url_rate_limit_exceeded() {
+fn test_set_service_rate_limit_exceeded() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(1);
         let netuid = NetUid::from(1);
         let set = |url: &[u8]| {
-            SubtensorModule::set_service_url(
+            SubtensorModule::set_service(
                 RuntimeOrigin::signed(hotkey),
                 netuid,
                 BoundedVec::truncate_from(url.to_vec()),
+                None,
             )
         };
         add_network(netuid, 13, 0);
@@ -1228,19 +1239,19 @@ fn test_set_service_url_rate_limit_exceeded() {
 }
 
 #[test]
-fn test_set_service_url_requires_a_registered_hotkey() {
+fn test_set_service_requires_a_registered_hotkey() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(1);
         let netuid = NetUid::from(1);
         let url = || BoundedVec::truncate_from(b"https://example.com".to_vec());
 
         assert_noop!(
-            SubtensorModule::set_service_url(RuntimeOrigin::signed(hotkey), netuid, url()),
+            SubtensorModule::set_service(RuntimeOrigin::signed(hotkey), netuid, url(), None),
             Error::<Test>::SubnetNotExists
         );
         add_network(netuid, 13, 0);
         assert_noop!(
-            SubtensorModule::set_service_url(RuntimeOrigin::signed(hotkey), netuid, url()),
+            SubtensorModule::set_service(RuntimeOrigin::signed(hotkey), netuid, url(), None),
             Error::<Test>::HotKeyNotRegisteredInNetwork
         );
     });

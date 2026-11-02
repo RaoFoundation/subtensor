@@ -50,12 +50,13 @@ fn test_trim_to_max_allowed_uids_purges_removed_neuron_commitment() {
             commitment(),
         ));
         for hotkey in [removed_hotkey, retained_hotkey] {
-            ServiceUrls::<Test>::insert(
+            Services::<Test>::insert(
                 netuid,
                 hotkey,
-                ServiceUrlInfo {
+                ServiceInfo {
                     block: 1,
                     url: BoundedVec::truncate_from(b"u".to_vec()),
+                    spender: None,
                 },
             );
         }
@@ -64,8 +65,8 @@ fn test_trim_to_max_allowed_uids_purges_removed_neuron_commitment() {
 
         assert!(Commitments::commitment_of(netuid, removed_hotkey).is_none());
         assert!(Commitments::commitment_of(netuid, retained_hotkey).is_some());
-        assert!(!ServiceUrls::<Test>::contains_key(netuid, removed_hotkey));
-        assert!(ServiceUrls::<Test>::contains_key(netuid, retained_hotkey));
+        assert!(!Services::<Test>::contains_key(netuid, removed_hotkey));
+        assert!(Services::<Test>::contains_key(netuid, retained_hotkey));
         assert_eq!(
             ConsensusByMechanism::<Test>::get(netuid_index),
             [20, 30].map(PerU16::from_parts).to_vec()
@@ -148,12 +149,13 @@ fn test_replace_neuron() {
             NeuronCertificateOf::default(),
         );
         Prometheus::<Test>::insert(netuid, hotkey_account_id, PrometheusInfoOf::default());
-        ServiceUrls::<Test>::insert(
+        Services::<Test>::insert(
             netuid,
             hotkey_account_id,
-            ServiceUrlInfo {
+            ServiceInfo {
                 block: 1,
                 url: BoundedVec::truncate_from(b"u".to_vec()),
+                spender: None,
             },
         );
         SubtensorModule::set_associated_evm_address(netuid, neuron_uid, evm_address, 1);
@@ -224,10 +226,7 @@ fn test_replace_neuron() {
             netuid,
             curr_hotkey.unwrap()
         ));
-        assert!(!ServiceUrls::<Test>::contains_key(
-            netuid,
-            hotkey_account_id
-        ));
+        assert!(!Services::<Test>::contains_key(netuid, hotkey_account_id));
 
         // Check bonds are cleared.
         assert_eq!(

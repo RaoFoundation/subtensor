@@ -378,7 +378,7 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "HotKeyNotRegisteredInNetwork": (
         "The hotkey is not registered on the relevant subnet, raised by "
-        "`serve_axon`/`serve_prometheus`/`set_service_url` for the serving netuid or by "
+        "`serve_axon`/`serve_prometheus`/`set_service` for the serving netuid or by "
         "identity calls requiring registration on any subnet. Verify registration with "
         "`btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query "
         "netuids-for-hotkey`) and register via `btcli subnets register` first."
@@ -761,9 +761,9 @@ DESCRIPTIONS: dict[str, str] = {
         "arguments; at least the subnet or one of the keys must differ."
     ),
     "ServingRateLimitExceeded": (
-        "`serve_axon`, `serve_prometheus` or `set_service_url` was called again before enough "
+        "`serve_axon`, `serve_prometheus` or `set_service` was called again before enough "
         "blocks passed since that record's last update. Check its block in `Axons`, "
-        "`Prometheus` or `ServiceUrls` against the `ServingRateLimit` (serving_rate_limit "
+        "`Prometheus` or `Services` against the `ServingRateLimit` (serving_rate_limit "
         "hyperparameter) and wait."
     ),
     "SettingWeightsTooFast": (

@@ -84,7 +84,7 @@ from .registration import (
 )
 from .registry import REGISTRY, build, list_tools, register
 from .root import SetRootClaimThreshold, SetSubnetEmissionEnabled
-from .serving import ResetAxon, ServeAxon, ServeAxonTls, ServePrometheus, SetServiceUrl
+from .serving import ResetAxon, ServeAxon, ServeAxonTls, ServePrometheus, SetService
 from .staking import (
     AddStake,
     AddStakeLimit,
@@ -186,7 +186,7 @@ __all__ = [
     "SetRejectLockedAlpha",
     "SetRejectStakingHotkeyGrowth",
     "SetRootClaimThreshold",
-    "SetServiceUrl",
+    "SetService",
     "SetSubnetEmissionEnabled",
     "SetSubnetEmissionWeights",
     "SetSubnetIdentity",

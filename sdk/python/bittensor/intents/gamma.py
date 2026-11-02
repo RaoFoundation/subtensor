@@ -49,6 +49,10 @@ DAILY_SPEND_CAP_HELP = (
     "existing one must already have it. Omit to keep the deposit's cap, which for a new deposit "
     "is none."
 )
+SERVICE_HELP = (
+    "Hotkey of a service published on the subnet, instead of a spender. The deposit names the "
+    "spender the service publishes."
+)
 DEFAULT_SPENDER = "the subnet owner (a leased subnet's beneficiary)"
 
 
@@ -93,6 +97,26 @@ async def _deposit(substrate, netuid: int, hotkey_ss58: str) -> Optional[dict]:
     return await substrate.query(*st.SubtensorModule.GammaDeposits, [netuid, hotkey_ss58])
 
 
+async def _service_spender(substrate, netuid: int, hotkey_ss58: str) -> str:
+    """The spender a service published on the subnet names: its own, or its hotkey."""
+    service = await substrate.query(*st.SubtensorModule.Services, [netuid, hotkey_ss58])
+    if service is None or not service["url"]:
+        raise BittensorError(f"{hotkey_ss58} publishes no service on netuid {netuid}")
+    return str(service["spender"] or hotkey_ss58)
+
+
+async def _named_spender(intent, substrate) -> Optional[str]:
+    """The spender a mint names: its own, its service's, or none."""
+    if intent.service_hotkey_ss58 is None:
+        return intent.spender_ss58
+    return await _service_spender(substrate, intent.netuid, intent.service_hotkey_ss58)
+
+
+def _check_spender_or_service(intent) -> None:
+    if intent.spender_ss58 is not None and intent.service_hotkey_ss58 is not None:
+        raise BittensorError(f"{intent.op}: name a spender or a service, not both")
+
+
 async def _staking_owner(substrate, hotkey_ss58: str) -> Optional[str]:
     """The coldkey owning ``hotkey_ss58`` as a staking hotkey, or None."""
     owner = await substrate.query(*st.SubtensorModule.Owner, [hotkey_ss58])
@@ -124,7 +148,9 @@ async def _mint_preflight(
 ) -> IntentPreflight:
     """A mint's preview: its quote, the deposit it credits, and the hard stops the chain
     would refuse it with."""
+    alpha, value, gamma = await quote
     deposit = await _deposit(substrate, intent.netuid, intent.hotkey_ss58)
+    named = await _named_spender(intent, substrate)
     cap = _cap_units(intent.daily_spend_cap_gamma)
     if deposit is not None and str(deposit["coldkey"]) != signer:
         preview.blocks.append(
@@ -132,7 +158,7 @@ async def _mint_preflight(
             "mint to a fresh hotkey"
         )
     elif deposit is not None:
-        if intent.spender_ss58 not in (None, str(deposit["spender"])):
+        if named not in (None, str(deposit["spender"])):
             preview.blocks.append(
                 f"the gamma deposit at {intent.hotkey_ss58} is spent by {deposit['spender']}; "
                 "mint without naming a spender, or set its spender first"
@@ -150,11 +176,10 @@ async def _mint_preflight(
                 f"{intent.hotkey_ss58} is a staking hotkey of {owner}; requests signed with a "
                 "deposit's hotkey are paid from the deposit, so use a fresh hotkey"
             )
-    alpha, value, gamma = await quote
-    if deposit is not None and intent.spender_ss58 is None:
+    if deposit is not None and named is None:
         spender = str(deposit["spender"])
     else:
-        spender = intent.spender_ss58 or DEFAULT_SPENDER
+        spender = named or DEFAULT_SPENDER
     if deposit is not None:
         cap = deposit["daily_spend_cap"]
     preview.facts = [
@@ -181,9 +206,10 @@ class MintGamma(Intent):
     when absent. The alpha is valued at the lower of the subnet's gamma price
     and its spot price before the buy.
     A new deposit's spender is the subnet owner, or a leased subnet's
-    beneficiary, unless ``spender_ss58`` names another. It has no daily spend
-    cap unless ``daily_spend_cap_gamma`` sets one. A mint naming either fails
-    on a deposit with another.
+    beneficiary, unless ``spender_ss58`` names another or ``service_hotkey_ss58``
+    names a service published on the subnet, whose spender it takes. It has
+    no daily spend cap unless ``daily_spend_cap_gamma`` sets one. A mint
+    naming either fails on a deposit with another.
     Fails rather than minting less than the current quote less
     ``rate_tolerance``.
     """
@@ -202,6 +228,7 @@ class MintGamma(Intent):
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
     spender_ss58: Optional[str] = field(default=None, metadata={"help": SPENDER_HELP})
+    service_hotkey_ss58: Optional[str] = field(default=None, metadata={"help": SERVICE_HELP})
     daily_spend_cap_gamma: Optional[Money] = field(
         default=None, metadata={"help": DAILY_SPEND_CAP_HELP}
     )
@@ -209,6 +236,7 @@ class MintGamma(Intent):
     def __post_init__(self):
         self.amount_tao = tao_amount(self.amount_tao)
         _check_rate_tolerance(self.rate_tolerance, can_disable=False)
+        _check_spender_or_service(self)
         self.daily_spend_cap_gamma = _daily_spend_cap(self.daily_spend_cap_gamma)
 
     def _quote(self, substrate):
@@ -222,7 +250,7 @@ class MintGamma(Intent):
                 netuid=self.netuid,
                 amount=self.amount_tao.rao,
                 min_amount_out=_min_out(gamma, self.rate_tolerance),
-                spender=self.spender_ss58,
+                spender=await _named_spender(self, substrate),
                 daily_spend_cap=_cap_units(self.daily_spend_cap_gamma),
             )
         )
@@ -253,9 +281,10 @@ class MintGammaWithStake(Intent):
     Burns up to ``amount_alpha`` (``all`` for the whole stake) of your stake
     on ``origin_hotkey_ss58`` and credits its value in gamma to the deposit at
     ``hotkey_ss58``, valued as ``mint_gamma`` values bought alpha. The stake is
-    destroyed, not moved. ``spender_ss58`` and ``daily_spend_cap_gamma`` name
-    the deposit's spender and cap as for ``mint_gamma``. Fails rather than
-    minting less than the current quote less ``rate_tolerance``.
+    destroyed, not moved. ``spender_ss58``, ``service_hotkey_ss58`` and
+    ``daily_spend_cap_gamma`` name the deposit's spender and cap as for
+    ``mint_gamma``. Fails rather than minting less than the current quote
+    less ``rate_tolerance``.
     """
 
     op = "mint_gamma_with_stake"
@@ -273,6 +302,7 @@ class MintGammaWithStake(Intent):
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
     spender_ss58: Optional[str] = field(default=None, metadata={"help": SPENDER_HELP})
+    service_hotkey_ss58: Optional[str] = field(default=None, metadata={"help": SERVICE_HELP})
     daily_spend_cap_gamma: Optional[Money] = field(
         default=None, metadata={"help": DAILY_SPEND_CAP_HELP}
     )
@@ -280,6 +310,7 @@ class MintGammaWithStake(Intent):
     def __post_init__(self):
         self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
         _check_rate_tolerance(self.rate_tolerance, can_disable=False)
+        _check_spender_or_service(self)
         self.daily_spend_cap_gamma = _daily_spend_cap(self.daily_spend_cap_gamma)
 
     def _burned(self, staked: int) -> int:
@@ -301,7 +332,7 @@ class MintGammaWithStake(Intent):
                 netuid=self.netuid,
                 alpha_amount=U64_MAX if self.amount_alpha == ALL else self.amount_alpha.rao,
                 min_amount_out=_min_out(gamma, self.rate_tolerance),
-                spender=self.spender_ss58,
+                spender=await _named_spender(self, substrate),
                 daily_spend_cap=_cap_units(self.daily_spend_cap_gamma),
             )
         )

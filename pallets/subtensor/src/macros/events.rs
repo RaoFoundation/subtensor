@@ -1019,9 +1019,9 @@ mod events {
             /// The spend entry's reference.
             reference: [u8; 32],
         },
-        /// A hotkey set its service url on a subnet.
-        ServiceUrlSet {
-            /// Subnet of the url.
+        /// A hotkey set its service on a subnet.
+        ServiceSet {
+            /// Subnet of the service.
             netuid: NetUid,
             /// Hotkey that set it.
             hotkey: T::AccountId,

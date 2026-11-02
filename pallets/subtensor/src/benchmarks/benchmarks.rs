@@ -3797,28 +3797,35 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn set_service_url() {
+    fn set_service() {
         let netuid = NetUid::from(1);
         let hotkey: T::AccountId = whitelisted_caller();
+        let spender: T::AccountId = account("spender", 0, 0);
         Subtensor::<T>::init_new_network(netuid, 1);
         Subtensor::<T>::append_neuron(netuid, &hotkey, 0);
         let url: BoundedVec<_, _> =
             BoundedVec::truncate_from(vec![b'a'; crate::MAX_SERVICE_URL_LEN as usize]);
-        ServiceUrls::<T>::insert(
+        Services::<T>::insert(
             netuid,
             &hotkey,
-            ServiceUrlInfo {
+            ServiceInfo {
                 block: 0,
                 url: url.clone(),
+                spender: Some(spender.clone()),
             },
         );
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(hotkey.clone()), netuid, url.clone());
+        _(
+            RawOrigin::Signed(hotkey.clone()),
+            netuid,
+            url.clone(),
+            Some(spender.clone()),
+        );
 
         assert_eq!(
-            ServiceUrls::<T>::get(netuid, &hotkey).map(|info| info.url),
-            Some(url)
+            Services::<T>::get(netuid, &hotkey).map(|info| (info.url, info.spender)),
+            Some((url, Some(spender)))
         );
     }
 

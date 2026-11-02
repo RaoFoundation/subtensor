@@ -1,34 +1,37 @@
 ---
 title: Subnet services
-description: Service urls that registered hotkeys publish on their subnet, pointing to a document of their services and the payments they accept.
+description: Services that registered hotkeys publish on their subnet, with a url to a document of their services and the spender their customers name on gamma deposits.
 ---
 
-Any hotkey registered on a subnet can publish a url to a document of its
-services with [`set-service-url`](/docs/tx/set-service-url), so that apps and
-agents can find what the subnet serves and how it is paid for. Publishing an
-empty url clears it. Publishing pays a normal fee, charged to the hotkey's
-coldkey, and uses the subnet's
-[`serving_rate_limit`](/docs/hyperparameters/serving-rate-limit), so a url can be
-changed or cleared only that many blocks after its own last update, whatever
-the hotkey's axon does.
+Any hotkey registered on a subnet can publish a service with
+[`set-service`](/docs/tx/set-service), so that apps and agents can find what the
+subnet serves and how it is paid for. A service is a url to a document of its
+services and the spender its customers name on [gamma](/docs/guides/gamma)
+deposits. Without a spender, the hotkey spends, so it signs the spends and pays
+their fees. Publishing an empty url clears the service. Publishing is free, as serving an axon is, and uses the subnet's
+[`serving_rate_limit`](/docs/hyperparameters/serving-rate-limit), so a service
+can be changed or cleared only that many blocks after its own last update,
+whatever the hotkey's axon does.
 
 ```bash
-btcli tx set-service-url --netuid 51 --url https://example.com/services.json -w my_coldkey -H my_hotkey
-btcli query service-urls --netuid 51
+btcli tx set-service --netuid 51 --url https://example.com/services.json -w my_coldkey -H my_hotkey
+btcli query services --netuid 51
 ```
 
 ```python
-await client.execute(bt.SetServiceUrl(netuid=51, url="https://example.com/services.json"), hotkey_wallet)
-urls = await client.subnets.service_urls(netuid=51)  # {hotkey: {url, block, owner}}
+await client.execute(bt.SetService(netuid=51, url="https://example.com/services.json"), hotkey_wallet)
+services = await client.subnets.services(netuid=51)  # {hotkey: {url, spender, block, owner}}
 ```
 
-A url follows a hotkey swap and is removed when its neuron is deregistered.
-`owner` marks the url of the subnet owner's hotkey.
+A service follows a hotkey swap and is removed when its neuron is
+deregistered. `owner` marks the service of the subnet owner's hotkey. Customers
+name its spender by minting with `--service-hotkey` (see
+[Gamma](/docs/guides/gamma#minting)).
 
 ## The document
 
-The chain stores only the url. The document says what the services are, how to
-reach them, and how they are paid for:
+The chain stores the url and the spender. The document says what the services
+are, how to reach them, and how they are paid for:
 
 ```json
 {
@@ -38,18 +41,17 @@ reach them, and how they are paid for:
     { "type": "mcp", "endpoint": "https://…/mcp" }
   ],
   "payments": [
-    { "type": "gamma", "spender": "5F…" },
+    { "type": "gamma" },
     { "type": "x402" }
   ]
 }
 ```
 
-- A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma). Its
-  `spender` is the spender to name on a deposit. Without one, a new deposit is
-  spent by the subnet owner, or its lease's beneficiary.
+- A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma), from
+  deposits that name the service's spender.
 - An [`x402`](https://www.x402.org) payment states its price and payee in each
   HTTP 402 response.
 - Readers skip service and payment types they do not know.
 
-A document can name any spender, and that spender can spend the deposits that
-name it without serving, so prefer the url marked `owner`.
+A service can name any spender, and that spender can spend the deposits that
+name it without serving, so prefer the service marked `owner`.

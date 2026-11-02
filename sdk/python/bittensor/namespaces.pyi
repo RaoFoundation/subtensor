@@ -692,13 +692,15 @@ class Subnets(_ReadNamespace):
         empty list means no explicit split is set.
         """
 
-    async def service_urls(self, netuid: int, *, block: Optional[int] = None) -> dict[str, dict]:
-        """Every service url published on a subnet, by hotkey.
+    async def services(self, netuid: int, *, block: Optional[int] = None) -> dict[str, dict]:
+        """Every service published on a subnet, by hotkey.
 
-        Each points to its hotkey's own document of its services and the payments
-        they accept; the chain does not check what it says. `block` is when it was
-        published; `owner` marks the subnet owner's hotkey. A url that is not
-        printable text is returned as 0x-hex.
+        Each `url` points to its hotkey's own document of its services and the
+        payments they accept; the chain does not check what it says. `spender` is
+        the spender customers name on gamma deposits for the service, the one it
+        published or else its hotkey. `block` is when it was published; `owner`
+        marks the subnet owner's hotkey. A url that is not printable text is returned as
+        0x-hex.
         """
 
     async def subnet(self, netuid: int, *, block: Optional[int] = None) -> SubnetInfo:
