@@ -81,7 +81,9 @@ that is large for the pool is worth more than its sale.
 The SDK quotes the mint first and fails it if the minted gamma would fall more
 than `rate_tolerance` (5% by default) below the quote. The with-stake quote
 assumes the whole amount is burned; the SDK quotes no more than the stake you
-hold.
+hold. Once the mint runs, `result.data["minted"]` holds the deposit's
+`hotkey_ss58`, `spender_ss58` and `daily_spend_cap_gamma`, and the
+`alpha_burned`, `tao_value` and `gamma` minted, as exact decimal strings.
 
 A mint fails with [`GammaDisabled`](/docs/errors/chain/GammaDisabled) while
 gamma is off network-wide or on the subnet. No other call checks these
