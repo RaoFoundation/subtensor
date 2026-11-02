@@ -421,6 +421,25 @@ fn prepare_pq_authority(account: &AccountId) -> DispatchResult {
             DispatchError::Other("MlDsaPendingProxyAnnouncement")
         );
     }
+    // A relayer can execute an approved order after the approving proxy is
+    // removed. Require live approvals to be cancelled or expire before the
+    // account acquires its permanent PQ security floor.
+    ensure!(
+        pallet_limit_orders::ApprovedOrders::<Runtime>::get(account).is_none_or(|state| {
+            let now = crate::Timestamp::get();
+            state.orders.values().all(|approval| {
+                now > approval.expiry
+                    || matches!(
+                        approval.status,
+                        Some(
+                            pallet_limit_orders::OrderStatus::Fulfilled
+                                | pallet_limit_orders::OrderStatus::Cancelled
+                        )
+                    )
+            })
+        }),
+        DispatchError::Other("MlDsaPendingOrderApproval")
+    );
     crate::evm_origin::prepare_hashed_alias(account)
 }
 
