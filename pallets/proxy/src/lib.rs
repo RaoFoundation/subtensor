@@ -588,6 +588,7 @@ pub mod pallet {
         #[pallet::weight({
 			let di = call.get_dispatch_info();
 			(T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get()).saturating_add(T::AccountPolicy::weight())
+				.saturating_add(T::DbWeight::get().reads(1))
 				 // AccountData for inner call origin accountdata.
 				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 				.saturating_add(di.call_weight),
@@ -607,8 +608,10 @@ pub mod pallet {
 
             let call_hash = T::CallHasher::hash_of(&call);
             let now = T::BlockNumberProvider::current_block_number();
+            let valid_from = AnnouncementValidFrom::<T>::get();
             Self::edit_announcements(&delegate, |ann| {
-                ann.real != real
+                valid_from.is_some_and(|boundary| ann.height < boundary)
+                    || ann.real != real
                     || ann.call_hash != call_hash
                     || now.saturating_sub(ann.height) < def.delay
             })
@@ -616,6 +619,7 @@ pub mod pallet {
 
             let weight = T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
                 .saturating_add(T::AccountPolicy::weight())
+                .saturating_add(T::DbWeight::get().reads(1))
                 .saturating_add(T::DbWeight::get().reads_writes(1, 1))
                 .saturating_add(Self::do_proxy(def, real, *call, origin));
 
@@ -920,6 +924,14 @@ pub mod pallet {
 
     #[pallet::hooks]
     impl<T: Config> Hooks<SystemBlockNumberFor<T>> for Pallet<T> {
+        fn on_runtime_upgrade() -> Weight {
+            if AnnouncementValidFrom::<T>::exists() {
+                return T::DbWeight::get().reads(1);
+            }
+            AnnouncementValidFrom::<T>::put(T::BlockNumberProvider::current_block_number());
+            T::DbWeight::get().reads_writes(1, 1)
+        }
+
         fn on_finalize(_n: SystemBlockNumberFor<T>) {
             // clear this map on end of each block
             let _ = LastCallResult::<T>::clear(u32::MAX, None);
@@ -955,6 +967,12 @@ pub mod pallet {
         ),
         ValueQuery,
     >;
+
+    /// The first block whose announcements were created under the restricted-proxy filter.
+    /// Entries from earlier blocks remain removable (and their deposits recoverable), but can
+    /// never authorize a call after the runtime upgrade.
+    #[pallet::storage]
+    pub type AnnouncementValidFrom<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
 
     /// The result of the last call made by the proxy (key).
     #[pallet::storage]

@@ -17,6 +17,7 @@ use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::Weight;
 use pallet_alpha_assets::AlphaAssetsInterface;
+use safe_math::FixedExt;
 use sp_runtime::DispatchError;
 use substrate_fixed::types::U64F64;
 use subtensor_swap_interface::SwapHandler;
@@ -35,9 +36,8 @@ pub(crate) const MAX_BASKET_ROWS: u64 = crate::MAX_ROOT_CLAIM_WORK as u64;
 pub(crate) const MAX_BASKET_FLUSH_ROWS: u64 = 2 * MAX_BASKET_ROWS;
 
 /// Work counters of one pending-deposit flush, in the two units the flush weight prices
-/// separately: read-only AMM `quotes` (NAV sweeps and the scan's spot reads — one sim-swap
-/// valuation plus reads each) and executed `rows` (one in-place credit per credit — stake
-/// and queue writes each).
+/// separately: read-only AMM `quotes` (NAV sweeps, price-band checks, and the scan's spot
+/// reads) and executed `rows` (one in-place credit per credit — stake and queue writes each).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BasketFlushWork {
     pub quotes: u64,
@@ -93,15 +93,19 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Weight of the work reported by [`Self::flush_basket_deposits_for_hotkey`]: quotes are
-    /// priced like NAV-sweep rows (read-only sim-swap valuations); executed rows — stake and
-    /// queue writes each — are priced like redeemed `claim_root` rows, the benchmarked figure
-    /// for one swap-and-write row (an upper bound: an in-place credit swaps nothing), plus the
-    /// credit's fast-EMA read. Zero when nothing was queued.
+    /// priced like NAV-sweep rows (read-only sim-swap valuations), plus a conservative three
+    /// reads for each fast-price / spot-price stability check. The number of checks is bounded
+    /// by the admitted holding rows plus executed credit rows, not every quote (the same rows
+    /// are quoted repeatedly). Executed rows — stake and queue writes each — are priced like
+    /// redeemed `claim_root` rows, the benchmarked figure for one swap-and-write row (an upper
+    /// bound: an in-place credit swaps nothing). Zero when nothing was queued.
     pub fn basket_flush_weight(work: BasketFlushWork) -> Weight {
         let quotes = if work.quotes == 0 {
             Weight::zero()
         } else {
+            let price_checks = work.quotes.min(MAX_BASKET_ROWS).saturating_add(work.rows);
             Self::basket_nav_sweep_weight(work.quotes)
+                .saturating_add(T::DbWeight::get().reads(price_checks.saturating_mul(3)))
         };
         let rows = if work.rows == 0 {
             Weight::zero()
@@ -109,7 +113,6 @@ impl<T: Config> Pallet<T> {
             <T as crate::pallet::Config>::WeightInfo::claim_root(
                 u32::try_from(work.rows).unwrap_or(u32::MAX),
             )
-            .saturating_add(T::DbWeight::get().reads(work.rows))
         };
         quotes.saturating_add(rows)
     }
@@ -496,11 +499,13 @@ impl<T: Config> Pallet<T> {
     ///
     /// Each credit is valued as the realizable delta on its origin holding alone: crediting
     /// stake moves no pool, so every other holding's quote is unchanged and a full-fund
-    /// `nav_after` sweep collapses to one extra quote per origin. Each added-value delta is
-    /// capped at the fast-EMA mark, so a transient origin-pool pump cannot manufacture shares.
-    /// The pre-deposit NAV stays realizable (live), matching the NAV those shares redeem
-    /// against; anchoring unrelated holdings would underprice shares while they trade above
-    /// their EMA.
+    /// `nav_after` sweep collapses to one extra quote per origin. Both the pre-deposit NAV and
+    /// each added-value delta stay live, matching the NAV those shares redeem against.
+    /// Before either is used, every existing holding and credit origin must remain within the
+    /// fast-EMA price band. The fast EMA cannot move inside the block, so a forced flush after
+    /// pumping the origin or dumping another holding simply re-queues the batch. Once an honest
+    /// price move has pulled the fast mark into range, live/live pricing attributes its full
+    /// value without gifting or taxing either side.
     /// The origins are distinct pools, so the per-origin deltas are independent and sum to
     /// exactly the value the batch added against the shared `nav_before` snapshot.
     /// Realizable valuation keeps deposit pricing honest on thin pools exactly as it does for
@@ -513,6 +518,7 @@ impl<T: Config> Pallet<T> {
         escrow_root: u64,
     ) -> DispatchResult {
         let escrow = Self::get_beta_escrow_account_id();
+        Self::ensure_basket_dividend_prices_stable(hotkey, batch)?;
         let nav_before: u64 = Self::try_get_validator_basket_nav_tao(hotkey)?;
 
         // Each credit's accumulation is isolated: an unknown valuation failure re-queues
@@ -539,9 +545,10 @@ impl<T: Config> Pallet<T> {
         Self::mint_basket_dividend_shares(hotkey, nav_before, value_added, total_root, escrow_root)
     }
 
-    /// One credit's step of the batch: credit the origin alpha to the fund's
-    /// holding on that subnet and value it as the realizable delta on that holding alone,
-    /// capped at the credit's fast-EMA value so an in-block pump cannot over-mint shares.
+    /// One credit's step of the batch: credit the origin alpha to the fund's holding on that
+    /// subnet and value it as the live realizable delta on that holding alone. The shared
+    /// precondition above has already ensured the origin is inside the immutable-in-block
+    /// fast-price band.
     /// `Ok(Some(delta))` accumulated; `Ok(None)` the holding is (or would become) terminally
     /// untradeable and the credit was recycled; `Err` an unknown failure the caller isolates.
     fn try_accumulate_basket_credit(
@@ -588,11 +595,63 @@ impl<T: Config> Pallet<T> {
             Self::recycle_subnet_alpha(origin_netuid, root_alpha);
             return Ok(None);
         };
-        let live_delta = origin_after.saturating_sub(origin_before);
-        Ok(Some(Self::anchored_basket_holding_value(
-            origin_netuid,
-            root_alpha.to_u64(),
-            live_delta,
-        )))
+        Ok(Some(origin_after.saturating_sub(origin_before)))
+    }
+
+    /// Dividend minting uses live realizable marks on both sides. Refuse to take that snapshot
+    /// while any relevant pool is outside the same fast-price band used to protect basket
+    /// trades: an extrinsic in this block can move spot, but cannot move the fast EMA.
+    fn ensure_basket_dividend_prices_stable(
+        hotkey: &T::AccountId,
+        batch: &[(NetUid, AlphaBalance)],
+    ) -> DispatchResult {
+        let holdings = Self::get_basket_holdings(hotkey);
+        for (netuid, _) in holdings.iter() {
+            ensure!(
+                Self::basket_dividend_price_is_stable(*netuid),
+                Error::<T>::SlippageTooHigh
+            );
+        }
+        for (netuid, alpha) in batch {
+            if holdings.iter().any(|(held, _)| held == netuid)
+                || Self::basket_dividend_price_is_stable(*netuid)
+            {
+                continue;
+            }
+            // A new holding which is terminally untradeable cannot affect NAV: let the
+            // ordinary credit path recycle it instead of pinning the whole queue. A
+            // priceable origin outside the band is a pump/dump and must wait.
+            if Self::try_realizable_tao_for_alpha(*netuid, alpha.to_u64())?.is_none() {
+                continue;
+            }
+            return Err(Error::<T>::SlippageTooHigh.into());
+        }
+        Ok(())
+    }
+
+    fn basket_dividend_price_is_stable(netuid: NetUid) -> bool {
+        if netuid.is_root() || SubnetMechanism::<T>::get(netuid) != 1 {
+            return true;
+        }
+        let Some(fast) = SubnetFastMovingPrice::<T>::get(netuid) else {
+            return false;
+        };
+        let spot = T::SwapInterface::current_alpha_price(netuid.into());
+        if fast == U64F64::saturating_from_num(0) || spot == U64F64::saturating_from_num(0) {
+            return false;
+        }
+
+        let denominator = U64F64::saturating_from_num(10_000u64);
+        let lower = fast
+            .saturating_mul(U64F64::saturating_from_num(
+                10_000u64.saturating_sub(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
+            ))
+            .safe_div(denominator);
+        let upper = fast
+            .saturating_mul(U64F64::saturating_from_num(
+                10_000u64.saturating_add(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
+            ))
+            .safe_div(denominator);
+        spot >= lower && spot <= upper
     }
 }

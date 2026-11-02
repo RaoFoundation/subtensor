@@ -967,6 +967,57 @@ fn restricted_proxy_cannot_create_deferred_authority() {
 }
 
 #[test]
+fn runtime_upgrade_invalidates_legacy_announcements_without_trapping_the_deposit() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(5),
+            1,
+            ProxyType::Any,
+            1
+        ));
+        let deferred = Box::new(RuntimeCall::System(SystemCall::remark {
+            remark: b"post-upgrade".to_vec(),
+        }));
+        let call_hash = BlakeTwo256::hash_of(&deferred);
+
+        // This entry represents state planted before the restricted-proxy filter existed.
+        assert_ok!(Proxy::announce(RuntimeOrigin::signed(1), 5, call_hash));
+        let announcement_deposit = Balances::reserved_balance(1);
+        assert!(announcement_deposit > 0);
+
+        System::set_block_number(2);
+        <Proxy as Hooks<u64>>::on_runtime_upgrade();
+        assert_eq!(AnnouncementValidFrom::<Test>::get(), Some(2));
+
+        assert_noop!(
+            Proxy::proxy_announced(RuntimeOrigin::signed(4), 1, 5, None, deferred.clone(),),
+            Error::<Test>::Unannounced
+        );
+        assert!(LastCallResult::<Test>::get(5).is_none());
+
+        // Invalid legacy entries remain explicitly removable, returning their reservation.
+        assert_ok!(Proxy::remove_announcement(
+            RuntimeOrigin::signed(1),
+            5,
+            call_hash
+        ));
+        assert_eq!(Balances::reserved_balance(1), 0);
+
+        // Announcements created at or after the boundary retain normal relayer semantics.
+        assert_ok!(Proxy::announce(RuntimeOrigin::signed(1), 5, call_hash));
+        System::set_block_number(3);
+        assert_ok!(Proxy::proxy_announced(
+            RuntimeOrigin::signed(4),
+            1,
+            5,
+            None,
+            deferred,
+        ));
+        assert_eq!(LastCallResult::<Test>::get(5), Some(Ok(())));
+    });
+}
+
+#[test]
 fn add_remove_proxies_works() {
     new_test_ext().execute_with(|| {
         assert_ok!(Proxy::add_proxy(
