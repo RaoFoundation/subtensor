@@ -1254,6 +1254,8 @@ fn test_gamma_lifecycle() {
             ("netuid", u(netuid)),
             ("amount", u128v(amount)),
             ("min_amount_out", u128v(quoted / 100 * 99)),
+            ("spender", Value::Null),
+            ("daily_spend_cap", Value::Null),
         ]),
     );
     let result = execute(&mint, &ctx.alice);
@@ -1355,6 +1357,8 @@ fn test_gamma_lifecycle() {
             ("netuid", u(netuid)),
             ("alpha_amount", u128v(alpha)),
             ("min_amount_out", u128v(0)),
+            ("spender", Value::Null),
+            ("daily_spend_cap", Value::Null),
         ]),
     );
     let result = execute(&mint, &ctx.alice);

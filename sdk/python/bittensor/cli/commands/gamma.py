@@ -7,7 +7,7 @@ from typing import Optional
 
 import typer
 
-from ...intents import SetGammaDepositDailySpendCap, SpendGamma
+from ...intents import SetGammaDepositDailySpendCap, SetGammaDepositSpender, SpendGamma
 from ...settings import guide_docs_url, query_docs_url, tx_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -118,9 +118,46 @@ for _alias, _op in (
     ("mint-with-stake", "mint_gamma_with_stake"),
     ("move", "move_gamma"),
     ("close", "close_gamma_deposit"),
-    ("set-spender", "set_gamma_deposit_spender"),
 ):
     app.command(_alias)(intent_command(_op))
+
+
+@app.command(
+    "set-spender",
+    help="Set who may spend your gamma deposit.\n\n"
+    "Takes effect at once; a deposit opened by a move inherits it.\n\n"
+    f"Docs: {tx_docs_url(SetGammaDepositSpender.op)}",
+)
+@with_tx_globals
+def set_spender(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", help=SetGammaDepositSpender.field_help("netuid")),
+    hotkey: str = _hotkey_option(SetGammaDepositSpender.field_help("hotkey_ss58")),
+    spender: Optional[str] = typer.Option(
+        None,
+        address_cli_name("spender_ss58"),
+        help=f"The account that spends the deposit. {ss58_param_help('spender_ss58')}",
+    ),
+    default_spender: bool = typer.Option(
+        False,
+        "--default-spender",
+        help="Set the default spender, the subnet owner or its lease's beneficiary while a "
+        "lease owns the subnet.",
+    ),
+):
+    app_ctx: AppContext = ctx_of(ctx)
+    if (spender is None) != default_spender:
+        app_ctx.output.error("pass exactly one of `--spender` or `--default-spender`")
+        raise typer.Exit(2)
+    app_ctx.submit(
+        SetGammaDepositSpender(
+            netuid=netuid,
+            hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey),
+            spender_ss58=None
+            if spender is None
+            else app_ctx.resolve_address("spender_ss58", spender),
+        )
+    )
 
 
 @app.command(

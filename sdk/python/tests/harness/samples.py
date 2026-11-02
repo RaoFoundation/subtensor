@@ -420,5 +420,6 @@ def seed_gamma(substrate, owner: str) -> None:
     """Gamma deposits at the samples' hotkeys, owned and spent by ``owner`` (the one at
     ``BOB_HOT`` empty, so it can close)."""
     for hotkey, balance in ((ALICE_HOT, 10**9), (BOB_HOT, 0)):
-        deposit = {"coldkey": owner, "spender": owner, "balance": balance, "bucket": (0, 0)}
+        deposit = {"coldkey": owner, "spender": owner, "balance": balance,
+                   "daily_spend_cap": None, "bucket": (0, 0)}  # fmt: skip
         substrate.seed("SubtensorModule", "GammaDeposits", [1, hotkey], deposit)

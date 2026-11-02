@@ -132,19 +132,30 @@ impl<T: Config> Pallet<T> {
         Ok((tao_in.saturating_sub(refund), alpha))
     }
 
-    /// Credits `gamma` to the coldkey's deposit at `hotkey`, opening one with the default
-    /// spender and no daily spend cap if there is none, and returns the deposit's spender.
+    /// Credits `gamma` to the coldkey's deposit at `hotkey`, which must name `spender` and
+    /// have `daily_spend_cap` when they are given, or opens one with them, the default spender
+    /// and no cap otherwise, and a full bucket. Returns the deposit's spender and cap.
     fn credit_gamma(
         netuid: NetUid,
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
         gamma: GammaBalance,
-    ) -> Result<T::AccountId, DispatchError> {
+        spender: Option<T::AccountId>,
+        daily_spend_cap: Option<GammaBalance>,
+    ) -> Result<(T::AccountId, Option<GammaBalance>), DispatchError> {
         match GammaDeposits::<T>::get(netuid, hotkey) {
             Some(mut deposit) => {
                 ensure!(
                     deposit.coldkey == *coldkey,
                     Error::<T>::NonAssociatedColdKey
+                );
+                ensure!(
+                    spender.is_none_or(|spender| spender == deposit.spender),
+                    Error::<T>::GammaDepositSpenderMismatch
+                );
+                ensure!(
+                    daily_spend_cap.is_none_or(|cap| deposit.daily_spend_cap == Some(cap)),
+                    Error::<T>::GammaDepositDailySpendCapMismatch
                 );
                 deposit.balance = deposit
                     .balance
@@ -152,12 +163,12 @@ impl<T: Config> Pallet<T> {
                     .checked_add(gamma.to_u64())
                     .ok_or(ArithmeticError::Overflow)?
                     .into();
-                let spender = deposit.spender.clone();
+                let terms = (deposit.spender.clone(), deposit.daily_spend_cap);
                 GammaDeposits::<T>::insert(netuid, hotkey, deposit);
-                Ok(spender)
+                Ok(terms)
             }
             None => {
-                let spender = Self::gamma_default_spender(netuid);
+                let spender = spender.unwrap_or_else(|| Self::gamma_default_spender(netuid));
                 Self::insert_gamma_deposit(
                     netuid,
                     hotkey,
@@ -165,23 +176,29 @@ impl<T: Config> Pallet<T> {
                         coldkey: coldkey.clone(),
                         spender: spender.clone(),
                         balance: gamma,
-                        daily_spend_cap: None,
-                        bucket: (GammaBalance::ZERO, Self::get_current_block_as_u64()),
+                        daily_spend_cap,
+                        bucket: (
+                            daily_spend_cap.unwrap_or_default(),
+                            Self::get_current_block_as_u64(),
+                        ),
                     },
                 )?;
-                Ok(spender)
+                Ok((spender, daily_spend_cap))
             }
         }
     }
 
     /// Buys alpha with `amount` TAO, burns it and credits its gamma to the signer's deposit
-    /// at `hotkey`.
+    /// at `hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or
+    /// opens with them.
     pub fn do_mint_gamma(
         origin: OriginFor<T>,
         hotkey: T::AccountId,
         netuid: NetUid,
         amount: TaoBalance,
         min_amount_out: GammaBalance,
+        spender: Option<T::AccountId>,
+        daily_spend_cap: Option<GammaBalance>,
     ) -> DispatchResult {
         let coldkey = ensure_signed(origin)?;
         Self::ensure_gamma_mintable(netuid)?;
@@ -194,12 +211,14 @@ impl<T: Config> Pallet<T> {
         let (tao, alpha) = Self::buy_and_burn_alpha(netuid, &coldkey, amount)?;
         let (value, gamma) = Self::gamma_for_alpha(alpha, mark)?;
         ensure!(gamma >= min_amount_out, Error::<T>::SlippageTooHigh);
-        let spender = Self::credit_gamma(netuid, &coldkey, &hotkey, gamma)?;
+        let (spender, daily_spend_cap) =
+            Self::credit_gamma(netuid, &coldkey, &hotkey, gamma, spender, daily_spend_cap)?;
         Self::deposit_event(Event::GammaMinted {
             netuid,
             coldkey,
             hotkey,
             spender,
+            daily_spend_cap,
             tao,
             alpha,
             value,
@@ -209,7 +228,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha`
-    /// does, and credits its gamma to the signer's deposit at `destination_hotkey`.
+    /// does, and credits its gamma to the signer's deposit at `destination_hotkey`, which
+    /// must name `spender` and have `daily_spend_cap` when they are given, or opens with them.
     pub fn do_mint_gamma_with_stake(
         origin: OriginFor<T>,
         origin_hotkey: T::AccountId,
@@ -217,6 +237,8 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha_amount: AlphaBalance,
         min_amount_out: GammaBalance,
+        spender: Option<T::AccountId>,
+        daily_spend_cap: Option<GammaBalance>,
     ) -> DispatchResult {
         let coldkey = ensure_signed(origin.clone())?;
         Self::ensure_gamma_mintable(netuid)?;
@@ -224,12 +246,20 @@ impl<T: Config> Pallet<T> {
         let alpha = Self::do_burn_alpha(origin, origin_hotkey, alpha_amount, netuid)?;
         let (value, gamma) = Self::gamma_for_alpha(alpha, mark)?;
         ensure!(gamma >= min_amount_out, Error::<T>::SlippageTooHigh);
-        let spender = Self::credit_gamma(netuid, &coldkey, &destination_hotkey, gamma)?;
+        let (spender, daily_spend_cap) = Self::credit_gamma(
+            netuid,
+            &coldkey,
+            &destination_hotkey,
+            gamma,
+            spender,
+            daily_spend_cap,
+        )?;
         Self::deposit_event(Event::GammaMinted {
             netuid,
             coldkey,
             hotkey: destination_hotkey,
             spender,
+            daily_spend_cap,
             tao: TaoBalance::ZERO,
             alpha,
             value,
@@ -333,15 +363,16 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Sets the deposit's spender.
+    /// Sets the deposit's spender, or the default spender when `spender` is `None`.
     pub fn do_set_gamma_deposit_spender(
         origin: OriginFor<T>,
         hotkey: T::AccountId,
         netuid: NetUid,
-        spender: T::AccountId,
+        spender: Option<T::AccountId>,
     ) -> DispatchResult {
         let coldkey = ensure_signed(origin)?;
         let mut deposit = Self::own_gamma_deposit(netuid, &hotkey, &coldkey)?;
+        let spender = spender.unwrap_or_else(|| Self::gamma_default_spender(netuid));
         deposit.spender = spender.clone();
         GammaDeposits::<T>::insert(netuid, &hotkey, deposit);
         Self::deposit_event(Event::GammaDepositSpenderSet {
@@ -418,6 +449,7 @@ impl<T: Config> Pallet<T> {
                 netuid,
                 coldkey,
                 hotkey: hotkey.clone(),
+                spender: signer.clone(),
                 amount: spent,
                 reference: *reference,
             });

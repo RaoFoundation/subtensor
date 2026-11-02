@@ -1048,6 +1048,16 @@ DESCRIPTIONS: dict[str, str] = {
         "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` "
         "closes it; once its spender has spent it to zero, close it."
     ),
+    "GammaDepositSpenderMismatch": (
+        "A mint named a spender, but the gamma deposit it credits already names another. A "
+        "named spender opens a new deposit and must match an existing one. Mint without naming "
+        "one, or change the deposit's spender with `set_gamma_deposit_spender` first."
+    ),
+    "GammaDepositDailySpendCapMismatch": (
+        "A mint named a daily spend cap, but the gamma deposit it credits has another. A named "
+        "cap opens a new deposit and must match an existing one's. Mint without naming one, or "
+        "change the deposit's cap with `set_gamma_deposit_daily_spend_cap` first."
+    ),
     "ColdkeySwapDestinationReserved": (
         "This account is reserved as the destination of an in-flight coldkey-swap "
         "announcement, so it cannot be registered as a hotkey and another coldkey cannot "

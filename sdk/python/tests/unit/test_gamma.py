@@ -13,6 +13,7 @@ from bittensor.cli.context import AppContext
 from bittensor.intents import build
 from bittensor.intents._money import UNBOUNDED, gamma_amount, gamma_units
 from bittensor.result import BittensorError, ExtrinsicResult
+from bittensor.sp_core import ss58_encode
 from tests.harness.fake_substrate import FakeSubstrate
 from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, INTENT_SAMPLES, dev_wallet
 from tests.unit.test_cli_commands import (  # noqa: F401
@@ -38,7 +39,8 @@ SIGNER = ALICE_HOT  # any account, as the dispatch origin
 
 
 def _deposit(coldkey: str = SIGNER, balance: int = 0, **fields) -> dict:
-    return {"coldkey": coldkey, "spender": coldkey, "balance": balance, "bucket": (0, 0), **fields}
+    return {"coldkey": coldkey, "spender": coldkey, "balance": balance, "daily_spend_cap": None,
+            "bucket": (0, 0), **fields}  # fmt: skip
 
 
 @pytest.fixture(scope="module")
@@ -65,10 +67,10 @@ class TestAmounts:
     ("op", "args", "params"),
     [
         ("mint_gamma", MINT, {"hotkey": BOB_HOT, "netuid": 1, "amount": RAO,
-            "min_amount_out": 380 * RAO}),
+            "min_amount_out": 380 * RAO, "spender": None, "daily_spend_cap": None}),
         ("mint_gamma_with_stake", MINT_STAKE, {"origin_hotkey": ALICE_HOT,
             "destination_hotkey": BOB_HOT, "netuid": 1, "alpha_amount": RAO,
-            "min_amount_out": 380 * RAO}),
+            "min_amount_out": 380 * RAO, "spender": None, "daily_spend_cap": None}),
         ("move_gamma", {**MOVE, "amount_gamma": "1.5"}, {"origin_hotkey": ALICE_HOT,
             "destination_hotkey": BOB_HOT, "netuid": 1, "amount": 1_500_000_000}),
         ("move_gamma", {**MOVE, "amount_gamma": "all"}, {"origin_hotkey": ALICE_HOT,
@@ -79,6 +81,9 @@ class TestAmounts:
             {"hotkey": BOB_HOT, "netuid": 1, "daily_spend_cap": 0}),
         ("set_gamma_deposit_daily_spend_cap", DEPOSIT,
             {"hotkey": BOB_HOT, "netuid": 1, "daily_spend_cap": None}),
+        ("set_gamma_deposit_spender", {**DEPOSIT, "spender_ss58": ALICE},
+            {"hotkey": BOB_HOT, "netuid": 1, "spender": ALICE}),
+        ("set_gamma_deposit_spender", DEPOSIT, {"hotkey": BOB_HOT, "netuid": 1, "spender": None}),
         ("spend_gamma", {"netuid": 1, "spends": [{"hotkey_ss58": BOB_HOT, "amount_gamma": "0.5",
             "reference": "ab" * 32}]},
             {"netuid": 1, "spends": [(BOB_HOT, RAO // 2, "0x" + "ab" * 32)]}),
@@ -249,6 +254,20 @@ class TestMintPreview:
         assert any("belongs to another coldkey" in block for block in preview.blocks)
 
     @pytest.mark.parametrize(
+        ("owner", "deposit", "warned"),
+        [(ALICE, None, True), (ss58_encode(bytes(32), 42), None, False), (None, None, False),
+         (ALICE, _deposit(), False)],
+        ids=["staking-hotkey", "unowned", "unread", "top-up"],
+    )  # fmt: skip
+    @pytest.mark.asyncio
+    async def test_a_new_deposit_at_a_staking_hotkey_warns(self, owner, deposit, warned):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "Owner", [BOB_HOT], owner)
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], deposit)
+        preview = await build("mint_gamma", MINT).preflight(sub, SIGNER, SIGNER)
+        assert any("staking hotkey" in warning for warning in preview.warnings) is warned
+
+    @pytest.mark.parametrize(
         ("amount", "staked", "warned"),
         [(1.0, RAO, False), (1.0, RAO // 4, True), ("all", RAO, True)],
     )
@@ -263,18 +282,47 @@ class TestMintPreview:
         assert bool(preview.warnings) is warned
 
 
-class TestMintSpender:
+class TestMintTerms:
+    @pytest.mark.parametrize(
+        ("op", "args"), [("mint_gamma", MINT), ("mint_gamma_with_stake", MINT_STAKE)]
+    )
     @pytest.mark.asyncio
-    async def test_names_the_spender_in_one_batch(self, wallet):
-        call = await build("mint_gamma", {**MINT, "spender_ss58": ALICE}).build(
-            FakeSubstrate(), wallet
-        )
-        assert (call.module, call.function) == ("Utility", "batch_all")
-        assert [tuple(inner)[1:] for inner in call.params["calls"]] == [
-            ("mint_gamma", {"hotkey": BOB_HOT, "netuid": 1, "amount": RAO,
-                "min_amount_out": 380 * RAO}),
-            ("set_gamma_deposit_spender", {"hotkey": BOB_HOT, "netuid": 1, "spender": ALICE}),
-        ]  # fmt: skip
+    async def test_the_mint_names_the_terms(self, op, args, wallet):
+        terms = {"spender_ss58": ALICE, "daily_spend_cap_gamma": "2.5"}
+        call = await build(op, {**args, **terms}).build(FakeSubstrate(), wallet)
+        assert (call.module, call.function) == ("SubtensorModule", op)
+        assert (call.params["spender"], call.params["daily_spend_cap"]) == (ALICE, 2_500_000_000)
+
+    @pytest.mark.parametrize(
+        ("spender", "blocked"), [(None, False), (SIGNER, False), (ALICE, True)]
+    )
+    @pytest.mark.asyncio
+    async def test_a_deposit_naming_another_spender_blocks(self, spender, blocked):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], _deposit())
+        intent = build("mint_gamma", {**MINT, "spender_ss58": spender})
+        preview = await intent.preflight(sub, SIGNER, SIGNER)
+        assert any("is spent by" in block for block in preview.blocks) is blocked
+
+    @pytest.mark.parametrize(
+        ("held", "named", "blocked"),
+        [(None, None, False), (RAO, None, False), (RAO, 1, False), (RAO, 2, True),
+         (None, 0, True)],
+    )  # fmt: skip
+    @pytest.mark.asyncio
+    async def test_a_deposit_with_another_cap_blocks(self, held, named, blocked):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], _deposit(daily_spend_cap=held))
+        intent = build("mint_gamma", {**MINT, "daily_spend_cap_gamma": named})
+        preview = await intent.preflight(sub, SIGNER, SIGNER)
+        assert any("daily spend cap" in block for block in preview.blocks) is blocked
+        assert ("daily spend cap", "none" if held is None else "1 gamma") in preview.facts
+
+    @pytest.mark.asyncio
+    async def test_a_new_deposit_shows_the_named_cap(self):
+        intent = build("mint_gamma", {**MINT, "daily_spend_cap_gamma": "2.5"})
+        preview = await intent.preflight(FakeSubstrate(), SIGNER, SIGNER)
+        assert ("daily spend cap", "2.5 gamma") in preview.facts
 
 
 class TestDepositPreviews:
@@ -339,6 +387,23 @@ class TestDepositPreviews:
         sub.seed("SubtensorModule", "GammaDeposits", [1, ALICE_HOT], origin)
         intent = build("move_gamma", {**MOVE, "amount_gamma": amount})
         assert bool(await intent.warnings(sub, SIGNER)) is closes
+
+    @pytest.mark.parametrize(
+        ("destination", "warned"),
+        [(None, []), (_deposit(), []), (_deposit(spender=ALICE), [ALICE]),
+         (_deposit(daily_spend_cap=RAO), ["daily spend cap, 1 gamma, instead of none"]),
+         (_deposit(spender=ALICE, daily_spend_cap=0),
+          [ALICE, "daily spend cap, 0 gamma, instead of none"])],
+        ids=["new", "same-terms", "other-spender", "other-cap", "both"],
+    )  # fmt: skip
+    @pytest.mark.asyncio
+    async def test_move_warns_when_the_destination_has_other_terms(self, destination, warned):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaDeposits", [1, ALICE_HOT], _deposit(balance=2 * RAO))
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], destination)
+        warnings = await build("move_gamma", {**MOVE, "amount_gamma": 1}).warnings(sub, SIGNER)
+        assert len(warnings) == len(warned)
+        assert all(text in warning for text, warning in zip(warned, warnings))
 
     @pytest.mark.parametrize(
         ("signer", "deposits", "named"),
@@ -462,6 +527,21 @@ class TestCli:
         else:
             assert result.exit_code == 0, result.output
             assert [intent.daily_spend_cap_gamma for intent in submitted] == [cap]
+
+    @pytest.mark.parametrize(
+        ("flags", "spender"),
+        [(["--spender", ALICE], ALICE), (["--default-spender"], None), ([], "refused"),
+         (["--spender", ALICE, "--default-spender"], "refused")],
+    )  # fmt: skip
+    def test_set_spender_takes_exactly_one_of_a_spender_or_the_default(
+        self, submitted, flags, spender
+    ):
+        result = invoke("gamma", "set-spender", "--netuid", "1", "--hotkey", BOB_HOT, *flags)
+        if spender == "refused":
+            assert result.exit_code == 2 and not submitted
+        else:
+            assert result.exit_code == 0, result.output
+            assert [intent.spender_ss58 for intent in submitted] == [spender]
 
     def test_bad_rate_tolerance_is_an_error_line(self, submitted):
         result = invoke(

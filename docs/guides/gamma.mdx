@@ -126,13 +126,12 @@ btcli gamma close --netuid 51 --hotkey API_KEY
 ## Spenders and daily spend caps
 
 The spender stays the same if the subnet changes hands. Name another account
-with [`set-gamma-deposit-spender`](/docs/tx/set-gamma-deposit-spender):
+with [`set-gamma-deposit-spender`](/docs/tx/set-gamma-deposit-spender), or
+`--default-spender` for the subnet's current owner, or its lease's beneficiary:
 
 ```bash
 btcli gamma set-spender --netuid 51 --hotkey API_KEY --spender SERVICE
 ```
-
-A mint names the spender in the same batch with `--spender SERVICE`.
 
 A daily spend cap, set with
 [`set-gamma-deposit-daily-spend-cap`](/docs/tx/set-gamma-deposit-daily-spend-cap),
@@ -142,11 +141,18 @@ increase, and lowering it clamps what is left. A cap of zero pauses the
 deposit, and `--no-cap` removes the cap.
 
 While the cap is unchanged, a spender takes at most the cap plus its refill over
-any period. A deposit opened by a move starts full.
+any period. A deposit opened with a cap starts full.
 
 ```bash
 btcli gamma set-cap --netuid 51 --hotkey API_KEY --daily-spend-cap-gamma 20
 ```
+
+A mint can name a new deposit's terms with `--spender SERVICE` and
+`--daily-spend-cap-gamma 20`, so the deposit never opens on others. A deposit
+that already has other terms fails the mint with
+[`GammaDepositSpenderMismatch`](/docs/errors/chain/GammaDepositSpenderMismatch)
+or
+[`GammaDepositDailySpendCapMismatch`](/docs/errors/chain/GammaDepositDailySpendCapMismatch).
 
 ## Spending
 
@@ -223,6 +229,7 @@ btcli query tao-usd-price
 - A spender's coldkey swap does not change any deposit's spender. After a subnet
   owner or lease beneficiary swaps its coldkey, deposits opened before still
   name the old coldkey, and only deposits a mint opens after the swap name the
-  new one. A deposit's coldkey re-points it with `btcli gamma set-spender`.
+  new one. A deposit's coldkey re-points it with
+  `btcli gamma set-spender --default-spender`.
 - The oracle is trusted: its accepted price can rise at most about 61% per day,
   until root replaces or removes it.

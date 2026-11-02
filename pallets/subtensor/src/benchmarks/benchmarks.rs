@@ -3636,6 +3636,8 @@ mod pallet_benchmarks {
             netuid,
             TaoBalance::from(10_000_000_000_u64),
             GammaBalance::ZERO,
+            None,
+            None,
         );
 
         assert!(GammaDeposits::<T>::contains_key(netuid, &hotkey));
@@ -3664,6 +3666,8 @@ mod pallet_benchmarks {
             netuid,
             alpha,
             GammaBalance::ZERO,
+            None,
+            None,
         );
 
         assert!(GammaDeposits::<T>::contains_key(netuid, &destination));
@@ -3725,7 +3729,7 @@ mod pallet_benchmarks {
             RawOrigin::Signed(coldkey.clone()),
             hotkey.clone(),
             netuid,
-            spender.clone(),
+            Some(spender.clone()),
         );
 
         assert_eq!(

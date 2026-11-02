@@ -369,6 +369,14 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "move the balance out with `btcli gamma move --amount-gamma all`, which closes "
         "the deposit, or close it once its spender has spent it"
     ),
+    "GammaDepositSpenderMismatch": (
+        "the deposit already names another spender (`btcli gamma show`); mint without "
+        "`--spender`, or change it with `btcli gamma set-spender` first"
+    ),
+    "GammaDepositDailySpendCapMismatch": (
+        "the deposit already has another daily spend cap (`btcli gamma show`); mint without "
+        "`--daily-spend-cap-gamma`, or change it with `btcli gamma set-cap` first"
+    ),
     "TooManyGammaDeposits": (
         "move gamma into an existing deposit with `btcli gamma move`, or close an empty one "
         "with `btcli gamma close`"
