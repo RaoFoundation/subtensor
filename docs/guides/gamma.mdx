@@ -56,7 +56,7 @@ creates no stake position.
 already hold instead:
 
 ```bash
-btcli gamma mint-with-stake --netuid 51 --hotkey API_KEY --origin-hotkey VALIDATOR --amount-alpha 100
+btcli gamma mint-with-stake --netuid 51 --hotkey API_KEY --origin-hotkey VALIDATOR --amount-alpha 100 --service-hotkey SERVICE_HOTKEY
 ```
 
 `--amount-alpha all` burns the whole stake.
@@ -196,10 +196,9 @@ string, and `reference`.
 
 A reference is any 32 bytes, all zero when omitted. The chain repeats it in the
 entry's `GammaSpent` event and reads it nowhere else, so an entry sent twice
-spends twice. By convention it is the sha256 of the
-[`btauth/1`](/docs/guides/signed-requests) payload the customer signed for the
-request the entry pays for, so the customer can match each spend to its own
-request. A service can use its own job or order id instead.
+spends twice. By convention it is the service's own 32-byte id for the request
+the entry pays for, returned with its response, so the customer can match each
+spend to its own request.
 
 Since the coldkey can change the spender or pause the deposit at any time, a
 service spends ahead: it spends what it is about to serve, and serves what was
@@ -213,10 +212,11 @@ btcli gamma spend --netuid 51 --spend API_KEY=0.25 -w BILLING_KEY --proxy-for SE
 
 ## The TAO/USD price
 
-An oracle set by root feeds the TAO/USD price. The accepted price falls to a
-lower feed at once and rises toward a higher one by at most 0.0066% (66 ppm)
-per block, about 2% per hour. A mint values TAO at the accepted price and needs
-a feed at most 300 blocks (one hour) old; otherwise it fails with
+An oracle set by root feeds the TAO/USD price in gamma units, 10^9 per US
+dollar, so 400 dollars per TAO is fed as 400000000000. The accepted price falls
+to a lower feed at once and rises toward a higher one by at most 0.0066% (66
+ppm) per block, about 2% per hour. A mint values TAO at the accepted price and
+needs a feed at most 300 blocks (one hour) old; otherwise it fails with
 [`TaoUsdPriceUnavailable`](/docs/errors/chain/TaoUsdPriceUnavailable). Setting
 or removing the oracle clears the price, so no gamma can be minted until an
 oracle feeds. Read it with [`tao-usd-price`](/docs/query/tao-usd-price):

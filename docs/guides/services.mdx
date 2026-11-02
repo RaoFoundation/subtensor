@@ -57,3 +57,8 @@ are, how to reach them, and how they are paid for:
 
 A service can name any spender, and that spender can spend the deposits that
 name it without serving, so prefer the service marked `owner`.
+
+While a spender's coldkey swap is announced, it cannot spend. A service that
+must never pause names a spender that never needs a swap, such as a multisig or
+a pure proxy, and spends through a separate `GammaSpend` key, which it replaces
+by changing the proxy.
