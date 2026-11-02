@@ -366,7 +366,8 @@ impl<T: Config> Pallet<T> {
     /// the fund's own root-slot (escrow) position. Only the real stakers' fraction of the
     /// value mints shares; the escrow slot's fraction enters the fund unminted, so the fund's
     /// own cash yield accrues to existing share holders through N/P instead of leaking to
-    /// root stakers as free shares.
+    /// root stakers as free shares. The mint denominator includes that unminted yield:
+    /// `shares = stakers_value * P / (N + fund_yield)`.
     ///
     /// The whole operation is transactional. Each credit's own step is isolated: an unknown
     /// valuation or accounting failure there re-queues only that credit and the batch

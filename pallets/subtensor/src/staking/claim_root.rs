@@ -144,7 +144,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Shared tail of both dividend deposit flows: attribute the value added between real
-    /// stakers and the fund's own escrow slot, mint fund shares at the pre-deposit NAV, and
+    /// stakers and the fund's own escrow slot, price new shares after the fund's own yield, and
     /// advance the per-validator claimable rate. Errors on a dust deposit so the caller rolls
     /// back and re-queues (or recycles only when the credit is unapportionable).
     pub(super) fn mint_basket_dividend_shares(
@@ -170,11 +170,15 @@ impl<T: Config> Pallet<T> {
             total_root.saturating_add(escrow_root),
         );
 
-        // Mint fund shares at the pre-deposit NAV: shares = stakers_value * P / N. A
-        // deposit into an already-compounded fund (N/P > 1) mints fewer shares than TAO
-        // added, so N/P is left unchanged.
+        // Let x be the real stakers' value and y the fund's own yield. New shares s must
+        // satisfy s * (N + x + y) / (P + s) = x, hence s = x * P / (N + y).
+        // Pricing at N instead would give the newcomers part of the incumbents' y.
+        let fund_yield = value_added.saturating_sub(stakers_value);
+        let mint_nav = nav_before
+            .checked_add(fund_yield)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
         let shares: u64 =
-            Self::basket_shares_for_value(stakers_value, nav_before, shares_outstanding);
+            Self::basket_shares_for_value(stakers_value, mint_nav, shares_outstanding);
 
         // Per-staker claimable rate increment: fund shares per unit of root stake.
         let increment: I96F32 = I96F32::saturating_from_num(shares)
@@ -201,14 +205,20 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // `nav_before == 0` with outstanding shares means `basket_shares_for_value`
+        // Do not create claimable shares that the supply cannot represent. The enclosing
+        // deposit transaction rolls back and re-queues the credit on overflow.
+        let shares_after = shares_outstanding
+            .checked_add(shares)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+
+        // `mint_nav == 0` with outstanding shares means `basket_shares_for_value`
         // took its dust-revival branch: this par mint starts a new fund life, so the
         // previous life's display baseline/TWR must not describe it.
-        if nav_before == 0 && shares_outstanding > 0 {
+        if mint_nav == 0 && shares_outstanding > 0 {
             Self::retire_beta_display_state(hotkey);
         }
 
-        BasketShares::<T>::mutate(hotkey, |p| *p = p.saturating_add(shares));
+        BasketShares::<T>::insert(hotkey, shares_after);
         BasketRate::<T>::mutate(hotkey, |rate| *rate = rate.saturating_add(increment));
         // Canonical staker total-return series (display state, see `BasketTwr`).
         Self::accrue_basket_twr(hotkey, stakers_value, total_root);

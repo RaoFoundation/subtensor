@@ -112,9 +112,9 @@
         "pallet": "Proxy",
         "call": "add_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 334,
-        "end_line": 343,
-        "url": "/code/pallets/proxy/src/lib.rs#L332-L343",
+        "line": 336,
+        "end_line": 345,
+        "url": "/code/pallets/proxy/src/lib.rs#L334-L345",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1015,27 +1015,27 @@
         "pallet": "Proxy",
         "call": "create_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 399,
-        "end_line": 411,
-        "url": "/code/pallets/proxy/src/lib.rs#L397-L411",
+        "line": 401,
+        "end_line": 413,
+        "url": "/code/pallets/proxy/src/lib.rs#L399-L413",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       },
       {
         "pallet": "Proxy",
         "call": "create_protected_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 775,
-        "end_line": 787,
-        "url": "/code/pallets/proxy/src/lib.rs#L772-L787",
+        "line": 777,
+        "end_line": 789,
+        "url": "/code/pallets/proxy/src/lib.rs#L774-L789",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       },
       {
         "pallet": "Proxy",
         "call": "create_safe_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 796,
-        "end_line": 804,
-        "url": "/code/pallets/proxy/src/lib.rs#L793-L804",
+        "line": 798,
+        "end_line": 806,
+        "url": "/code/pallets/proxy/src/lib.rs#L795-L806",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1363,9 +1363,9 @@
         "pallet": "Proxy",
         "call": "proxy_announced",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 597,
-        "end_line": 627,
-        "url": "/code/pallets/proxy/src/lib.rs#L587-L627",
+        "line": 599,
+        "end_line": 629,
+        "url": "/code/pallets/proxy/src/lib.rs#L589-L629",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1576,18 +1576,18 @@
         "pallet": "Proxy",
         "call": "kill_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 431,
-        "end_line": 457,
-        "url": "/code/pallets/proxy/src/lib.rs#L429-L457",
+        "line": 433,
+        "end_line": 459,
+        "url": "/code/pallets/proxy/src/lib.rs#L431-L459",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       },
       {
         "pallet": "Proxy",
         "call": "kill_safe_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 813,
-        "end_line": 835,
-        "url": "/code/pallets/proxy/src/lib.rs#L810-L835",
+        "line": 815,
+        "end_line": 837,
+        "url": "/code/pallets/proxy/src/lib.rs#L812-L837",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -2445,9 +2445,9 @@
         "pallet": "Proxy",
         "call": "remove_proxies",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 373,
-        "end_line": 377,
-        "url": "/code/pallets/proxy/src/lib.rs#L371-L377",
+        "line": 375,
+        "end_line": 379,
+        "url": "/code/pallets/proxy/src/lib.rs#L373-L379",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -2495,9 +2495,9 @@
         "pallet": "Proxy",
         "call": "remove_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 354,
-        "end_line": 363,
-        "url": "/code/pallets/proxy/src/lib.rs#L352-L363",
+        "line": 356,
+        "end_line": 365,
+        "url": "/code/pallets/proxy/src/lib.rs#L354-L365",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]

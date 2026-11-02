@@ -37,6 +37,8 @@ pub mod weights;
 
 extern crate alloc;
 use alloc::{boxed::Box, vec};
+#[cfg(feature = "try-runtime")]
+use frame::try_runtime::TryRuntimeError;
 use frame::{
     prelude::*,
     traits::{Currency, InstanceFilter, ReservableCurrency},
@@ -924,6 +926,34 @@ pub mod pallet {
 
     #[pallet::hooks]
     impl<T: Config> Hooks<SystemBlockNumberFor<T>> for Pallet<T> {
+        #[cfg(feature = "try-runtime")]
+        fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
+            let boundary = AnnouncementValidFrom::<T>::get().unwrap_or_else(|| {
+                T::BlockNumberProvider::current_block_number().saturating_add(One::one())
+            });
+            // Offline-only snapshot: invalidation must preserve the entries and their
+            // deposit records so delegates can remove them and recover reservations.
+            let announcements = Announcements::<T>::iter().collect::<Vec<_>>();
+            Ok((boundary, T::CallHasher::hash_of(&announcements)).encode())
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
+            let (boundary, announcements_hash) =
+                <(BlockNumberFor<T>, CallHashOf<T>)>::decode(&mut &state[..])
+                    .map_err(|_| "invalid proxy announcement upgrade snapshot")?;
+            ensure!(
+                AnnouncementValidFrom::<T>::get() == Some(boundary),
+                "proxy announcement validity boundary was not preserved or initialized"
+            );
+            let announcements = Announcements::<T>::iter().collect::<Vec<_>>();
+            ensure!(
+                T::CallHasher::hash_of(&announcements) == announcements_hash,
+                "proxy announcement entries or deposit records changed during invalidation"
+            );
+            Ok(())
+        }
+
         fn on_runtime_upgrade() -> Weight {
             if AnnouncementValidFrom::<T>::exists() {
                 return T::DbWeight::get().reads(1);

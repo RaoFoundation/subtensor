@@ -986,7 +986,11 @@ fn runtime_upgrade_invalidates_legacy_announcements_without_trapping_the_deposit
         assert!(announcement_deposit > 0);
 
         // Executive runs the upgrade before System::initialize advances block 1 to 2.
+        #[cfg(feature = "try-runtime")]
+        let snapshot = <Proxy as Hooks<u64>>::pre_upgrade().unwrap();
         <Proxy as Hooks<u64>>::on_runtime_upgrade();
+        #[cfg(feature = "try-runtime")]
+        assert_ok!(<Proxy as Hooks<u64>>::post_upgrade(snapshot));
         assert_eq!(AnnouncementValidFrom::<Test>::get(), Some(2));
         System::set_block_number(2);
 
@@ -1008,7 +1012,11 @@ fn runtime_upgrade_invalidates_legacy_announcements_without_trapping_the_deposit
         assert_ok!(Proxy::announce(RuntimeOrigin::signed(1), 5, call_hash));
         System::set_block_number(3);
         // Later upgrades must not move the one-time boundary or invalidate safe entries.
+        #[cfg(feature = "try-runtime")]
+        let snapshot = <Proxy as Hooks<u64>>::pre_upgrade().unwrap();
         <Proxy as Hooks<u64>>::on_runtime_upgrade();
+        #[cfg(feature = "try-runtime")]
+        assert_ok!(<Proxy as Hooks<u64>>::post_upgrade(snapshot));
         assert_eq!(AnnouncementValidFrom::<Test>::get(), Some(2));
         assert_ok!(Proxy::proxy_announced(
             RuntimeOrigin::signed(4),

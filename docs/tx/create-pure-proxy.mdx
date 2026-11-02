@@ -15,7 +15,7 @@ the pure proxy and anything it holds.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.create_pure`](/code/pallets/proxy/src/lib.rs#L397-L411), [`Proxy.create_protected_pure`](/code/pallets/proxy/src/lib.rs#L772-L787), [`Proxy.create_safe_pure`](/code/pallets/proxy/src/lib.rs#L793-L804) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.create_pure`](/code/pallets/proxy/src/lib.rs#L399-L413), [`Proxy.create_protected_pure`](/code/pallets/proxy/src/lib.rs#L774-L789), [`Proxy.create_safe_pure`](/code/pallets/proxy/src/lib.rs#L795-L806) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("create_pure_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.create_pure` — [`pallets/proxy/src/lib.rs#L399`](/code/pallets/proxy/src/lib.rs#L397-L411):
+`Proxy.create_pure` — [`pallets/proxy/src/lib.rs#L401`](/code/pallets/proxy/src/lib.rs#L399-L413):
 
 ```rust
 #[pallet::call_index(4)]
@@ -85,7 +85,7 @@ pub fn create_pure(
 }
 ```
 
-`Proxy.create_protected_pure` — [`pallets/proxy/src/lib.rs#L775`](/code/pallets/proxy/src/lib.rs#L772-L787):
+`Proxy.create_protected_pure` — [`pallets/proxy/src/lib.rs#L777`](/code/pallets/proxy/src/lib.rs#L774-L789):
 
 ```rust
 #[pallet::call_index(12)]
@@ -106,7 +106,7 @@ pub fn create_protected_pure(
 }
 ```
 
-`Proxy.create_safe_pure` — [`pallets/proxy/src/lib.rs#L796`](/code/pallets/proxy/src/lib.rs#L793-L804):
+`Proxy.create_safe_pure` — [`pallets/proxy/src/lib.rs#L798`](/code/pallets/proxy/src/lib.rs#L795-L806):
 
 ```rust
 #[pallet::call_index(13)]
