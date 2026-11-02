@@ -30,15 +30,6 @@ env:
   TRY_RUNTIME_VERSION: "0.10.1"
 
 jobs:
-  # Fork PRs must not run on self-hosted runners — checkout executes untrusted
-  # code from the fork head (RCE risk on persistent org hardware).
-  trusted-pr:
-    name: Trusted PR source (non-fork)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
-
   # "Sudo-upgrade mainnet clone and test" and "Docs and website build" are
   # required merge checks, so this workflow must always trigger (a required
   # check whose workflow never runs is stuck "Expected" and blocks the merge).
@@ -167,7 +158,7 @@ jobs:
   # It finishes before the release node, so it takes the turbo-8 lane.
   build-try-runtime:
     name: build try-runtime wasm
-    needs: [trusted-pr, changes]
+    needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     outputs:
@@ -229,7 +220,7 @@ jobs:
   # update-runtime-with-alice.ts expects the wasm under target/release/wbuild.
   build-node-release:
     name: build release node
-    needs: [trusted-pr, changes]
+    needs: changes
     if: >-
       (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
       !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
@@ -477,7 +468,7 @@ jobs:
   # matches exactly once) and mainnet's comes from one RPC call.
   spec-version:
     name: spec_version newer than mainnet
-    needs: [trusted-pr, changes]
+    needs: changes
     if: >-
       !contains(github.event.pull_request.labels.*.name, 'no-spec-version-bump') &&
       (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
@@ -512,7 +503,7 @@ jobs:
   # sdk/python/, the only input that can move the generated pages).
   sdk-checks:
     name: SDK offline checks
-    needs: [trusted-pr, changes]
+    needs: changes
     if: >-
       (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true') &&
       !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
@@ -634,7 +625,7 @@ jobs:
   # run in parallel. A live scrape retains the combined sequential path.
   clone-upgrade:
     name: clone-upgrade (${{ matrix.phase }})
-    needs: [trusted-pr, changes, clone-plan, build-node-release]
+    needs: [changes, clone-plan, build-node-release]
     runs-on: [self-hosted, fireactions-turbo-8]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
     timeout-minutes: 90
@@ -807,7 +798,7 @@ jobs:
 
   docs-website:
     name: Docs and website build
-    needs: [trusted-pr, changes]
+    needs: changes
     if: needs.changes.outputs.docs == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     steps:

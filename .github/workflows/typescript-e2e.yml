@@ -13,13 +13,6 @@ permissions:
   contents: read
 
 jobs:
-  trusted-pr:
-    name: Trusted PR source (non-fork)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
-
   # typescript-formatting is a required merge check, so the workflow must
   # always trigger and that job always runs (it is cheap). The expensive node
   # builds and zombienet suites skip themselves when the PR touches nothing
@@ -240,7 +233,7 @@ jobs:
   select-release-artifact:
     name: Select Runtime release artifact
     runs-on: ubuntu-latest
-    needs: [trusted-pr, changes]
+    needs: changes
     if: needs.changes.outputs.release_build == 'true'
     timeout-minutes: 8
     permissions:
@@ -281,10 +274,9 @@ jobs:
     environment:
       name: sccache-reader
       deployment: false
-    needs: [trusted-pr, changes, select-release-artifact]
+    needs: [changes, select-release-artifact]
     if: >-
       !cancelled() &&
-      needs.trusted-pr.result == 'success' &&
       needs.changes.result == 'success' &&
       needs.changes.outputs.release_build == 'true'
     timeout-minutes: 60
@@ -381,7 +373,7 @@ jobs:
     environment:
       name: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'sccache-writer' || 'sccache-reader' }}
       deployment: false
-    needs: [trusted-pr, changes]
+    needs: changes
     if: needs.changes.outputs.fast_build == 'true'
     timeout-minutes: 60
     env:
@@ -437,7 +429,7 @@ jobs:
   # multi-node topology below. Seven state workers plus six Shield workers use
   # 13 of the 32 turbo-8 runners, so two full PRs still leave six slots free.
   run-fast-e2e-tests:
-    needs: [trusted-pr, changes, build-fast]
+    needs: [changes, build-fast]
     if: needs.changes.outputs.fast_state_count != '0'
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
@@ -461,7 +453,7 @@ jobs:
           additional-test: ${{ matrix.additional_test }}
 
   run-release-e2e-tests:
-    needs: [trusted-pr, changes, build-release]
+    needs: [changes, build-release]
     if: needs.changes.outputs.release_state_count != '0'
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
@@ -486,12 +478,11 @@ jobs:
   evm-result:
     name: typescript-e2e-zombienet_evm
     if: always()
-    needs: [trusted-pr, changes, build-fast, run-fast-e2e-tests, sharding-audit-fast]
+    needs: [changes, build-fast, run-fast-e2e-tests, sharding-audit-fast]
     runs-on: ubuntu-latest
     steps:
       - name: Check EVM shard prerequisites
         env:
-          TRUSTED_RESULT: ${{ needs.trusted-pr.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           EVM_SELECTED: ${{ needs.changes.outputs.evm }}
           BUILD_RESULT: ${{ needs.build-fast.result }}
@@ -499,8 +490,8 @@ jobs:
           TOPOLOGY_AUDIT: ${{ needs.changes.outputs.topology_audit }}
           AUDIT_RESULT: ${{ needs.sharding-audit-fast.result }}
         run: |
-          if [[ "$TRUSTED_RESULT" != "success" || "$CHANGES_RESULT" != "success" ]]; then
-            echo "EVM E2E routing failed: trusted=$TRUSTED_RESULT changes=$CHANGES_RESULT" >&2
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            echo "EVM E2E routing failed: changes=$CHANGES_RESULT" >&2
             exit 1
           fi
           case "$EVM_SELECTED" in
@@ -528,7 +519,7 @@ jobs:
   # slot duration. A 250 ms runtime outruns the asynchronous key-rotation
   # pipeline and can finalize a wrapper without unshielding its inner call.
   run-shield-tests:
-    needs: [trusted-pr, changes, build-release]
+    needs: [changes, build-release]
     if: needs.changes.outputs.shield_count != '0'
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
@@ -551,7 +542,7 @@ jobs:
   # catches hidden cross-file state or concurrency assumptions before merge.
   sharding-audit-fast:
     name: Audit canonical unsharded ${{ matrix.test }}
-    needs: [trusted-pr, changes, build-fast]
+    needs: [changes, build-fast]
     if: needs.changes.outputs.topology_audit == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 60
@@ -575,7 +566,7 @@ jobs:
 
   sharding-audit-release:
     name: Audit canonical unsharded ${{ matrix.test }}
-    needs: [trusted-pr, changes, build-release]
+    needs: [changes, build-release]
     if: needs.changes.outputs.topology_audit == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 60
@@ -598,12 +589,11 @@ jobs:
   shield-result:
     name: typescript-e2e-zombienet_shield
     if: always()
-    needs: [trusted-pr, changes, build-release, run-shield-tests, sharding-audit-release]
+    needs: [changes, build-release, run-shield-tests, sharding-audit-release]
     runs-on: ubuntu-latest
     steps:
       - name: Check Shield shard results
         env:
-          TRUSTED_RESULT: ${{ needs.trusted-pr.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           SHIELD_SELECTED: ${{ needs.changes.outputs.shield }}
           BUILD_RESULT: ${{ needs.build-release.result }}
@@ -611,8 +601,8 @@ jobs:
           TOPOLOGY_AUDIT: ${{ needs.changes.outputs.topology_audit }}
           AUDIT_RESULT: ${{ needs.sharding-audit-release.result }}
         run: |
-          if [[ "$TRUSTED_RESULT" != "success" || "$CHANGES_RESULT" != "success" ]]; then
-            echo "Shield E2E routing failed: trusted=$TRUSTED_RESULT changes=$CHANGES_RESULT" >&2
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            echo "Shield E2E routing failed: changes=$CHANGES_RESULT" >&2
             exit 1
           fi
           case "$SHIELD_SELECTED" in

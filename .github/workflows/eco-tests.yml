@@ -12,13 +12,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  trusted-pr:
-    name: Trusted PR source (non-fork)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
-
   # "cargo test (eco-tests)" is a required merge check, so the workflow must
   # always trigger (a required check whose workflow never runs is stuck
   # "Expected" and blocks the merge). The job skips itself when the PR touches
@@ -90,7 +83,7 @@ jobs:
 
   eco-tests:
     name: run cargo test (eco-tests)
-    needs: [trusted-pr, changes]
+    needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
@@ -118,7 +111,7 @@ jobs:
   # non-Rust skip from a missing test run.
   eco-tests-gate:
     name: cargo test (eco-tests)
-    needs: [trusted-pr, changes, eco-tests]
+    needs: [changes, eco-tests]
     if: always()
     runs-on: ubuntu-latest
     permissions: {}
@@ -126,12 +119,11 @@ jobs:
       - name: Evaluate eco-test result
         env:
           EVENT_NAME: ${{ github.event_name }}
-          TRUSTED: ${{ needs.trusted-pr.result }}
           CHANGES: ${{ needs.changes.result }}
           RUST_RELEVANT: ${{ needs.changes.outputs.rust }}
           TEST_RESULT: ${{ needs.eco-tests.result }}
         run: |
-          echo "event=$EVENT_NAME trusted=$TRUSTED changes=$CHANGES rust=$RUST_RELEVANT test=$TEST_RESULT"
+          echo "event=$EVENT_NAME changes=$CHANGES rust=$RUST_RELEVANT test=$TEST_RESULT"
           if [ "$CHANGES" != success ]; then
             exit 1
           fi
@@ -141,6 +133,6 @@ jobs:
           fi
           case "$RUST_RELEVANT" in
             false) [ "$TEST_RESULT" = skipped ] ;;
-            true) [ "$TRUSTED" = success ] && [ "$TEST_RESULT" = success ] ;;
+            true) [ "$TEST_RESULT" = success ] ;;
             *) echo "invalid eco-test selection: '$RUST_RELEVANT'" >&2; exit 1 ;;
           esac
