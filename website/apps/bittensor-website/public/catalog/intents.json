@@ -670,9 +670,9 @@
         "pallet": "SubtensorModule",
         "call": "close_gamma_deposit",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3197,
-        "end_line": 3203,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3195-L3203",
+        "line": 3213,
+        "end_line": 3219,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3211-L3219",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1455,7 +1455,7 @@
   {
     "name": "mint_gamma",
     "summary": "Mint gamma with TAO into your deposit at an API-key hotkey.",
-    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy.\nA new deposit's spender is the subnet owner, or a leased subnet's\nbeneficiary, unless `spender_ss58` names another in the same batch.\nFails rather than minting less than the current quote less\n`rate_tolerance`.",
+    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy.\nA new deposit's spender is the subnet owner, or a leased subnet's\nbeneficiary, unless `spender_ss58` names another. It has no daily spend\ncap unless `daily_spend_cap_gamma` sets one. A mint naming either fails\non a deposit with another.\nFails rather than minting less than the current quote less\n`rate_tolerance`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1463,14 +1463,6 @@
       [
         "SubtensorModule",
         "mint_gamma"
-      ],
-      [
-        "SubtensorModule",
-        "set_gamma_deposit_spender"
-      ],
-      [
-        "Utility",
-        "batch_all"
       ]
     ],
     "docs_url": "/docs/tx/mint-gamma",
@@ -1504,7 +1496,20 @@
         },
         "spender_ss58": {
           "type": "string",
-          "description": "The account that spends the deposit. Omit to keep its spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+          "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+        },
+        "daily_spend_cap_gamma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
         }
       },
       "required": [
@@ -1522,35 +1527,17 @@
         "pallet": "SubtensorModule",
         "call": "mint_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3147,
-        "end_line": 3155,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3145-L3155",
+        "line": 3148,
+        "end_line": 3166,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3146-L3166",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      },
-      {
-        "pallet": "SubtensorModule",
-        "call": "set_gamma_deposit_spender",
-        "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3208,
-        "end_line": 3215,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3206-L3215",
-        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      },
-      {
-        "pallet": "Utility",
-        "call": "batch_all",
-        "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
-        "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
   },
   {
     "name": "mint_gamma_with_stake",
     "summary": "Mint gamma by burning your stake into your deposit at an API-key hotkey.",
-    "description": "Mint gamma by burning your stake into your deposit at an API-key hotkey.\n\nBurns up to `amount_alpha` (`all` for the whole stake) of your stake\non `origin_hotkey_ss58` and credits its value in gamma to the deposit at\n`hotkey_ss58`, valued as `mint_gamma` values bought alpha. The stake is\ndestroyed, not moved. `spender_ss58` names the deposit's spender as for\n`mint_gamma`. Fails rather than minting less than the current quote less\n`rate_tolerance`.",
+    "description": "Mint gamma by burning your stake into your deposit at an API-key hotkey.\n\nBurns up to `amount_alpha` (`all` for the whole stake) of your stake\non `origin_hotkey_ss58` and credits its value in gamma to the deposit at\n`hotkey_ss58`, valued as `mint_gamma` values bought alpha. The stake is\ndestroyed, not moved. `spender_ss58` and `daily_spend_cap_gamma` name\nthe deposit's spender and cap as for `mint_gamma`. Fails rather than\nminting less than the current quote less `rate_tolerance`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1558,14 +1545,6 @@
       [
         "SubtensorModule",
         "mint_gamma_with_stake"
-      ],
-      [
-        "SubtensorModule",
-        "set_gamma_deposit_spender"
-      ],
-      [
-        "Utility",
-        "batch_all"
       ]
     ],
     "docs_url": "/docs/tx/mint-gamma-with-stake",
@@ -1609,7 +1588,20 @@
         },
         "spender_ss58": {
           "type": "string",
-          "description": "The account that spends the deposit. Omit to keep its spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+          "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+        },
+        "daily_spend_cap_gamma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
         }
       },
       "required": [
@@ -1628,28 +1620,10 @@
         "pallet": "SubtensorModule",
         "call": "mint_gamma_with_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3162,
-        "end_line": 3178,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3160-L3178",
+        "line": 3174,
+        "end_line": 3194,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3172-L3194",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      },
-      {
-        "pallet": "SubtensorModule",
-        "call": "set_gamma_deposit_spender",
-        "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3208,
-        "end_line": 3215,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3206-L3215",
-        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      },
-      {
-        "pallet": "Utility",
-        "call": "batch_all",
-        "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
-        "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
   },
@@ -1718,9 +1692,9 @@
         "pallet": "SubtensorModule",
         "call": "move_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3184,
-        "end_line": 3192,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3182-L3192",
+        "line": 3200,
+        "end_line": 3208,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3198-L3208",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3363,9 +3337,9 @@
         "pallet": "SubtensorModule",
         "call": "set_gamma_deposit_daily_spend_cap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3221,
-        "end_line": 3228,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3219-L3228",
+        "line": 3238,
+        "end_line": 3245,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3236-L3245",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3373,7 +3347,7 @@
   {
     "name": "set_gamma_deposit_spender",
     "summary": "Set who may spend your gamma deposit.",
-    "description": "Set who may spend your gamma deposit.\n\nTakes effect at once; a deposit opened by a move inherits it.",
+    "description": "Set who may spend your gamma deposit.\n\nTakes effect at once; a deposit opened by a move inherits it. Omitting\n`spender_ss58` sets the default spender, the subnet owner or its lease's\nbeneficiary while a lease owns the subnet.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -3397,17 +3371,16 @@
         },
         "spender_ss58": {
           "type": "string",
-          "description": "The account that spends the deposit."
+          "description": "The account that spends the deposit. Omit to set the default spender, the subnet owner or its lease's beneficiary while a lease owns the subnet."
         }
       },
       "required": [
         "netuid",
-        "hotkey_ss58",
-        "spender_ss58"
+        "hotkey_ss58"
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx set-gamma-deposit-spender --netuid <int> --hotkey <ss58|name> --spender <ss58|name>",
+    "cli": "btcli tx set-gamma-deposit-spender --netuid <int> --hotkey <ss58|name>",
     "python_class": "SetGammaDepositSpender",
     "markdown_url": "/llms.mdx/docs/tx/set-gamma-deposit-spender/content.md",
     "sources": [
@@ -3415,9 +3388,9 @@
         "pallet": "SubtensorModule",
         "call": "set_gamma_deposit_spender",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3208,
-        "end_line": 3215,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3206-L3215",
+        "line": 3225,
+        "end_line": 3232,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3223-L3232",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4293,9 +4266,9 @@
         "pallet": "SubtensorModule",
         "call": "set_service_url",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3249,
-        "end_line": 3255,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3247-L3255",
+        "line": 3266,
+        "end_line": 3272,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3264-L3272",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4685,9 +4658,9 @@
         "pallet": "SubtensorModule",
         "call": "spend_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3236,
-        "end_line": 3242,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3234-L3242",
+        "line": 3253,
+        "end_line": 3259,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3251-L3259",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

@@ -235,6 +235,8 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 192): ErrorInfo('SubtensorModule', 'TooManyGammaDeposits', 'The coldkey would hold more than 64 gamma deposits on this subnet.'),
     (7, 193): ErrorInfo('SubtensorModule', 'GammaDepositDoesNotExist', 'The hotkey holds no gamma deposit on this subnet.'),
     (7, 194): ErrorInfo('SubtensorModule', 'GammaDepositNotEmpty', 'A gamma deposit with a balance cannot be closed.'),
+    (7, 195): ErrorInfo('SubtensorModule', 'GammaDepositSpenderMismatch', 'A mint named a spender other than the one its gamma deposit names.'),
+    (7, 196): ErrorInfo('SubtensorModule', 'GammaDepositDailySpendCapMismatch', "A mint named a daily spend cap other than its gamma deposit's."),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),

@@ -3141,7 +3141,8 @@ mod dispatches {
         }
 
         /// Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the
-        /// signer's deposit at `hotkey`. Fails below `min_amount_out` gamma.
+        /// signer's deposit at `hotkey`, which must name `spender` and have `daily_spend_cap`
+        /// when they are given, or opens with them. Fails below `min_amount_out` gamma.
         #[pallet::call_index(158)]
         #[pallet::weight((<T as Config>::WeightInfo::mint_gamma(), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma(
@@ -3150,13 +3151,24 @@ mod dispatches {
             netuid: NetUid,
             amount: TaoBalance,
             min_amount_out: GammaBalance,
+            spender: Option<T::AccountId>,
+            daily_spend_cap: Option<GammaBalance>,
         ) -> DispatchResult {
-            Self::do_mint_gamma(origin, hotkey, netuid, amount, min_amount_out)
+            Self::do_mint_gamma(
+                origin,
+                hotkey,
+                netuid,
+                amount,
+                min_amount_out,
+                spender,
+                daily_spend_cap,
+            )
         }
 
         /// Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as
         /// `burn_alpha` does, and credits its gamma to the signer's deposit at
-        /// `destination_hotkey`. Fails below `min_amount_out` gamma.
+        /// `destination_hotkey`, which must name `spender` and have `daily_spend_cap` when they
+        /// are given, or opens with them. Fails below `min_amount_out` gamma.
         #[pallet::call_index(159)]
         #[pallet::weight((<T as Config>::WeightInfo::mint_gamma_with_stake(), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma_with_stake(
@@ -3166,6 +3178,8 @@ mod dispatches {
             netuid: NetUid,
             alpha_amount: AlphaBalance,
             min_amount_out: GammaBalance,
+            spender: Option<T::AccountId>,
+            daily_spend_cap: Option<GammaBalance>,
         ) -> DispatchResult {
             Self::do_mint_gamma_with_stake(
                 origin,
@@ -3174,6 +3188,8 @@ mod dispatches {
                 netuid,
                 alpha_amount,
                 min_amount_out,
+                spender,
+                daily_spend_cap,
             )
         }
 
@@ -3202,14 +3218,15 @@ mod dispatches {
             Self::do_close_gamma_deposit(origin, hotkey, netuid)
         }
 
-        /// Sets the spender of the signer's gamma deposit at `hotkey`.
+        /// Sets the spender of the signer's gamma deposit at `hotkey`; `None` names the default
+        /// spender, the subnet owner or its lease's beneficiary while the lease owns the subnet.
         #[pallet::call_index(162)]
         #[pallet::weight((<T as Config>::WeightInfo::set_gamma_deposit_spender(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_gamma_deposit_spender(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             netuid: NetUid,
-            spender: T::AccountId,
+            spender: Option<T::AccountId>,
         ) -> DispatchResult {
             Self::do_set_gamma_deposit_spender(origin, hotkey, netuid, spender)
         }

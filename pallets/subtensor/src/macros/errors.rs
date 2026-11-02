@@ -473,5 +473,9 @@ mod errors {
         GammaDepositDoesNotExist,
         /// A gamma deposit with a balance cannot be closed.
         GammaDepositNotEmpty,
+        /// A mint named a spender other than the one its gamma deposit names.
+        GammaDepositSpenderMismatch,
+        /// A mint named a daily spend cap other than its gamma deposit's.
+        GammaDepositDailySpendCapMismatch,
     }
 }

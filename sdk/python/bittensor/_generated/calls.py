@@ -347,14 +347,14 @@ class SubtensorModule:
         return Call('SubtensorModule', 'lock_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
 
     @staticmethod
-    def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance') -> Call:
-        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`. Fails below `min_amount_out` gamma."
-        return Call('SubtensorModule', 'mint_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'min_amount_out': min_amount_out})
+    def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance', spender: 'Any', daily_spend_cap: 'Any') -> Call:
+        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or opens with them. Fails below `min_amount_out` gamma."
+        return Call('SubtensorModule', 'mint_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'min_amount_out': min_amount_out, 'spender': spender, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
-    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance') -> Call:
-        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`. Fails below `min_amount_out` gamma."
-        return Call('SubtensorModule', 'mint_gamma_with_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'alpha_amount': alpha_amount, 'min_amount_out': min_amount_out})
+    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance', spender: 'Any', daily_spend_cap: 'Any') -> Call:
+        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or opens with them. Fails below `min_amount_out` gamma."
+        return Call('SubtensorModule', 'mint_gamma_with_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'alpha_amount': alpha_amount, 'min_amount_out': min_amount_out, 'spender': spender, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
     def move_gamma(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
@@ -512,8 +512,8 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_gamma_deposit_daily_spend_cap', {'hotkey': hotkey, 'netuid': netuid, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
-    def set_gamma_deposit_spender(hotkey: 'AccountId32', netuid: 'NetUid', spender: 'AccountId32') -> Call:
-        "Sets the spender of the signer's gamma deposit at `hotkey`."
+    def set_gamma_deposit_spender(hotkey: 'AccountId32', netuid: 'NetUid', spender: 'Any') -> Call:
+        "Sets the spender of the signer's gamma deposit at `hotkey`; `None` names the default spender, the subnet owner or its lease's beneficiary while the lease owns the subnet."
         return Call('SubtensorModule', 'set_gamma_deposit_spender', {'hotkey': hotkey, 'netuid': netuid, 'spender': spender})
 
     @staticmethod

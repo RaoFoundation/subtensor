@@ -949,6 +949,8 @@ mod events {
             hotkey: T::AccountId,
             /// The deposit's spender.
             spender: T::AccountId,
+            /// The deposit's daily spend cap.
+            daily_spend_cap: Option<GammaBalance>,
             /// TAO taken from the coldkey's balance; zero when minting with stake.
             tao: TaoBalance,
             /// Alpha burned.
@@ -1010,6 +1012,8 @@ mod events {
             coldkey: T::AccountId,
             /// Hotkey of the deposit.
             hotkey: T::AccountId,
+            /// The deposit's spender, which signed the spend.
+            spender: T::AccountId,
             /// Gamma spent.
             amount: GammaBalance,
             /// The spend entry's reference.

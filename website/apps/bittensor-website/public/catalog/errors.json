@@ -2188,6 +2188,24 @@
         }
       ]
     },
+    "GammaDepositDailySpendCapMismatch": {
+      "code": "invalid_argument",
+      "description": "A mint named a daily spend cap, but the gamma deposit it credits has another. A named cap opens a new deposit and must match an existing one's. Mint without naming one, or change the deposit's cap with `set_gamma_deposit_daily_spend_cap` first.",
+      "docs_url": "/docs/errors/chain/GammaDepositDailySpendCapMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositDailySpendCapMismatch/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 479,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L479",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "GammaDepositDoesNotExist": {
       "code": "not_found",
       "description": "The hotkey holds no gamma deposit on this subnet. List the coldkey's deposits with the `gamma_deposits` read.",
@@ -2220,6 +2238,24 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 475,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L475",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaDepositSpenderMismatch": {
+      "code": "invalid_argument",
+      "description": "A mint named a spender, but the gamma deposit it credits already names another. A named spender opens a new deposit and must match an existing one. Mint without naming one, or change the deposit's spender with `set_gamma_deposit_spender` first.",
+      "docs_url": "/docs/errors/chain/GammaDepositSpenderMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositSpenderMismatch/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 477,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L477",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
