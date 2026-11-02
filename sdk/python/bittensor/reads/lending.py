@@ -132,9 +132,7 @@ def _position_record(
         "proceeds": Balance.from_rao(proceeds),
         "escrow_alpha": view.balance(escrow_alpha, netuid),
         "escrow": (
-            Balance.from_rao(proceeds)
-            if side == "Short"
-            else view.balance(escrow_alpha, netuid)
+            Balance.from_rao(proceeds) if side == "Short" else view.balance(escrow_alpha, netuid)
         ),
         "lift_tao": view.balance(int(raw.get("lift_tao") or 0), 0),
         "lift_alpha": view.balance(int(raw.get("lift_alpha") or 0), netuid),

@@ -123,8 +123,8 @@ def test_raise_loan_valid_until_default_is_none():
     assert RaiseLoan.__dataclass_fields__["valid_until"].default is None
 
 
-def test_close_top_up_needed_error_description():
-    text = LENDING_DESCRIPTIONS["CloseTopUpNeeded"]
+def test_insufficient_escrow_mentions_shortfall():
+    text = LENDING_DESCRIPTIONS["InsufficientEscrow"]
     assert "shortfall" in text.lower()
     assert "repay-from-wallet" in text.lower() or "repay_from_wallet" in text.lower()
     assert "§" not in text

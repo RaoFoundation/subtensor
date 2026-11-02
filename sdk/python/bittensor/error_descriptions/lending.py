@@ -98,11 +98,6 @@ DESCRIPTIONS: dict[str, str] = {
         "underwater short, fund free TAO for the top-up or use --repay-from-wallet with alpha "
         "on --hotkey. Accrued interest reduces usable collateral."
     ),
-    "CloseTopUpNeeded": (
-        "Free TAO on the signer cannot cover the underwater short close top-up. Read the close "
-        "quote's shortfall field for the exact TAO needed, fund the signing account, or pass "
-        "--repay-from-wallet with alpha on --hotkey instead of the escrow buyback."
-    ),
     "InsufficientCollateral": (
         "The requested additional debt needs more collateral under V_dyn / LTV checks. Quote "
         "lending_required_collateral for this amount (or pass more --collateral). The failed "

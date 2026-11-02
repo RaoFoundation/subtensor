@@ -40,8 +40,8 @@ wallet hotkey is unregistered.
 
 Default close tops up free TAO for the buyback shortfall (bounded by
 `max_payment` / `--max-slippage`). The quote exposes `shortfall` (exact TAO
-needed). If free balance is short, expect `CloseTopUpNeeded` with that number
-via the quote — or use `--repay-from-wallet --hotkey …`.
+needed). If free balance is short, expect `InsufficientEscrow` and use the
+quote's shortfall — or `--repay-from-wallet --hotkey …`.
 
 ## Cards and list columns
 

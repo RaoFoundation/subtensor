@@ -339,8 +339,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1137,
-          "url": "/code/pallets/lending/src/lib.rs#L1137",
+          "line": 1133,
+          "url": "/code/pallets/lending/src/lib.rs#L1133",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -483,8 +483,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1135,
-          "url": "/code/pallets/lending/src/lib.rs#L1135",
+          "line": 1131,
+          "url": "/code/pallets/lending/src/lib.rs#L1131",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1155,13 +1155,6 @@
         }
       ]
     },
-    "CloseTopUpNeeded": {
-      "code": "insufficient_balance",
-      "description": "Free TAO on the signer cannot cover the underwater short close top-up. Read the close quote's shortfall field for the exact TAO needed, fund the signing account, or pass --repay-from-wallet with alpha on --hotkey instead of the escrow buyback.",
-      "docs_url": "/docs/errors/chain/CloseTopUpNeeded",
-      "markdown_url": "/llms.mdx/docs/errors/chain/CloseTopUpNeeded/content.md",
-      "pallets": []
-    },
     "CodeInUse": {
       "code": "invalid_argument",
       "description": "`remove_code` was refused because at least one contract instance still references the code hash. Check the code's reference count and terminate or `set_code` the contracts using it before removal.",
@@ -1471,8 +1464,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1179,
-          "url": "/code/pallets/lending/src/lib.rs#L1179",
+          "line": 1175,
+          "url": "/code/pallets/lending/src/lib.rs#L1175",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1507,8 +1500,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1167,
-          "url": "/code/pallets/lending/src/lib.rs#L1167",
+          "line": 1163,
+          "url": "/code/pallets/lending/src/lib.rs#L1163",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1615,8 +1608,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1146,
-          "url": "/code/pallets/lending/src/lib.rs#L1146",
+          "line": 1142,
+          "url": "/code/pallets/lending/src/lib.rs#L1142",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1740,8 +1733,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1155,
-          "url": "/code/pallets/lending/src/lib.rs#L1155",
+          "line": 1151,
+          "url": "/code/pallets/lending/src/lib.rs#L1151",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1758,8 +1751,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1136,
-          "url": "/code/pallets/lending/src/lib.rs#L1136",
+          "line": 1132,
+          "url": "/code/pallets/lending/src/lib.rs#L1132",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1785,8 +1778,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1145,
-          "url": "/code/pallets/lending/src/lib.rs#L1145",
+          "line": 1141,
+          "url": "/code/pallets/lending/src/lib.rs#L1141",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2251,8 +2244,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1173,
-          "url": "/code/pallets/lending/src/lib.rs#L1173",
+          "line": 1169,
+          "url": "/code/pallets/lending/src/lib.rs#L1169",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2296,8 +2289,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1159,
-          "url": "/code/pallets/lending/src/lib.rs#L1159",
+          "line": 1155,
+          "url": "/code/pallets/lending/src/lib.rs#L1155",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2548,8 +2541,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1171,
-          "url": "/code/pallets/lending/src/lib.rs#L1171",
+          "line": 1167,
+          "url": "/code/pallets/lending/src/lib.rs#L1167",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2845,8 +2838,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1139,
-          "url": "/code/pallets/lending/src/lib.rs#L1139",
+          "line": 1135,
+          "url": "/code/pallets/lending/src/lib.rs#L1135",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2925,8 +2918,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1140,
-          "url": "/code/pallets/lending/src/lib.rs#L1140",
+          "line": 1136,
+          "url": "/code/pallets/lending/src/lib.rs#L1136",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3231,8 +3224,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1150,
-          "url": "/code/pallets/lending/src/lib.rs#L1150",
+          "line": 1146,
+          "url": "/code/pallets/lending/src/lib.rs#L1146",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3312,8 +3305,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1134,
-          "url": "/code/pallets/lending/src/lib.rs#L1134",
+          "line": 1130,
+          "url": "/code/pallets/lending/src/lib.rs#L1130",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3467,8 +3460,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1149,
-          "url": "/code/pallets/lending/src/lib.rs#L1149",
+          "line": 1145,
+          "url": "/code/pallets/lending/src/lib.rs#L1145",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5203,8 +5196,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1151,
-          "url": "/code/pallets/lending/src/lib.rs#L1151",
+          "line": 1147,
+          "url": "/code/pallets/lending/src/lib.rs#L1147",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5266,8 +5259,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1163,
-          "url": "/code/pallets/lending/src/lib.rs#L1163",
+          "line": 1159,
+          "url": "/code/pallets/lending/src/lib.rs#L1159",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5284,8 +5277,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1175,
-          "url": "/code/pallets/lending/src/lib.rs#L1175",
+          "line": 1171,
+          "url": "/code/pallets/lending/src/lib.rs#L1171",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5302,8 +5295,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1177,
-          "url": "/code/pallets/lending/src/lib.rs#L1177",
+          "line": 1173,
+          "url": "/code/pallets/lending/src/lib.rs#L1173",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5320,8 +5313,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1165,
-          "url": "/code/pallets/lending/src/lib.rs#L1165",
+          "line": 1161,
+          "url": "/code/pallets/lending/src/lib.rs#L1161",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5887,8 +5880,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1143,
-          "url": "/code/pallets/lending/src/lib.rs#L1143",
+          "line": 1139,
+          "url": "/code/pallets/lending/src/lib.rs#L1139",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6157,8 +6150,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1169,
-          "url": "/code/pallets/lending/src/lib.rs#L1169",
+          "line": 1165,
+          "url": "/code/pallets/lending/src/lib.rs#L1165",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6175,8 +6168,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1153,
-          "url": "/code/pallets/lending/src/lib.rs#L1153",
+          "line": 1149,
+          "url": "/code/pallets/lending/src/lib.rs#L1149",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]

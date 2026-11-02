@@ -601,7 +601,7 @@ btcli lending show --netuid 32 -w mywallet   # position + close quote (incl. sho
   4. Sign and submit through the MEV-shield flow.
 * The review states plainly: *"The loan's TAO stays escrowed as alpha. The TAO you receive comes from selling S of your own alpha."*
 * `--sell 0` is rejected with a pointer to `btcli lending open --side long`.
-* **Repay / shortfall:** `btcli lending repay` takes `--principal` / `--amount` for a pro-rata slice. Close/repay quotes expose `payment`, `refund`, and `shortfall`; underwater short escrow buybacks need free TAO ≥ shortfall (or `--repay-from-wallet`). `CloseTopUpNeeded` / `InsufficientEscrow` point at that shortfall.
+* **Repay / shortfall:** `btcli lending repay` takes `--principal` / `--amount` for a pro-rata slice. Close/repay quotes expose `payment`, `refund`, and `shortfall`; underwater short escrow buybacks need free TAO ≥ shortfall (or `--repay-from-wallet`). `InsufficientEscrow` points at that shortfall.
 
 ## 13. Subnet deregistration / dissolution settlement
 > **Core requirement (Jacob, locked): shorters must make money on a dereg event.** Shorting a subnet down to deregistration should pay them a reasonable amount. Dissolution must **never** confiscate their short escrow `E_S` or sweep it into the dissolution pot. New shorts are **not** blocked near the dereg threshold; that is intended. Opens are blocked only once the subnet is actually flagged dissolving.

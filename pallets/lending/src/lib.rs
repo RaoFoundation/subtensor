@@ -1127,10 +1127,6 @@ pub mod pallet {
         AboveMaximumPayment,
         BelowMinimumRefund,
         InsufficientEscrow,
-        /// Free TAO on the signer cannot cover the underwater short close top-up.
-        /// Check the close quote's `shortfall` field for the exact amount needed,
-        /// fund the signing account, or use repay_from_wallet with alpha.
-        CloseTopUpNeeded,
         InvalidQuote,
         Arithmetic,
         CustodyUnavailable,
@@ -2861,7 +2857,9 @@ pub mod pallet {
                         if top_up > 0 {
                             ensure!(needed <= max_payment, Error::<T>::SlippageExceeded);
                             let free = T::Pool::free_tao(&owner).to_u64();
-                            ensure!(free >= top_up, Error::<T>::CloseTopUpNeeded);
+                            // Same InsufficientEscrow surface as buyback failure;
+                            // quote.shortfall carries the exact TAO needed (F4).
+                            ensure!(free >= top_up, Error::<T>::InsufficientEscrow);
                             T::Pool::transfer_tao(&owner, &escrow, top_up.into())?;
                         }
                         let budget = Self::add(pot, top_up)?;

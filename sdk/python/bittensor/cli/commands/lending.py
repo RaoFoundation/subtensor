@@ -180,7 +180,9 @@ async def _provided_collateral(client, minimum: Balance, netuid: int, owner: str
     return view.balance(provided, minimum.netuid)
 
 
-async def _ensure_open_funds(client, *, netuid: int, side: str, owner: str, hotkey, collateral: Balance):
+async def _ensure_open_funds(
+    client, *, netuid: int, side: str, owner: str, hotkey, collateral: Balance
+):
     """Refuse before quote when free TAO / unlocked alpha cannot cover collateral."""
     substrate = client._substrate
     if side == "Short":
@@ -725,7 +727,10 @@ def repay_loan(
         _exit_error(context, str(error))
     stored = position["principal"]
     if not isinstance(stored, Balance) or part.rao > stored.rao:
-        _exit_error(context, f"--principal {_fmt_amount(part)} exceeds stored principal {_fmt_amount(stored)}")
+        _exit_error(
+            context,
+            f"--principal {_fmt_amount(part)} exceeds stored principal {_fmt_amount(stored)}",
+        )
     with context.output.activity("quoting the partial repayment…"):
         try:
             quote = context.run(
@@ -863,9 +868,7 @@ def raise_loan(
         lambda client: client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
     )
     if existing is not None:
-        context.output.message(
-            "warning: increasing this position restarts the 1-year fixed term"
-        )
+        context.output.message("warning: increasing this position restarts the 1-year fixed term")
 
     with context.output.activity("resolving raise deadline…"):
         until = context.run(lambda client: _resolve_valid_until(client, valid_until))
@@ -1045,7 +1048,12 @@ def raise_loan(
         ("owner", owner),
         ("hotkey", hotkey),
         ("collateral", _fmt_amount(quoted_collateral)),
-        ("borrow", _fmt_amount(quoted_principal if isinstance(quoted_principal, Balance) else intent.borrow_tao)),
+        (
+            "borrow",
+            _fmt_amount(
+                quoted_principal if isinstance(quoted_principal, Balance) else intent.borrow_tao
+            ),
+        ),
         ("max collateral", _fmt_amount(intent.max_collateral_alpha)),
         ("min borrow", _fmt_amount(intent.min_borrow_tao)),
         ("min escrow alpha", _fmt_amount(intent.min_escrow_alpha)),
@@ -1213,8 +1221,12 @@ def show_position(
     json_fields = {
         **_position_json(position),
         "close_quote": {
-            "payment": quote["payment"].rao if isinstance(quote["payment"], Balance) else quote["payment"],
-            "refund": quote["refund"].rao if isinstance(quote["refund"], Balance) else quote["refund"],
+            "payment": quote["payment"].rao
+            if isinstance(quote["payment"], Balance)
+            else quote["payment"],
+            "refund": quote["refund"].rao
+            if isinstance(quote["refund"], Balance)
+            else quote["refund"],
             "shortfall": (
                 quote["shortfall"].rao
                 if isinstance(quote.get("shortfall"), Balance)

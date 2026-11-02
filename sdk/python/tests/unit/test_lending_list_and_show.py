@@ -23,7 +23,7 @@ def test_parse_positive_amount_rejects_non_numeric():
         _parse_positive_amount("abc", tao=True, label="amount")
     with pytest.raises(BittensorError, match="greater than zero"):
         _parse_positive_amount("0", tao=True, label="amount")
-    with pytest.raises(BittensorError, match="positive number|greater than zero|non-negative"):
+    with pytest.raises(BittensorError, match=r"positive number|greater than zero|non-negative"):
         _parse_positive_amount("-1", tao=True, label="collateral")
 
 
@@ -139,7 +139,7 @@ def test_list_defaults_coldkey_unless_all():
     import inspect
 
     source = inspect.getsource(lending_cli.list_positions)
-    assert "resolve_address(\"coldkey_ss58\"" in source or "resolve_address('coldkey_ss58'" in source
+    assert 'resolve_address("coldkey_ss58"' in source or "resolve_address('coldkey_ss58'" in source
     assert "list_all" in source
     assert "lending_positions" in source  # --all path
     doc = lending_cli.list_positions.__doc__ or ""

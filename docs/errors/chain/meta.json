@@ -66,7 +66,6 @@
     "ChainIdMismatch",
     "ChangePending",
     "ChildParentInconsistency",
-    "CloseTopUpNeeded",
     "CodeInUse",
     "CodeInfoNotFound",
     "CodeNotFound",
