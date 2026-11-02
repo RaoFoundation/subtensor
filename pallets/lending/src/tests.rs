@@ -2997,7 +2997,7 @@ fn max_active_net_updates_covers_global_subnet_cap() {
 }
 
 #[test]
-fn fixed_term_expiry_settles_at_smoothed_reference_price() {
+fn fixed_term_expiry_closes_at_spot_not_reference_ema() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let _hotkey = account(2);
@@ -3022,49 +3022,41 @@ fn fixed_term_expiry_settles_at_smoothed_reference_price() {
             (&owner, netuid())
         ));
 
-        // Move the smoothed reference away from spot so settlement must use it.
-        let settle_rate = U64F64::from_num(1u64) / U64F64::from_num(4u64); // 0.25 τ/α
-        References::<Test>::mutate(netuid(), |r| {
-            if let Some(r) = r {
-                r.price = settle_rate;
-            }
-        });
-        // Spot stays at ~1; expiry must not use it.
-        assert!(MockPool::price() > settle_rate);
+        // A far-away smoothed reference must not influence expiry valuation.
+        let reference_rate = U64F64::from_num(1u64) / U64F64::from_num(4u64); // 0.25 τ/α
+        set_reference_price(reference_rate);
+        let spot = MockPool::price();
+        assert!(spot > reference_rate);
+        let owner_tao_before = tao(&owner);
 
-        // Same ceil(P · r) debt the pallet uses for smoothed short settles.
-        let expected_debt = (settle_rate * U64F64::from_num(position.principal))
-            .checked_ceil()
-            .unwrap()
-            .saturating_to_num::<u64>();
         System::set_block_number(position.expires_at);
         System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(position.expires_at, Weight::MAX);
 
         assert!(
             Positions::<Test>::get(&owner, netuid()).is_none(),
-            "expired position must be auto-settled"
+            "expired position must be auto-closed"
         );
         assert!(!Expiry::<Test>::contains_key(
             position.expires_at,
             (&owner, netuid())
         ));
-        let expired = System::events().into_iter().find_map(|e| match e.event {
-            RuntimeEvent::Lending(Event::Expired {
-                owner: o,
-                principal_tao_equiv,
-                rate,
-                ..
-            }) if o == owner => Some((principal_tao_equiv, rate)),
-            _ => None,
-        });
-        let (debt, rate) = expired.unwrap();
-        assert_eq!(rate, settle_rate);
-        assert_eq!(debt, expected_debt);
-        // Expiry must restore held lift legs (dissolution does this in aggregate first).
+        let (payment, refund, rate, shortfall_alpha, shortfall_tao) = expired_event(&owner);
+        assert_eq!(rate, spot, "Expired.rate reports spot, not the EMA");
+        assert_eq!(shortfall_alpha, 0);
+        assert_eq!(shortfall_tao, 0);
+        // Buyback cost tracks spot (~1 τ/α), far above P·0.25.
+        let ema_debt =
+            (reference_rate * U64F64::from_num(position.principal)).saturating_to_num::<u64>();
+        assert!(
+            payment > ema_debt.saturating_mul(3),
+            "payment {payment} must reflect spot, not EMA debt {ema_debt}"
+        );
+        assert_eq!(tao(&owner), owner_tao_before.saturating_add(refund));
         let book = Lifts::<Test>::get(netuid());
         assert_eq!(book.held_tao, 0, "expiry must readd short lift_tao");
         assert_eq!(book.l_s, 0);
+        assert_eq!(book.escrow_tao, 0);
     });
 }
 
@@ -4019,7 +4011,7 @@ fn short_increase_restarts_fixed_term() {
 }
 
 #[test]
-fn long_expiry_caps_collateral_at_amm_not_ema_dump() {
+fn long_expiry_sells_collateral_through_amm_not_at_ema() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let hotkey = account(2);
@@ -4039,17 +4031,14 @@ fn long_expiry_caps_collateral_at_amm_not_ema_dump() {
             book.last = LiftParams::default().settle_ema_blocks;
         });
         mint_alpha(&owner, &hotkey, netuid(), 2_000_000_000_000);
-        // Tiny long (minimal principal) with large collateral — the near-expiry
-        // drain shape, without waiting a year (we jump to expires_at).
+        // Tiny long (minimal principal) with large collateral: near-expiry
+        // top-up shape, without waiting a year (we jump to expires_at).
         assert_ok!(Lending::open_exact(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             Side::Long,
-            900_000_000_000,
-            Some(
-                // 900 α collateral
-                hotkey
-            ),
+            900_000_000_000, // 900 α collateral
+            Some(hotkey),
             1_000_000_000, // 1 τ principal
             0,
             1,
@@ -4058,11 +4047,7 @@ fn long_expiry_caps_collateral_at_amm_not_ema_dump() {
         let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
         let c = pos.collateral;
         let r = References::<Test>::get(netuid()).unwrap().price;
-        let c_ema = {
-            // Floor(C * r) in the same units as settlement.
-            let bits = (U64F64::from_num(c) * r).saturating_to_num::<u64>();
-            bits
-        };
+        let c_ema = (U64F64::from_num(c) * r).saturating_to_num::<u64>();
         let c_amm = MockPool::quote_sell(netuid(), c.into()).unwrap().to_u64();
         assert!(
             c_amm < c_ema,
@@ -4076,8 +4061,7 @@ fn long_expiry_caps_collateral_at_amm_not_ema_dump() {
         let _ = <Lending as Hooks<_>>::on_idle(pos.expires_at, Weight::MAX);
         assert!(!Positions::<Test>::contains_key(&owner, netuid()));
         let gained = tao(&owner).saturating_sub(tao_before);
-        // Refund is payout − P; payout ≤ A_ema + min(C_ema, C_amm).
-        // With tiny A and P=1e9, gained must stay near the AMM-capped C value.
+        // Everything above P comes from selling A and C through the pool.
         assert!(
             gained <= c_amm.saturating_add(1_000_000_000),
             "expiry refund {} must not exceed AMM-capped collateral (~{})",
@@ -4089,6 +4073,9 @@ fn long_expiry_caps_collateral_at_amm_not_ema_dump() {
             "must not pay full EMA·C − P ({} would)",
             c_ema.saturating_sub(pos.principal)
         );
+        let (_, refund, _, _, shortfall_tao) = expired_event(&owner);
+        assert_eq!(refund, gained);
+        assert_eq!(shortfall_tao, 0);
     });
 }
 
@@ -4182,6 +4169,519 @@ fn dissolution_before_expiry_wins() {
             .into_iter()
             .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. })));
         assert!(!saw_expired);
+    });
+}
+
+/// `(payment, tao_refund, rate, shortfall_alpha, shortfall_tao)` of the last
+/// `Expired` event for `owner`.
+fn expired_event(owner: &Account) -> (u64, u64, U64F64, u64, u64) {
+    System::events()
+        .into_iter()
+        .rev()
+        .find_map(|e| match e.event {
+            RuntimeEvent::Lending(Event::Expired {
+                owner: o,
+                payment,
+                tao_refund,
+                rate,
+                shortfall_alpha,
+                shortfall_tao,
+                ..
+            }) if &o == owner => Some((payment, tao_refund, rate, shortfall_alpha, shortfall_tao)),
+            _ => None,
+        })
+        .expect("Expired event")
+}
+
+#[derive(Clone, Copy)]
+enum PriceMove {
+    Flat,
+    Up,
+    Down,
+}
+
+#[derive(Clone, Copy)]
+enum ExitPath {
+    Expiry,
+    Close,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ExitOutcome {
+    owner_tao: u64,
+    owner_alpha: u64,
+    pool_tao: u64,
+    pool_alpha: u64,
+    burned_tao: u64,
+    burned_alpha: u64,
+    alpha_out: u64,
+    book: LiftBook,
+    baseline_cleared: bool,
+    position_gone: bool,
+    escrow_tao: u64,
+    custody_alpha: u64,
+}
+
+fn apply_price_move(mv: PriceMove) {
+    let mover = account(77);
+    let mover_hotkey = account(78);
+    match mv {
+        PriceMove::Flat => {}
+        PriceMove::Up => {
+            mint_tao(&mover, 50_000_000_000_000);
+            assert_ok!(MockPool::buy_alpha(
+                &mover,
+                &mover_hotkey,
+                netuid(),
+                50_000_000_000_000u64.into(),
+                0u64.into(),
+                false,
+            ));
+        }
+        PriceMove::Down => {
+            mint_alpha(&mover, &mover_hotkey, netuid(), 50_000_000_000_000);
+            assert_ok!(MockPool::sell_alpha(
+                &mover,
+                &mover_hotkey,
+                netuid(),
+                50_000_000_000_000u64.into(),
+                0u64.into(),
+                false,
+            ));
+        }
+    }
+}
+
+fn exit_outcome(
+    owner: &Account,
+    hotkey: &Account,
+    escrow: &Account,
+    position_gone: bool,
+) -> ExitOutcome {
+    let custody = Lending::custody_hotkey().unwrap();
+    ExitOutcome {
+        owner_tao: tao(owner),
+        owner_alpha: alpha(owner, hotkey, netuid()),
+        pool_tao: pool_tao(),
+        pool_alpha: pool_alpha(),
+        burned_tao: burned_tao_surplus(),
+        burned_alpha: burned_alpha_surplus(),
+        alpha_out: alpha_out(),
+        book: Lifts::<Test>::get(netuid()),
+        baseline_cleared: InvariantBaseline::<Test>::get(netuid()).is_none(),
+        position_gone,
+        escrow_tao: tao(escrow),
+        custody_alpha: alpha(escrow, &custody, netuid()),
+    }
+}
+
+/// Open a short, move the price, reach `expires_at`, then exit via expiry or a
+/// same-block default `close`. Returns the outcome and the Expired shortfalls.
+fn short_exit(mv: PriceMove, path: ExitPath) -> (ExitOutcome, (u64, u64)) {
+    let mut shortfalls = (0, 0);
+    let mut outcome = None;
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let owner = account(1);
+        // Unregistered hotkey: `close` sells buyback dust like expiry does.
+        let hotkey = account(255);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        apply_price_move(mv);
+        clear_burned_surplus();
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        match path {
+            ExitPath::Expiry => {
+                let mut meter = WeightMeter::with_limit(Weight::MAX);
+                Lending::collect_expiry(position.expires_at, &mut meter);
+                let (_, _, _, sa, st) = expired_event(&owner);
+                shortfalls = (sa, st);
+            }
+            ExitPath::Close => {
+                assert_ok!(Lending::close(
+                    RuntimeOrigin::signed(owner.clone()),
+                    netuid(),
+                    hotkey.clone(),
+                    false,
+                    u64::MAX,
+                    0,
+                    deadline(),
+                ));
+            }
+        }
+        outcome = Some(exit_outcome(
+            &owner,
+            &hotkey,
+            &position.custody,
+            !Positions::<Test>::contains_key(&owner, netuid()),
+        ));
+    });
+    (outcome.unwrap(), shortfalls)
+}
+
+/// Open a long, move the price, reach `expires_at`, then exit via expiry or a
+/// same-block default `close` followed by selling the refunded collateral alpha
+/// at spot (the one intentional difference: expiry has no hotkey to stake to).
+fn long_exit(mv: PriceMove, path: ExitPath) -> (ExitOutcome, (u64, u64)) {
+    let mut shortfalls = (0, 0);
+    let mut outcome = None;
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        apply_price_move(mv);
+        clear_burned_surplus();
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let alpha_before = alpha(&owner, &hotkey, netuid());
+        match path {
+            ExitPath::Expiry => {
+                let mut meter = WeightMeter::with_limit(Weight::MAX);
+                Lending::collect_expiry(position.expires_at, &mut meter);
+                let (_, _, _, sa, st) = expired_event(&owner);
+                shortfalls = (sa, st);
+            }
+            ExitPath::Close => {
+                assert_ok!(Lending::close(
+                    RuntimeOrigin::signed(owner.clone()),
+                    netuid(),
+                    hotkey.clone(),
+                    false,
+                    u64::MAX,
+                    0,
+                    deadline(),
+                ));
+                let refunded = alpha(&owner, &hotkey, netuid()).saturating_sub(alpha_before);
+                if refunded > 0 {
+                    assert_ok!(MockPool::sell_alpha(
+                        &owner,
+                        &hotkey,
+                        netuid(),
+                        refunded.into(),
+                        0u64.into(),
+                        false,
+                    ));
+                }
+            }
+        }
+        outcome = Some(exit_outcome(
+            &owner,
+            &hotkey,
+            &position.custody,
+            !Positions::<Test>::contains_key(&owner, netuid()),
+        ));
+    });
+    (outcome.unwrap(), shortfalls)
+}
+
+fn assert_expiry_matches_close(
+    exit: fn(PriceMove, ExitPath) -> (ExitOutcome, (u64, u64)),
+    mv: PriceMove,
+) {
+    let (expired, shortfalls) = exit(mv, ExitPath::Expiry);
+    let (closed, _) = exit(mv, ExitPath::Close);
+    assert!(expired.position_gone && closed.position_gone);
+    assert_eq!(
+        shortfalls,
+        (0, 0),
+        "solvent exit must not record a shortfall"
+    );
+    assert_eq!(expired, closed, "expiry must match a same-block close");
+}
+
+#[test]
+fn expiry_matches_manual_close_short_flat() {
+    assert_expiry_matches_close(short_exit, PriceMove::Flat);
+}
+
+#[test]
+fn expiry_matches_manual_close_short_up() {
+    assert_expiry_matches_close(short_exit, PriceMove::Up);
+}
+
+#[test]
+fn expiry_matches_manual_close_short_down() {
+    assert_expiry_matches_close(short_exit, PriceMove::Down);
+}
+
+#[test]
+fn expiry_matches_manual_close_long_flat() {
+    assert_expiry_matches_close(long_exit, PriceMove::Flat);
+}
+
+#[test]
+fn expiry_matches_manual_close_long_up() {
+    assert_expiry_matches_close(long_exit, PriceMove::Up);
+}
+
+#[test]
+fn expiry_matches_manual_close_long_down() {
+    assert_expiry_matches_close(long_exit, PriceMove::Down);
+}
+
+fn assert_no_expiry_retry_left(owner: &Account) {
+    assert!(!Positions::<Test>::contains_key(owner, netuid()));
+    assert_eq!(ExpiryRetryPending::<Test>::get(), 0);
+    assert!(NextExpiryRetry::<Test>::get().is_none());
+    assert!(NextExpiry::<Test>::get().is_none());
+    assert_eq!(TotalPositions::<Test>::get(), 0);
+}
+
+#[test]
+fn underwater_short_expiry_records_shortfall_no_retry() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let pot = position.proceeds.saturating_add(position.collateral);
+        // Shrink the alpha reserve: buying P now costs far more than E_S + C.
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 10);
+        let quoted = Lending::quote_close(&owner, netuid(), None, false).unwrap();
+        assert!(
+            quoted.payment > pot,
+            "precondition: pot {pot} < buy cost {}",
+            quoted.payment
+        );
+        // Spare wallet TAO must not be touched at expiry.
+        mint_tao(&owner, 1_000_000_000_000_000);
+        let wallet_before = tao(&owner);
+
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(position.expires_at, Weight::MAX);
+
+        assert_eq!(
+            tao(&owner),
+            wallet_before,
+            "expiry must not touch the wallet"
+        );
+        assert_no_expiry_retry_left(&owner);
+        assert!(!Expiry::<Test>::contains_key(
+            position.expires_at,
+            (&owner, netuid())
+        ));
+        let (payment, refund, _, shortfall_alpha, shortfall_tao) = expired_event(&owner);
+        assert!(
+            shortfall_alpha > 0,
+            "underwater short records alpha shortfall"
+        );
+        assert!(
+            shortfall_alpha < position.principal,
+            "best-effort buyback bought some alpha"
+        );
+        assert_eq!(shortfall_tao, 0);
+        assert_eq!(refund, 0);
+        assert!(payment <= pot);
+        let book = Lifts::<Test>::get(netuid());
+        assert_eq!((book.l_s, book.held_tao, book.escrow_tao), (0, 0, 0));
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Readded { .. })))
+        );
+
+        // Nothing is queued for later: further blocks produce no new settles.
+        System::reset_events();
+        let later = position
+            .expires_at
+            .saturating_add(<<Test as Config>::ExpiryRetryDelay as Get<u64>>::get())
+            .saturating_add(1);
+        System::set_block_number(later);
+        let _ = <Lending as Hooks<_>>::on_idle(later, Weight::MAX);
+        assert!(
+            System::events()
+                .into_iter()
+                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. })))
+        );
+        assert_eq!(tao(&owner), wallet_before);
+    });
+}
+
+#[test]
+fn underwater_short_expiry_when_principal_exceeds_pool_alpha() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        // The pool no longer holds P alpha: the full buyback cannot even be quoted.
+        write(&key(b"test/pool_alpha", netuid()), position.principal / 2);
+        mint_tao(&owner, 1_000_000_000_000_000);
+        let wallet_before = tao(&owner);
+
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter);
+
+        assert_eq!(tao(&owner), wallet_before);
+        assert_no_expiry_retry_left(&owner);
+        let (_, _, _, shortfall_alpha, _) = expired_event(&owner);
+        assert!(shortfall_alpha > 0 && shortfall_alpha <= position.principal);
+        let book = Lifts::<Test>::get(netuid());
+        assert_eq!((book.l_s, book.held_tao, book.escrow_tao), (0, 0, 0));
+    });
+}
+
+#[test]
+fn insolvent_long_expiry_records_tao_shortfall_no_retry() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        // Crash the price: selling all of A + C raises less than P.
+        write(&key(b"test/pool_tao", netuid()), pool_tao() / 1_000);
+        let wallet_before = tao(&owner);
+        let stake_before = alpha(&owner, &hotkey, netuid());
+
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter);
+
+        assert_no_expiry_retry_left(&owner);
+        let (payment, refund, _, shortfall_alpha, shortfall_tao) = expired_event(&owner);
+        assert!(shortfall_tao > 0, "insolvent long records TAO shortfall");
+        assert_eq!(shortfall_alpha, 0);
+        assert_eq!(refund, 0);
+        assert_eq!(payment.saturating_add(shortfall_tao), position.principal);
+        assert_eq!(tao(&owner), wallet_before);
+        assert_eq!(alpha(&owner, &hotkey, netuid()), stake_before);
+        let book = Lifts::<Test>::get(netuid());
+        assert_eq!(
+            (
+                book.l_l,
+                book.b_l,
+                book.held_alpha,
+                book.escrow_alpha,
+                book.long_collateral_alpha
+            ),
+            (0, 0, 0, 0, 0)
+        );
+    });
+}
+
+#[test]
+fn expiry_k_neutral_burn_restores_l_at_half_weight() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        sn29_drain_fixture(8_000_000_000_000u64, 500_000_000_000_000_000);
+        let l_before = balancer_l_approx();
+        let w_before = quote_weight_parts();
+
+        let owner = account(1);
+        let hotkey = account(2);
+        let coll = 1_200_000_000_000u64;
+        let pump = 7_000_000_000_000u64;
+        mint_tao(&owner, coll + pump + 50_000_000_000_000);
+        let free_before = tao(&owner);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            coll,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert!(InvariantBaseline::<Test>::get(netuid()).is_some());
+        assert_ok!(MockPool::buy_alpha(
+            &owner,
+            &hotkey,
+            netuid(),
+            pump.into(),
+            0u64.into(),
+            false,
+        ));
+
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter);
+        let _ = expired_event(&owner);
+
+        assert_eq!(quote_weight_parts(), w_before, "w_q unchanged");
+        assert!(InvariantBaseline::<Test>::get(netuid()).is_none());
+        let drift = (balancer_l_approx() - l_before).abs() / l_before.max(1.0);
+        assert!(drift < 0.002, "L restored after expiry: drift={drift}");
+        assert!(
+            burned_tao_surplus() > 0 || burned_alpha_surplus() > 0,
+            "expected surplus burn after pump + expiry"
+        );
+        let leftover = alpha(&owner, &hotkey, netuid());
+        if leftover > 0 {
+            assert_ok!(MockPool::sell_alpha(
+                &owner,
+                &hotkey,
+                netuid(),
+                leftover.into(),
+                0u64.into(),
+                false,
+            ));
+        }
+        assert!(tao(&owner) <= free_before, "no profitable shogting cycle");
     });
 }
 

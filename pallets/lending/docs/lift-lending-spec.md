@@ -6,11 +6,12 @@
 
 ## Changelog: v5.4 vs v5.3
 * **2026-10-27 (Oct 27, 2026): one-year fixed term (Jacob, locked 2026-10-20).**
-* **Every lending position (long and short) expires one year after it is opened** and is then settled automatically at the smoothed lending reference (EMA) price, using the same settlement math as dissolution smoothed settles (§13.3), with **no liquidations** (§15).
+* **Every lending position (long and short) expires one year after it is opened** and is then **closed automatically through the pool at spot, exactly like a default `close`** (no wallet top-up, no user slippage limits, best effort on underwater loans), with **no liquidations** (§15). Dissolution still settles at the smoothed rate (§13).
 * Storage shape: `Position.expires_at`, plus an expiry due-index / sorted bucket queue (`Expiry` / `ExpiryIndex` / `NextExpiry` / …) processed in `on_idle` with bounded per-block weight (resume via `ExpiryBucketCursor`).
-* **Increases (long and short) restart the one-year term.** Long settle caps collateral at `min(EMA, AMM quote_sell)`. Partial repay leaves `expires_at` unchanged. If subnet dissolution starts before expiry, **dissolution settle wins** and clears the expiry queue entry.
-* **2026-10-28: near-expiry long collateral drain closed.** Restart term on long collateral increases + impact-aware `C` redemption (Skeptic).
-* **2026-10-28: near-expiry short increase drain closed.** Restart term on short increases too — force-selling fresh principal at live spot then settling the enlarged debt at a lower EMA extracted pot value (Skeptic).
+* **Increases (long and short) restart the one-year term.** Partial repay leaves `expires_at` unchanged. If subnet dissolution starts before expiry, **dissolution settle wins** and clears the expiry queue entry.
+* **2026-10-28: near-expiry long collateral drain closed.** Restart term on long collateral increases (Skeptic). The EMA-based `C` cap that originally accompanied it is gone: expiry now sells through the pool at spot, so there is no EMA redemption to cap.
+* **2026-10-28: near-expiry short increase drain closed.** Restart term on short increases too (Skeptic). Expiry now buys back at spot rather than settling at the EMA, so the EMA mismatch this guarded against no longer exists; the restart is kept.
+* **2026-11-02: expiry == default close at spot (Jacob).** Replaces EMA settlement at expiry. Expiry runs the `close` path (`repay_from_wallet = false`) with `max_payment = u64::MAX`, `min_refund = 0`, no min-out on sells, **no free-TAO top-up from the owner's wallet**, and best-effort handling when underwater: a short buys back as much alpha as `E_S + C` allows and the unpaid principal is emitted as `shortfall_alpha` on `Expired`; an insolvent long sells all of `A + C` and emits `shortfall_tao`. The position is always removed (no `ExpiryRetry` loop on economic failure). MEV at expiry is accepted. Dissolution settlement and the F16 short-interest `min(ref, spot)` are unchanged.
 * **2026-10-28: directional EMA band on opens (§5.4).** New opens (and increases) that buy alpha reject if post-trade spot > `EMA · (1 + ema_band_bps)`; opens that sell alpha reject if post-trade spot < `EMA · (1 − ema_band_bps)`. Default `ema_band_bps = 1_500` (15%). Opposite-side opens always allowed; closes / repays / settles / expiries never blocked. Makes trade-splitting pointless (limit is on price state). Error: `PriceTooFarFromEma`.
 * **2026-10-29: μ review — shogting cycle, fresh-fork $w_q=\tfrac12$.** Named cycle open-short→pump→close→unstake = **shogting cycle**. Base case from Finney SN29 at clone fork #9,378,125 ($w_q\approx\tfrac12$); contaminated a13/a15 $w_q\approx0.47$ appendix-only. Closed-form $\mathrm{ROI}_{\mathrm{unfix/fix}}(h)$; plot `no-arbitrage-shogting-roi.png`. Mapping to μ’s $F$ explicit. Keep-weights readd (no “ship (a)” label).
 * **2026-10-29: Jacob pass/fail + slippage chart.** Keep-weights criterion: no ≤N-action self-contained sequence yields $\Delta>0$ for $\varphi\le\varphi_{\max}$ on live SN29 / SN64 / SN51 / SN4 / SN119. Search PASS ($N=8$). Slippage $M(\varphi)\approx 1/(1-\varphi)$ — `no-arbitrage-slippage.pdf`.
@@ -72,7 +73,7 @@
   * Longs pay alpha, which is sold into the pool on a paced schedule, and the TAO received is burned.
   * **Not** return-until-whole (§6.1).
 * **No liquidations, no recall, no recourse.**
-* **One-year fixed term (locked).** Every long and short expires one year after open and auto-settles at the smoothed reference price (§15). Increases (both sides) restart the term; partial repay does not change it; dissolution settle wins if it comes first.
+* **One-year fixed term (locked).** Every long and short expires one year after open and is auto-closed at spot through the pool, like a default `close` with no wallet top-up (§15). Increases (both sides) restart the term; partial repay does not change it; dissolution settle wins if it comes first.
 * **Directional EMA band on opens (locked).** Longs (buys) cannot open if post-trade spot > EMA·1.15; shorts (sells) cannot if post-trade spot < EMA·0.85. Opposite side always allowed; exits never blocked (§5.4).
 * **User protections:** every trading extrinsic carries a min-out / max-price limit and a block deadline (§5.2). Partial repay is supported on both sides (§4.4). Escrow and collateral sit in lending custody on a non-validating hotkey and earn no emissions (§14).
 * **Shorters make money on deregistration (core requirement, §13).** Shorting a subnet down to dereg pays the shorter: at dissolution a short's debt is `P` alpha valued at the low dissolution rate `r` (smoothed and capped at the EMA price so it can't be pumped at the flag, §13.2). They keep `E_S + C − P·r`. Their escrow is **never** confiscated or swept into the pot. New shorts are **not** blocked near the dereg threshold, only once the subnet is actually flagged dissolving. All loans settle inside the dissolution flow, before the staker pot is paid.
@@ -336,7 +337,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
 * **Partial repay (§4.4):** after `repay(k)`, every position field equals `(1 − k)×` the old value (to rounding), `L_S`/`L_L`/`B_L` fall by the slice, the pool's reserves change exactly as a `k`-sized close would, accrued interest to the block is charged once (no double charge on a later close), dust remainders are rejected, and a sequence of partial repays summing to `P` leaves the same end state as one `close`.
 * **Outside alpha (§5.3):** `V_dyn` is unchanged by any amount of the borrower's unlocked stake; the raise's `C + S` check excludes collateral, escrow and miner/hotkey locks.
 * **EMA band (§5.4):** same-side opens that would leave post-trade spot outside EMA±`ema_band_bps` fail with `PriceTooFarFromEma`; opposite side and all exits succeed.
-* **Fixed term (§15):** every position carries `expires_at = open + BlocksPerYear`; increases restart it; expiry auto-settles at the reference EMA with bounded `on_idle` weight; dissolution wins if earlier.
+* **Fixed term (§15):** every position carries `expires_at = open + BlocksPerYear`; increases restart it; expiry auto-closes at spot (default close path, no wallet top-up, underwater → best-effort + shortfall event) with bounded `on_idle` weight; dissolution wins if earlier.
 * **Custody (§14):** escrow and collateral alpha sit on the lending custody hotkey and earn no emissions; the custody hotkey can't register, set children or take; coldkey swap re-keys positions to the new coldkey and later payouts go there; positions store no hotkey (per-call only); auto-settle pays TAO to the owner coldkey; the raise and all lending calls dispatch only under proxy types that already allow staking management.
 
 ## 9. Code changes vs main
@@ -786,7 +787,7 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 | `LongInterestPending` | alpha stake until sold | pallet account | `PalletHotkey` |
 
 * **Positions are keyed by `(coldkey, netuid)` only.** No hotkey is stored on the position. Short open / increase is TAO-only and takes **no** hotkey argument. A hotkey is passed only on calls that move alpha to or from the caller's stake: long open / increase / raise (`source_hotkey`), alpha repay, and alpha refund at close.
-* Opening a long moves collateral alpha from the borrower's `(source_hotkey, owner)` stake to `(PalletHotkey, custody)` with `transfer_staked_alpha` (no swap, no unstake). Close / repay that return alpha stake it to the **call-supplied** destination hotkey; TAO always goes to `owner`. Auto-settle (dissolution / fixed-term expiry) pays **TAO to the owner coldkey** and destroys custody alpha (no hotkey to stake onto). **Payouts only ever go to the position owner's coldkey**, never to a proxy, a delegate or a hotkey's owner.
+* Opening a long moves collateral alpha from the borrower's `(source_hotkey, owner)` stake to `(PalletHotkey, custody)` with `transfer_staked_alpha` (no swap, no unstake). Close / repay that return alpha stake it to the **call-supplied** destination hotkey; TAO always goes to `owner`. Dissolution auto-settle pays **TAO to the owner coldkey** and destroys custody alpha (no hotkey to stake onto). Fixed-term expiry also has no hotkey: it sells any alpha the default close would have returned (long collateral left after covering `P`, short buyback overshoot) at spot and pays the TAO to the owner coldkey. **Payouts only ever go to the position owner's coldkey**, never to a proxy, a delegate or a hotkey's owner.
 * Custody accounts are never the subnet account (phase 2.7 recycles that, §13.4). Main's 2.1/2.2 skip `(PalletHotkey, custody)` rows via `is_custody` (§13.4), and lending counts them once in `D`.
 * Custody alpha remains outstanding alpha (`SubnetAlphaOut`/`TotalStake` bookkeeping unchanged by the move).
 
@@ -812,8 +813,8 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
   * Every other proxy type is denied, `NonCritical` and `NonFungible` included. `NonCritical` grants stake management but not lending; that matches PR #3268's filters.
 * A proxy can never redirect funds: there is no `to`/`beneficiary` parameter on any lending call.
 
-## 15. One-year fixed term and auto-settle at the smoothed price
-> **Locked (Jacob, 2026-10-20):** every lending position — long and short — expires **one year after it is opened** and is then settled automatically at the **smoothed (EMA / lending `References`) price**, with the same settlement math the pallet already uses for smoothed settles (§13.3), and **with no liquidations**.
+## 15. One-year fixed term and auto-close at spot
+> **Locked (Jacob, 2026-10-20; expiry valuation revised 2026-11-02):** every lending position — long and short — expires **one year after it is opened** and is then **closed automatically through the pool at spot**: the same path as a default `close` (§4, `repay_from_wallet = false`), with **no liquidations**, **no wallet top-up**, and **no user slippage limits**. Dissolution (§13) keeps its smoothed-rate settlement.
 
 ### 15.1 Term length
 * Term = `BlocksPerYear` (runtime constant; ≈ 2,628,000 blocks at 12 s ≈ one year).
@@ -822,18 +823,23 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 
 ### 15.2 What happens on expiry
 * In `on_idle`, after interest collection, the pallet walks the expiry schedule with a `WeightMeter` (same bounded / resumable pattern as `Due` and dissolution settle).
-* For each due entry whose subnet is **not** dissolving:
-  1. Accrue and charge interest through `now` (final charge).
-  2. Take settlement rate `r = References[netuid].price` (the dedicated lending EMA). If the reference is missing, fall back to the live spot price.
-  3. Settle with the §13.3 smoothed formulas (no AMM buyback / no liquidation):
-     * **Short:** debt = `⌈P · r⌉` TAO; pay `min(debt, E_S + C)` into the pool/reserve; borrower keeps the remainder; re-add recovered TAO; clear the position.
-     * **Long:** `V = ⌊A · r⌋ + min(⌊C · r⌋, AMM quote_sell(C))`; repay `P` first from `V`; pay remainder to the borrower from the pool; destroy custody alpha; clear the position (underwater shortfall stays with the pool, as in §13.3.4). The AMM cap on `C` blocks near-expiry collateral top-ups from redeeming above a live dump.
-  4. Emit `Expired { owner, netuid, side, principal_tao_equiv, tao_to_pool, tao_refund, rate }`.
+* For each due entry whose subnet is **not** dissolving, run **expiry == default close at spot**:
+  1. Accrue and charge interest through `now` (final charge). If interest exhausts collateral the position forfeits, exactly as in `close`.
+  2. Close through the pool with `max_payment = u64::MAX`, `min_refund = 0` and no min-out on sells. MEV at expiry is accepted.
+     * **Short:** buy back `P` alpha with `E_S + C` (stepwise, `MAX_BUYBACK_STEPS`). Refund the unspent TAO to the owner. Weight-preserving readd of `lift_tao` and the bought alpha, k-neutral burn, remove the position. Buyback overshoot alpha is sold at spot and paid as TAO.
+     * **Long:** sell escrow `A`, then the minimal collateral needed to cover `P`; repay `P` to the pool; weight-preserving readd of `P` TAO and `lift_alpha`; k-neutral burn; remove the position. The owner receives TAO surplus above `P`, and the collateral alpha `close` would have returned is **sold at spot and paid as TAO** (expiry has no hotkey to stake it to, §14).
+  3. **No top-up.** Expiry never pulls free TAO from the owner's wallet. A solvent position behaves like a default `close` in that block.
+  4. **Underwater / best effort, never a retry loop.**
+     * **Short** (buying back `P` costs more than `E_S + C`, or the pool cannot supply `P`): best-effort buyback from the pot only — **never** pulls free TAO from the owner's wallet. Bought alpha moves to the reserve; lift TAO is re-added with only the bought alpha (no alpha the pallet does not hold). Unspent pot TAO refunds to the owner. The unpaid principal is **`shortfall_alpha`**, borne by the pool.
+     * **Insolvent long** (selling all of `A + C` raises less than `P`): pay what was raised to the pool, re-add the lift legs, record **`shortfall_tao = P − raised`**.
+     * The position, its book entries and its expiry rows are removed in the same block.
+  5. Emit `Expired { owner, netuid, side, principal_tao_equiv, principal, payment, tao_to_pool, tao_refund, rate, shortfall_alpha, shortfall_tao }`. `rate` is the **spot price sampled before the closing trades** (not the EMA). Shorts: `payment` is the TAO spent on the buyback; longs: the TAO repaid to the pool. Exactly one of `shortfall_alpha` (short) and `shortfall_tao` (long) can be non-zero; both are zero for solvent exits.
+* Only infrastructure failures (e.g. the pool refuses a sale, the subtoken is disabled) roll the settle back and defer the claim onto the `ExpiryRetry` side queue; an economic shortfall never does.
 * Weight is bounded per block. A cursor (`ExpiryBucketCursor`) resumes mid-bucket. Many expiries in one block may span several blocks of `on_idle`.
 
 ### 15.3 Top-ups, partial repay, and dissolution
-* **Any increase** (long or short, new principal and/or new collateral) **restarts the one-year clock** (`expires_at = now + BlocksPerYear`). Jacob allowed keep-or-restart; keep-original enabled near-expiry drains — long collateral redeemed from the pot at EMA above AMM, and short principal force-sold at live spot then settled at a lower EMA.
-* **Long expiry / dissolution settle** values escrow `A` at EMA `r`, but caps collateral `C` at `min(⌊C·r⌋, AMM quote_sell(C))` so a large top-up cannot redeem above dumping `C` into the live pool.
+* **Any increase** (long or short, new principal and/or new collateral) **restarts the one-year clock** (`expires_at = now + BlocksPerYear`). Jacob allowed keep-or-restart; the restart is kept so fresh principal or collateral cannot be opened and immediately closed out by an imminent expiry.
+* **Dissolution settle** (§13.3) values long escrow `A` at the smoothed rate `r` and caps collateral `C` at `min(⌊C·r⌋, AMM quote_sell(C))`. **Expiry does not use `r`**: it sells `A` and `C` through the pool, so no cap is needed.
 * **Partial repay** (§4.4) leaves `expires_at` unchanged. Full repay / `close` removes the position and its expiry queue entry.
 * **Dissolution before expiry:** if the subnet is flagged dissolving while the position is still open, §13 settlement is authoritative. Dissolution settle clears the position (and therefore the expiry index). Expiry processing **skips** dissolving netuids, so it never double-settles.
 
@@ -841,7 +847,10 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 * LTV 25% / 15% thin, 100% APR burn-all interest, escrowed longs and shorts, pro-rata partial repay, custody earns no emissions (§14), dissolution `r` protections (§13.2), new-subnet gate and capacity ramp (§2.3) are all unchanged by the term.
 
 ### 15.5 Tests
-* Expiry auto-settles a short at the smoothed reference price (not spot) and emits `Expired`.
+* `expiry_matches_manual_close_{short,long}_{flat,up,down}`: at `expires_at` the expiry outcome (owner TAO, reserves, burn, lift book, escrow) equals a twin position closed in the same block. For longs the twin's refunded collateral alpha is sold at spot afterwards.
+* `underwater_short_expiry_records_shortfall_no_retry`: pot < buy cost; the position is gone, `shortfall_alpha > 0`, nothing is queued for retry, and the owner's wallet is untouched. Variants cover a pool that no longer holds `P` alpha and an insolvent long (`shortfall_tao`).
+* `expiry_k_neutral_burn_restores_l_at_half_weight`: the k-neutral burn still restores Balancer `L` after an expiry exit.
+* `fixed_term_expiry_closes_at_spot_not_reference_ema`: a far-away reference EMA does not move the expiry valuation; `Expired.rate` is spot.
 * Many expiries in one bucket: a tight `WeightMeter` settles some but not all; a later full-weight pass finishes the rest.
 * A short increase and a long collateral top-up both restart `expires_at`; partial repay never extends.
 * Dissolution before `expires_at` settles via §13 and leaves no `Expired` event when the old expiry block arrives.

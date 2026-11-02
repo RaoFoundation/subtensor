@@ -43,6 +43,18 @@ Default close tops up free TAO for the buyback shortfall (bounded by
 needed). If free balance is short, expect `InsufficientEscrow` and use the
 quote's shortfall — or `--repay-from-wallet --hotkey …`.
 
+## Fixed-term expiry
+
+At `expires_at` the position is closed automatically at spot through the pool:
+expiry == a default close, not an EMA settlement. There is no wallet top-up and
+no slippage limit (MEV at expiry is accepted), and the owner's free TAO is never
+touched. Alpha a close would return (long collateral left after covering `P`,
+short buyback dust) is sold at spot and paid as TAO because expiry has no hotkey.
+An underwater short buys back what escrow + collateral allow; the unpaid alpha
+is reported as `shortfall_alpha` on `Lending.Expired` (an insolvent long reports
+`shortfall_tao`) and the position is removed, so it never loops in the retry
+queue. `Expired.rate` is the spot price before the closing trades.
+
 ## Cards and list columns
 
 Dry-run shows the Loan / Repayment / Raise card (quoted payment, refund,

@@ -716,12 +716,13 @@ const BPS_DENOM: u128 = 10_000;
 /// Steps for principal/collateral bisections once a tight `[lo, hi]` is known.
 const BISECTION_STEPS: u32 = 64;
 
-/// Why a position is being settled at a smoothed rate (no AMM liquidation).
+/// Why a position is being settled by [`Pallet::settle_position_at_rate`].
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SettleKind {
-    /// Subnet dissolution (§13): rate is pot `r`.
+    /// Subnet dissolution (§13): rate is pot `r`, no AMM trades.
     Dissolution,
-    /// Fixed one-year term end (§15): rate is the lending reference EMA.
+    /// Fixed one-year term end (§15): a default close through the pool at spot;
+    /// the rate argument is only reported on `Expired`.
     Expiry,
 }
 
@@ -1081,7 +1082,15 @@ pub mod pallet {
             valid_after: BlockNumberFor<T>,
             g_ema: u64,
         },
-        /// Fixed-term expiry auto-settled at the smoothed reference price (§15).
+        /// Fixed-term expiry closed through the pool at spot, exactly like a
+        /// default `close` with no wallet top-up and no slippage limits (§15).
+        ///
+        /// Short: `payment` is TAO spent buying alpha back, `principal_tao_equiv`
+        /// equals it, and `shortfall_alpha` is principal alpha that escrow plus
+        /// collateral could not buy back (borne by the pool). Long: `payment` is
+        /// the TAO returned to the pool (at most `principal`), `tao_refund` is
+        /// sale surplus plus the TAO value of leftover collateral, and
+        /// `shortfall_tao` is principal TAO the sale of `A + C` could not raise.
         Expired {
             owner: T::AccountId,
             netuid: NetUid,
@@ -1089,11 +1098,18 @@ pub mod pallet {
             principal_tao_equiv: u64,
             /// Native principal: alpha for shorts, TAO for longs (E2E F7).
             principal: u64,
-            /// TAO paid toward the debt / into the pool.
+            /// TAO paid toward the debt.
             payment: u64,
+            /// TAO credited to the pool (`payment` plus any unspendable dust
+            /// forwarded on an underwater short).
             tao_to_pool: u64,
             tao_refund: u64,
+            /// Spot price (TAO per alpha) sampled before the closing trades.
             rate: U64F64,
+            /// Short principal alpha left unpaid (zero for solvent shorts and longs).
+            shortfall_alpha: u64,
+            /// Long principal TAO left unpaid (zero for solvent longs and shorts).
+            shortfall_tao: u64,
         },
     }
 
@@ -3750,6 +3766,31 @@ pub mod pallet {
             principal: u64,
             budget: u64,
         ) -> Result<(u64, u64), DispatchError> {
+            Self::execute_buyback_inner(escrow, custody, netuid, principal, budget, false)
+        }
+
+        /// Buy back up to `principal` alpha with at most `budget` TAO and return
+        /// `(paid, bought)` without requiring `bought >= principal`. Pool or
+        /// capacity limits end the loop instead of reverting. Used by expiry,
+        /// which must clear an underwater short rather than retry forever.
+        fn execute_buyback_best_effort(
+            escrow: &T::AccountId,
+            custody: &T::AccountId,
+            netuid: NetUid,
+            principal: u64,
+            budget: u64,
+        ) -> Result<(u64, u64), DispatchError> {
+            Self::execute_buyback_inner(escrow, custody, netuid, principal, budget, true)
+        }
+
+        fn execute_buyback_inner(
+            escrow: &T::AccountId,
+            custody: &T::AccountId,
+            netuid: NetUid,
+            principal: u64,
+            budget: u64,
+            best_effort: bool,
+        ) -> Result<(u64, u64), DispatchError> {
             let mut payment = 0u64;
             let mut alpha = 0u64;
             for _ in 0..MAX_BUYBACK_STEPS {
@@ -3758,30 +3799,51 @@ pub mod pallet {
                     return Ok((payment, alpha));
                 }
                 // Bound each buy by the TAO needed for the remaining principal,
-                // not the entire surplus collateral budget.
-                let needed = Self::tao_to_buy_alpha(netuid, remaining)?;
-                let capacity = budget
+                // not the entire surplus collateral budget. Best effort spends up
+                // to the whole budget when the remainder cannot be quoted.
+                let needed = if best_effort {
+                    Self::tao_to_buy_alpha(netuid, remaining).unwrap_or(u64::MAX)
+                } else {
+                    Self::tao_to_buy_alpha(netuid, remaining)?
+                };
+                let mut capacity = budget
                     .saturating_sub(payment)
                     .min(T::Pool::buy_spendable_tao(escrow).to_u64())
                     .min(T::Pool::max_buy_input(netuid).to_u64())
                     .min(needed);
-                ensure!(capacity > 0, Error::<T>::InsufficientEscrow);
-                let received = T::Pool::buy_alpha(
+                if best_effort {
+                    if capacity == 0 {
+                        break;
+                    }
+                    capacity = match Self::max_fillable_buy(netuid, capacity) {
+                        Ok(c) => c,
+                        Err(_) => break,
+                    };
+                } else {
+                    ensure!(capacity > 0, Error::<T>::InsufficientEscrow);
+                }
+                let bought = T::Pool::buy_alpha(
                     escrow,
                     custody,
                     netuid,
                     capacity.into(),
                     u64::MAX.into(),
                     false,
-                )?
-                .to_u64();
+                );
+                let received = match bought {
+                    Ok(received) => received.to_u64(),
+                    Err(_) if best_effort => break,
+                    Err(e) => return Err(e),
+                };
                 payment = Self::add(payment, capacity)?;
                 alpha = Self::add(alpha, received)?;
                 if received == 0 {
                     break;
                 }
             }
-            ensure!(alpha >= principal, Error::<T>::InsufficientEscrow);
+            if !best_effort {
+                ensure!(alpha >= principal, Error::<T>::InsufficientEscrow);
+            }
             Ok((payment, alpha))
         }
 
@@ -4699,8 +4761,9 @@ pub mod pallet {
             }
         }
 
-        /// Auto-settle positions whose fixed one-year term has ended (§15).
-        /// Uses the smoothed reference price (same math as dissolution settle).
+        /// Auto-close positions whose fixed one-year term has ended (§15).
+        /// Runs the default close path at spot (no wallet top-up, no slippage
+        /// limits, best-effort on underwater loans).
         /// Dissolution wins if the subnet is already dissolving — skip those.
         pub(crate) fn collect_expiry(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
             use frame_support::storage::{TransactionOutcome, with_transaction};
@@ -4754,9 +4817,8 @@ pub mod pallet {
                             if position.expires_at > now {
                                 return Ok(());
                             }
-                            let rate = References::<T>::get(netuid)
-                                .map(|r| r.price)
-                                .unwrap_or_else(|| T::Pool::current_alpha_price(netuid));
+                            // Expiry closes at spot; the rate is only reported.
+                            let rate = T::Pool::current_alpha_price(netuid);
                             Self::settle_position_at_rate(
                                 netuid,
                                 &owner,
@@ -4982,9 +5044,8 @@ pub mod pallet {
                             if position.expires_at > now {
                                 return Ok(());
                             }
-                            let rate = References::<T>::get(netuid)
-                                .map(|r| r.price)
-                                .unwrap_or_else(|| T::Pool::current_alpha_price(netuid));
+                            // Expiry closes at spot; the rate is only reported.
+                            let rate = T::Pool::current_alpha_price(netuid);
                             Self::settle_position_at_rate(
                                 netuid,
                                 &owner,
@@ -5387,11 +5448,14 @@ pub mod pallet {
             true
         }
 
-        /// Atomic per-position settlement at a smoothed rate. Must not leave a
-        /// half-paid escrow: short recovery+refund are withdrawn together via
+        /// Atomic per-position settlement. Dissolution (§13) settles at the
+        /// smoothed rate `r` with no AMM trades. Fixed-term expiry (§15) ignores
+        /// `r` for valuation and runs [`Self::settle_expiry_as_close`] (a default
+        /// close at spot); `r` is only reported on `Expired`.
+        ///
+        /// Dissolution short recovery+refund are withdrawn together via
         /// `terminal_split_tao` (Expendable transfers would otherwise reap a
-        /// below-ED refund remainder). Used by dissolution (§13) and fixed-term
-        /// expiry (§15); no AMM liquidations.
+        /// below-ED refund remainder).
         #[transactional]
         fn settle_position_at_rate(
             netuid: NetUid,
@@ -5401,12 +5465,13 @@ pub mod pallet {
             interest_until: BlockNumberFor<T>,
             kind: SettleKind,
         ) -> DispatchResult {
+            if matches!(kind, SettleKind::Expiry) {
+                return Self::settle_expiry_as_close(netuid, owner, position, r, interest_until);
+            }
             // Accrue and burn interest through the cutoff before settlement.
             Self::charge_interest(owner, netuid, &mut position, interest_until, true)?;
-            // Live-path interest can exhaust collateral and `forfeit`, which already
-            // restored lifts, moved escrow, and removed the claim. Do not reinsert
-            // or continue settlement on a forfeited loan (would double-recover and
-            // fail, then defer forever). Dissolution skips forfeit above.
+            // Dissolution skips forfeit inside `charge_interest`, so the claim
+            // always survives here; keep the guard for defence in depth.
             if !Positions::<T>::contains_key(owner, netuid) {
                 return Ok(());
             }
@@ -5424,24 +5489,6 @@ pub mod pallet {
                     let available = Self::add(position.proceeds, position.collateral)?;
                     let to_pot = debt.min(available);
                     let refund = available.saturating_sub(to_pot);
-                    // Expiry (unlike dissolution) has not restored held lift legs yet.
-                    if matches!(kind, SettleKind::Expiry) && position.lift_tao > 0 {
-                        T::Pool::readd_and_credit(
-                            netuid,
-                            &reserve,
-                            &custody,
-                            position.lift_tao.into(),
-                            0u64.into(),
-                        )?;
-                        Self::deposit_event(Event::Readded {
-                            netuid,
-                            tao: position.lift_tao,
-                            alpha: 0,
-                        });
-                        Lifts::<T>::mutate(netuid, |book| {
-                            book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
-                        });
-                    }
                     // Withdraw recovery + refund in one credit split so a below-ED
                     // refund cannot be reaped by an intervening Expendable transfer.
                     let (recovered, refunded) = T::Pool::terminal_split_tao(
@@ -5473,53 +5520,26 @@ pub mod pallet {
                         book.l_s = book.l_s.saturating_sub(position.lift_tao);
                         book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
                     });
-                    // Expiry readds lift_tao (+ recovered TAO); dissolution only
-                    // the recovered pot. Cap burn by what this settle credited.
-                    let credited_tao = if matches!(kind, SettleKind::Expiry) {
-                        position.lift_tao.saturating_add(recovered)
-                    } else {
-                        recovered
-                    };
-                    Self::maybe_burn_invariant_surplus(
-                        netuid,
-                        credited_tao,
-                        0,
-                        matches!(kind, SettleKind::Dissolution),
-                    )?;
+                    // Dissolution already re-added lift legs; cap burn by what
+                    // this settle credited (skipped for dissolving subnets).
+                    Self::maybe_burn_invariant_surplus(netuid, recovered, 0, true)?;
                     Self::remove_position(owner, netuid, &position);
-                    match kind {
-                        SettleKind::Dissolution => {
-                            Self::deposit_event(Event::DissolutionSettled {
-                                owner: owner.clone(),
-                                netuid,
-                                side: Side::Short,
-                                principal_tao_equiv: debt,
-                                tao_to_pot: to_pot,
-                                tao_refund: refund,
-                            });
-                            Self::deposit_event(Event::Settled {
-                                owner: owner.clone(),
-                                netuid,
-                                side: Side::Short,
-                                principal_tao_equiv: debt,
-                                tao_to_pot: to_pot,
-                                tao_refund: refund,
-                            });
-                        }
-                        SettleKind::Expiry => {
-                            Self::deposit_event(Event::Expired {
-                                owner: owner.clone(),
-                                netuid,
-                                side: Side::Short,
-                                principal_tao_equiv: debt,
-                                principal: position.principal,
-                                payment: to_pot,
-                                tao_to_pool: to_pot,
-                                tao_refund: refund,
-                                rate: r,
-                            });
-                        }
-                    }
+                    Self::deposit_event(Event::DissolutionSettled {
+                        owner: owner.clone(),
+                        netuid,
+                        side: Side::Short,
+                        principal_tao_equiv: debt,
+                        tao_to_pot: to_pot,
+                        tao_refund: refund,
+                    });
+                    Self::deposit_event(Event::Settled {
+                        owner: owner.clone(),
+                        netuid,
+                        side: Side::Short,
+                        principal_tao_equiv: debt,
+                        tao_to_pot: to_pot,
+                        tao_refund: refund,
+                    });
                 }
                 Side::Long => {
                     // Escrow A settles at EMA (quantity-backed). Collateral C is
@@ -5547,28 +5567,9 @@ pub mod pallet {
                     let repay = payout.min(position.principal);
                     let remainder = payout.saturating_sub(repay);
                     let shortfall = position.principal.saturating_sub(repay);
-                    // Expiry must restore held lift alpha; dissolution already did.
-                    if matches!(kind, SettleKind::Expiry) && position.lift_alpha > 0 {
-                        T::Pool::readd_and_credit(
-                            netuid,
-                            &reserve,
-                            &custody,
-                            0u64.into(),
-                            position.lift_alpha.into(),
-                        )?;
-                        Self::deposit_event(Event::Readded {
-                            netuid,
-                            tao: 0,
-                            alpha: position.lift_alpha,
-                        });
-                        Lifts::<T>::mutate(netuid, |book| {
-                            book.held_alpha = book.held_alpha.saturating_sub(position.lift_alpha);
-                        });
-                    }
                     // Pay remainder before destroying custody alpha. A pot miss
                     // must revert the whole transactional settle so collateral is
-                    // not destroyed; collect_expiry then defers the claim onto a
-                    // retry slot instead of pinning NextExpiry. Below-ED dust only.
+                    // not destroyed. Below-ED dust only.
                     let mut paid_remainder = 0u64;
                     if remainder > 0 {
                         let paid = T::Pool::pay_from_pot(netuid, owner, remainder.into())?;
@@ -5592,53 +5593,258 @@ pub mod pallet {
                             .long_collateral_alpha
                             .saturating_sub(position.collateral);
                     });
-                    let credited_alpha = if matches!(kind, SettleKind::Expiry) {
-                        position.lift_alpha
-                    } else {
-                        0
-                    };
-                    Self::maybe_burn_invariant_surplus(
-                        netuid,
-                        0,
-                        credited_alpha,
-                        matches!(kind, SettleKind::Dissolution),
-                    )?;
+                    Self::maybe_burn_invariant_surplus(netuid, 0, 0, true)?;
                     Self::remove_position(owner, netuid, &position);
-                    match kind {
-                        SettleKind::Dissolution => {
-                            Self::deposit_event(Event::DissolutionSettled {
-                                owner: owner.clone(),
-                                netuid,
-                                side: Side::Long,
-                                principal_tao_equiv: position.principal,
-                                tao_to_pot: shortfall,
-                                tao_refund: paid_remainder,
-                            });
-                            Self::deposit_event(Event::Settled {
-                                owner: owner.clone(),
-                                netuid,
-                                side: Side::Long,
-                                principal_tao_equiv: position.principal,
-                                tao_to_pot: shortfall,
-                                tao_refund: paid_remainder,
-                            });
-                        }
-                        SettleKind::Expiry => {
-                            Self::deposit_event(Event::Expired {
-                                owner: owner.clone(),
-                                netuid,
-                                side: Side::Long,
-                                principal_tao_equiv: position.principal,
-                                principal: position.principal,
-                                payment: shortfall,
-                                tao_to_pool: shortfall,
-                                tao_refund: paid_remainder,
-                                rate: r,
-                            });
-                        }
-                    }
+                    Self::deposit_event(Event::DissolutionSettled {
+                        owner: owner.clone(),
+                        netuid,
+                        side: Side::Long,
+                        principal_tao_equiv: position.principal,
+                        tao_to_pot: shortfall,
+                        tao_refund: paid_remainder,
+                    });
+                    Self::deposit_event(Event::Settled {
+                        owner: owner.clone(),
+                        netuid,
+                        side: Side::Long,
+                        principal_tao_equiv: position.principal,
+                        tao_to_pot: shortfall,
+                        tao_refund: paid_remainder,
+                    });
                 }
             }
+            Ok(())
+        }
+
+        /// Fixed-term expiry (§15): the default `close` path (`repay_from_wallet =
+        /// false`) through the pool at spot, with three intentional differences:
+        ///
+        /// * No wallet top-up and no user slippage limits (`max_payment = MAX`,
+        ///   `min_refund = 0`, no min-out on sells). MEV at expiry is accepted.
+        /// * Best effort: an underwater short buys back as much alpha as escrow
+        ///   plus collateral allows, an insolvent long sells all of `A + C`; the
+        ///   unpaid remainder is emitted as `shortfall_alpha` / `shortfall_tao` on
+        ///   [`Event::Expired`] and the position is always removed.
+        /// * No hotkey is available, so alpha is never staked to the owner: surplus
+        ///   alpha from a short buyback and long collateral left after covering
+        ///   `P` are sold at spot and paid to the owner as TAO.
+        ///
+        /// Interest accrual, weight-preserving readd and the k-neutral burn are
+        /// the same as `do_close`.
+        fn settle_expiry_as_close(
+            netuid: NetUid,
+            owner: &T::AccountId,
+            mut position: Position<T::AccountId, BlockNumberFor<T>>,
+            spot: U64F64,
+            interest_until: BlockNumberFor<T>,
+        ) -> DispatchResult {
+            Self::charge_interest(owner, netuid, &mut position, interest_until, true)?;
+            // Interest can exhaust collateral and `forfeit`, which already restored
+            // lifts, moved escrow, and removed the claim.
+            if !Positions::<T>::contains_key(owner, netuid) {
+                return Ok(());
+            }
+
+            let custody = Self::custody_hotkey()?;
+            let reserve = Self::reserve_account(netuid);
+            let escrow = position.custody.clone();
+            let side = position.side;
+
+            let mut leftover_collateral = 0u64;
+            let (
+                credited_tao,
+                credited_alpha,
+                paid,
+                to_pool,
+                mut refund,
+                shortfall_alpha,
+                shortfall_tao,
+            ) = match side {
+                Side::Short => {
+                    let pot = Self::add(position.proceeds, position.collateral)?;
+                    let (paid, bought) = Self::execute_buyback_best_effort(
+                        &escrow,
+                        &custody,
+                        netuid,
+                        position.principal,
+                        pot,
+                    )?;
+                    let repaid_alpha = bought.min(position.principal);
+                    let shortfall_alpha = position.principal.saturating_sub(repaid_alpha);
+                    // Unspent pot TAO is the owner's (collateral/proceeds) —
+                    // refund it even when underwater. Shortfall is unpaid alpha.
+                    let mut refund = pot.saturating_sub(paid);
+                    let excess = bought.saturating_sub(position.principal);
+                    if excess > 0 {
+                        if let Ok(dust) = T::Pool::sell_alpha(
+                            &escrow,
+                            &custody,
+                            netuid,
+                            excess.into(),
+                            0u64.into(),
+                            false,
+                        ) {
+                            refund = refund.saturating_add(dust.to_u64());
+                        }
+                    }
+                    if refund > 0 {
+                        T::Pool::transfer_tao(&escrow, owner, refund.into())?;
+                    }
+                    if repaid_alpha > 0 {
+                        T::Pool::transfer_staked_alpha(
+                            &escrow,
+                            &custody,
+                            &reserve,
+                            &custody,
+                            netuid,
+                            repaid_alpha.into(),
+                            false,
+                            false,
+                        )?;
+                    }
+                    // Unpaid slice: lift TAO still returns to the pool, but no
+                    // alpha is re-added for it (the pool bears shortfall_alpha).
+                    if position.lift_tao > 0 || repaid_alpha > 0 {
+                        T::Pool::readd_and_credit(
+                            netuid,
+                            &reserve,
+                            &custody,
+                            position.lift_tao.into(),
+                            repaid_alpha.into(),
+                        )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: position.lift_tao,
+                            alpha: repaid_alpha,
+                        });
+                    }
+                    Lifts::<T>::mutate(netuid, |book| {
+                        book.l_s = book.l_s.saturating_sub(position.lift_tao);
+                        book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
+                        book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
+                    });
+                    (
+                        position.lift_tao,
+                        repaid_alpha,
+                        paid,
+                        paid,
+                        refund,
+                        shortfall_alpha,
+                        0u64,
+                    )
+                }
+                Side::Long => {
+                    let mut raised = 0u64;
+                    if position.escrow_alpha > 0 {
+                        let out = T::Pool::forced_sell_into_escrow(
+                            &escrow,
+                            &custody,
+                            &escrow,
+                            netuid,
+                            position.escrow_alpha.into(),
+                            0u64.into(),
+                        )?;
+                        raised = Self::add(raised, out.to_u64())?;
+                    }
+                    let mut coll_left = position.collateral;
+                    if raised < position.principal && coll_left > 0 {
+                        let need = position.principal.saturating_sub(raised);
+                        // A quote error means the pool cannot raise `need` from
+                        // the remaining collateral: sell all of it (insolvent).
+                        let sell = match Self::alpha_to_raise_tao(netuid, need) {
+                            Ok(needed_alpha) => needed_alpha.min(coll_left),
+                            Err(_) => coll_left,
+                        };
+                        if sell > 0 {
+                            let out = T::Pool::forced_sell_into_escrow(
+                                &escrow,
+                                &custody,
+                                &escrow,
+                                netuid,
+                                sell.into(),
+                                0u64.into(),
+                            )?;
+                            raised = Self::add(raised, out.to_u64())?;
+                            coll_left = coll_left.saturating_sub(sell);
+                        }
+                    }
+                    let repay = raised.min(position.principal);
+                    let shortfall_tao = position.principal.saturating_sub(repay);
+                    let surplus = raised.saturating_sub(repay);
+                    if repay > 0 {
+                        T::Pool::transfer_tao(&escrow, &reserve, repay.into())?;
+                    }
+                    if surplus > 0 {
+                        T::Pool::transfer_tao(&escrow, owner, surplus.into())?;
+                    }
+                    if repay > 0 || position.lift_alpha > 0 {
+                        T::Pool::readd_and_credit(
+                            netuid,
+                            &reserve,
+                            &custody,
+                            repay.into(),
+                            position.lift_alpha.into(),
+                        )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: repay,
+                            alpha: position.lift_alpha,
+                        });
+                    }
+                    Lifts::<T>::mutate(netuid, |book| {
+                        book.l_l = book.l_l.saturating_sub(position.principal);
+                        book.b_l = book.b_l.saturating_sub(position.principal);
+                        book.held_alpha = book.held_alpha.saturating_sub(position.lift_alpha);
+                        book.escrow_alpha = book.escrow_alpha.saturating_sub(position.escrow_alpha);
+                        book.long_collateral_alpha = book
+                            .long_collateral_alpha
+                            .saturating_sub(position.collateral);
+                    });
+                    leftover_collateral = coll_left;
+                    (
+                        repay,
+                        position.lift_alpha,
+                        repay,
+                        repay,
+                        surplus,
+                        0u64,
+                        shortfall_tao,
+                    )
+                }
+            };
+
+            Self::maybe_burn_invariant_surplus(netuid, credited_tao, credited_alpha, false)?;
+            Self::remove_position(owner, netuid, &position);
+            // No hotkey at expiry: `close` would return this collateral as alpha;
+            // sell it at spot and pay TAO instead (a sub-unit sale leaves dust).
+            if leftover_collateral > 0 {
+                if let Ok(out) = T::Pool::forced_sell_into_escrow(
+                    &escrow,
+                    &custody,
+                    owner,
+                    netuid,
+                    leftover_collateral.into(),
+                    0u64.into(),
+                ) {
+                    refund = refund.saturating_add(out.to_u64());
+                }
+            }
+            Self::deposit_event(Event::Expired {
+                owner: owner.clone(),
+                netuid,
+                side,
+                principal_tao_equiv: match side {
+                    Side::Short => paid,
+                    Side::Long => position.principal,
+                },
+                principal: position.principal,
+                payment: paid,
+                tao_to_pool: to_pool,
+                tao_refund: refund,
+                rate: spot,
+                shortfall_alpha,
+                shortfall_tao,
+            });
             Ok(())
         }
 
