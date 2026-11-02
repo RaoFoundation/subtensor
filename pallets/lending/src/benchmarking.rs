@@ -211,15 +211,26 @@ mod benchmarks {
 
     #[benchmark]
     fn collect() {
+        // Measure the forfeit-inclusive idle path (Skeptic fid:f2eb3d14): crank
+        // the coupon above remaining collateral so charge_interest defaults the
+        // loan (re-add, optional k-burn, remove_position + queue unlink).
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
-        // Interest is due at open_block + InterestPeriod — advance so collect_due
-        // actually charges and reschedules (not a no-op skip).
-        let due = Positions::<T>::get(&caller, netuid)
-            .expect("fixture opened a short")
-            .due;
+        let year: u64 = T::BlocksPerYear::get();
+        let period: u64 = T::InterestPeriod::get().saturated_into::<u64>().max(1);
+        let due = Positions::<T>::mutate(&caller, netuid, |maybe| {
+            let position = maybe.as_mut().expect("fixture opened a short");
+            // Accrue ≥ collateral over one InterestPeriod so collect forfeits.
+            position.annual_interest = position
+                .collateral
+                .saturating_mul(year)
+                .saturating_div(period)
+                .max(1);
+            position.interest_remainder = 0;
+            position.due
+        });
         frame_system::Pallet::<T>::set_block_number(due);
         #[block]
         {
@@ -228,10 +239,10 @@ mod benchmarks {
                 Weight::from_parts(u64::MAX, u64::MAX),
             );
         }
-        // Outside measured block: interest path must have run (reschedule or forfeit).
-        if let Some(position) = Positions::<T>::get(&caller, netuid) {
-            assert!(position.due > due, "collect must reschedule the due bucket");
-        }
+        assert!(
+            !Positions::<T>::contains_key(&caller, netuid),
+            "collect benchmark must exercise forfeiture, not a plain reschedule"
+        );
     }
 
     #[benchmark]

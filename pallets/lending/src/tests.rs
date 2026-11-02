@@ -3626,6 +3626,75 @@ fn coldkey_swap_rewinds_expiry_cursor_so_due_loan_still_settles() {
     });
 }
 
+/// Skeptic fid:f2eb3d14 — idle `collect` / `settle` weights must budget the
+/// forfeit path (re-add, queue unlink, optional k-burn), not only happy-path
+/// weekly accrual (old 8 reads / 6 writes).
+#[test]
+fn collect_and_settle_weights_cover_forfeit_storage_floor() {
+    let happy = Weight::from_parts(80_000_000, 8_000)
+        .saturating_add(RocksDbWeight::get().reads(8))
+        .saturating_add(RocksDbWeight::get().writes(6));
+    let forfeit_rw = RocksDbWeight::get()
+        .reads(40)
+        .saturating_add(RocksDbWeight::get().writes(28));
+    for (name, weight) in [
+        ("collect", <() as WeightInfo>::collect()),
+        ("settle", <() as WeightInfo>::settle()),
+    ] {
+        assert!(
+            weight.all_gt(happy),
+            "{name} must exceed the pre-forfeit happy-path budget"
+        );
+        assert!(
+            weight.all_gte(forfeit_rw),
+            "{name} must cover estimated forfeit read/write costs"
+        );
+    }
+}
+
+/// Skeptic fid:f2eb3d14 — on_idle interest collection can forfeit; one
+/// collect-weight unit must be enough to finish that path.
+#[test]
+fn collect_due_forfeit_consumes_collect_weight_budget() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let due = Positions::<Test>::mutate(&owner, netuid(), |p| {
+            let pos = p.as_mut().expect("opened");
+            // One InterestPeriod at BlocksPerYear=520 must pay ≥ collateral.
+            pos.annual_interest = pos
+                .collateral
+                .saturating_mul(<<Test as Config>::BlocksPerYear as Get<u64>>::get())
+                .saturating_div(<<Test as Config>::InterestPeriod as Get<u64>>::get().max(1))
+                .max(1);
+            pos.interest_remainder = 0;
+            pos.due
+        });
+        System::set_block_number(due);
+        let header = RocksDbWeight::get()
+            .reads_writes(2, 1)
+            .saturating_add(RocksDbWeight::get().reads(1));
+        let one = header.saturating_add(<() as WeightInfo>::collect());
+        let mut meter = WeightMeter::with_limit(one.saturating_add(Weight::from_parts(1, 0)));
+        Lending::collect_due(due, &mut meter);
+        assert!(
+            !Positions::<Test>::contains_key(&owner, netuid()),
+            "collect_due must forfeit an exhausted position within one collect weight"
+        );
+    });
+}
+
 /// Skeptic fid:2d4a1d05 — closing the due-queue head while a mid-bucket
 /// cursor is set must not apply that cursor to the successor bucket.
 #[test]

@@ -79,10 +79,15 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             .saturating_add(T::DbWeight::get().writes(5_u64))
     }
     /// Per-position interest collection (metered in on_idle).
+    ///
+    /// Worst case: `charge_interest` exhausts collateral and runs [`forfeit`]
+    /// (interest burn, reserve re-add, optional k-neutral burn, `remove_position`
+    /// with due/expiry unlink). Happy-path weekly accrual is cheaper; the idle
+    /// meter must charge this upper bound up front (Skeptic fid:f2eb3d14).
     fn collect() -> Weight {
-        Weight::from_parts(80_000_000, 8_000)
-            .saturating_add(T::DbWeight::get().reads(8_u64))
-            .saturating_add(T::DbWeight::get().writes(6_u64))
+        Weight::from_parts(300_000_000, 36_000)
+            .saturating_add(T::DbWeight::get().reads(40_u64))
+            .saturating_add(T::DbWeight::get().writes(28_u64))
     }
     /// on_finalize reference / TaoEma walk for one subnet.
     fn update_reference() -> Weight {
@@ -90,11 +95,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             .saturating_add(T::DbWeight::get().reads(6_u64))
             .saturating_add(T::DbWeight::get().writes(3_u64))
     }
-    /// Per-position dissolution settlement step.
+    /// Per-position settlement / expiry step (metered in on_idle).
+    ///
+    /// Live expiry can hit the same forfeit path via `charge_interest` before
+    /// the rest of settlement; budget the upper bound (Skeptic fid:f2eb3d14).
     fn settle() -> Weight {
-        Weight::from_parts(100_000_000, 10_000)
-            .saturating_add(T::DbWeight::get().reads(10_u64))
-            .saturating_add(T::DbWeight::get().writes(8_u64))
+        Weight::from_parts(300_000_000, 36_000)
+            .saturating_add(T::DbWeight::get().reads(40_u64))
+            .saturating_add(T::DbWeight::get().writes(28_u64))
     }
 }
 
@@ -143,9 +151,10 @@ impl WeightInfo for () {
             .saturating_add(RocksDbWeight::get().writes(5_u64))
     }
     fn collect() -> Weight {
-        Weight::from_parts(80_000_000, 8_000)
-            .saturating_add(RocksDbWeight::get().reads(8_u64))
-            .saturating_add(RocksDbWeight::get().writes(6_u64))
+        // Mirror SubstrateWeight: forfeit-inclusive upper bound (fid:f2eb3d14).
+        Weight::from_parts(300_000_000, 36_000)
+            .saturating_add(RocksDbWeight::get().reads(40_u64))
+            .saturating_add(RocksDbWeight::get().writes(28_u64))
     }
     fn update_reference() -> Weight {
         Weight::from_parts(50_000_000, 6_000)
@@ -153,8 +162,8 @@ impl WeightInfo for () {
             .saturating_add(RocksDbWeight::get().writes(3_u64))
     }
     fn settle() -> Weight {
-        Weight::from_parts(100_000_000, 10_000)
-            .saturating_add(RocksDbWeight::get().reads(10_u64))
-            .saturating_add(RocksDbWeight::get().writes(8_u64))
+        Weight::from_parts(300_000_000, 36_000)
+            .saturating_add(RocksDbWeight::get().reads(40_u64))
+            .saturating_add(RocksDbWeight::get().writes(28_u64))
     }
 }

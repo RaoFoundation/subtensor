@@ -4440,7 +4440,7 @@ pub mod pallet {
             }
         }
 
-        fn collect_due(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
+        pub(crate) fn collect_due(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
             use frame_support::storage::{TransactionOutcome, with_transaction};
             if meter
                 .try_consume(T::DbWeight::get().reads_writes(2, 1))
