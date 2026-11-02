@@ -10,6 +10,7 @@ use subtensor_runtime_common::{AlphaBalance, GammaBalance, NetUid, ProxyType, Ta
 use subtensor_swap_interface::SwapHandler;
 
 use super::mock::*;
+use crate::weights::WeightInfo;
 use crate::*;
 
 const TAO: u64 = 1_000_000_000;
@@ -1290,8 +1291,9 @@ fn spend_gamma_spends_whole_amounts_within_balance_and_allowance() {
         System::reset_events();
 
         // In order: an entry above the balance or the allowance left by earlier entries is
-        // skipped, and one within them spends its whole amount.
-        assert_ok!(SubtensorModule::spend_gamma(
+        // skipped, and one within them spends its whole amount. A skipped entry is charged one
+        // read.
+        let post_info = SubtensorModule::spend_gamma(
             owner,
             netuid,
             spends(&[
@@ -1301,8 +1303,16 @@ fn spend_gamma_spends_whole_amounts_within_balance_and_allowance() {
                 (HOTKEY + 1, GAMMA),
                 (HOTKEY, gamma - GAMMA),
                 (HOTKEY + 1, GAMMA - 1),
-            ])
-        ));
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            post_info.actual_weight,
+            Some(
+                <Test as Config>::WeightInfo::spend_gamma(4)
+                    .saturating_add(<Test as frame_system::Config>::DbWeight::get().reads(2))
+            )
+        );
         let spent = |hotkey: u64, amount: u64| Event::GammaSpent {
             netuid,
             coldkey,

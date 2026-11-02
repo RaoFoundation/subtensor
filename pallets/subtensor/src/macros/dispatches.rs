@@ -3248,14 +3248,24 @@ mod dispatches {
         /// whose hotkey has no deposit, whose deposit names another spender, or whose amount is
         /// zero or above the deposit's balance or what its daily spend cap allows, are skipped.
         /// Each entry's reference is repeated in its `GammaSpent` event and not otherwise read.
+        /// A skipped entry is charged one read.
         #[pallet::call_index(164)]
         #[pallet::weight((<T as Config>::WeightInfo::spend_gamma(spends.len() as u32), DispatchClass::Normal, Pays::Yes))]
         pub fn spend_gamma(
             origin: OriginFor<T>,
             netuid: NetUid,
             spends: BoundedVec<(T::AccountId, GammaBalance, [u8; 32]), ConstU32<MAX_GAMMA_SPENDS>>,
-        ) -> DispatchResult {
-            Self::do_spend_gamma(origin, netuid, &spends)
+        ) -> DispatchResultWithPostInfo {
+            let spent = Self::do_spend_gamma(origin, netuid, &spends)?;
+            let skipped = (spends.len() as u32).saturating_sub(spent);
+            Ok((
+                Some(
+                    <T as Config>::WeightInfo::spend_gamma(spent)
+                        .saturating_add(T::DbWeight::get().reads(skipped.into())),
+                ),
+                Pays::Yes,
+            )
+                .into())
         }
 
         /// Sets the url where the signing hotkey describes its services on the subnet, and the
