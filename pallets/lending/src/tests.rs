@@ -4818,6 +4818,100 @@ fn underwater_short_escrow_close_with_extra_tao() {
 }
 
 #[test]
+fn short_wallet_partial_repay_min_refund_uses_total_refund() {
+    // Auditor fid:837984df — min_refund must cover proceeds + collateral.
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 100_000_000_000_000);
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            40_000_000_000_000,
+            None,
+            4_000_000_000_000,
+            1,
+            0,
+            deadline(),
+        ));
+        let before = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let half = before.principal / 2;
+        let quoted = Lending::quote_repay(&owner, netuid(), Some(&hotkey), half, true).unwrap();
+        assert!(
+            quoted.refund > before.proceeds / 2,
+            "quoted refund {} must include slice collateral",
+            quoted.refund
+        );
+        mint_alpha(&owner, &hotkey, netuid(), half);
+        // Floor at 99% of quoted total refund — fails if execution only
+        // checked proceeds.
+        let min_refund = quoted.refund.saturating_mul(99) / 100;
+        assert_ok!(Lending::repay(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey,
+            half,
+            true,
+            u64::MAX,
+            min_refund,
+            deadline(),
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(after.principal, before.principal - half);
+    });
+}
+
+#[test]
+fn underwater_short_partial_repay_tops_up_from_wallet() {
+    // Auditor fid:70e48032 — partial escrow buyback must collect shortfall.
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let half = position.principal / 2;
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 10);
+        let quoted = Lending::quote_repay(&owner, netuid(), None, half, false).unwrap();
+        assert!(
+            quoted.shortfall > 0,
+            "precondition: underwater partial quote needs shortfall"
+        );
+        mint_tao(&owner, quoted.shortfall.saturating_mul(2));
+        let bal_before = tao(&owner);
+        assert_ok!(Lending::repay(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey,
+            half,
+            false,
+            quoted.payment,
+            0,
+            deadline(),
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(after.principal, position.principal - half);
+        let spent = bal_before.saturating_sub(tao(&owner));
+        assert!(
+            spent > 0,
+            "owner must top up free TAO for underwater partial repay"
+        );
+        assert!(spent <= quoted.payment);
+    });
+}
+
+#[test]
 fn close_stops_after_interest_forfeits_short() {
     new_test_ext().execute_with(|| {
         // Second short keeps shared reserve funded so a buggy double-readd

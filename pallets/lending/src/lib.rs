@@ -3187,7 +3187,10 @@ pub mod pallet {
                             slice_p.into(),
                         )?;
                         let pot = slice_e_s;
-                        ensure!(pot >= min_refund, Error::<T>::BelowMinimumRefund);
+                        // Refund is proceeds + collateral; check the floor
+                        // against the total (Auditor fid:837984df).
+                        let total_refund = pot.saturating_add(slice_c);
+                        ensure!(total_refund >= min_refund, Error::<T>::BelowMinimumRefund);
                         if pot > 0 {
                             T::Pool::transfer_tao(&escrow, &owner, pot.into())?;
                         }
@@ -3212,31 +3215,59 @@ pub mod pallet {
                             book.held_tao = book.held_tao.saturating_sub(slice_lift_tao);
                             book.escrow_tao = book.escrow_tao.saturating_sub(slice_e_s);
                         });
-                        (pot.saturating_add(slice_c), slice_e_s)
+                        (total_refund, slice_e_s)
                     } else {
-                        let budget = Self::add(slice_e_s, slice_c)?;
+                        // Mirror full close: top up free TAO when the slice pot
+                        // cannot cover the buyback (Auditor fid:70e48032).
+                        let pot = Self::add(slice_e_s, slice_c)?;
+                        let needed = Self::tao_to_buy_alpha(netuid, slice_p)?;
+                        let usable = T::Pool::buy_spendable_tao(&escrow)
+                            .to_u64()
+                            .min(pot);
+                        let top_up = needed.saturating_sub(usable);
+                        if top_up > 0 {
+                            ensure!(needed <= max_payment, Error::<T>::SlippageExceeded);
+                            let free = T::Pool::free_tao(&owner).to_u64();
+                            ensure!(free >= top_up, Error::<T>::InsufficientEscrow);
+                            T::Pool::transfer_tao(&owner, &escrow, top_up.into())?;
+                        }
+                        let budget = Self::add(pot, top_up)?;
                         let (paid, bought) =
                             Self::execute_buyback(&escrow, &custody, netuid, slice_p, budget)?;
                         ensure!(paid <= max_payment, Error::<T>::SlippageExceeded);
-                        let refund = budget.saturating_sub(paid);
+                        let mut refund = budget.saturating_sub(paid);
                         ensure!(refund >= min_refund, Error::<T>::BelowMinimumRefund);
-                        if refund > 0 {
-                            T::Pool::transfer_tao(&escrow, &owner, refund.into())?;
-                        }
                         let excess = bought.saturating_sub(slice_p);
                         if excess > 0 {
-                            // Same as full close: short escrow buyback does not
-                            // require a pre-existing destination hotkey.
-                            T::Pool::transfer_staked_alpha(
-                                &escrow,
-                                &custody,
-                                &owner,
-                                &hotkey,
-                                netuid,
-                                excess.into(),
-                                false,
-                                false,
-                            )?;
+                            match T::Pool::ensure_hotkey_account(&hotkey) {
+                                Ok(()) => {
+                                    T::Pool::transfer_staked_alpha(
+                                        &escrow,
+                                        &custody,
+                                        &owner,
+                                        &hotkey,
+                                        netuid,
+                                        excess.into(),
+                                        false,
+                                        false,
+                                    )?;
+                                }
+                                Err(_) => {
+                                    if let Ok(dust) = T::Pool::sell_alpha(
+                                        &escrow,
+                                        &custody,
+                                        netuid,
+                                        excess.into(),
+                                        0u64.into(),
+                                        false,
+                                    ) {
+                                        refund = refund.saturating_add(dust.to_u64());
+                                    }
+                                }
+                            }
+                        }
+                        if refund > 0 {
+                            T::Pool::transfer_tao(&escrow, &owner, refund.into())?;
                         }
                         T::Pool::transfer_staked_alpha(
                             &escrow,
@@ -3772,7 +3803,7 @@ pub mod pallet {
             let now = frame_system::Pallet::<T>::block_number();
             ensure!(now <= valid_until, Error::<T>::DeadlinePassed);
             ensure!(
-                collateral_alpha.is_some() ^ borrow_tao.is_some(),
+                collateral_alpha.is_some() || borrow_tao.is_some(),
                 Error::<T>::ConflictingSizing
             );
             // Lending/subnet gates before amount or depth checks.
@@ -3793,7 +3824,37 @@ pub mod pallet {
                 }
             }
 
-            let (collateral, principal) = if let Some(c) = collateral_alpha {
+            let (collateral, principal) = if let (Some(c), Some(p)) = (collateral_alpha, borrow_tao)
+            {
+                // Exact collateral + exact principal (lower-LTV / CLI
+                // --collateral --ltv). Feasibility still gates LTV + capacity.
+                ensure!(c > 0, Error::<T>::CollateralZero);
+                ensure!(p > 0, Error::<T>::PrincipalZero);
+                ensure!(c <= max_collateral_alpha, Error::<T>::CollateralExceedsMax);
+                ensure!(p >= min_borrow_tao, Error::<T>::BelowMinimumBorrow);
+                let old = Positions::<T>::get(&owner, netuid);
+                let old_p = old.as_ref().map(|x| x.principal).unwrap_or(0);
+                let total_p = Self::add(old_p, p)?;
+                let total_c = Self::add(old.as_ref().map(|x| x.collateral).unwrap_or(0), c)?;
+                let ltv = Self::ltv_tier_bps(netuid, Side::Long, &params);
+                let delta_l = Self::lift_tao_for_principal(netuid, Side::Long, p)?;
+                Self::ensure_side_capacity(netuid, Side::Long, delta_l)?;
+                ensure!(
+                    Self::principal_feasible(
+                        netuid,
+                        Side::Long,
+                        total_p,
+                        total_c,
+                        old_p,
+                        Some(&owner),
+                        &reference,
+                        ltv,
+                        &params,
+                    )?,
+                    Error::<T>::DynamicCollateral
+                );
+                (c, p)
+            } else if let Some(c) = collateral_alpha {
                 ensure!(c > 0, Error::<T>::CollateralZero);
                 ensure!(c <= max_collateral_alpha, Error::<T>::CollateralExceedsMax);
                 let p = Self::max_principal_for_collateral(
@@ -6053,7 +6114,7 @@ pub mod pallet {
             sell: Option<u64>,
         ) -> Result<RaiseQuote, DispatchError> {
             ensure!(
-                amount.is_some() ^ collateral.is_some(),
+                amount.is_some() || collateral.is_some(),
                 Error::<T>::ConflictingSizing
             );
             // Same gate order as `do_open_long_and_sell`.
@@ -6067,7 +6128,31 @@ pub mod pallet {
             // and free Cap_long) before sizing / sale simulation.
             let existing = Self::accrue_existing_before_size(owner, netuid, Side::Long, now)?;
             let price_before = T::Pool::current_alpha_price(netuid);
-            let (c, p) = if let Some(col) = collateral {
+            let (c, p) = if let (Some(col), Some(p)) = (collateral, amount) {
+                ensure!(col > 0, Error::<T>::CollateralZero);
+                ensure!(p > 0, Error::<T>::PrincipalZero);
+                let old_p = existing.as_ref().map(|x| x.principal).unwrap_or(0);
+                let total_p = Self::add(old_p, p)?;
+                let total_c = Self::add(existing.as_ref().map(|x| x.collateral).unwrap_or(0), col)?;
+                let ltv = Self::ltv_tier_bps(netuid, Side::Long, &params);
+                let delta_l = Self::lift_tao_for_principal(netuid, Side::Long, p)?;
+                Self::ensure_side_capacity(netuid, Side::Long, delta_l)?;
+                ensure!(
+                    Self::principal_feasible(
+                        netuid,
+                        Side::Long,
+                        total_p,
+                        total_c,
+                        old_p,
+                        Some(owner),
+                        &reference,
+                        ltv,
+                        &params,
+                    )?,
+                    Error::<T>::DynamicCollateral
+                );
+                (col, p)
+            } else if let Some(col) = collateral {
                 ensure!(col > 0, Error::<T>::CollateralZero);
                 let p = Self::max_principal_for_collateral(
                     netuid,

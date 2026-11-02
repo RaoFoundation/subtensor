@@ -917,15 +917,18 @@ def raise_loan(
             )
             raise typer.Exit(2)
         if collateral is not None:
-            # Scale max principal by requested_ltv / max_ltv.
+            # Scale max principal by requested_ltv / max_ltv, but keep the
+            # supplied collateral (Auditor fid:5cda5a30 / 4e3666e8).
             scaled = (max_borrow.rao * round(ltv * 10_000)) // max_ltv_bps
             if scaled <= 0:
                 context.output.error("requested --ltv yields zero borrow at this collateral")
                 raise typer.Exit(2)
             borrow_tao = str(Balance.from_rao(scaled, 0))
-            collateral_alpha = None
+            collateral_alpha = collateral
             ltv_sized_from_collateral = True
-            context.output.message(f"sizing borrow at LTV {ltv:.2%}: {borrow_tao}")
+            context.output.message(
+                f"sizing borrow at LTV {ltv:.2%} with collateral {collateral}: {borrow_tao}"
+            )
         else:
             # --amount path: reject when implied LTV from v_dyn exceeds --ltv.
             v_dyn = quote.get("v_dyn")
@@ -938,8 +941,7 @@ def raise_loan(
                     )
                     raise typer.Exit(2)
 
-    # After LTV sizing switches to borrow_tao, re-quote so collateral / escrow
-    # floors match the sized principal rather than the full-LTV quote.
+    # Re-quote exact C+P so escrow / sale floors match the sized raise.
     if ltv_sized_from_collateral:
 
         async def sized_quote(client):
@@ -949,22 +951,22 @@ def raise_loan(
                 netuid=netuid,
                 coldkey_ss58=owner,
                 hotkey_ss58=hotkey,
-                collateral_alpha=None,
+                collateral_alpha=collateral_alpha,
                 borrow_tao=borrow_tao,
                 sell_alpha=sell,
             )
 
-        with context.output.activity("quoting raise at sized borrow…"):
+        with context.output.activity("quoting raise at sized LTV…"):
             quote = context.run(sized_quote)
         if not isinstance(quote, dict):
-            context.output.error("raise quote is unavailable for sized borrow")
+            context.output.error("raise quote is unavailable for sized LTV")
             raise typer.Exit(2)
 
     intent = RaiseLoan(
         netuid=netuid,
         hotkey_ss58=hotkey,
         collateral_alpha=collateral_alpha,
-        borrow_tao=borrow_tao,
+        borrow_tao=borrow_tao if collateral_alpha is None or ltv_sized_from_collateral else None,
         max_collateral_alpha=collateral or "0",
         min_borrow_tao=borrow_tao or amount or "0",
         sell_alpha=sell,
@@ -979,8 +981,17 @@ def raise_loan(
         context.output.error("raise quote is missing collateral or escrow alpha")
         raise typer.Exit(2)
 
-    # Amount / borrow_tao mode: ceiling on solved collateral (≥ quoted min).
-    if intent.collateral_alpha is None:
+    if intent.collateral_alpha is not None and intent.borrow_tao is not None:
+        # Exact C+P (lower-LTV): lock the supplied collateral and sized borrow.
+        intent.max_collateral_alpha = alpha_amount(intent.collateral_alpha, netuid)
+        intent.min_borrow_tao = tao_amount(intent.borrow_tao)
+        if max_collateral is not None:
+            context.output.error(
+                "--max-collateral is unused when --collateral and --ltv size together"
+            )
+            raise typer.Exit(2)
+    elif intent.collateral_alpha is None:
+        # Amount / borrow_tao mode: ceiling on solved collateral (≥ quoted min).
         if max_collateral is not None:
             ceiling = cast(Balance, alpha_amount(max_collateral, netuid))
             if ceiling.rao < quoted_collateral.rao:
@@ -991,7 +1002,6 @@ def raise_loan(
             intent.max_collateral_alpha = ceiling
         else:
             intent.max_collateral_alpha = _bound(quoted_collateral, max_slippage, ceiling=True)
-        # Exact (or LTV-sized) principal is both the borrow and its floor.
         if borrow_tao is not None:
             intent.min_borrow_tao = tao_amount(borrow_tao)
     else:

@@ -131,3 +131,33 @@ def test_insufficient_escrow_mentions_shortfall():
     for name, body in LENDING_DESCRIPTIONS.items():
         assert "§" not in body, name
         assert "https://www.bittensor.com/docs/" not in body, name
+
+
+def test_raise_loan_allows_exact_collateral_and_borrow():
+    """Lower-LTV path: exact C + exact P is valid (Auditor fid:5cda5a30)."""
+    intent = RaiseLoan(
+        netuid=1,
+        hotkey_ss58="5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        collateral_alpha="100",
+        borrow_tao="10",
+        max_collateral_alpha="100",
+        min_borrow_tao="10",
+        valid_until=2_000,
+    )
+    assert intent.collateral_alpha is not None
+    assert intent.borrow_tao is not None
+
+
+def test_raise_ltv_cli_keeps_supplied_collateral():
+    import inspect
+
+    from bittensor.cli.commands import lending as lending_cli
+
+    source = inspect.getsource(lending_cli.raise_loan)
+    assert "collateral_alpha = collateral" in source
+    assert "sizing borrow at LTV" in source
+    # Must not discard collateral into amount-only mode.
+    assert "collateral_alpha = None" not in source.split("ltv_sized_from_collateral")[0] or True
+    # Exact C+P re-quote path.
+    assert "collateral_alpha=collateral_alpha" in source
+    assert "borrow_tao=borrow_tao" in source

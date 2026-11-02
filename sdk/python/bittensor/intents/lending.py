@@ -432,8 +432,8 @@ class RaiseLoan(Intent):
 
     def __post_init__(self):
         _check_netuid(self.netuid)
-        if self.collateral_alpha is not None and self.borrow_tao is not None:
-            raise BittensorError("provide collateral_alpha or borrow_tao, not both")
+        # Both may be set for exact principal at a supplied collateral
+        # (lower-LTV path). At least one is required.
         if self.collateral_alpha is None and self.borrow_tao is None:
             raise BittensorError("provide collateral_alpha or borrow_tao")
         if self.collateral_alpha is not None:
