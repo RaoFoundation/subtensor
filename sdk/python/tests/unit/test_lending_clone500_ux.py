@@ -187,6 +187,29 @@ def test_lending_outcome_data_raise_uses_received():
     assert data["received_rao"] == 4 * 10**8
 
 
+def test_lending_outcome_data_full_repay_uses_closed_event():
+    """Full-principal repay emits Closed, not Repaid (Auditor fid:fe25eda6)."""
+    events = [
+        {
+            "event": {
+                "module_id": "Lending",
+                "event_id": "Closed",
+                "attributes": {
+                    "netuid": 1,
+                    "side": {"Short": None},
+                    "refund": 7 * 10**8,
+                    "escrow_returned": 0,
+                    "wallet_top_up": 10**8,
+                },
+            }
+        }
+    ]
+    data = lending_outcome_data(events, op="repay_loan")
+    assert data["refund_rao"] == 7 * 10**8
+    assert data["wallet_top_up_rao"] == 10**8
+    assert "principal_repaid" not in data
+
+
 def test_docs_ref_documented_on_help():
     """N12: BITTENSOR_DOCS_REF appears on root / lending help."""
     root = runner.invoke(app, ["--help"])

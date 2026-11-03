@@ -886,7 +886,29 @@ def lending_outcome_data(events: list, *, op: Optional[str] = None) -> dict[str,
                 "received": _fmt_outcome_amount(free_tao_rao, 0),
                 "received_rao": free_tao_rao,
             }
-    if op in (None, "close_loan"):
+    if op in (None, "close_loan", "repay_loan"):
+        # Partial repay emits Repaid; principal_part == full principal closes and
+        # emits Closed instead (Auditor fid:fe25eda6).
+        if op in (None, "repay_loan"):
+            attrs = _find_lending_event(events, "Repaid")
+            if isinstance(attrs, dict):
+                net = int(attrs.get("netuid") or 0)
+                side = _event_side(attrs)
+                principal_rao = int(attrs.get("principal_repaid") or 0)
+                refund_rao = int(attrs.get("refund") or 0)
+                escrow_rao = int(attrs.get("escrow_returned") or 0)
+                principal_unit = net if side == "Short" else 0
+                refund_unit = 0 if side == "Short" else net
+                return {
+                    "principal_repaid": _fmt_outcome_amount(principal_rao, principal_unit),
+                    "principal_repaid_rao": principal_rao,
+                    "refund": _fmt_outcome_amount(refund_rao, refund_unit),
+                    "refund_rao": refund_rao,
+                    "escrow_returned": _fmt_outcome_amount(
+                        escrow_rao, 0 if side == "Short" else net
+                    ),
+                    "escrow_returned_rao": escrow_rao,
+                }
         attrs = _find_lending_event(events, "Closed")
         if isinstance(attrs, dict):
             net = int(attrs.get("netuid") or 0)
@@ -899,23 +921,5 @@ def lending_outcome_data(events: list, *, op: Optional[str] = None) -> dict[str,
                 "refund_rao": refund_rao,
                 "wallet_top_up": _fmt_outcome_amount(top_up, 0),
                 "wallet_top_up_rao": top_up,
-            }
-    if op in (None, "repay_loan"):
-        attrs = _find_lending_event(events, "Repaid")
-        if isinstance(attrs, dict):
-            net = int(attrs.get("netuid") or 0)
-            side = _event_side(attrs)
-            principal_rao = int(attrs.get("principal_repaid") or 0)
-            refund_rao = int(attrs.get("refund") or 0)
-            escrow_rao = int(attrs.get("escrow_returned") or 0)
-            principal_unit = net if side == "Short" else 0
-            refund_unit = 0 if side == "Short" else net
-            return {
-                "principal_repaid": _fmt_outcome_amount(principal_rao, principal_unit),
-                "principal_repaid_rao": principal_rao,
-                "refund": _fmt_outcome_amount(refund_rao, refund_unit),
-                "refund_rao": refund_rao,
-                "escrow_returned": _fmt_outcome_amount(escrow_rao, 0 if side == "Short" else net),
-                "escrow_returned_rao": escrow_rao,
             }
     return {}
