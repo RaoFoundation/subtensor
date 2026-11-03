@@ -12,7 +12,7 @@ use scale_info::TypeInfo;
 use sp_runtime::{
     DispatchResult, Saturating, Weight,
     traits::{
-        AsSystemOriginSigner, DispatchInfoOf, Dispatchable, One, PostDispatchInfoOf,
+        AsSystemOriginSigner, CheckedAdd, DispatchInfoOf, Dispatchable, One, PostDispatchInfoOf,
         TransactionExtension, ValidateResult, Zero,
     },
     transaction_validity::{
@@ -145,6 +145,9 @@ where
         if self.0 < account.nonce {
             return Err(InvalidTransaction::Stale.into());
         }
+        if self.0.checked_add(&One::one()).is_none() {
+            return Err(InvalidTransaction::ExhaustsResources.into());
+        }
 
         let provides = vec![Encode::encode(&(&who, self.0))];
         let requires = if account.nonce < self.0 {
@@ -185,7 +188,9 @@ where
         if self.0 > nonce {
             return Err(InvalidTransaction::Future.into());
         }
-        nonce += <T as Config>::Nonce::one();
+        nonce = nonce
+            .checked_add(&One::one())
+            .ok_or(InvalidTransaction::ExhaustsResources)?;
         frame_system::Account::<T>::mutate(&who, |account| {
             if account.providers.is_zero() && account.sufficients.is_zero() {
                 // A signer admitted without a provider reference (`Pays::No` call or

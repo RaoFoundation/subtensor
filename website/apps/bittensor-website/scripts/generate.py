@@ -213,6 +213,7 @@ REPO_ROOT = APP_DIR.parents[2]
 # Runtime pallet name (as used in Intent.wraps, storage containers, and the
 # chain error catalog) -> in-repo crate directory.
 PALLET_DIRS = {
+    "HashedAccounts": "pallets/hashed-accounts",
     "SubtensorModule": "pallets/subtensor",
     "AdminUtils": "pallets/admin-utils",
     "Commitments": "pallets/commitments",

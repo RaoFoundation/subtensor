@@ -3,6 +3,9 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::Compact;
+pub use pallet_subtensor::rpc_info::metagraph::{
+    MAX_SELECTIVE_METAGRAPH_INDICES, normalize_metagraph_indices,
+};
 use pallet_subtensor::rpc_info::{
     basket_info::{
         BasketClaimPreview, BasketPosition, BasketSummary, BasketTradingStatus, BetaPosition,

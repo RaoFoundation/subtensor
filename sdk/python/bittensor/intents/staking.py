@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, ClassVar, Optional, cast
 
 from .._generated import calls, constants
 from .._generated import storage as st
 from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi, SwapRuntimeApi
+from .._pinned import approved_staking_amount, compose_staking_call
 from ..balance import Balance
 from ..result import BittensorError
 from ..settings import RAO_PER_TAO
@@ -183,6 +185,10 @@ async def _swap_limit_price_rao(
     return int(ratio_rao * (1 - rate_tolerance))
 
 
+async def _stake_limit_price_rao(substrate, netuid, multiplier):
+    return int(await _alpha_price_rao(substrate, netuid) * multiplier)
+
+
 async def _compose_swap_stake(
     substrate,
     *,
@@ -195,25 +201,31 @@ async def _compose_swap_stake(
 ):
     """``swap_stake_limit`` when protection is on, else plain ``swap_stake``."""
     if slippage_protection:
-        return await substrate.compose(
-            calls.SubtensorModule.swap_stake_limit(
+        return await compose_staking_call(
+            substrate,
+            "swap_stake_limit",
+            dict(
                 hotkey=hotkey,
                 origin_netuid=origin_netuid,
                 destination_netuid=dest_netuid,
                 alpha_amount=rao,
-                limit_price=await _swap_limit_price_rao(
-                    substrate, origin_netuid, dest_netuid, rate_tolerance
-                ),
                 allow_partial=False,
-            )
+            ),
+            derived={
+                "limit_price": partial(
+                    _swap_limit_price_rao, substrate, origin_netuid, dest_netuid, rate_tolerance
+                )
+            },
         )
-    return await substrate.compose(
-        calls.SubtensorModule.swap_stake(
+    return await compose_staking_call(
+        substrate,
+        "swap_stake",
+        dict(
             hotkey=hotkey,
             origin_netuid=origin_netuid,
             destination_netuid=dest_netuid,
             alpha_amount=rao,
-        )
+        ),
     )
 
 
@@ -258,14 +270,16 @@ async def _compose_move_then_swap(
     ``swap_stake_limit`` on the new hotkey. Prefer ``move_stake_limit`` when
     a single cross-subnet move is enough.
     """
-    move = await substrate.compose(
-        calls.SubtensorModule.move_stake(
+    move = await compose_staking_call(
+        substrate,
+        "move_stake",
+        dict(
             origin_hotkey=origin_hotkey,
             destination_hotkey=dest_hotkey,
             origin_netuid=origin_netuid,
             destination_netuid=origin_netuid,
             alpha_amount=rao,
-        )
+        ),
     )
     swap = await _compose_swap_stake(
         substrate,
@@ -284,12 +298,17 @@ async def _compose_move_then_swap(
 _ALL_STAKE_FEE_HEADROOM_RAO = 500_000  # τ0.0005
 
 
-async def _stakeable_rao(substrate, wallet: Any) -> int:
+async def _stakeable_rao(substrate, wallet: Any, function=None) -> int:
     """The coldkey's free balance minus the existential deposit and a fee headroom.
 
     Resolves an ``amount = "all"`` for ``add_stake`` at build time; refuses to
     build when the remainder is nothing.
     """
+    approved = (
+        await approved_staking_amount(function, "amount_staked") if function is not None else None
+    )
+    if approved is not None:
+        return approved
     coldkey = public_view(wallet, "coldkey").ss58_address
     account = await substrate.query(*st.System.Account, [coldkey])
     free = int(((account or {}).get("data") or {}).get("free") or 0)
@@ -311,6 +330,7 @@ async def _staked_rao(
     *,
     action: str = "unstake",
     allow_empty: bool = False,
+    pinned_function: Optional[str] = None,
 ) -> int:
     """Current stake (rao) the signing coldkey holds on ``hotkey_ss58`` at ``netuid``.
 
@@ -318,6 +338,10 @@ async def _staked_rao(
     there is nothing staked, unless ``allow_empty`` (a following claim will
     create the position).
     """
+    if pinned_function is not None:
+        approved = await approved_staking_amount(pinned_function, "alpha_amount")
+        if approved is not None:
+            return approved
     coldkey = public_view(wallet, "coldkey").ss58_address
     info = await substrate.runtime_call(
         *StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
@@ -337,11 +361,18 @@ async def _resolve_unstake_amount(
     netuid: int,
     amount_alpha: Money,
     claim: bool,
+    function="remove_stake_limit",
 ) -> tuple[int, bool]:
     """Resolve ``all`` and identify the atomic root claim-all special case."""
     claim_all = claim and netuid == 0 and amount_alpha == ALL
     if amount_alpha != ALL:
         return cast(Balance, amount_alpha).rao, claim_all
+
+    approved = await approved_staking_amount(
+        "remove_stake" if claim_all else function, "amount_unstaked"
+    )
+    if approved is not None:
+        return approved, claim_all
 
     # Preserve the no-op guard, then let plain remove_stake cap u64::MAX to
     # the post-claim balance so the just-claimed yield is included atomically.
@@ -357,6 +388,7 @@ async def _resolve_move_amount(
     origin_netuid: int,
     amount_alpha: Money,
     claim: bool,
+    function="move_stake",
 ) -> tuple[int, bool]:
     """Resolve the move amount and whether a root claim must precede it.
 
@@ -377,6 +409,9 @@ async def _resolve_move_amount(
         return cast(Balance, amount_alpha).rao, will_claim
     if will_claim:
         return _MAX_ALPHA_RAO, True
+    approved = await approved_staking_amount(function, "alpha_amount")
+    if approved is not None:
+        return approved, False
     current_rao = await _staked_rao(
         substrate,
         wallet,
@@ -626,26 +661,35 @@ class AddStake(Intent):
 
     async def build(self, substrate, wallet: Any):
         if self.amount_tao == ALL:
-            rao = await _stakeable_rao(substrate, wallet)
+            rao = await _stakeable_rao(
+                substrate, wallet, "add_stake_limit" if self.slippage_protection else "add_stake"
+            )
         else:
             rao = self.amount_tao.rao
         if self.slippage_protection:
-            price = await _alpha_price_rao(substrate, self.netuid)
-            return await substrate.compose(
-                calls.SubtensorModule.add_stake_limit(
+            return await compose_staking_call(
+                substrate,
+                "add_stake_limit",
+                dict(
                     hotkey=self.hotkey_ss58,
                     netuid=self.netuid,
                     amount_staked=rao,
-                    limit_price=int(price * (1 + self.rate_tolerance)),
                     allow_partial=False,
-                )
+                ),
+                derived={
+                    "limit_price": partial(
+                        _stake_limit_price_rao, substrate, self.netuid, 1 + self.rate_tolerance
+                    )
+                },
             )
-        return await substrate.compose(
-            calls.SubtensorModule.add_stake(
+        return await compose_staking_call(
+            substrate,
+            "add_stake",
+            dict(
                 hotkey=self.hotkey_ss58,
                 netuid=self.netuid,
                 amount_staked=rao,
-            )
+            ),
         )
 
     def summary(self) -> str:
@@ -748,25 +792,33 @@ class RemoveStake(_OptionalRootClaimIntent):
             netuid=self.netuid,
             amount_alpha=self.amount_alpha,
             claim=self.claim,
+            function="remove_stake_limit" if self.slippage_protection else "remove_stake",
         )
         if self.slippage_protection and not claim_all:
-            price = await _alpha_price_rao(substrate, self.netuid)
-            unstake = await substrate.compose(
-                calls.SubtensorModule.remove_stake_limit(
+            unstake = await compose_staking_call(
+                substrate,
+                "remove_stake_limit",
+                dict(
                     hotkey=self.hotkey_ss58,
                     netuid=self.netuid,
                     amount_unstaked=rao,
-                    limit_price=int(price * (1 - self.rate_tolerance)),
                     allow_partial=False,
-                )
+                ),
+                derived={
+                    "limit_price": partial(
+                        _stake_limit_price_rao, substrate, self.netuid, 1 - self.rate_tolerance
+                    )
+                },
             )
         else:
-            unstake = await substrate.compose(
-                calls.SubtensorModule.remove_stake(
+            unstake = await compose_staking_call(
+                substrate,
+                "remove_stake",
+                dict(
                     hotkey=self.hotkey_ss58,
                     netuid=self.netuid,
                     amount_unstaked=rao,
-                )
+                ),
             )
         return await _compose_unstake_with_optional_claim(
             substrate,
@@ -893,31 +945,43 @@ class MoveStake(_OptionalRootClaimIntent):
             origin_netuid=self.origin_netuid,
             amount_alpha=self.amount_alpha,
             claim=self.claim,
+            function="move_stake_limit"
+            if self.slippage_protection and self._changes_subnet()
+            else "move_stake",
         )
         if self.slippage_protection and self._changes_subnet():
-            limit_price = await _swap_limit_price_rao(
-                substrate, self.origin_netuid, self.dest_netuid, self.rate_tolerance
-            )
-            move = await substrate.compose(
-                calls.SubtensorModule.move_stake_limit(
+            move = await compose_staking_call(
+                substrate,
+                "move_stake_limit",
+                dict(
                     origin_hotkey=self.origin_hotkey_ss58,
                     destination_hotkey=self.dest_hotkey_ss58,
                     origin_netuid=self.origin_netuid,
                     destination_netuid=self.dest_netuid,
                     alpha_amount=rao,
-                    limit_price=limit_price,
                     allow_partial=False,
-                )
+                ),
+                derived={
+                    "limit_price": partial(
+                        _swap_limit_price_rao,
+                        substrate,
+                        self.origin_netuid,
+                        self.dest_netuid,
+                        self.rate_tolerance,
+                    )
+                },
             )
         else:
-            move = await substrate.compose(
-                calls.SubtensorModule.move_stake(
+            move = await compose_staking_call(
+                substrate,
+                "move_stake",
+                dict(
                     origin_hotkey=self.origin_hotkey_ss58,
                     destination_hotkey=self.dest_hotkey_ss58,
                     origin_netuid=self.origin_netuid,
                     destination_netuid=self.dest_netuid,
                     alpha_amount=rao,
-                )
+                ),
             )
         return await _compose_unstake_with_optional_claim(
             substrate,
@@ -1003,17 +1067,19 @@ class AddStakeLimit(Intent):
 
     async def build(self, substrate, wallet: Any):
         if self.amount_tao == ALL:
-            rao = await _stakeable_rao(substrate, wallet)
+            rao = await _stakeable_rao(substrate, wallet, "add_stake_limit")
         else:
             rao = self.amount_tao.rao
-        return await substrate.compose(
-            calls.SubtensorModule.add_stake_limit(
+        return await compose_staking_call(
+            substrate,
+            "add_stake_limit",
+            dict(
                 hotkey=self.hotkey_ss58,
                 netuid=self.netuid,
                 amount_staked=rao,
                 limit_price=self.limit_price_rao,
                 allow_partial=self.allow_partial,
-            )
+            ),
         )
 
     def summary(self) -> str:
@@ -1098,22 +1164,26 @@ class RemoveStakeLimit(_OptionalRootClaimIntent):
                 )
             # Root has a fixed 1:1 price, so the limit is already satisfied.
             # Plain remove_stake safely caps MAX to the post-claim position.
-            unstake = await substrate.compose(
-                calls.SubtensorModule.remove_stake(
+            unstake = await compose_staking_call(
+                substrate,
+                "remove_stake",
+                dict(
                     hotkey=self.hotkey_ss58,
                     netuid=self.netuid,
                     amount_unstaked=rao,
-                )
+                ),
             )
         else:
-            unstake = await substrate.compose(
-                calls.SubtensorModule.remove_stake_limit(
+            unstake = await compose_staking_call(
+                substrate,
+                "remove_stake_limit",
+                dict(
                     hotkey=self.hotkey_ss58,
                     netuid=self.netuid,
                     amount_unstaked=rao,
                     limit_price=self.limit_price_rao,
                     allow_partial=self.allow_partial,
-                )
+                ),
             )
         return await _compose_unstake_with_optional_claim(
             substrate,
@@ -1307,7 +1377,12 @@ class SwapStake(Intent):
     async def build(self, substrate, wallet: Any):
         if self.amount_alpha == ALL:
             rao = await _staked_rao(
-                substrate, wallet, self.hotkey_ss58, self.origin_netuid, action="swap"
+                substrate,
+                wallet,
+                self.hotkey_ss58,
+                self.origin_netuid,
+                action="swap",
+                pinned_function="swap_stake_limit" if self.slippage_protection else "swap_stake",
             )
         else:
             rao = self.amount_alpha.rao
@@ -1409,7 +1484,12 @@ class MoveSwapStake(Intent):
     async def build(self, substrate, wallet: Any):
         if self.amount_alpha == ALL:
             rao = await _staked_rao(
-                substrate, wallet, self.origin_hotkey_ss58, self.origin_netuid, action="move"
+                substrate,
+                wallet,
+                self.origin_hotkey_ss58,
+                self.origin_netuid,
+                action="move",
+                pinned_function="move_stake",
             )
         else:
             rao = self.amount_alpha.rao
@@ -1524,31 +1604,41 @@ class TransferStake(Intent):
         return self.dest_hotkey_ss58 is not None and self.dest_hotkey_ss58 != self.hotkey_ss58
 
     async def build(self, substrate, wallet: Any):
+        function = "transfer_stake_and_hotkey" if self._changes_hotkey() else "transfer_stake"
         if self.amount_alpha == ALL:
             rao = await _staked_rao(
-                substrate, wallet, self.hotkey_ss58, self.origin_netuid, action="transfer"
+                substrate,
+                wallet,
+                self.hotkey_ss58,
+                self.origin_netuid,
+                action="transfer",
+                pinned_function=function,
             )
         else:
             rao = self.amount_alpha.rao
         if self._changes_hotkey():
-            return await substrate.compose(
-                calls.SubtensorModule.transfer_stake_and_hotkey(
+            return await compose_staking_call(
+                substrate,
+                function,
+                dict(
                     destination_coldkey=self.dest_coldkey_ss58,
                     origin_hotkey=self.hotkey_ss58,
                     destination_hotkey=self.dest_hotkey_ss58,
                     origin_netuid=self.origin_netuid,
                     destination_netuid=self.dest_netuid,
                     alpha_amount=rao,
-                )
+                ),
             )
-        return await substrate.compose(
-            calls.SubtensorModule.transfer_stake(
+        return await compose_staking_call(
+            substrate,
+            function,
+            dict(
                 destination_coldkey=self.dest_coldkey_ss58,
                 hotkey=self.hotkey_ss58,
                 origin_netuid=self.origin_netuid,
                 destination_netuid=self.dest_netuid,
                 alpha_amount=rao,
-            )
+            ),
         )
 
     def summary(self) -> str:
@@ -1719,14 +1809,16 @@ class StakeIntoBasket(Intent):
 
     async def build(self, substrate, wallet: Any):
         if self.amount_tao == ALL:
-            rao = await _stakeable_rao(substrate, wallet)
+            rao = await _stakeable_rao(substrate, wallet, "stake_into_basket")
         else:
             rao = self.amount_tao.rao
-        return await substrate.compose(
-            calls.SubtensorModule.stake_into_basket(
+        return await compose_staking_call(
+            substrate,
+            "stake_into_basket",
+            dict(
                 hotkey=self.hotkey_ss58,
                 amount_staked=rao,
-            )
+            ),
         )
 
     def summary(self) -> str:
@@ -1843,7 +1935,9 @@ class SwapBasket(Intent):
 
     async def build(self, substrate, wallet: Any):
         if self.amount == ALL:
-            rao = await self._origin_holding_rao(substrate)
+            rao = await approved_staking_amount("swap_basket", "amount")
+            if rao is None:
+                rao = await self._origin_holding_rao(substrate)
             if rao <= 0:
                 raise BittensorError(
                     f"nothing to sell: {self.hotkey_ss58}'s basket holds nothing on "
@@ -1851,14 +1945,16 @@ class SwapBasket(Intent):
                 )
         else:
             rao = cast(Balance, self.amount).rao
-        return await substrate.compose(
-            calls.SubtensorModule.swap_basket(
+        return await compose_staking_call(
+            substrate,
+            "swap_basket",
+            dict(
                 hotkey=self.hotkey_ss58,
                 origin_netuid=self.origin_netuid,
                 destination_netuid=self.dest_netuid,
                 amount=rao,
                 min_amount_out=cast(Balance, self.min_amount_out).rao,
-            )
+            ),
         )
 
     def summary(self) -> str:

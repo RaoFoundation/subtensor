@@ -62,7 +62,7 @@ describeSuite({
             title: "Happy path: wrapper and inner tx are included in the same block",
             test: async () => {
                 const nextKey = await getNextKey(api);
-                expect(nextKey).toBeDefined();
+                if (nextKey == null) throw new Error("Shield encryption key is unavailable");
 
                 const balanceBefore = await getBalance(api, bob.address);
 
@@ -84,7 +84,7 @@ describeSuite({
             title: "Failed inner tx: wrapper succeeds but inner transfer has no effect",
             test: async () => {
                 const nextKey = await getNextKey(api);
-                expect(nextKey).toBeDefined();
+                if (nextKey == null) throw new Error("Shield encryption key is unavailable");
 
                 const balanceBefore = await getBalance(api, dave.address);
 
@@ -132,7 +132,7 @@ describeSuite({
                 // Use different signers to avoid nonce ordering issues between
                 // the outer wrappers and decrypted inner transactions.
                 const nextKey = await getNextKey(api);
-                expect(nextKey).toBeDefined();
+                if (nextKey == null) throw new Error("Shield encryption key is unavailable");
 
                 const balanceBefore = await getBalance(api, t04Recipient.address);
 
@@ -163,7 +163,7 @@ describeSuite({
             title: "Wrong key hash is not included by the block proposer",
             test: async () => {
                 const nextKey = await getNextKey(api);
-                expect(nextKey).toBeDefined();
+                if (nextKey == null) throw new Error("Shield encryption key is unavailable");
 
                 const balanceBefore = await getBalance(api, dave.address);
 
@@ -173,7 +173,7 @@ describeSuite({
                     value: 1_000_000_000n,
                 }).sign(getSignerFromKeypair(bob), { nonce: nonce + 1 });
 
-                const ciphertext = await encryptTransaction(hexToU8a(innerTxHex), nextKey!);
+                const ciphertext = await encryptTransaction(hexToU8a(innerTxHex), nextKey);
 
                 // Tamper the first 16 bytes (key_hash).
                 const tampered = new Uint8Array(ciphertext);
@@ -203,7 +203,7 @@ describeSuite({
             title: "Stale key is not included after rotation",
             test: async () => {
                 const staleKey = await getNextKey(api);
-                expect(staleKey).toBeDefined();
+                if (staleKey == null) throw new Error("Shield encryption key is unavailable");
 
                 // Wait for enough blocks that the key has rotated past both
                 // currentKey and nextKey positions.
@@ -217,7 +217,7 @@ describeSuite({
                     value: 1_000_000_000n,
                 }).sign(getSignerFromKeypair(two), { nonce: nonce + 1 });
 
-                const ciphertext = await encryptTransaction(hexToU8a(innerTxHex), staleKey!);
+                const ciphertext = await encryptTransaction(hexToU8a(innerTxHex), staleKey);
 
                 const tx = api.tx.MevShield.submit_encrypted({
                     ciphertext: Binary.fromBytes(ciphertext),

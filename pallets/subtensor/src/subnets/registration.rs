@@ -193,7 +193,9 @@ impl<T: Config> Pallet<T> {
     /// caller's balance, the hotkey account (created if missing), the coldkey's
     /// `StakingHotkeys`, and the subnet's capacity and prune candidate.
     pub fn registration_precheck_weight() -> Weight {
-        T::DbWeight::get().reads_writes(20, 4)
+        T::DbWeight::get()
+            .reads_writes(20, 4)
+            .saturating_add(Self::hotkey_owner_policy_weight())
     }
 
     /// [`Self::do_register`] that charges a registration refused by its pre-checks
@@ -420,8 +422,11 @@ impl<T: Config> Pallet<T> {
         );
 
         // --- 3. Ensure the supplied work passes the difficulty.
+        // H256::from_slice requires exactly 32 bytes. Reject malformed public
+        // input before conversion so it cannot panic while importing a block.
+        ensure!(work.len() == 32, Error::<T>::InvalidSeal);
         let difficulty: U256 = U256::from(1_000_000); // Base faucet difficulty.
-        let work_hash: H256 = Self::vec_to_hash(work.clone());
+        let work_hash = H256::from_slice(&work);
         ensure!(
             Self::hash_meets_difficulty(&work_hash, difficulty),
             Error::<T>::InvalidDifficulty
@@ -443,13 +448,6 @@ impl<T: Config> Pallet<T> {
 
         // --- 7. Ok and done.
         Ok(())
-    }
-
-    pub fn vec_to_hash(vec_hash: Vec<u8>) -> H256 {
-        let de_ref_hash = &vec_hash; // b: &Vec<u8>
-        let de_de_ref_hash: &[u8] = de_ref_hash; // c: &[u8]
-        let real_hash: H256 = H256::from_slice(de_de_ref_hash);
-        real_hash
     }
 
     fn get_immune_owner_hotkeys(netuid: NetUid, coldkey: &T::AccountId) -> Vec<T::AccountId> {

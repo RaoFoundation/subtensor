@@ -18,6 +18,66 @@ use super::mock::*;
 use crate::*;
 
 #[test]
+fn hotkey_swap_and_reregistration_cannot_revive_timelocked_commits() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let other = NetUid::from(2);
+        let old = U256::from(10);
+        let new = U256::from(11);
+        let owner = U256::from(12);
+        add_network(netuid, 360, 0);
+        add_network(other, 360, 0);
+        register_ok_neuron(netuid, old, owner, 0);
+        register_ok_neuron(other, old, owner, 0);
+        add_balance_to_coldkey_account(&owner, 1_000_000_000_000u64.into());
+        SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
+        SubtensorModule::set_weights_set_rate_limit(netuid, 0);
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, 1));
+        assert_ok!(SubtensorModule::do_commit_timelocked_weights(
+            RuntimeOrigin::signed(old),
+            netuid,
+            vec![1; 5].try_into().unwrap(),
+            1_000,
+            SubtensorModule::get_commit_reveal_weights_version(),
+        ));
+        let epoch = SubtensorModule::current_epoch_with_lookahead(netuid);
+        System::set_block_number(2);
+        assert_ok!(SubtensorModule::swap_hotkey_v2(
+            RuntimeOrigin::signed(owner),
+            old,
+            new,
+            Some(netuid),
+            false,
+        ));
+        assert!(SubtensorModule::is_hotkey_registered_on_network(
+            netuid, &new
+        ));
+        assert!(SubtensorModule::is_hotkey_registered_on_network(
+            other, &old
+        ));
+        assert!(!TimelockedCommitInvalidatedAt::<Test>::contains_key(
+            other, old
+        ));
+        System::set_block_number(3);
+        register_ok_neuron(netuid, old, owner, 0);
+        SubnetEpochIndex::<Test>::insert(netuid, epoch + 1);
+        LastEpochBlock::<Test>::insert(netuid, 3);
+        assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
+        assert!(
+            TimelockedWeightCommits::<Test>::get(NetUidStorageIndex::from(netuid), epoch)
+                .is_empty()
+        );
+        assert_ok!(SubtensorModule::do_commit_timelocked_weights(
+            RuntimeOrigin::signed(old),
+            netuid,
+            vec![2; 5].try_into().unwrap(),
+            1_001,
+            SubtensorModule::get_commit_reveal_weights_version(),
+        ));
+    });
+}
+
+#[test]
 fn subnet_swaps_rename_a_delegators_only_staking_hotkey() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(900);
@@ -744,6 +804,53 @@ fn test_swap_prometheus() {
             Prometheus::<Test>::get(netuid, new_hotkey),
             Some(prometheus_info)
         );
+    });
+}
+
+#[test]
+fn full_hotkey_swap_does_not_create_membership_on_unrelated_subnets() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let coldkey = U256::from(3);
+        let member_netuid = NetUid::from(21);
+        let unrelated_netuid = NetUid::from(22);
+        let mut weight = Weight::zero();
+        add_network(member_netuid, 1, 0);
+        add_network(unrelated_netuid, 1, 0);
+        IsNetworkMember::<Test>::insert(old_hotkey, member_netuid, true);
+        Uids::<Test>::insert(member_netuid, old_hotkey, 1);
+        Keys::<Test>::insert(member_netuid, 1, old_hotkey);
+
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
+            &old_hotkey,
+            &new_hotkey,
+            &coldkey,
+            &mut weight,
+            false,
+        ));
+
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, member_netuid));
+        assert!(!IsNetworkMember::<Test>::contains_key(
+            new_hotkey,
+            unrelated_netuid
+        ));
+        assert!(!SubtensorModule::is_hotkey_registered_on_specific_network(
+            &new_hotkey,
+            unrelated_netuid
+        ));
+    });
+}
+
+#[test]
+fn false_membership_rows_are_not_treated_as_registration() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1);
+        let netuid = NetUid::from(1);
+        IsNetworkMember::<Test>::insert(hotkey, netuid, false);
+        assert!(!SubtensorModule::is_hotkey_registered_on_specific_network(
+            &hotkey, netuid
+        ));
     });
 }
 

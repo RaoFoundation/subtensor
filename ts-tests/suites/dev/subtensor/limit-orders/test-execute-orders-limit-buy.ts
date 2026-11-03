@@ -1,3 +1,4 @@
+import type { AccountInfo } from "@polkadot/types/interfaces";
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
 import type { ApiPromise } from "@polkadot/api";
 import type { KeyringPair } from "@moonwall/util";
@@ -66,7 +67,9 @@ describeSuite({
             title: "LimitBuy executes when price condition is met",
             test: async () => {
                 const stakeBefore = await devGetAlphaStake(polkadotJs, aliceHotKey.address, alice.address, netuid);
-                const taoBalanceBefore = (await polkadotJs.query.system.account(alice.address)).data.free.toBigInt();
+                const taoBalanceBefore = (
+                    await polkadotJs.query.system.account<AccountInfo>(alice.address)
+                ).data.free.toBigInt();
 
                 // TODO: why here far future?
                 const signed = buildSignedOrder(polkadotJs, {
@@ -97,7 +100,9 @@ describeSuite({
                 expect(stakeAfter).toBeGreaterThan(stakeBefore);
 
                 // TAO balance should have decreased
-                const taoBalanceAfter = (await polkadotJs.query.system.account(alice.address)).data.free.toBigInt();
+                const taoBalanceAfter = (
+                    await polkadotJs.query.system.account<AccountInfo>(alice.address)
+                ).data.free.toBigInt();
                 expect(taoBalanceAfter).toBeLessThan(taoBalanceBefore);
             },
         });

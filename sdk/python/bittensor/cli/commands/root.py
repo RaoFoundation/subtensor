@@ -22,6 +22,7 @@ from ..._generated import storage
 from ...balance import Balance
 from ...basket_index import age_days, index_level, normalize_positions
 from ...intents import ALL, ClaimRootWithHotkey, RootRegister, StakeIntoBasket
+from ...receiving import parse_recipient
 from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -420,7 +421,7 @@ def root_list(
     # Resolve the wallet before any chain read: the resolver may prompt, and a
     # prompt under a live query spinner cannot take input (same as --mine).
     owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
-    hotkey = resolve_validator_selector(app_ctx, validator)
+    hotkey = parse_recipient(resolve_validator_selector(app_ctx, validator)).account
 
     with app_ctx.output.activity("reading the validator's fund…"):
         your_rows = app_ctx.run(lambda c: fetch_root_positions(c, owner))
@@ -448,6 +449,9 @@ def _claim_position(
     facts (accrued, rate, redeem estimate, destination) render as the
     "Claim" stage of the pre-sign review card.
     """
+    # Chain positions use AccountIds; the CLI selector may retain a public
+    # receiving descriptor. This is an identity lookup, not a payment target.
+    hotkey = parse_recipient(hotkey).account
     with app_ctx.output.activity("reading your position…"):
         if accrued is None:
             positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
@@ -525,7 +529,9 @@ def root_claim(
 
     if hotkey_ss58 is not None:
         hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-        owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
+        wallet_name, owner = resolve_position_wallet(app_ctx, coldkey_ss58)
+        app_ctx.wallet_name = wallet_name
+        app_ctx.wallet_given = True
         _claim_position(app_ctx, hotkey=hotkey, owner=owner)
         return
 

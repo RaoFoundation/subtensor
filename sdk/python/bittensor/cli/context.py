@@ -33,6 +33,7 @@ from ..intents.registration import (
 )
 from ..intents.staking import _root_claimable_rao
 from ..ledger import LedgerError, LedgerSigner
+from ..receiving import is_receiving_address, parse_recipient, receiving_address
 from ..result import (
     REMEDIATION,
     BittensorError,
@@ -44,11 +45,12 @@ from ..result import (
     RpcPolicyError,
 )
 from ..settings import error_docs_url
-from ..signing import public_view
+from ..signing import public_view, resolve_signer
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
 from .output import STYLE_WARNING, Output
+from .registration import confirm_registration_sponsorship
 
 T = TypeVar("T")
 
@@ -63,16 +65,17 @@ def ss58_param_help(param: str) -> str:
     """Help text for an address-typed CLI option (see AppContext.resolve_address)."""
     book = "address-book or proxy-book name, "
     if "hotkey" in param:
-        text = f"ss58 address, {book}or a local hotkey name (HOTKEY or WALLET/HOTKEY)."
+        text = f"receiving address or ss58, {book}or a local hotkey name (HOTKEY or WALLET/HOTKEY)."
         if param == "hotkey_ss58":
             text += " Defaults to your wallet's hotkey."
     else:
         text = (
-            f"ss58 address, {book}saved multisig name, or a local wallet name (uses its coldkey)."
+            f"receiving address or ss58, {book}saved multisig name, "
+            "or a local wallet name (uses its coldkey)."
         )
         if param in ("dest_ss58", "dest_coldkey_ss58"):
             text = (
-                "Destination account (a coldkey, not a hotkey): ss58 address, "
+                "Destination account (a coldkey, not a hotkey): receiving address or ss58, "
                 f"{book}saved multisig name, or a local wallet name. "
                 "Omit this flag on a terminal to pick from the address book."
             )
@@ -127,6 +130,11 @@ class ResolvedAddress:
     source: str
     name: Optional[str] = None
 
+    @property
+    def account(self) -> str:
+        """The chain account, without discarding the receiving address in this object."""
+        return parse_recipient(self.address).account
+
 
 @dataclass
 class AppContext:
@@ -139,7 +147,7 @@ class AppContext:
     output: Output
     # Tri-state MEV shielding override (--mev-shield/--no-mev-shield). None
     # falls through to the persistent `mev_shield` config value, then to the
-    # intent's own default (stake-trading intents shield, the rest don't).
+    # intent's own default, extended by any composed account registration.
     mev_shield: Optional[bool] = None
     # Global --proxy-for / --force-proxy-type (tx-tier). None falls through to
     # the persistent `proxy_for` config value, then to a direct signature.
@@ -201,9 +209,15 @@ class AppContext:
     _extension_bridge_ws_url: Optional[str] = None
     _ledger_signer: Optional[object] = None
     _vault_signer: Optional[VaultSigner] = None
+    _vault_crypto_type: int = 1
+    # Preserve the reference that supplied external signer metadata (e.g. an
+    # Ed25519 Vault public wallet) when an operation pins its selected account.
+    _external_signer_ref: Optional[str] = None
     # Multisig names currently being derived by ``resolve_address`` — breaks
     # the recursion when a saved multisig lists itself among its signatories.
     _resolving_multisigs: set = field(default_factory=set)
+    # Explicit per-invocation authorization; never persisted as a wallet default.
+    max_registration_deposit: Optional[Balance] = None
 
     def reset_extension_session(self) -> None:
         self._extension_selection = None
@@ -220,6 +234,26 @@ class AppContext:
     def wallet(self):
         """Open the configured wallet handle (no key unlock; that happens on signing)."""
         return wallets.open_wallet(self.wallet_name, self.hotkey_name, self.wallet_path)
+
+    def wallet_address(self, public) -> str:
+        """Display/share complete receiving information using public metadata only."""
+        if public.crypto_type not in wallets.REGISTERED_CRYPTO_TYPES:
+            return public.ss58_address
+        return receiving_address(public)
+
+    def identity_address(self, address: str) -> str:
+        """Resolve account identity from SS58 or a complete receiving descriptor."""
+        recipient = parse_recipient(address)
+        return recipient.account
+
+    def resolve_account(self, param: str, value: Optional[str]) -> Optional[str]:
+        """Resolve an identity consumer; payments must keep using resolve_address."""
+        address = self.resolve_address(param, value)
+        try:
+            return self.identity_address(address) if address is not None else None
+        except ValueError as error:
+            self.output.error(str(error))
+            raise typer.Exit(1)
 
     def uses_extension_signer(self) -> bool:
         return (self.signer_backend or "").strip().lower() == "extension"
@@ -269,7 +303,7 @@ class AppContext:
         Order: required intents cannot opt out; then ``--mev-shield`` /
         ``--no-mev-shield``; then ``btcli config set mev_shield``; then
         ``default`` (True for stake add/remove/move/transfer and other
-        pool-trading ops). Returns ``(shield, forced)``. ``forced`` is True
+        pool-trading ops and account registration). Returns ``(shield, forced)``. ``forced`` is True
         when the user or a required intent demanded shielding — those paths
         fail instead of falling back to clear submission.
         """
@@ -345,15 +379,38 @@ class AppContext:
 
     def _resolve_signer_account_ref(self, ref: str) -> Optional[str]:
         """Resolve a signer identity to ss58: raw address, address-book name, or wallet."""
+        if is_receiving_address(ref):
+            parse_recipient(ref)
+            if self.uses_vault_signer():
+                self._vault_account_address(None)
+            raise ValueError("hashed receiving addresses cannot use an external signer backend")
         if is_bittensor_address(ref):
             return str(ref)
         booked = cfg.get_address(ref)
         if booked:
+            if is_receiving_address(booked):
+                parse_recipient(booked)
+                if self.uses_vault_signer():
+                    self._vault_account_address(None)
+                raise ValueError("hashed receiving addresses cannot use an external signer backend")
             return booked
         try:
-            return wallets.open_wallet(name=ref, path=self.wallet_path).coldkeypub.ss58_address
+            public = wallets.open_wallet(name=ref, path=self.wallet_path).coldkeypub
         except Exception:
             return None
+        if self.uses_vault_signer():
+            return self._vault_account_address(public)
+        return public.ss58_address
+
+    def _vault_account_address(self, public) -> str:
+        if public is None or public.crypto_type not in (0, 1):
+            raise ValueError(
+                "Polkadot Vault signing supports standard sr25519/ed25519 accounts only; "
+                "use --signer wallet (or --signatory NAME=wallet) for hashed "
+                "members. A standard Vault account can still co-sign the same multisig."
+            )
+        self._vault_crypto_type = public.crypto_type
+        return public.ss58_address
 
     def external_signer_address(self) -> Optional[str]:
         """The account the external backend signs with, without device/browser I/O.
@@ -369,24 +426,36 @@ class AppContext:
         """
         if not self.uses_external_signer():
             return None
+        self._vault_crypto_type = 1
+        self._external_signer_ref = None
+
+        def resolve(ref):
+            address = self._resolve_signer_account_ref(ref)
+            if address:
+                self._external_signer_ref = ref
+            return address
+
         # An explicit --signer-address that does not resolve must not fall
         # through to --signatory or config: that would hide a typo.
         if self.signer_address:
-            return self._resolve_signer_account_ref(self.signer_address)
+            return resolve(self.signer_address)
         if self.signatory_wallet:
-            address = self._resolve_signer_account_ref(self.signatory_wallet)
+            address = resolve(self.signatory_wallet)
             if address:
                 return address
         configured = cfg.get("signer_address")
         if configured:
-            address = self._resolve_signer_account_ref(str(configured))
+            address = resolve(str(configured))
             if address:
                 return address
         if self.uses_vault_signer():
             try:
-                return self.wallet().coldkeypub.ss58_address
+                public = self.wallet().coldkeypub
             except Exception:
                 return None
+            address = self._vault_account_address(public)
+            self._external_signer_ref = self.wallet_name
+            return address
         return None
 
     def vault_signer(self) -> VaultSigner:
@@ -415,6 +484,7 @@ class AppContext:
                 raise typer.Exit(2)
             signer = VaultSigner(
                 address,
+                crypto_type=self._vault_crypto_type,
                 browser=self._extension_browser_choice(),
                 # Same heuristic as the extension bridge: only pop a browser
                 # tab for a human at a terminal.
@@ -539,6 +609,13 @@ class AppContext:
         propagate with their original context.
         """
         kind = "hotkey" if "hotkey" in param else "coldkey"
+        if is_receiving_address(value):
+            recipient = parse_recipient(value)
+            booked = next(
+                (e["name"] for e in cfg.load_addresses() if e.get("address") == recipient.address),
+                None,
+            )
+            return ResolvedAddress(recipient.address, "receiving address", booked)
         if is_bittensor_address(value):
             booked = next(
                 (e["name"] for e in cfg.load_addresses() if e.get("address") == value), None
@@ -547,7 +624,9 @@ class AppContext:
 
         booked = cfg.get_address(value)
         if booked:
-            return ResolvedAddress(booked, f"address-book entry {value!r}", value)
+            return ResolvedAddress(
+                parse_recipient(booked).address, f"address-book entry {value!r}", value
+            )
 
         proxy_entry = cfg.get_proxy(value)
         proxied = proxy_entry.get("address") if proxy_entry else None
@@ -562,13 +641,16 @@ class AppContext:
         if kind == "hotkey":
             wallet_name, _, hotkey = value.rpartition("/")
             handle = wallets.open_wallet(wallet_name or self.wallet_name, hotkey, self.wallet_path)
-            return ResolvedAddress(handle.hotkey.ss58_address, f"hotkey {value!r}", value)
+            return ResolvedAddress(
+                self.wallet_address(public_view(handle, "hotkey")), f"hotkey {value!r}", value
+            )
 
-        address = wallets.open_wallet(name=value, path=self.wallet_path).coldkeypub.ss58_address
+        public = wallets.open_wallet(name=value, path=self.wallet_path).coldkeypub
+        address = self.wallet_address(public)
         return ResolvedAddress(address, f"wallet {value!r}", value)
 
     def resolve_address(self, param: str, value: Optional[str]) -> Optional[str]:
-        """Resolve an address-typed CLI value (any ``*_ss58`` param) to an ss58 address.
+        """Resolve a CLI account reference while preserving complete receiving information.
 
         Six accepted forms:
         - a raw ss58 address: used as-is;
@@ -614,7 +696,7 @@ class AppContext:
             return resolved.address
         try:
             if param == "hotkey_ss58":
-                address = self.wallet().hotkey.ss58_address
+                address = self.wallet_address(public_view(self.wallet(), "hotkey"))
                 self.output.name_address(address, f"{self.wallet_name}/{self.hotkey_name}")
                 self.output.classify_address(address, "hotkey")
                 return address
@@ -626,7 +708,7 @@ class AppContext:
                     self.output.name_address(derived, self.wallet_name)
                     self.output.classify_address(derived, "coldkey")
                     return derived
-                address = self.wallet().coldkeypub.ss58_address
+                address = self.wallet_address(self.wallet().coldkeypub)
                 self.output.name_address(address, self.wallet_name)
                 self.output.classify_address(address, "coldkey")
                 return address
@@ -687,7 +769,7 @@ class AppContext:
             raise ValueError("need at least one signatory")
         resolved: list[str] = []
         for part in parts:
-            address = self.resolve_address("coldkey_ss58", part)
+            address = self.resolve_account("coldkey_ss58", part)
             if not address:
                 raise ValueError(f"cannot resolve {part!r}")
             resolved.append(address)
@@ -937,7 +1019,7 @@ class AppContext:
         ``on_result`` receives the receipt before rendering can exit on failure.
         Neither callback runs during a dry-run.
 
-        Stake-trading intents (``mev_shield_default``) are submitted
+        Stake-trading intents and account registrations are submitted
         MEV-shielded via ``client.submit_shielded`` unless the user opts out
         with ``--no-mev-shield`` or ``btcli config set mev_shield false``;
         ``--mev-shield`` (or config true) opts any mutation in. Shield wraps
@@ -1044,41 +1126,35 @@ class AppContext:
                 semantic_intent = intent.semantic_intent()
         wallet = self.wallet()
         self._register_local_names(wallet)
-        # Outer MevShield.submit_encrypted has no netuid, so fees_in_alpha cannot
-        # route — free TAO must cover the carrier. Bare remove_stake (etc.) can
-        # pay in alpha; downgrade the stake default before confirm so the summary
-        # is honest and α-only coldkeys still unstake. External signers resolve
-        # the fee payer later; _execute repeats this check for them.
-        if shield and not self.uses_external_signer():
-            try:
-                fee_payer = public_view(wallet, intent.signer).ss58_address
-            except Exception:
-                fee_payer = None
-            if fee_payer is not None:
-
-                async def _shield_fee_preflight(client):
-                    return await self._shield_outer_fee_shortfall(client, fee_payer)
-
-                shortfall = self.run(_shield_fee_preflight)
-                if shortfall is not None:
-                    if shield_forced or semantic_intent.mev_shield_required:
-                        self.output.error(
-                            "MEV-shielded submission needs free TAO for the outer carrier fee",
-                            help=(
-                                f"{semantic_intent.op} cannot submit unshielded"
-                                if semantic_intent.mev_shield_required
-                                else "pass --no-mev-shield to submit unshielded "
-                                "(alpha fees work on the bare call), or fund the "
-                                "signing account with free TAO"
-                            ),
-                        )
-                        raise typer.Exit(2)
-                    shield = False
-                    shield_note = (
-                        "free TAO cannot cover the outer carrier fee "
-                        "(alpha fees only work on the unshielded call)"
-                    )
         options = {"proxy_for": proxy_for, "proxy_type": force_proxy_type}
+        approved_registration_quotes: set[tuple[str, str, int]] = set()
+
+        def approve_registration(quote):
+            identity = (quote.recipient_account, quote.payer_account, quote.deposit.rao)
+            if identity not in approved_registration_quotes:
+                confirm_registration_sponsorship(self, quote)
+                approved_registration_quotes.add(identity)
+            return True
+
+        sponsorship_options = {
+            "max_registration_deposit": self.max_registration_deposit,
+        }
+
+        async def approve_registration_during_execution(quote):
+            identity = (quote.recipient_account, quote.payer_account, quote.deposit.rao)
+            if identity in approved_registration_quotes:
+                return True
+            if (
+                self.max_registration_deposit is not None
+                or self.output.json_mode
+                or not sys.stdin.isatty()
+            ):
+                return approve_registration(quote)
+            # A changed quote or an external signer may need approval here.
+            # Keep RPC heartbeats alive while the user considers the deposit.
+            return await asyncio.to_thread(approve_registration, quote)
+
+        sponsorship_options["on_registration_sponsorship"] = approve_registration_during_execution
         registration_quote = None
         registration_flow = None
         neuron_reg_cost = None
@@ -1149,9 +1225,6 @@ class AppContext:
                 lock_line,
             ]
         summary += f" [as {proxy_for} via proxy]" if proxy_for else ""
-        if shield:
-            summary += " [MEV-shielded]"
-
         # Privileged intents say up front which key the chain will accept, so
         # nobody signs (or approves a multisig) before learning the call needs
         # a different origin.
@@ -1167,16 +1240,28 @@ class AppContext:
             self.vault_signer().summary = summary
 
         async def _plan(client):
-            signer = await self.resolve_signing_wallet(intent.signer, pick_account=True)
+            signer = await self.resolve_signing_wallet(intent.signer)
             plan_target = signer if self.uses_external_signer() else wallet
             try:
-                return await client.plan(intent, plan_target, **options)
+                return await client.plan(intent, plan_target, shielded=shield, **options)
             finally:
                 if self.uses_extension_signer() and hasattr(signer, "close"):
                     await signer.close()
 
         if self.dry_run:
             plan = self.run(_plan)
+            from ..shielding import contains_account_registration
+
+            async def _registration_default(client):
+                return await contains_account_registration(client._substrate, plan.call)
+
+            shield, shield_forced = self.resolve_mev_shield(
+                default=semantic_intent.mev_shield_default or self.run(_registration_default),
+                required=semantic_intent.mev_shield_required,
+                op=semantic_intent.op,
+            )
+            if shield != plan.shielded:
+                plan = self.run(_plan)
             if base_summary != intent_summary:
                 plan.summary = base_summary
                 plan.effects = [
@@ -1191,7 +1276,9 @@ class AppContext:
                 )
 
                 async def _shield_fee_warning(client):
-                    return await self._shield_outer_fee_shortfall(client, plan.signer_address)
+                    return await self._shield_outer_fee_shortfall(
+                        client, plan.signer_address, call=plan.call, intent=intent, wallet=wallet
+                    )
 
                 shortfall = self.run(_shield_fee_warning)
                 if shortfall is not None:
@@ -1204,59 +1291,158 @@ class AppContext:
         # Surface intent warnings before the user confirms (dry-run already
         # prints them via ``output.plan``). Root-claim also computes the fee
         # preview and refuses when free TAO cannot cover the reserved
-        # inclusion fee. Skip when an external signer still needs its
-        # account picker — those paths resolve the origin later.
+        # inclusion fee. Pick an external signer's public account here too so
+        # registration and shielding are shown before the transaction review.
         fee_facts: list[tuple[str, str]] = []
         facts_title = "Fees"
         estimated_fee = None
-        if not self.uses_external_signer():
+        sponsorship_quote = None
+        preview_wallet = None
 
-            async def _preflight(client):
-                try:
-                    preview = await client.preflight(
-                        intent,
-                        wallet,
+        async def _preflight(client):
+            nonlocal preview_wallet
+            preview_wallet = (
+                await self.resolve_signing_wallet(intent.signer, pick_account=True)
+                if self.uses_external_signer()
+                else wallet
+            )
+            try:
+                preview = await client.preflight(
+                    intent,
+                    preview_wallet,
+                    proxy_for=proxy_for,
+                    proxy_type=force_proxy_type,
+                    shielded=False,
+                )
+            except Exception:
+                # Optional fee previews may fail, but an unknown recipient
+                # setup cost must not fall through to unlocking a wallet.
+                from ..hashed import has_receiving_setup_inputs
+
+                if await has_receiving_setup_inputs(client._substrate, preview_wallet, intent):
+                    raise
+                return [], [], [], [], "Fees", None, None, False
+            finally:
+                if self.uses_extension_signer() and hasattr(preview_wallet, "close"):
+                    await preview_wallet.close()
+            warnings = list(preview.warnings)
+            if semantic_intent.op in ("claim_root", "claim_root_with_hotkey"):
+                effects = list(preview.effects)
+            else:
+                effects = []
+            return (
+                effects,
+                warnings,
+                list(preview.blocks),
+                list(preview.facts),
+                preview.facts_title,
+                preview.estimated_fee,
+                getattr(preview, "registration_sponsorship", None),
+                preview.account_registration,
+            )
+
+        (
+            effects,
+            warnings,
+            blocks,
+            fee_facts,
+            facts_title,
+            estimated_fee,
+            sponsorship_quote,
+            account_registration,
+        ) = self.run(_preflight)
+        shield, shield_forced = self.resolve_mev_shield(
+            default=semantic_intent.mev_shield_default or account_registration,
+            required=semantic_intent.mev_shield_required,
+            op=semantic_intent.op,
+        )
+        summary_line = intent.summary()
+        # Structured facts render as the review card's "Fees" stage; the
+        # prose effect lines only print where the card cannot (quiet/json
+        # sessions, or intents with no structured preview).
+        if fee_facts and not (self.output.quiet or self.output.json_mode):
+            effects = []
+        for effect in effects:
+            if effect == summary_line:
+                continue
+            rendered = self.output.with_subnets(self.output.with_names(effect))
+            self.output.message(f"[dim]{rendered}[/dim]")
+        for warning in warnings:
+            rendered = self.output.with_subnets(self.output.with_names(warning))
+            self.output.message(f"[{STYLE_WARNING}]warning:[/{STYLE_WARNING}] {rendered}")
+        if blocks:
+            for block in blocks:
+                self.output.error(
+                    block,
+                    help="resolve this hard stop before submitting",
+                )
+            raise typer.Exit(1)
+
+        # Outer MevShield.submit_encrypted has no netuid, so fees_in_alpha cannot
+        # route — free TAO must cover the carrier. Bare remove_stake (etc.) can
+        # pay in alpha; downgrade the stake default before confirm so the summary
+        # is honest and α-only coldkeys still unstake. External signers resolve
+        # the fee payer later; _execute repeats this check for them.
+        if shield and not self.uses_external_signer():
+            try:
+                fee_payer = public_view(wallet, intent.signer).ss58_address
+            except Exception:
+                fee_payer = None
+            if fee_payer is not None:
+
+                async def _shield_fee_preflight(client):
+                    return await self._shield_outer_fee_shortfall(
+                        client,
+                        fee_payer,
+                        intent=intent,
+                        wallet=wallet,
                         proxy_for=proxy_for,
                         proxy_type=force_proxy_type,
                     )
-                except Exception:
-                    return [], [], [], [], "Fees", None
-                warnings = list(preview.warnings)
-                if semantic_intent.op in ("claim_root", "claim_root_with_hotkey"):
-                    effects = list(preview.effects)
-                else:
-                    effects = []
-                return (
-                    effects,
-                    warnings,
-                    list(preview.blocks),
-                    list(preview.facts),
-                    preview.facts_title,
-                    preview.estimated_fee,
+
+                shortfall = self.run(_shield_fee_preflight)
+                if shortfall is not None:
+                    if shield_forced or semantic_intent.mev_shield_required:
+                        self.output.error(
+                            "MEV-shielded submission needs free TAO for the outer carrier fee",
+                            help=(
+                                f"{semantic_intent.op} cannot submit unshielded"
+                                if semantic_intent.mev_shield_required
+                                else "pass --no-mev-shield to submit unshielded "
+                                "(alpha fees work on the bare call), or fund the "
+                                "signing account with free TAO"
+                            ),
+                        )
+                        raise typer.Exit(2)
+                    shield = False
+                    shield_note = (
+                        "free TAO cannot cover the outer carrier fee "
+                        "(alpha fees only work on the unshielded call)"
+                    )
+
+        if shield:
+
+            async def _shielded_preview(client):
+                # Reuse the selected public account. Reopening an extension
+                # here can change the approval identity or prompt twice.
+                return await client.preflight(
+                    intent,
+                    preview_wallet,
+                    proxy_for=proxy_for,
+                    proxy_type=force_proxy_type,
+                    shielded=True,
                 )
 
-            effects, warnings, blocks, fee_facts, facts_title, estimated_fee = self.run(_preflight)
-            summary_line = intent.summary()
-            # Structured facts render as the review card's "Fees" stage; the
-            # prose effect lines only print where the card cannot (quiet/json
-            # sessions, or intents with no structured preview).
-            if fee_facts and not (self.output.quiet or self.output.json_mode):
-                effects = []
-            for effect in effects:
-                if effect == summary_line:
-                    continue
-                rendered = self.output.with_subnets(self.output.with_names(effect))
-                self.output.message(f"[dim]{rendered}[/dim]")
-            for warning in warnings:
-                rendered = self.output.with_subnets(self.output.with_names(warning))
-                self.output.message(f"[{STYLE_WARNING}]warning:[/{STYLE_WARNING}] {rendered}")
-            if blocks:
-                for block in blocks:
-                    self.output.error(
-                        block,
-                        help="resolve this hard stop before submitting",
-                    )
+            shield_preview = self.run(_shielded_preview)
+            estimated_fee = shield_preview.estimated_fee
+            fee_facts = list(shield_preview.facts)
+            for block in shield_preview.blocks:
+                self.output.error(block, help="resolve this hard stop before submitting")
+            if shield_preview.blocks:
                 raise typer.Exit(1)
+            summary += " [MEV-shielded]"
+        if self.uses_vault_signer():
+            self.vault_signer().summary = summary
 
         def _print_registration_notes() -> None:
             if self.assume_yes:
@@ -1290,12 +1476,8 @@ class AppContext:
             card_extras.append(("cost", neuron_reg_cost))
 
         if self.uses_extension_signer():
-
-            async def _prepare(_client):
-                signer = await self.extension_signer(pick_account=True)
-                await signer.close()
-
-            self.run(_prepare)
+            # Preflight selected the account and closed only its signer handle.
+            # Reopen that selection at execution; never repick after quoting it.
             _print_registration_notes()
             # The extension popup is the approval surface: it shows this same
             # transaction and requires an explicit approve/reject there, so a
@@ -1355,6 +1537,9 @@ class AppContext:
                 )
                 self.confirm("sign and submit?", indent=4)
 
+        if sponsorship_quote is not None:
+            approve_registration(sponsorship_quote)
+
         # Native keyfiles unlock synchronously on their first signature. Unlock
         # encrypted coldkeys eagerly instead: a wrong password can be retried
         # on the spot (instead of aborting and losing every prompt answer).
@@ -1376,8 +1561,10 @@ class AppContext:
                     hotkey = None  # coldkey-only wallet; intents needing it fail on use
             # Keep the wallet shape because intents may default their hotkey
             # from it, while replacing the signing side with the keypair that
-            # was already unlocked above.
+            # was already unlocked above. Retain the directory context too:
+            # submission must rediscover the same recipient setup as preflight.
             local_signer = SimpleNamespace(
+                _wallet=wallet,
                 coldkey=signing_key,
                 coldkeypub=wallet.coldkeypub,
                 hotkey=hotkey,
@@ -1397,6 +1584,7 @@ class AppContext:
             except FileNotFoundError:
                 coldkeypub = None  # hotkey-only wallet; intents needing it fail on use
             local_signer = SimpleNamespace(
+                _wallet=wallet,
                 coldkey=None,
                 coldkeypub=coldkeypub,
                 hotkey=hotkey_pair,
@@ -1452,6 +1640,13 @@ class AppContext:
                 )
                 use_shield = False
             signer = local_signer or await self.resolve_signing_wallet(intent.signer)
+            # Registered accounts sign only from finalized authority. Return a
+            # finalized receipt so the next ordinary CLI command can safely use
+            # the next rotating key generation.
+            finalize = wait_for_finalization or (
+                not self.uses_external_signer()
+                and wallets.requires_registration(resolve_signer(signer, intent.signer))
+            )
             if use_shield and self.uses_external_signer():
                 # Local wallets already preflighted before confirm; external
                 # signers only know the fee payer after account pick.
@@ -1460,7 +1655,9 @@ class AppContext:
                 except Exception:
                     fee_payer = None
                 shortfall = (
-                    await self._shield_outer_fee_shortfall(client, fee_payer)
+                    await self._shield_outer_fee_shortfall(
+                        client, fee_payer, intent=intent, wallet=signer, **options
+                    )
                     if fee_payer is not None
                     else None
                 )
@@ -1490,8 +1687,9 @@ class AppContext:
                     before_submit()
                 if use_shield:
                     shield_options = {
-                        "wait_for_finalization": wait_for_finalization,
+                        "wait_for_finalization": finalize,
                         **options,
+                        **sponsorship_options,
                     }
                     if intent.op == "register_subnet":
                         shield_options["on_progress"] = _registration_progress
@@ -1501,9 +1699,16 @@ class AppContext:
                         **shield_options,
                     )
                 else:
+                    registration_default_allowed, _ = self.resolve_mev_shield(default=True)
                     execute_options = {
-                        "wait_for_finalization": wait_for_finalization,
+                        "shielded": (
+                            None
+                            if registration_default_allowed and not shield_note and not shield
+                            else False
+                        ),
+                        "wait_for_finalization": finalize,
                         **options,
+                        **sponsorship_options,
                     }
                     if intent.op == "register_subnet":
                         execute_options["on_progress"] = _registration_progress
@@ -1809,7 +2014,9 @@ class AppContext:
                 self.multisig_wallet_name = None
                 self.signatory_wallet = ss58
                 self.signer_backend = None if backend == "wallet" else backend
-                self.signer_address = None if backend == "wallet" else ss58
+                self.signer_address = (
+                    None if backend == "wallet" else name if backend == "vault" else ss58
+                )
                 self._vault_signer = None
                 self._ledger_signer = None
                 self.reset_extension_session()
@@ -1866,7 +2073,15 @@ class AppContext:
         return result
 
     async def _shield_outer_fee_shortfall(
-        self, client: Client, fee_payer_ss58: str
+        self,
+        client: Client,
+        fee_payer_ss58: str,
+        *,
+        call=None,
+        intent=None,
+        wallet=None,
+        proxy_for=None,
+        proxy_type=None,
     ) -> Optional[str]:
         """Warning text when free TAO cannot cover a MevShield carrier fee.
 
@@ -1876,7 +2091,15 @@ class AppContext:
         """
         try:
             free = await client.balances.get(fee_payer_ss58)
-            fee = await client.estimate_shielded_carrier_fee(fee_payer_ss58)
+            if call is None:
+                plan = await client.plan(intent, wallet, proxy_for=proxy_for, proxy_type=proxy_type)
+                call = plan.call
+            fee_public = (
+                public_view(wallet, intent.signer)
+                if wallet is not None and intent is not None
+                else fee_payer_ss58
+            )
+            fee = await client.estimate_shielded_carrier_fee(fee_public, call)
         except Exception:
             # Best-effort: if we only know free is zero, that is enough to warn.
             try:

@@ -22,6 +22,7 @@ log.workspace = true
 substrate-fixed.workspace = true
 subtensor-runtime-common.workspace = true
 subtensor-macros.workspace = true
+subtensor-hashed.workspace = true
 subtensor-swap-interface.workspace = true
 
 [dev-dependencies]
@@ -49,6 +50,7 @@ std = [
     "log/std",
     "substrate-fixed/std",
     "subtensor-runtime-common/std",
+    "subtensor-hashed/std",
     "subtensor-swap-interface/std",
 ]
 

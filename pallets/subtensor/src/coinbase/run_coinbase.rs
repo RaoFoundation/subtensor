@@ -20,6 +20,32 @@ macro_rules! tou64 {
     };
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct DividendParts {
+    /// Dividend classified by the recipient's own alpha/root stake mix.
+    untagged: U96F32,
+    /// Childkey take sourced from a parent's alpha contribution.
+    alpha_take: U96F32,
+    /// Childkey take sourced from a parent's root-weighted contribution.
+    root_take: U96F32,
+}
+
+impl DividendParts {
+    fn total(self) -> U96F32 {
+        self.untagged
+            .saturating_add(self.alpha_take)
+            .saturating_add(self.root_take)
+    }
+
+    fn saturating_add(self, other: Self) -> Self {
+        Self {
+            untagged: self.untagged.saturating_add(other.untagged),
+            alpha_take: self.alpha_take.saturating_add(other.alpha_take),
+            root_take: self.root_take.saturating_add(other.root_take),
+        }
+    }
+}
+
 impl<T: Config> Pallet<T> {
     pub fn run_coinbase(block_emission_credit: CreditOf<T>) {
         // --- 0. Get current block.
@@ -560,10 +586,26 @@ impl<T: Config> Pallet<T> {
         BTreeMap<T::AccountId, AlphaBalance>,
         BTreeMap<T::AccountId, U96F32>,
     ) {
+        let (incentives, parts) =
+            Self::calculate_dividend_parts_and_incentives(netuid, hotkey_emission);
+        let dividends = parts
+            .into_iter()
+            .map(|(hotkey, parts)| (hotkey, parts.total()))
+            .collect();
+        (incentives, dividends)
+    }
+
+    fn calculate_dividend_parts_and_incentives(
+        netuid: NetUid,
+        hotkey_emission: Vec<(T::AccountId, AlphaBalance, AlphaBalance)>,
+    ) -> (
+        BTreeMap<T::AccountId, AlphaBalance>,
+        BTreeMap<T::AccountId, DividendParts>,
+    ) {
         let skip_zero_dividends = Self::get_epoch_consensus(netuid) == EpochConsensus::Null;
         // Accumulate emission of dividends and incentive per hotkey.
         let mut incentives: BTreeMap<T::AccountId, AlphaBalance> = BTreeMap::new();
-        let mut dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
+        let mut dividends: BTreeMap<T::AccountId, DividendParts> = BTreeMap::new();
         for (hotkey, incentive, dividend) in hotkey_emission {
             // Accumulate incentives to miners.
             incentives
@@ -576,14 +618,13 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
             // Accumulate dividends to parents.
-            let div_tuples: Vec<(T::AccountId, AlphaBalance)> =
-                Self::get_parent_child_dividends_distribution(&hotkey, netuid, dividend);
+            let div_tuples = Self::get_parent_child_dividend_parts(&hotkey, netuid, dividend);
             // Accumulate dividends per hotkey.
             for (parent, parent_div) in div_tuples {
                 dividends
                     .entry(parent)
-                    .and_modify(|e| *e = e.saturating_add(asfloat!(parent_div)))
-                    .or_insert(asfloat!(parent_div));
+                    .and_modify(|parts| *parts = parts.saturating_add(parent_div))
+                    .or_insert(parent_div);
             }
         }
         log::debug!("incentives: {incentives:?}");
@@ -602,6 +643,40 @@ impl<T: Config> Pallet<T> {
         BTreeMap<T::AccountId, U96F32>,
         BTreeMap<T::AccountId, U96F32>,
     ) {
+        let dividends = dividends
+            .into_iter()
+            .map(|(hotkey, untagged)| {
+                (
+                    hotkey,
+                    DividendParts {
+                        untagged,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
+        let (alpha_dividends, root_alpha_dividends, _) =
+            Self::calculate_tagged_dividend_distribution(
+                pending_alpha,
+                pending_root_alpha,
+                tao_weight,
+                stake_map,
+                dividends,
+            );
+        (alpha_dividends, root_alpha_dividends)
+    }
+
+    fn calculate_tagged_dividend_distribution(
+        pending_alpha: AlphaBalance,
+        pending_root_alpha: AlphaBalance,
+        tao_weight: U96F32,
+        stake_map: BTreeMap<T::AccountId, (AlphaBalance, AlphaBalance)>,
+        dividends: BTreeMap<T::AccountId, DividendParts>,
+    ) -> (
+        BTreeMap<T::AccountId, U96F32>,
+        BTreeMap<T::AccountId, U96F32>,
+        BTreeMap<T::AccountId, U96F32>,
+    ) {
         log::debug!("dividends: {dividends:?}");
         log::debug!("stake_map: {stake_map:?}");
         log::debug!("pending_alpha: {pending_alpha:?}");
@@ -616,6 +691,7 @@ impl<T: Config> Pallet<T> {
         let mut total_root_divs: U96F32 = asfloat!(0);
         let mut total_alpha_divs: U96F32 = asfloat!(0);
         let mut root_dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
+        let mut root_take_dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
         let mut alpha_dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
         for (hotkey, dividend) in dividends {
             if let Some((alpha_stake, root_stake)) = stake_map.get(&hotkey) {
@@ -635,22 +711,28 @@ impl<T: Config> Pallet<T> {
                 // off ineligible root stake). Unclaimed root pool then redistributes across
                 // root-registered validators or recycles when none qualify.
                 //
-                // Zero total stake (e.g. a childkey-take recipient with no local alpha/root)
-                // has nothing to split against: keep the whole dividend on the ALPHA path,
-                // matching the prior 0/0 → alpha_divs = dividend behaviour.
+                // Zero total stake has nothing to split against: keep only the recipient's
+                // untagged self contribution on the ALPHA path. Source-tagged childkey take
+                // is added to its originating pool below.
                 let weighted_root = root_stake.saturating_mul(tao_weight);
                 let total_alpha = alpha_stake.saturating_add(weighted_root);
-                let alpha_divs = if total_alpha == zero {
-                    dividend
+                let untagged_alpha = if total_alpha == zero {
+                    dividend.untagged
                 } else {
                     let alpha_prop = alpha_stake.checked_div(total_alpha).unwrap_or(zero);
-                    dividend.saturating_mul(alpha_prop)
+                    dividend.untagged.saturating_mul(alpha_prop)
                 };
-                let root_divs = if Uids::<T>::contains_key(NetUid::ROOT, &hotkey) {
-                    dividend.saturating_sub(alpha_divs)
+                let alpha_divs = untagged_alpha.saturating_add(dividend.alpha_take);
+                let root_registered = Uids::<T>::contains_key(NetUid::ROOT, &hotkey);
+                let root_divs = if root_registered {
+                    dividend.untagged.saturating_sub(untagged_alpha)
                 } else {
                     zero
                 };
+                // Childkey take is owner compensation, not a validator dividend. Keep
+                // its root-sourced portion in the root pool, but pay it directly even
+                // when the child has no root UID; it must never enter a beta basket.
+                let root_take = dividend.root_take;
                 // Record the alpha dividends.
                 alpha_dividends
                     .entry(hotkey.clone())
@@ -663,8 +745,14 @@ impl<T: Config> Pallet<T> {
                     .entry(hotkey.clone())
                     .and_modify(|e| *e = e.saturating_add(root_divs))
                     .or_insert(root_divs);
+                root_take_dividends
+                    .entry(hotkey.clone())
+                    .and_modify(|e| *e = e.saturating_add(root_take))
+                    .or_insert(root_take);
                 // Accumulate total root divs.
-                total_root_divs = total_root_divs.saturating_add(root_divs);
+                total_root_divs = total_root_divs
+                    .saturating_add(root_divs)
+                    .saturating_add(root_take);
             }
         }
         log::debug!("alpha_dividends: {alpha_dividends:?}");
@@ -689,6 +777,14 @@ impl<T: Config> Pallet<T> {
         }
         log::debug!("root_alpha_dividends: {root_alpha_dividends:?}");
 
+        let mut direct_root_take: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
+        for (hotkey, root_take) in root_take_dividends {
+            let root_share = root_take.checked_div(total_root_divs).unwrap_or(zero);
+            let direct_take = asfloat!(pending_root_alpha).saturating_mul(root_share);
+            direct_root_take.insert(hotkey, direct_take);
+        }
+        log::debug!("direct_root_take: {direct_root_take:?}");
+
         // Compute proportional alpha divs using the pending alpha and total alpha divs from the epoch.
         let mut prop_alpha_dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
         for (hotkey, alpha_divs) in alpha_dividends {
@@ -707,7 +803,7 @@ impl<T: Config> Pallet<T> {
         }
         log::debug!("prop_alpha_dividends: {prop_alpha_dividends:?}");
 
-        (prop_alpha_dividends, root_alpha_dividends)
+        (prop_alpha_dividends, root_alpha_dividends, direct_root_take)
     }
 
     fn get_owner_hotkeys(netuid: NetUid, coldkey: &T::AccountId) -> Vec<T::AccountId> {
@@ -749,6 +845,24 @@ impl<T: Config> Pallet<T> {
         incentives: BTreeMap<T::AccountId, AlphaBalance>,
         alpha_dividends: BTreeMap<T::AccountId, U96F32>,
         root_alpha_dividends: BTreeMap<T::AccountId, U96F32>,
+    ) {
+        Self::distribute_dividends_and_incentives_with_root_take(
+            netuid,
+            owner_cut,
+            incentives,
+            alpha_dividends,
+            root_alpha_dividends,
+            BTreeMap::new(),
+        );
+    }
+
+    pub(crate) fn distribute_dividends_and_incentives_with_root_take(
+        netuid: NetUid,
+        owner_cut: AlphaBalance,
+        incentives: BTreeMap<T::AccountId, AlphaBalance>,
+        alpha_dividends: BTreeMap<T::AccountId, U96F32>,
+        root_alpha_dividends: BTreeMap<T::AccountId, U96F32>,
+        direct_root_take: BTreeMap<T::AccountId, U96F32>,
     ) {
         // Distribute the owner cut.
         if let Ok(owner_coldkey) = SubnetOwner::<T>::try_get(netuid)
@@ -905,6 +1019,20 @@ impl<T: Config> Pallet<T> {
         // for release/earned; only validator take is capturable.
         let _ = RootAlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
 
+        // Root-sourced childkey take is already the child's owner compensation.
+        // Pay all of it directly from the root pool: no root UID, hotkey-take split,
+        // or basket claim is involved. As owner emission it remains eligible for
+        // collateral capture, matching alpha-sourced take.
+        for (hotkey, direct_take) in direct_root_take {
+            let owner = Owner::<T>::get(&hotkey);
+            let take: AlphaBalance = tou64!(direct_take).into();
+            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, take, take);
+            let liquid_take = take.saturating_sub(captured);
+            if !liquid_take.is_zero() {
+                Self::credit_epoch_owner_emission(&hotkey, &owner, netuid, liquid_take);
+            }
+        }
+
         for (hotkey, root_alpha) in root_alpha_dividends {
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
             let total: AlphaBalance = tou64!(root_alpha).into();
@@ -967,20 +1095,49 @@ impl<T: Config> Pallet<T> {
             BTreeMap<T::AccountId, U96F32>,
         ),
     ) {
+        let (incentives, (alpha_dividends, root_alpha_dividends, _)) =
+            Self::calculate_dividend_and_incentive_distribution_with_root_take(
+                netuid,
+                pending_root_alpha,
+                pending_validator_alpha,
+                hotkey_emission,
+                tao_weight,
+            );
+        (incentives, (alpha_dividends, root_alpha_dividends))
+    }
+
+    pub(crate) fn calculate_dividend_and_incentive_distribution_with_root_take(
+        netuid: NetUid,
+        pending_root_alpha: AlphaBalance,
+        pending_validator_alpha: AlphaBalance,
+        hotkey_emission: Vec<(T::AccountId, AlphaBalance, AlphaBalance)>,
+        tao_weight: U96F32,
+    ) -> (
+        BTreeMap<T::AccountId, AlphaBalance>,
+        (
+            BTreeMap<T::AccountId, U96F32>,
+            BTreeMap<T::AccountId, U96F32>,
+            BTreeMap<T::AccountId, U96F32>,
+        ),
+    ) {
         let (incentives, dividends) =
-            Self::calculate_dividends_and_incentives(netuid, hotkey_emission);
+            Self::calculate_dividend_parts_and_incentives(netuid, hotkey_emission);
 
         let stake_map = Self::get_stake_map(netuid, dividends.keys().collect::<Vec<_>>());
 
-        let (alpha_dividends, root_alpha_dividends) = Self::calculate_dividend_distribution(
-            pending_validator_alpha,
-            pending_root_alpha,
-            tao_weight,
-            stake_map,
-            dividends,
-        );
+        let (alpha_dividends, root_alpha_dividends, direct_root_take) =
+            Self::calculate_tagged_dividend_distribution(
+                pending_validator_alpha,
+                pending_root_alpha,
+                tao_weight,
+                stake_map,
+                dividends,
+            );
 
-        (incentives, (alpha_dividends, root_alpha_dividends))
+        (
+            incentives,
+            (alpha_dividends, root_alpha_dividends, direct_root_take),
+        )
     }
 
     pub fn distribute_emission(
@@ -1027,8 +1184,8 @@ impl<T: Config> Pallet<T> {
         let root_alpha = pending_root_alpha;
         let owner_cut = pending_owner_cut;
 
-        let (incentives, (alpha_dividends, root_alpha_dividends)) =
-            Self::calculate_dividend_and_incentive_distribution(
+        let (incentives, (alpha_dividends, root_alpha_dividends, direct_root_take)) =
+            Self::calculate_dividend_and_incentive_distribution_with_root_take(
                 netuid,
                 root_alpha,
                 validator_alpha,
@@ -1043,17 +1200,19 @@ impl<T: Config> Pallet<T> {
         if !root_alpha.is_zero()
             && root_alpha_dividends
                 .values()
+                .chain(direct_root_take.values())
                 .all(|divs| divs.saturating_to_num::<u64>() == 0)
         {
             Self::recycle_subnet_alpha(netuid, root_alpha);
         }
 
-        Self::distribute_dividends_and_incentives(
+        Self::distribute_dividends_and_incentives_with_root_take(
             netuid,
             owner_cut,
             incentives,
             alpha_dividends,
             root_alpha_dividends,
+            direct_root_take,
         );
     }
 
@@ -1108,12 +1267,22 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         dividends: AlphaBalance,
     ) -> Vec<(T::AccountId, AlphaBalance)> {
+        Self::get_parent_child_dividend_parts(hotkey, netuid, dividends)
+            .into_iter()
+            .map(|(hotkey, parts)| (hotkey, parts.total().saturating_to_num::<u64>().into()))
+            .collect()
+    }
+
+    fn get_parent_child_dividend_parts(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        dividends: AlphaBalance,
+    ) -> Vec<(T::AccountId, DividendParts)> {
         // hotkey dividends.
-        let mut dividend_tuples: Vec<(T::AccountId, AlphaBalance)> = vec![];
+        let mut dividend_tuples: Vec<(T::AccountId, DividendParts)> = vec![];
 
         // Calculate the hotkey's share of the validator emission based on its childkey take
         let validating_emission: U96F32 = U96F32::saturating_from_num(dividends);
-        let mut remaining_emission: U96F32 = validating_emission;
         let burn_take_proportion: U96F32 = Self::get_ck_burn();
         let child_take_proportion: U96F32 =
             U96F32::saturating_from_num(Self::get_childkey_take(hotkey, netuid))
@@ -1126,23 +1295,24 @@ impl<T: Config> Pallet<T> {
 
         // Initialize variables to track emission distribution
         let mut to_parents: u64 = 0;
-        let mut total_child_take: U96F32 = U96F32::saturating_from_num(0);
+        let mut total_child_alpha_take: U96F32 = U96F32::saturating_from_num(0);
+        let mut total_child_root_take: U96F32 = U96F32::saturating_from_num(0);
 
         // Initialize variables to calculate total stakes from parents
         let mut total_contribution: U96F32 = U96F32::saturating_from_num(0);
-        let mut parent_contributions: Vec<(T::AccountId, U96F32)> = Vec::new();
+        let mut parent_contributions: Vec<(T::AccountId, U96F32, U96F32)> = Vec::new();
 
         // Get the weights for root and alpha stakes in emission distribution
         let tao_weight: U96F32 = Self::get_tao_weight();
 
         // Get self contribution, removing any childkey proportions.
-        let self_contribution = Self::get_self_contribution(hotkey, netuid);
+        let self_contribution =
+            U96F32::saturating_from_num(Self::get_self_contribution(hotkey, netuid));
         log::debug!(
             "Self contribution for hotkey {hotkey:?} on netuid {netuid:?}: {self_contribution:?}"
         );
         // Add self contribution to total contribution but not to the parent contributions.
-        total_contribution =
-            total_contribution.saturating_add(U96F32::saturating_from_num(self_contribution));
+        total_contribution = total_contribution.saturating_add(self_contribution);
 
         // Calculate total root and alpha (subnet-specific) stakes from all parents
         for (proportion, parent) in Self::get_parents(hotkey, netuid) {
@@ -1168,7 +1338,11 @@ impl<T: Config> Pallet<T> {
             // Add to the total stakes
             total_contribution = total_contribution.saturating_add(combined_contribution);
             // Store the parent's contributions for later use
-            parent_contributions.push((parent.clone(), combined_contribution));
+            parent_contributions.push((
+                parent.clone(),
+                parent_alpha_contribution,
+                parent_root_contribution,
+            ));
             log::debug!(
                 "Parent contribution for hotkey {hotkey:?} from parent {parent:?}: {combined_contribution:?}"
             );
@@ -1176,8 +1350,9 @@ impl<T: Config> Pallet<T> {
 
         // Distribute emission to parents based on their contributions.
         // Deduct childkey take from parent contribution.
-        for (parent, contribution) in parent_contributions {
+        for (parent, alpha_contribution, root_contribution) in parent_contributions {
             let parent_owner = Self::get_owning_coldkey_for_hotkey(&parent);
+            let contribution = alpha_contribution.saturating_add(root_contribution);
 
             // Get the stake contribution of this parent key of the total stake.
             let emission_factor: U96F32 = contribution
@@ -1186,8 +1361,6 @@ impl<T: Config> Pallet<T> {
 
             // Get the parent's portion of the validating emission based on their contribution.
             let mut parent_emission: U96F32 = validating_emission.saturating_mul(emission_factor);
-            // Remove this emission from the remaining emission.
-            remaining_emission = remaining_emission.saturating_sub(parent_emission);
 
             // Get the childkey take for this parent.
             let mut burn_take: U96F32 = U96F32::saturating_from_num(0);
@@ -1198,7 +1371,14 @@ impl<T: Config> Pallet<T> {
                 child_take = child_take_proportion.saturating_mul(parent_emission);
                 parent_emission = parent_emission.saturating_sub(burn_take);
                 parent_emission = parent_emission.saturating_sub(child_take);
-                total_child_take = total_child_take.saturating_add(child_take);
+                let alpha_take = child_take.saturating_mul(
+                    alpha_contribution
+                        .checked_div(contribution)
+                        .unwrap_or(U96F32::saturating_from_num(0)),
+                );
+                total_child_alpha_take = total_child_alpha_take.saturating_add(alpha_take);
+                total_child_root_take =
+                    total_child_root_take.saturating_add(child_take.saturating_sub(alpha_take));
 
                 Self::recycle_subnet_alpha(
                     netuid,
@@ -1208,14 +1388,17 @@ impl<T: Config> Pallet<T> {
             log::debug!("burn_takee: {burn_take:?} for hotkey {hotkey:?}");
             log::debug!("child_take: {child_take:?} for hotkey {hotkey:?}");
             log::debug!("parent_emission: {parent_emission:?} for hotkey {hotkey:?}");
-            log::debug!("total_child_take: {total_child_take:?} for hotkey {hotkey:?}");
-
-            log::debug!("remaining emission: {remaining_emission:?}");
+            log::debug!(
+                "child take sources: alpha {total_child_alpha_take:?}, root {total_child_root_take:?} for hotkey {hotkey:?}"
+            );
 
             // Add the parent's emission to the distribution list
             dividend_tuples.push((
                 parent.clone(),
-                parent_emission.saturating_to_num::<u64>().into(),
+                DividendParts {
+                    untagged: parent_emission,
+                    ..Default::default()
+                },
             ));
 
             // Keep track of total emission distributed to parents
@@ -1224,15 +1407,30 @@ impl<T: Config> Pallet<T> {
                 "Parent contribution for parent {parent:?} with contribution: {contribution:?}, of total: {total_contribution:?} ({emission_factor:?}), of emission: {validating_emission:?} gets: {parent_emission:?}",
             );
         }
-        // Calculate the final emission for the hotkey itself.
-        // This includes the take left from the parents and the self contribution.
-        let child_emission = remaining_emission
-            .saturating_add(total_child_take)
-            .saturating_to_num::<u64>()
-            .into();
+        // Calculate self entitlement directly from self contribution. Deriving it by
+        // subtracting rounded parent shares leaves fixed-point residue; for a child
+        // without stake that residue would be untagged and could claim the alpha pool.
+        let self_emission = if total_contribution == U96F32::saturating_from_num(0) {
+            validating_emission
+        } else {
+            validating_emission.saturating_mul(
+                self_contribution
+                    .checked_div(total_contribution)
+                    .unwrap_or(U96F32::saturating_from_num(0)),
+            )
+        };
 
+        // Calculate the final emission for the hotkey itself. This includes its
+        // independently calculated self entitlement and source-tagged childkey take.
         // Add the hotkey's own emission to the distribution list
-        dividend_tuples.push((hotkey.clone(), child_emission));
+        dividend_tuples.push((
+            hotkey.clone(),
+            DividendParts {
+                untagged: self_emission,
+                alpha_take: total_child_alpha_take,
+                root_take: total_child_root_take,
+            },
+        ));
 
         dividend_tuples
     }

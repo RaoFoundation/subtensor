@@ -57,6 +57,27 @@ pub use subnets::emission_weights::{
     normalize_tao_weight, root_emission_share,
 };
 
+/// Prevent an owner relationship from weakening a hotkey's authorization.
+/// `allows_coldkey_swap` must preserve the invariant established by
+/// `allows_owner`: swapping a coldkey must not weaken any of its hotkeys.
+pub trait HotkeyOwnerPolicy<AccountId> {
+    fn allows_owner(coldkey: &AccountId, hotkey: &AccountId) -> bool;
+    fn allows_coldkey_swap(old: &AccountId, new: &AccountId) -> bool;
+    fn weight() -> Weight;
+}
+
+impl<AccountId> HotkeyOwnerPolicy<AccountId> for () {
+    fn allows_owner(_: &AccountId, _: &AccountId) -> bool {
+        true
+    }
+    fn allows_coldkey_swap(_: &AccountId, _: &AccountId) -> bool {
+        true
+    }
+    fn weight() -> Weight {
+        Weight::zero()
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -3188,6 +3209,18 @@ pub mod pallet {
         )>,
         ValueQuery,
     >;
+
+    /// Last (block, epoch) at which a hotkey's registration was invalidated.
+    /// Timelocked commits at or before this block belong to the old registration
+    /// and are discarded by the reveal path. Expired cutoffs are removed lazily.
+    #[pallet::storage]
+    pub type TimelockedCommitInvalidatedAt<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Twox64Concat, T::AccountId, (u64, u64), OptionQuery>;
+
+    /// Raw-key cursor for gradual retirement of dormant registration cutoffs.
+    #[pallet::storage]
+    pub type TimelockedCommitCleanupCursor<T: Config> =
+        StorageMap<_, Identity, NetUid, Vec<u8>, OptionQuery>;
 
     /// MAP (netuid, epoch) → VecDeque<(who, ciphertext, reveal_round)>
     /// Deprecated: superseded by `CRV3WeightCommitsV2`.

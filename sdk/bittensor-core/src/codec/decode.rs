@@ -65,6 +65,10 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    fn sequence_bytes(&mut self, len: usize) -> Result<Value, CoreError> {
+        Ok(bytes_value(self.take(len)?))
+    }
+
     fn descend(&mut self) -> Result<(), CoreError> {
         self.depth += 1;
         if self.depth > MAX_DECODE_DEPTH {
@@ -216,7 +220,7 @@ impl Runtime {
             TypeSpec::Sequence(inner) => {
                 let len = compact_len(cursor)?;
                 if matches!(**inner, TypeSpec::Primitive(Primitive::U8)) {
-                    return Ok(bytes_value(cursor.take(len)?));
+                    return cursor.sequence_bytes(len);
                 }
                 let mut items = Vec::with_capacity(len.min(1024));
                 for _ in 0..len {
@@ -253,7 +257,7 @@ impl Runtime {
             TypeSpec::Compact(_) => Ok(uint_value(compact_u128(cursor)?)),
             TypeSpec::Bytes => {
                 let len = compact_len(cursor)?;
-                Ok(bytes_value(cursor.take(len)?))
+                cursor.sequence_bytes(len)
             }
             TypeSpec::AccountId => {
                 let raw: [u8; 32] = cursor
@@ -373,7 +377,7 @@ impl Runtime {
             TypeDef::Sequence(s) => {
                 let len = compact_len(cursor)?;
                 if self.is_u8(s.type_param.id) {
-                    return Ok(bytes_value(cursor.take(len)?));
+                    return cursor.sequence_bytes(len);
                 }
                 let mut items = Vec::with_capacity(len.min(4096));
                 for _ in 0..len {

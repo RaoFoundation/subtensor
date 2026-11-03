@@ -216,8 +216,12 @@ impl<T: Config> Pallet<T> {
             log::trace!(
                 "VotingPower updated for hotkey {hotkey:?} on netuid {netuid:?}: {previous_ema:?} -> {new_ema:?}"
             );
+        } else if previous_ema > 0 {
+            // A zero threshold is valid. In that configuration `new_ema == 0` is not
+            // below the threshold, but it must still clear the previous vote and the
+            // subnet aggregate.
+            Self::remove_voting_power(netuid, hotkey);
         }
-        // If new_ema == 0 do nothing
     }
 
     /// Calculate EMA for voting power.

@@ -37,6 +37,7 @@ pub struct LegacyWeightsTlockPayload {
 impl<T: Config> Pallet<T> {
     /// The `reveal_crv3_commits` function is run at the very beginning of epoch `n`,
     pub fn reveal_crv3_commits_for_subnet(netuid: NetUid) -> dispatch::DispatchResult {
+        Self::cleanup_timelocked_registration_cutoffs(netuid);
         let reveal_period = Self::get_reveal_period(netuid);
         // If the subnet is deferred past this block the
         // commits are taken once here and the later block(s) become no-ops.
@@ -70,6 +71,16 @@ impl<T: Config> Pallet<T> {
             while let Some((who, commit_block, serialized_compresssed_commit, round_number)) =
                 entries.pop_front()
             {
+                // Pruning creates a new registration identity for a hotkey. Drop
+                // commits from the previous identity without scanning shared epoch
+                // queues during the registration extrinsic.
+                if !Self::timelocked_commit_is_current(netuid, &who, commit_block) {
+                    log::trace!(
+                        "Discarding timelocked commit for mechanism {netuid_index} submitted by {who:?} at block {commit_block} before its latest registration"
+                    );
+                    continue;
+                }
+
                 // Try to get the round number from pallet_drand.
                 let pulse = match pallet_drand::Pulses::<T>::get(round_number) {
                     Some(p) => p,

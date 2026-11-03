@@ -24,6 +24,7 @@ Server side::
         request_headers, raw_body,
         method="POST", path="/generate",
         self_hotkey_ss58=my_hotkey,
+        expected_crypto_type=trusted_sender_crypto_type,
     )
     caller.hotkey_ss58   # the authenticated sender
 
@@ -52,6 +53,7 @@ from typing import Optional, Protocol
 
 from .result import BittensorError
 from .signing import WalletLike, resolve_signer
+from .sp_core import CLASSICAL_HASHED_CRYPTO_TYPES, PQ_CRYPTO_TYPES
 from .sp_core import verify as _sp_core_verify
 from .wallets import CRYPTO_TYPE_NAMES, parse_crypto_type
 
@@ -185,6 +187,49 @@ def build_payload(
     return "\n".join(lines).encode()
 
 
+async def prepare_signer(wallet: WalletLike, *, client):
+    """Prepare a hotkey for synchronous HTTP signing using finalized chain state.
+
+    Hashed SR/ED signatures reveal their original identity key, so generation
+    zero must already be retired by a finalized on-chain transaction. Keyfiles
+    intentionally do not persist a trusted generation. This checks the actual
+    signing key's descriptor and returns a prepared signer for :func:`sign`;
+    ordinary SR/ED signers require no chain access. The returned hashed signer
+    can be reused: normal spending-key rotations never reactivate generation zero.
+
+    ``client`` is a connected :class:`bittensor.Client`. Post-quantum HTTP signing
+    is not supported.
+    """
+    from .hashed import descriptor_bytes
+
+    signer = resolve_signer(wallet, role="hotkey")
+    if signer.crypto_type in PQ_CRYPTO_TYPES:
+        raise ValueError("post-quantum HTTP signing is not supported")
+    if signer.crypto_type not in CLASSICAL_HASHED_CRYPTO_TYPES:
+        return signer
+    derive = getattr(signer, "at_generation", None)
+    if not callable(derive):
+        raise ValueError("hashed HTTP signing requires a generation-aware signer")
+    # Resolve the private signer before any query: a stale public companion
+    # must not lend another account's retired generation to an active key.
+    signer = derive(0)
+    finalized = await client._substrate.block_hash(await client.finalized_block())
+    if not finalized:
+        raise ValueError("could not verify finalized hashed hotkey registration")
+    state = await client._substrate.query(
+        "HashedAccounts", "Accounts", [signer.ss58_address], block_hash=finalized
+    )
+    if state is None or descriptor_bytes(state["descriptor"]) != bytes(signer.hashed_descriptor):
+        raise ValueError("hashed hotkey is not registered on the selected chain")
+    generation = int(state["generation"])
+    if generation < 1:
+        raise ValueError(
+            "hashed HTTP signing requires generation zero to be retired by a finalized "
+            "on-chain transaction first"
+        )
+    return signer.at_generation(generation)
+
+
 def sign(
     wallet: WalletLike,
     *,
@@ -205,8 +250,14 @@ def sign(
     The signature scheme follows the signer's ``crypto_type``; the
     ``X-Bittensor-Crypto`` header is emitted only for non-default schemes
     (absent means sr25519).
+
+    For a disk-backed hashed SR/ED hotkey, first obtain a signer with
+    ``await prepare_signer(wallet, client=client)``. Do not manually advance
+    its generation to bypass the finalized-state check.
     """
     signer = resolve_signer(wallet, role="hotkey")
+    if signer.crypto_type in PQ_CRYPTO_TYPES:
+        raise ValueError("post-quantum HTTP signing is not supported")
     scheme = CRYPTO_TYPE_NAMES.get(signer.crypto_type)
     if scheme is None:
         raise ValueError(f"cannot sign btauth requests with crypto type {signer.crypto_type}")
@@ -246,6 +297,7 @@ def verify(
     method: str,
     path: str,
     self_hotkey_ss58: str,
+    expected_crypto_type: int,
     max_age: float = DEFAULT_MAX_AGE,
     allowed_skew: float = DEFAULT_ALLOWED_SKEW,
     require_receiver: bool = True,
@@ -262,11 +314,18 @@ def verify(
     Checks, in order: header shape (:class:`MalformedAuth`), receiver binding
     (:class:`WrongReceiver`), freshness — ``max_age`` seconds back,
     ``allowed_skew`` seconds of forward clock drift (:class:`StaleRequest`),
-    the signature under the declared scheme only, never try-both
+    the signature under the server's trusted scheme only, never try-both
     (:class:`BadSignature`), and replay (:class:`ReplayedRequest`). The replay
     store is written only after the signature verifies, so unauthenticated
     traffic cannot poison it against a legitimate sender.
+
+    ``expected_crypto_type`` must come from trusted configuration or a registry
+    lookup for the claimed sender, never from the request's crypto header. Bare
+    SS58 identities do not encode a scheme; accepting the header alone would
+    allow classical signatures to impersonate a hashed identity.
     """
+    if expected_crypto_type in PQ_CRYPTO_TYPES:
+        raise ValueError("post-quantum HTTP authentication is not supported")
     lowered = {key.lower(): value for key, value in headers.items()}
 
     version = lowered.get(HEADER_VERSION.lower())
@@ -289,6 +348,10 @@ def verify(
     # Rebuild the canonical scheme name rather than echoing the header value,
     # so the signed bytes are never client-influenced beyond the scheme choice.
     scheme = CRYPTO_TYPE_NAMES[crypto_type]
+    if expected_crypto_type not in CRYPTO_TYPE_NAMES:
+        raise ValueError("unsupported trusted sender crypto type")
+    if crypto_type != expected_crypto_type:
+        raise BadSignature("declared signature scheme does not match the trusted sender scheme")
     raw_signature = lowered.get(HEADER_SIGNATURE.lower())
     if raw_signature is None:
         raise MalformedAuth(f"missing {HEADER_SIGNATURE}")

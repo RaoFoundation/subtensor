@@ -45,31 +45,32 @@ impl<T: Config> Pallet<T> {
     /// per position moved plus the per-hotkey bookkeeping reads (watermark, unlock age,
     /// root stake) for every admitted hotkey in the combined source∪destination set.
     fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
-        base.saturating_add(
-            <T as crate::pallet::Config>::WeightInfo::transfer_stake()
-                .saturating_mul(u64::from(work.positions)),
-        )
-        .saturating_add(T::DbWeight::get().reads(u64::from(work.hotkeys).saturating_mul(3)))
-        // Live reservation check at admission/execute (maps + TTL).
-        .saturating_add(T::DbWeight::get().reads(3))
-        // Destination lock path per exhausted row (Skeptic fid:bcf7b5a5):
-        // admission walk, execute re-check in `swap_coldkey_locks`, and purge
-        // scan each read Lock + SubnetOwnerHotkey + DecayingLock (3×3); cleanup
-        // then Lock+LockingColdkeys removes plus `reduce_aggregate_lock`
-        // (`read_conviction_model_for_hotkey` ≈7 reads, up to 4 aggregate writes).
-        .saturating_add(T::DbWeight::get().reads_writes(
-            u64::from(work.dest_locks).saturating_mul(16),
-            u64::from(work.dest_locks).saturating_mul(6),
-        ))
-        // Queue value read, per-entry visit cost, then get+insert per owned
-        // pending registration and one queue rewrite.
-        .saturating_add(
-            T::DbWeight::get().reads(u64::from(work.registration_queue_scan).saturating_add(1)),
-        )
-        .saturating_add(T::DbWeight::get().reads_writes(
-            u64::from(work.pending_registrations),
-            u64::from(work.pending_registrations).saturating_add(1),
-        ))
+        base.saturating_add(Self::hotkey_owner_policy_weight())
+            .saturating_add(
+                <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+                    .saturating_mul(u64::from(work.positions)),
+            )
+            .saturating_add(T::DbWeight::get().reads(u64::from(work.hotkeys).saturating_mul(3)))
+            // Live reservation check at admission/execute (maps + TTL).
+            .saturating_add(T::DbWeight::get().reads(3))
+            // Destination lock path per exhausted row (Skeptic fid:bcf7b5a5):
+            // admission walk, execute re-check in `swap_coldkey_locks`, and purge
+            // scan each read Lock + SubnetOwnerHotkey + DecayingLock (3×3); cleanup
+            // then Lock+LockingColdkeys removes plus `reduce_aggregate_lock`
+            // (`read_conviction_model_for_hotkey` ≈7 reads, up to 4 aggregate writes).
+            .saturating_add(T::DbWeight::get().reads_writes(
+                u64::from(work.dest_locks).saturating_mul(16),
+                u64::from(work.dest_locks).saturating_mul(6),
+            ))
+            // Queue value read, per-entry visit cost, then get+insert per owned
+            // pending registration and one queue rewrite.
+            .saturating_add(
+                T::DbWeight::get().reads(u64::from(work.registration_queue_scan).saturating_add(1)),
+            )
+            .saturating_add(T::DbWeight::get().reads_writes(
+                u64::from(work.pending_registrations),
+                u64::from(work.pending_registrations).saturating_add(1),
+            ))
     }
 
     /// The largest swap one call admits, used as the pre-dispatch envelope.
@@ -118,6 +119,7 @@ impl<T: Config> Pallet<T> {
         let pending_reads = u64::from(max.registration_queue_scan).saturating_add(1);
         T::DbWeight::get()
             .reads(4)
+            .saturating_add(Self::hotkey_owner_policy_weight())
             .saturating_add(
                 T::DbWeight::get().reads(
                     hotkey_reads
@@ -558,6 +560,9 @@ impl<T: Config> Pallet<T> {
         new_coldkey: &T::AccountId,
     ) -> Result<ColdkeySwapWork, (Weight, Error<T>)> {
         let precheck = || Self::coldkey_swap_failed_weight(None, false);
+        if !T::HotkeyOwnerPolicy::allows_coldkey_swap(old_coldkey, new_coldkey) {
+            return Err((precheck(), Error::<T>::HotkeyOwnerPolicyViolation));
+        }
         // Reservation lookup (maps + TTL) charged on every admission path.
         let reservation_weight = T::DbWeight::get().reads(3);
         Self::ensure_beta_basket_seed_idle().map_err(|e| (precheck(), e))?;
@@ -681,8 +686,9 @@ impl<T: Config> Pallet<T> {
     /// the admission scan (hotkeys, positions, dest locks, registration queue) when
     /// refused before commit, and the admitted work when a later step rolled it back.
     fn coldkey_swap_failed_weight(work: Option<ColdkeySwapWork>, admitted: bool) -> Weight {
-        // seed idle + hotkey-exists + active-locks + (optional) work scan bookkeeping.
-        let precheck = T::DbWeight::get().reads(4);
+        let precheck = T::DbWeight::get()
+            .reads(4)
+            .saturating_add(Self::hotkey_owner_policy_weight());
         match work {
             None => precheck,
             // Non-admitted failures still performed dest-lock and/or queue scans —
@@ -1147,10 +1153,15 @@ impl<T: Config> Pallet<T> {
         let old_owned_hotkeys: Vec<T::AccountId> = OwnedHotkeys::<T>::get(old_coldkey);
         let mut new_owned_hotkeys: Vec<T::AccountId> = OwnedHotkeys::<T>::get(new_coldkey);
         for owned_hotkey in old_owned_hotkeys.iter() {
-            // Remove the hotkey from the old coldkey.
-            Owner::<T>::remove(owned_hotkey);
-            // Add the hotkey to the new coldkey.
-            Self::set_hotkey_owner(new_coldkey, owned_hotkey)?;
+            // Preserve the shared setter's existing system-account exclusion.
+            ensure!(
+                Self::is_subnet_account_id(owned_hotkey).is_none(),
+                Error::<T>::CannotUseSystemAccount
+            );
+            // The coldkey-swap policy was checked before entering this
+            // transaction. Its contract preserves every existing owner policy,
+            // avoiding a new registry lookup for each hotkey in this loop.
+            Owner::<T>::insert(owned_hotkey, new_coldkey);
             // Add the owned hotkey to the new set of owned hotkeys.
             if !new_owned_hotkeys.contains(owned_hotkey) {
                 new_owned_hotkeys.push(owned_hotkey.clone());

@@ -33,7 +33,7 @@ use sp_inherents::CreateInherentDataProviders;
 use sp_io::hashing::{blake2_128, twox_128};
 use sp_runtime::{
 	traits::{Block as BlockT, HashingFor},
-	DispatchError, SaturatedConversion,
+	DispatchError, SaturatedConversion, TransactionOutcome,
 };
 use sp_state_machine::OverlayedChanges;
 // Frontier
@@ -46,6 +46,8 @@ use crate::{
 	eth::{Eth, EthConfig},
 	frontier_backend_client, internal_err,
 };
+
+use crate::execution_admission::{retry_execution_capacity, PENDING_LIMIT_ERROR, PENDING_TIMEOUT};
 
 /// Allow to adapt a request for `estimate_gas`.
 /// Can be used to estimate gas of some contracts using a different function
@@ -82,6 +84,40 @@ where
 		number_or_hash: Option<BlockNumberOrHash>,
 		state_overrides: Option<BTreeMap<H160, CallStateOverride>>,
 	) -> RpcResult<Bytes> {
+		let timeout = if number_or_hash == Some(BlockNumberOrHash::Pending) {
+			PENDING_TIMEOUT
+		} else {
+			std::time::Duration::from_secs(5)
+		};
+		let deadline = tokio::time::Instant::now() + timeout;
+		let execution = retry_execution_capacity(
+			|| {
+				self.call_inner(
+					request.clone(),
+					number_or_hash,
+					state_overrides.clone(),
+					deadline,
+				)
+			},
+			deadline,
+		);
+		if number_or_hash == Some(BlockNumberOrHash::Pending) {
+			tokio::time::timeout_at(deadline, execution)
+				.await
+				.map_err(|_| internal_err(PENDING_LIMIT_ERROR))?
+		} else {
+			execution.await
+		}
+	}
+
+	async fn call_inner(
+		&self,
+		request: TransactionRequest,
+		number_or_hash: Option<BlockNumberOrHash>,
+		state_overrides: Option<BTreeMap<H160, CallStateOverride>>,
+		deadline: tokio::time::Instant,
+	) -> RpcResult<Bytes> {
+		let pending_request = request.clone();
 		let TransactionRequest {
 			from,
 			to,
@@ -106,6 +142,7 @@ where
 			)
 		};
 
+		let mut is_pending = false;
 		let (substrate_hash, mut api) = match frontier_backend_client::native_block_id::<B, C>(
 			self.client.as_ref(),
 			self.backend.as_ref(),
@@ -121,9 +158,13 @@ where
 			}
 			None => {
 				// Not mapped in the db, assume pending.
-				let (hash, api) = self.pending_runtime_api().await.map_err(|err| {
-					internal_err(format!("Create pending runtime api error: {err}"))
-				})?;
+				is_pending = true;
+				let (hash, api) = self
+					.pending_runtime_api_until(deadline.into_std())
+					.await
+					.map_err(|err| {
+						internal_err(format!("Create pending runtime api error: {err}"))
+					})?;
 				(hash, api)
 			}
 		};
@@ -177,6 +218,37 @@ where
 				_ => block_gas_limit,
 			},
 		};
+
+		if is_pending {
+			if state_overrides
+				.as_ref()
+				.is_some_and(|overrides| !overrides.is_empty())
+			{
+				return Err(internal_err(
+					"state overrides are not supported with pending state",
+				));
+			}
+			let (exit_reason, output, _) = retry_execution_capacity(
+				|| {
+					std::future::ready(Self::pending_simulation(
+						&mut api,
+						substrate_hash,
+						pending_request.clone(),
+						deadline,
+						gas_limit,
+						api_version,
+						false,
+						gas_price,
+						max_fee_per_gas,
+						max_priority_fee_per_gas,
+					))
+				},
+				deadline,
+			)
+			.await?;
+			error_on_execution_failure(&exit_reason, &output)?;
+			return Ok(Bytes(output));
+		}
 
 		let data = data.into_bytes().map(|d| d.into_vec()).unwrap_or_default();
 		match to {
@@ -537,14 +609,35 @@ where
 		request: TransactionRequest,
 		number_or_hash: Option<BlockNumberOrHash>,
 	) -> RpcResult<U256> {
+		let pending = number_or_hash == Some(BlockNumberOrHash::Pending);
+		let deadline = tokio::time::Instant::now()
+			+ if pending {
+				PENDING_TIMEOUT
+			} else {
+				std::time::Duration::from_secs(5)
+			};
+		let execution = self.estimate_gas_inner(request, number_or_hash, deadline);
+		if pending {
+			tokio::time::timeout_at(deadline, execution)
+				.await
+				.map_err(|_| internal_err(PENDING_LIMIT_ERROR))?
+		} else {
+			execution.await
+		}
+	}
+
+	async fn estimate_gas_inner(
+		&self,
+		request: TransactionRequest,
+		number_or_hash: Option<BlockNumberOrHash>,
+		admission_deadline: tokio::time::Instant,
+	) -> RpcResult<U256> {
+		let mut is_pending = false;
 		let client = Arc::clone(&self.client);
 		let block_data_cache = Arc::clone(&self.block_data_cache);
 
-		// Define the lower bound of estimate
-		const MIN_GAS_PER_TX: U256 = U256([21_000, 0, 0, 0]);
-
 		// Get substrate hash and runtime api
-		let (substrate_hash, api) = match frontier_backend_client::native_block_id::<B, C>(
+		let (substrate_hash, mut api) = match frontier_backend_client::native_block_id::<B, C>(
 			self.client.as_ref(),
 			self.backend.as_ref(),
 			number_or_hash,
@@ -559,9 +652,13 @@ where
 			}
 			None => {
 				// Not mapped in the db, assume pending.
-				let (hash, api) = self.pending_runtime_api().await.map_err(|err| {
-					internal_err(format!("Create pending runtime api error: {err}"))
-				})?;
+				is_pending = true;
+				let (hash, api) = self
+					.pending_runtime_api_until(admission_deadline.into_std())
+					.await
+					.map_err(|err| {
+						internal_err(format!("Create pending runtime api error: {err}"))
+					})?;
 				(hash, api)
 			}
 		};
@@ -569,22 +666,8 @@ where
 		// Adapt request for gas estimation.
 		let request = EC::EstimateGasAdapter::adapt_request(request);
 
-		// For simple transfer to simple account, return MIN_GAS_PER_TX directly
-		let is_simple_transfer = match &request.data() {
-			None => true,
-			Some(vec) => vec.0.is_empty(),
-		};
-		if is_simple_transfer {
-			if let Some(to) = request.to {
-				let to_code = api
-					.account_code_at(substrate_hash, to)
-					.map_err(|err| internal_err(format!("runtime error: {err}")))?;
-				if to_code.is_empty() {
-					return Ok(MIN_GAS_PER_TX);
-				}
-			}
-		}
-
+		// Runtime account mapping and EIP-7702 may add costs even for an
+		// empty-calldata transfer. Estimate against the active runtime.
 		let block_gas_limit = {
 			let block = block_data_cache.current_block(substrate_hash).await;
 			block
@@ -1091,20 +1174,51 @@ where
 			return Err(internal_err("failed to retrieve Runtime Api version"));
 		};
 
+		// Pending probes share the reconstructed overlay, but roll back every
+		// execution so one gas probe cannot alter the next probe's state.
+		let mut probe = |request, gas, api_version, estimate_mode| {
+			if is_pending {
+				Self::pending_simulation(
+					&mut api,
+					substrate_hash,
+					request,
+					admission_deadline,
+					gas,
+					api_version,
+					estimate_mode,
+					gas_price,
+					max_fee_per_gas,
+					max_priority_fee_per_gas,
+				)
+				.map(|(exit_reason, data, used_gas)| ExecutableResult {
+					exit_reason,
+					data,
+					used_gas,
+				})
+			} else {
+				executable(
+					request,
+					gas,
+					api_version,
+					client.runtime_api(),
+					estimate_mode,
+				)
+			}
+		};
+
 		// Verify that the transaction succeed with the highest capacity
 		let cap = highest;
+
 		let estimate_mode = !cfg!(feature = "rpc-binary-search-estimate");
 		let ExecutableResult {
 			data,
 			exit_reason,
 			used_gas,
-		} = executable(
-			request.clone(),
-			highest,
-			api_version,
-			client.runtime_api(),
-			estimate_mode,
-		)?;
+		} = retry_execution_capacity(
+			|| std::future::ready(probe(request.clone(), highest, api_version, estimate_mode)),
+			admission_deadline,
+		)
+		.await?;
 		match exit_reason {
 			ExitReason::Succeed(_) => (),
 			ExitReason::Error(ExitError::OutOfGas) => {
@@ -1125,13 +1239,18 @@ where
 						data,
 						exit_reason,
 						used_gas: _,
-					} = executable(
-						request.clone(),
-						max_gas_limit,
-						api_version,
-						client.runtime_api(),
-						estimate_mode,
-					)?;
+					} = retry_execution_capacity(
+						|| {
+							std::future::ready(probe(
+								request.clone(),
+								max_gas_limit,
+								api_version,
+								estimate_mode,
+							))
+						},
+						admission_deadline,
+					)
+					.await?;
 					match exit_reason {
 						ExitReason::Succeed(_) => {
 							return Err(internal_err(format!(
@@ -1158,7 +1277,7 @@ where
 			// On binary search, evm estimate mode is disabled
 			let estimate_mode = false;
 			// Define the lower bound of the binary search
-			let mut lowest = MIN_GAS_PER_TX;
+			let mut lowest = U256::from(21_000);
 
 			// Start close to the used gas for faster binary search
 			let mut mid = std::cmp::min(used_gas * 3, (highest + lowest) / 2);
@@ -1170,13 +1289,11 @@ where
 					data,
 					exit_reason,
 					used_gas: _,
-				} = executable(
-					request.clone(),
-					mid,
-					api_version,
-					client.runtime_api(),
-					estimate_mode,
-				)?;
+				} = retry_execution_capacity(
+					|| std::future::ready(probe(request.clone(), mid, api_version, estimate_mode)),
+					admission_deadline,
+				)
+				.await?;
 				match exit_reason {
 					ExitReason::Succeed(_) => {
 						highest = mid;
@@ -1199,6 +1316,221 @@ where
 
 			Ok(highest)
 		}
+	}
+
+	/// Execute one pending simulation transactionally. Typed APIs retain the
+	/// initialized pending overlay and attach the proof-size extension to the
+	/// same recorder used by the runtime API instead of a fresh empty overlay.
+	#[allow(clippy::too_many_arguments, deprecated)]
+	fn pending_simulation(
+		api: &mut sp_api::ApiRef<'_, C::Api>,
+		at: B::Hash,
+		request: TransactionRequest,
+		deadline: tokio::time::Instant,
+		gas_limit: U256,
+		version: u32,
+		estimate: bool,
+		gas_price: Option<U256>,
+		max_fee: Option<U256>,
+		priority_fee: Option<U256>,
+	) -> RpcResult<(ExitReason, Vec<u8>, U256)> {
+		if tokio::time::Instant::now() >= deadline {
+			return Err(internal_err(PENDING_LIMIT_ERROR));
+		}
+		api.record_proof();
+		if let Some(recorder) = api.proof_recorder() {
+			api.register_extension(sp_trie::proof_size_extension::ProofSizeExt::new(recorder));
+		}
+		let result = api.execute_in_transaction(|api| {
+			TransactionOutcome::Rollback((|| {
+				let TransactionRequest {
+					from,
+					to,
+					gas,
+					value,
+					data,
+					nonce,
+					access_list,
+					authorization_list,
+					..
+				} = request;
+				let from = from.unwrap_or_default();
+				let value = value.unwrap_or_default();
+				let gas = gas.unwrap_or(gas_limit).min(gas_limit);
+				let data = data.into_bytes().map(|data| data.0).unwrap_or_default();
+				let access = Some(
+					access_list
+						.unwrap_or_default()
+						.into_iter()
+						.map(|item| (item.address, item.storage_keys))
+						.collect(),
+				);
+				macro_rules! info {
+                ($call:expr, $($used:ident).+) => {{
+                    let info = $call
+                        .map_err(|err| internal_err(format!("runtime error: {err}")))?
+                        .map_err(|err| internal_err(format!("execution fatal: {err:?}")))?;
+                    (info.exit_reason, info.value, info.$($used).+)
+                }};
+            }
+				match to {
+					Some(to) => Ok(match version {
+						1 => info!(
+							api.call_before_version_2(
+								at, from, to, data, value, gas, gas_price, nonce, estimate
+							),
+							used_gas
+						),
+						2 | 3 => info!(
+							api.call_before_version_4(
+								at,
+								from,
+								to,
+								data,
+								value,
+								gas,
+								max_fee,
+								priority_fee,
+								nonce,
+								estimate
+							),
+							used_gas
+						),
+						4 => info!(
+							api.call_before_version_5(
+								at,
+								from,
+								to,
+								data,
+								value,
+								gas,
+								max_fee,
+								priority_fee,
+								nonce,
+								estimate,
+								access
+							),
+							used_gas
+						),
+						5 => info!(
+							api.call_before_version_6(
+								at,
+								from,
+								to,
+								data,
+								value,
+								gas,
+								max_fee,
+								priority_fee,
+								nonce,
+								estimate,
+								access
+							),
+							used_gas.effective
+						),
+						6 => info!(
+							api.call(
+								at,
+								from,
+								to,
+								data,
+								value,
+								gas,
+								max_fee,
+								priority_fee,
+								nonce,
+								estimate,
+								access,
+								authorization_list
+							),
+							used_gas.effective
+						),
+						_ => return Err(internal_err("unsupported pending runtime API version")),
+					}),
+					None => {
+						let (reason, address, used_gas) = match version {
+							1 => info!(
+								api.create_before_version_2(
+									at, from, data, value, gas, gas_price, nonce, estimate
+								),
+								used_gas
+							),
+							2 | 3 => info!(
+								api.create_before_version_4(
+									at,
+									from,
+									data,
+									value,
+									gas,
+									max_fee,
+									priority_fee,
+									nonce,
+									estimate
+								),
+								used_gas
+							),
+							4 => info!(
+								api.create_before_version_5(
+									at,
+									from,
+									data,
+									value,
+									gas,
+									max_fee,
+									priority_fee,
+									nonce,
+									estimate,
+									access
+								),
+								used_gas
+							),
+							5 => info!(
+								api.create_before_version_6(
+									at,
+									from,
+									data,
+									value,
+									gas,
+									max_fee,
+									priority_fee,
+									nonce,
+									estimate,
+									access
+								),
+								used_gas.effective
+							),
+							6 => info!(
+								api.create(
+									at,
+									from,
+									data,
+									value,
+									gas,
+									max_fee,
+									priority_fee,
+									nonce,
+									estimate,
+									access,
+									authorization_list
+								),
+								used_gas.effective
+							),
+							_ => {
+								return Err(internal_err("unsupported pending runtime API version"))
+							}
+						};
+						let code = api
+							.account_code_at(at, address)
+							.map_err(|err| internal_err(format!("runtime error: {err}")))?;
+						Ok((reason, code, used_gas))
+					}
+				}
+			})())
+		});
+		if tokio::time::Instant::now() >= deadline {
+			return Err(internal_err(PENDING_LIMIT_ERROR));
+		}
+		result
 	}
 
 	/// Given an address mapped `CallStateOverride`, creates `OverlayedChanges` to be used for

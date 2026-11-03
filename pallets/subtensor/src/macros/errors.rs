@@ -463,5 +463,7 @@ mod errors {
         ColdkeySwapDestinationReserved,
         /// No live coldkey-swap destination reservation exists for this account.
         ColdkeySwapDestinationReservationNotFound,
+        /// An ownership change would weaken a protected account's authorization.
+        HotkeyOwnerPolicyViolation,
     }
 }

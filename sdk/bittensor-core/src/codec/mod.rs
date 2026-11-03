@@ -109,6 +109,45 @@ mod corpus_tests {
         .expect("golden metadata parses")
     }
 
+    #[test]
+    fn singleton_tuple_sequence_accepts_flat_and_legacy_wrapped_values() {
+        #[derive(codec::Encode, scale_info::TypeInfo)]
+        struct Legs(Vec<(u16, u16, u64, u64)>);
+
+        let mut registry = scale_info::Registry::new();
+        let id = registry.register_type(&scale_info::meta_type::<Legs>()).id;
+        let mut rt = runtime();
+        rt.types = registry.into();
+        let flat = value_from_json(&serde_json::json!([[0, 2, 1_000_000_000u64, 0]]));
+        let wrapped = Value::List(vec![flat.clone()]);
+        let expected = codec::Encode::encode(&Legs(vec![(0, 2, 1_000_000_000, 0)]));
+        for value in [flat, wrapped] {
+            // A failed first attempt must not leave its sequence prefix behind.
+            let mut out = vec![99];
+            rt.encode_value(&TypeSpec::Id(id), &value, &mut out)
+                .unwrap();
+            assert_eq!(out, [vec![99], expected.clone()].concat());
+        }
+    }
+
+    #[test]
+    fn singleton_nested_sequence_preserves_its_inner_sequence() {
+        #[derive(codec::Encode, scale_info::TypeInfo)]
+        struct Rows(Vec<Vec<u16>>);
+
+        let mut registry = scale_info::Registry::new();
+        let id = registry.register_type(&scale_info::meta_type::<Rows>()).id;
+        let mut rt = runtime();
+        rt.types = registry.into();
+        for row in [vec![], vec![1], vec![1, 2]] {
+            let value = value_from_json(&serde_json::json!([row]));
+            assert_eq!(
+                rt.encode_spec(&TypeSpec::Id(id), &value).unwrap(),
+                codec::Encode::encode(&Rows(vec![row]))
+            );
+        }
+    }
+
     /// The definition of done for the decoder: every recorded
     /// `(type id, SCALE bytes, cyscale shape)` triple reproduces exactly.
     #[test]

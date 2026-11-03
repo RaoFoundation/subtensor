@@ -87,7 +87,8 @@ fn transfer_all_preserves_evm_nonce_after_reaping_and_refunding() {
             H160::from_low_u64_be(0x8200),
             vec![],
             U256::zero(),
-            21_000,
+            pallet_evm::account_cost::config::<Runtime>(<Runtime as pallet_evm::Config>::config())
+                .gas_transaction_call,
             Some(fee),
             None,
             Some(U256::from(7)),
@@ -423,18 +424,21 @@ fn retained_nonce_does_not_wrap_at_the_native_nonce_limit() {
 }
 
 #[test]
-fn ordinary_transfer_still_fits_21000_gas_with_external_weight_metering() {
+fn ordinary_transfer_fits_metered_intrinsic_gas_with_external_weight_metering() {
     new_test_ext().execute_with(|| {
         let source = H160::from_low_u64_be(0x8100);
         let destination = H160::from_low_u64_be(0x8200);
         fund(source);
         fund(destination);
+        let gas_limit =
+            pallet_evm::account_cost::config::<Runtime>(<Runtime as pallet_evm::Config>::config())
+                .gas_transaction_call;
         let result = <Runtime as pallet_evm::Config>::Runner::call(
             source,
             destination,
             vec![],
             U256::from(1_000_000_000u64),
-            21_000,
+            gas_limit,
             Some(<Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price().0),
             None,
             None,
@@ -442,14 +446,14 @@ fn ordinary_transfer_still_fits_21000_gas_with_external_weight_metering() {
             vec![],
             true,
             true,
-            Some(<Runtime as pallet_evm::Config>::GasWeightMapping::gas_to_weight(21_000, true)),
+            Some(<Runtime as pallet_evm::Config>::GasWeightMapping::gas_to_weight(gas_limit, true)),
             Some(0),
             <Runtime as pallet_evm::Config>::config(),
         )
         .unwrap();
         assert!(result.exit_reason.is_succeed(), "{:?}", result.exit_reason);
-        assert_eq!(result.used_gas.standard, U256::from(21_000));
-        assert!(result.used_gas.effective <= U256::from(21_000));
+        assert_eq!(result.used_gas.standard, U256::from(gas_limit));
+        assert!(result.used_gas.effective <= U256::from(gas_limit));
         assert_eq!(
             pallet_evm::Pallet::<Runtime>::account_basic(&source)
                 .0

@@ -152,7 +152,7 @@ where
         has_leasing_end_block: bool,
         leasing_end_block: u32,
     ) -> EvmResult<()> {
-        let who = handle.caller_account_id::<R>();
+        let who = handle.caller_account_id::<R>()?;
 
         let leasing_end_block = if has_leasing_end_block {
             Some(leasing_end_block.into())
@@ -188,7 +188,7 @@ where
         lease_id: u32,
         hotkey: H256,
     ) -> EvmResult<()> {
-        let who = handle.caller_account_id::<R>();
+        let who = handle.caller_account_id::<R>()?;
         let hotkey = R::AccountId::from(hotkey.0);
         let call = pallet_subtensor::Call::<R>::terminate_lease { lease_id, hotkey };
 
@@ -197,7 +197,7 @@ where
 
     #[precompile::public("startCall(uint16)")]
     fn start_call(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<()> {
-        let who = handle.caller_account_id::<R>();
+        let who = handle.caller_account_id::<R>()?;
         let call = pallet_subtensor::Call::<R>::start_call {
             netuid: NetUid::from(netuid),
         };

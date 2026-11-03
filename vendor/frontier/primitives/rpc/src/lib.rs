@@ -21,6 +21,10 @@
 
 extern crate alloc;
 
+/// Retriable host admission failure; not an EVM revert or a consensus error.
+pub const LOCAL_EXECUTION_CAPACITY_ERROR: &str =
+	"Local runtime execution capacity reached; retry later";
+
 use alloc::vec::Vec;
 use ethereum::{AuthorizationList, Log};
 use ethereum_types::{Address, Bloom};

@@ -23,6 +23,17 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v482',
+    date: 'Upcoming',
+    title: 'Quantum-Resistant and Rotating Wallets',
+    summary:
+      'ML-DSA-65 wallets use one SS58 address without account registration or a deposit. ' +
+      'Optional key rotation keeps a permanent address for SR, ED, and MS wallets. Safe multisig, ' +
+      'proxy, and derivative modes preserve the intended authority, while the existing ' +
+      'transaction format remains decodable by metadata-aware clients.',
+    href: '/releases/v482-upgrade',
+  },
+  {
     tag: 'v481',
     date: 'October 2026',
     title: 'Etao',
@@ -182,7 +193,7 @@ const page = () => {
         <section className={styles.section} style={{width: '100%'}}>
           <div className={styles.release_list}>
             {releases.map((release) => (
-              <Link key={release.tag} href={release.href} className={styles.release_item}>
+              <Link key={release.href} href={release.href} className={styles.release_item}>
                 <span className={styles.release_meta}>
                   <span className={styles.release_tag}>{release.tag}</span>
                   <span className={styles.release_date}>{release.date}</span>

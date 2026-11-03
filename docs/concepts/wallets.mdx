@@ -16,9 +16,18 @@ A Bittensor wallet is a pair of keys stored on disk (default
 
 ## Key material
 
-Coldkeys and hotkeys are **sr25519** keypairs, addressed with SS58 network
-prefix 42. Each key is generated from a mnemonic (12 words by default), and
-that mnemonic is the only recovery path: the wallet password merely decrypts
+Coldkeys and hotkeys default to **Sr25519**. You can also select **Ed25519**,
+**ML-DSA-65** (`ms`), **Falcon-512** (`falcon512`), or **Falcon-1024**
+(`falcon1024`). Each supports a fixed signing key (`--type standard`) or rotating
+signing keys (`--type hashed`). See [wallet crypto types](/docs/guides/wallet-crypto-types)
+for the scheme comparison, creation commands, and registration requirements.
+
+Standard wallets use SS58 addresses with prefix 42. Hashed wallets expose both
+an SS58 account address and a `tao_` receiving descriptor for the same permanent
+account. Standard ML-DSA and Falcon wallets require no account registration;
+hashed wallets do. Each key is generated from a mnemonic: 12 words by default
+for Sr25519/Ed25519, and 24 words for ML-DSA/Falcon. Preserve the scheme and account
+mode alongside the mnemonic to recover the same identity. The mnemonic is the recovery path: the wallet password merely decrypts
 the keyfile on one machine — it cannot regenerate a lost key, and no password
 is needed to regenerate the key from the mnemonic. Whoever holds the mnemonic
 owns the funds.

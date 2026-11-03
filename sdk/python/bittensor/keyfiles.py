@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 from ._live import pause_live_display
@@ -127,6 +129,7 @@ class Keyfile:
 
     def _write_data(self, data: bytes, *, overwrite: bool) -> None:
         path = Path(self.path)
+        replace_existing = overwrite
         if path.exists() and not overwrite:
             # Only prompt when a human can answer; non-interactive callers
             # get the documented refusal instead of an input() hang/EOFError.
@@ -138,26 +141,41 @@ class Keyfile:
                 )
             if answer not in {"y", "yes"}:
                 raise FileExistsError(f"refusing to overwrite existing keyfile {self.path!r}")
+            replace_existing = True
         self.make_dirs()
         # Key material (including intentionally-plaintext hotkeys) must be
-        # owner-only regardless of the caller's umask. Written to a sibling
-        # temp file and atomically renamed into place so a crash mid-write
-        # can never destroy an existing keyfile.
-        tmp = path.with_suffix(path.suffix + ".tmp")
+        # owner-only regardless of the caller's umask. Each writer owns an
+        # exclusive sibling file, and publishes it only after every byte is
+        # written and synced. A short or failed write preserves the old file.
+        fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        tmp = Path(temporary)
         try:
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             try:
-                # The create mode only applies to new files; fchmod also
-                # clamps a leftover temp file being reused.
                 os.fchmod(fd, 0o600)
-                os.write(fd, data)
+                remaining = memoryview(data)
+                while remaining:
+                    written = os.write(fd, remaining)
+                    if written <= 0:
+                        raise OSError(errno.EIO, "keyfile write made no progress")
+                    remaining = remaining[written:]
                 os.fsync(fd)
             finally:
                 os.close(fd)
-            os.replace(tmp, path)
-        except BaseException:
+            if replace_existing:
+                os.replace(tmp, path)
+            else:
+                # Atomically refuse a file created after the existence check.
+                # Linking publishes the complete inode without a clobber race.
+                os.link(tmp, path)
+                tmp.unlink()
+            if os.name == "posix":
+                directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+        finally:
             tmp.unlink(missing_ok=True)
-            raise
 
     def make_dirs(self) -> None:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True, mode=0o700)

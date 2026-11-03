@@ -13,6 +13,8 @@ import typer
 
 from ... import config as cfg
 from ... import storage, wallets
+from ..._transport.codec import multisig_account
+from ...account_mode import validate_account_mode
 from ...settings import guide_docs_url
 from .. import multisig_helpers as ms_helpers
 from .. import upgrade_helpers as uh
@@ -39,7 +41,7 @@ def _parse_signatory_refs(app_ctx: AppContext, raw: str) -> list[str]:
     if not refs:
         raise ValueError("need at least one signatory (wallet name, address-book name, or ss58)")
     for ref in refs:
-        address = app_ctx.resolve_address("coldkey_ss58", ref)
+        address = app_ctx.resolve_account("coldkey_ss58", ref)
         if not address:
             raise ValueError(f"cannot resolve {ref!r}")
     return refs
@@ -77,6 +79,11 @@ def multisig_add(
     name: Optional[str] = typer.Argument(
         None, help="Name to save the multisig under (defaults to the -w wallet name)."
     ),
+    account_mode: Optional[str] = typer.Option(
+        None,
+        "--account-mode",
+        help="Account derivation: safe for a new group, legacy for an existing standard group.",
+    ),
     threshold: int = typer.Option(
         ...,
         "--threshold",
@@ -110,34 +117,47 @@ def multisig_add(
             app_ctx, help_text="Name to save the multisig under (-w name).", must_exist=False
         )
         name = app_ctx.wallet_name
+    existing = cfg.get_multisig(name)
+    account_mode = validate_account_mode(
+        account_mode or ((existing or {}).get("account_mode", "legacy") if existing else "safe")
+    )
     refs = ms_helpers.collect_signatory_refs(signatories, signatory)
     if not refs:
         refs = _prompt_signatory_refs(app_ctx)
-    resolved = [app_ctx.resolve_address("coldkey_ss58", ref) for ref in refs]
+    resolved = [app_ctx.resolve_account("coldkey_ss58", ref) for ref in refs]
     resolved = list(dict.fromkeys(resolved))
     if threshold > len(resolved):
         app_ctx.output.error(f"threshold {threshold} exceeds {len(resolved)} signatories")
         raise typer.Exit(1)
-    if cfg.get_multisig(name) and not overwrite:
+    if existing and not overwrite:
         app_ctx.output.error(
             f"multisig {name!r} already exists",
             help="pass `--overwrite` to replace it",
         )
         raise typer.Exit(1)
     try:
+        # Reject unusable signer sets before saving or overwriting a funding target.
+        multisig_account(resolved, threshold, account_mode=account_mode)
         entry = cfg.add_multisig(
-            {"name": name, "threshold": threshold, "signatories": refs, "note": note}
+            {
+                "name": name,
+                "threshold": threshold,
+                "signatories": refs,
+                "note": note,
+                "account_mode": account_mode,
+            }
         )
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
 
     async def derive(client):
-        ms = await client.multisig(resolved, threshold)
+        ms = await client.multisig(resolved, threshold, account_mode=account_mode)
         sudo_key = await client.query(storage.Sudo.Key)
-        return ms.address, sudo_key
+        protection = await ms.protection_status()
+        return ms.address, sudo_key, protection
 
-    address, sudo_key = app_ctx.run(derive)
+    address, sudo_key, protection = app_ctx.run(derive)
     coldkey_exists = False
     try:
         wallets.open_wallet(name=name, path=app_ctx.wallet_path)
@@ -150,6 +170,16 @@ def multisig_add(
         "multisig_address": address,
         "coldkey_wallet_also_exists": coldkey_exists,
     }
+    if protection["eligible"]:
+        detail["quantum_resistant_protection"] = (
+            "registered" if protection["registered"] else "registration required"
+        )
+        if not protection["registered"]:
+            detail["funding_requirement"] = (
+                "Approve protection_call(deposit_payer=...) through the multisig quorum "
+                "and wait for finalization before funding. The final approving member "
+                "pays the registration deposit, including for new unfunded accounts."
+            )
     # Only worth mentioning in the rare case this multisig governs the chain.
     if address == str(sudo_key):
         detail["is_chain_sudo_key"] = True
@@ -180,16 +210,20 @@ def multisig_show(
         app_ctx.output.error(f"multisig {name!r} not found")
         raise typer.Exit(1)
 
-    signatories = [app_ctx.resolve_address("coldkey_ss58", ref) for ref in entry["signatories"]]
+    signatories = [app_ctx.resolve_account("coldkey_ss58", ref) for ref in entry["signatories"]]
     signatories = list(dict.fromkeys(signatories))
 
     async def derive(client):
-        ms = await client.multisig(signatories, entry["threshold"])
+        ms = await client.multisig(
+            signatories, entry["threshold"], account_mode=entry.get("account_mode", "legacy")
+        )
         sudo_key = await client.query(storage.Sudo.Key)
-        return ms.address, sudo_key
+        protection = await ms.protection_status()
+        return ms.address, sudo_key, protection
 
-    address, sudo_key = app_ctx.run(derive)
+    address, sudo_key, protection = app_ctx.run(derive)
     detail = {
+        "quantum_resistant_protection": protection,
         "threshold": entry["threshold"],
         "signatories": signatories,
         "multisig_address": address,
@@ -225,6 +259,11 @@ def multisig_pending(
         None,
         "--multisig",
         help="Named multisig (same name as -w); defaults to -w when saved.",
+    ),
+    account_mode: Optional[str] = typer.Option(
+        None,
+        "--multisig-account-mode",
+        help="Account derivation: legacy or safe; saved groups retain their mode.",
     ),
     multisig_threshold: Optional[int] = typer.Option(
         None,
@@ -268,6 +307,7 @@ def multisig_pending(
         threshold, signatories_resolved, preset, signatory_refs = ms_helpers.resolve_multisig(
             app_ctx,
             multisig_name=multisig,
+            account_mode=account_mode,
             threshold=multisig_threshold,
             signatories=signatories,
             other_signatories=other_signatories,
@@ -308,7 +348,11 @@ def multisig_pending(
     label = preset or f"{threshold}-of-{len(signatories_resolved)}"
 
     async def _load(client):
-        ms = await client.multisig(signatories_resolved, threshold)
+        ms = await client.multisig(
+            signatories_resolved,
+            threshold,
+            account_mode=getattr(app_ctx, "multisig_account_mode", "legacy"),
+        )
         records = await ms_helpers.list_pending_with_commands(
             client,
             app_ctx,

@@ -33,6 +33,7 @@ from ..intents.proxy import ProxyTypeChoice
 from ..settings import guide_docs_url
 from .logs import setup_logging
 from .multisig_helpers import SIGNATORY_BACKENDS
+from .registration import parse_registration_deposit
 
 Tier = Literal["read", "unlock", "extension", "tx"]
 
@@ -171,7 +172,18 @@ _TX_FLOW = [
             "--yes",
             "-y",
             "--no-prompt",  # the v9 btcli spelling, kept as an alias
-            help="Skip confirmation prompts.",
+            help="Skip transaction prompts; registration sponsorship still needs explicit consent.",
+            rich_help_panel=PANEL_EXECUTION,
+        ),
+    ),
+    (
+        "max_registration_deposit",
+        Optional[str],
+        typer.Option(
+            None,
+            "--max-registration-deposit",
+            help="Explicitly authorize up to this much TAO to be permanently locked for "
+            "automatic recipient registration, separate from transfer and fees.",
             rich_help_panel=PANEL_EXECUTION,
         ),
     ),
@@ -192,7 +204,7 @@ _TX_FLOW = [
             None,
             "--mev-shield/--no-mev-shield",
             help="Encrypt the extrinsic via the MevShield pallet so the mempool can't "
-            "front-run it. Stake-trading commands shield by default; pass "
+            "front-run it. Stake trading and account registration shield by default; pass "
             "--no-mev-shield to submit in the clear, or persist the choice with "
             "`btcli config set mev_shield false`.",
             rich_help_panel=PANEL_EXECUTION,
@@ -423,6 +435,8 @@ def apply(
         obj.output.json_mode = True
     if _pop("assume_yes", False):
         obj.assume_yes = True
+    if (v := _pop("max_registration_deposit")) is not None:
+        obj.max_registration_deposit = parse_registration_deposit(v)
     if _pop("dry_run", False):
         obj.dry_run = True
     if (v := _pop("mev_shield")) is not None:
@@ -497,7 +511,19 @@ def _with_tier(tier: Tier) -> Callable[[Callable], Callable]:
     def decorate(fn: Callable) -> Callable:
         original = inspect.signature(fn)
         owned = set(original.parameters)
-        added = [p for p in parameters(tier) if p.name not in owned]
+        # A command can own an option under a different Python name: raw
+        # `call` owns --signer as `signer`, while the global uses `signer_backend`.
+        owned_flags = {
+            flag
+            for p in original.parameters.values()
+            if isinstance(p.default, typer.models.OptionInfo)
+            for flag in p.default.param_decls
+        }
+        added = [
+            p
+            for p in parameters(tier)
+            if p.name not in owned and not owned_flags.intersection(p.default.param_decls)
+        ]
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -509,8 +535,9 @@ def _with_tier(tier: Tier) -> Callable[[Callable], Callable]:
             parameters=list(original.parameters.values()) + added
         )
         annotations = dict(getattr(fn, "__annotations__", {}))
+        added_names = {p.name for p in added}
         for name, ann, _ in specs:
-            if name not in owned:
+            if name in added_names:
                 annotations[name] = ann
         wrapper.__annotations__ = annotations
         # The tier marks which commands touch the local wallet (tx/unlock), so

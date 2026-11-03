@@ -132,4 +132,32 @@ DESCRIPTIONS: dict[str, str] = {
         "The order owner is temporarily prohibited from moving funds, so the order cannot be "
         "executed. Retry once the owner's freeze has lifted."
     ),
+    "OrderNonceUsed": (
+        "The nonce was already used or names different order bytes. For a new approval, "
+        "choose a nonce greater than ApprovedOrders.highest_nonce; cancellation and expiry "
+        "do not reset that watermark."
+    ),
+    "TooManyApprovedOrders": (
+        "The owner already has eight live approvals. Cancel or complete an existing order, "
+        "or wait for its expiry, before approving another."
+    ),
+    "OrderAccountMissing": (
+        "The approval owner has no live System account. Fund the owner with the normal "
+        "existential balance before approving an order; no registration or extra deposit "
+        "is required."
+    ),
+    "OrderNotApproved": (
+        "The account-approved order has no matching on-chain owner approval. Execute "
+        "authorize_order through the owner's authority with the exact nonce and order."
+    ),
+    "OrderBatchTooLarge": (
+        "The batch contains more than eight account-approved orders. "
+        "Split execution into supported batches, retaining each signed order's original "
+        "bytes and nonce. Classical orders retain the pallet's original total batch limit."
+    ),
+    "InvalidAuthorizationMode": (
+        "The order terms and authorization scheme do not match. Classical signatures require "
+        "original V1 or V2 terms; account approval requires Authorized terms "
+        "containing the owner-local nonce. Prepare and authorize the complete order again."
+    ),
 }

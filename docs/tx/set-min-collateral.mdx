@@ -15,7 +15,7 @@ immediately). Zero clears the floor and restores pure drain behavior.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_min_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L3122-L3131) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_min_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L3135-L3144) |
 
 ## Parameters
 
@@ -68,7 +68,7 @@ result = sub.execute_tool("set_min_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_min_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L3124`](/code/pallets/subtensor/src/macros/dispatches.rs#L3122-L3131):
+`SubtensorModule.set_min_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L3137`](/code/pallets/subtensor/src/macros/dispatches.rs#L3135-L3144):
 
 ```rust
 #[pallet::call_index(145)]
@@ -83,6 +83,6 @@ pub fn set_min_collateral(
 }
 ```
 
-Delegates to [`do_set_min_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L677).
+Delegates to [`do_set_min_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L688).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

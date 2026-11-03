@@ -12,7 +12,7 @@ repository = { workspace = true }
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-environmental = { workspace = true, optional = true }
+environmental = { workspace = true }
 ethereum = { workspace = true }
 evm = { workspace = true, features = ["with-codec"] }
 hash-db = { workspace = true }
@@ -46,7 +46,7 @@ pallet-timestamp = { workspace = true, features = ["default"] }
 [features]
 default = ["std"]
 std = [
-	"environmental?/std",
+	"environmental/std",
 	"ethereum/std",
 	"evm/std",
 	"evm/serde",
@@ -76,4 +76,4 @@ try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 ]
-forbid-evm-reentrancy = ["dep:environmental"]
+forbid-evm-reentrancy = []

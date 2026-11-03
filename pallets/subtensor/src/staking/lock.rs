@@ -1534,11 +1534,8 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
-        // Reject residual mass/conviction on the destination (read-only), then
-        // drop fully exhausted dust rows so a source insert cannot leave two
-        // Lock rows on the same subnet for `read_conviction_model`.
+        // Reject residual mass/conviction on the destination (read-only).
         Self::ensure_no_active_locks(new_coldkey)?;
-        Self::purge_exhausted_locks_for_swap(new_coldkey);
 
         let mut locks_to_transfer: Vec<(NetUid, T::AccountId, LockState)> = Vec::new();
         let now = Self::get_current_block_as_u64();
@@ -1552,6 +1549,29 @@ impl<T: Config> Pallet<T> {
         for ((netuid, hotkey), lock) in Lock::<T>::iter_prefix((old_coldkey,)) {
             locks_to_transfer.push((netuid, hotkey, lock));
         }
+
+        // Cleanup uses forward cursors. Moving either row while its netuid is in the
+        // dissolution queue can put it behind a cursor and later recreate an aggregate
+        // that outlives the subnet. Fail before any destination cleanup or source writes.
+        let dissolving = DissolveCleanupQueue::<T>::get();
+        let current_dissolving =
+            CurrentDissolveCleanupStatus::<T>::get().map(|status| status.netuid);
+        let is_dissolving = |netuid: &NetUid| {
+            dissolving.contains(netuid) || current_dissolving.as_ref() == Some(netuid)
+        };
+        ensure!(
+            !locks_to_transfer
+                .iter()
+                .any(|(netuid, _, _)| is_dissolving(netuid))
+                && !decaying_locks_to_transfer
+                    .iter()
+                    .any(|(netuid, _)| is_dissolving(netuid)),
+            Error::<T>::WaitingForDissolvedSubnetCleanup
+        );
+
+        // Drop fully exhausted destination dust rows only after all read-only source
+        // admission checks pass.
+        Self::purge_exhausted_locks_for_swap(new_coldkey);
 
         let mut rolled_locks_to_transfer: Vec<(NetUid, T::AccountId, LockState, bool)> = Vec::new();
         for (netuid, hotkey, lock) in locks_to_transfer {

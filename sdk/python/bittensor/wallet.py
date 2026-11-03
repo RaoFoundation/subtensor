@@ -6,7 +6,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .keyfiles import Keyfile, Keypair
-from .sp_core import CRYPTO_SR25519
+from .sp_core import (
+    CRYPTO_SR25519,
+    FIXED_PQ_CRYPTO_TYPES,
+    PQ_CRYPTO_TYPES,
+    REGISTERED_CRYPTO_TYPES,
+    account_crypto_type,
+)
 
 DEFAULT_WALLET_PATH = str(Path.home() / ".bittensor" / "wallets")
 
@@ -18,11 +24,36 @@ def _seed_bytes(seed: str | bytes) -> bytes:
 
 
 def _public_only(keypair: Keypair) -> Keypair:
+    if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
+        return keypair.public_only()
     return Keypair(
         ss58_address=keypair.ss58_address,
         public_key=bytes(keypair.public_key),
         crypto_type=keypair.crypto_type,
         ss58_format=keypair.ss58_format,
+    )
+
+
+def _restore_public_key(address: str | None, public_key: str | None, crypto_type: int) -> Keypair:
+    from .receiving import is_receiving_address, parse_recipient
+
+    if address is not None and is_receiving_address(address):
+        recipient = parse_recipient(address)
+        keypair = Keypair.from_hashed_descriptor(recipient.descriptor)
+        if public_key is not None:
+            encoded = bytes.fromhex(public_key.removeprefix("0x"))
+            if encoded != bytes(keypair.public_key):
+                raise ValueError("public key does not match the receiving address")
+        return keypair
+    if crypto_type in REGISTERED_CRYPTO_TYPES and crypto_type not in FIXED_PQ_CRYPTO_TYPES:
+        raise ValueError(
+            "hashed watch-only recovery requires the complete receiving address; "
+            "copy it from `btcli wallet show`"
+        )
+    return Keypair(
+        ss58_address=address,
+        public_key=bytes.fromhex(public_key.removeprefix("0x")) if public_key else None,
+        crypto_type=crypto_type,
     )
 
 
@@ -168,7 +199,7 @@ class Wallet:
 
     def create_new_coldkey(
         self,
-        n_words: int = 12,
+        n_words: int | None = None,
         use_password: bool = True,
         overwrite: bool = False,
         suppress: bool = False,
@@ -176,8 +207,13 @@ class Wallet:
         coldkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
         on_mnemonic: Callable[[str], None] | None = None,
+        account_type: str | None = None,
     ) -> Wallet:
-        mnemonic = Keypair.generate_mnemonic(n_words)
+        crypto_type = account_crypto_type(crypto_type, account_type)
+        words = (24 if crypto_type in PQ_CRYPTO_TYPES else 12) if n_words is None else n_words
+        if crypto_type in PQ_CRYPTO_TYPES and words != 24:
+            raise ValueError("post-quantum wallets require a fresh 24-word mnemonic")
+        mnemonic = Keypair.generate_mnemonic(words)
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
         # on_mnemonic lets a caller (the CLI) render the mnemonic itself
         # instead of this library printing it raw to stdout.
@@ -199,7 +235,7 @@ class Wallet:
 
     def create_new_hotkey(
         self,
-        n_words: int = 12,
+        n_words: int | None = None,
         use_password: bool = False,
         overwrite: bool = False,
         suppress: bool = False,
@@ -207,8 +243,13 @@ class Wallet:
         hotkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
         on_mnemonic: Callable[[str], None] | None = None,
+        account_type: str | None = None,
     ) -> Wallet:
-        mnemonic = Keypair.generate_mnemonic(n_words)
+        crypto_type = account_crypto_type(crypto_type, account_type)
+        words = (24 if crypto_type in PQ_CRYPTO_TYPES else 12) if n_words is None else n_words
+        if crypto_type in PQ_CRYPTO_TYPES and words != 24:
+            raise ValueError("post-quantum wallets require a fresh 24-word mnemonic")
+        mnemonic = Keypair.generate_mnemonic(words)
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
         if on_mnemonic is not None:
             on_mnemonic(mnemonic)
@@ -238,8 +279,10 @@ class Wallet:
         save_coldkey_to_env: bool = False,
         coldkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
+        account_type: str | None = None,
         **_: Any,
     ) -> Wallet:
+        crypto_type = account_crypto_type(crypto_type, account_type)
         if mnemonic is not None:
             if not suppress:
                 print(f"Regenerating coldkey from mnemonic\nMnemonic: {mnemonic}")
@@ -285,8 +328,10 @@ class Wallet:
         save_hotkey_to_env: bool = False,
         hotkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
+        account_type: str | None = None,
         **_: Any,
     ) -> Wallet:
+        crypto_type = account_crypto_type(crypto_type, account_type)
         if mnemonic is not None:
             if not suppress:
                 print(f"Regenerating hotkey from mnemonic\nMnemonic: {mnemonic}")
@@ -319,16 +364,14 @@ class Wallet:
         overwrite: bool = False,
         suppress: bool = True,
         crypto_type: int = CRYPTO_SR25519,
+        account_type: str | None = None,
         **_: Any,
     ) -> Wallet:
+        crypto_type = account_crypto_type(crypto_type, account_type)
         del suppress
         if ss58_address is None and public_key is None:
             raise ValueError("either ss58_address or public_key must be passed")
-        keypair = Keypair(
-            ss58_address=ss58_address,
-            public_key=bytes.fromhex(public_key.removeprefix("0x")) if public_key else None,
-            crypto_type=crypto_type,
-        )
+        keypair = _restore_public_key(ss58_address, public_key, crypto_type)
         self._set_coldkeypub(keypair, overwrite)
         return self
 
@@ -339,16 +382,14 @@ class Wallet:
         overwrite: bool = False,
         suppress: bool = True,
         crypto_type: int = CRYPTO_SR25519,
+        account_type: str | None = None,
         **_: Any,
     ) -> Wallet:
+        crypto_type = account_crypto_type(crypto_type, account_type)
         del suppress
         if ss58_address is None and public_key is None:
             raise ValueError("either ss58_address or public_key must be passed")
-        keypair = Keypair(
-            ss58_address=ss58_address,
-            public_key=bytes.fromhex(public_key.removeprefix("0x")) if public_key else None,
-            crypto_type=crypto_type,
-        )
+        keypair = _restore_public_key(ss58_address, public_key, crypto_type)
         self._set_hotkeypub(keypair, overwrite)
         return self
 

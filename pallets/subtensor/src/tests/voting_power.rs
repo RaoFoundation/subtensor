@@ -390,6 +390,37 @@ fn test_total_voting_power_tracks_updates_removals_and_swaps() {
     });
 }
 
+#[test]
+fn zero_ema_clears_previous_vote_when_threshold_is_zero() {
+    new_test_ext(1).execute_with(|| {
+        let f = VotingPowerTestFixture::new();
+        f.setup_full();
+        assert_eq!(SubtensorModule::get_stake_threshold(), 0);
+        assert_ok!(SubtensorModule::sudo_set_voting_power_ema_alpha(
+            RuntimeOrigin::root(),
+            f.netuid,
+            MAX_VOTING_POWER_EMA_ALPHA,
+        ));
+        f.run_epochs(1);
+        assert!(f.get_voting_power() > 0);
+
+        let mut output = BTreeMap::new();
+        output.insert(
+            f.hotkey,
+            EpochTerms {
+                uid: 0,
+                new_validator_permit: true,
+                stake: 0.into(),
+                ..Default::default()
+            },
+        );
+        SubtensorModule::update_voting_power_for_subnet(f.netuid, &output);
+
+        assert_eq!(f.get_voting_power(), 0);
+        assert_eq!(TotalVotingPower::<Test>::get(f.netuid), 0);
+    });
+}
+
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::voting_power::test_voting_power_cleared_when_deregistered --exact --nocapture
 #[test]
 fn test_voting_power_cleared_when_deregistered() {

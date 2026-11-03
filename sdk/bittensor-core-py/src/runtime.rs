@@ -4,7 +4,9 @@
 
 use std::sync::Arc;
 
-use bittensor_core::codec::extrinsic::{era_birth, multisig_account_id, TxParams};
+use bittensor_core::codec::extrinsic::{
+    era_birth, multisig_account_id, safe_multisig_account_id, TxParams,
+};
 use bittensor_core::codec::{decode::Cursor, storage::storage_prefix};
 use bittensor_core::runtime::{Runtime, StorageInfo};
 use pyo3::prelude::*;
@@ -674,6 +676,25 @@ fn multisig_account_id_py<'py>(
     signatories: Vec<Vec<u8>>,
     threshold: u16,
 ) -> PyResult<(Bound<'py, PyBytes>, Vec<Bound<'py, PyBytes>>)> {
+    derive_multisig_account_id_py(py, signatories, threshold, false)
+}
+
+#[pyfunction]
+#[pyo3(name = "safe_multisig_account_id")]
+fn safe_multisig_account_id_py<'py>(
+    py: Python<'py>,
+    signatories: Vec<Vec<u8>>,
+    threshold: u16,
+) -> PyResult<(Bound<'py, PyBytes>, Vec<Bound<'py, PyBytes>>)> {
+    derive_multisig_account_id_py(py, signatories, threshold, true)
+}
+
+fn derive_multisig_account_id_py<'py>(
+    py: Python<'py>,
+    signatories: Vec<Vec<u8>>,
+    threshold: u16,
+    safe: bool,
+) -> PyResult<(Bound<'py, PyBytes>, Vec<Bound<'py, PyBytes>>)> {
     let keys = signatories
         .iter()
         .enumerate()
@@ -686,7 +707,12 @@ fn multisig_account_id_py<'py>(
             })
         })
         .collect::<PyResult<Vec<[u8; 32]>>>()?;
-    let (account, sorted) = multisig_account_id(&keys, threshold).map_err(to_py_err)?;
+    let (account, sorted) = if safe {
+        safe_multisig_account_id(&keys, threshold)
+    } else {
+        multisig_account_id(&keys, threshold)
+    }
+    .map_err(to_py_err)?;
     Ok((
         PyBytes::new(py, &account),
         sorted.iter().map(|k| PyBytes::new(py, k)).collect(),
@@ -698,5 +724,6 @@ pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyStorageEntry>()?;
     module.add_function(wrap_pyfunction!(era_birth_py, module)?)?;
     module.add_function(wrap_pyfunction!(multisig_account_id_py, module)?)?;
+    module.add_function(wrap_pyfunction!(safe_multisig_account_id_py, module)?)?;
     Ok(())
 }

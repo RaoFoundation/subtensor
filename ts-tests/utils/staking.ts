@@ -131,19 +131,6 @@ export async function getStake(
     return result;
 }
 
-/**
- * Get raw stake shares (Alpha) in U64F64 format.
- * Use this when you need the raw value for extrinsics like transfer_stake.
- */
-export async function getStakeRaw(
-    api: TypedApi<typeof subtensor>,
-    hotkey: string,
-    coldkey: string,
-    netuid: number
-): Promise<bigint> {
-    return await api.query.SubtensorModule.Alpha.getValue(hotkey, coldkey, netuid);
-}
-
 export async function transferStake(
     api: TypedApi<typeof subtensor>,
     originColdkey: KeyringPair,
