@@ -44,12 +44,13 @@ type RegistrationAllowed = (PowRegistrationCalls, BurnedRegistrationCalls);
 /// owner-key rotation.
 type OwnerAllowed = (SubnetIdentityCalls, SubnetManagementCalls);
 
-/// `SubnetLeaseBeneficiary`: operate a leased subnet (activation, identity, and
-/// the owner-settable subnet management config).
+/// `SubnetLeaseBeneficiary`: operate a leased subnet (activation, identity, the
+/// owner-settable subnet management config, and the subnet's service).
 type SubnetLeaseAllowed = (
     SubnetActivationCalls,
     SubnetIdentityCalls,
     SubnetManagementCalls,
+    ServiceCalls,
 );
 
 /// `Weights`: submit weights for the real hotkey and nothing else. The
@@ -144,6 +145,7 @@ type NonCriticalAllowed = (
     WeightCalls,
     NeuronServingCalls,
     GammaCreditCalls,
+    ServiceCalls,
     SubtensorCommonCalls,
 );
 
@@ -196,7 +198,8 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             // Keep this positive list explicit. A future proxy type that can
             // move value must not become addable through `NonTransfer` by
             // default. `SudoUncheckedSetCode` is not listed: `NonTransfer`
-            // no longer reaches Sudo.
+            // no longer reaches Sudo. `SubnetLeaseBeneficiary` is not listed: it
+            // names the spender of the subnet's service.
             (
                 ProxyType::NonTransfer,
                 ProxyType::Owner
@@ -209,7 +212,6 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::RootWeights
                 | ProxyType::ChildKeys
                 | ProxyType::SwapHotkey
-                | ProxyType::SubnetLeaseBeneficiary
                 | ProxyType::RootClaim
                 | ProxyType::Validate
                 | ProxyType::Weights
@@ -399,8 +401,13 @@ mod tests {
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
-        let denied =
-            &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls, GammaCreditCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                BasketTradingCalls,
+                GammaSpendCalls,
+                GammaCreditCalls,
+                ServiceCalls,
+            )>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -427,8 +434,13 @@ mod tests {
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(LockCalls, SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
-        let denied =
-            &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls, GammaCreditCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                BasketTradingCalls,
+                GammaSpendCalls,
+                GammaCreditCalls,
+                ServiceCalls,
+            )>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -857,7 +869,6 @@ mod tests {
             ProxyType::RootWeights,
             ProxyType::ChildKeys,
             ProxyType::SwapHotkey,
-            ProxyType::SubnetLeaseBeneficiary,
             ProxyType::RootClaim,
             ProxyType::Validate,
             ProxyType::Weights,
@@ -949,6 +960,7 @@ mod tests {
         assert!(lease.contains("SubtensorModule::start_call"));
         assert!(lease.contains("SubtensorModule::set_subnet_identity"));
         assert!(lease.contains("AdminUtils::sudo_set_serving_rate_limit"));
+        assert!(lease.contains("SubtensorModule::set_service"));
         // ...but not root-only params, owner keys, authorities, or lease teardown.
         assert!(!lease.contains("AdminUtils::sudo_set_kappa"));
         assert!(!lease.contains("AdminUtils::sudo_set_total_issuance"));
@@ -1119,6 +1131,7 @@ mod tests {
             BasketTradingCalls,
             GammaSpendCalls,
             GammaCreditCalls,
+            ServiceCalls,
             LockCalls,
             SubtensorValueCalls,
             OwnerKeyCalls,

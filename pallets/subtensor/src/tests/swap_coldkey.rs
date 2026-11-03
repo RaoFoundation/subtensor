@@ -2188,8 +2188,10 @@ fn seed_gamma_deposits(netuid: NetUid, coldkey: U256, hotkeys: core::ops::Range<
                 coldkey,
                 spender: U256::from(77),
                 balance: GammaBalance::from(hotkey),
-                daily_spend_cap: Some(GammaBalance::from(5u64)),
-                bucket: (GammaBalance::from(3u64), 9),
+                daily_spend_cap: Some(GammaDailySpendCap {
+                    cap: GammaBalance::from(5u64),
+                    bucket: (GammaBalance::from(3u64), 9),
+                }),
             },
         );
         ColdkeyGammaHotkeys::<Test>::mutate(netuid, coldkey, |index| {
@@ -2223,8 +2225,10 @@ fn test_do_swap_coldkey_migrates_gamma_deposits() {
                     coldkey: new_coldkey,
                     spender: U256::from(77),
                     balance: GammaBalance::from(hotkey),
-                    daily_spend_cap: Some(GammaBalance::from(5u64)),
-                    bucket: (GammaBalance::from(3u64), 9),
+                    daily_spend_cap: Some(GammaDailySpendCap {
+                        cap: GammaBalance::from(5u64),
+                        bucket: (GammaBalance::from(3u64), 9),
+                    }),
                 })
             );
         }

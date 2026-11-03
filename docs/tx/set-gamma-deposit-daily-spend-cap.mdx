@@ -12,7 +12,7 @@ the spender can spend now, up to the new cap. Set exactly one of
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_gamma_deposit_daily_spend_cap`](/code/pallets/subtensor/src/macros/dispatches.rs#L3236-L3245) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_gamma_deposit_daily_spend_cap`](/code/pallets/subtensor/src/macros/dispatches.rs#L3240-L3249) |
 
 ## Parameters
 
@@ -68,7 +68,7 @@ result = sub.execute_tool("set_gamma_deposit_daily_spend_cap", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_gamma_deposit_daily_spend_cap` — [`pallets/subtensor/src/macros/dispatches.rs#L3238`](/code/pallets/subtensor/src/macros/dispatches.rs#L3236-L3245):
+`SubtensorModule.set_gamma_deposit_daily_spend_cap` — [`pallets/subtensor/src/macros/dispatches.rs#L3242`](/code/pallets/subtensor/src/macros/dispatches.rs#L3240-L3249):
 
 ```rust
 #[pallet::call_index(163)]
@@ -83,6 +83,6 @@ pub fn set_gamma_deposit_daily_spend_cap(
 }
 ```
 
-Delegates to [`do_set_gamma_deposit_daily_spend_cap`](/code/pallets/subtensor/src/subnets/gamma.rs#L390).
+Delegates to [`do_set_gamma_deposit_daily_spend_cap`](/code/pallets/subtensor/src/subnets/gamma.rs#L407).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

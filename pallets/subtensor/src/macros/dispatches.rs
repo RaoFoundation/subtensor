@@ -3142,7 +3142,8 @@ mod dispatches {
 
         /// Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the
         /// signer's deposit at `hotkey`, which must name `spender` and have `daily_spend_cap`
-        /// when they are given, or opens with them. Fails below `min_amount_out` gamma.
+        /// when they are given, or opens with them, `None` being the default spender and no cap.
+        /// Fails below `min_amount_out` gamma.
         #[pallet::call_index(158)]
         #[pallet::weight((<T as Config>::WeightInfo::mint_gamma(), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma(
@@ -3168,7 +3169,8 @@ mod dispatches {
         /// Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as
         /// `burn_alpha` does, and credits its gamma to the signer's deposit at
         /// `destination_hotkey`, which must name `spender` and have `daily_spend_cap` when they
-        /// are given, or opens with them. Fails below `min_amount_out` gamma.
+        /// are given, or opens with them, `None` being the default spender and no cap. Fails
+        /// below `min_amount_out` gamma.
         #[pallet::call_index(159)]
         #[pallet::weight((<T as Config>::WeightInfo::mint_gamma_with_stake(), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma_with_stake(
@@ -3219,7 +3221,9 @@ mod dispatches {
         }
 
         /// Sets the spender of the signer's gamma deposit at `hotkey`; `None` names the default
-        /// spender, the subnet owner or its lease's beneficiary while the lease owns the subnet.
+        /// spender: the spender of the subnet owner hotkey's service while the owner owns that
+        /// hotkey, otherwise the subnet owner, or its lease's beneficiary while the lease owns the
+        /// subnet.
         #[pallet::call_index(162)]
         #[pallet::weight((<T as Config>::WeightInfo::set_gamma_deposit_spender(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_gamma_deposit_spender(
@@ -3269,19 +3273,20 @@ mod dispatches {
                 .into())
         }
 
-        /// Sets the url where the signing hotkey describes its services on the subnet, and the
-        /// spender customers name for them; `None` keeps the current spender, which for a new
-        /// service is the hotkey. The hotkey must be registered on the subnet, and is limited to
-        /// one change per serving rate limit.
+        /// Sets the service of the coldkey's hotkey on the subnet: the url where it describes its
+        /// services and the spender customers name for them. The hotkey must be registered on the
+        /// subnet with a validator permit, or be the subnet owner's hotkey signed for by the
+        /// subnet owner. An empty url removes the service.
         #[pallet::call_index(165)]
-        #[pallet::weight((<T as Config>::WeightInfo::set_service(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((<T as Config>::WeightInfo::set_service(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_service(
             origin: OriginFor<T>,
             netuid: NetUid,
+            hotkey: T::AccountId,
             url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
-            spender: Option<T::AccountId>,
+            spender: T::AccountId,
         ) -> DispatchResult {
-            Self::do_set_service(origin, netuid, url, spender)
+            Self::do_set_service(origin, netuid, hotkey, url, spender)
         }
     }
 }

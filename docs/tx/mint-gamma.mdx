@@ -9,9 +9,10 @@ Buys the subnet's alpha with `amount_tao`, burns it, and credits its value
 in gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it
 when absent. The alpha is valued at the lower of the subnet's gamma price
 and its spot price before the buy.
-A new deposit's spender is the subnet owner, or a leased subnet's
-beneficiary, unless `spender_ss58` names another or `service_hotkey_ss58`
-names a service published on the subnet, whose spender it takes. It has
+A new deposit's spender is the spender of the subnet owner's service,
+otherwise the subnet owner, or a leased subnet's beneficiary, unless
+`spender_ss58` names another or `service_hotkey_ss58` names a service
+published on the subnet, whose spender it takes. It has
 no daily spend cap unless `daily_spend_cap_gamma` sets one. A mint
 naming either fails on a deposit with another.
 Fails rather than minting less than the current quote less
@@ -25,7 +26,7 @@ and the `alpha_burned`, `tao_value` and `gamma` minted.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3146-L3166) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3147-L3167) |
 
 ## Parameters
 
@@ -35,7 +36,7 @@ and the `alpha_burned`, `tao_value` and `gamma` minted.
 | `hotkey_ss58` | string | yes | Hotkey of the deposit credited: an API key, not a staking hotkey. |
 | `amount_tao` | number | yes | TAO spent buying the alpha that is burned. |
 | `rate_tolerance` | number | no | Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%). |
-| `spender_ss58` | string | no | The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet. |
+| `spender_ss58` | string | no | The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet. |
 | `service_hotkey_ss58` | string | no | Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes. |
 | `daily_spend_cap_gamma` | number | no | The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none. |
 
@@ -84,7 +85,7 @@ result = sub.execute_tool("mint_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.mint_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3148`](/code/pallets/subtensor/src/macros/dispatches.rs#L3146-L3166):
+`SubtensorModule.mint_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3149`](/code/pallets/subtensor/src/macros/dispatches.rs#L3147-L3167):
 
 ```rust
 #[pallet::call_index(158)]
@@ -110,6 +111,6 @@ pub fn mint_gamma(
 }
 ```
 
-Delegates to [`do_mint_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L194).
+Delegates to [`do_mint_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L213).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

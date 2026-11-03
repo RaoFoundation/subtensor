@@ -696,9 +696,9 @@ class Subnets(_ReadNamespace):
 
         Each `url` points to its hotkey's own document of its services and the
         payments they accept; the chain does not check what it says. `spender` is
-        the spender customers name on gamma deposits for the service, the one it
-        published or else its hotkey. `block` is when it was published; `owner`
-        marks the subnet owner's hotkey. A url that is not printable text is returned as
+        the spender customers name on gamma deposits for the service. `owner`
+        marks the subnet owner's hotkey while the owner owns it, whose spender new
+        deposits name by default. A url that is not printable text is returned as
         0x-hex.
         """
 

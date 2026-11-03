@@ -20,10 +20,10 @@ TAO. Amounts are in gamma, with 10^9 units per gamma.
 |---|---|
 | Coldkey | mint into its deposits, move gamma between them, set each deposit's spender and daily spend cap, close empty deposits |
 | Hotkey | nothing on chain; it signs requests to the service |
-| Registered hotkey | publish a [service](/docs/guides/services) and its spender on its subnet |
+| Validator or subnet owner hotkey | publish a [service](/docs/guides/services) and its spender on its subnet, signed by its coldkey |
 | Spender | spend the deposits that name it, directly or through a `GammaSpend` proxy |
-| Subnet owner | enable gamma on its subnet with [`gamma_enabled`](/docs/hyperparameters/gamma-enabled); spender of the deposits a mint opens while it owns the subnet, unless a lease owns it |
-| Lease beneficiary | enable gamma through its `SubnetLeaseBeneficiary` proxy; spender of the deposits a mint opens while its lease owns the subnet |
+| Subnet owner | enable gamma on its subnet with [`gamma_enabled`](/docs/hyperparameters/gamma-enabled); spender of the deposits a mint opens while it owns the subnet, unless its hotkey's service names another or a lease owns it |
+| Lease beneficiary | enable gamma through its `SubnetLeaseBeneficiary` proxy; spender of the deposits a mint opens while its lease owns the subnet, unless the subnet owner hotkey's service, which it publishes through that proxy, names another |
 | Root | enable gamma network-wide and on any subnet but root, and set the TAO/USD price oracle |
 | Oracle | feed the TAO/USD price |
 
@@ -136,8 +136,8 @@ btcli gamma close --netuid 51 --hotkey API_KEY
 The spender stays the same if the subnet changes hands. Name another account
 with [`set-gamma-deposit-spender`](/docs/tx/set-gamma-deposit-spender) and
 `--spender SPENDER`, a service's spender with `--service-hotkey SERVICE_HOTKEY`,
-or `--default-spender` for the subnet's current owner, or its lease's
-beneficiary:
+or `--default-spender` for the spender of the subnet owner's service, otherwise
+the subnet's current owner, or its lease's beneficiary:
 
 ```bash
 btcli gamma set-spender --netuid 51 --hotkey API_KEY --service-hotkey SERVICE_HOTKEY
@@ -241,10 +241,11 @@ btcli query tao-usd-price
 - A coldkey swap adds the coldkey's deposits to the new coldkey's. It fails if
   the new coldkey would hold more than 64 on a subnet, and is refused when the
   two coldkeys hold more than 128 together.
-- A spender's coldkey swap does not change any deposit's spender. After a subnet
-  owner or lease beneficiary swaps its coldkey, deposits opened before still
-  name the old coldkey, and only deposits a mint opens after the swap name the
-  new one. A deposit's coldkey re-points it with
-  `btcli gamma set-spender --default-spender`.
+- A spender's coldkey swap does not change any deposit's or service's spender.
+  After a subnet owner or lease beneficiary swaps its coldkey, the deposits and
+  the owner's service that name the old coldkey keep it. The owner republishes
+  its service, and a deposit's coldkey re-points it with
+  `btcli gamma set-spender --default-spender`. An owner whose service names a
+  spender that never needs a swap, such as a multisig, needs neither.
 - The oracle is trusted: its accepted price can rise at most about 61% per day,
   until root replaces or removes it.

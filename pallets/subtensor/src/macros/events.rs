@@ -1034,16 +1034,23 @@ mod events {
             /// Why the entry was skipped.
             reason: sp_runtime::DispatchError,
         },
-        /// A hotkey set its service on a subnet.
+        /// A hotkey's service was set on a subnet.
         ServiceSet {
             /// Subnet of the service.
             netuid: NetUid,
-            /// Hotkey that set it.
+            /// Hotkey of the service.
             hotkey: T::AccountId,
-            /// The service's url, empty when cleared.
+            /// The service's url.
             url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
-            /// The spender customers name, the hotkey when the service names none.
+            /// The spender customers name for the service.
             spender: T::AccountId,
+        },
+        /// A hotkey's service was removed from a subnet.
+        ServiceRemoved {
+            /// Subnet of the service.
+            netuid: NetUid,
+            /// Hotkey of the service.
+            hotkey: T::AccountId,
         },
     }
 }

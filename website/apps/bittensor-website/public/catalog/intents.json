@@ -776,9 +776,9 @@
         "pallet": "SubtensorModule",
         "call": "close_gamma_deposit",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3213,
-        "end_line": 3219,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3211-L3219",
+        "line": 3215,
+        "end_line": 3221,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3213-L3221",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1708,7 +1708,7 @@
   {
     "name": "mint_gamma",
     "summary": "Mint gamma with TAO into your deposit at an API-key hotkey.",
-    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy.\nA new deposit's spender is the subnet owner, or a leased subnet's\nbeneficiary, unless `spender_ss58` names another or `service_hotkey_ss58`\nnames a service published on the subnet, whose spender it takes. It has\nno daily spend cap unless `daily_spend_cap_gamma` sets one. A mint\nnaming either fails on a deposit with another.\nFails rather than minting less than the current quote less\n`rate_tolerance`. A plan's `preview` holds the quote's `gamma`,\n`minimum_gamma`, `alpha_burned` and `tao_value`, and the deposit's\nbalance, spender and cap as `deposit_balance_gamma` (None when the mint\nopens it), `spender_ss58` (None for the default spender) and\n`daily_spend_cap_gamma`. The result's `data[\"minted\"]` holds the\ndeposit's `hotkey_ss58`, `spender_ss58` and `daily_spend_cap_gamma`,\nand the `alpha_burned`, `tao_value` and `gamma` minted.",
+    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy.\nA new deposit's spender is the spender of the subnet owner's service,\notherwise the subnet owner, or a leased subnet's beneficiary, unless\n`spender_ss58` names another or `service_hotkey_ss58` names a service\npublished on the subnet, whose spender it takes. It has\nno daily spend cap unless `daily_spend_cap_gamma` sets one. A mint\nnaming either fails on a deposit with another.\nFails rather than minting less than the current quote less\n`rate_tolerance`. A plan's `preview` holds the quote's `gamma`,\n`minimum_gamma`, `alpha_burned` and `tao_value`, and the deposit's\nbalance, spender and cap as `deposit_balance_gamma` (None when the mint\nopens it), `spender_ss58` (None for the default spender) and\n`daily_spend_cap_gamma`. The result's `data[\"minted\"]` holds the\ndeposit's `hotkey_ss58`, `spender_ss58` and `daily_spend_cap_gamma`,\nand the `alpha_burned`, `tao_value` and `gamma` minted.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1749,7 +1749,7 @@
         },
         "spender_ss58": {
           "type": "string",
-          "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+          "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet."
         },
         "service_hotkey_ss58": {
           "type": "string",
@@ -1784,9 +1784,9 @@
         "pallet": "SubtensorModule",
         "call": "mint_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3148,
-        "end_line": 3166,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3146-L3166",
+        "line": 3149,
+        "end_line": 3167,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3147-L3167",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1845,7 +1845,7 @@
         },
         "spender_ss58": {
           "type": "string",
-          "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+          "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet."
         },
         "service_hotkey_ss58": {
           "type": "string",
@@ -1881,9 +1881,9 @@
         "pallet": "SubtensorModule",
         "call": "mint_gamma_with_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3174,
-        "end_line": 3194,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3172-L3194",
+        "line": 3176,
+        "end_line": 3196,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3174-L3196",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1953,9 +1953,9 @@
         "pallet": "SubtensorModule",
         "call": "move_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3200,
-        "end_line": 3208,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3198-L3208",
+        "line": 3202,
+        "end_line": 3210,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3200-L3210",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3638,9 +3638,9 @@
         "pallet": "SubtensorModule",
         "call": "set_gamma_deposit_daily_spend_cap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3238,
-        "end_line": 3245,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3236-L3245",
+        "line": 3242,
+        "end_line": 3249,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3240-L3249",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3680,7 +3680,7 @@
         },
         "default_spender": {
           "type": "boolean",
-          "description": "Name the default spender, the subnet owner or its lease's beneficiary while a lease owns the subnet."
+          "description": "Name the default spender: the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet."
         }
       },
       "required": [
@@ -3697,9 +3697,9 @@
         "pallet": "SubtensorModule",
         "call": "set_gamma_deposit_spender",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3225,
-        "end_line": 3232,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3223-L3232",
+        "line": 3229,
+        "end_line": 3236,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3227-L3236",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4538,8 +4538,8 @@
   {
     "name": "set_service",
     "summary": "Publish this hotkey's service on a subnet, with the url where it describes",
-    "description": "Publish this hotkey's service on a subnet, with the url where it describes\nits services and the spender customers name on their gamma deposits.\n\nThe chain stores the url and the spender only; the document the url points\nto (the services and their interfaces) is the publisher's. Without\n`spender_ss58` the service keeps its spender, which for a new service is\nthe hotkey. Signed by the hotkey, which must be registered on the subnet,\nand free, as serving an axon is. An empty url clears the service. Updates\nwait out the subnet's `serving_rate_limit`.",
-    "signer": "hotkey",
+    "description": "Publish this hotkey's service on a subnet, with the url where it describes\nits services and the spender customers name on their gamma deposits.\n\nThe chain stores the url and the spender only; the document the url points\nto (the services and their interfaces) is the publisher's. Without\n`spender_ss58` the spender is the coldkey. Signed by the coldkey; the\nhotkey must hold a validator permit on the subnet, or be the subnet owner's\nhotkey with the subnet owner signing. An empty url removes the service.",
+    "signer": "coldkey",
     "origin": "signed",
     "verify": null,
     "wraps": [
@@ -4558,11 +4558,15 @@
         },
         "url": {
           "type": "string",
-          "description": "An http(s) url of the services document, up to 256 bytes; empty clears it."
+          "description": "An http(s) url of the services document, up to 256 bytes; empty removes it."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey whose service it is; defaults to the wallet's."
         },
         "spender_ss58": {
           "type": "string",
-          "description": "The spender customers name for the service. Omit to keep the current one, which for a new service is the hotkey."
+          "description": "The spender customers name for the service; defaults to the coldkey."
         }
       },
       "required": [
@@ -4579,9 +4583,9 @@
         "pallet": "SubtensorModule",
         "call": "set_service",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3278,
-        "end_line": 3285,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3276-L3285",
+        "line": 3282,
+        "end_line": 3290,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3280-L3290",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4971,9 +4975,9 @@
         "pallet": "SubtensorModule",
         "call": "spend_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3255,
-        "end_line": 3270,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3253-L3270",
+        "line": 3259,
+        "end_line": 3274,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3257-L3274",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

@@ -784,9 +784,8 @@ fn test_swap_service() {
         let coldkey = U256::from(3);
         let netuid = NetUid::from(0u16);
         let info = ServiceInfo {
-            block: 1,
             url: BoundedVec::truncate_from(b"https://example.com".to_vec()),
-            spender: None,
+            spender: U256::from(9),
         };
         let mut weight = Weight::zero();
 

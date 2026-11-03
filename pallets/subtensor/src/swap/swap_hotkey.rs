@@ -32,10 +32,11 @@ impl<T: Config> Pallet<T> {
             <<T as crate::pallet::Config>::WeightInfo as crate::weights::WeightInfo>::swap_hotkey()
         } else {
             // +1 read / +4 writes vs the pre-lineage keep_stake path: root lookup,
-            // LastHotkeySwap, successor clear+insert, root insert.
+            // LastHotkeySwap, successor clear+insert, root insert; +1 read / +2 writes for the
+            // service move.
             Weight::from_parts(275_300_000, 0)
-                .saturating_add(T::DbWeight::get().reads(53_u64))
-                .saturating_add(T::DbWeight::get().writes(39_u64))
+                .saturating_add(T::DbWeight::get().reads(54_u64))
+                .saturating_add(T::DbWeight::get().writes(41_u64))
         };
         base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
             .saturating_add(Self::hotkey_owner_policy_weight().saturating_mul(2))

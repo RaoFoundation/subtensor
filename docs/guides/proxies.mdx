@@ -97,11 +97,14 @@ Prefer the narrowest type that covers the job:
   change where the subnet reaches or pays the neuron.
   See [validator operators](#validator-operators-specifically) for setup.
 * **GammaSpend** — `spend_gamma` only: spend the gamma deposits that name the
-  real account as spender. See [Gamma](/docs/guides/gamma#spending).
+  real account as spender. Only the account itself or an `Any` proxy adds or
+  removes it, so revoking a leaked billing key needs the account's own key.
+  See [Gamma](/docs/guides/gamma#spending).
 * **Owner** — subnet-owner admin calls; **NonCritical** — everything except
   registrations, coldkey swaps, subnet dissolution, basket trading, and gamma
   spends;
-  **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.
+  **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls, and the
+  subnet's service.
 
 `Triumvirate`, `Senate`, `Governance`, and `RootWeights` are deprecated on the
 current runtime — they deny all calls.
@@ -154,7 +157,9 @@ btcli proxy add --delegate ops --proxy-type Staking -w safe --ledger
 ```
 
 After the first grant, a `NonTransfer` proxy can add and remove the account's
-other proxies — so the primary coldkey is only ever needed once (see
+other proxies except `Any`, `NonCritical`, `Transfer`, `SmallTransfer`,
+`BasketTrading`, `GammaSpend`, `SubnetLeaseBeneficiary` and
+`SudoUncheckedSetCode` — so the primary coldkey is only ever needed once (see
 [the recommended architecture](#a-recommended-architecture) below).
 
 ## Step 2 — view delegations
@@ -371,8 +376,11 @@ perspective:
    proxy (`--ledger` / `--signer extension` keep it off the CLI machine even
    for that).
 2. **Manager proxy** (`NonTransfer`, `delay > 0`) creates, removes, and
-   monitors all other proxies, and rejects hostile announcements. It cannot
-   move funds even if leaked, and its own actions are announced and delayed —
+   monitors all other proxies except `Any`, `NonCritical`, `Transfer`,
+   `SmallTransfer`, `BasketTrading`, `GammaSpend`, `SubnetLeaseBeneficiary` and
+   `SudoUncheckedSetCode`, and rejects hostile
+   announcements. It cannot transfer funds even if leaked, though it can
+   re-point gamma deposits, and its own actions are announced and delayed —
    visible before they bite.
 3. **Scoped daily proxies** (`Staking`, `Registration`, `ChildKeys`, ...,
    `delay 0`) on working machines, one per job, revoked the moment they're

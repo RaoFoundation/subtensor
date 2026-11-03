@@ -16,7 +16,7 @@ less `rate_tolerance`. Its plan's `preview` and result's
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma_with_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L3172-L3194) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma_with_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L3174-L3196) |
 
 ## Parameters
 
@@ -27,7 +27,7 @@ less `rate_tolerance`. Its plan's `preview` and result's
 | `amount_alpha` | number \| `"all"` | yes | Alpha of stake burned. |
 | `origin_hotkey_ss58` | string | yes | Hotkey the stake is held on (the validator backing the position). |
 | `rate_tolerance` | number | no | Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%). |
-| `spender_ss58` | string | no | The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the subnet owner, or its lease's beneficiary while a lease owns the subnet. |
+| `spender_ss58` | string | no | The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet. |
 | `service_hotkey_ss58` | string | no | Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes. |
 | `daily_spend_cap_gamma` | number | no | The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none. |
 
@@ -78,7 +78,7 @@ result = sub.execute_tool("mint_gamma_with_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.mint_gamma_with_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L3174`](/code/pallets/subtensor/src/macros/dispatches.rs#L3172-L3194):
+`SubtensorModule.mint_gamma_with_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L3176`](/code/pallets/subtensor/src/macros/dispatches.rs#L3174-L3196):
 
 ```rust
 #[pallet::call_index(159)]
@@ -106,6 +106,6 @@ pub fn mint_gamma_with_stake(
 }
 ```
 
-Delegates to [`do_mint_gamma_with_stake`](/code/pallets/subtensor/src/subnets/gamma.rs#L233).
+Delegates to [`do_mint_gamma_with_stake`](/code/pallets/subtensor/src/subnets/gamma.rs#L252).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

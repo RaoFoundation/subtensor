@@ -7,9 +7,9 @@ description: "Every service published on a subnet, by hotkey."
 
 Each `url` points to its hotkey's own document of its services and the
 payments they accept; the chain does not check what it says. `spender` is
-the spender customers name on gamma deposits for the service, the one it
-published or else its hotkey. `block` is when it was published; `owner`
-marks the subnet owner's hotkey. A url that is not printable text is returned as
+the spender customers name on gamma deposits for the service. `owner`
+marks the subnet owner's hotkey while the owner owns it, whose spender new
+deposits name by default. A url that is not printable text is returned as
 0x-hex.
 
 **Category:** Subnets
@@ -47,7 +47,9 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 ## On-chain implementation
 
-- Storage [`SubtensorModule.Services`](/code/pallets/subtensor/src/lib.rs#L3202)
-- Storage [`SubtensorModule.SubnetOwnerHotkey`](/code/pallets/subtensor/src/lib.rs#L2718)
+- Storage [`SubtensorModule.Services`](/code/pallets/subtensor/src/lib.rs#L3210)
+- Storage [`SubtensorModule.SubnetOwnerHotkey`](/code/pallets/subtensor/src/lib.rs#L2726)
+- Storage [`SubtensorModule.SubnetOwner`](/code/pallets/subtensor/src/lib.rs#L2721)
+- Storage [`SubtensorModule.Owner`](/code/pallets/subtensor/src/lib.rs#L1759)
 
 Every file is browsable under [/code](/code) exactly as built into the runtime.

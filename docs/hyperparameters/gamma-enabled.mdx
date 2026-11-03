@@ -11,23 +11,23 @@ while it is off.
 ## How it works
 
 The flag lives in
-[`SubnetGammaEnabled`](/code/pallets/subtensor/src/lib.rs#L3897) storage and
+[`SubnetGammaEnabled`](/code/pallets/subtensor/src/lib.rs#L3926) storage and
 defaults to **false**. A mint also needs gamma enabled network-wide, in
-[`GammaEnabled`](/code/pallets/subtensor/src/lib.rs#L3893), which defaults to
+[`GammaEnabled`](/code/pallets/subtensor/src/lib.rs#L3922), which defaults to
 **false** and only root sets
-([`sudo_set_gamma_enabled`](/code/pallets/admin-utils/src/lib.rs#L2926-L2932)).
+([`sudo_set_gamma_enabled`](/code/pallets/admin-utils/src/lib.rs#L2952-L2958)).
 A subnet can turn its flag on before that, and mints once both are on.
 
 Neither flag touches the subnet's gamma price
-([`SubnetGammaPrice`](/code/pallets/subtensor/src/lib.rs#L3928)), which every
+([`SubnetGammaPrice`](/code/pallets/subtensor/src/lib.rs#L3957)), which every
 subnet but root keeps
 ([`update_gamma_price`](/code/pallets/subtensor/src/staking/stake_utils.rs#L116-L127));
 a mint values alpha at the lower of the gamma price and the spot price
-([`gamma_mark`](/code/pallets/subtensor/src/subnets/gamma.rs#L96-L99)). See
+([`gamma_mark`](/code/pallets/subtensor/src/subnets/gamma.rs#L115-L118)). See
 [Minting](/docs/guides/gamma#minting).
 
 The subnet owner or root sets `gamma_enabled`
-([`sudo_set_subnet_gamma_enabled`](/code/pallets/admin-utils/src/lib.rs#L2894-L2920));
+([`sudo_set_subnet_gamma_enabled`](/code/pallets/admin-utils/src/lib.rs#L2920-L2946));
 the owner is rate-limited, both are refused during the admin freeze window, and
 the root subnet cannot enable it.
 

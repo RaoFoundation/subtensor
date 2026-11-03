@@ -95,6 +95,30 @@ pub(super) fn setup_gamma_subnet<T: Config>(netuid: NetUid) {
     });
 }
 
+/// The default spender's longest lookup on `netuid`: the owner's hotkey, which the owner owns,
+/// has no service, and a lease owns the subnet, whose beneficiary is returned.
+pub(super) fn seed_gamma_default_spender<T: Config>(netuid: NetUid) -> T::AccountId {
+    let beneficiary: T::AccountId = account("gamma_beneficiary", 0, 0);
+    Owner::<T>::insert(
+        SubnetOwnerHotkey::<T>::get(netuid),
+        SubnetOwner::<T>::get(netuid),
+    );
+    SubnetUidToLeaseId::<T>::insert(netuid, 0);
+    SubnetLeases::<T>::insert(
+        0,
+        crate::subnets::leasing::SubnetLease {
+            beneficiary: beneficiary.clone(),
+            coldkey: SubnetOwner::<T>::get(netuid),
+            hotkey: SubnetOwnerHotkey::<T>::get(netuid),
+            emissions_share: Percent::zero(),
+            end_block: None,
+            netuid,
+            cost: TaoBalance::ZERO,
+        },
+    );
+    beneficiary
+}
+
 /// Opens `count` gamma deposits of `coldkey` on `netuid`, each holding `balance` under
 /// `daily_spend_cap` with a full bucket, and returns their hotkeys.
 pub(super) fn seed_gamma_deposits<T: Config>(
@@ -116,8 +140,10 @@ pub(super) fn seed_gamma_deposits<T: Config>(
                     coldkey: coldkey.clone(),
                     spender: Subtensor::<T>::gamma_default_spender(netuid),
                     balance: balance.into(),
-                    daily_spend_cap,
-                    bucket: (daily_spend_cap.unwrap_or_default(), now),
+                    daily_spend_cap: daily_spend_cap.map(|cap| GammaDailySpendCap {
+                        cap,
+                        bucket: (cap, now),
+                    }),
                 },
             );
             ColdkeyGammaHotkeys::<T>::mutate(netuid, coldkey, |hotkeys| {

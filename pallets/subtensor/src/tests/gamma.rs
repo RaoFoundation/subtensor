@@ -616,7 +616,6 @@ fn mint_gamma_opens_and_tops_up_deposits() {
                 spender: U256::from(OWNER_COLDKEY),
                 balance: gamma,
                 daily_spend_cap: None,
-                bucket: (GammaBalance::ZERO, System::block_number()),
             }
         );
 
@@ -702,7 +701,7 @@ fn a_mint_names_a_new_deposits_terms_and_must_match_an_existing_ones() {
         };
         let terms = |hotkey: u64| {
             let deposit = deposit(netuid, hotkey);
-            (deposit.spender, deposit.daily_spend_cap, deposit.bucket)
+            (deposit.spender, deposit.daily_spend_cap)
         };
 
         // The mint that opens the deposit gives it the named spender and cap, with a full
@@ -711,8 +710,10 @@ fn a_mint_names_a_new_deposits_terms_and_must_match_an_existing_ones() {
         assert_ok!(mint_naming(HOTKEY, Some(77), Some(GAMMA)));
         let opened = (
             U256::from(77),
-            Some(GAMMA.into()),
-            (GAMMA.into(), System::block_number()),
+            Some(GammaDailySpendCap {
+                cap: GAMMA.into(),
+                bucket: (GAMMA.into(), System::block_number()),
+            }),
         );
         assert_eq!(terms(HOTKEY), opened);
         assert_ok!(mint_naming(HOTKEY, Some(77), Some(GAMMA)));
@@ -763,8 +764,10 @@ fn a_mint_names_a_new_deposits_terms_and_must_match_an_existing_ones() {
             terms(HOTKEY + 1),
             (
                 U256::from(79),
-                Some(GAMMA.into()),
-                (GAMMA.into(), System::block_number())
+                Some(GammaDailySpendCap {
+                    cap: GAMMA.into(),
+                    bucket: (GAMMA.into(), System::block_number()),
+                })
             )
         );
         assert_noop!(
@@ -983,8 +986,10 @@ fn move_gamma_moves_up_to_the_amount() {
                 coldkey,
                 spender,
                 balance: part,
-                daily_spend_cap: cap,
-                bucket: (GAMMA.into(), now),
+                daily_spend_cap: cap.map(|cap| GammaDailySpendCap {
+                    cap,
+                    bucket: (GAMMA.into(), now),
+                }),
             }
         );
         assert_eq!(deposit(netuid, HOTKEY).balance, gamma.saturating_sub(part));
@@ -1357,8 +1362,10 @@ fn spend_gamma_spends_whole_amounts_within_balance_and_allowance() {
         );
         assert!(deposit(netuid, HOTKEY).balance.is_zero());
         assert_eq!(
-            deposit(netuid, HOTKEY + 1).bucket,
-            (GammaBalance::ZERO, System::block_number())
+            deposit(netuid, HOTKEY + 1)
+                .daily_spend_cap
+                .map(|cap| cap.bucket),
+            Some((GammaBalance::ZERO, System::block_number()))
         );
         assert_gamma_invariants(netuid);
     });
@@ -1755,7 +1762,7 @@ fn gamma_events_reconstruct_deposits() {
                         deposit.coldkey,
                         deposit.spender,
                         deposit.balance,
-                        deposit.daily_spend_cap,
+                        SubtensorModule::gamma_cap(&deposit),
                     ),
                 )
             })
@@ -1913,6 +1920,36 @@ fn exits_stay_open_with_minting_off() {
         ));
         assert_eq!(deposit(netuid, HOTKEY).coldkey, U256::from(66));
         assert_gamma_invariants(netuid);
+    });
+}
+
+// A deposit opened without a spender names the spender of the service of the subnet owner's
+// hotkey while the owner owns it, or the owner otherwise.
+#[test]
+fn the_default_spender_is_the_owners_service_spender() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        assert_eq!(
+            SubtensorModule::gamma_default_spender(netuid),
+            U256::from(OWNER_COLDKEY)
+        );
+        Services::<Test>::insert(
+            netuid,
+            U256::from(OWNER_HOTKEY),
+            ServiceInfo {
+                url: BoundedVec::truncate_from(b"https://example.com".to_vec()),
+                spender: U256::from(77),
+            },
+        );
+        mint(netuid, COLDKEY, HOTKEY, TAO);
+        assert_eq!(deposit(netuid, HOTKEY).spender, U256::from(77));
+
+        // An owner hotkey that another coldkey owns names no spender.
+        Owner::<Test>::insert(U256::from(OWNER_HOTKEY), U256::from(COLDKEY));
+        assert_eq!(
+            SubtensorModule::gamma_default_spender(netuid),
+            U256::from(OWNER_COLDKEY)
+        );
     });
 }
 

@@ -4159,7 +4159,7 @@
     },
     "NeuronNoValidatorPermit": {
       "code": "not_authorized",
-      "description": "The hotkey tried to set weights on other neurons without holding a validator permit on that subnet. Check `ValidatorPermit` for the neuron's uid (e.g. via the metagraph or `btcli subnets metagraph`) and whether its stake ranks it as a validator.",
+      "description": "The hotkey tried to set weights on other neurons, or to publish a service other than the subnet owner's, without holding a validator permit on that subnet. Check `ValidatorPermit` for the neuron's uid (e.g. via the metagraph or `btcli subnets metagraph`) and whether its stake ranks it as a validator.",
       "docs_url": "/docs/errors/chain/NeuronNoValidatorPermit",
       "markdown_url": "/llms.mdx/docs/errors/chain/NeuronNoValidatorPermit/content.md",
       "pallets": [
@@ -5663,7 +5663,7 @@
     },
     "ServingRateLimitExceeded": {
       "code": "rate_limited",
-      "description": "`serve_axon`, `serve_prometheus` or `set_service` was called again before enough blocks passed since that record's last update. Check its block in `Axons`, `Prometheus` or `Services` against the `ServingRateLimit` (serving_rate_limit hyperparameter) and wait.",
+      "description": "`serve_axon` or `serve_prometheus` was called again before enough blocks passed since the neuron's last serving update. Check the axon's last update block in `Axons` against the `ServingRateLimit` (serving_rate_limit hyperparameter) and wait.",
       "docs_url": "/docs/errors/chain/ServingRateLimitExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/ServingRateLimitExceeded/content.md",
       "pallets": [
