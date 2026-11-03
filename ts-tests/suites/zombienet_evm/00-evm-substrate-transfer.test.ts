@@ -1,10 +1,16 @@
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
 import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
-import type { KeyringPair } from "@polkadot/keyring/types";
 import { ethers } from "ethers";
 import type { TypedApi } from "polkadot-api";
 import { Binary } from "polkadot-api";
 import {
+    GWEI,
+    IBALANCETRANSFER_ADDRESS,
+    IBalanceTransferABI,
+    MAX_TX_FEE,
+    WITHDRAW_CONTRACT_ABI,
+    WITHDRAW_CONTRACT_BYTECODE,
     bigintToRao,
     convertH160ToSS58,
     convertPublicKeyToSs58,
@@ -15,10 +21,6 @@ import {
     generateKeyringPair,
     getBalance,
     getEthBalance,
-    GWEI,
-    IBALANCETRANSFER_ADDRESS,
-    IBalanceTransferABI,
-    MAX_TX_FEE,
     raoToEth,
     sendTransaction,
     ss58ToEthAddress,
@@ -27,8 +29,6 @@ import {
     waitForEthBalance,
     waitForFinalizedBlocks,
     waitForTransactionWithRetry,
-    WITHDRAW_CONTRACT_ABI,
-    WITHDRAW_CONTRACT_BYTECODE,
 } from "../../utils";
 
 function expectWithinTxFee(actual: bigint, expected: bigint): void {
@@ -91,6 +91,8 @@ describeSuite({
             api = context.papi("Node").getTypedApi(subtensor);
 
             provider = context.ethers("EVM").provider as ethers.JsonRpcProvider;
+            // Match the local 100 ms block cadence instead of ethers' 4 s default.
+            provider.pollingInterval = 100;
             ethWallet = createEthersWallet(provider);
             ethWallet2 = createEthersWallet(provider);
 
@@ -282,6 +284,7 @@ describeSuite({
                 const withdrawTx = await contractForCall.withdraw(raoToEth(tao(1)).toString());
                 const withdrawReceipt = await withdrawTx.wait();
                 expect(withdrawReceipt?.status).toEqual(1);
+                await waitForFinalizedBlocks(api, 2);
 
                 const contractBalanceAfterWithdraw = await getEthBalance(provider, contractAddress);
                 const callerBalanceAfterWithdraw = await getEthBalance(provider, ethWallet.address);

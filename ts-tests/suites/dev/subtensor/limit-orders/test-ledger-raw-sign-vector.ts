@@ -1,7 +1,6 @@
 import { describeSuite, expect } from "@moonwall/cli";
-import { Keyring } from "@polkadot/keyring";
-import { hexToU8a, stringToU8a, u8aToHex, u8aWrapBytes } from "@polkadot/util";
-import { blake2AsU8a, ed25519PairFromSeed, ed25519Verify } from "@polkadot/util-crypto";
+import { createHash, createPublicKey, verify } from "node:crypto";
+import { CRYPTO_ED25519, Keypair, asPolkadotKeypair, blake2_256, bytesToHex, hexToBytes } from "@bittensor/sdk";
 import {
     type Order,
     type OrderV2,
@@ -257,13 +256,21 @@ const DEFECT_CLIENT_MESSAGE = `TAO.com order v2: Limit buy 1000000000 ppb of ord
 
 const DEFECT_CORRECTED_MESSAGE = `TAO.com order v2: Limit buy 1000000000 ppb of order 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff output on subnet 64, limit price 500000000, expiry 1793000000000, hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, relayer ${RELAYER_A}, max slippage 7500000, chain 1, partial fills true, signer 5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC, has-linked-order true`;
 
-// `new Uint8Array(...)` is load-bearing: `@polkadot/util`'s `isU8a` tests
-// `constructor === Uint8Array` by identity, so an array from another realm makes
-// `u8aWrapBytes` stringify its input instead of wrapping it — silently producing the
-// wrong bytes. Re-wrapping puts it in this realm.
-const bytes = (text: string) => new Uint8Array(stringToU8a(text));
-const wrapped = () => u8aWrapBytes(bytes(ORDER_MESSAGE));
-const digest = () => blake2AsU8a(wrapped(), 256);
+// Construct the exact UTF-8 payload and literal tags used by the runtime.
+const bytes = (text: string) => Buffer.from(text, "utf8");
+const wrapBytes = (data: Uint8Array) => Buffer.concat([bytes("<Bytes>"), data, bytes("</Bytes>")]);
+
+// Verify frozen signatures independently of the SDK signing implementation.
+function ed25519Verify(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
+    const key = createPublicKey({
+        key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), publicKey]),
+        format: "der",
+        type: "spki",
+    });
+    return verify(null, message, key, signature);
+}
+const wrapped = () => wrapBytes(bytes(ORDER_MESSAGE));
+const digest = () => blake2_256(wrapped());
 
 describeSuite({
     id: "DEV_SUB_LIMIT_ORDERS_LEDGER_VECTOR",
@@ -293,11 +300,10 @@ describeSuite({
             test: () => {
                 expect(wrapped()).toHaveLength(WRAPPED_BYTE_LENGTH);
                 expect(WRAPPED_BYTE_LENGTH).toBeGreaterThan(LEDGER_MAX_SIGN_SIZE);
-                expect(u8aToHex(wrapped())).toBe(WRAPPED_PAYLOAD_HEX);
-                // The utils wrap with u8aWrapBytes; the runtime concatenates literal
-                // tags. For printable ASCII both must produce identical bytes, or the
+                expect(bytesToHex(wrapped())).toBe(WRAPPED_PAYLOAD_HEX);
+                // The utility and literal message must produce identical bytes, or the
                 // device would render one thing and the chain verify another.
-                expect(u8aToHex(wrapped())).toBe(u8aToHex(bytes(`<Bytes>${ORDER_MESSAGE}</Bytes>`)));
+                expect(bytesToHex(wrapped())).toBe(bytesToHex(bytes(`<Bytes>${ORDER_MESSAGE}</Bytes>`)));
             },
         });
 
@@ -305,7 +311,7 @@ describeSuite({
             id: "T03",
             title: "the wrapped payload hashes to the pinned digest",
             test: () => {
-                expect(u8aToHex(digest())).toBe(WRAPPED_PAYLOAD_BLAKE2_256);
+                expect(bytesToHex(digest())).toBe(WRAPPED_PAYLOAD_BLAKE2_256);
             },
         });
 
@@ -313,11 +319,11 @@ describeSuite({
             id: "T04",
             title: "the two signing forms are mutually unverifiable",
             test: () => {
-                const publicKey = ed25519PairFromSeed(hexToU8a(SOFTWARE_VECTOR.seedHex)).publicKey;
-                expect(u8aToHex(publicKey)).toBe(SOFTWARE_VECTOR.publicKeyHex);
+                const publicKey = Keypair.fromSeed(hexToBytes(SOFTWARE_VECTOR.seedHex), CRYPTO_ED25519).publicKey;
+                expect(bytesToHex(publicKey)).toBe(SOFTWARE_VECTOR.publicKeyHex);
 
-                const overBlob = hexToU8a(SOFTWARE_VECTOR.signatureOverBlobHex);
-                const overHash = hexToU8a(SOFTWARE_VECTOR.signatureOverHashHex);
+                const overBlob = hexToBytes(SOFTWARE_VECTOR.signatureOverBlobHex);
+                const overHash = hexToBytes(SOFTWARE_VECTOR.signatureOverHashHex);
 
                 expect(ed25519Verify(wrapped(), overBlob, publicKey)).toBe(true);
                 expect(ed25519Verify(digest(), overHash, publicKey)).toBe(true);
@@ -332,8 +338,8 @@ describeSuite({
             id: "T05",
             title: `${DEVICE_VECTOR.label} signed over ${DEVICE_VECTOR.signedOver} and nothing else`,
             test: () => {
-                const publicKey = hexToU8a(DEVICE_VECTOR.publicKeyHex);
-                const signature = hexToU8a(DEVICE_VECTOR.signatureHex);
+                const publicKey = hexToBytes(DEVICE_VECTOR.publicKeyHex);
+                const signature = hexToBytes(DEVICE_VECTOR.signatureHex);
 
                 expect(ed25519Verify(digest(), signature, publicKey)).toBe(true);
 
@@ -341,9 +347,9 @@ describeSuite({
                 const rejected: [string, Uint8Array][] = [
                     ["the raw wrapped payload", wrapped()],
                     ["the unwrapped message", bytes(ORDER_MESSAGE)],
-                    ["blake2_256 of the unwrapped message", blake2AsU8a(bytes(ORDER_MESSAGE), 256)],
-                    ["blake2_512 of the wrapped payload", blake2AsU8a(wrapped(), 512)],
-                    ["the ASCII hex of the digest", bytes(u8aToHex(digest()).slice(2))],
+                    ["blake2_256 of the unwrapped message", blake2_256(bytes(ORDER_MESSAGE))],
+                    ["blake2_512 of the wrapped payload", createHash("blake2b512").update(wrapped()).digest()],
+                    ["the ASCII hex of the digest", bytes(bytesToHex(digest()).slice(2))],
                 ];
                 for (const [form, message] of rejected) {
                     expect(ed25519Verify(message, signature, publicKey), `must not verify over ${form}`).toBe(false);
@@ -355,7 +361,7 @@ describeSuite({
             id: "T06",
             title: "buildReadableSignedOrder emits the device shape for the executable vector",
             test: () => {
-                const signer = new Keyring({ type: "ed25519" }).addFromSeed(hexToU8a(SOFTWARE_VECTOR.seedHex));
+                const signer = asPolkadotKeypair(Keypair.fromSeed(hexToBytes(SOFTWARE_VECTOR.seedHex), CRYPTO_ED25519));
                 expect(signer.address).toBe(SOFTWARE_ADDRESS);
 
                 // `api` is unused by the readable builder (the payload is rendered from
@@ -377,9 +383,9 @@ describeSuite({
                 // signature the helper produced must all match the frozen vector —
                 // i.e. our signing path is byte-for-byte the one a Ledger takes.
                 expect(formatOrderMessage(asV1(signed.order))).toBe(EXECUTABLE_MESSAGE);
-                const payload = u8aWrapBytes(bytes(EXECUTABLE_MESSAGE));
+                const payload = wrapBytes(bytes(EXECUTABLE_MESSAGE));
                 expect(payload.length).toBeGreaterThan(LEDGER_MAX_SIGN_SIZE);
-                expect(u8aToHex(blake2AsU8a(payload, 256))).toBe(EXECUTABLE_DIGEST);
+                expect(bytesToHex(blake2_256(payload))).toBe(EXECUTABLE_DIGEST);
                 expect("Ed25519" in signed.signature).toBe(true);
                 expect((signed.signature as { Ed25519: string }).Ed25519).toBe(EXECUTABLE_SIGNATURE);
             },
@@ -408,10 +414,10 @@ describeSuite({
             title: "every captured v2 payload is oversized and hashes to the pinned digest",
             test: () => {
                 for (const vector of DEVICE_V2_VECTORS) {
-                    const payload = u8aWrapBytes(bytes(formatOrderMessageV2(vector.order)));
+                    const payload = wrapBytes(bytes(formatOrderMessageV2(vector.order)));
                     expect(payload.length, vector.name).toBe(vector.payloadLen);
                     expect(payload.length).toBeGreaterThan(LEDGER_MAX_SIGN_SIZE);
-                    expect(u8aToHex(blake2AsU8a(payload, 256)), vector.name).toBe(vector.digest);
+                    expect(bytesToHex(blake2_256(payload)), vector.name).toBe(vector.digest);
                 }
             },
         });

@@ -1,10 +1,11 @@
-import { expect, beforeAll } from "vitest";
+import { hexToBytes as hexToU8a } from "@bittensor/sdk";
+import { describeSuite } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
+import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
+import { sleep } from "@zombienet/utils";
 import type { PolkadotClient, TypedApi } from "polkadot-api";
 import { Binary } from "polkadot-api";
-import { hexToU8a } from "@polkadot/util";
-import { subtensor, MultiAddress } from "@polkadot-api/descriptors";
-import type { KeyringPair } from "@moonwall/util";
-import { Keyring } from "@polkadot/keyring";
+import { beforeAll, expect } from "vitest";
 import {
     checkRuntime,
     encryptTransaction,
@@ -13,10 +14,10 @@ import {
     getNextKey,
     getShieldSlotDurationMs,
     getSignerFromKeypair,
+    fundShieldAccounts,
+    shieldAccount,
     waitForFinalizedBlocks,
 } from "../../utils";
-import { describeSuite } from "@moonwall/cli";
-import { sleep } from "@zombienet/utils";
 
 // MAX_SHIELD_ERA_PERIOD is eight blocks. The assertion is block-based, so it
 // remains identical under the fast runtime while avoiding a production-time wait.
@@ -40,9 +41,8 @@ describeSuite({
         let mortalityRecipient: KeyringPair;
 
         beforeAll(async () => {
-            const keyring = new Keyring({ type: "sr25519" });
-            mortalitySender = keyring.addFromUri("//Eve");
-            mortalityRecipient = keyring.addFromUri("//Ferdie");
+            mortalitySender = shieldAccount("mortality", "Eve");
+            mortalityRecipient = shieldAccount("mortality", "Ferdie");
 
             apiAuthority = context.papi("Node").getTypedApi(subtensor);
 
@@ -50,6 +50,7 @@ describeSuite({
             apiFull = clientFull.getTypedApi(subtensor);
 
             await checkRuntime(apiAuthority);
+            await fundShieldAccounts(apiAuthority, "mortality", [mortalitySender, mortalityRecipient]);
 
             // Wait for a fresh finalized block, then immediately read NextKey and submit.
             // This tests the "just after block" boundary where keys just rotated.

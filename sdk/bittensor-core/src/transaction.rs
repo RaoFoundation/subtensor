@@ -8,10 +8,16 @@
 
 use std::collections::BTreeSet;
 
-use crate::client::{as_u128, Client, TxOutcome};
+use crate::client::{
+    as_u128, Client, ExternalSigner, ExternalSigningOptions, ExternalSigningPlan, TxOutcome,
+    TxWait, DEFAULT_ERA_PERIOD, DEFAULT_RECEIPT_TIMEOUT,
+};
 use crate::codec::Value;
 use crate::error::CoreError;
 use crate::keys::{Keypair, CRYPTO_SR25519};
+
+#[path = "transaction/operations.rs"]
+mod operations;
 
 /// Which wallet key signs an intent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -21,6 +27,7 @@ pub enum SignerRole {
 }
 
 /// The key material used by semantic intents.
+#[derive(Clone)]
 pub struct Wallet {
     pub coldkey: Keypair,
     pub hotkey: Keypair,
@@ -58,6 +65,7 @@ struct SecuritySemantics {
     spend: Spend,
     netuids: Vec<u16>,
     affects_all_subnets: bool,
+    global: bool,
     raw: bool,
 }
 
@@ -70,6 +78,7 @@ impl SecuritySemantics {
             // scope as unknown/all rather than letting an empty list bypass an
             // allowlist.
             affects_all_subnets: true,
+            global: false,
             raw: true,
         }
     }
@@ -86,8 +95,14 @@ impl SecuritySemantics {
             spend,
             netuids,
             affects_all_subnets,
+            global: false,
             raw: false,
         }
+    }
+
+    fn global(mut self) -> Self {
+        self.global = true;
+        self
     }
 }
 
@@ -164,6 +179,27 @@ impl IntentCall {
             function,
             params,
             SecuritySemantics::trusted(spend, netuids, affects_all_subnets),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn trusted_global(
+        op: impl Into<String>,
+        signer: SignerRole,
+        pallet: impl Into<String>,
+        function: impl Into<String>,
+        params: Value,
+        spend: Spend,
+        netuids: impl IntoIterator<Item = u16>,
+        affects_all_subnets: bool,
+    ) -> Self {
+        Self::from_parts(
+            op,
+            signer,
+            pallet,
+            function,
+            params,
+            SecuritySemantics::trusted(spend, netuids, affects_all_subnets).global(),
         )
     }
 
@@ -249,7 +285,7 @@ impl IntentCall {
 
     /// A bounded keep-alive TAO transfer.
     pub fn transfer(dest: impl Into<String>, amount_rao: u128) -> Self {
-        Self::trusted(
+        Self::trusted_global(
             "transfer",
             SignerRole::Coldkey,
             "Balances",
@@ -266,7 +302,7 @@ impl IntentCall {
 
     /// Fund the native mirror of an EVM address with a bounded TAO amount.
     pub fn fund_evm_key(mirror: impl Into<String>, amount_rao: u128) -> Self {
-        Self::trusted(
+        Self::trusted_global(
             "fund_evm_key",
             SignerRole::Coldkey,
             "Balances",
@@ -283,7 +319,7 @@ impl IntentCall {
 
     /// A bounded TAO transfer that may reap the sender.
     pub fn transfer_allow_death(dest: impl Into<String>, amount_rao: u128) -> Self {
-        Self::trusted(
+        Self::trusted_global(
             "transfer",
             SignerRole::Coldkey,
             "Balances",
@@ -300,7 +336,7 @@ impl IntentCall {
 
     /// Transfer the account's full transferable balance.
     pub fn transfer_all(dest: impl Into<String>, keep_alive: bool) -> Self {
-        Self::trusted(
+        Self::trusted_global(
             "transfer_all",
             SignerRole::Coldkey,
             "Balances",
@@ -406,7 +442,7 @@ impl IntentCall {
 
     /// Register a subnet. The live registration cost is not known locally.
     pub fn register_subnet(hotkey: impl Into<String>) -> Self {
-        Self::trusted(
+        Self::trusted_global(
             "register_subnet",
             SignerRole::Coldkey,
             "SubtensorModule",
@@ -430,6 +466,72 @@ impl IntentCall {
             [netuid],
             false,
         )
+    }
+
+    /// Publish validator weights for one subnet.
+    pub fn set_weights(netuid: u16, dests: Vec<u16>, weights: Vec<u16>, version_key: u64) -> Self {
+        Self::trusted(
+            "set_weights",
+            SignerRole::Hotkey,
+            "SubtensorModule",
+            "set_weights",
+            Value::record(vec![
+                ("netuid".into(), Value::Uint(u128::from(netuid))),
+                (
+                    "dests".into(),
+                    Value::List(
+                        dests
+                            .into_iter()
+                            .map(|uid| Value::Uint(u128::from(uid)))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "weights".into(),
+                    Value::List(
+                        weights
+                            .into_iter()
+                            .map(|weight| Value::Uint(u128::from(weight)))
+                            .collect(),
+                    ),
+                ),
+                ("version_key".into(), Value::Uint(u128::from(version_key))),
+            ]),
+            Spend::None,
+            [netuid],
+            false,
+        )
+    }
+
+    /// Serve an Axon endpoint for one subnet.
+    pub fn serve_axon(
+        netuid: u16,
+        version: u32,
+        ip: u128,
+        port: u16,
+        ip_type: u8,
+        protocol: u8,
+    ) -> Result<Self, CoreError> {
+        validate_ip_family(ip, ip_type)?;
+        Ok(Self::trusted(
+            "serve_axon",
+            SignerRole::Hotkey,
+            "SubtensorModule",
+            "serve_axon",
+            Value::record(vec![
+                ("netuid".into(), Value::Uint(u128::from(netuid))),
+                ("version".into(), Value::Uint(u128::from(version))),
+                ("ip".into(), Value::Uint(ip)),
+                ("port".into(), Value::Uint(u128::from(port))),
+                ("ip_type".into(), Value::Uint(u128::from(ip_type))),
+                ("protocol".into(), Value::Uint(u128::from(protocol))),
+                ("placeholder1".into(), Value::Uint(0)),
+                ("placeholder2".into(), Value::Uint(0)),
+            ]),
+            Spend::None,
+            [netuid],
+            false,
+        ))
     }
 
     /// Register a hotkey by burning the subnet's live registration cost.
@@ -760,16 +862,31 @@ impl IntentCall {
             Value::Dict(_) => subnets_from_root_claim(&value),
             _ => Vec::new(),
         };
-        Ok(Self::trusted(
-            "set_root_claim_type",
-            SignerRole::Coldkey,
-            "SubtensorModule",
-            "set_root_claim_type",
-            Value::record(vec![("new_root_claim_type".into(), value)]),
-            Spend::None,
-            netuids,
-            false,
-        ))
+        let params = Value::record(vec![("new_root_claim_type".into(), value)]);
+        let intent = if netuids.is_empty() {
+            Self::trusted_global(
+                "set_root_claim_type",
+                SignerRole::Coldkey,
+                "SubtensorModule",
+                "set_root_claim_type",
+                params,
+                Spend::None,
+                [],
+                false,
+            )
+        } else {
+            Self::trusted(
+                "set_root_claim_type",
+                SignerRole::Coldkey,
+                "SubtensorModule",
+                "set_root_claim_type",
+                params,
+                Spend::None,
+                netuids,
+                false,
+            )
+        };
+        Ok(intent)
     }
 
     /// Set a delegate take to an absolute value, selecting the runtime's
@@ -806,7 +923,7 @@ impl IntentCall {
         } else {
             "increase_take"
         };
-        Ok(Self::trusted(
+        Ok(Self::trusted_global(
             "set_take",
             SignerRole::Coldkey,
             "SubtensorModule",
@@ -849,6 +966,7 @@ impl IntentCall {
         let mut spend = Spend::None;
         let mut netuids = BTreeSet::new();
         let mut affects_all_subnets = false;
+        let mut global = false;
         let mut summaries = Vec::with_capacity(children.len());
         let mut raw = false;
         for child in &children {
@@ -856,6 +974,7 @@ impl IntentCall {
             spend = aggregate_spend(spend, child.security.spend);
             netuids.extend(child.security.netuids.iter().copied());
             affects_all_subnets |= child.security.affects_all_subnets;
+            global |= child.security.global;
             raw |= child.security.raw;
             summaries.push(child.summary.clone());
         }
@@ -874,6 +993,7 @@ impl IntentCall {
                 spend,
                 netuids: netuids.into_iter().collect(),
                 affects_all_subnets,
+                global,
                 raw,
             },
         })
@@ -924,6 +1044,16 @@ fn aggregate_spend(left: Spend, right: Spend) -> Spend {
     }
 }
 
+fn validate_ip_family(ip: u128, ip_type: u8) -> Result<(), CoreError> {
+    match ip_type {
+        4 if ip > u128::from(u32::MAX) => {
+            Err(CoreError::Codec("IPv4 address must fit in u32".into()))
+        }
+        4 | 6 => Ok(()),
+        _ => Err(CoreError::Codec("ip_type must be 4 or 6".into())),
+    }
+}
+
 /// Transaction guardrails enforced before any signature is created.
 #[derive(Debug, Clone, Default)]
 pub struct Policy {
@@ -931,6 +1061,7 @@ pub struct Policy {
     pub max_spend_rao: Option<u128>,
     pub allowed_netuids: Option<BTreeSet<u16>>,
     pub allow_raw_calls: bool,
+    pub allow_global: bool,
 }
 
 impl Policy {
@@ -960,6 +1091,12 @@ impl Policy {
             }
         }
         if let Some(allowed) = &self.allowed_netuids {
+            if intent.security.global && !self.allow_global {
+                violations.push(
+                    "intent has global/account-wide scope but policy only allows explicit subnets"
+                        .into(),
+                );
+            }
             if intent.security.affects_all_subnets {
                 violations.push(
                     "intent affects every subnet but policy only allows an explicit subset".into(),
@@ -1074,6 +1211,35 @@ impl<'a> Executor<'a> {
         })
     }
 
+    pub fn external_signing_plan(
+        &self,
+        intent: &IntentCall,
+        signer: ExternalSigner,
+        options: ExternalSigningOptions,
+        policy: Option<&Policy>,
+    ) -> Result<ExternalSigningPlan, CoreError> {
+        let call_data = intent.encode(self.client)?;
+        let plan = self
+            .client
+            .external_signing_plan(&call_data, signer, options)?;
+        let active = policy.or(self.policy.as_ref());
+        // Runtime payment_queryInfo excludes the tip even for an encoded signed
+        // extrinsic. Guard the complete amount before releasing a signing plan.
+        let checked = (|| -> Result<(), CoreError> {
+            let fee_rao = fee_with_tip(plan.fee_rao, plan.params.tip)?;
+            let violations = active.map_or_else(Vec::new, |policy| policy.check(intent, fee_rao));
+            if !violations.is_empty() {
+                return Err(CoreError::Policy(violations.join("; ")));
+            }
+            Ok(())
+        })();
+        if let Err(error) = checked {
+            self.client.release_external_plan(&plan)?;
+            return Err(error);
+        }
+        Ok(plan)
+    }
+
     pub fn execute(&self, intent: &IntentCall, wallet: &Wallet) -> Result<TxOutcome, CoreError> {
         self.execute_with(intent, wallet, None, None, None, true)
     }
@@ -1095,8 +1261,13 @@ impl<'a> Executor<'a> {
             &plan.call_data,
             wallet.signer(intent.signer),
             None,
-            Some(64),
-            wait_for_finalization,
+            Some(DEFAULT_ERA_PERIOD),
+            if wait_for_finalization {
+                TxWait::Finalized
+            } else {
+                TxWait::Included
+            },
+            DEFAULT_RECEIPT_TIMEOUT,
         )
     }
 
@@ -1110,14 +1281,49 @@ impl<'a> Executor<'a> {
         if !plan.ok() {
             return Err(CoreError::Policy(plan.violations.join("; ")));
         }
-        self.client
-            .submit_shielded(&plan.call_data, wallet.signer(intent.signer), false)
+        // Quote a maximum-size carrier with a dummy signature before either
+        // real signature is requested. The policy covers the whole workflow.
+        let signer = wallet.signer(intent.signer);
+        let fee = self.client.estimate_shielded_fee(&plan.call_data, signer)?;
+        let violations = policy
+            .or(self.policy.as_ref())
+            .map_or_else(Vec::new, |policy| policy.check(intent, Some(fee)));
+        if !violations.is_empty() {
+            return Err(CoreError::Policy(violations.join("; ")));
+        }
+        self.client.submit_shielded(&plan.call_data, signer, false)
     }
+}
+
+fn fee_with_tip(fee: Option<u128>, tip: u128) -> Result<Option<u128>, CoreError> {
+    fee.map(|fee| {
+        fee.checked_add(tip)
+            .ok_or_else(|| CoreError::Policy("fee plus tip exceeds u128".into()))
+    })
+    .transpose()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_fee_policy_includes_tips_and_rejects_overflow() -> Result<(), CoreError> {
+        let intent = IntentCall::transfer("target", 1);
+        let policy = Policy {
+            max_fee_rao: Some(100),
+            ..Default::default()
+        };
+        assert!(policy
+            .check(&intent, fee_with_tip(Some(100), 0)?)
+            .is_empty());
+        assert!(!policy
+            .check(&intent, fee_with_tip(Some(100), 1)?)
+            .is_empty());
+        assert!(!policy.check(&intent, fee_with_tip(None, 1)?).is_empty());
+        assert!(fee_with_tip(Some(u128::MAX), 1).is_err());
+        Ok(())
+    }
 
     #[test]
     fn arbitrary_call_fails_closed_for_every_policy_dimension() {
@@ -1210,6 +1416,20 @@ mod tests {
     }
 
     #[test]
+    fn serve_axon_rejects_contradictory_ip_family() {
+        assert!(IntentCall::serve_axon(1, 0, u128::from(u32::MAX), 30333, 4, 4).is_ok());
+        assert!(IntentCall::serve_axon(1, 0, u128::from(u32::MAX) + 1, 30333, 6, 4).is_ok());
+
+        let too_large = IntentCall::serve_axon(1, 0, u128::from(u32::MAX) + 1, 30333, 4, 4);
+        assert!(matches!(too_large, Err(CoreError::Codec(message)) if message.contains("IPv4")));
+
+        let invalid_type = IntentCall::serve_axon(1, 0, 0, 30333, 5, 4);
+        assert!(
+            matches!(invalid_type, Err(CoreError::Codec(message)) if message.contains("ip_type"))
+        );
+    }
+
+    #[test]
     fn trusted_move_stake_limit_uses_constructor_derived_netuids() {
         let intent =
             IntentCall::move_stake_limit("5origin", 1, "5destination", 2, 10, 900_000_000, false);
@@ -1267,8 +1487,59 @@ mod tests {
             policy.check(&intent, Some(0)),
             vec![
                 String::from("spend 10 rao exceeds max_spend_rao 9"),
+                String::from(
+                    "intent has global/account-wide scope but policy only allows explicit subnets",
+                ),
                 String::from("netuid 2 is not allowed by policy"),
             ]
+        );
+    }
+
+    #[test]
+    fn global_root_claim_modes_do_not_bypass_subnet_allowlists() {
+        let intent = match IntentCall::set_root_claim_type("Swap", None) {
+            Ok(intent) => intent,
+            Err(error) => panic!("valid root claim failed: {error}"),
+        };
+        let subnet_only = Policy {
+            allowed_netuids: Some(BTreeSet::from([1])),
+            ..Policy::default()
+        };
+
+        assert_eq!(
+            subnet_only.check(&intent, Some(0)),
+            vec![String::from(
+                "intent has global/account-wide scope but policy only allows explicit subnets",
+            )]
+        );
+
+        let allow_global = Policy {
+            allowed_netuids: Some(BTreeSet::from([1])),
+            allow_global: true,
+            ..Policy::default()
+        };
+        assert!(allow_global.check(&intent, Some(0)).is_empty());
+    }
+
+    #[test]
+    fn keep_subnets_root_claim_remains_subnet_scoped() {
+        let intent = match IntentCall::set_root_claim_type("KeepSubnets", Some(vec![1])) {
+            Ok(intent) => intent,
+            Err(error) => panic!("valid root claim failed: {error}"),
+        };
+        let allowed = Policy {
+            allowed_netuids: Some(BTreeSet::from([1])),
+            ..Policy::default()
+        };
+        assert!(allowed.check(&intent, Some(0)).is_empty());
+
+        let denied = Policy {
+            allowed_netuids: Some(BTreeSet::from([2])),
+            ..Policy::default()
+        };
+        assert_eq!(
+            denied.check(&intent, Some(0)),
+            vec![String::from("netuid 1 is not allowed by policy")]
         );
     }
 }

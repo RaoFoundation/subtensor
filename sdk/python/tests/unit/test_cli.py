@@ -988,13 +988,13 @@ class TestTransactions:
 def test_local_hotkey_name_is_not_valid_ss58():
     """Local wallet names must be resolved before ss58 decode.
 
-    Passing a name like ``hotkey1`` straight into the codec raises Substrate's
-    opaque ``Length is bad`` — the failure mode ``btcli s register --hotkey
-    hotkey1`` hit before CLI call sites resolved ``*_ss58`` options.
+    Passing a name like ``hotkey1`` straight into the codec raises an invalid
+    address error — the failure mode ``btcli s register --hotkey hotkey1`` hit
+    before CLI call sites resolved ``*_ss58`` options.
     """
     from bittensor._transport.codec import ss58_decode
 
-    with pytest.raises(ValueError, match="Length is bad"):
+    with pytest.raises(ValueError, match="invalid ss58 address length"):
         ss58_decode("hotkey1")
 
 

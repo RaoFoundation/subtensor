@@ -158,7 +158,7 @@ const shieldShardIncludes = shieldShardNames.map((name) => {
 // File counts intentionally differ: the shards are balanced by measured runtime.
 const shieldIncludes = shieldShardIncludes.flat();
 const productionTimingFile = "suites/zombienet_shield/03-timing.test.ts";
-const shieldDefaultVitestArgs = { bail: 1 };
+const shieldDefaultVitestArgs = { bail: 1, sequence: { concurrent: true }, maxConcurrency: 6 };
 const shieldConcurrency = new Map(shieldShards.map(({ name, maxConcurrency }) => [name, maxConcurrency]));
 
 for (const [index, includes] of shieldShardIncludes.entries()) {
@@ -309,8 +309,9 @@ const sharedShieldSettings = ({
     ...settings
 }) => settings;
 const canonicalShieldSettings = sharedShieldSettings(canonicalShieldEnvironment);
+assert.equal(canonicalShieldEnvironment.multiThreads, 6, "Shield files must run concurrently");
 if (!isDeepStrictEqual(canonicalShieldEnvironment.vitestArgs, shieldDefaultVitestArgs)) {
-    throw new Error("zombienet_shield must retain the default fail-fast Vitest configuration");
+    throw new Error("zombienet_shield must run its isolated cases concurrently with fail-fast enabled");
 }
 
 for (const name of ["zombienet_shield", ...shieldShardNames]) {

@@ -135,7 +135,7 @@ QUERY_MAP_CASES = [
 
 RUNTIME_CALL_CASES = [
     ("NeuronInfoRuntimeApi", "get_neurons_lite", [1]),
-    ("SubnetInfoRuntimeApi", "get_subnet_hyperparams", [1]),
+    ("SubnetInfoRuntimeApi", "get_subnet_hyperparams_v3", [1]),
     (
         "StakeInfoRuntimeApi",
         "get_stake_info_for_hotkey_coldkey_netuid",
