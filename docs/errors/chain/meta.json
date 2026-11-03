@@ -359,6 +359,7 @@
     "SenderInSignatories",
     "ServingRateLimitExceeded",
     "SettingWeightsTooFast",
+    "SettlementPriceOutsideEmaBand",
     "SideCapacity",
     "SideCapacityRamping",
     "SignatoriesOutOfOrder",
