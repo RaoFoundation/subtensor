@@ -4272,6 +4272,82 @@ fn short_increase_restarts_fixed_term() {
     });
 }
 
+/// Skeptic fid:b7bc4c4b — renewing a deferred past-expiry loan must reset
+/// `last_accrued` to the renew block so the deferral gap is not re-charged
+/// (especially at the increased annual_interest).
+#[test]
+fn increase_after_deferred_expiry_resets_last_accrued() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 100_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let old_expires = snap.expires_at;
+        let annual_before = snap.annual_interest;
+        // Simulate band-deferred past expiry: accrued through term end, head
+        // well past expires_at, settle still pending.
+        let past = old_expires.saturating_add(5_000);
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = old_expires;
+                p.interest_remainder = 0;
+                p.expiry_due = past.saturating_sub(100);
+            }
+        });
+        System::set_block_number(past);
+        mint_tao(&owner, 20_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            2_000_000_000_000,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(
+            after.last_accrued, past,
+            "renew must advance last_accrued to the renew block"
+        );
+        assert!(after.expires_at > old_expires);
+        assert!(after.annual_interest > annual_before);
+
+        // One more block after renew: close quote interest must be ~1 block of
+        // the new coupon, not the multi-thousand-block deferral gap.
+        System::set_block_number(past.saturating_add(1));
+        let quoted = Lending::quote_close(&owner, netuid(), None, true).unwrap();
+        let year = u128::from(after.blocks_per_year);
+        let one_block = (u128::from(after.annual_interest) / year + 1) as u64;
+        let gap_blocks = u128::from(past.saturating_sub(old_expires).saturating_add(1));
+        let gap_charge = (u128::from(after.annual_interest) * gap_blocks / year + 1) as u64;
+        let interest_taken = after
+            .collateral
+            .saturating_add(after.proceeds)
+            .saturating_sub(quoted.refund);
+        assert!(
+            interest_taken <= one_block.saturating_add(1),
+            "post-renew interest {interest_taken} must not include deferral gap (~{gap_charge})"
+        );
+        assert!(
+            interest_taken < gap_charge / 10,
+            "deferral gap must not be charged"
+        );
+    });
+}
+
 #[test]
 fn long_expiry_sells_collateral_through_amm_not_at_ema() {
     new_test_ext().execute_with(|| {

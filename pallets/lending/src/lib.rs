@@ -3029,6 +3029,14 @@ pub mod pallet {
                     Self::note_expiry_inserted(new_expiry);
                     position.expires_at = new_expiry;
                     position.expiry_due = new_expiry;
+                    // Skeptic fid:b7bc4c4b — after a deferred past-expiry settle
+                    // the pre-charge above clamps at the old expires_at and
+                    // leaves `last_accrued` there. Advancing the term without
+                    // resetting that clock would let the next collection charge
+                    // the deferral gap [old_expires, now] at the (possibly
+                    // increased) annual_interest. Mid-term increases already
+                    // have `last_accrued == now` from the pre-charge.
+                    position.last_accrued = now;
                 }
             }
             let terms_version = position.terms_version;
