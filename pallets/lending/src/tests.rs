@@ -7858,8 +7858,10 @@ fn lending_stats_match_open_and_close_events() {
             .into_iter()
             .filter_map(|e| match e.event {
                 RuntimeEvent::Lending(Event::Opened {
-                    principal, side, ..
-                }) if side == Side::Short => Some(u128::from(principal)),
+                    principal,
+                    side: Side::Short,
+                    ..
+                }) => Some(u128::from(principal)),
                 _ => None,
             })
             .sum();
