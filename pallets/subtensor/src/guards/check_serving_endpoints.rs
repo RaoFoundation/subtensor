@@ -9,7 +9,7 @@ use frame_support::{
 use sp_runtime::traits::Dispatchable;
 use sp_std::marker::PhantomData;
 
-/// Dispatch extension for axon/prometheus endpoint and service url validation.
+/// Dispatch extension for axon/prometheus endpoint validation.
 ///
 /// Signed serving calls are checked before dispatch; unrelated calls and
 /// non-signed origins pass through.
@@ -19,10 +19,7 @@ impl<T: Config> CheckServingEndpoints<T> {
     pub(crate) fn applies_to(call: &Call<T>) -> bool {
         matches!(
             call,
-            Call::serve_axon { .. }
-                | Call::serve_axon_tls { .. }
-                | Call::serve_prometheus { .. }
-                | Call::set_service { .. }
+            Call::serve_axon { .. } | Call::serve_axon_tls { .. } | Call::serve_prometheus { .. }
         )
     }
 
@@ -69,7 +66,6 @@ impl<T: Config> CheckServingEndpoints<T> {
                 Pallet::<T>::validate_serve_prometheus(who, *netuid, *version, *ip, *port, *ip_type)
                     .map(|_| ())
             }
-            Call::set_service { netuid, .. } => Pallet::<T>::validate_set_service(who, *netuid),
             _ => Ok(()),
         }
     }
@@ -168,14 +164,6 @@ mod tests {
         })
     }
 
-    fn set_service_call(netuid: NetUid) -> RuntimeCall {
-        RuntimeCall::SubtensorModule(SubtensorCall::set_service {
-            netuid,
-            url: b"https://example.com".to_vec().try_into().unwrap(),
-            spender: None,
-        })
-    }
-
     fn register_hotkey(netuid: NetUid, hotkey: U256, coldkey: U256) {
         add_network(netuid, 1, 0);
         setup_reserves(netuid, DEFAULT_RESERVE.into(), DEFAULT_RESERVE.into());
@@ -209,7 +197,6 @@ mod tests {
             serve_axon_call(netuid),
             serve_axon_tls_call(netuid),
             serve_prometheus_call(netuid),
-            set_service_call(netuid),
         ] {
             assert_eq!(
                 <CheckServingEndpoints<Test> as DispatchExtension<RuntimeCall>>::weight(&call),

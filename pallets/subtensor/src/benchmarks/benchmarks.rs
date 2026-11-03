@@ -3626,6 +3626,7 @@ mod pallet_benchmarks {
         setup_gamma_subnet::<T>(netuid);
         let coldkey: T::AccountId = account("gamma_cold", 0, 1);
         let hotkey: T::AccountId = account("gamma_new", 0, 1);
+        let spender = seed_gamma_default_spender::<T>(netuid);
         seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS - 1, 1, None);
         add_balance_to_coldkey_account::<T>(&coldkey, TaoBalance::from(100_000_000_000_u64));
 
@@ -3640,7 +3641,10 @@ mod pallet_benchmarks {
             None,
         );
 
-        assert!(GammaDeposits::<T>::contains_key(netuid, &hotkey));
+        assert_eq!(
+            GammaDeposits::<T>::get(netuid, &hotkey).map(|deposit| deposit.spender),
+            Some(spender)
+        );
     }
 
     #[benchmark]
@@ -3650,6 +3654,7 @@ mod pallet_benchmarks {
         let coldkey: T::AccountId = account("gamma_cold", 0, 1);
         let hotkey: T::AccountId = account("gamma_staked", 0, 1);
         let destination: T::AccountId = account("gamma_new", 0, 1);
+        let spender = seed_gamma_default_spender::<T>(netuid);
         seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS - 1, 1, None);
         let alpha = AlphaBalance::from(1_000_000_000_u64);
         let _ = Subtensor::<T>::create_account_if_non_existent(&coldkey, &hotkey);
@@ -3670,7 +3675,10 @@ mod pallet_benchmarks {
             None,
         );
 
-        assert!(GammaDeposits::<T>::contains_key(netuid, &destination));
+        assert_eq!(
+            GammaDeposits::<T>::get(netuid, &destination).map(|deposit| deposit.spender),
+            Some(spender)
+        );
     }
 
     #[benchmark]
@@ -3721,15 +3729,15 @@ mod pallet_benchmarks {
         let netuid = NetUid::from(1);
         Subtensor::<T>::init_new_network(netuid, 1);
         let coldkey: T::AccountId = account("gamma_cold", 0, 1);
-        let spender: T::AccountId = account("gamma_spender", 0, 1);
         let hotkey = seed_gamma_deposits::<T>(netuid, &coldkey, 0, 1, 1, None).remove(0);
+        let spender = seed_gamma_default_spender::<T>(netuid);
 
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
             hotkey.clone(),
             netuid,
-            Some(spender.clone()),
+            None,
         );
 
         assert_eq!(
@@ -3756,7 +3764,8 @@ mod pallet_benchmarks {
         );
 
         assert_eq!(
-            GammaDeposits::<T>::get(netuid, &hotkey).and_then(|deposit| deposit.daily_spend_cap),
+            GammaDeposits::<T>::get(netuid, &hotkey)
+                .and_then(|deposit| Subtensor::<T>::gamma_cap(&deposit)),
             Some(raised)
         );
     }
@@ -3799,33 +3808,32 @@ mod pallet_benchmarks {
     #[benchmark]
     fn set_service() {
         let netuid = NetUid::from(1);
-        let hotkey: T::AccountId = whitelisted_caller();
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("hotkey", 0, 0);
         let spender: T::AccountId = account("spender", 0, 0);
         Subtensor::<T>::init_new_network(netuid, 1);
         Subtensor::<T>::append_neuron(netuid, &hotkey, 0);
+        Owner::<T>::insert(&hotkey, &coldkey);
+        // A validator on the owner's hotkey, signed for by another coldkey, on a subnet with the
+        // most uids.
+        SubnetOwnerHotkey::<T>::insert(netuid, &hotkey);
+        let uids = usize::from(crate::subnets::mechanism::NULL_UID_BUDGET);
+        ValidatorPermit::<T>::insert(netuid, (0..uids).map(|uid| uid == 0).collect::<Vec<_>>());
         let url: BoundedVec<_, _> =
             BoundedVec::truncate_from(vec![b'a'; crate::MAX_SERVICE_URL_LEN as usize]);
-        Services::<T>::insert(
-            netuid,
-            &hotkey,
-            ServiceInfo {
-                block: 0,
-                url: url.clone(),
-                spender: Some(spender.clone()),
-            },
-        );
 
         #[extrinsic_call]
         _(
-            RawOrigin::Signed(hotkey.clone()),
+            RawOrigin::Signed(coldkey),
             netuid,
+            hotkey.clone(),
             url.clone(),
-            Some(spender.clone()),
+            spender.clone(),
         );
 
         assert_eq!(
             Services::<T>::get(netuid, &hotkey).map(|info| (info.url, info.spender)),
-            Some((url, Some(spender)))
+            Some((url, spender))
         );
     }
 

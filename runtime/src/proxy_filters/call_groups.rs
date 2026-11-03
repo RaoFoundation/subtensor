@@ -515,17 +515,22 @@ call_filter_group!(
     [RuntimeCall::SubtensorModule(SubtensorCall::spend_gamma),]
 );
 
-// Crediting gamma to a deposit at any hotkey, which hands its use to that hotkey, and naming
-// the spender a service's customers name on their deposits; granted only to proxies that may
-// transfer.
+// Crediting gamma to a deposit at any hotkey, which hands its use to that hotkey; granted only
+// to proxies that may transfer.
 call_filter_group!(
     GammaCreditCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma),
         RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma_with_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::move_gamma),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_service),
     ]
+);
+
+// Naming the spender a service's customers name on their deposits; granted to proxies that may
+// transfer, and to a lease's beneficiary for the subnet's own service.
+call_filter_group!(
+    ServiceCalls,
+    [RuntimeCall::SubtensorModule(SubtensorCall::set_service),]
 );
 
 // A subnet's public identity and token symbol.
@@ -880,6 +885,7 @@ type SubtensorSplitCalls = (
     BasketTradingCalls,
     GammaSpendCalls,
     GammaCreditCalls,
+    ServiceCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     LockCalls,

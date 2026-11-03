@@ -162,32 +162,42 @@ impl<T: Config> Pallet<T> {
     pub fn do_set_service(
         origin: OriginFor<T>,
         netuid: NetUid,
+        hotkey: T::AccountId,
         url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
-        spender: Option<T::AccountId>,
+        spender: T::AccountId,
     ) -> DispatchResult {
-        let hotkey = ensure_signed(origin)?;
+        let coldkey = ensure_signed(origin)?;
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
-        Self::validate_set_service(&hotkey, netuid)?;
-        let spender = match spender {
-            _ if url.is_empty() => None,
-            Some(spender) => (spender != hotkey).then_some(spender),
-            None => Services::<T>::get(netuid, &hotkey).and_then(|service| service.spender),
-        };
-        let block = Self::get_current_block_as_u64();
+        ensure!(
+            Self::coldkey_owns_hotkey(&coldkey, &hotkey),
+            Error::<T>::NonAssociatedColdKey
+        );
+        if url.is_empty() {
+            Services::<T>::remove(netuid, &hotkey);
+            Self::deposit_event(Event::ServiceRemoved { netuid, hotkey });
+            return Ok(());
+        }
+        let uid = Self::get_uid_for_net_and_hotkey(netuid, &hotkey)
+            .map_err(|_| Error::<T>::HotKeyNotRegisteredInNetwork)?;
+        ensure!(
+            (hotkey == SubnetOwnerHotkey::<T>::get(netuid)
+                && coldkey == SubnetOwner::<T>::get(netuid))
+                || Self::get_validator_permit_for_uid(netuid, uid),
+            Error::<T>::NeuronNoValidatorPermit
+        );
         Services::<T>::insert(
             netuid,
             &hotkey,
             ServiceInfo {
-                block,
                 url: url.clone(),
                 spender: spender.clone(),
             },
         );
         Self::deposit_event(Event::ServiceSet {
             netuid,
-            spender: spender.unwrap_or_else(|| hotkey.clone()),
             hotkey,
             url,
+            spender,
         });
         Ok(())
     }
@@ -386,23 +396,5 @@ impl<T: Config> Pallet<T> {
         );
 
         Ok(prev_prometheus)
-    }
-
-    /// Requires the hotkey registered on the subnet and its last url set at least the
-    /// serving rate limit ago.
-    pub fn validate_set_service(hotkey: &T::AccountId, netuid: NetUid) -> Result<(), Error<T>> {
-        ensure!(
-            Self::is_hotkey_registered_on_network(netuid, hotkey),
-            Error::<T>::HotKeyNotRegisteredInNetwork
-        );
-        let last_serve = Services::<T>::get(netuid, hotkey).map_or(0, |info| info.block);
-        let rate_limit = Self::get_serving_rate_limit(netuid);
-        ensure!(
-            rate_limit == 0
-                || last_serve == 0
-                || Self::get_current_block_as_u64().saturating_sub(last_serve) >= rate_limit,
-            Error::<T>::ServingRateLimitExceeded
-        );
-        Ok(())
     }
 }

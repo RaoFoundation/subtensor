@@ -44,7 +44,7 @@ mod errors {
         /// Unsuccessfully withdraw, balance could be zero (can not make account exist) after
         /// withdrawal.
         ZeroBalanceAfterWithdrawn,
-        /// The caller is attempting to set non-self weights without being a permitted validator.
+        /// The caller is setting non-self weights or a service without being a permitted validator.
         NeuronNoValidatorPermit,
         /// The caller is attempting to set the weight keys and values but these vectors have
         /// different size.
@@ -81,7 +81,7 @@ mod errors {
         SettingWeightsTooFast,
         /// A validator is attempting to set weights from a validator with incorrect weight version.
         IncorrectWeightVersionKey,
-        /// An axon, prometheus or service url serving exceeded the rate limit for a registered neuron.
+        /// An axon or prometheus serving exceeded the rate limit for a registered neuron.
         ServingRateLimitExceeded,
         /// The caller is attempting to set weights with more UIDs than allowed.
         UidsLengthExceedUidsInSubNet, // 32

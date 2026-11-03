@@ -474,15 +474,13 @@ pub mod pallet {
     }
 
     /// Data structure for a hotkey's service.
-    #[crate::freeze_struct("239000c87cc41fc4")]
+    #[crate::freeze_struct("c935eafd53bad00")]
     #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug)]
     pub struct ServiceInfo<AccountId> {
-        /// Service serving block.
-        pub block: u64,
         /// Url of the document describing the hotkey's services.
         pub url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
-        /// The spender customers name for the service; `None` is the hotkey.
-        pub spender: Option<AccountId>,
+        /// The spender customers name for the service.
+        pub spender: AccountId,
     }
 
     ///  Struct for ChainIdentities. (DEPRECATED for V2)
@@ -678,7 +676,7 @@ pub mod pallet {
     }
 
     /// A coldkey's gamma on one subnet, held at a hotkey.
-    #[crate::freeze_struct("e3d4a1d11046ea27")]
+    #[crate::freeze_struct("add2766284b67826")]
     #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
     pub struct GammaDeposit<AccountId> {
         /// The coldkey that owns the deposit.
@@ -687,9 +685,19 @@ pub mod pallet {
         pub spender: AccountId,
         /// The gamma held.
         pub balance: GammaBalance,
-        /// The gamma the spender may spend per day; `None` is no cap.
-        pub daily_spend_cap: Option<GammaBalance>,
-        /// What the daily spend cap allows, and its block.
+        /// The deposit's daily spend cap; `None` is no cap.
+        pub daily_spend_cap: Option<GammaDailySpendCap>,
+    }
+
+    /// The gamma a deposit's spender may spend per day, and what it allows as of a block.
+    #[crate::freeze_struct("b0a2e67c2cd32b3")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct GammaDailySpendCap {
+        /// The gamma the spender may spend per day.
+        pub cap: GammaBalance,
+        /// What the cap allows, and its block.
         pub bucket: (GammaBalance, u64),
     }
 

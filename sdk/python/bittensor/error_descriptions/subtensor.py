@@ -595,9 +595,10 @@ DESCRIPTIONS: dict[str, str] = {
         "remaining blocks."
     ),
     "NeuronNoValidatorPermit": (
-        "The hotkey tried to set weights on other neurons without holding a validator permit on "
-        "that subnet. Check `ValidatorPermit` for the neuron's uid (e.g. via the metagraph or "
-        "`btcli subnets metagraph`) and whether its stake ranks it as a validator."
+        "The hotkey tried to set weights on other neurons, or to publish a service other than "
+        "the subnet owner's, without holding a validator permit on that subnet. Check "
+        "`ValidatorPermit` for the neuron's uid (e.g. via the metagraph or `btcli subnets "
+        "metagraph`) and whether its stake ranks it as a validator."
     ),
     "NewColdKeyIsHotkey": (
         "The proposed new coldkey in a coldkey swap is already an existing hotkey account, "
@@ -761,10 +762,9 @@ DESCRIPTIONS: dict[str, str] = {
         "arguments; at least the subnet or one of the keys must differ."
     ),
     "ServingRateLimitExceeded": (
-        "`serve_axon`, `serve_prometheus` or `set_service` was called again before enough "
-        "blocks passed since that record's last update. Check its block in `Axons`, "
-        "`Prometheus` or `Services` against the `ServingRateLimit` (serving_rate_limit "
-        "hyperparameter) and wait."
+        "`serve_axon` or `serve_prometheus` was called again before enough blocks passed since "
+        "the neuron's last serving update. Check the axon's last update block in `Axons` "
+        "against the `ServingRateLimit` (serving_rate_limit hyperparameter) and wait."
     ),
     "SettingWeightsTooFast": (
         "The neuron set weights again before `WeightsSetRateLimit` blocks elapsed since its "

@@ -32,7 +32,9 @@ Prefer the narrowest type that covers the job:
 - **Any** — everything the account can do, including transfers. Avoid.
 - **NonTransfer** — everything *except* balance transfers, stake transfers,
   coldkey swaps, basket trading, gamma mints, moves and spends, and
-  `set_service`. Notably it can manage the account's other proxies.
+  `set_service`. It can still set a gamma deposit's spender and daily spend
+  cap, so it can let a spender of its choice spend the deposit. Notably it can
+  manage the account's other proxies.
 - **Transfer** — balance transfers and stake transfers (`transfer_stake` /
   `transfer_stake_and_hotkey`) only.
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO

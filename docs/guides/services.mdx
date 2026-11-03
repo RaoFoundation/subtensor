@@ -1,19 +1,15 @@
 ---
 title: Subnet services
-description: Services that registered hotkeys publish on their subnet, with a url to a document of their services and the spender their customers name on gamma deposits.
+description: Services that validators and subnet owners publish on their subnet, with a url to a document of their services and the spender their customers name on gamma deposits.
 ---
 
-Any hotkey registered on a subnet can publish a service with
-[`set-service`](/docs/tx/set-service), so that apps and agents can find what the
-subnet serves and how it is paid for. A service is a url to a document of its
-services and the spender its customers name on [gamma](/docs/guides/gamma)
-deposits. A service published without a spender is spent by its hotkey, which
-signs the spends and pays their fees, and publishing again without a spender
-keeps the one it has. Publishing an empty url clears the service. Publishing is
-free, as serving an axon is, and uses the subnet's
-[`serving_rate_limit`](/docs/hyperparameters/serving-rate-limit), so a service
-can be changed or cleared only that many blocks after its own last update,
-whatever the hotkey's axon does.
+A validator (a hotkey with a validator permit on a subnet) or the subnet owner,
+for its owner hotkey, can publish a service with [`set-service`](/docs/tx/set-service), so that
+apps and agents can find what the subnet serves and how it is paid for. A
+service is a url to a document of its services and the spender its customers
+name on [gamma](/docs/guides/gamma) deposits. The coldkey that owns the hotkey
+signs it, names the spender, and pays a normal fee. Publishing an empty url removes the
+service.
 
 ```bash
 btcli tx set-service --netuid 51 --url https://example.com/services.json -w my_coldkey -H my_hotkey
@@ -21,13 +17,17 @@ btcli query services --netuid 51
 ```
 
 ```python
-await client.execute(bt.SetService(netuid=51, url="https://example.com/services.json"), hotkey_wallet)
-services = await client.subnets.services(netuid=51)  # {hotkey: {url, spender, block, owner}}
+await client.execute(bt.SetService(netuid=51, url="https://example.com/services.json"), wallet)
+services = await client.subnets.services(netuid=51)  # {hotkey: {url, spender, owner}}
 ```
 
-A service follows a hotkey swap and is removed when its neuron is
-deregistered. `owner` marks the service of the subnet owner's hotkey. Customers
-name its spender by minting with `--service-hotkey` (see
+The permit is checked when the service is published. A service follows a hotkey
+swap and is removed when its neuron is deregistered. A coldkey swap leaves its
+spender, and changing the spender leaves deposits that name the old one until
+their coldkeys re-point them. `owner` marks the service of the subnet owner's
+hotkey while the owner owns it, whose spender new deposits name by default. A leased subnet's
+beneficiary publishes it through its `SubnetLeaseBeneficiary` proxy. Customers
+name a service's spender by minting with `--service-hotkey` (see
 [Gamma](/docs/guides/gamma#minting)).
 
 ## The document
@@ -59,6 +59,8 @@ A service can name any spender, and that spender can spend the deposits that
 name it without serving, so prefer the service marked `owner`.
 
 While a spender's coldkey swap is announced, it cannot spend. A service that
-must never pause names a spender that never needs a swap, such as a multisig or
-a pure proxy, and spends through a separate `GammaSpend` key, which it replaces
-by changing the proxy.
+must never pause names a spender that never needs a swap, such as a multisig of
+several keys, and spends through a separate `GammaSpend` key, which the spender
+itself replaces by changing the proxy. A pure proxy is not such a spender, as
+the coldkey that controls it keeps that control through its own coldkey swap,
+so a leaked coldkey would keep spending.

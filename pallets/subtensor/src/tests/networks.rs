@@ -794,7 +794,6 @@ fn dissolve_clears_all_per_subnet_storages() {
                 spender: owner_cold,
                 balance: GammaBalance::from(1),
                 daily_spend_cap: None,
-                bucket: (GammaBalance::ZERO, 0),
             },
         );
         ColdkeyGammaHotkeys::<Test>::insert(
@@ -806,9 +805,8 @@ fn dissolve_clears_all_per_subnet_storages() {
             net,
             owner_hot,
             ServiceInfo {
-                block: 1,
                 url: BoundedVec::truncate_from(b"u".to_vec()),
-                spender: None,
+                spender: owner_cold,
             },
         );
 

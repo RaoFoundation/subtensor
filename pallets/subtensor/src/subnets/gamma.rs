@@ -1,8 +1,9 @@
 //! Gamma: a subnet's service credit, minted by burning its alpha and valued in US dollars.
 //!
 //! Gamma is held in [`GammaDeposits`], one per `(netuid, hotkey)`, owned by a coldkey and
-//! spent by its spender: the subnet owner (lease beneficiary while its lease owns the subnet)
-//! when the deposit opens, unless the coldkey sets another. [`ColdkeyGammaHotkeys`] indexes a
+//! spent by its spender: the spender of the subnet owner's service, otherwise the subnet owner
+//! (lease beneficiary while its lease owns the subnet), when the deposit opens, unless the
+//! coldkey sets another. [`ColdkeyGammaHotkeys`] indexes a
 //! coldkey's deposits per subnet so coldkey swaps move them in a bounded walk.
 
 use sp_runtime::ArithmeticError;
@@ -69,10 +70,17 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// The spender a deposit opens with: the beneficiary of a subnet its lease still owns,
-    /// otherwise the subnet owner.
+    /// The spender a deposit opens with: the spender of the service of the subnet owner's
+    /// hotkey while the owner owns it, otherwise the beneficiary of a subnet its lease still
+    /// owns, otherwise the subnet owner.
     pub(crate) fn gamma_default_spender(netuid: NetUid) -> T::AccountId {
         let owner = SubnetOwner::<T>::get(netuid);
+        let hotkey = SubnetOwnerHotkey::<T>::get(netuid);
+        if Owner::<T>::get(&hotkey) == owner
+            && let Some(service) = Services::<T>::get(netuid, &hotkey)
+        {
+            return service.spender;
+        }
         SubnetUidToLeaseId::<T>::get(netuid)
             .and_then(SubnetLeases::<T>::get)
             .filter(|lease| lease.coldkey == owner)
@@ -85,10 +93,25 @@ impl<T: Config> Pallet<T> {
         deposit: &GammaDeposit<T::AccountId>,
         now: u64,
     ) -> Option<GammaBalance> {
-        let cap = deposit.daily_spend_cap?.to_u64();
-        let (available, block) = deposit.bucket;
+        let GammaDailySpendCap { cap, bucket } = deposit.daily_spend_cap?;
+        let (available, block) = bucket;
+        let cap = cap.to_u64();
         let refill = Self::mul_div_u64(cap, now.saturating_sub(block), crate::GAMMA_REFILL_BLOCKS);
         Some(available.to_u64().saturating_add(refill).min(cap).into())
+    }
+
+    /// A deposit's daily spend cap.
+    pub(crate) fn gamma_cap(deposit: &GammaDeposit<T::AccountId>) -> Option<GammaBalance> {
+        deposit.daily_spend_cap.map(|cap| cap.cap)
+    }
+
+    /// `cap` with a full bucket, as a deposit opens with.
+    fn full_gamma_cap(cap: Option<GammaBalance>) -> Option<GammaDailySpendCap> {
+        let now = Self::get_current_block_as_u64();
+        cap.map(|cap| GammaDailySpendCap {
+            cap,
+            bucket: (cap, now),
+        })
     }
 
     /// The price a mint values alpha at, read before its trade: the lower of the gamma price and
@@ -154,7 +177,7 @@ impl<T: Config> Pallet<T> {
                     Error::<T>::GammaDepositSpenderMismatch
                 );
                 ensure!(
-                    daily_spend_cap.is_none_or(|cap| deposit.daily_spend_cap == Some(cap)),
+                    daily_spend_cap.is_none_or(|cap| Self::gamma_cap(&deposit) == Some(cap)),
                     Error::<T>::GammaDepositDailySpendCapMismatch
                 );
                 deposit.balance = deposit
@@ -163,7 +186,7 @@ impl<T: Config> Pallet<T> {
                     .checked_add(gamma.to_u64())
                     .ok_or(ArithmeticError::Overflow)?
                     .into();
-                let terms = (deposit.spender.clone(), deposit.daily_spend_cap);
+                let terms = (deposit.spender.clone(), Self::gamma_cap(&deposit));
                 GammaDeposits::<T>::insert(netuid, hotkey, deposit);
                 Ok(terms)
             }
@@ -176,11 +199,7 @@ impl<T: Config> Pallet<T> {
                         coldkey: coldkey.clone(),
                         spender: spender.clone(),
                         balance: gamma,
-                        daily_spend_cap,
-                        bucket: (
-                            daily_spend_cap.unwrap_or_default(),
-                            Self::get_current_block_as_u64(),
-                        ),
+                        daily_spend_cap: Self::full_gamma_cap(daily_spend_cap),
                     },
                 )?;
                 Ok((spender, daily_spend_cap))
@@ -320,10 +339,8 @@ impl<T: Config> Pallet<T> {
                     coldkey: coldkey.clone(),
                     spender: deposit.spender,
                     balance: amount,
-                    daily_spend_cap: deposit.daily_spend_cap,
-                    bucket: (
-                        deposit.daily_spend_cap.unwrap_or_default(),
-                        Self::get_current_block_as_u64(),
+                    daily_spend_cap: Self::full_gamma_cap(
+                        deposit.daily_spend_cap.map(|cap| cap.cap),
                     ),
                 },
             )?,
@@ -396,12 +413,11 @@ impl<T: Config> Pallet<T> {
         let coldkey = ensure_signed(origin)?;
         let mut deposit = Self::own_gamma_deposit(netuid, &hotkey, &coldkey)?;
         let now = Self::get_current_block_as_u64();
-        let available = match (Self::gamma_allowance(&deposit, now), daily_spend_cap) {
-            (Some(allowance), Some(cap)) => allowance.min(cap),
-            _ => daily_spend_cap.unwrap_or_default(),
-        };
-        deposit.daily_spend_cap = daily_spend_cap;
-        deposit.bucket = (available, now);
+        let allowance = Self::gamma_allowance(&deposit, now);
+        deposit.daily_spend_cap = daily_spend_cap.map(|cap| GammaDailySpendCap {
+            cap,
+            bucket: (allowance.map_or(cap, |allowance| allowance.min(cap)), now),
+        });
         GammaDeposits::<T>::insert(netuid, &hotkey, deposit);
         Self::deposit_event(Event::GammaDepositDailySpendCapSet {
             netuid,
@@ -477,8 +493,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::GammaDepositDailySpendCapExceeded
         );
         deposit.balance = deposit.balance.saturating_sub(amount);
-        if let Some(allowance) = allowance {
-            deposit.bucket = (allowance.saturating_sub(amount), now);
+        if let (Some(allowance), Some(cap)) = (allowance, deposit.daily_spend_cap.as_mut()) {
+            cap.bucket = (allowance.saturating_sub(amount), now);
         }
         let coldkey = deposit.coldkey.clone();
         GammaDeposits::<T>::insert(netuid, hotkey, deposit);

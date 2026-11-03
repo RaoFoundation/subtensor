@@ -1372,17 +1372,18 @@ fn test_gamma_lifecycle() {
     assert!(value_contains_str(&deposits, &staked_key));
     assert!(!value_contains_str(&deposits, &moved_key));
 
-    // The owner's hotkey publishes its service, spent by the hotkey.
+    // The owner's coldkey publishes the owner hotkey's service, spent by itself.
     let url = "https://example.com/services.json";
     let publish = IntentCall::new(
         "set_service",
-        SignerRole::Hotkey,
+        SignerRole::Coldkey,
         "SubtensorModule",
         "set_service",
         record([
             ("netuid", u(netuid)),
+            ("hotkey", s(ctx.alice.hotkey.ss58_address())),
             ("url", bytes(url)),
-            ("spender", Value::Null),
+            ("spender", s(alice.clone())),
         ]),
     );
     let result = execute(&publish, &ctx.alice);

@@ -350,12 +350,12 @@ class SubtensorModule:
 
     @staticmethod
     def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance', spender: 'Any', daily_spend_cap: 'Any') -> Call:
-        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or opens with them. Fails below `min_amount_out` gamma."
+        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or opens with them, `None` being the default spender and no cap. Fails below `min_amount_out` gamma."
         return Call('SubtensorModule', 'mint_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'min_amount_out': min_amount_out, 'spender': spender, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
     def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance', spender: 'Any', daily_spend_cap: 'Any') -> Call:
-        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or opens with them. Fails below `min_amount_out` gamma."
+        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or opens with them, `None` being the default spender and no cap. Fails below `min_amount_out` gamma."
         return Call('SubtensorModule', 'mint_gamma_with_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'alpha_amount': alpha_amount, 'min_amount_out': min_amount_out, 'spender': spender, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
@@ -515,7 +515,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_gamma_deposit_spender(hotkey: 'AccountId32', netuid: 'NetUid', spender: 'Any') -> Call:
-        "Sets the spender of the signer's gamma deposit at `hotkey`; `None` names the default spender, the subnet owner or its lease's beneficiary while the lease owns the subnet."
+        "Sets the spender of the signer's gamma deposit at `hotkey`; `None` names the default spender: the spender of the subnet owner hotkey's service while the owner owns that hotkey, otherwise the subnet owner, or its lease's beneficiary while the lease owns the subnet."
         return Call('SubtensorModule', 'set_gamma_deposit_spender', {'hotkey': hotkey, 'netuid': netuid, 'spender': spender})
 
     @staticmethod
@@ -554,9 +554,9 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_reject_staking_hotkey_growth', {'enabled': enabled})
 
     @staticmethod
-    def set_service(netuid: 'NetUid', url: 'BoundedVec', spender: 'Any') -> Call:
-        'Sets the url where the signing hotkey describes its services on the subnet, and the spender customers name for them; `None` keeps the current spender, which for a new service is the hotkey. The hotkey must be registered on the subnet, and is limited to one change per serving rate limit.'
-        return Call('SubtensorModule', 'set_service', {'netuid': netuid, 'url': url, 'spender': spender})
+    def set_service(netuid: 'NetUid', hotkey: 'AccountId32', url: 'BoundedVec', spender: 'AccountId32') -> Call:
+        "Sets the service of the coldkey's hotkey on the subnet: the url where it describes its services and the spender customers name for them. The hotkey must be registered on the subnet with a validator permit, or be the subnet owner's hotkey signed for by the subnet owner. An empty url removes the service."
+        return Call('SubtensorModule', 'set_service', {'netuid': netuid, 'hotkey': hotkey, 'url': url, 'spender': spender})
 
     @staticmethod
     def set_subnet_identity(netuid: 'NetUid', subnet_name: 'Any', github_repo: 'Any', subnet_contact: 'Any', subnet_url: 'Any', discord: 'Any', description: 'Any', logo_url: 'Any', additional: 'Any') -> Call:

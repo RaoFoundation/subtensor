@@ -146,6 +146,10 @@ fn read_only(method: &str) -> bool {
             | "SwapRuntimeApi_current_alpha_price_all"
             | "SwapRuntimeApi_sim_swap_tao_for_alpha"
             | "SwapRuntimeApi_sim_swap_alpha_for_tao"
+            | "GammaRuntimeApi_get_gamma_deposit"
+            | "GammaRuntimeApi_get_gamma_deposits_for_coldkey"
+            | "GammaRuntimeApi_sim_mint_gamma"
+            | "GammaRuntimeApi_sim_mint_gamma_with_stake"
             // The runtime's proposer recognizer is syntactic, not its generic
             // pallet helper that checks signatures. Decryption also only
             // decodes; Executive authenticates the outer and inner separately.

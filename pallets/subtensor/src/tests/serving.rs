@@ -1173,105 +1173,107 @@ fn test_set_subnet_identity_dispatch_info_ok() {
 fn test_set_service_sets_the_url_and_spender() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(1);
+        let coldkey = U256::from(66);
         let spender = U256::from(2);
         let netuid = NetUid::from(1);
         let url: BoundedVec<u8, _> = BoundedVec::truncate_from(b"https://example.com".to_vec());
         add_network(netuid, 13, 0);
-        register_ok_neuron(netuid, hotkey, U256::from(66), 0);
-        SubtensorModule::set_serving_rate_limit(netuid, 0);
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+        ValidatorPermit::<Test>::insert(netuid, vec![true]);
 
         let call = SubtensorCall::set_service {
             netuid,
+            hotkey,
             url: url.clone(),
-            spender: None,
+            spender,
         };
-        assert_eq!(call.get_dispatch_info().pays_fee, Pays::No);
-        // A new service's spender is the hotkey, `None` keeps the spender, naming the hotkey
-        // stores `None`, and clearing the service clears its spender.
-        let cleared = BoundedVec::new();
-        for (url, named, spender) in [
-            (&url, None, None),
-            (&url, Some(spender), Some(spender)),
-            (&url, None, Some(spender)),
-            (&url, Some(hotkey), None),
-            (&url, Some(spender), Some(spender)),
-            (&cleared, None, None),
-            (&url, None, None),
-        ] {
-            assert_ok!(SubtensorModule::set_service(
-                RuntimeOrigin::signed(hotkey),
-                netuid,
-                url.clone(),
-                named
-            ));
-            let block = SubtensorModule::get_current_block_as_u64();
-            assert_eq!(
-                Services::<Test>::get(netuid, hotkey),
-                Some(ServiceInfo {
-                    block,
-                    url: url.clone(),
-                    spender
-                })
-            );
-            System::assert_last_event(
-                Event::ServiceSet {
-                    netuid,
-                    hotkey,
-                    url: url.clone(),
-                    spender: spender.unwrap_or(hotkey),
-                }
-                .into(),
-            );
-        }
-    });
-}
-
-#[test]
-fn test_set_service_rate_limit_exceeded() {
-    new_test_ext(1).execute_with(|| {
-        let hotkey = U256::from(1);
-        let netuid = NetUid::from(1);
-        let set = |url: &[u8]| {
+        assert_eq!(call.get_dispatch_info().pays_fee, Pays::Yes);
+        let set = |url: &BoundedVec<u8, _>| {
             SubtensorModule::set_service(
-                RuntimeOrigin::signed(hotkey),
+                RuntimeOrigin::signed(coldkey),
                 netuid,
-                BoundedVec::truncate_from(url.to_vec()),
-                None,
+                hotkey,
+                url.clone(),
+                spender,
             )
         };
-        add_network(netuid, 13, 0);
-        register_ok_neuron(netuid, hotkey, U256::from(66), 0);
-        SubtensorModule::set_serving_rate_limit(netuid, 2);
+        assert_ok!(set(&url));
+        assert_eq!(
+            Services::<Test>::get(netuid, hotkey),
+            Some(ServiceInfo {
+                url: url.clone(),
+                spender
+            })
+        );
+        System::assert_last_event(
+            Event::ServiceSet {
+                netuid,
+                hotkey,
+                url,
+                spender,
+            }
+            .into(),
+        );
 
-        assert_ok!(set(b"https://a.example.com"));
-        assert_noop!(
-            set(b"https://b.example.com"),
-            Error::<Test>::ServingRateLimitExceeded
-        );
-        run_to_block(System::block_number() + 2);
-        assert_ok!(set(b""));
-        assert_noop!(
-            set(b"https://b.example.com"),
-            Error::<Test>::ServingRateLimitExceeded
-        );
+        // An empty url removes the service.
+        assert_ok!(set(&BoundedVec::new()));
+        assert!(!Services::<Test>::contains_key(netuid, hotkey));
+        System::assert_last_event(Event::ServiceRemoved { netuid, hotkey }.into());
     });
 }
 
+// The coldkey of a hotkey with a validator permit on the subnet, or the subnet owner for its owner
+// hotkey, sets its service there, and removes it whatever the hotkey holds.
 #[test]
-fn test_set_service_requires_a_registered_hotkey() {
+fn test_set_service_requires_a_validator_or_the_owner() {
     new_test_ext(1).execute_with(|| {
-        let hotkey = U256::from(1);
+        let (validator, miner, owner) = (U256::from(1), U256::from(2), U256::from(3));
+        let coldkey = U256::from(66);
         let netuid = NetUid::from(1);
-        let url = || BoundedVec::truncate_from(b"https://example.com".to_vec());
+        let set = |who: U256, hotkey: U256, url: &[u8]| {
+            SubtensorModule::set_service(
+                RuntimeOrigin::signed(who),
+                netuid,
+                hotkey,
+                BoundedVec::truncate_from(url.to_vec()),
+                coldkey,
+            )
+        };
+        let url = b"https://example.com";
 
-        assert_noop!(
-            SubtensorModule::set_service(RuntimeOrigin::signed(hotkey), netuid, url(), None),
-            Error::<Test>::SubnetNotExists
-        );
+        assert_noop!(set(coldkey, validator, url), Error::<Test>::SubnetNotExists);
         add_network(netuid, 13, 0);
+        add_network(NetUid::from(2), 13, 0);
+        register_ok_neuron(NetUid::from(2), validator, coldkey, 0);
         assert_noop!(
-            SubtensorModule::set_service(RuntimeOrigin::signed(hotkey), netuid, url(), None),
+            set(coldkey, validator, url),
             Error::<Test>::HotKeyNotRegisteredInNetwork
         );
+        register_ok_neuron(netuid, validator, coldkey, 0);
+        register_ok_neuron(netuid, miner, coldkey, 0);
+        register_ok_neuron(netuid, owner, coldkey, 0);
+        ValidatorPermit::<Test>::insert(netuid, vec![true, false, false]);
+        assert_noop!(
+            set(U256::from(67), validator, url),
+            Error::<Test>::NonAssociatedColdKey
+        );
+        assert_noop!(
+            set(coldkey, miner, url),
+            Error::<Test>::NeuronNoValidatorPermit
+        );
+        assert_ok!(set(coldkey, validator, url));
+        // The owner's hotkey publishes only for the subnet owner.
+        SubnetOwnerHotkey::<Test>::insert(netuid, owner);
+        assert_noop!(
+            set(coldkey, owner, url),
+            Error::<Test>::NeuronNoValidatorPermit
+        );
+        SubnetOwner::<Test>::insert(netuid, coldkey);
+        assert_ok!(set(coldkey, owner, url));
+
+        // Removing a service needs only the hotkey's coldkey.
+        ValidatorPermit::<Test>::insert(netuid, vec![false, false, false]);
+        assert_ok!(set(coldkey, validator, b""));
+        assert!(!Services::<Test>::contains_key(netuid, validator));
     });
 }

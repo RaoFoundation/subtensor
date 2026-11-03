@@ -54,9 +54,8 @@ fn test_trim_to_max_allowed_uids_purges_removed_neuron_commitment() {
                 netuid,
                 hotkey,
                 ServiceInfo {
-                    block: 1,
                     url: BoundedVec::truncate_from(b"u".to_vec()),
-                    spender: None,
+                    spender: U256::from(9),
                 },
             );
         }
@@ -153,9 +152,8 @@ fn test_replace_neuron() {
             netuid,
             hotkey_account_id,
             ServiceInfo {
-                block: 1,
                 url: BoundedVec::truncate_from(b"u".to_vec()),
-                spender: None,
+                spender: U256::from(9),
             },
         );
         SubtensorModule::set_associated_evm_address(netuid, neuron_uid, evm_address, 1);

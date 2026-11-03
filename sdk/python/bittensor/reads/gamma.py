@@ -19,6 +19,7 @@ TAO_USD_PRICE_MAX_STEP = 66_000
 def _deposit_record(info: dict) -> dict:
     deposit = info["deposit"]
     cap = deposit.get("daily_spend_cap")
+    cap = None if cap is None else cap["cap"]
     return {
         "netuid": int(info["netuid"]),
         "hotkey": str(info["hotkey"]),
