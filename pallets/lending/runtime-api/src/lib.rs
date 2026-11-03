@@ -3,11 +3,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use codec::Codec;
-use pallet_lending::{ClosingQuote, OpeningQuote, RaiseQuote, Side};
+use pallet_lending::{ClosingQuote, LendingStats, OpeningQuote, RaiseQuote, Side};
 use sp_runtime::DispatchError;
 
 sp_api::decl_runtime_apis! {
-    #[api_version(7)]
+    #[api_version(8)]
     pub trait LendingRuntimeApi<AccountId> where AccountId: Codec {
         /// Full opening principal and fixed collateral interest, including swap fees.
         fn quote_open(netuid: u16, side: Side, collateral: u64) -> Result<OpeningQuote, DispatchError>;
@@ -47,5 +47,14 @@ sp_api::decl_runtime_apis! {
             collateral: Option<u64>,
             sell: Option<u64>,
         ) -> Result<RaiseQuote, DispatchError>;
+
+        /// Cumulative lending health counters for one subnet.
+        fn lending_stats(netuid: u16) -> LendingStats;
+
+        /// Chain-wide cumulative lending health counters.
+        fn lending_stats_global() -> LendingStats;
+
+        /// Terms version assigned to newly opened positions.
+        fn current_terms_version() -> u16;
     }
 }

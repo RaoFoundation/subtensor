@@ -41,7 +41,7 @@ app = typer.Typer(
     context_settings={"max_content_width": 200, "help_option_names": ["-h", "--help"]},
     help=(
         "Lift-based escrowed loans: open, close, repay, raise, list, show.\n\n"
-        "Queries: lending_position / lending_close_quote (SDK reads).\n\n"
+        "Queries: lending_position / lending_close_quote / lending_stats (SDK reads).\n\n"
         "Docs `see:` links default to RaoFoundation/subtensor@main; set "
         "BITTENSOR_DOCS_REF=<git-ref> (or BITTENSOR_DOCS_URL) for a PR tip / "
         "clone before merge (N12)."
@@ -861,16 +861,19 @@ def close_loan(
         payment = quote["payment"]
         payment_rao = payment.rao if isinstance(payment, Balance) else int(payment or 0)
         # Short leftover refund is TAO; long leftover refund is alpha.
+        # Preflight quote is quoted_payment — never executed payment (Auditor
+        # fid:37953bda). Closed has no payment field; wallet_top_up is the
+        # executed free-TAO debit when the pot was short.
         refund_unit = 0 if side == "Short" else net
         _result_amounts(
             result,
             display={
-                "payment": _fmt_amount(payment),
+                "quoted_payment": _fmt_amount(payment),
                 "refund": _fmt_amount(Balance.from_rao(refund_rao, refund_unit)),
                 "wallet_top_up": _fmt_amount(Balance.from_rao(top_up, 0)),
             },
             raw={
-                "payment": payment_rao,
+                "quoted_payment": payment_rao,
                 "refund": refund_rao,
                 "wallet_top_up": top_up,
             },
@@ -1044,11 +1047,13 @@ def repay_loan(
             escrow_rao = int(repaid.get("escrow_returned") or 0)
             principal_unit = net if side == "Short" else 0
             refund_unit = 0 if side == "Short" else net
+            # Preflight quote only (Auditor fid:37953bda); principal_repaid is
+            # the executed slice from the Repaid event.
             _result_amounts(
                 result,
                 display={
                     "principal_repaid": _fmt_amount(Balance.from_rao(repaid_rao, principal_unit)),
-                    "payment": _fmt_amount(payment),
+                    "quoted_payment": _fmt_amount(payment),
                     "refund": _fmt_amount(Balance.from_rao(refund_rao, refund_unit)),
                     "escrow_returned": _fmt_amount(
                         Balance.from_rao(escrow_rao, 0 if side == "Short" else net)
@@ -1056,7 +1061,7 @@ def repay_loan(
                 },
                 raw={
                     "principal_repaid": repaid_rao,
-                    "payment": payment_rao,
+                    "quoted_payment": payment_rao,
                     "refund": refund_rao,
                     "escrow_returned": escrow_rao,
                 },
@@ -1070,12 +1075,12 @@ def repay_loan(
             _result_amounts(
                 result,
                 display={
-                    "payment": _fmt_amount(payment),
+                    "quoted_payment": _fmt_amount(payment),
                     "refund": _fmt_amount(Balance.from_rao(refund_rao, refund_unit)),
                     "wallet_top_up": _fmt_amount(Balance.from_rao(top_up, 0)),
                 },
                 raw={
-                    "payment": payment_rao,
+                    "quoted_payment": payment_rao,
                     "refund": refund_rao,
                     "wallet_top_up": top_up,
                 },
@@ -1426,14 +1431,38 @@ def raise_loan(
                 f"(was {max_slippage}%), or reduce size"
             )
         if error is not None and error.name == "StakeUnavailable":
-            # Extrinsic-time stake gate: name locked vs free alpha (N20).
-            error.remediation_override = (
-                "lending raise needs unlocked alpha on --hotkey for collateral "
-                "(and the default escrowed sale). Conviction Lock / miner collateral "
-                "blocks that stake — check free vs locked with `btcli stake list` / "
-                "`btcli conviction show`, wait out the lock, free collateral, or use "
-                "a hotkey with free alpha"
+            # N22: state required vs available alpha (collateral + sale), not
+            # a generic Lock blurb that hides how much the raise needs.
+            sell_need = (
+                sell_display
+                if isinstance(sell_display, Balance)
+                else quote.get("sell_alpha")
             )
+            need_rao = int(quoted_collateral.rao) + (
+                int(sell_need.rao) if isinstance(sell_need, Balance) else 0
+            )
+            need = Balance.from_rao(need_rao, netuid)
+            async def _avail(client):
+                return await _available_alpha(client._substrate, owner, hotkey, netuid)
+
+            try:
+                available = context.run(_avail)
+            except Exception:
+                available = None
+            if isinstance(available, Balance):
+                error.remediation_override = (
+                    f"this raise needs about {_fmt_amount(need)} unlocked alpha "
+                    f"(collateral and default sale) but only {_fmt_amount(available)} "
+                    f"is free on {hotkey} — stake more, free conviction Lock / miner "
+                    "collateral, reduce --amount, or pass a hotkey with enough free alpha"
+                )
+            else:
+                error.remediation_override = (
+                    f"this raise needs about {_fmt_amount(need)} unlocked alpha "
+                    f"(collateral and default sale) on {hotkey} — stake more, free "
+                    "conviction Lock / miner collateral, reduce --amount, or pass a "
+                    "hotkey with enough free alpha"
+                )
         if not result.success:
             return
         attrs = _find_event(result.events, "Lending", "Raised")
@@ -1462,6 +1491,29 @@ def raise_loan(
                 "sold": sell_rao,
                 "received": free_tao_rao,
             },
+        )
+
+    # N22: fail before fee when unlocked alpha cannot cover collateral+sale.
+    sell_need = (
+        sell_display if isinstance(sell_display, Balance) else quote.get("sell_alpha")
+    )
+    need_rao = int(quoted_collateral.rao) + (
+        int(sell_need.rao) if isinstance(sell_need, Balance) else 0
+    )
+
+    async def _check_raise_alpha(client):
+        return await _available_alpha(client._substrate, owner, hotkey, netuid)
+
+    try:
+        available = context.run(_check_raise_alpha)
+    except Exception as error:
+        _exit_error(context, f"could not check unlocked alpha for raise: {error}")
+    if isinstance(available, Balance) and need_rao > available.rao:
+        need = Balance.from_rao(need_rao, netuid)
+        _exit_error(
+            context,
+            f"insufficient unlocked alpha for raise: need {_fmt_amount(need)} "
+            f"(collateral and default sale), available {_fmt_amount(available)} on {hotkey}",
         )
 
     context.submit(
@@ -1519,6 +1571,7 @@ def list_positions(
         "principal",
         "collateral",
         "status",
+        "terms",
         "escrow",
         "expires",
         "due",
@@ -1535,6 +1588,7 @@ def list_positions(
                 _fmt_amount(position["principal"]),
                 _fmt_amount(position["collateral"]),
                 status,
+                str(position.get("terms_version") or 1),
                 _fmt_amount(position.get("escrow") or position.get("proceeds")),
                 _format_expiry(position.get("expires_at"), head=head, head_time=head_time),
                 str(position.get("due") or "-"),
@@ -1637,6 +1691,7 @@ def show_position(
         "escrow": _fmt_amount(position.get("escrow") or position.get("proceeds")),
         "interest due": _fmt_amount(position["interest_due"]),
         "status": status,
+        "terms version": position.get("terms_version") or 1,
         "expires": _format_expiry(position.get("expires_at"), head=head, head_time=head_time),
         "due": position.get("due"),
         "runway": (

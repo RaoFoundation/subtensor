@@ -1,4 +1,4 @@
-# Lift-based lending on main's Balancer pools: final spec (v5.4: one-year term + directional EMA band on opens)
+# Lift-based lending on main's Balancer pools: final spec (v5.5: health accumulators + versioned loan terms)
 **Version:** v5.4, 2026-10-28. Encodes Jacob's locked decisions as of 2026-10-20 (term locked that day; EMA band added 2026-10-28). Supersedes v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
 **Target:** RaoFoundation/subtensor `main` @ 7ba9601d (2026-10-15 15:53 CT). PR #3211 is a parts bin only (§11).
 **Numbers:** live chain state at block 9,298,539 (2026-10-16), with real `Swap.SwapBalancer` weights; P&L uses the same 117-subnet bootstrap paths as before.
@@ -13,6 +13,9 @@
 * **2026-10-28: near-expiry short increase drain closed.** Restart term on short increases too (Skeptic). Expiry now buys back at spot rather than settling at the EMA, so the EMA mismatch this guarded against no longer exists; the restart is kept.
 * **2026-11-02: expiry == default close at spot (Jacob).** Replaces EMA settlement at expiry. Expiry runs the `close` path (`repay_from_wallet = false`) with `max_payment = u64::MAX`, `min_refund = 0`, no min-out on sells, and **no free-TAO top-up from the owner's wallet**. Solvent positions match a same-block default close. **2026-11-02 (Karl / Shorting):** underwater shorts and insolvent longs reuse the collateral-exhaustion **forfeit** path instead of recording a shortfall — readd lift + escrowed proceeds (weight-preserving), burn remaining collateral, return nothing to the borrower, apply the k-neutral burn; emit `Forfeited` (not `Expired`). The position is always removed (no `ExpiryRetry` loop on economic failure). MEV at expiry is accepted. Dissolution settlement and the F16 short-interest `min(ref, spot)` are unchanged.
 * **2026-10-28: directional EMA band on opens (§5.4).** New opens (and increases) that buy alpha reject if post-trade spot > `EMA · (1 + ema_band_bps)`; opens that sell alpha reject if post-trade spot < `EMA · (1 − ema_band_bps)`. Default `ema_band_bps = 1_500` (15%). Opposite-side opens always allowed; closes / repays / settles / expiries never blocked. Makes trade-splitting pointless (limit is on price state). Error: `PriceTooFarFromEma`.
+* **2026-11-03: lending health accumulators (§16).** Per-netuid `StatsByNetuid` and global `StatsGlobal` (`LendingStats`) track interest burned, k-neutral surplus burned, forfeited collateral, forfeit/expiry/open/close counts, wallet top-ups, principal opened, and N5 below-baseline shortfalls. Updated at the same sites as the matching events. Exposed via runtime API `lending_stats` / `lending_stats_global` and `btcli query lending-stats [--netuid]`.
+* **2026-11-03: versioned loan terms (§17).** Each `Position` stores `terms_version` (from `CurrentTermsVersion`, start at 1) plus snapshotted `interest_period` / `blocks_per_year`. Raise / top-up keep the open-time version. Settlement and interest dispatch on `terms_version` (`UnsupportedTermsVersion` otherwise). v1 is today's behaviour.
+
 * **2026-10-29: μ review — shogting cycle, fresh-fork $w_q=\tfrac12$.** Named cycle open-short→pump→close→unstake = **shogting cycle**. Base case from Finney SN29 at clone fork #9,378,125 ($w_q\approx\tfrac12$); contaminated a13/a15 $w_q\approx0.47$ appendix-only. Closed-form $\mathrm{ROI}_{\mathrm{unfix/fix}}(h)$; plot `no-arbitrage-shogting-roi.png`. Mapping to μ’s $F$ explicit. Keep-weights readd (no “ship (a)” label).
 * **2026-10-29: Jacob pass/fail + slippage chart.** Keep-weights criterion: no ≤N-action self-contained sequence yields $\Delta>0$ for $\varphi\le\varphi_{\max}$ on live SN29 / SN64 / SN51 / SN4 / SN119. Search PASS ($N=8$). Slippage $M(\varphi)\approx 1/(1-\varphi)$ — `no-arbitrage-slippage.pdf`.
 * **2026-10-29: lift/readd inverse (SN29 drain).** `readd_protocol_liquidity` preserves Balancer weights. $\varphi=$ lift fraction (not fee).
@@ -855,3 +858,44 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 * Many expiries in one bucket: a tight `WeightMeter` settles some but not all; a later full-weight pass finishes the rest.
 * A short increase and a long collateral top-up both restart `expires_at`; partial repay never extends.
 * Dissolution before `expires_at` settles via §13 and leaves no `Expired` event when the old expiry block arrives.
+
+## 16. Lending health accumulators
+
+Cumulative counters so anyone can measure what lending earns versus what pools lose with a single storage read (used to tune LTV upward).
+
+### 16.1 Storage
+* `StatsByNetuid`: per-subnet `LendingStats` (saturating `u128`/`u64`). May be cleared on dissolution finish.
+* `StatsGlobal`: chain-wide totals of the same fields. **Never reset.**
+
+### 16.2 Counters (event-aligned)
+* Interest burned: TAO (`InterestBurned.tao`) and alpha (`LongInterestSold.alpha`, plus dissolution in-place destroy).
+* k-neutral surplus burned: TAO and alpha (`InvariantSurplusBurned`).
+* Forfeited collateral burned/destroyed: TAO (short) / alpha (long), plus `forfeit_count` (`Forfeited`).
+* `expiry_settlement_count` (`Expired`).
+* `opens_*` / `closes_*` by side (`Opened` / `Closed`); raise fresh opens count as opens.
+* `wallet_top_ups_tao` (`Closed.wallet_top_up`).
+* `pool_value_given_below_baseline_*`: last-loan readd shortfall vs `InvariantBaseline` (N5 instrumentation).
+* `principal_opened_*`: cumulative principal on `Opened` / `Increased` / raise.
+
+### 16.3 Access
+* Runtime API: `lending_stats(netuid)`, `lending_stats_global()`, also SDK reads and `btcli query lending-stats [--netuid] --json`.
+
+## 17. Versioned loan terms
+
+Future economic rule changes apply only to loans opened after them. Existing positions finish under the rules they were opened under.
+
+### 17.1 Snapshots on `Position`
+* `terms_version: u16` — set at open from `CurrentTermsVersion` (default / start = 1). Raise and top-up **keep** this value even when they restart `expires_at`.
+* `interest_period` — blocks between interest charges (`Config::InterestPeriod` at open).
+* `blocks_per_year` — accrual year length (`Config::BlocksPerYear` at open). Used by interest math and term restarts.
+
+Already stored and therefore version-stable without a new field: `annual_interest`, `expires_at` / `expiry_due`, lift legs, escrow / collateral / principal.
+
+### 17.2 What is per-version vs tunable for new opens only
+* **Per-version (rules 1–5 behaviour):** close math (weight-preserving re-add + k-neutral burn), expiry-as-close, forfeit, dissolution rate settlement, wallet top-up, interest charging, deferral/retry. Dispatch is `match terms_version` with a v1 arm today; unsupported versions return `UnsupportedTermsVersion`.
+* **Tunable for new opens only (not snapshotted on the position):** LTV, capacity caps / split, EMA band, APR / coupon at open (coupon itself is stored as `annual_interest`), thin thresholds, lift params generally.
+
+### 17.3 Migration
+* `PositionTermsVersionMigration` appends the three fields to pre-terms rows as v1 with the live cadence constants, and ensures `CurrentTermsVersion ≥ 1`.
+* Runtime API: `current_terms_version()`. Events `Opened` / `Increased` / `Raised` carry `terms_version`. CLI `show` / `list` surface it.
+

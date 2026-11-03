@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2897,
-        "end_line": 2907,
-        "url": "/code/runtime/src/lib.rs#L2897-L2907",
+        "line": 2916,
+        "end_line": 2926,
+        "url": "/code/runtime/src/lib.rs#L2916-L2926",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -932,9 +932,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2660,
-        "end_line": 2662,
-        "url": "/code/runtime/src/lib.rs#L2660-L2662",
+        "line": 2662,
+        "end_line": 2664,
+        "url": "/code/runtime/src/lib.rs#L2662-L2664",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1160,6 +1160,17 @@
     "python": "sub.prices.lending_close_quote(...)"
   },
   {
+    "name": "lending_current_terms_version",
+    "summary": "Terms version assigned to newly opened lending positions.",
+    "description": "Terms version assigned to newly opened lending positions.",
+    "params": {},
+    "param_docs": {},
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-current-terms-version",
+    "markdown_url": "/llms.mdx/docs/query/lending-current-terms-version/content.md",
+    "python": "sub.prices.lending_current_terms_version(...)"
+  },
+  {
     "name": "lending_open_quote",
     "summary": "Quote additional fixed debt, opening value and annual interest.",
     "description": "Quote additional fixed debt, opening value and annual interest.\n\nSupply `coldkey_ss58` to quote a new position or increase an existing\none on the same side (positions are keyed by coldkey and netuid). Longs\nalso need `hotkey_ss58` as the collateral source; shorts must omit it\n(TAO-only). The runtime accrues old interest and checks the combined\nposition. Alpha loans require conservative funded-claim coverage; TAO\nloans require conservative funded collateral backing. Both protect each\nother same-side loan after accrued interest. Returned principal,\nannual_interest and opening_value are additions, not totals. Short\nopening_value is the loan's TAO value at the lending EMA, rounded up,\nand fixes its annual TAO interest. `escrow_estimate` is simulated sale\nproceeds in TAO for shorts and escrowed alpha for longs. Omitting the\nowner quotes a fresh loan only. A refusal is an error; it never becomes\na zero-protection quote. The result is indicative until the transaction\nexecutes. Supply `amount` with an owner to quote exactly that\nadditional principal.",
@@ -1301,6 +1312,32 @@
     "docs_url": "/docs/query/lending-reserves",
     "markdown_url": "/llms.mdx/docs/query/lending-reserves/content.md",
     "python": "sub.prices.lending_reserves(...)"
+  },
+  {
+    "name": "lending_stats",
+    "summary": "Cumulative lending health counters (saturating, monotonic).",
+    "description": "Cumulative lending health counters (saturating, monotonic).\n\nPer-netuid values may clear on dissolution; the global totals never reset.\nCounters update at the same sites as the matching pallet events.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose cumulative lending health counters to read. Omit (or use lending_stats_global) for chain-wide totals."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-stats",
+    "markdown_url": "/llms.mdx/docs/query/lending-stats/content.md",
+    "python": "sub.prices.lending_stats(...)"
+  },
+  {
+    "name": "lending_stats_global",
+    "summary": "Chain-wide cumulative lending health counters (never reset).",
+    "description": "Chain-wide cumulative lending health counters (never reset).",
+    "params": {},
+    "param_docs": {},
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-stats-global",
+    "markdown_url": "/llms.mdx/docs/query/lending-stats-global/content.md",
+    "python": "sub.prices.lending_stats_global(...)"
   },
   {
     "name": "locks_for_coldkey",
@@ -1558,9 +1595,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2664,
-        "end_line": 2666,
-        "url": "/code/runtime/src/lib.rs#L2664-L2666",
+        "line": 2666,
+        "end_line": 2668,
+        "url": "/code/runtime/src/lib.rs#L2666-L2668",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1811,9 +1848,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2909,
-        "end_line": 2937,
-        "url": "/code/runtime/src/lib.rs#L2909-L2937",
+        "line": 2928,
+        "end_line": 2956,
+        "url": "/code/runtime/src/lib.rs#L2928-L2956",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1840,9 +1877,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2939,
-        "end_line": 2967,
-        "url": "/code/runtime/src/lib.rs#L2939-L2967",
+        "line": 2958,
+        "end_line": 2986,
+        "url": "/code/runtime/src/lib.rs#L2958-L2986",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1921,9 +1958,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2677,
-        "end_line": 2679,
-        "url": "/code/runtime/src/lib.rs#L2677-L2679",
+        "line": 2679,
+        "end_line": 2681,
+        "url": "/code/runtime/src/lib.rs#L2679-L2681",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1986,9 +2023,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2689,
-        "end_line": 2691,
-        "url": "/code/runtime/src/lib.rs#L2689-L2691",
+        "line": 2691,
+        "end_line": 2693,
+        "url": "/code/runtime/src/lib.rs#L2691-L2693",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2603,9 +2640,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2670,
-        "end_line": 2672,
-        "url": "/code/runtime/src/lib.rs#L2670-L2672",
+        "line": 2672,
+        "end_line": 2674,
+        "url": "/code/runtime/src/lib.rs#L2672-L2674",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2975,9 +3012,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2683,
-        "end_line": 2685,
-        "url": "/code/runtime/src/lib.rs#L2683-L2685",
+        "line": 2685,
+        "end_line": 2687,
+        "url": "/code/runtime/src/lib.rs#L2685-L2687",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

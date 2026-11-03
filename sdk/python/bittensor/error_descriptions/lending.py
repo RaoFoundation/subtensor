@@ -176,4 +176,9 @@ DESCRIPTIONS: dict[str, str] = {
         "Terminal settlement has already started for this subnet. Its frozen settlement must "
         "finish before reuse."
     ),
+    "UnsupportedTermsVersion": (
+        "This loan's terms_version is not implemented by the running runtime. Positions keep "
+        "the rules they opened under; upgrade the node or wait for a runtime that supports "
+        "that version before closing, repaying, or settling it."
+    ),
 }

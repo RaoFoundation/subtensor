@@ -1798,12 +1798,14 @@ type Migrations = (
     // one-shot marker.
     pallet_subtensor::migrations::migrate_subnet_state::subnet_state::Migration<Runtime>,
     // Lending: one-shot warm of References/G_ema for live subnets, widen LiftParams
-    // with ema_band_bps, then drop the stored Position hotkey and its indexes.
+    // with ema_band_bps, drop the stored Position hotkey and its indexes, then
+    // append terms_version / interest cadence snapshots for versioned loan rules.
     // Registered here (not the pallet hook) so try-runtime executes pre/post-upgrade
     // validation against real network state.
     pallet_lending::migrations::WarmReferencesMigration<Runtime>,
     pallet_lending::migrations::LiftParamsEmaBandMigration<Runtime>,
     pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
+    pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -2884,6 +2886,23 @@ impl_runtime_apis! {
                 collateral,
                 sell,
             )
+        }
+
+        fn lending_stats(netuid: u16) -> pallet_lending::LendingStats {
+            pallet_lending::Pallet::<Runtime>::lending_stats(netuid.into())
+        }
+
+        fn lending_stats_global() -> pallet_lending::LendingStats {
+            pallet_lending::Pallet::<Runtime>::lending_stats_global()
+        }
+
+        fn current_terms_version() -> u16 {
+            let v = pallet_lending::CurrentTermsVersion::<Runtime>::get();
+            if v == 0 {
+                pallet_lending::TERMS_VERSION_V1
+            } else {
+                v
+            }
         }
     }
 

@@ -32,6 +32,9 @@ QUOTE_OPEN_EXACT_FOR = Method("LendingRuntimeApi", "quote_open_exact_for")
 QUOTE_CLOSE = Method("LendingRuntimeApi", "quote_close")
 QUOTE_REPAY = Method("LendingRuntimeApi", "quote_repay")
 QUOTE_RAISE = Method("LendingRuntimeApi", "quote_raise")
+LENDING_STATS = Method("LendingRuntimeApi", "lending_stats")
+LENDING_STATS_GLOBAL = Method("LendingRuntimeApi", "lending_stats_global")
+CURRENT_TERMS_VERSION = Method("LendingRuntimeApi", "current_terms_version")
 
 
 def _nonnegative(value: Any, label: str) -> int:
@@ -287,7 +290,12 @@ def _position_record(
     collateral_unit = 0 if side == "Short" else netuid
     principal_unit = netuid if side == "Short" else 0
     annual = int(raw["annual_interest"])
-    now, blocks_per_year = clock
+    now, default_year = clock
+    # Prefer the position's snapshotted year (terms_version); fall back to the
+    # live constant for pre-migration rows that lack the field.
+    blocks_per_year = int(raw.get("blocks_per_year") or default_year)
+    if blocks_per_year <= 0:
+        blocks_per_year = default_year
     accrued_blocks = max(now - int(raw["last_accrued"]), 0)
     interest_due = (
         annual * accrued_blocks + int(raw.get("interest_remainder") or 0)
@@ -299,6 +307,10 @@ def _position_record(
     # Fixed one-year term end; absent only on pre-term storage layouts.
     expires_at = int(raw["expires_at"]) if raw.get("expires_at") is not None else None
     expiry_due = int(raw["expiry_due"]) if raw.get("expiry_due") is not None else expires_at
+    terms_version = int(raw.get("terms_version") or 1)
+    interest_period = (
+        int(raw["interest_period"]) if raw.get("interest_period") is not None else None
+    )
     runway_days = None
     if annual:
         runway_days = max(collateral - interest_due, 0) * 365 / annual
@@ -330,6 +342,9 @@ def _position_record(
         "due": int(raw["due"]),
         "expires_at": expires_at,
         "expiry_due": expiry_due,
+        "terms_version": terms_version,
+        "interest_period": interest_period,
+        "blocks_per_year": blocks_per_year,
         "deferred": None,
         "underwater": interest_exhausted,
         "insolvent": interest_exhausted,
@@ -1057,3 +1072,88 @@ async def lending_repay_quote(
         "shortfall": Balance.from_rao(int(raw.get("shortfall") or 0)),
         "principal_part": part,
     }
+
+
+def _lending_stats_record(raw: Any, *, netuid: Optional[int]) -> dict:
+    """Normalize a LendingStats runtime-API / storage blob to plain ints."""
+    raw = raw if isinstance(raw, dict) else {}
+
+    def u(name: str) -> int:
+        return int(raw.get(name) or 0)
+
+    out = {
+        "interest_burned_tao": u("interest_burned_tao"),
+        "interest_burned_alpha": u("interest_burned_alpha"),
+        "k_neutral_surplus_burned_tao": u("k_neutral_surplus_burned_tao"),
+        "k_neutral_surplus_burned_alpha": u("k_neutral_surplus_burned_alpha"),
+        "forfeited_collateral_tao": u("forfeited_collateral_tao"),
+        "forfeited_collateral_alpha": u("forfeited_collateral_alpha"),
+        "forfeit_count": u("forfeit_count"),
+        "expiry_settlement_count": u("expiry_settlement_count"),
+        "closes_long": u("closes_long"),
+        "closes_short": u("closes_short"),
+        "opens_long": u("opens_long"),
+        "opens_short": u("opens_short"),
+        "wallet_top_ups_tao": u("wallet_top_ups_tao"),
+        "pool_value_given_below_baseline_tao": u("pool_value_given_below_baseline_tao"),
+        "pool_value_given_below_baseline_alpha": u("pool_value_given_below_baseline_alpha"),
+        "principal_opened_long": u("principal_opened_long"),
+        "principal_opened_short": u("principal_opened_short"),
+    }
+    if netuid is not None:
+        out["netuid"] = netuid
+    else:
+        out["scope"] = "global"
+    return out
+
+
+@read(
+    "lending_stats",
+    {"netuid": "integer"},
+    category="Prices & swaps",
+    param_docs={
+        "netuid": (
+            "Subnet whose cumulative lending health counters to read. "
+            "Omit (or use lending_stats_global) for chain-wide totals."
+        ),
+    },
+)
+async def lending_stats(view, netuid: Optional[int] = None) -> dict:
+    """Cumulative lending health counters (saturating, monotonic).
+
+    Per-netuid values may clear on dissolution; the global totals never reset.
+    Counters update at the same sites as the matching pallet events.
+    """
+    view = await view.at()
+    if netuid is None:
+        raw = await view.runtime(LENDING_STATS_GLOBAL, [])
+        return _lending_stats_record(raw, netuid=None)
+    raw = await view.runtime(LENDING_STATS, [netuid])
+    return _lending_stats_record(raw, netuid=netuid)
+
+
+@read(
+    "lending_stats_global",
+    {},
+    category="Prices & swaps",
+)
+async def lending_stats_global(view) -> dict:
+    """Chain-wide cumulative lending health counters (never reset)."""
+    view = await view.at()
+    raw = await view.runtime(LENDING_STATS_GLOBAL, [])
+    return _lending_stats_record(raw, netuid=None)
+
+
+@read(
+    "lending_current_terms_version",
+    {},
+    category="Prices & swaps",
+)
+async def lending_current_terms_version(view) -> dict:
+    """Terms version assigned to newly opened lending positions."""
+    view = await view.at()
+    raw = await view.runtime(CURRENT_TERMS_VERSION, [])
+    version = int(raw or 1)
+    if version <= 0:
+        version = 1
+    return {"terms_version": version}

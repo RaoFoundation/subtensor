@@ -47,25 +47,36 @@ pub(crate) struct PositionBeforeHotkeyDrop<AccountId, BlockNumber> {
     pub expiry_due: BlockNumber,
 }
 
-impl<AccountId, BlockNumber> From<PositionBeforeHotkeyDrop<AccountId, BlockNumber>>
-    for Position<AccountId, BlockNumber>
-{
-    fn from(old: PositionBeforeHotkeyDrop<AccountId, BlockNumber>) -> Self {
+impl<AccountId, BlockNumber> PositionBeforeHotkeyDrop<AccountId, BlockNumber> {
+    /// Drop the hotkey field and seed terms snapshots. Callers that know
+    /// `Config` should prefer filling cadence from the runtime constants; the
+    /// subsequent [`super::migrate_position_terms_version`] rewrite is a no-op
+    /// once the new layout is already present.
+    pub(crate) fn into_position<T: Config>(
+        self,
+    ) -> Position<T::AccountId, BlockNumberFor<T>>
+    where
+        AccountId: Into<T::AccountId>,
+        BlockNumber: Into<BlockNumberFor<T>>,
+    {
         Position {
-            side: old.side,
-            custody: old.custody,
-            principal: old.principal,
-            collateral: old.collateral,
-            proceeds: old.proceeds,
-            escrow_alpha: old.escrow_alpha,
-            lift_tao: old.lift_tao,
-            lift_alpha: old.lift_alpha,
-            annual_interest: old.annual_interest,
-            last_accrued: old.last_accrued,
-            interest_remainder: old.interest_remainder,
-            due: old.due,
-            expires_at: old.expires_at,
-            expiry_due: old.expiry_due,
+            side: self.side,
+            custody: self.custody.into(),
+            principal: self.principal,
+            collateral: self.collateral,
+            proceeds: self.proceeds,
+            escrow_alpha: self.escrow_alpha,
+            lift_tao: self.lift_tao,
+            lift_alpha: self.lift_alpha,
+            annual_interest: self.annual_interest,
+            last_accrued: self.last_accrued.into(),
+            interest_remainder: self.interest_remainder,
+            due: self.due.into(),
+            expires_at: self.expires_at.into(),
+            expiry_due: self.expiry_due.into(),
+            terms_version: TERMS_VERSION_V1,
+            interest_period: T::InterestPeriod::get(),
+            blocks_per_year: T::BlocksPerYear::get(),
         }
     }
 }
@@ -79,7 +90,16 @@ type OldPositionOf<T> =
 #[cfg(feature = "try-runtime")]
 fn decode_either<T: Config>(bytes: &[u8]) -> Option<PositionOf<T>> {
     if let Ok(old) = OldPositionOf::<T>::decode_all(&mut &bytes[..]) {
-        return Some(old.into());
+        return Some(old.into_position::<T>());
+    }
+    // Post-hotkey-drop / pre-terms rows may still be on chain when this
+    // migration is already stamped and the terms migration has not run yet.
+    if let Ok(mid) = super::PositionBeforeTermsVersion::<
+        <T as frame_system::Config>::AccountId,
+        BlockNumberFor<T>,
+    >::decode_all(&mut &bytes[..])
+    {
+        return Some(mid.into_position::<T>());
     }
     PositionOf::<T>::decode_all(&mut &bytes[..]).ok()
 }
@@ -106,7 +126,7 @@ pub fn migrate_drop_position_hotkey<T: Config>() -> Weight {
             continue;
         };
         if let Ok(old) = OldPositionOf::<T>::decode_all(&mut &bytes[..]) {
-            Positions::<T>::insert(&owner, netuid, PositionOf::<T>::from(old));
+            Positions::<T>::insert(&owner, netuid, old.into_position::<T>());
             weight = weight.saturating_add(T::DbWeight::get().writes(1));
         } else if PositionOf::<T>::decode_all(&mut &bytes[..]).is_err() {
             undecodable = undecodable.saturating_add(1);

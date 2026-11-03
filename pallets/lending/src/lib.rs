@@ -581,7 +581,12 @@ pub struct LiftBook {
     pub last: u64,
 }
 
-#[freeze_struct("dc8f38da430bf563")]
+/// First terms version: today's close / interest / forfeit / expiry / dissolution
+/// rules. Future economic changes bump [`CurrentTermsVersion`] so only new
+/// opens pick them up; live loans keep the version snapshotted at open.
+pub const TERMS_VERSION_V1: u16 = 1;
+
+#[freeze_struct("4cb5f2c7438cc992")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -611,6 +616,15 @@ pub struct Position<AccountId, BlockNumber> {
     /// open; advances when a failed settle is deferred onto a retry slot so
     /// coldkey re-key / remove always find the live claim.
     pub expiry_due: BlockNumber,
+    /// Economic rules version snapshotted at open (see [`TERMS_VERSION_V1`]).
+    /// Raise / top-up keep this value even when they restart `expires_at`.
+    pub terms_version: u16,
+    /// Interest charge cadence in blocks, snapshotted at open from
+    /// [`Config::InterestPeriod`].
+    pub interest_period: BlockNumber,
+    /// Accrual year length in blocks, snapshotted at open from
+    /// [`Config::BlocksPerYear`]. Used by interest math and term restarts.
+    pub blocks_per_year: u64,
 }
 
 #[freeze_struct("78138cda5aaf128")]
@@ -707,6 +721,65 @@ pub struct RaiseQuote {
     pub ltv_tier_bps: u16,
     pub long_cap_headroom: u64,
     pub annual_interest_alpha: u64,
+}
+
+/// Cumulative lending health counters (per-netuid and global).
+///
+/// Monotonic saturating accumulators for what the chain earns (interest /
+/// k-neutral surplus burns) versus what pools lose (forfeited collateral,
+/// shortfalls below [`InvariantBaseline`]). Never reset except that
+/// per-netuid values may be removed on dissolution while globals stay.
+#[freeze_struct("e5021c8babc16a2c")]
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+)]
+pub struct LendingStats {
+    /// TAO burned from interest charges (`InterestBurned.tao`).
+    pub interest_burned_tao: u128,
+    /// Alpha sold then burned as long interest (`LongInterestSold.alpha`), plus
+    /// alpha destroyed in place during dissolution interest charges.
+    pub interest_burned_alpha: u128,
+    /// TAO burned by the k-neutral surplus path (`InvariantSurplusBurned.tao`).
+    pub k_neutral_surplus_burned_tao: u128,
+    /// Alpha burned by the k-neutral surplus path (`InvariantSurplusBurned.alpha`).
+    pub k_neutral_surplus_burned_alpha: u128,
+    /// Short collateral TAO burned on forfeit.
+    pub forfeited_collateral_tao: u128,
+    /// Long collateral alpha destroyed on forfeit.
+    pub forfeited_collateral_alpha: u128,
+    /// Number of [`Event::Forfeited`] emissions.
+    pub forfeit_count: u64,
+    /// Number of [`Event::Expired`] emissions (solvent expiry settlements).
+    pub expiry_settlement_count: u64,
+    /// Number of [`Event::Closed`] on the long side.
+    pub closes_long: u64,
+    /// Number of [`Event::Closed`] on the short side.
+    pub closes_short: u64,
+    /// Number of [`Event::Opened`] on the long side.
+    pub opens_long: u64,
+    /// Number of [`Event::Opened`] on the short side.
+    pub opens_short: u64,
+    /// Free-balance TAO paid into escrow on underwater short closes
+    /// (`Closed.wallet_top_up`).
+    pub wallet_top_ups_tao: u128,
+    /// Reserve TAO short of [`InvariantBaseline`] after a last-loan readd (N5).
+    pub pool_value_given_below_baseline_tao: u128,
+    /// Reserve alpha short of [`InvariantBaseline`] after a last-loan readd (N5).
+    pub pool_value_given_below_baseline_alpha: u128,
+    /// Cumulative long principal opened (`Opened` / `Increased` / raise).
+    pub principal_opened_long: u128,
+    /// Cumulative short principal opened (`Opened` / `Increased`).
+    pub principal_opened_short: u128,
 }
 
 /// Geometric EMA update weight: 1 - 2^(-1 / 7200), 24h half-life at 12s blocks.
@@ -943,6 +1016,23 @@ pub mod pallet {
     /// Settlement TAO EMA per subnet (§13.2). Basis is `pool_tao + held_tao`.
     #[pallet::storage]
     pub type TaoEma<T> = StorageMap<_, Identity, NetUid, u64, OptionQuery>;
+    /// Cumulative lending health counters per subnet. Cleared on dissolution;
+    /// globals in [`StatsGlobal`] are kept.
+    #[pallet::storage]
+    pub type StatsByNetuid<T: Config> =
+        StorageMap<_, Identity, NetUid, LendingStats, ValueQuery>;
+    /// Chain-wide cumulative lending health counters. Never cleared.
+    #[pallet::storage]
+    pub type StatsGlobal<T: Config> = StorageValue<_, LendingStats, ValueQuery>;
+    /// Terms version assigned to newly opened positions. Live loans keep the
+    /// version snapshotted into [`Position::terms_version`] at open.
+    #[pallet::type_value]
+    pub fn DefaultCurrentTermsVersion<T: Config>() -> u16 {
+        TERMS_VERSION_V1
+    }
+    #[pallet::storage]
+    pub type CurrentTermsVersion<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultCurrentTermsVersion<T>>;
     /// One-shot migration markers (name → ran).
     #[pallet::storage]
     pub type HasMigrationRun<T: Config> =
@@ -951,7 +1041,7 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        Opened {
+            Opened {
             owner: T::AccountId,
             netuid: NetUid,
             side: Side,
@@ -962,6 +1052,7 @@ pub mod pallet {
             lift_tao: u64,
             lift_alpha: u64,
             annual_interest: u64,
+            terms_version: u16,
         },
         Increased {
             owner: T::AccountId,
@@ -974,6 +1065,7 @@ pub mod pallet {
             lift_tao: u64,
             lift_alpha: u64,
             annual_interest: u64,
+            terms_version: u16,
         },
         Closed {
             owner: T::AccountId,
@@ -1031,6 +1123,8 @@ pub mod pallet {
             price_after: U64F64,
             /// True when this raise topped up an existing long (not a fresh open).
             increased: bool,
+            /// Economic rules version on the resulting position.
+            terms_version: u16,
         },
         InterestCollected {
             owner: T::AccountId,
@@ -1228,6 +1322,8 @@ pub mod pallet {
         PrincipalExceedsTaoIn,
         /// Raise / open collateral exceeds the caller’s max collateral cap.
         CollateralExceedsMax,
+        /// Position carries a `terms_version` this runtime does not implement.
+        UnsupportedTermsVersion,
     }
 
     #[pallet::hooks]
@@ -1990,6 +2086,7 @@ pub mod pallet {
             let p_ref = reference.price;
             let y = T::Pool::pool_tao(netuid).to_u64();
             let x = T::Pool::pool_alpha(netuid).to_u64();
+            let w = T::Pool::quote_weight_parts(netuid);
             ensure!(principal_tao > 0, Error::<T>::PrincipalZero);
             ensure!(y > 0, Error::<T>::EmptyPool);
             ensure!(y > principal_tao, Error::<T>::PrincipalExceedsTaoIn);
@@ -2000,7 +2097,6 @@ pub mod pallet {
                     / u128::from(y).max(1)) as u64;
                 x.saturating_sub(lift_alpha)
             };
-            let w = T::Pool::quote_weight_parts(netuid);
             let a_ahead = Self::a_ahead(netuid, growing_owner)?;
             // Sell A_ahead into pool': alpha in, TAO out → y decreases, x increases.
             let tao_out_ahead = if a_ahead > 0 {
@@ -2657,6 +2753,10 @@ pub mod pallet {
                 );
                 // One-year fixed term from open (§15). Increases restart it.
                 let term: BlockNumberFor<T> = T::BlocksPerYear::get().saturated_into();
+                let terms_version = {
+                    let v = CurrentTermsVersion::<T>::get();
+                    if v == 0 { TERMS_VERSION_V1 } else { v }
+                };
                 Position {
                     side,
                     custody: escrow,
@@ -2672,6 +2772,9 @@ pub mod pallet {
                     due: now.saturating_add(T::InterestPeriod::get()),
                     expires_at: now.saturating_add(term),
                     expiry_due: now.saturating_add(term),
+                    terms_version,
+                    interest_period: T::InterestPeriod::get(),
+                    blocks_per_year: T::BlocksPerYear::get(),
                 }
             };
 
@@ -2794,8 +2897,9 @@ pub mod pallet {
                 // keep-or-restart). Keep-original enabled near-expiry drains:
                 // long collateral redeemed from the pot at EMA above AMM, and
                 // short principal force-sold at live spot then settled at a
-                // lower EMA (§15 / Skeptic).
-                let term: BlockNumberFor<T> = T::BlocksPerYear::get().saturated_into();
+                // lower EMA (§15 / Skeptic). Keep `terms_version` (and the
+                // snapshotted cadence / year length) from the original open.
+                let term: BlockNumberFor<T> = position.blocks_per_year.saturated_into();
                 let new_expiry = now.saturating_add(term);
                 if new_expiry != position.expiry_due {
                     if Expiry::<T>::take(position.expiry_due, (&owner, netuid)).is_some() {
@@ -2807,6 +2911,7 @@ pub mod pallet {
                     position.expiry_due = new_expiry;
                 }
             }
+            let terms_version = position.terms_version;
             Positions::<T>::insert(&owner, netuid, position);
             Self::deposit_event(if increasing {
                 Event::Increased {
@@ -2820,6 +2925,7 @@ pub mod pallet {
                     lift_tao: lift_tao.to_u64(),
                     lift_alpha: lift_alpha.to_u64(),
                     annual_interest: quote.annual_interest,
+                    terms_version,
                 }
             } else {
                 Event::Opened {
@@ -2833,6 +2939,27 @@ pub mod pallet {
                     lift_tao: lift_tao.to_u64(),
                     lift_alpha: lift_alpha.to_u64(),
                     annual_interest: quote.annual_interest,
+                    terms_version,
+                }
+            });
+            // Accumulators mirror Opened / Increased principal (and open count
+            // for fresh opens only). Raise also lands here via do_open.
+            Self::bump_stats(netuid, |s| {
+                match side {
+                    Side::Long => {
+                        if !increasing {
+                            s.opens_long = s.opens_long.saturating_add(1);
+                        }
+                        s.principal_opened_long =
+                            s.principal_opened_long.saturating_add(u128::from(principal));
+                    }
+                    Side::Short => {
+                        if !increasing {
+                            s.opens_short = s.opens_short.saturating_add(1);
+                        }
+                        s.principal_opened_short =
+                            s.principal_opened_short.saturating_add(u128::from(principal));
+                    }
                 }
             });
             Ok(())
@@ -2856,6 +2983,9 @@ pub mod pallet {
             );
             let mut position =
                 Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
+            // Versioned close path (wallet top-up, weight-preserving readd,
+            // k-neutral burn). v1 is today's behaviour.
+            Self::ensure_terms_version(position.terms_version)?;
             Self::charge_interest(&owner, netuid, &mut position, now, true)?;
             // Interest can exhaust collateral and `forfeit`, which already restored
             // lifts, moved escrow, and removed indexes. Do not continue close on a
@@ -3175,6 +3305,14 @@ pub mod pallet {
                 escrow_returned,
                 wallet_top_up,
             });
+            Self::bump_stats(netuid, |s| {
+                match side {
+                    Side::Long => s.closes_long = s.closes_long.saturating_add(1),
+                    Side::Short => s.closes_short = s.closes_short.saturating_add(1),
+                }
+                s.wallet_top_ups_tao =
+                    s.wallet_top_ups_tao.saturating_add(u128::from(wallet_top_up));
+            });
             Ok(())
         }
 
@@ -3208,6 +3346,7 @@ pub mod pallet {
             ensure!(principal_part > 0, Error::<T>::PrincipalZero);
             let existing =
                 Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
+            Self::ensure_terms_version(existing.terms_version)?;
             ensure!(
                 principal_part <= existing.principal,
                 Error::<T>::AmountTooSmall
@@ -4040,6 +4179,9 @@ pub mod pallet {
                 T::Pool::unstake_for_raise(&hotkey, &owner, netuid, s.into(), min_tao_out.into())?;
             ensure!(out.to_u64() >= min_tao_out, Error::<T>::SlippageExceeded);
             let price_after = T::Pool::current_alpha_price(netuid);
+            let terms_version = Positions::<T>::get(&owner, netuid)
+                .map(|p| p.terms_version)
+                .unwrap_or(TERMS_VERSION_V1);
             Self::deposit_event(Event::Raised {
                 owner,
                 hotkey,
@@ -4052,9 +4194,19 @@ pub mod pallet {
                 price_before,
                 price_after,
                 increased: increasing,
+                terms_version,
             });
             let _ = a_quote;
             Ok(())
+        }
+
+        /// Select the economic rules table for a live loan. v1 is today's
+        /// behaviour; a future arm can add v2 without rewriting v1 paths.
+        fn ensure_terms_version(version: u16) -> DispatchResult {
+            match version {
+                TERMS_VERSION_V1 => Ok(()),
+                _ => Err(Error::<T>::UnsupportedTermsVersion.into()),
+            }
         }
 
         fn interest_due(
@@ -4062,8 +4214,11 @@ pub mod pallet {
             until: BlockNumberFor<T>,
             final_charge: bool,
         ) -> Result<(u64, u64), DispatchError> {
+            Self::ensure_terms_version(position.terms_version)?;
             let elapsed: u64 = until.saturating_sub(position.last_accrued).saturated_into();
-            let denominator = u128::from(T::BlocksPerYear::get());
+            // Accrual year length is snapshotted on the position at open so a
+            // later Config / terms bump cannot rewrite remaining interest.
+            let denominator = u128::from(position.blocks_per_year);
             ensure!(denominator > 0, Error::<T>::Arithmetic);
             let numerator = u128::from(position.annual_interest)
                 .saturating_mul(u128::from(elapsed))
@@ -4092,6 +4247,9 @@ pub mod pallet {
             until: BlockNumberFor<T>,
             final_charge: bool,
         ) -> DispatchResult {
+            // Versioned interest path: v1 is the current burn / pending-sell
+            // behaviour. Future versions branch here without touching v1.
+            Self::ensure_terms_version(position.terms_version)?;
             if Dissolutions::<T>::contains_key(netuid) {
                 // Freeze at dissolution cutoff: do not accrue beyond frozen_at.
                 if let Some(d) = Dissolutions::<T>::get(netuid) {
@@ -4123,6 +4281,10 @@ pub mod pallet {
                             side: Side::Short,
                             tao: credited,
                         });
+                        Self::bump_stats(netuid, |s| {
+                            s.interest_burned_tao =
+                                s.interest_burned_tao.saturating_add(u128::from(credited));
+                        });
                     }
                     Side::Long => {
                         let custody = Self::custody_hotkey()?;
@@ -4133,6 +4295,10 @@ pub mod pallet {
                         // back — destroy interest alpha in place instead (§13).
                         if Dissolutions::<T>::contains_key(netuid) {
                             T::Pool::destroy_custody_alpha(&escrow, &custody, netuid, paid.into())?;
+                            Self::bump_stats(netuid, |s| {
+                                s.interest_burned_alpha =
+                                    s.interest_burned_alpha.saturating_add(u128::from(paid));
+                            });
                         } else {
                             let reserve = Self::reserve_account(netuid);
                             T::Pool::transfer_staked_alpha(
@@ -4185,23 +4351,26 @@ pub mod pallet {
             netuid: NetUid,
             position: &Position<T::AccountId, BlockNumberFor<T>>,
         ) -> DispatchResult {
+            // Versioned forfeit path. v1 burns leftover C and readds lift+escrow.
+            Self::ensure_terms_version(position.terms_version)?;
             let custody = Self::custody_hotkey()?;
             let reserve = Self::reserve_account(netuid);
             let escrow = position.custody.clone();
             // Burn leftover collateral before restoring lift + escrowed proceeds.
             // Interest exhaustion already leaves C = 0; underwater expiry may not
             // (Karl / Shorting: nothing returns to the borrower).
-            if position.collateral > 0 {
+            let forfeited_collateral = position.collateral;
+            if forfeited_collateral > 0 {
                 match position.side {
                     Side::Short => {
-                        T::Pool::burn_interest_tao(&escrow, position.collateral.into())?;
+                        T::Pool::burn_interest_tao(&escrow, forfeited_collateral.into())?;
                     }
                     Side::Long => {
                         T::Pool::destroy_custody_alpha(
                             &escrow,
                             &custody,
                             netuid,
-                            position.collateral.into(),
+                            forfeited_collateral.into(),
                         )?;
                     }
                 }
@@ -4287,7 +4456,38 @@ pub mod pallet {
                 side,
                 principal_lost,
             });
+            Self::bump_stats(netuid, |s| {
+                s.forfeit_count = s.forfeit_count.saturating_add(1);
+                match side {
+                    Side::Short => {
+                        s.forfeited_collateral_tao = s
+                            .forfeited_collateral_tao
+                            .saturating_add(u128::from(forfeited_collateral));
+                    }
+                    Side::Long => {
+                        s.forfeited_collateral_alpha = s
+                            .forfeited_collateral_alpha
+                            .saturating_add(u128::from(forfeited_collateral));
+                    }
+                }
+            });
             Ok(())
+        }
+
+        /// Saturating bump of per-netuid and global lending health counters.
+        fn bump_stats(netuid: NetUid, update: impl Fn(&mut LendingStats)) {
+            StatsByNetuid::<T>::mutate(netuid, |stats| update(stats));
+            StatsGlobal::<T>::mutate(|stats| update(stats));
+        }
+
+        /// Read per-netuid cumulative lending health counters.
+        pub fn lending_stats(netuid: NetUid) -> LendingStats {
+            StatsByNetuid::<T>::get(netuid)
+        }
+
+        /// Read chain-wide cumulative lending health counters.
+        pub fn lending_stats_global() -> LendingStats {
+            StatsGlobal::<T>::get()
         }
 
         /// Record pre-lift pool reserves when no lifts are outstanding.
@@ -4350,6 +4550,29 @@ pub mod pallet {
                     netuid,
                     tao: burn_t,
                     alpha: burn_a,
+                });
+
+                Self::bump_stats(netuid, |s| {
+                    s.k_neutral_surplus_burned_tao =
+                        s.k_neutral_surplus_burned_tao.saturating_add(u128::from(burn_t));
+                    s.k_neutral_surplus_burned_alpha = s
+                        .k_neutral_surplus_burned_alpha
+                        .saturating_add(u128::from(burn_a));
+                });
+            }
+
+            // N5 instrumentation: last-loan readd left reserves below the
+            // pre-lending baseline (pumped-price forfeit). Record the deficit.
+            let shortfall_tao = baseline.tao.saturating_sub(y);
+            let shortfall_alpha = baseline.alpha.saturating_sub(x);
+            if shortfall_tao > 0 || shortfall_alpha > 0 {
+                Self::bump_stats(netuid, |s| {
+                    s.pool_value_given_below_baseline_tao = s
+                        .pool_value_given_below_baseline_tao
+                        .saturating_add(u128::from(shortfall_tao));
+                    s.pool_value_given_below_baseline_alpha = s
+                        .pool_value_given_below_baseline_alpha
+                        .saturating_add(u128::from(shortfall_alpha));
                 });
             }
             Ok(())
@@ -4780,7 +5003,7 @@ pub mod pallet {
                             }
                             Self::charge_interest(&owner, netuid, &mut position, now, false)?;
                             if Positions::<T>::contains_key(&owner, netuid) {
-                                let next = now.saturating_add(T::InterestPeriod::get());
+                                let next = now.saturating_add(position.interest_period);
                                 if Due::<T>::take(position.due, (&owner, netuid)).is_some() {
                                     Self::note_due_removed(position.due);
                                 }
@@ -5043,7 +5266,7 @@ pub mod pallet {
                             }
                             Self::charge_interest(&owner, netuid, &mut position, now, false)?;
                             if Positions::<T>::contains_key(&owner, netuid) {
-                                let next = now.saturating_add(T::InterestPeriod::get());
+                                let next = now.saturating_add(position.interest_period);
                                 let _ = Self::take_interest_retry(position.due, &owner, netuid);
                                 position.due = next;
                                 Due::<T>::insert(next, (&owner, netuid), ());
@@ -5368,6 +5591,13 @@ pub mod pallet {
                     side: Side::Long,
                     tao: sold.to_u64(),
                 });
+                let sold_tao = sold.to_u64();
+                Self::bump_stats(netuid, |s| {
+                    s.interest_burned_alpha =
+                        s.interest_burned_alpha.saturating_add(u128::from(slice));
+                    s.interest_burned_tao =
+                        s.interest_burned_tao.saturating_add(u128::from(sold_tao));
+                });
                 ConversionCursor::<T>::put(netuid);
                 return;
             }
@@ -5580,6 +5810,10 @@ pub mod pallet {
                         side: Side::Long,
                         tao,
                     });
+                    Self::bump_stats(netuid, |s| {
+                        s.interest_burned_tao =
+                            s.interest_burned_tao.saturating_add(u128::from(tao));
+                    });
                 }
             }
             DissolutionPhase::<T>::insert(netuid, 3u8);
@@ -5603,6 +5837,9 @@ pub mod pallet {
             interest_until: BlockNumberFor<T>,
             kind: SettleKind,
         ) -> DispatchResult {
+            // Versioned dissolution / expiry settlement. v1 uses today's rate
+            // rules (dissolution) or expiry-as-close.
+            Self::ensure_terms_version(position.terms_version)?;
             if matches!(kind, SettleKind::Expiry) {
                 return Self::settle_expiry_as_close(netuid, owner, position, r, interest_until);
             }
@@ -5690,9 +5927,9 @@ pub mod pallet {
                         match T::Pool::quote_sell(netuid, c.into()) {
                             Ok(t) => t.to_u64(),
                             Err(_) => {
+                                let w = T::Pool::quote_weight_parts(netuid);
                                 let y = T::Pool::pool_tao(netuid).to_u64();
                                 let x = T::Pool::pool_alpha(netuid).to_u64();
-                                let w = T::Pool::quote_weight_parts(netuid);
                                 T::Pool::quote_sell_on(y.into(), x.into(), w, c.into()).to_u64()
                             }
                         }
@@ -5850,6 +6087,8 @@ pub mod pallet {
             spot: U64F64,
             interest_until: BlockNumberFor<T>,
         ) -> DispatchResult {
+            // Versioned expiry-as-close. v1 mirrors a default close at spot.
+            Self::ensure_terms_version(position.terms_version)?;
             Self::charge_interest(owner, netuid, &mut position, interest_until, true)?;
             // Interest can exhaust collateral and `forfeit`, which already restored
             // lifts, moved escrow, and removed the claim.
@@ -6033,6 +6272,9 @@ pub mod pallet {
                 shortfall_alpha: 0,
                 shortfall_tao: 0,
             });
+            Self::bump_stats(netuid, |s| {
+                s.expiry_settlement_count = s.expiry_settlement_count.saturating_add(1);
+            });
             Ok(())
         }
 
@@ -6045,6 +6287,8 @@ pub mod pallet {
             InvariantBaseline::<T>::remove(netuid);
             LongInterestPending::<T>::remove(netuid);
             LongInterestSince::<T>::remove(netuid);
+            // Per-netuid accumulators may be cleaned up; globals stay.
+            StatsByNetuid::<T>::remove(netuid);
             Self::forget_active_net(netuid);
             TaoEma::<T>::remove(netuid);
             Ok(())
@@ -6253,7 +6497,6 @@ pub mod pallet {
             let y = T::Pool::pool_tao(netuid).to_u64();
             let x = T::Pool::pool_alpha(netuid).to_u64();
             ensure!(y > 0 && x > 0, Error::<T>::EmptyPool);
-            let w = T::Pool::quote_weight_parts(netuid);
             let (g_numer, g_denom) = Self::lift_fraction(netuid, side, principal)?;
             let lift_tao =
                 ((u128::from(y) * u128::from(g_numer)) / u128::from(g_denom.max(1))) as u64;
@@ -6262,6 +6505,7 @@ pub mod pallet {
             let y1 = y.saturating_sub(lift_tao);
             let x1 = x.saturating_sub(lift_alpha);
             ensure!(y1 > 0 && x1 > 0, Error::<T>::EmptyPool);
+            let w = T::Pool::quote_weight_parts(netuid);
             let (y2, x2, escrow_out) = match side {
                 Side::Long => {
                     let a_out =
@@ -6359,12 +6603,7 @@ pub mod pallet {
                         let mut x = T::Pool::pool_alpha(netuid).to_u64();
                         let mut raised = 0u64;
                         if position.escrow_alpha > 0 {
-                            let out = T::Pool::quote_sell_on(
-                                y.into(),
-                                x.into(),
-                                w,
-                                position.escrow_alpha.into(),
-                            )
+                            let out = T::Pool::quote_sell_on(y.into(), x.into(), w, position.escrow_alpha.into())
                             .to_u64();
                             raised = Self::add(raised, out)?;
                             y = y.saturating_sub(out);

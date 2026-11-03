@@ -2957,7 +2957,7 @@ fn drop_hotkey_migration_rewrites_positions_and_clears_indexes() {
             &old.encode(),
         );
         let migrated_owner = account(5);
-        let current = Position::from(pre_drop_position(custody));
+        let current = pre_drop_position(custody).into_position::<Test>();
         Positions::<Test>::insert(&migrated_owner, netuid(), &current);
         put_retired_hotkey_indexes(&old.hotkey);
 
@@ -7769,5 +7769,144 @@ fn k_neutral_burn_amounts_match_excess() {
         assert_eq!(ba.to_u64(), 100);
         assert_eq!(y - bt.to_u64(), floor_y);
         assert_eq!(x - ba.to_u64(), floor_x);
+    });
+}
+
+#[test]
+fn terms_version_snapshotted_at_open_and_kept_on_raise() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(CurrentTermsVersion::<Test>::get(), TERMS_VERSION_V1);
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 200_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(position.terms_version, TERMS_VERSION_V1);
+        assert_eq!(position.interest_period, 10u64);
+        assert_eq!(position.blocks_per_year, 520u64);
+
+        // Bump the live current version; raise/top-up must keep the snapshot.
+        CurrentTermsVersion::<Test>::put(9);
+        assert_ok!(Lending::open_long_and_sell(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            Some(5_000_000_000_000),
+            None,
+            5_000_000_000_000,
+            1,
+            Some(20_000_000_000_000),
+            1,
+            0,
+            deadline(),
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(after.terms_version, TERMS_VERSION_V1);
+        assert_eq!(after.interest_period, position.interest_period);
+        assert_eq!(after.blocks_per_year, position.blocks_per_year);
+
+        // Settlement rejects unsupported versions.
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(pos) = p.as_mut() {
+                pos.terms_version = 99;
+            }
+        });
+        assert_err!(
+            Lending::close(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                hotkey,
+                false,
+                u64::MAX,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::UnsupportedTermsVersion
+        );
+    });
+}
+
+#[test]
+fn lending_stats_match_open_and_close_events() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        System::reset_events();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let opened_principal: u128 = System::events()
+            .into_iter()
+            .filter_map(|e| match e.event {
+                RuntimeEvent::Lending(Event::Opened { principal, side, .. })
+                    if side == Side::Short =>
+                {
+                    Some(u128::from(principal))
+                }
+                _ => None,
+            })
+            .sum();
+        let opened_count = System::events()
+            .into_iter()
+            .filter(|e| {
+                matches!(
+                    e.event,
+                    RuntimeEvent::Lending(Event::Opened {
+                        side: Side::Short,
+                        ..
+                    })
+                )
+            })
+            .count() as u64;
+        let stats = Lending::lending_stats(netuid());
+        assert_eq!(stats.opens_short, opened_count);
+        assert_eq!(stats.principal_opened_short, opened_principal);
+        assert_eq!(Lending::lending_stats_global().opens_short, opened_count);
+
+        System::reset_events();
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey,
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        let closed = System::events()
+            .into_iter()
+            .filter(|e| {
+                matches!(
+                    e.event,
+                    RuntimeEvent::Lending(Event::Closed {
+                        side: Side::Short,
+                        ..
+                    })
+                )
+            })
+            .count() as u64;
+        let after = Lending::lending_stats(netuid());
+        assert_eq!(after.closes_short, closed);
+        assert_eq!(after.opens_short, opened_count);
+        assert_eq!(Lending::lending_stats_global().closes_short, closed);
     });
 }
