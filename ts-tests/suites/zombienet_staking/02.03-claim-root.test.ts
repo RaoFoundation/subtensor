@@ -32,6 +32,26 @@ import {
     waitForBlocks,
 } from "../../utils";
 
+async function settleDividendsBeforeClaim(
+    api: TypedApi<typeof subtensor>,
+    hotkey: string,
+    netuids: number[]
+): Promise<void> {
+    // Stop the tempo=1 fixtures from queuing fresh credits between the readiness
+    // check and claim_root. The block drain settles only one hotkey per turn;
+    // claim_root intentionally rejects unsettled credits instead of minting them.
+    for (const netuid of netuids) {
+        await sudoSetTempo(api, netuid, 65_535);
+    }
+    await expect
+        .poll(() => api.query.SubtensorModule.PendingBasketDeposits.getEntries(hotkey), {
+            timeout: 10_000,
+            interval: 100,
+            message: "The block drain must settle all queued dividends before claim_root",
+        })
+        .toHaveLength(0);
+}
+
 describeSuite({
     id: "0203_claim_root",
     title: "▶ claim_root extrinsic",
@@ -88,11 +108,13 @@ describeSuite({
                 // root_sell_flag = sum(moving_prices) > 1.0
                 // Each subnet's moving price approaches 1.0 via EMA, so 2 subnets can exceed threshold
                 const netuid1 = await addNewSubnetwork(api, owner1Hotkey, owner1Coldkey);
-                await startCall(api, netuid1, owner1Coldkey);
+                // Fund pools before emissions seed the independent 600-block fast EMA.
+                // Accelerating the slow EMA below does not bypass the basket price guard.
+                await sudoSetSubtokenEnabled(api, netuid1, true);
                 log(`Created subnet 1 with netuid: ${netuid1}`);
 
                 const netuid2 = await addNewSubnetwork(api, owner2Hotkey, owner2Coldkey);
-                await startCall(api, netuid2, owner2Coldkey);
+                await sudoSetSubtokenEnabled(api, netuid2, true);
                 log(`Created subnet 2 with netuid: ${netuid2}`);
 
                 // Set short tempo for faster emission distribution
@@ -139,6 +161,9 @@ describeSuite({
                 await addStake(api, owner2Coldkey, owner2HotkeyAddress, netuid2, subnetStakeAmount);
                 log(`Added ${subnetStakeAmount} owner stake to subnets ${netuid1} and ${netuid2}`);
 
+                await startCall(api, netuid1, owner1Coldkey);
+                await startCall(api, netuid2, owner2Coldkey);
+
                 // Snapshot the staker's ROOT stake before the claim (redemption pays to root).
                 const stakerRootStakeBefore = await getStake(
                     api,
@@ -155,6 +180,8 @@ describeSuite({
                 const blocksToWait = 25;
                 log(`Waiting for ${blocksToWait} blocks for moving prices to converge and emissions to accumulate...`);
                 await waitForBlocks(api, blocksToWait);
+
+                await settleDividendsBeforeClaim(api, owner1HotkeyAddress, [netuid1, netuid2]);
 
                 // Debug: Check key storage values
                 const subnetTaoRoot = await getSubnetTAO(api, ROOT_NETUID);
@@ -190,6 +217,8 @@ describeSuite({
                 const basketRate = await getBasketRate(api, owner1HotkeyAddress);
                 const basketShares = await getBasketShares(api, owner1HotkeyAddress);
                 log(`BasketRate: ${basketRate}, BasketShares: ${basketShares}`);
+                expect(basketRate, "Dividends must accrue before claiming").toBeGreaterThan(0n);
+                expect(basketShares, "The basket must have shares to redeem").toBeGreaterThan(0n);
 
                 // Call claim_root: redeems the staker's owed fund shares to ROOT stake.
                 await claimRoot(api, stakerColdkey);
@@ -251,11 +280,12 @@ describeSuite({
 
                 // Create TWO dynamic subnets
                 const netuid1 = await addNewSubnetwork(api, owner1Hotkey, owner1Coldkey);
-                await startCall(api, netuid1, owner1Coldkey);
+                // Seed the fast EMA only after all price-changing setup deposits.
+                await sudoSetSubtokenEnabled(api, netuid1, true);
                 log(`Created subnet 1 with netuid: ${netuid1}`);
 
                 const netuid2 = await addNewSubnetwork(api, owner2Hotkey, owner2Coldkey);
-                await startCall(api, netuid2, owner2Coldkey);
+                await sudoSetSubtokenEnabled(api, netuid2, true);
                 log(`Created subnet 2 with netuid: ${netuid2}`);
 
                 // Set short tempo for faster emission distribution
@@ -295,10 +325,15 @@ describeSuite({
                 await addStake(api, owner2Coldkey, owner2HotkeyAddress, netuid2, subnetStakeAmount);
                 log(`Added ${subnetStakeAmount} owner stake to subnets ${netuid1} and ${netuid2}`);
 
+                await startCall(api, netuid1, owner1Coldkey);
+                await startCall(api, netuid2, owner2Coldkey);
+
                 // Wait for blocks
                 const blocksToWait = 25;
                 log(`Waiting for ${blocksToWait} blocks for emissions to accumulate...`);
                 await waitForBlocks(api, blocksToWait);
+
+                await settleDividendsBeforeClaim(api, owner1HotkeyAddress, [netuid1, netuid2]);
 
                 // Debug: Check moving prices
                 const movingPrice1 = await getSubnetMovingPrice(api, netuid1);
@@ -316,6 +351,8 @@ describeSuite({
                 const basketRate = await getBasketRate(api, owner1HotkeyAddress);
                 const basketShares = await getBasketShares(api, owner1HotkeyAddress);
                 log(`BasketRate: ${basketRate}, BasketShares: ${basketShares}`);
+                expect(basketRate, "Dividends must accrue before claiming").toBeGreaterThan(0n);
+                expect(basketShares, "The basket must have shares to redeem").toBeGreaterThan(0n);
 
                 // Call claim_root - the fund is redeemed to TAO and added to ROOT stake
                 await claimRoot(api, stakerColdkey);
