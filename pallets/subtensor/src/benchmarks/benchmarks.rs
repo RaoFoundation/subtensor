@@ -331,7 +331,9 @@ mod pallet_benchmarks {
     fn root_pending_dividend_check() {
         let hotkey: T::AccountId = account("pending_root_hot", 0, 1);
         Uids::<T>::insert(NetUid::ROOT, &hotkey, 1);
-        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(0));
+        // Keep every credit below the threshold so this measures the full read-only
+        // queue check, without relying on a failed deposit to preserve the queue.
+        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(1_000_001));
         for i in 0..crate::MAX_ROOT_CLAIM_WORK {
             let netuid = NetUid::from(i as u16);
             NetworksAdded::<T>::insert(netuid, true);
@@ -342,8 +344,10 @@ mod pallet_benchmarks {
 
         #[block]
         {
-            let (work, _, completed) = Subtensor::<T>::flush_basket_deposits_for_hotkey(&hotkey);
-            assert!(!completed);
+            let (work, last_key, completed) =
+                Subtensor::<T>::flush_basket_deposits_for_hotkey(&hotkey);
+            assert!(completed);
+            assert!(last_key.is_some());
             assert_eq!(work.quotes, u64::from(crate::MAX_ROOT_CLAIM_WORK));
             assert_eq!(work.rows, 0);
         }
