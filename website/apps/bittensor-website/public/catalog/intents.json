@@ -679,7 +679,7 @@
         },
         "hotkey_ss58": {
           "type": "string",
-          "description": "Hotkey for alpha repay (short wallet path) or alpha refund (long close). Required whenever alpha moves; short escrow buyback (repay_from_wallet=False) may omit it."
+          "description": "Hotkey for alpha repay (short wallet path) or alpha refund (long close). Required whenever alpha moves; short escrow buyback (from-escrow) may omit it."
         },
         "repay_from_wallet": {
           "type": "boolean",
@@ -2868,7 +2868,7 @@
         },
         "hotkey_ss58": {
           "type": "string",
-          "description": "Hotkey for alpha repay (short wallet path) or alpha refund (long repay). Required whenever alpha moves; short escrow buyback (repay_from_wallet=False) may omit it."
+          "description": "Hotkey for alpha repay (short wallet path) or alpha refund (long repay). Required whenever alpha moves; short escrow buyback (from-escrow) may omit it."
         },
         "repay_from_wallet": {
           "type": "boolean",
