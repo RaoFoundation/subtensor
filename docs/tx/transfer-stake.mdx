@@ -37,7 +37,7 @@ weight.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1397-L1425), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L3019-L3049) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1411-L1447), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L3072-L3110) |
 
 ## Parameters
 
@@ -99,12 +99,14 @@ result = sub.execute_tool("transfer_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1404`](/code/pallets/subtensor/src/macros/dispatches.rs#L1397-L1425):
+`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1420`](/code/pallets/subtensor/src/macros/dispatches.rs#L1411-L1447):
 
 ```rust
 #[pallet::call_index(86)]
 #[pallet::weight((
     <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+        .saturating_add(Pallet::<T>::root_pending_dividend_weight(origin_netuid.is_root()))
+        .saturating_add(Pallet::<T>::root_pending_dividend_weight(destination_netuid.is_root()))
         .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
     DispatchClass::Normal,
     Pays::Yes
@@ -128,19 +130,27 @@ pub fn transfer_stake(
             alpha_amount,
         ),
         <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+            .saturating_add(Pallet::<T>::root_pending_dividend_weight(
+                origin_netuid.is_root(),
+            ))
+            .saturating_add(Pallet::<T>::root_pending_dividend_weight(
+                destination_netuid.is_root(),
+            ))
             .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
     )
 }
 ```
 
-Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1665), [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L202), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1605).
+Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1671), [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L202), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1611).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L3026`](/code/pallets/subtensor/src/macros/dispatches.rs#L3019-L3049):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L3081`](/code/pallets/subtensor/src/macros/dispatches.rs#L3072-L3110):
 
 ```rust
 #[pallet::call_index(143)]
 #[pallet::weight((
     <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
+        .saturating_add(Pallet::<T>::root_pending_dividend_weight(origin_netuid.is_root()))
+        .saturating_add(Pallet::<T>::root_pending_dividend_weight(destination_netuid.is_root()))
         .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
     DispatchClass::Normal,
     Pays::Yes
@@ -166,11 +176,17 @@ pub fn transfer_stake_and_hotkey(
             alpha_amount,
         ),
         <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
+            .saturating_add(Pallet::<T>::root_pending_dividend_weight(
+                origin_netuid.is_root(),
+            ))
+            .saturating_add(Pallet::<T>::root_pending_dividend_weight(
+                destination_netuid.is_root(),
+            ))
             .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
     )
 }
 ```
 
-Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1665), [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L277), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1605).
+Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1671), [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L277), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1611).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

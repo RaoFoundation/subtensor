@@ -9,8 +9,8 @@ use crate::{
     MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys,
     PendingBasketDeposits, RegistrationsThisInterval, RootAlphaDividendsPerSubnet,
     RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
-    SubnetAlphaOut, SubnetLimit, SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow,
-    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
+    SubnetAlphaOut, SubnetFastMovingPrice, SubnetLimit, SubnetMovingPrice, SubnetOwnerHotkey,
+    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -34,6 +34,9 @@ pub(super) fn fund_pool(netuid: NetUid) {
     let tao = TaoBalance::from(1_000_000_000_000u64);
     SubnetTAO::<Test>::insert(netuid, tao);
     SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+    // Production seeds the fast EMA from spot on its first block update. These tests install
+    // reserves directly, so mirror that lifecycle step explicitly.
+    SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
     if let Some(subnet_account) = SubtensorModule::get_subnet_account_id(netuid) {
         add_balance_to_coldkey_account(&subnet_account, tao);
     }
@@ -55,7 +58,7 @@ pub(super) fn flush_baskets() {
         .map(|(hotkey, _)| hotkey)
         .collect();
     for hotkey in hotkeys {
-        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let _ = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
     }
 }
 
@@ -353,7 +356,7 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
         let credit = 1_000_000u64;
         SubnetAlphaOut::<Test>::mutate(netuid, |t| *t = t.saturating_add(credit.into()));
         SubtensorModule::enqueue_basket_deposit(&hotkey, netuid, credit.into());
-        let expected_flush_work = BasketFlushWork::new(1 + 2, 1);
+        let expected_flush_work = BasketFlushWork::new(1, 0);
 
         let declared = RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey })
             .get_dispatch_info()
@@ -362,11 +365,11 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
         let outcome =
             SubtensorModule::root_claim_for_hotkey(&hotkey, &coldkey, false).expect("claim runs");
         assert_eq!(outcome.flush, expected_flush_work);
-        assert!(
-            !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),
-            "the claim flushed the queued credit"
+        assert!(PendingBasketDeposits::<Test>::contains_key(hotkey, netuid));
+        assert_eq!(
+            outcome.tao, 0,
+            "a dispatch must not mint the pending dividend"
         );
-        assert!(outcome.tao > 0, "the flushed dividend was redeemed");
 
         let actual = SubtensorModule::root_claim_actual_weight(1, 0, &outcome);
         let without_flush = SubtensorModule::root_claim_actual_weight(
@@ -385,6 +388,10 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
             actual.all_lt(declared),
             "actual {actual:?} must refund below declared {declared:?}"
         );
+        SubtensorModule::flush_pending_basket_deposits_block();
+        let settled = SubtensorModule::root_claim_for_hotkey(&hotkey, &coldkey, false)
+            .expect("claim after block settlement");
+        assert!(settled.tao > 0);
     });
 }
 
@@ -2025,6 +2032,7 @@ fn test_claim_then_move_max_includes_pending_basket() {
             "epoch must have queued a pending basket credit"
         );
 
+        SubtensorModule::flush_pending_basket_deposits_block();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
             origin_hotkey
@@ -2834,6 +2842,7 @@ fn test_root_basket_large_magnitudes_no_saturation() {
         // Very deep pool at price 1 so a 2e13 trade has negligible slippage.
         SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
 
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();

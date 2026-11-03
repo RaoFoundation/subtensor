@@ -479,7 +479,7 @@ fn evm_transaction_fee_matches_snapshot(
 ) {
     use frame_support::traits::Get;
     use node_subtensor_runtime::{Balances, Executive, RuntimeOrigin, UncheckedExtrinsic};
-    use pallet_evm::{AddressMapping, FeeCalculator};
+    use pallet_evm::{AddressMapping, FeeCalculator, GasWeightMapping};
     use precompile_utils::solidity::encode_with_selector;
     use sp_core::{H160, H256, Pair, U256, ecdsa};
     use subtensor_precompiles::{
@@ -522,13 +522,18 @@ fn evm_transaction_fee_matches_snapshot(
             EvmFeeCase::RemoveStake => (H160::from_low_u64_be(StakingPrecompileV2::<Runtime>::INDEX), encode_with_selector(selector("removeStake(bytes32,uint256,uint256)"), (hotkey, U256::from(amount), U256::zero())), 0, i128::from(amount).checked_neg().expect("unstaking proceeds fit")),
             EvmFeeCase::AddProxy => (H160::from_low_u64_be(ProxyPrecompile::<Runtime>::INDEX), encode_with_selector(selector("addProxy(bytes32,uint8,uint32)"), (destination, 0u8, 0u32)), 0, 0),
         };
-        // Exercise the fixed gas limit used for plain sends; precompile cases
-        // retain a larger limit so their checks also exercise gas refunds.
-        let gas_limit = U256::from(if matches!(case, EvmFeeCase::BalanceTransfer) {
-            21_000
+        // Preserve the standard limit for plain sends and the precompile refund
+        // headroom, adding the pending-dividend guard only for root stake calls.
+        let execution_gas = if matches!(case, EvmFeeCase::BalanceTransfer) {
+            21_000u64
         } else {
             5_000_000
-        });
+        };
+        let root_guard = pallet_subtensor::Pallet::<Runtime>::root_pending_dividend_weight(
+            matches!(case, EvmFeeCase::AddStake | EvmFeeCase::RemoveStake),
+        );
+        let root_guard_gas = <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(root_guard);
+        let gas_limit = U256::from(execution_gas.checked_add(root_guard_gas).expect("gas limit fits"));
         let decimals = U256::from(1_000_000_000);
         let (base_fee, _) = <Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price();
         // Subtensor's vendored EVM runner currently overrides the requested

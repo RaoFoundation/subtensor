@@ -3,4 +3,4 @@ source: runtime/tests/fee_baseline.rs
 description: remove_stake
 expression: fee_rao
 ---
-1095600
+196887080
