@@ -47,7 +47,7 @@ FINNEY_GENESIS_HASH = "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7
 # Polkadot Vault onboarding guide: hosts the one-time chain-specs QR that
 # adds the Bittensor network to a Vault phone (transaction QRs carry their
 # own metadata proof, so no metadata updates are ever needed).
-VAULT_GUIDE_URL = "https://www.bittensor.com/docs/guides/vault"
+VAULT_GUIDE_URL = "https://docs.bittensor.com/guides/vault"
 
 # Default fallback pools, keyed by network label. When the primary endpoint is
 # unreachable (or exhausts its reconnect retries mid-session) the connection
@@ -110,8 +110,10 @@ def resolve_endpoint(network: str) -> tuple[str, str]:
 _REVERSE_NETWORKS = {url: name for name, url in NETWORKS.items()}
 
 # The published SDK/CLI documentation site (docs pages referenced from CLI
-# output link here).
-DOCS_URL = "https://www.bittensor.com/docs"
+# output link here). www.bittensor.com/docs only hosts a subset (guides /
+# semantic errors); tx / query / chain-error pages live on docs.bittensor.com
+# (E2E N12).
+DOCS_URL = "https://docs.bittensor.com"
 
 
 def error_docs_url(code_value: str) -> str:

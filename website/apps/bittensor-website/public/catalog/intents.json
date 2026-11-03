@@ -704,9 +704,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1384,
-        "end_line": 1403,
-        "url": "/code/pallets/lending/src/lib.rs#L1381-L1403",
+        "line": 1398,
+        "end_line": 1417,
+        "url": "/code/pallets/lending/src/lib.rs#L1395-L1417",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1964,7 +1964,7 @@
   {
     "name": "open_loan",
     "summary": "Open or increase a fixed-principal subnet loan at up to 25% LTV.",
-    "description": "Open or increase a fixed-principal subnet loan at up to 25% LTV.\n\nA short locks TAO collateral, lifts borrowed alpha, and immediately sells\nthat alpha into escrow TAO (`proceeds`) on the position's custody account.\nA long locks existing free alpha stake, lifts TAO, and buys escrow alpha\nwith the borrowed TAO (no free TAO payout). Debt stays in the borrowed\ncurrency. Interest is 100% annually on opening loan value, charged in fixed\ncollateral units and collected every `InterestPeriod` blocks (runtime\nconstant; 50_400 \u2248 7 days at 12 s). There are no price-triggered\nliquidations; exhausted collateral forfeits the position.\n\nAlpha debt must also fit 25% of collateral at a conservative immediate\nfunded-redemption valuation, including payout rounding. TAO debt requires\nconservative funded collateral backing. New borrowing must preserve each\nother same-side loan's individual coverage after accrued interest. These\nopening checks do not guarantee future repayment.\n\nPositions are keyed by `(coldkey, netuid)`. An existing position must\nhave the same side. `collateral` adds to its remaining collateral after\naccrued interest; borrowed principal and the new fixed coupon add to the\nsaved position. The old coupon is not repriced. The combined position must\npass current opening guards, and an already exhausted position cannot be\nincreased.\n\nShorts are TAO-only and must omit `hotkey_ss58` (the call passes\n`source_hotkey=None`). Longs require `hotkey_ss58` as the stake that\nsupplies collateral alpha. `amount` selects exact additional principal:\nalpha for shorts and TAO for longs. With no amount, the collateral\ndetermines the borrowing limit. The runtime transfers exactly the\nrequested amount or refuses the call. `min_borrow` is a floor on\nadditional principal. `min_proceeds` is the short's minimum escrow TAO\nfrom the forced sale (slippage floor); `min_escrow_alpha` is the long's\nminimum escrow alpha from the forced buy. The call is atomic and refuses a\nsmaller loan or opening value. There remains one position per coldkey and\nsubnet; closing repays its total principal.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield` (encrypted submission will never be decrypted).",
+    "description": "Open or increase a fixed-principal subnet loan at up to 25% LTV.\n\nA short locks TAO collateral, lifts borrowed alpha, and immediately sells\nthat alpha into escrow TAO (`proceeds`) on the position's custody account.\nA long locks existing free alpha stake, lifts TAO, and buys escrow alpha\nwith the borrowed TAO (no free TAO payout). Debt stays in the borrowed\ncurrency. Interest is 100% annually on opening loan value, charged in fixed\ncollateral units and collected every `InterestPeriod` blocks (runtime\nconstant; 50_400 \u2248 7 days at 12 s). There are no price-triggered\nliquidations; exhausted collateral forfeits the position.\n\nAlpha debt must also fit 25% of collateral at a conservative immediate\nfunded-redemption valuation, including payout rounding. TAO debt requires\nconservative funded collateral backing. New borrowing must preserve each\nother same-side loan's individual coverage after accrued interest. These\nopening checks do not guarantee future repayment.\n\nPositions are keyed by `(coldkey, netuid)`. An existing position must\nhave the same side. `collateral` adds to its remaining collateral after\naccrued interest; borrowed principal and the new fixed annual interest add\nto the saved position. The old interest rate is not repriced. The combined\nposition must pass current opening guards, and an already exhausted\nposition cannot be increased.\n\nShorts are TAO-only and must omit `hotkey_ss58` (the call passes\n`source_hotkey=None`). Longs require `hotkey_ss58` as the stake that\nsupplies collateral alpha. `amount` selects exact additional principal:\nalpha for shorts and TAO for longs. With no amount, the collateral\ndetermines the borrowing limit. The runtime transfers exactly the\nrequested amount or refuses the call. `min_borrow` is a floor on\nadditional principal. `min_proceeds` is the short's minimum escrow TAO\nfrom the forced sale (slippage floor); `min_escrow_alpha` is the long's\nminimum escrow alpha from the forced buy. The call is atomic and refuses a\nsmaller loan or opening value. There remains one position per coldkey and\nsubnet; closing repays its total principal.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield` (encrypted submission will never be decrypted).",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2079,18 +2079,18 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1318,
-        "end_line": 1342,
-        "url": "/code/pallets/lending/src/lib.rs#L1316-L1342",
+        "line": 1332,
+        "end_line": 1356,
+        "url": "/code/pallets/lending/src/lib.rs#L1330-L1356",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
         "pallet": "Lending",
         "call": "open_exact",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1347,
-        "end_line": 1374,
-        "url": "/code/pallets/lending/src/lib.rs#L1345-L1374",
+        "line": 1361,
+        "end_line": 1388,
+        "url": "/code/pallets/lending/src/lib.rs#L1359-L1388",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2309,9 +2309,9 @@
         "pallet": "Lending",
         "call": "open_long_and_sell",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1409,
-        "end_line": 1437,
-        "url": "/code/pallets/lending/src/lib.rs#L1406-L1437",
+        "line": 1423,
+        "end_line": 1451,
+        "url": "/code/pallets/lending/src/lib.rs#L1420-L1451",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2894,9 +2894,9 @@
         "pallet": "Lending",
         "call": "repay",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1466,
-        "end_line": 1487,
-        "url": "/code/pallets/lending/src/lib.rs#L1461-L1487",
+        "line": 1480,
+        "end_line": 1501,
+        "url": "/code/pallets/lending/src/lib.rs#L1475-L1501",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

@@ -93,24 +93,27 @@ DESCRIPTIONS: dict[str, str] = {
         "interest, or lower the refund floor."
     ),
     "InsufficientEscrow": (
-        "Escrow plus the slice's collateral cannot cover this repay/close path. Check "
-        "lending_close_quote / lending_repay_quote for payment, refund, and shortfall; for an "
-        "underwater short, fund free TAO for the top-up or use --repay-from-wallet with alpha "
-        "on --hotkey. Accrued interest reduces usable collateral."
+        "Escrow plus collateral cannot cover this repay/close path (or free TAO cannot cover "
+        "an underwater-short top-up). Check lending_close_quote / lending_repay_quote for "
+        "payment, leftover refund, and shortfall; fund free TAO for the top-up or use "
+        "--repay-from-wallet. Insolvent longs forfeit at expiry if still uncovered. Accrued "
+        "interest reduces usable collateral."
     ),
     "InsufficientCollateral": (
-        "The requested additional debt needs more collateral under V_dyn / LTV checks. Quote "
-        "lending_required_collateral for this amount (or pass more --collateral). The failed "
-        "call moves no assets."
+        "The requested additional debt needs more collateral under V_dyn / LTV checks. Use "
+        "lending_required_collateral (or btcli loan open --amount) for the minimum size, then "
+        "pass at least that much --collateral, or lower --amount. The failed call moves no "
+        "assets."
     ),
     "InsufficientSellStake": (
         "Unlocked alpha on the hotkey is below collateral plus the raise sale amount. Stake "
         "more alpha or reduce --sell / collateral."
     ),
     "SlippageExceeded": (
-        "A forced trade missed the caller min-out / max-payment limit (open, raise, close, or "
-        "repay). The quote is likely stale — re-quote and raise --max-slippage, or reduce size. "
-        "Do not leave --max-slippage at 0."
+        "A forced trade missed your min-out / max-payment limit (open, raise, close, or repay). "
+        "Re-quote (btcli loan show / the same command), then raise --max-slippage above the "
+        "default 1% or reduce size. Zero --max-slippage always fails once the next block moves "
+        "the price. The CLI help line shows quoted payment/refund vs your bounds when available."
     ),
     "DeadlinePassed": (
         "The extrinsic's valid_until block has passed. Resubmit with a later deadline "

@@ -1062,6 +1062,20 @@ pub mod pallet {
             refund: u64,
             escrow_returned: u64,
         },
+        /// Interest charge failed this block; retried at `retry_at` (E2E U5).
+        InterestDeferred {
+            owner: T::AccountId,
+            netuid: NetUid,
+            retry_at: BlockNumberFor<T>,
+            error: DispatchError,
+        },
+        /// Expiry settle failed this block; retried at `retry_at` (E2E U5).
+        SettlementDeferred {
+            owner: T::AccountId,
+            netuid: NetUid,
+            retry_at: BlockNumberFor<T>,
+            error: DispatchError,
+        },
         DissolutionSettled {
             owner: T::AccountId,
             netuid: NetUid,
@@ -4717,7 +4731,7 @@ pub mod pallet {
                                 Self::note_due_removed(due);
                             }
                         }
-                        Err(_) => {
+                        Err(error) => {
                             // Preserve coverage without pinning NextDue /
                             // mid-inserting into the Due schedule (Auditor
                             // fid:2aff7381, Skeptic fid:0776a829). Side-queue
@@ -4731,6 +4745,12 @@ pub mod pallet {
                                 Self::enqueue_interest_retry(&owner, netuid, retry_at);
                                 position.due = retry_at;
                                 Positions::<T>::insert(&owner, netuid, position);
+                                Self::deposit_event(Event::InterestDeferred {
+                                    owner: owner.clone(),
+                                    netuid,
+                                    retry_at,
+                                    error,
+                                });
                             }
                         }
                     }
@@ -4840,7 +4860,7 @@ pub mod pallet {
                                 Self::note_expiry_removed(at);
                             }
                         }
-                        Err(_) => {
+                        Err(error) => {
                             // Preserve coverage without pinning NextExpiry /
                             // mid-inserting into the Expiry schedule (Skeptic
                             // fid:0776a829). Side-queue insert is O(1).
@@ -4853,6 +4873,12 @@ pub mod pallet {
                                 Self::enqueue_expiry_retry(&owner, netuid, retry_at);
                                 position.expiry_due = retry_at;
                                 Positions::<T>::insert(&owner, netuid, position);
+                                Self::deposit_event(Event::SettlementDeferred {
+                                    owner: owner.clone(),
+                                    netuid,
+                                    retry_at,
+                                    error,
+                                });
                             }
                         }
                     }
@@ -4947,13 +4973,19 @@ pub mod pallet {
                         Ok(()) => {
                             let _ = Self::take_interest_retry(at, &owner, netuid);
                         }
-                        Err(_) => {
+                        Err(error) => {
                             let _ = Self::take_interest_retry(at, &owner, netuid);
                             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                                 let retry_at = now.saturating_add(T::InterestRetryDelay::get());
                                 Self::enqueue_interest_retry(&owner, netuid, retry_at);
                                 position.due = retry_at;
                                 Positions::<T>::insert(&owner, netuid, position);
+                                Self::deposit_event(Event::InterestDeferred {
+                                    owner: owner.clone(),
+                                    netuid,
+                                    retry_at,
+                                    error,
+                                });
                             }
                         }
                     }
@@ -5062,13 +5094,19 @@ pub mod pallet {
                         Ok(()) => {
                             let _ = Self::take_expiry_retry(at, &owner, netuid);
                         }
-                        Err(_) => {
+                        Err(error) => {
                             let _ = Self::take_expiry_retry(at, &owner, netuid);
                             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                                 let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
                                 Self::enqueue_expiry_retry(&owner, netuid, retry_at);
                                 position.expiry_due = retry_at;
                                 Positions::<T>::insert(&owner, netuid, position);
+                                Self::deposit_event(Event::SettlementDeferred {
+                                    owner: owner.clone(),
+                                    netuid,
+                                    retry_at,
+                                    error,
+                                });
                             }
                         }
                     }
@@ -6211,7 +6249,9 @@ pub mod pallet {
                             shortfall: 0,
                         }
                     } else {
-                        // Sell A, then minimal C for the shortfall; refund leftover C as alpha.
+                        // Sell A, then minimal C for the TAO gap. When A+C cannot
+                        // cover P, report shortfall (do not Err) so CLI/SDK can
+                        // flag insolvent longs like underwater shorts (E2E U2).
                         let w = T::Pool::quote_weight_parts(netuid);
                         let mut y = T::Pool::pool_tao(netuid).to_u64();
                         let mut x = T::Pool::pool_alpha(netuid).to_u64();
@@ -6231,20 +6271,23 @@ pub mod pallet {
                         let mut coll_left = remaining;
                         if raised < position.principal && coll_left > 0 {
                             let need = position.principal.saturating_sub(raised);
-                            let needed_alpha = Self::alpha_to_raise_tao_on(y, x, w, need)?;
-                            let sell = needed_alpha.min(coll_left);
-                            ensure!(sell > 0, Error::<T>::InsufficientEscrow);
-                            let out =
-                                T::Pool::quote_sell_on(y.into(), x.into(), w, sell.into()).to_u64();
-                            raised = Self::add(raised, out)?;
-                            coll_left = coll_left.saturating_sub(sell);
+                            let sell = match Self::alpha_to_raise_tao_on(y, x, w, need) {
+                                Ok(needed_alpha) => needed_alpha.min(coll_left),
+                                Err(_) => coll_left,
+                            };
+                            if sell > 0 {
+                                let out =
+                                    T::Pool::quote_sell_on(y.into(), x.into(), w, sell.into())
+                                        .to_u64();
+                                raised = Self::add(raised, out)?;
+                                coll_left = coll_left.saturating_sub(sell);
+                            }
                         }
-                        ensure!(raised >= position.principal, Error::<T>::InsufficientEscrow);
                         ClosingQuote {
                             payment: position.principal,
                             refund: coll_left,
                             escrow_return: 0,
-                            shortfall: 0,
+                            shortfall: position.principal.saturating_sub(raised),
                         }
                     }
                 }
@@ -6320,6 +6363,8 @@ pub mod pallet {
                             shortfall: 0,
                         }
                     } else {
+                        // Mirror quote_close: report shortfall when the slice
+                        // cannot cover slice_p from escrow + collateral (E2E U2).
                         let w = T::Pool::quote_weight_parts(netuid);
                         let mut y = T::Pool::pool_tao(netuid).to_u64();
                         let mut x = T::Pool::pool_alpha(netuid).to_u64();
@@ -6334,20 +6379,23 @@ pub mod pallet {
                         let mut coll_left = slice_c;
                         if raised < slice_p && coll_left > 0 {
                             let need = slice_p.saturating_sub(raised);
-                            let needed_alpha = Self::alpha_to_raise_tao_on(y, x, w, need)?;
-                            let sell = needed_alpha.min(coll_left);
-                            ensure!(sell > 0, Error::<T>::InsufficientEscrow);
-                            let out =
-                                T::Pool::quote_sell_on(y.into(), x.into(), w, sell.into()).to_u64();
-                            raised = Self::add(raised, out)?;
-                            coll_left = coll_left.saturating_sub(sell);
+                            let sell = match Self::alpha_to_raise_tao_on(y, x, w, need) {
+                                Ok(needed_alpha) => needed_alpha.min(coll_left),
+                                Err(_) => coll_left,
+                            };
+                            if sell > 0 {
+                                let out =
+                                    T::Pool::quote_sell_on(y.into(), x.into(), w, sell.into())
+                                        .to_u64();
+                                raised = Self::add(raised, out)?;
+                                coll_left = coll_left.saturating_sub(sell);
+                            }
                         }
-                        ensure!(raised >= slice_p, Error::<T>::InsufficientEscrow);
                         ClosingQuote {
                             payment: slice_p,
                             refund: coll_left,
                             escrow_return: 0,
-                            shortfall: 0,
+                            shortfall: slice_p.saturating_sub(raised),
                         }
                     }
                 }

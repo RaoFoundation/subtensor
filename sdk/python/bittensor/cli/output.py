@@ -141,8 +141,10 @@ def _diagnostic(text: str) -> str:
     left alone / stripped for user-facing headlines (E2E F12).
     """
     text = text.strip()
-    # Drop pallet §section cross-refs from headlines ("§5.4: …" → remainder).
+    # Drop pallet §section cross-refs from headlines. Strip wrapping parens
+    # too so "side (§5.4)." becomes "side." not "side ()." (E2E F12).
     text = re.sub(r"^§\d+(?:\.\d+)*\s*[:—-]\s*", "", text)
+    text = re.sub(r"\s*\(§\d+(?:\.\d+)*\)", "", text)
     text = re.sub(r"\s*§\d+(?:\.\d+)*\b", "", text)
     if text.endswith(".") and not text.endswith(".."):
         text = text[:-1]
@@ -205,6 +207,27 @@ CHOICE_INDENT = 4
 # line wrapped past the real edge hard-wraps mid-word back to column 0 — a
 # fixed cap keeps the prompt area deterministic everywhere.
 PROMPT_WRAP_WIDTH = 100
+
+
+def _detect_terminal_width() -> int:
+    """Best-effort tty width for tables and cards.
+
+    ``shutil.get_terminal_size`` prefers ioctl over ``$COLUMNS``. On some SSH /
+    multiplexer setups ioctl stays at 80 while the visible pane (and COLUMNS)
+    is wider — take the max so ``loan list`` can use the real width (E2E N9).
+    Fallback 120 when nothing is detectable.
+    """
+    detected = 0
+    try:
+        detected = int(shutil.get_terminal_size(fallback=(0, 0)).columns or 0)
+    except Exception:
+        detected = 0
+    env_raw = os.environ.get("COLUMNS")
+    env_cols = int(env_raw) if env_raw and env_raw.isdigit() else 0
+    width = max(detected, env_cols)
+    if width <= 0:
+        width = 120
+    return max(width, 80)
 
 
 def prompt_hint(content: "str | Text", *, indent: int = CHOICE_INDENT) -> Constrain:
@@ -292,12 +315,7 @@ class Output:
         self.network = network
         # highlight=False: rich's default highlighter colors digits, parens,
         # and quoted strings on its own; every color here should be deliberate.
-        # Prefer the real tty width so loan tables are not stuck at 80 cols
-        # on wide terminals (E2E F8). Fallback 120 when size is unavailable.
-        try:
-            term_width = max(shutil.get_terminal_size(fallback=(120, 24)).columns, 80)
-        except Exception:
-            term_width = 120
+        term_width = _detect_terminal_width()
         self._out = Console(highlight=False, theme=_THEME, width=term_width)
         self._err = Console(stderr=True, highlight=False, theme=_THEME, width=term_width)
         # Whether the terminal honors OSC-8 hyperlinks (invisible clickable
@@ -1010,6 +1028,9 @@ class Output:
             self._print_title(title)
             self._out.print("  [dim]none[/dim]")
             return
+        # Refresh width at print time — Output may have been constructed when
+        # the tty was still the default 80 cols (E2E N9).
+        self._out.width = _detect_terminal_width()
         table = Table(title=title, title_style=STYLE_TITLE, header_style=STYLE_KEY)
         for column in columns:
             if truncate:
@@ -2413,8 +2434,7 @@ class Output:
         if error.description and error.description != message and error.description != headline:
             self._sub_diag("note", error.description)
         self._sub_diag("help", error.remediation)
-        # Lending query/tx pages are not on the public docs host yet (N12/F12).
-        if error.docs_url and "/lending" not in error.docs_url and "/loan" not in error.docs_url:
+        if error.docs_url:
             self._sub_diag("see", error.docs_url)
         if explorer_url:
             self._sub_diag("see", explorer_url)

@@ -139,10 +139,10 @@ class OpenLoan(Intent):
 
     Positions are keyed by ``(coldkey, netuid)``. An existing position must
     have the same side. ``collateral`` adds to its remaining collateral after
-    accrued interest; borrowed principal and the new fixed coupon add to the
-    saved position. The old coupon is not repriced. The combined position must
-    pass current opening guards, and an already exhausted position cannot be
-    increased.
+    accrued interest; borrowed principal and the new fixed annual interest add
+    to the saved position. The old interest rate is not repriced. The combined
+    position must pass current opening guards, and an already exhausted
+    position cannot be increased.
 
     Shorts are TAO-only and must omit ``hotkey_ss58`` (the call passes
     ``source_hotkey=None``). Longs require ``hotkey_ss58`` as the stake that
@@ -305,7 +305,9 @@ class OpenLoan(Intent):
             annual = _nonnegative(quote.get("annual_interest"), "quoted annual interest")
             escrow_estimate = int(quote.get("escrow_estimate") or 0)
             if principal == 0 or opening == 0 or annual == 0:
-                raise BittensorError("lending quote must contain a positive loan and coupon")
+                raise BittensorError(
+                    "lending quote must contain a positive loan and annual interest"
+                )
             if self.amount is not None and principal != cast(Balance, self.amount).rao:
                 raise BittensorError("lending quote does not match the exact amount to borrow")
             if principal < cast(Balance, self.min_borrow).rao:

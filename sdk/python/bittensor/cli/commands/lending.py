@@ -10,6 +10,7 @@ from typing import Any, Optional, cast
 import typer
 
 from ...balance import Balance
+from ...executor import _find_event
 from ...intents import CloseLoan, OpenLoan, RaiseLoan, RepayLoan
 from ...intents._money import alpha_amount, tao_amount
 from ...intents.lending import _available_alpha, _spendable_tao
@@ -36,7 +37,8 @@ MINIMUM_LOAN_VALUE_TAO = "0.001"
 app = typer.Typer(
     no_args_is_help=True,
     # Wide terminals: don't ellipsize long option names / help (E2E F15).
-    context_settings={"max_content_width": 120, "help_option_names": ["-h", "--help"]},
+    # 200 keeps `--repay-from-wallet` intact on typical 160-col panes.
+    context_settings={"max_content_width": 200, "help_option_names": ["-h", "--help"]},
     help=(
         "Lift-based escrowed loans: open, close, repay, raise, list, show.\n\n"
         "Queries: lending_position / lending_close_quote (SDK reads)."
@@ -177,7 +179,7 @@ def _position_status_label(position: dict) -> str:
 
 
 async def _provided_collateral(client, minimum: Balance, netuid: int, owner: str, percent: float):
-    """Add quote tolerance and the old coupon's conservative submission window."""
+    """Add quote tolerance and accrued interest reserve for the submission window."""
     maximum = (1 << 64) - 1
     if not 0 < minimum.rao <= maximum:
         raise BittensorError("calculated collateral does not fit the chain's deposit units")
@@ -187,16 +189,16 @@ async def _provided_collateral(client, minimum: Balance, netuid: int, owner: str
     view = await client.at()
     existing = await view.read("lending_position", coldkey_ss58=owner, netuid=netuid)
     if existing is not None:
-        coupon = existing.get("annual_interest")
-        if not isinstance(coupon, Balance) or coupon.netuid != minimum.netuid or coupon.rao < 0:
-            raise BittensorError("the existing loan's collateral coupon is unavailable or changed")
+        annual = existing.get("annual_interest")
+        if not isinstance(annual, Balance) or annual.netuid != minimum.netuid or annual.rao < 0:
+            raise BittensorError("the existing loan's annual interest is unavailable or changed")
         year = await view.constant(("Lending", "BlocksPerYear"))
         if not isinstance(year, int) or isinstance(year, bool) or year <= 0:
             raise BittensorError("the lending interest year is unavailable")
         # Shielding may fall back to bare submission, whose normal mortal era
-        # is longer. Reserve the old fixed coupon across either submission path.
+        # is longer. Reserve the old fixed annual interest across either path.
         window = max(DEFAULT_ERA_PERIOD, MEV_SHIELD_ERA_PERIOD)
-        provided += (coupon.rao * window + year - 1) // year
+        provided += (annual.rao * window + year - 1) // year
     if provided > maximum:
         raise BittensorError("buffered collateral does not fit the chain's deposit units")
     return view.balance(provided, minimum.netuid)
@@ -332,9 +334,9 @@ def open_loan(
         max=99.0,
         help=(
             "Quote tolerance (percent, default 1%). Amount mode adds collateral headroom and "
-            "the existing coupon's submission window. Collateral mode sets a principal floor. "
-            "Shorts also set an opening value floor; longs set a min escrow-alpha floor. "
-            "Must be > 0 (quotes go stale one block later)."
+            "reserves accrued interest for the inclusion window. Collateral mode sets a "
+            "principal floor. Shorts also set an opening value floor; longs set a min "
+            "escrow-alpha floor. Must be > 0 (quotes go stale one block later)."
         ),
     ),
 ):
@@ -346,8 +348,8 @@ def open_loan(
     value is about 0.001 TAO (runtime MinimumLoanValue).
 
     Amount mode adds collateral headroom via --max-slippage (default 1%)
-    plus the existing coupon's submission window; borrowed principal stays
-    exact.
+    plus accrued-interest reserve for the inclusion window; borrowed
+    principal stays exact.
 
     Shorts sell borrowed alpha into escrowed TAO (no --hotkey). Longs buy
     escrowed alpha with borrowed TAO and require --hotkey as the collateral
@@ -405,6 +407,15 @@ def open_loan(
         lambda client: client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
     )
     if existing is not None:
+        # Side check before the term-restart warning (E2E U3).
+        existing_side = str(existing.get("side") or "").lower()
+        if existing_side and existing_side != side.value.lower():
+            _exit_error(
+                context,
+                f"PositionSideMismatch: existing loan is {existing['side']}; "
+                f"cannot open/increase as {side.value}",
+                code=1,
+            )
         context.output.message(
             "warning: increasing this position restarts the 1-year fixed term "
             "(expires_at moves to now + BlocksPerYear)"
@@ -429,7 +440,23 @@ def open_loan(
             try:
                 minimum_collateral, collateral = context.run(size)
             except BittensorError as error:
-                _exit_error(context, str(error), code=1)
+                # Surface need vs have when the long search exhausts unlocked alpha (U4).
+                detail = str(error)
+                if side == Side.long and hotkey is not None and "unlocked alpha" in detail.lower():
+                    try:
+                        available = context.run(
+                            lambda client: _available_alpha(
+                                client._substrate, owner, hotkey, netuid
+                            )
+                        )
+                        detail = (
+                            f"insufficient collateral for borrow {_fmt_amount(requested)}: "
+                            f"required collateral exceeds unlocked alpha "
+                            f"{_fmt_amount(available)} on {hotkey}"
+                        )
+                    except Exception:
+                        pass
+                _exit_error(context, detail, code=1)
     if collateral is None:
         _exit_error(context, "provide --amount or --collateral")
     collateral_bal = (
@@ -662,20 +689,60 @@ def close_loan(
     )
     shortfall = quote.get("shortfall")
     head = context.run(lambda client: client.block())
+    close_path = (
+        "wallet repay"
+        if repay_from_wallet
+        else (
+            "escrow buyback (wallet top-up if shortfall)"
+            if side == "Short"
+            else "escrow sell (A then C)"
+        )
+    )
     repay_rows = [
         ("side", side),
+        ("close path", close_path),
         ("alpha hotkey", hotkey or "—"),
         ("quoted payment", _fmt_amount(quote["payment"])),
         ("maximum payment", _fmt_amount(intent.max_payment)),
-        ("quoted refund", _fmt_amount(quote["refund"])),
-        ("minimum refund", _fmt_amount(intent.min_refund)),
+        ("quoted leftover refund", _fmt_amount(quote["refund"])),
+        ("minimum leftover refund", _fmt_amount(intent.min_refund)),
     ]
     if isinstance(shortfall, Balance) and shortfall.rao > 0:
-        repay_rows.append(("shortfall (top-up)", _fmt_amount(shortfall)))
-    repay_rows.append(("valid until", _format_valid_until(intent.valid_until, head=head)))
+        repay_rows.append(("wallet top-up (shortfall)", _fmt_amount(shortfall)))
+    if int(intent.valid_until) < VALID_UNTIL_NONE:
+        repay_rows.append(("valid until", _format_valid_until(intent.valid_until, head=head)))
+
+    def _enrich_slippage(result):
+        error = getattr(result, "error", None)
+        if error is None or error.name != "SlippageExceeded":
+            return
+        error.remediation_override = (
+            f"quoted payment {_fmt_amount(quote['payment'])} vs max "
+            f"{_fmt_amount(intent.max_payment)}; quoted leftover refund "
+            f"{_fmt_amount(quote['refund'])} vs min {_fmt_amount(intent.min_refund)}. "
+            f"Re-quote and raise --max-slippage (was {max_slippage}%), or reduce size"
+        )
+
+    def _attach_closed(result):
+        _enrich_slippage(result)
+        if not result.success:
+            return
+        attrs = _find_event(result.events, "Lending", "Closed")
+        if not isinstance(attrs, dict):
+            return
+        net = int(attrs.get("netuid") or netuid)
+        refund_rao = int(attrs.get("refund") or 0)
+        top_up = int(attrs.get("wallet_top_up") or 0)
+        # Short leftover refund is TAO; long leftover refund is alpha.
+        refund_unit = 0 if side == "Short" else net
+        result.data["refund"] = _fmt_amount(Balance.from_rao(refund_rao, refund_unit))
+        result.data["wallet_top_up"] = _fmt_amount(Balance.from_rao(top_up, 0))
+        result.data["payment"] = _fmt_amount(quote["payment"])
+
     context.submit(
         intent,
         card_sections=[("Repayment", repay_rows)],
+        on_result=_attach_closed,
     )
 
 
@@ -906,6 +973,14 @@ def raise_loan(
         lambda client: client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
     )
     if existing is not None:
+        # Side check before the term-restart warning (E2E U3).
+        if str(existing.get("side") or "").lower() != "long":
+            _exit_error(
+                context,
+                "PositionSideMismatch: raise is long-only; "
+                f"existing loan is {existing.get('side')}",
+                code=1,
+            )
         context.output.message("warning: increasing this position restarts the 1-year fixed term")
 
     with context.output.activity("resolving raise deadline…"):
@@ -1173,25 +1248,8 @@ def list_positions(
         else:
             position = await client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
             positions = [position] if position is not None else []
-        # Annotate escrow-buyback shortfall so list status matches show (E2E N4).
-        for position in positions:
-            if position is None or position.get("side") != "Short":
-                continue
-            if position.get("underwater"):
-                continue
-            try:
-                close_quote = await client.read(
-                    "lending_close_quote",
-                    coldkey_ss58=position["coldkey"],
-                    netuid=netuid,
-                    repay_from_wallet=False,
-                )
-            except Exception:
-                continue
-            shortfall = close_quote.get("shortfall") if isinstance(close_quote, dict) else None
-            if isinstance(shortfall, Balance) and shortfall.rao > 0:
-                position["underwater"] = True
-                position["close_shortfall"] = shortfall
+        # SDK lending_position / lending_positions already annotate AMM shortfall
+        # onto underwater / insolvent / shortfall (E2E N4 / U2).
         return positions, head, head_time
 
     positions, head, head_time = context.run(_positions)
@@ -1232,8 +1290,14 @@ def list_positions(
     )
 
 
-@app.command("show")
-@app.command("quote")
+@app.command(
+    "show",
+    help="Show one open loan with status, runway, and a live escrow close quote.",
+)
+@app.command(
+    "quote",
+    help="Quote close payment / leftover refund / shortfall for one loan (read-only).",
+)
 @with_globals
 def show_position(
     ctx: typer.Context,
@@ -1250,7 +1314,7 @@ def show_position(
         help="Quote the wallet-repay close path instead of the default escrow path.",
     ),
 ):
-    """Show one position and its close quote (cheap read; no transaction)."""
+    """Show one open loan and its close quote (read-only; no transaction)."""
     context = ctx_of(ctx)
     owner = context.resolve_address("coldkey_ss58", coldkey_ss58)
     if owner is None:
@@ -1275,12 +1339,23 @@ def show_position(
         )
         return position, quote, head, head_time
 
-    position, quote, head, head_time = context.run(_load)
+    try:
+        position, quote, head, head_time = context.run(_load)
+    except BittensorError as error:
+        # Close quote should no longer raise for insolvent longs; keep a clear
+        # read-path message if a node is still on the old InsufficientEscrow path.
+        _exit_error(
+            context,
+            f"could not quote close for this loan: {error} (read failed — not a rejected call)",
+            code=1,
+        )
     if position is None:
         _exit_error(context, f"no lending position on netuid {netuid}", code=1)
     shortfall = quote.get("shortfall")
     shortfall_rao = shortfall.rao if isinstance(shortfall, Balance) else int(shortfall or 0)
-    underwater = bool(position.get("underwater")) or shortfall_rao > 0
+    underwater = (
+        bool(position.get("underwater")) or bool(position.get("insolvent")) or shortfall_rao > 0
+    )
     status = "underwater" if underwater else "ok"
     fields = {
         "owner": owner,
@@ -1297,14 +1372,20 @@ def show_position(
             f"{position['runway_days']:.0f}d" if position.get("runway_days") is not None else "-"
         ),
         "quoted payment": _fmt_amount(quote["payment"]),
-        "quoted refund": _fmt_amount(quote["refund"]),
+        "quoted leftover refund": _fmt_amount(quote["refund"]),
         "shortfall": _fmt_amount(shortfall),
     }
-    if shortfall_rao > 0 and position.get("side") == "Short" and not repay_from_wallet:
-        fields["at expiry"] = "forfeit if still underwater (burn C, restore lift+escrow, no refund)"
+    if shortfall_rao > 0 and not repay_from_wallet:
+        fields["at expiry"] = (
+            "forfeit if still insolvent (burn remaining C, restore lift+escrow, no refund)"
+        )
+        if isinstance(shortfall, Balance) and shortfall.rao > 0:
+            fields["wallet top-up to close now"] = _fmt_amount(shortfall)
     json_fields = {
         **_position_json(position),
         "underwater": underwater,
+        "insolvent": underwater,
+        "shortfall": shortfall_rao,
         "close_quote": {
             "payment": quote["payment"].rao
             if isinstance(quote["payment"], Balance)

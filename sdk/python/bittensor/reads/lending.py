@@ -119,9 +119,9 @@ def _position_record(
             days_to_expiry = max(expires_at - now, 0) * 365 / blocks_per_year
             runway_days = min(runway_days, days_to_expiry)
     remaining = max(collateral - interest_due, 0)
-    # Interest exhaustion. AMM buyback shortfall is annotated by CLI show/list
-    # via lending_close_quote (E2E N4) — storage alone cannot know pool cost.
-    underwater = remaining <= 0 and principal > 0
+    # Interest exhaustion only here. AMM shortfall / insolvency is filled by
+    # `_annotate_close_solvency` (E2E N4 / U2) so `underwater` matches the CLI.
+    interest_exhausted = remaining <= 0 and principal > 0
     return {
         "coldkey": owner,
         "netuid": netuid,
@@ -141,9 +141,38 @@ def _position_record(
         "last_accrued": int(raw["last_accrued"]),
         "due": int(raw["due"]),
         "expires_at": expires_at,
-        "underwater": underwater,
+        "underwater": interest_exhausted,
+        "insolvent": interest_exhausted,
+        "shortfall": Balance.from_rao(0),
         "runway_days": runway_days,
     }
+
+
+async def _annotate_close_solvency(view, record: dict) -> dict:
+    """Set shortfall / insolvent / underwater from the escrow close quote.
+
+    Storage alone cannot know AMM buyback cost. A positive shortfall means the
+    default close path cannot cover principal from escrow (+ collateral for
+    longs) — flag the loan underwater and warn about forfeit at expiry.
+    """
+    try:
+        raw = _ok(
+            await view.runtime(
+                QUOTE_CLOSE,
+                [record["coldkey"], record["netuid"], None, False],
+            )
+        )
+    except Exception:
+        return record
+    shortfall = Balance.from_rao(int(raw.get("shortfall") or 0))
+    record["shortfall"] = shortfall
+    if shortfall.rao > 0:
+        record["underwater"] = True
+        record["insolvent"] = True
+        record["close_shortfall"] = shortfall
+    else:
+        record["insolvent"] = bool(record.get("underwater"))
+    return record
 
 
 @read(
@@ -163,13 +192,18 @@ async def lending_position(view, coldkey_ss58: str, netuid: int) -> Optional[dic
     ``escrow_alpha`` is the long's escrowed alpha (A); zero for shorts.
     ``expires_at`` is the fixed one-year term end (increases restart it).
     ``runway_days`` is capped at days remaining until ``expires_at``. Interest
-    and runway are estimates at the selected block, not a close quote.
+    and runway are estimates at the selected block. ``underwater`` /
+    ``insolvent`` are true when interest is exhausted or the escrow close
+    quote reports a positive ``shortfall`` (AMM cannot cover principal).
     """
     view = await view.at()
     raw = await view.query(POSITIONS, [coldkey_ss58, netuid])
     if not isinstance(raw, dict):
         return None
-    return _position_record(view, coldkey_ss58, netuid, raw, await _interest_clock(view, netuid))
+    record = _position_record(view, coldkey_ss58, netuid, raw, await _interest_clock(view, netuid))
+    if record is None:
+        return None
+    return await _annotate_close_solvency(view, record)
 
 
 @read(
@@ -191,7 +225,7 @@ async def lending_positions(view, netuid: int) -> list[dict]:
         raw = await view.query(POSITIONS, [owner, netuid])
         record = _position_record(view, owner, netuid, raw, clock)
         if record is not None:
-            records.append(record)
+            records.append(await _annotate_close_solvency(view, record))
     return sorted(records, key=lambda record: record["coldkey"])
 
 
@@ -323,7 +357,7 @@ async def lending_open_quote(
     hotkey_ss58: Optional[str] = None,
     amount: Optional[str] = "",
 ) -> dict:
-    """Quote additional fixed debt, opening value and collateral coupon.
+    """Quote additional fixed debt, opening value and annual interest.
 
     Supply ``coldkey_ss58`` to quote a new position or increase an existing
     one on the same side (positions are keyed by coldkey and netuid). Longs
@@ -334,10 +368,12 @@ async def lending_open_quote(
     other same-side loan after accrued interest. Returned principal,
     annual_interest and opening_value are additions, not totals. Short
     opening_value is the loan's TAO value at the lending EMA, rounded up,
-    and fixes its annual TAO coupon. Omitting the owner quotes a fresh loan
-    only. A refusal is an error; it never becomes a zero-protection quote.
-    The result is indicative until the transaction executes. Supply
-    ``amount`` with an owner to quote exactly that additional principal.
+    and fixes its annual TAO interest. ``escrow_estimate`` is simulated sale
+    proceeds in TAO for shorts and escrowed alpha for longs. Omitting the
+    owner quotes a fresh loan only. A refusal is an error; it never becomes
+    a zero-protection quote. The result is indicative until the transaction
+    executes. Supply ``amount`` with an owner to quote exactly that
+    additional principal.
     """
     view = await view.at()
     side = check_side(side)
@@ -387,7 +423,11 @@ async def lending_open_quote(
             int(raw.get("collateral") or collateral_amount.rao), collateral_unit
         ),
         "v_dyn": Balance.from_rao(int(raw.get("v_dyn") or 0)),
-        "escrow_estimate": view.balance(int(raw.get("escrow_estimate") or 0), netuid),
+        # Short sale proceeds are TAO; long forced-buy escrow is alpha (E2E U1).
+        "escrow_estimate": view.balance(
+            int(raw.get("escrow_estimate") or 0),
+            0 if side == "Short" else netuid,
+        ),
     }
 
 

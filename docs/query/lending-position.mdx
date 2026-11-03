@@ -13,7 +13,9 @@ is alpha and long debt is TAO. `proceeds` is the short's escrowed TAO
 `escrow_alpha` is the long's escrowed alpha (A); zero for shorts.
 `expires_at` is the fixed one-year term end (increases restart it).
 `runway_days` is capped at days remaining until `expires_at`. Interest
-and runway are estimates at the selected block, not a close quote.
+and runway are estimates at the selected block. `underwater` /
+`insolvent` are true when interest is exhausted or the escrow close
+quote reports a positive `shortfall` (AMM cannot cover principal).
 
 **Category:** Prices & swaps
 

@@ -511,9 +511,14 @@ class ChainError(BittensorError):
         self.message = message
         self.name = name
         self.code = code or classify_error(message, name)
+        # Optional per-call override so CLI can attach quoted vs bound numbers
+        # for SlippageExceeded (E2E F12) without mutating the global help table.
+        self.remediation_override: Optional[str] = None
 
     @property
     def remediation(self) -> str:
+        if self.remediation_override:
+            return self.remediation_override
         if self.name in _NAME_HELP_OVERRIDES:
             return _NAME_HELP_OVERRIDES[self.name]
         haystack = self.message.lower()

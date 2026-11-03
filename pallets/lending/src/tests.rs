@@ -3233,6 +3233,16 @@ fn long_expiry_preserves_collateral_when_subtoken_disabled() {
         assert_eq!(NextExpiryRetry::<Test>::get(), Some(retry_at));
         assert_eq!(ExpiryRetryPending::<Test>::get(), 1);
         assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::SettlementDeferred {
+                    retry_at: r,
+                    ..
+                }) if r == retry_at
+            )),
+            "failed expiry must emit SettlementDeferred with the retry block (E2E U5)"
+        );
+        assert!(
             System::events().into_iter().all(|e| !matches!(
                 e.event,
                 RuntimeEvent::Lending(Event::Expired { .. } | Event::Forfeited { .. })
@@ -3274,6 +3284,7 @@ fn failed_interest_collection_defers_onto_retry_bucket() {
         // Disable subtoken so long interest's transfer_staked_alpha rolls back.
         set_subtoken_enabled(false);
         System::set_block_number(due_at);
+        System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(due_at, Weight::MAX);
 
         let still = Positions::<Test>::get(&owner, netuid()).unwrap();
@@ -3288,6 +3299,16 @@ fn failed_interest_collection_defers_onto_retry_bucket() {
         );
         let delay = <<Test as Config>::InterestRetryDelay as Get<u64>>::get();
         let retry_at = due_at.saturating_add(delay);
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::InterestDeferred {
+                    retry_at: r,
+                    ..
+                }) if r == retry_at
+            )),
+            "failed interest must emit InterestDeferred with the retry block (E2E U5)"
+        );
         assert!(
             InterestRetry::<Test>::contains_key(retry_at, (&owner, netuid())),
             "surviving loan must land on the O(1) interest-retry side queue"
@@ -5509,6 +5530,56 @@ fn quote_close_escrowed_short_refund_matches_execution() {
             diff
         );
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
+#[test]
+fn insolvent_long_quote_close_reports_shortfall() {
+    // E2E U2: quote_close must not Err(InsufficientEscrow) for insolvent longs;
+    // shortfall > 0 so CLI/SDK can flag underwater and warn about forfeit.
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let sell_all = position.escrow_alpha.saturating_add(position.collateral);
+        let p = position.principal;
+        // Crash TAO reserve so selling A+C cannot cover P.
+        write(&key(b"test/pool_tao", netuid()), p / 100);
+        assert!(pool_tao() > 0, "pool must still have TAO");
+        let raised = MockPool::quote_sell(netuid(), sell_all.into())
+            .expect("sell quote")
+            .to_u64();
+        assert!(
+            raised < p,
+            "precondition: A+C sale {raised} must miss principal {p}"
+        );
+
+        let quoted = Lending::quote_close(&owner, netuid(), Some(&hotkey), false)
+            .expect("insolvent long quote must succeed with shortfall");
+        assert_eq!(quoted.payment, p);
+        assert!(
+            quoted.shortfall > 0,
+            "insolvent long must report shortfall, got {}",
+            quoted.shortfall
+        );
+        assert!(
+            quoted.shortfall <= p.saturating_sub(raised.min(p)).saturating_add(p / 100 + 1),
+            "shortfall {} should be near principal − one-shot A+C sale {}",
+            quoted.shortfall,
+            raised
+        );
     });
 }
 
