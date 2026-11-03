@@ -7,6 +7,7 @@ pub mod consensus;
 pub mod dev_keystore;
 pub mod ethereum;
 pub mod execution_admission;
+mod pq_execution;
 pub mod rpc;
 pub mod service;
 

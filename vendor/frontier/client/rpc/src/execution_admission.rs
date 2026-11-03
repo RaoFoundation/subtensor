@@ -1,134 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
-use jsonrpsee::core::RpcResult;
-use std::{
-	sync::{
-		atomic::{AtomicUsize, Ordering},
-		Arc, Mutex,
-	},
-	time::{Duration, Instant},
-};
+use std::time::Duration;
 
-/// An entire pending reconstruction, including any final simulation, has one
-/// deadline. These host limits are deliberately independent of consensus limits.
-pub const PENDING_TIMEOUT: Duration = Duration::from_secs(15);
-pub const MAX_PENDING_EXTRINSICS: usize = 256;
-pub const MAX_PENDING_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
-const MAX_PENDING_JOBS: usize = 2;
-const MAX_PENDING_ATTEMPTS: usize = 1024;
-const MAX_PENDING_ATTEMPT_BYTES: usize = 64 * 1024 * 1024;
-pub const PENDING_LIMIT_ERROR: &str =
-	"Pending execution deadline or work limit reached; retry later";
-
-static PENDING_JOBS: AtomicUsize = AtomicUsize::new(0);
-
-struct PendingWork {
-	deadline: Instant,
-	// Counts even rejected admission attempts, never reset by overlay rollback.
-	work: Mutex<WorkState>,
-}
-
-#[derive(Default)]
-struct WorkState {
-	attempts: usize,
-	bytes: usize,
-	// A rate token buys one bounded reconstruction, not one replayed extrinsic.
-	admitted: bool,
-}
-
-impl Drop for PendingWork {
-	fn drop(&mut self) {
-		PENDING_JOBS.fetch_sub(1, Ordering::AcqRel);
-	}
-}
-
-/// Trusted, process-local capability attached only by the pending RPC builder.
-/// It has no wire encoding or runtime host function; raw `state_call` callers
-/// cannot create it. Clones retain the job lease until the final API is dropped.
-#[derive(Clone)]
-pub struct PendingExecution(Arc<PendingWork>);
-
-impl PendingExecution {
-	pub fn try_new(deadline: Instant) -> Result<Self, &'static str> {
-		if deadline <= Instant::now() {
-			return Err(PENDING_LIMIT_ERROR);
-		}
-		PENDING_JOBS
-			.fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
-				(active < MAX_PENDING_JOBS).then(|| active + 1)
-			})
-			.map_err(|_| fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR)?;
-		Ok(Self(Arc::new(PendingWork {
-			deadline: deadline.min(Instant::now() + PENDING_TIMEOUT),
-			work: Mutex::new(WorkState::default()),
-		})))
-	}
-
-	pub fn deadline(&self) -> Instant {
-		self.0.deadline
-	}
-
-	pub fn check(&self) -> Result<(), &'static str> {
-		if Instant::now() >= self.0.deadline {
-			Err(PENDING_LIMIT_ERROR)
-		} else {
-			Ok(())
-		}
-	}
-
-	/// Called at the executor boundary, including on attempts rejected for rate
-	/// or concurrency. Neither a clone nor a transaction rollback renews credit.
-	pub fn charge(&self, bytes: usize) -> Result<(), &'static str> {
-		self.check()?;
-		let mut work = self.0.work.lock().map_err(|_| PENDING_LIMIT_ERROR)?;
-		work.attempts = work.attempts.saturating_add(1);
-		work.bytes = work.bytes.saturating_add(bytes);
-		if work.attempts > MAX_PENDING_ATTEMPTS || work.bytes > MAX_PENDING_ATTEMPT_BYTES {
-			Err(PENDING_LIMIT_ERROR)
-		} else {
-			Ok(())
-		}
-	}
-
-	/// Acquire an execution permit, charging the service's rate token only on
-	/// this job's first successful acquisition. Every acquisition must still
-	/// enforce concurrency and input limits. The callback must not reenter this
-	/// budget: its lock makes the first-token decision atomic across API clones.
-	/// Failed acquisitions never mark the job admitted, and neither rollback nor
-	/// cloning renews its deadline, work budget or paid rate token.
-	pub fn admit<T>(
-		&self,
-		acquire: impl FnOnce(bool) -> Result<T, &'static str>,
-	) -> Result<T, &'static str> {
-		let mut work = self.0.work.lock().map_err(|_| PENDING_LIMIT_ERROR)?;
-		self.check()?;
-		if work.attempts > MAX_PENDING_ATTEMPTS || work.bytes > MAX_PENDING_ATTEMPT_BYTES {
-			return Err(PENDING_LIMIT_ERROR);
-		}
-		let permit = acquire(!work.admitted)?;
-		work.admitted = true;
-		Ok(permit)
-	}
-}
-
-impl sp_externalities::Extension for PendingExecution {
-	fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
-		self
-	}
-	fn type_id(&self) -> std::any::TypeId {
-		std::any::TypeId::of::<Self>()
-	}
-}
-
-/// Retry only pre-execution admission failures. The caller rolls back each
-/// failed attempt and retains its already committed pending overlay.
+/// Retry only PQ capacity errors on the same retained pending overlay. Successful
+/// classical work has no deadline. A deadline starts only after contention and
+/// bounds this individual retry, allowing a large mixed pool to make progress.
 pub async fn retry_pending_execution<T, A>(
 	state: &mut A,
 	mut execute: impl FnMut(&mut A) -> Result<T, sp_api::ApiError>,
-	budget: &PendingExecution,
 ) -> Result<T, sp_api::ApiError> {
+	let mut deadline = None;
 	loop {
-		budget.check().map_err(pending_limit_error)?;
 		let result = execute(state);
 		if !result.as_ref().err().is_some_and(|error| {
 			error.to_string()
@@ -137,44 +19,91 @@ pub async fn retry_pending_execution<T, A>(
 					fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR
 				)
 		}) {
-			budget.check().map_err(pending_limit_error)?;
 			return result;
 		}
-		tokio::time::sleep_until(tokio::time::Instant::from_std(
-			budget
-				.deadline()
-				.min(Instant::now() + Duration::from_millis(250)),
-		))
-		.await;
+		let now = tokio::time::Instant::now();
+		let deadline = *deadline.get_or_insert(now + Duration::from_secs(15));
+		if now >= deadline {
+			return result;
+		}
+		tokio::time::sleep_until(deadline.min(now + Duration::from_millis(125))).await;
 	}
 }
 
-pub fn pending_limit_error(message: &'static str) -> sp_api::ApiError {
-	sp_api::ApiError::Application(std::io::Error::other(message).into())
-}
+#[cfg(test)]
+mod tests {
+	use super::*;
 
-/// Wait for executor capacity instead of presenting ordinary backpressure as an
-/// EVM failure. Gas estimation shares one deadline across all its probes. Every
-/// retry still passes executor admission, and cancellation drops the sleep
-/// without launching another probe.
-pub async fn retry_execution_capacity<T, F: std::future::Future<Output = RpcResult<T>>>(
-	mut execute: impl FnMut() -> F,
-	deadline: tokio::time::Instant,
-) -> RpcResult<T> {
-	loop {
-		let result = execute().await;
-		let retry = result.as_ref().err().is_some_and(|error| {
-			error.code() == jsonrpsee::types::error::INTERNAL_ERROR_CODE
-				&& error.message()
-					== format!(
-						"runtime error: Execution failed: Other: {}",
-						fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR
-					)
-		});
-		let now = tokio::time::Instant::now();
-		if !retry || now >= deadline {
-			return result;
+	fn error(message: &str) -> sp_api::ApiError {
+		sp_api::ApiError::Application(std::io::Error::other(message.to_owned()).into())
+	}
+
+	#[test]
+	fn successful_legacy_work_needs_no_timer_or_job_permit() {
+		let mut applied = 0;
+		for _ in 0..300 {
+			futures::executor::block_on(retry_pending_execution(&mut applied, |applied| {
+				*applied += 1;
+				Ok(())
+			}))
+			.unwrap();
 		}
-		tokio::time::sleep_until(deadline.min(now + std::time::Duration::from_millis(125))).await;
+		assert_eq!(applied, 300);
+	}
+
+	#[tokio::test]
+	async fn pending_replay_progresses_beyond_a_pq_burst_without_restarting_state() {
+		let mut applied = 0;
+		for index in 0..40 {
+			let mut attempts = 0;
+			retry_pending_execution(&mut applied, |applied| {
+				assert_eq!(*applied, index);
+				attempts += 1;
+				if index >= 16 && attempts == 1 {
+					return Err(error(&format!(
+						"Execution failed: Other: {}",
+						fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR
+					)));
+				}
+				*applied += 1;
+				Ok(())
+			})
+			.await
+			.unwrap();
+		}
+		assert_eq!(applied, 40);
+	}
+
+	#[tokio::test]
+	async fn genuine_runtime_errors_and_similar_messages_are_not_retried() {
+		for message in [
+			"runtime execution failed",
+			fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR,
+			"Execution failed: Other: Local runtime execution capacity reached; retry later suffix",
+		] {
+			let mut attempts = 0;
+			let result = retry_pending_execution(&mut attempts, |attempts| {
+				*attempts += 1;
+				Err::<(), _>(error(message))
+			})
+			.await;
+			assert_eq!(result.unwrap_err().to_string(), message);
+			assert_eq!(attempts, 1);
+		}
+	}
+
+	#[tokio::test]
+	async fn cancellation_stops_pq_retry_without_replaying_state() {
+		let mut attempts = 0;
+		let mut pending = Box::pin(retry_pending_execution(&mut attempts, |attempts| {
+			*attempts += 1;
+			Err::<(), _>(error(&format!(
+				"Execution failed: Other: {}",
+				fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR
+			)))
+		}));
+		assert!(futures::poll!(&mut pending).is_pending());
+		drop(pending);
+		assert_eq!(attempts, 1);
 	}
 }

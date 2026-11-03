@@ -1,35 +1,28 @@
-//! Shared admission at the runtime execution boundary, including raw RPC calls.
+//! Admission for offchain post-quantum authentication, including raw RPC calls.
 //!
-//! Pool admission alone cannot bound `state_call`, chain-head/archive calls,
-//! dry-run, or pending blocks that authenticate post-quantum extrinsics. Executor clones
-//! share per-service budgets. Raw RPC calls cannot consume the transaction
-//! pool's reserved validation capacity. A permit lives until synchronous Wasm
-//! execution returns, including when the original RPC future is cancelled.
-//! These are local resource limits, never consensus checks: block import and
-//! authoring use `Onchain`.
+//! Only encoded ML-DSA/Falcon extrinsics consume this budget. Classical requests,
+//! queries, initialization and simulations retain the base executor behavior.
+//! Clones share reservations, and a permit lives until synchronous Wasm execution
+//! returns, even if the requesting RPC future is cancelled. Pool revalidation has
+//! separate capacity; block import and authoring use the unrestricted Onchain path.
 
+use crate::pq_execution::{self, Work};
 use sc_executor::{RuntimeVersion, RuntimeVersionOf, error};
 use sp_core::traits::{
     CallContext, CodeExecutor, Externalities, ExternalitiesExt, ReadRuntimeVersion, RuntimeCode,
 };
-use sp_runtime::codec::{Compact, Decode};
 use std::{
     sync::{Arc, Condvar, Mutex},
     time::{Duration, Instant},
 };
 
 const MAX_ACTIVE: usize = 2;
-const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
-// Pending and Other split one service reservation.
-const MAX_ACTIVE_BYTES: usize = MAX_INPUT_BYTES;
+const MAX_ACTIVE_BYTES: usize = 16 * 1024 * 1024;
 const BURST: u32 = 16;
 const REFILL: Duration = Duration::from_millis(125);
-// Normal selective queries contain only the supported u16 indices. Historical runtimes
-// did not bound or deduplicate them, so large raw state_call inputs stay guarded.
-const MAX_SELECTIVE_QUERY_BYTES: usize = 1024;
 
 /// Only the local benchmark command may construct an unrestricted executor.
-/// This mode is not selected by runtime method names, RPC data or feature flags.
+/// RPC input and runtime feature flags cannot select this mode.
 #[derive(Clone, Copy)]
 pub enum ExecutionMode {
     Node,
@@ -37,213 +30,8 @@ pub enum ExecutionMode {
     Benchmark,
 }
 
-#[cfg(test)]
-static PENDING_TEST_LOCK: Mutex<()> = Mutex::new(());
-
 fn busy() -> error::Error {
     error::Error::Other(fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR.into())
-}
-
-/// Explicitly reviewed APIs that do not authenticate post-quantum extrinsics.
-/// Normal queries and gas/weight-bounded simulations retain the base behavior.
-/// New exports are budgeted until reviewed; an entire API family must not
-/// silently inherit this exemption.
-fn exempt(method: &str, data: &[u8]) -> bool {
-    if matches!(
-        method,
-        "SubnetInfoRuntimeApi_get_selective_metagraph"
-            | "SubnetInfoRuntimeApi_get_selective_mechagraph"
-    ) {
-        return data.len() <= MAX_SELECTIVE_QUERY_BYTES;
-    }
-    matches!(
-        method,
-        "Core_version"
-            // Inherent construction/checks decode the block but neither check
-            // account signatures nor dispatch calls. Aura/Babe pre-import
-            // checks use the default Offchain context and must remain available.
-            | "BlockBuilder_inherent_extrinsics"
-            | "BlockBuilder_check_inherents"
-            // The current Drand worker performs no ML-DSA authorization and
-            // runs in the SDK's default Offchain context on genuine imports.
-            | "OffchainWorkerApi_offchain_worker"
-            | "Metadata_metadata"
-            | "Metadata_metadata_at_version"
-            | "Metadata_metadata_versions"
-            | "GenesisBuilder_get_preset"
-            | "GenesisBuilder_preset_names"
-            | "AuraApi_slot_duration"
-            | "AuraApi_authorities"
-            | "SessionKeys_decode_session_keys"
-            | "GrandpaApi_grandpa_authorities"
-            | "GrandpaApi_current_set_id"
-            | "GrandpaApi_generate_key_ownership_proof"
-            | "GrandpaApi_submit_report_equivocation_unsigned_extrinsic"
-            | "BabeApi_configuration"
-            | "BabeApi_current_epoch_start"
-            | "BabeApi_current_epoch"
-            | "BabeApi_next_epoch"
-            | "BabeApi_generate_key_ownership_proof"
-            | "BabeApi_submit_report_equivocation_unsigned_extrinsic"
-            | "AccountNonceApi_account_nonce"
-            | "TransactionPaymentApi_query_info"
-            | "TransactionPaymentApi_query_fee_details"
-            | "TransactionPaymentApi_query_weight_to_fee"
-            | "TransactionPaymentApi_query_length_to_fee"
-            | "TransactionPaymentCallApi_query_call_info"
-            | "TransactionPaymentCallApi_query_call_fee_details"
-            | "TransactionPaymentCallApi_query_weight_to_fee"
-            | "TransactionPaymentCallApi_query_length_to_fee"
-            | "EthereumRuntimeRPCApi_chain_id"
-            | "EthereumRuntimeRPCApi_account_basic"
-            | "EthereumRuntimeRPCApi_gas_price"
-            | "EthereumRuntimeRPCApi_account_code_at"
-            | "EthereumRuntimeRPCApi_author"
-            | "EthereumRuntimeRPCApi_storage_at"
-            | "EthereumRuntimeRPCApi_current_transaction_statuses"
-            | "EthereumRuntimeRPCApi_current_block"
-            | "EthereumRuntimeRPCApi_current_receipts"
-            | "EthereumRuntimeRPCApi_current_all"
-            | "EthereumRuntimeRPCApi_extrinsic_filter"
-            | "EthereumRuntimeRPCApi_elasticity"
-            | "EthereumRuntimeRPCApi_gas_limit_multiplier_support"
-            // These run the EVM directly, not Executive::apply_extrinsic.
-            // Dispatchables no longer accept detached PQ order proofs.
-            | "EthereumRuntimeRPCApi_call"
-            | "EthereumRuntimeRPCApi_create"
-            | "ConvertTransactionRuntimeApi_convert_transaction"
-            | "ContractsApi_get_storage"
-            | "ContractsApi_call"
-            | "ContractsApi_instantiate"
-            | "ContractsApi_upload_code"
-            | "Benchmark_benchmark_metadata"
-            | "DelegateInfoRuntimeApi_get_delegates"
-            | "DelegateInfoRuntimeApi_get_delegate"
-            | "DelegateInfoRuntimeApi_get_delegated"
-            | "NeuronInfoRuntimeApi_get_neurons_lite"
-            | "NeuronInfoRuntimeApi_get_neuron_lite"
-            | "NeuronInfoRuntimeApi_get_neurons"
-            | "NeuronInfoRuntimeApi_get_neuron"
-            | "SubnetInfoRuntimeApi_get_subnet_info"
-            | "SubnetInfoRuntimeApi_get_subnets_info"
-            | "SubnetInfoRuntimeApi_get_subnet_info_v2"
-            | "SubnetInfoRuntimeApi_get_subnets_info_v2"
-            | "SubnetInfoRuntimeApi_get_subnet_hyperparams"
-            | "SubnetInfoRuntimeApi_get_subnet_hyperparams_v2"
-            | "SubnetInfoRuntimeApi_get_subnet_hyperparams_v3"
-            | "SubnetInfoRuntimeApi_get_dynamic_info"
-            | "SubnetInfoRuntimeApi_get_metagraph"
-            | "SubnetInfoRuntimeApi_get_mechagraph"
-            | "SubnetInfoRuntimeApi_get_subnet_state"
-            | "SubnetInfoRuntimeApi_get_all_metagraphs"
-            | "SubnetInfoRuntimeApi_get_all_mechagraphs"
-            | "SubnetInfoRuntimeApi_get_all_dynamic_info"
-            | "SubnetInfoRuntimeApi_get_subnet_to_prune"
-            | "SubnetInfoRuntimeApi_get_coldkey_auto_stake_hotkey"
-            | "SubnetInfoRuntimeApi_get_subnet_account_id"
-            | "SubnetInfoRuntimeApi_get_next_epoch_start_block"
-            | "SubnetInfoRuntimeApi_get_block_emission"
-            | "SubnetInfoRuntimeApi_get_subnet_emission_weights"
-            | "StakeInfoRuntimeApi_get_stake_info_for_coldkey"
-            | "StakeInfoRuntimeApi_get_stake_info_for_coldkeys"
-            | "StakeInfoRuntimeApi_get_stake_info_for_hotkey_coldkey_netuid"
-            | "StakeInfoRuntimeApi_get_stake_availability_for_coldkeys"
-            | "StakeInfoRuntimeApi_get_stake_fee"
-            | "StakeInfoRuntimeApi_get_coldkey_lock"
-            | "StakeInfoRuntimeApi_get_hotkey_conviction"
-            | "StakeInfoRuntimeApi_get_most_convicted_hotkey_on_subnet"
-            | "SubnetRegistrationRuntimeApi_get_network_registration_cost"
-            | "BetaBasketRuntimeApi_get_root_basket_owed"
-            | "BetaBasketRuntimeApi_get_basket_payout"
-            | "BetaBasketRuntimeApi_get_validator_basket_nav"
-            | "BetaBasketRuntimeApi_get_validator_basket"
-            | "BetaBasketRuntimeApi_get_root_basket_total_nav"
-            | "BetaBasketRuntimeApi_get_validator_basket_summary"
-            | "BetaBasketRuntimeApi_get_all_validator_baskets"
-            | "BetaBasketRuntimeApi_get_root_basket_positions"
-            | "BetaBasketRuntimeApi_get_basket_position"
-            | "BetaBasketRuntimeApi_get_root_basket_portfolio"
-            | "BetaBasketRuntimeApi_get_beta_pricing"
-            | "BetaBasketRuntimeApi_get_all_beta_pricing"
-            | "BetaBasketRuntimeApi_get_beta_index"
-            | "BetaBasketRuntimeApi_get_beta_position"
-            | "BetaBasketRuntimeApi_get_beta_portfolio"
-            | "BetaBasketRuntimeApi_get_basket_trading_status"
-            | "BetaBasketRuntimeApi_get_basket_claim_preview"
-            | "BetaBasketRuntimeApi_get_root_basket_claim_previews"
-            | "ProxyFilterRuntimeApi_get_proxy_types"
-            | "ProxyFilterRuntimeApi_get_proxy_filters"
-            | "SwapRuntimeApi_current_alpha_price"
-            | "SwapRuntimeApi_current_alpha_price_all"
-            | "SwapRuntimeApi_sim_swap_tao_for_alpha"
-            | "SwapRuntimeApi_sim_swap_alpha_for_tao"
-            // The runtime's proposer recognizer is syntactic, not its generic
-            // pallet helper that checks signatures. Decryption also only
-            // decodes; Executive authenticates the outer and inner separately.
-            | "ShieldApi_try_decode_shielded_tx"
-            | "ShieldApi_try_unshield_tx"
-            | "ShieldApi_is_shielded_using_current_key"
-    )
-}
-
-fn pq_validation(data: &[u8]) -> bool {
-    // Runtime API v3 encodes TransactionSource, the extrinsic, then block hash.
-    // Inspect only its prefix, including malformed post-quantum profiles/carriers. The
-    // current validation pipeline checks extensions but does not dispatch the
-    // call; legacy validation therefore cannot dispatch inner post-quantum calls.
-    let Some(mut input) = data.get(1..) else {
-        return false;
-    };
-    Compact::<u32>::decode(&mut input).is_ok()
-        && u8::decode(&mut input).ok() == Some(0x84)
-        && u8::decode(&mut input).ok() == Some(2)
-        && Compact::<u32>::decode(&mut input)
-            .ok()
-            .map(|x| x.0)
-            .is_some_and(|len| {
-                node_subtensor_runtime::hashed_extrinsic::is_post_quantum_proof_len(len as usize)
-            })
-}
-
-fn needs_admission(method: &str, data: &[u8], context: CallContext) -> bool {
-    context == CallContext::Offchain
-        && !exempt(method, data)
-        && (method != "TaggedTransactionQueue_validate_transaction" || pq_validation(data))
-}
-
-/// Keep independent workloads available even if another API is flooded with
-/// malformed requests. Only a host extension identifies trusted pool validation;
-/// raw validation calls share the Other budget with unclassified RPC exports.
-/// Each service retains its own bounded concurrency and bytes;
-/// no idle quota is borrowed across services. Pending and Other each receive
-/// half of one original reservation. Ordinary simulations need no reservation;
-/// the remaining ceiling is six simultaneous executions and 48 MiB of input.
-/// Pending rate tokens admit
-/// entire bounded reconstruction jobs; other RPC services charge each execution.
-/// Pool submissions already have ingress admission, so internal fork validation
-/// and revalidation wait for capacity without spending another rate token.
-#[derive(Clone, Copy)]
-enum Service {
-    PoolValidation = 0,
-    BlockSimulation = 1,
-    Other = 2,
-    Pending = 3,
-}
-
-fn pending_method(method: &str) -> bool {
-    matches!(
-        method,
-        "EthereumRuntimeRPCApi_initialize_pending_block"
-            | "Core_initialize_block"
-            | "BlockBuilder_apply_extrinsic"
-    )
-}
-
-fn service(method: &str) -> Service {
-    match method {
-        "EthereumRuntimeRPCApi_pending_block" => Service::BlockSimulation,
-        _ => Service::Other,
-    }
 }
 
 struct State {
@@ -251,10 +39,6 @@ struct State {
     bytes: usize,
     tokens: u32,
     refilled: Instant,
-    max_active: usize,
-    max_bytes: usize,
-    burst: u32,
-    refill: Duration,
 }
 
 impl State {
@@ -264,63 +48,37 @@ impl State {
             bytes: 0,
             tokens: BURST,
             refilled: now,
-            max_active: MAX_ACTIVE,
-            max_bytes: MAX_ACTIVE_BYTES,
-            burst: BURST,
-            refill: REFILL,
         }
     }
 
-    fn for_service(service: usize, now: Instant) -> Self {
-        let mut state = Self::new(now);
-        if service == Service::PoolValidation as usize {
-            state.burst = 0;
-            state.tokens = 0;
-        }
-        if service == Service::Other as usize || service == Service::Pending as usize {
-            state.max_active = MAX_ACTIVE / 2;
-            state.max_bytes = MAX_ACTIVE_BYTES / 2;
-            state.burst = BURST / 2;
-            state.tokens = state.burst;
-            state.refill = REFILL.saturating_mul(2);
-        }
-        state
-    }
-
-    fn acquire(&mut self, bytes: usize, now: Instant) -> Result<(), error::Error> {
-        self.acquire_with_rate(bytes, now, true)
-    }
-
-    fn acquire_with_rate(
-        &mut self,
-        bytes: usize,
-        now: Instant,
-        charge_rate: bool,
-    ) -> Result<(), error::Error> {
-        let next_bytes = self.bytes.checked_add(bytes).ok_or_else(busy)?;
-        if self.active >= self.max_active || bytes > MAX_INPUT_BYTES || next_bytes > self.max_bytes
-        {
-            return Err(busy());
-        }
-        if let Some(elapsed) = now.checked_duration_since(self.refilled) {
-            let added = elapsed
-                .as_nanos()
-                .checked_div(self.refill.as_nanos())
-                .unwrap_or(0);
-            if added != 0 {
-                self.tokens = self
-                    .tokens
-                    .saturating_add(added.min(u128::from(self.burst)) as u32)
-                    .min(self.burst);
-                // Discard fractional credit conservatively; never move backwards.
-                self.refilled = now;
-            }
-        }
-        if charge_rate && self.tokens == 0 {
+    fn acquire(&mut self, work: Work, now: Instant, charge_rate: bool) -> Result<(), error::Error> {
+        let next_bytes = self.bytes.checked_add(work.bytes).ok_or_else(busy)?;
+        if self.active >= MAX_ACTIVE || next_bytes > MAX_ACTIVE_BYTES {
             return Err(busy());
         }
         if charge_rate {
-            self.tokens = self.tokens.saturating_sub(1);
+            if let Some(elapsed) = now.checked_duration_since(self.refilled) {
+                let added = elapsed
+                    .as_nanos()
+                    .checked_div(REFILL.as_nanos())
+                    .unwrap_or(0);
+                if added != 0 {
+                    self.tokens = self
+                        .tokens
+                        .saturating_add(added.min(u128::from(BURST)) as u32)
+                        .min(BURST);
+                    // Discard fractional credit conservatively; never move backwards.
+                    self.refilled = now;
+                }
+            }
+            // A batch larger than the burst requires a full bucket, rather than
+            // becoming permanently inadmissible. Its bytes and concurrency are
+            // still bounded. Count PQ proofs only, not classical neighbours.
+            let cost = work.proofs.min(BURST as usize) as u32;
+            if self.tokens < cost {
+                return Err(busy());
+            }
+            self.tokens = self.tokens.saturating_sub(cost);
         }
         self.active = self.active.saturating_add(1);
         self.bytes = next_bytes;
@@ -347,93 +105,55 @@ impl Drop for Permit {
     }
 }
 
-/// Runtime executor with isolated service budgets shared by all its clones.
+/// Shared PQ execution capacity, with a separate trusted pool reservation.
 #[derive(Clone)]
 pub struct AdmissionExecutor<E> {
     inner: E,
     mode: ExecutionMode,
-    states: [Arc<Mutex<State>>; 4],
+    raw: Arc<Mutex<State>>,
+    pool: Arc<Mutex<State>>,
     pool_available: Arc<Condvar>,
 }
 
 impl<E> AdmissionExecutor<E> {
-    /// Wrap an executor with fresh service budgets shared by subsequent clones.
     pub fn new(inner: E, mode: ExecutionMode) -> Self {
         Self {
             inner,
             mode,
-            states: std::array::from_fn(|index| {
-                Arc::new(Mutex::new(State::for_service(index, Instant::now())))
-            }),
+            raw: Arc::new(Mutex::new(State::new(Instant::now()))),
+            pool: Arc::new(Mutex::new(State::new(Instant::now()))),
             pool_available: Arc::new(Condvar::new()),
         }
     }
 
-    fn acquire(&self, service: Service, bytes: usize) -> Result<Permit, error::Error> {
-        if matches!(service, Service::PoolValidation) {
-            return self.acquire_pool(bytes);
-        }
-        let [validation, block_simulation, other, pending] = &self.states;
-        let state = match service {
-            Service::PoolValidation => validation,
-            Service::BlockSimulation => block_simulation,
-            Service::Other => other,
-            Service::Pending => pending,
-        };
-        state
+    fn acquire_raw(&self, work: Work) -> Result<Permit, error::Error> {
+        self.raw
             .lock()
             .map_err(|_| busy())?
-            .acquire(bytes, Instant::now())?;
+            .acquire(work, Instant::now(), true)?;
         Ok(Permit {
-            state: state.clone(),
-            bytes,
+            state: self.raw.clone(),
+            bytes: work.bytes,
             wake: None,
         })
     }
 
-    fn acquire_pool(&self, bytes: usize) -> Result<Permit, error::Error> {
-        let [state, ..] = &self.states;
-        let mut budget = state.lock().map_err(|_| busy())?;
-        if bytes > MAX_INPUT_BYTES || bytes > budget.max_bytes {
+    fn acquire_pool(&self, work: Work) -> Result<Permit, error::Error> {
+        if work.bytes > MAX_ACTIVE_BYTES {
             return Err(busy());
         }
-        // Only the pool's bounded validation workers and admitted synchronous
-        // local submissions reach this wait. Raw RPC cannot queue here. Wait
-        // rather than turn competition with maintenance into an initial-submit
-        // RuntimeApi error, which the network adapter does not retry.
-        while budget
-            .acquire_with_rate(bytes, Instant::now(), false)
-            .is_err()
-        {
+        let mut budget = self.pool.lock().map_err(|_| busy())?;
+        // Only bounded pool workers and admitted local submissions can wait here.
+        // Raw RPC has no PoolValidation extension. Ingress already charges the
+        // attempt rate; maintenance/fork revalidation must not charge it again.
+        while budget.acquire(work, Instant::now(), false).is_err() {
             budget = self.pool_available.wait(budget).map_err(|_| busy())?;
         }
         Ok(Permit {
-            state: state.clone(),
-            bytes,
+            state: self.pool.clone(),
+            bytes: work.bytes,
             wake: Some(self.pool_available.clone()),
         })
-    }
-
-    fn acquire_pending(
-        &self,
-        budget: &fc_rpc::execution_admission::PendingExecution,
-        bytes: usize,
-    ) -> Result<Permit, error::Error> {
-        budget
-            .admit(|charge_rate| {
-                let [_, _, _, state] = &self.states;
-                state
-                    .lock()
-                    .map_err(|_| fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR)?
-                    .acquire_with_rate(bytes, Instant::now(), charge_rate)
-                    .map_err(|_| fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR)?;
-                Ok(Permit {
-                    state: state.clone(),
-                    bytes,
-                    wake: None,
-                })
-            })
-            .map_err(|message| error::Error::Other(message.into()))
     }
 }
 
@@ -448,39 +168,37 @@ impl<E: CodeExecutor<Error = error::Error>> CodeExecutor for AdmissionExecutor<E
         data: &[u8],
         context: CallContext,
     ) -> (Result<Vec<u8>, Self::Error>, bool) {
-        if !matches!(self.mode, ExecutionMode::Node) {
+        if !matches!(self.mode, ExecutionMode::Node) || context == CallContext::Onchain {
             return self.inner.call(ext, runtime_code, method, data, context);
         }
-        let pending = if context == CallContext::Offchain {
-            if let Some(budget) = ext.extension::<fc_rpc::execution_admission::PendingExecution>() {
-                if let Err(message) = budget.charge(data.len()) {
-                    return (Err(error::Error::Other(message.into())), false);
-                }
-                pending_method(method).then(|| budget.clone())
-            } else {
-                None
+        let work = match pq_execution::work(method, data) {
+            Ok(work) => work,
+            Err(_) => {
+                return (
+                    Err(error::Error::Other(
+                        "Wallet benchmarks require the local benchmark command".into(),
+                    )),
+                    false,
+                );
             }
-        } else {
-            None
         };
-        let _permit = if needs_admission(method, data, context) {
-            let permit = if let Some(budget) = pending {
-                self.acquire_pending(&budget, data.len())
-            } else if method == "TaggedTransactionQueue_validate_transaction"
+        let _permit = if work.proofs == 0 {
+            None
+        } else {
+            let permit = if method == "TaggedTransactionQueue_validate_transaction"
                 && ext
                     .extension::<sc_transaction_pool::PoolValidation>()
                     .is_some()
             {
-                self.acquire(Service::PoolValidation, data.len())
+                self.acquire_pool(work)
             } else {
-                self.acquire(service(method), data.len())
+                self.acquire_raw(work)
             };
             match permit {
                 Ok(permit) => Some(permit),
+                // Capacity is an executor error, never a signature/validity result.
                 Err(error) => return (Err(error), false),
             }
-        } else {
-            None
         };
         self.inner.call(ext, runtime_code, method, data, context)
     }
@@ -510,16 +228,20 @@ impl<E: RuntimeVersionOf> RuntimeVersionOf for AdmissionExecutor<E> {
 #[allow(clippy::unwrap_used, clippy::arithmetic_side_effects)]
 mod tests {
     use super::*;
-    use sp_runtime::codec::Encode;
+    use sp_runtime::codec::{Compact, Encode};
     use std::sync::{
-        Condvar,
         atomic::{AtomicUsize, Ordering},
         mpsc,
     };
 
+    const VALIDATE: &str = "TaggedTransactionQueue_validate_transaction";
+    const APPLY: &str = "BlockBuilder_apply_extrinsic";
+    const PENDING: &str = "EthereumRuntimeRPCApi_pending_block";
+
     #[derive(Clone)]
     struct MockExecutor {
         calls: Arc<AtomicUsize>,
+        behavior: Arc<AtomicUsize>,
         entered: mpsc::Sender<()>,
         resume: Arc<(Mutex<bool>, Condvar)>,
     }
@@ -536,33 +258,29 @@ mod tests {
 
     impl CodeExecutor for MockExecutor {
         type Error = error::Error;
-
         fn call(
             &self,
             _: &mut dyn Externalities,
             _: &RuntimeCode,
             _: &str,
-            data: &[u8],
+            _: &[u8],
             _: CallContext,
         ) -> (Result<Vec<u8>, Self::Error>, bool) {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            if data.ends_with(b"wait") {
-                self.entered.send(()).unwrap();
-                let (lock, wake) = &*self.resume;
-                let mut resumed = lock.lock().unwrap();
-                while !*resumed {
-                    resumed = wake.wait(resumed).unwrap();
+            match self.behavior.load(Ordering::SeqCst) {
+                1 => return (Err(error::Error::Other("mock runtime error".into())), false),
+                2 => panic!("mock runtime panic"),
+                3 => {
+                    self.entered.send(()).unwrap();
+                    let (lock, wake) = &*self.resume;
+                    let mut resumed = lock.lock().unwrap();
+                    while !*resumed {
+                        resumed = wake.wait(resumed).unwrap();
+                    }
                 }
+                _ => {}
             }
-            assert!(!data.ends_with(b"panic"), "mock execution panic");
-            (
-                if data.ends_with(b"fail") {
-                    Err(error::Error::Other("invalid proof".into()))
-                } else {
-                    Ok(vec![])
-                },
-                false,
-            )
+            (Ok(vec![]), false)
         }
     }
 
@@ -572,6 +290,7 @@ mod tests {
             AdmissionExecutor::new(
                 MockExecutor {
                     calls: Arc::new(AtomicUsize::new(0)),
+                    behavior: Arc::new(AtomicUsize::new(0)),
                     entered,
                     resume: Arc::new((Mutex::new(false), Condvar::new())),
                 },
@@ -586,1136 +305,441 @@ mod tests {
         method: &str,
         data: &[u8],
         context: CallContext,
+        pool: bool,
     ) -> Result<Vec<u8>, error::Error> {
         let mut ext = sp_io::TestExternalities::default();
+        if pool {
+            ext.register_extension(sc_transaction_pool::PoolValidation);
+        }
         executor
             .call(&mut ext.ext(), &RuntimeCode::empty(), method, data, context)
             .0
     }
 
-    fn execute_pool(
-        executor: &AdmissionExecutor<MockExecutor>,
-        method: &str,
-        data: &[u8],
-        context: CallContext,
-    ) -> Result<Vec<u8>, error::Error> {
-        let mut ext = sp_io::TestExternalities::default();
-        ext.register_extension(sc_transaction_pool::PoolValidation);
-        executor
-            .call(&mut ext.ext(), &RuntimeCode::empty(), method, data, context)
-            .0
-    }
-
-    fn validation(raw_length: Option<u32>) -> Vec<u8> {
-        let mut data = vec![2]; // External source.
-        Compact(6000u32).encode_to(&mut data);
-        data.push(0x84);
-        if let Some(length) = raw_length {
-            data.push(2);
-            Compact(length).encode_to(&mut data);
+    // Syntactic envelopes exercise admission only; MockExecutor does not verify them.
+    fn extrinsic(proof: Option<usize>, call_bytes: usize) -> Vec<u8> {
+        let mut body = vec![0x84];
+        if let Some(size) = proof {
+            body.push(2);
+            vec![0u8; size].encode_to(&mut body);
         } else {
-            data.push(0); // MultiAddress::Id.
+            body.push(0);
+            body.extend_from_slice(&[0; 32]);
+        }
+        body.resize(body.len() + call_bytes, 0);
+        body.encode()
+    }
+
+    fn validation(proof: Option<usize>) -> Vec<u8> {
+        let mut data = vec![2];
+        data.extend(extrinsic(proof, 66));
+        data.extend_from_slice(&[0; 32]);
+        data
+    }
+
+    fn list(items: &[Vec<u8>]) -> Vec<u8> {
+        let mut data = Compact(items.len() as u32).encode();
+        for item in items {
+            data.extend(item);
         }
         data
     }
 
+    fn block(items: &[Vec<u8>]) -> Vec<u8> {
+        let mut data = vec![0; 32];
+        Compact(1u32).encode_to(&mut data);
+        data.extend_from_slice(&[0; 64]);
+        data.push(0); // Empty digest.
+        data.extend(list(items));
+        data
+    }
+
+    fn freeze_rate(state: &mut State) {
+        state.refilled = Instant::now() + Duration::from_secs(60);
+    }
+
+    fn saturate(executor: &AdmissionExecutor<MockExecutor>) {
+        for state in [&executor.raw, &executor.pool] {
+            let mut state = state.lock().unwrap();
+            state.active = MAX_ACTIVE;
+            state.bytes = MAX_ACTIVE_BYTES;
+            state.tokens = 0;
+            freeze_rate(&mut state);
+        }
+    }
+
     #[test]
-    fn legacy_validation_and_reviewed_apis_bypass_offchain_admission() {
-        let queue = "TaggedTransactionQueue_validate_transaction";
-        assert!(!needs_admission(
-            queue,
-            &validation(None),
-            CallContext::Offchain
-        ));
-        assert!(!needs_admission(
-            queue,
-            &validation(Some(169)),
-            CallContext::Offchain
-        ));
-        assert!(needs_admission(
-            queue,
-            &validation(Some(5367)),
-            CallContext::Offchain
-        ));
-        for length in [1669, 3179] {
-            assert!(needs_admission(
-                queue,
-                &validation(Some(length)),
-                CallContext::Offchain
-            ));
-            assert!(!needs_admission(
-                queue,
-                &validation(Some(length)),
-                CallContext::Onchain
-            ));
-        }
-        // These exports can authenticate full extrinsics or run arbitrary work.
+    fn ordinary_exports_ignore_saturated_pq_budgets() {
+        let (executor, _) = executor();
+        saturate(&executor);
         for method in [
-            "BlockBuilder_apply_extrinsic",
-            "Core_execute_block",
-            "Core_initialize_block",
-            "EthereumRuntimeRPCApi_pending_block",
-            "EthereumRuntimeRPCApi_initialize_pending_block",
-            "BlockBuilder_finalize_block",
-            "TryRuntime_execute_block",
-            "Benchmark_dispatch_benchmark",
-            "GenesisBuilder_build_state",
-            "SessionKeys_generate_session_keys",
+            "SubnetInfoRuntimeApi_get_selective_metagraph",
+            "SubnetInfoRuntimeApi_get_selective_mechagraph",
             "FutureApi_unknown",
-        ] {
-            assert!(
-                needs_admission(method, &validation(None), CallContext::Offchain),
-                "{method}"
-            );
-            assert!(
-                !needs_admission(method, &validation(Some(5367)), CallContext::Onchain),
-                "{method}"
-            );
-        }
-        for method in [
-            "Core_version",
+            "Core_initialize_block",
+            "BlockBuilder_finalize_block",
+            "EthereumRuntimeRPCApi_initialize_pending_block",
+            "EthereumRuntimeRPCApi_call",
+            "EthereumRuntimeRPCApi_create",
+            "ContractsApi_call",
+            "ContractsApi_instantiate",
+            "ContractsApi_upload_code",
             "BlockBuilder_check_inherents",
-            "BlockBuilder_inherent_extrinsics",
             "OffchainWorkerApi_offchain_worker",
             "ShieldApi_try_decode_shielded_tx",
             "ShieldApi_try_unshield_tx",
-            "Metadata_metadata_at_version",
-            "TransactionPaymentApi_query_info",
-            "TransactionPaymentCallApi_query_call_fee_details",
-            "ContractsApi_get_storage",
-            "SubnetInfoRuntimeApi_get_metagraph",
-            "SubnetInfoRuntimeApi_get_selective_metagraph",
-            "SubnetInfoRuntimeApi_get_selective_mechagraph",
-            "SubnetInfoRuntimeApi_get_subnet_emission_weights",
-            "EthereumRuntimeRPCApi_call",
-            "EthereumRuntimeRPCApi_create",
-            "ContractsApi_call",
-            "ContractsApi_instantiate",
-            "ContractsApi_upload_code",
             "GrandpaApi_submit_report_equivocation_unsigned_extrinsic",
             "BabeApi_submit_report_equivocation_unsigned_extrinsic",
-        ] {
-            assert!(!needs_admission(
-                method,
-                &validation(Some(5367)),
-                CallContext::Offchain
-            ));
-        }
-    }
-
-    #[test]
-    fn selective_graph_queries_bypass_admission_but_large_historical_inputs_do_not() {
-        let (executor, _) = executor();
-        let permit = executor.acquire(Service::Other, 1).unwrap();
-        for method in [
-            "SubnetInfoRuntimeApi_get_selective_metagraph",
-            "SubnetInfoRuntimeApi_get_selective_mechagraph",
-        ] {
-            execute(
-                &executor.clone(),
-                method,
-                &vec![0; MAX_SELECTIVE_QUERY_BYTES],
-                CallContext::Offchain,
-            )
-            .unwrap();
-            let calls = executor.inner.calls.load(Ordering::SeqCst);
-            assert!(
-                execute(
-                    &executor,
-                    method,
-                    &vec![0; MAX_SELECTIVE_QUERY_BYTES + 1],
-                    CallContext::Offchain,
-                )
-                .is_err()
-            );
-            assert_eq!(executor.inner.calls.load(Ordering::SeqCst), calls);
-        }
-        drop(permit);
-        for method in [
-            "SubnetInfoRuntimeApi_get_selective_metagraph",
-            "SubnetInfoRuntimeApi_get_selective_mechagraph",
         ] {
             execute(
                 &executor,
                 method,
-                &vec![0; MAX_SELECTIVE_QUERY_BYTES + 1],
+                &vec![0; 2048],
                 CallContext::Offchain,
+                false,
             )
             .unwrap();
         }
-        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 4);
     }
 
     #[test]
-    fn ordinary_rpc_and_equivocation_reports_ignore_saturated_budgets() {
+    fn classical_execution_has_no_new_count_byte_or_rate_limit() {
         let (executor, _) = executor();
-        for state in &executor.states {
-            let mut state = state.lock().unwrap();
-            state.tokens = 0;
-            state.refilled = Instant::now() + Duration::from_secs(60);
-            state.active = state.max_active;
-            state.bytes = state.max_bytes;
+        saturate(&executor);
+        for proof in [None, Some(169)] {
+            execute(
+                &executor,
+                VALIDATE,
+                &validation(proof),
+                CallContext::Offchain,
+                false,
+            )
+            .unwrap();
+            execute(
+                &executor,
+                APPLY,
+                &extrinsic(proof, 66),
+                CallContext::Offchain,
+                true,
+            )
+            .unwrap();
         }
-        let methods = [
-            "SubnetInfoRuntimeApi_get_selective_metagraph",
-            "SubnetInfoRuntimeApi_get_selective_mechagraph",
-            "SubnetInfoRuntimeApi_get_subnet_emission_weights",
-            "EthereumRuntimeRPCApi_call",
-            "EthereumRuntimeRPCApi_create",
-            "ContractsApi_call",
-            "ContractsApi_instantiate",
-            "ContractsApi_upload_code",
-            "GrandpaApi_submit_report_equivocation_unsigned_extrinsic",
-            "BabeApi_submit_report_equivocation_unsigned_extrinsic",
-        ];
-        // More than any bucket's burst: each call reaches the wrapped executor,
-        // even through a clone, without spending tokens or needing a free slot.
-        for _ in 0..BURST * 2 {
-            for method in methods {
-                execute(&executor.clone(), method, &[], CallContext::Offchain).unwrap();
-            }
-        }
-        assert_eq!(
-            executor.inner.calls.load(Ordering::SeqCst),
-            BURST as usize * 2 * methods.len()
-        );
-        for state in &executor.states {
-            let state = state.lock().unwrap();
-            assert_eq!(state.tokens, 0);
-            assert_eq!(state.active, state.max_active);
-            assert_eq!(state.bytes, state.max_bytes);
-        }
-    }
-
-    #[test]
-    fn local_benchmarks_bypass_admission_without_exempting_public_benchmark_calls() {
-        let (node, _) = executor();
-        let benchmark = AdmissionExecutor::new(node.inner.clone(), ExecutionMode::Benchmark);
-        for executor in [&node, &benchmark] {
-            for state in &executor.states {
-                let mut state = state.lock().unwrap();
-                state.tokens = 0;
-                state.refilled = Instant::now() + Duration::from_secs(60);
-            }
-        }
-        for method in [
-            "Benchmark_dispatch_benchmark",
-            "Core_initialize_block",
-            "BlockBuilder_apply_extrinsic",
-            "BlockBuilder_finalize_block",
+        let items = vec![extrinsic(None, 1); 1025];
+        execute(
+            &executor,
+            PENDING,
+            &list(&items),
+            CallContext::Offchain,
+            false,
+        )
+        .unwrap();
+        execute(
+            &executor,
             "Core_execute_block",
-        ] {
-            assert!(execute(&node, method, &[], CallContext::Offchain).is_err());
-            for _ in 0..BURST * 2 {
-                execute(&benchmark.clone(), method, &[], CallContext::Offchain).unwrap();
+            &block(&items),
+            CallContext::Offchain,
+            false,
+        )
+        .unwrap();
+        execute(
+            &executor,
+            APPLY,
+            &extrinsic(None, MAX_ACTIVE_BYTES + 1),
+            CallContext::Offchain,
+            false,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn pq_authentication_rejects_before_entering_runtime_when_saturated() {
+        let (executor, _) = executor();
+        saturate(&executor);
+        for size in [5367, 1669, 3179] {
+            let tx = extrinsic(Some(size), 66);
+            for (method, data) in [
+                (VALIDATE, validation(Some(size))),
+                (APPLY, tx.clone()),
+                (PENDING, list(std::slice::from_ref(&tx))),
+                ("Core_execute_block", block(std::slice::from_ref(&tx))),
+                ("TryRuntime_execute_block", {
+                    let mut data = block(&[tx]);
+                    data.extend_from_slice(&[0, 0, 0]);
+                    data
+                }),
+            ] {
+                let err =
+                    execute(&executor, method, &data, CallContext::Offchain, false).unwrap_err();
+                assert!(
+                    err.to_string()
+                        .contains(fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR)
+                );
             }
         }
-        assert_eq!(
-            node.inner.calls.load(Ordering::SeqCst),
-            BURST as usize * 2 * 5
-        );
-    }
-
-    #[test]
-    fn overload_precedes_execution_and_does_not_block_queries_or_consensus() {
-        use sc_transaction_pool_api::error::IntoPoolError;
-        let (executor, _) = executor();
-        let first = executor.acquire(Service::Other, 1).unwrap();
-
-        let error =
-            execute(&executor, "Core_execute_block", &[], CallContext::Offchain).unwrap_err();
         assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 0);
-        // FullChainApi maps executor/API errors to RuntimeApi; the service maps
-        // errors outside IntoPoolError to KnownGood, not a bad peer transaction.
-        type PoolError = <sc_transaction_pool::TransactionPoolHandle<
-            node_subtensor_runtime::opaque::Block,
-            crate::client::FullClient,
-        > as sc_transaction_pool_api::TransactionPool>::Error;
-        let pool_error = PoolError::RuntimeApi(error.to_string());
-        assert!(pool_error.into_pool_error().is_err());
-        execute(&executor, "Metadata_metadata", &[], CallContext::Offchain).unwrap();
-        execute(&executor, "Core_execute_block", &[], CallContext::Onchain).unwrap();
-        execute(
-            &executor,
-            "TaggedTransactionQueue_validate_transaction",
-            &validation(None),
-            CallContext::Offchain,
-        )
-        .unwrap();
-        execute(
-            &executor,
-            "OffchainWorkerApi_offchain_worker",
-            &[],
-            CallContext::Offchain,
-        )
-        .unwrap();
-        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 4);
-        drop(first);
-        execute(&executor, "Core_execute_block", &[], CallContext::Offchain).unwrap();
-        assert_eq!(
-            executor
-                .states
-                .get(Service::Other as usize)
-                .unwrap()
-                .lock()
-                .unwrap()
-                .active,
-            0
-        );
     }
 
     #[test]
-    fn failed_execution_releases_capacity_without_refunding_rate_budget() {
+    fn mixed_requests_charge_only_pq_envelopes() {
         let (executor, _) = executor();
-        assert!(
-            execute(
-                &executor,
-                "Core_execute_block",
-                b"fail",
-                CallContext::Offchain
-            )
-            .is_err()
-        );
-        let state = executor
-            .states
-            .get(Service::Other as usize)
-            .unwrap()
-            .lock()
-            .unwrap();
-        assert_eq!(state.active, 0);
-        assert_eq!(state.bytes, 0);
-        assert_eq!(state.tokens, BURST / 2 - 1);
+        freeze_rate(&mut executor.raw.lock().unwrap());
+        let pq = extrinsic(Some(1669), 66);
+        let data = list(&[extrinsic(None, MAX_ACTIVE_BYTES + 1), pq.clone(), pq]);
+        execute(&executor, PENDING, &data, CallContext::Offchain, false).unwrap();
+        let state = executor.raw.lock().unwrap();
+        assert_eq!((state.active, state.bytes, state.tokens), (0, 0, BURST - 2));
     }
 
     #[test]
-    fn cancelled_callers_cannot_release_running_executors() {
-        let (executor, entered) = executor();
-        let (finished, finished_rx) = mpsc::channel();
-        for _ in 0..(MAX_ACTIVE / 2) {
-            let clone = executor.clone();
-            let finished = finished.clone();
-            // Dropping a caller's JoinHandle does not stop synchronous Wasm or
-            // drop the permit held in the execution frame on the worker thread.
-            drop(std::thread::spawn(move || {
-                execute(&clone, "Core_execute_block", b"wait", CallContext::Offchain).unwrap();
-                finished.send(()).unwrap();
-            }));
-        }
-        for _ in 0..(MAX_ACTIVE / 2) {
-            entered.recv_timeout(Duration::from_secs(5)).unwrap();
-        }
-        assert!(execute(&executor, "Core_execute_block", &[], CallContext::Offchain).is_err());
-        assert_eq!(
-            executor.inner.calls.load(Ordering::SeqCst),
-            (MAX_ACTIVE / 2)
-        );
-        let (lock, wake) = &*executor.inner.resume;
-        *lock.lock().unwrap() = true;
-        wake.notify_all();
-        for _ in 0..(MAX_ACTIVE / 2) {
-            finished_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        }
-        assert_eq!(
-            executor
-                .states
-                .get(Service::Other as usize)
-                .unwrap()
-                .lock()
-                .unwrap()
-                .active,
-            0
-        );
-        execute(&executor, "Core_execute_block", &[], CallContext::Offchain).unwrap();
-    }
-
-    #[test]
-    fn malformed_requests_cannot_exhaust_other_services() {
+    fn large_pq_batches_can_run_with_a_full_bucket() {
         let (executor, _) = executor();
-        // Freeze refill so the test does not depend on machine speed.
-        for state in &executor.states {
-            state.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
-        }
-        for method in ["NonexistentApi_call", "EthereumRuntimeRPCApi_pending_block"] {
-            let burst = executor
-                .states
-                .get(service(method) as usize)
-                .unwrap()
-                .lock()
-                .unwrap()
-                .burst;
-            for _ in 0..burst {
-                assert!(execute(&executor, method, b"fail", CallContext::Offchain).is_err());
-            }
-            let calls = executor.inner.calls.load(Ordering::SeqCst);
-            assert!(execute(&executor, method, b"fail", CallContext::Offchain).is_err());
-            assert_eq!(executor.inner.calls.load(Ordering::SeqCst), calls);
-            // Neither bad names nor block simulation failures spend the
-            // reserved pool validation capacity, including through a clone.
-            execute_pool(
-                &executor.clone(),
-                "TaggedTransactionQueue_validate_transaction",
-                &validation(Some(5367)),
-                CallContext::Offchain,
-            )
-            .unwrap();
-        }
-    }
-
-    #[test]
-    fn active_calls_do_not_occupy_other_service_slots() {
-        let (executor, _) = executor();
-        let first = executor
-            .acquire(Service::Other, MAX_INPUT_BYTES / 2)
-            .unwrap();
-
-        assert!(execute(&executor, "UnknownApi_call", &[], CallContext::Offchain).is_err());
-        execute(
-            &executor.clone(),
-            "EthereumRuntimeRPCApi_pending_block",
-            &[],
-            CallContext::Offchain,
-        )
-        .unwrap();
-        execute_pool(
-            &executor,
-            "TaggedTransactionQueue_validate_transaction",
-            &validation(Some(5367)),
-            CallContext::Offchain,
-        )
-        .unwrap();
-        drop(first);
-    }
-
-    #[test]
-    fn raw_validation_cannot_spend_pool_capacity_or_select_it_with_source_bytes() {
-        let (executor, _) = executor();
-        let method = "TaggedTransactionQueue_validate_transaction";
-        let mut data = validation(Some(5367));
-        for state in &executor.states {
-            state.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
-        }
-        for _ in 0..BURST / 2 {
-            execute(&executor, method, &data, CallContext::Offchain).unwrap();
-        }
-        // The same bytes take different budgets only when the trusted host
-        // attaches the extension. TransactionSource is encoded input, not trust.
-        for source in [0, 1, 2] {
-            *data.first_mut().unwrap() = source;
-            let calls = executor.inner.calls.load(Ordering::SeqCst);
-            assert!(execute(&executor, method, &data, CallContext::Offchain).is_err());
-            assert_eq!(executor.inner.calls.load(Ordering::SeqCst), calls);
-            execute_pool(&executor.clone(), method, &data, CallContext::Offchain).unwrap();
-        }
-        let [pool, _, other, _] = &executor.states;
-        assert_eq!(other.lock().unwrap().tokens, 0);
-        let pool = pool.lock().unwrap();
-        assert_eq!(pool.active, 0);
-        assert_eq!(pool.bytes, 0);
-        assert_eq!(pool.tokens, 0);
-    }
-
-    #[test]
-    fn pool_fork_validation_and_revalidation_do_not_spend_request_tokens() {
-        let (executor, _) = executor();
-        let [pool, _, other, _] = &executor.states;
-        pool.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
-        other.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
-        let data = validation(Some(5367));
-        // One admitted transaction may be checked across many views and blocks.
-        // All checks still execute; admission does not reuse cached validity.
-        for _ in 0..BURST * 3 {
-            execute_pool(
-                &executor.clone(),
-                "TaggedTransactionQueue_validate_transaction",
-                &data,
-                CallContext::Offchain,
-            )
-            .unwrap();
-        }
-        assert_eq!(
-            executor.inner.calls.load(Ordering::SeqCst),
-            BURST as usize * 3
-        );
-        assert_eq!(pool.lock().unwrap().tokens, 0);
-        assert_eq!(other.lock().unwrap().tokens, BURST / 2);
-    }
-
-    #[test]
-    fn pool_marker_only_selects_transaction_validation_capacity() {
-        let (executor, _) = executor();
-        for state in &executor.states {
-            let mut state = state.lock().unwrap();
-            state.tokens = 0;
-            state.refilled = Instant::now() + Duration::from_secs(60);
-        }
-        for method in [
-            "NonexistentApi_call",
-            "EthereumRuntimeRPCApi_pending_block",
-            "Core_initialize_block",
-            "BlockBuilder_apply_extrinsic",
-        ] {
-            assert!(execute_pool(&executor, method, &[], CallContext::Offchain).is_err());
-        }
-        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 0);
-        execute_pool(
-            &executor,
-            "TaggedTransactionQueue_validate_transaction",
-            &validation(Some(5367)),
-            CallContext::Offchain,
-        )
-        .unwrap();
+        freeze_rate(&mut executor.raw.lock().unwrap());
+        let data = list(&vec![extrinsic(Some(1669), 66); 32]);
+        execute(&executor, PENDING, &data, CallContext::Offchain, false).unwrap();
+        assert_eq!(executor.raw.lock().unwrap().tokens, 0);
+        assert!(execute(&executor, PENDING, &data, CallContext::Offchain, false).is_err());
         assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 1);
     }
 
-    fn assert_pool_waits_for_capacity(held_bytes: &[usize], requested_bytes: usize) {
+    #[test]
+    fn trusted_pool_reservation_is_separate_and_only_for_validation() {
         let (executor, _) = executor();
-        let held = held_bytes
-            .iter()
-            .map(|bytes| executor.acquire_pool(*bytes).unwrap())
-            .collect::<Vec<_>>();
-        let (started, started_rx) = mpsc::channel();
-        let (admitted, admitted_rx) = mpsc::channel();
-        let clone = executor.clone();
-        drop(std::thread::spawn(move || {
-            started.send(()).unwrap();
-            // Sending the permit retains the reservation until the test drops it.
-            let _ = admitted.send(clone.acquire_pool(requested_bytes));
-        }));
-        let started = started_rx.recv_timeout(Duration::from_secs(5));
-        let before_release = admitted_rx.recv_timeout(Duration::from_millis(100));
-        // Release before assertions, including on failure, so a broken test
-        // cannot strand a worker behind permits retained by its parent thread.
-        drop(held);
-        assert!(started.is_ok());
-        assert!(matches!(
-            before_release,
-            Err(mpsc::RecvTimeoutError::Timeout)
-        ));
-        let permit = admitted_rx
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap()
-            .unwrap();
-        let [pool, ..] = &executor.states;
         {
-            let state = pool.lock().unwrap();
-            assert_eq!(state.active, 1);
-            assert_eq!(state.bytes, requested_bytes);
-            assert!(state.active <= state.max_active);
-            assert!(state.bytes <= state.max_bytes);
+            let mut raw = executor.raw.lock().unwrap();
+            raw.tokens = 0;
+            freeze_rate(&mut raw);
         }
-        drop(permit);
-        let state = pool.lock().unwrap();
-        assert_eq!(state.active, 0);
-        assert_eq!(state.bytes, 0);
+        for _ in 0..32 {
+            execute(
+                &executor,
+                VALIDATE,
+                &validation(Some(5367)),
+                CallContext::Offchain,
+                true,
+            )
+            .unwrap();
+        }
+        assert!(
+            execute(
+                &executor,
+                VALIDATE,
+                &validation(Some(5367)),
+                CallContext::Offchain,
+                false
+            )
+            .is_err()
+        );
+        assert!(
+            execute(
+                &executor,
+                APPLY,
+                &extrinsic(Some(5367), 66),
+                CallContext::Offchain,
+                true
+            )
+            .is_err()
+        );
+        assert_eq!(executor.pool.lock().unwrap().tokens, BURST);
     }
 
     #[test]
-    fn pool_validation_waits_for_concurrency_and_wakes_across_executor_clones() {
-        assert_pool_waits_for_capacity(&[0, 0], 1);
+    fn onchain_and_local_benchmark_execution_bypass_admission() {
+        let (mut executor, _) = executor();
+        saturate(&executor);
+        execute(
+            &executor,
+            VALIDATE,
+            &validation(Some(5367)),
+            CallContext::Onchain,
+            false,
+        )
+        .unwrap();
+        executor.mode = ExecutionMode::Benchmark;
+        execute(
+            &executor,
+            VALIDATE,
+            &validation(Some(5367)),
+            CallContext::Offchain,
+            false,
+        )
+        .unwrap();
     }
 
     #[test]
-    fn pool_validation_waits_for_bytes_even_with_an_unused_execution_slot() {
-        assert_pool_waits_for_capacity(&[MAX_ACTIVE_BYTES - 1], 2);
+    fn wallet_benchmarks_require_explicit_local_mode() {
+        let (mut executor, _) = executor();
+        let mut config = frame_benchmarking::BenchmarkConfig {
+            pallet: b"pallet_hashed_accounts".to_vec(),
+            instance: b"HashedAccounts".to_vec(),
+            benchmark: b"register_derived".to_vec(),
+            ..Default::default()
+        };
+        let method = "Benchmark_dispatch_benchmark";
+        assert!(
+            execute(
+                &executor,
+                method,
+                &config.encode(),
+                CallContext::Offchain,
+                false
+            )
+            .is_err()
+        );
+        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 0);
+        executor.mode = ExecutionMode::Benchmark;
+        execute(
+            &executor,
+            method,
+            &config.encode(),
+            CallContext::Offchain,
+            false,
+        )
+        .unwrap();
+        executor.mode = ExecutionMode::Node;
+        saturate(&executor);
+        config.pallet = b"pallet_balances".to_vec();
+        config.instance = b"Balances".to_vec();
+        config.benchmark = b"transfer_keep_alive".to_vec();
+        execute(
+            &executor,
+            method,
+            &config.encode(),
+            CallContext::Offchain,
+            false,
+        )
+        .unwrap();
     }
 
     #[test]
-    fn oversized_pool_validation_rejects_without_waiting_for_capacity() {
+    fn failed_and_panicking_runtime_calls_release_capacity_but_not_rate() {
         let (executor, _) = executor();
-        let (finished, finished_rx) = mpsc::channel();
-        drop(std::thread::spawn(move || {
-            let _ = finished.send(executor.acquire_pool(MAX_ACTIVE_BYTES + 1).is_err());
-        }));
-        assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
-    }
-
-    #[test]
-    fn saturated_pool_and_raw_capacity_preserve_legacy_and_onchain_validation() {
-        let (executor, _) = executor();
-        let held_pool = [
-            executor.acquire_pool(0).unwrap(),
-            executor.acquire_pool(0).unwrap(),
-        ];
-        let held_raw = executor.acquire(Service::Other, 0).unwrap();
-        let (finished, finished_rx) = mpsc::channel();
-        let clone = executor.clone();
-        drop(std::thread::spawn(move || {
-            let method = "TaggedTransactionQueue_validate_transaction";
-            let mut accepted = true;
-            for raw_length in [None, Some(169)] {
-                let data = validation(raw_length);
-                accepted &= execute(&clone, method, &data, CallContext::Offchain).is_ok();
-                accepted &= execute_pool(&clone, method, &data, CallContext::Offchain).is_ok();
-            }
-            let data = validation(Some(5367));
-            accepted &= execute(&clone, method, &data, CallContext::Onchain).is_ok();
-            accepted &= execute_pool(&clone, method, &data, CallContext::Onchain).is_ok();
-            let _ = finished.send(accepted);
-        }));
-        let accepted = finished_rx.recv_timeout(Duration::from_secs(5));
-        drop(held_pool);
-        drop(held_raw);
-        assert!(accepted.unwrap());
-        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 6);
-    }
-
-    #[test]
-    fn failed_or_panicking_pool_execution_releases_reserved_capacity() {
-        let (executor, _) = executor();
-        let method = "TaggedTransactionQueue_validate_transaction";
-        let mut failed = validation(Some(5367));
-        failed.extend_from_slice(b"fail");
-        assert!(execute_pool(&executor, method, &failed, CallContext::Offchain).is_err());
-        let mut panicking = validation(Some(5367));
-        panicking.extend_from_slice(b"panic");
+        freeze_rate(&mut executor.raw.lock().unwrap());
+        executor.inner.behavior.store(1, Ordering::SeqCst);
+        assert!(
+            execute(
+                &executor,
+                VALIDATE,
+                &validation(Some(5367)),
+                CallContext::Offchain,
+                false
+            )
+            .is_err()
+        );
+        executor.inner.behavior.store(2, Ordering::SeqCst);
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                execute_pool(&executor, method, &panicking, CallContext::Offchain)
+                execute(
+                    &executor,
+                    VALIDATE,
+                    &validation(Some(5367)),
+                    CallContext::Offchain,
+                    false,
+                )
             }))
             .is_err()
         );
-        let [pool, ..] = &executor.states;
-        {
-            let state = pool.lock().unwrap();
-            assert_eq!(state.active, 0);
-            assert_eq!(state.bytes, 0);
-        }
-        execute_pool(
-            &executor,
-            method,
-            &validation(Some(5367)),
-            CallContext::Offchain,
-        )
-        .unwrap();
+        let state = executor.raw.lock().unwrap();
+        assert_eq!((state.active, state.bytes, state.tokens), (0, 0, BURST - 2));
     }
 
     #[test]
-    fn bytes_overflow_rate_limit_and_clock_rollback_fail_closed() {
-        let now = Instant::now();
-        let mut state = State::new(now);
-        assert!(state.acquire(MAX_INPUT_BYTES + 1, now).is_err());
-        state.bytes = usize::MAX;
-        assert!(state.acquire(1, now).is_err());
-        state.bytes = MAX_ACTIVE_BYTES;
-        assert!(state.acquire(1, now).is_err());
-        state.bytes = 0;
-        for _ in 0..BURST {
-            state.acquire(0, now).unwrap();
-            state.active = 0;
-        }
-        assert!(state.acquire(0, now).is_err());
-        assert!(state.acquire(0, now - REFILL).is_err());
-        assert_eq!(state.refilled, now);
-        state.acquire(0, now + REFILL).unwrap();
-        assert_eq!(state.tokens, 0);
-    }
-
-    #[test]
-    fn pending_reservation_preserves_aggregate_execution_limits() {
-        let (executor, _) = executor();
-        let states = executor
-            .states
-            .iter()
-            .map(|state| state.lock().unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            states.iter().map(|state| state.max_active).sum::<usize>(),
-            6
-        );
-        assert_eq!(
-            states.iter().map(|state| state.max_bytes).sum::<usize>(),
-            48 * 1024 * 1024
-        );
-        assert_eq!(states.iter().map(|state| state.burst).sum::<u32>(), 32);
-        // Pending counts whole jobs; other RPC buckets count calls. Pool
-        // validation has concurrency/byte limits but no repeated rate charge.
-        assert_eq!(
-            states
-                .iter()
-                .filter(|state| state.burst != 0)
-                .map(|state| 1000 / state.refill.as_millis())
-                .sum::<u128>(),
-            16
-        );
-    }
-
-    fn execute_pending(
-        executor: &AdmissionExecutor<MockExecutor>,
-        budget: &fc_rpc::execution_admission::PendingExecution,
-        method: &str,
-        data: &[u8],
-    ) -> Result<Vec<u8>, error::Error> {
-        let mut ext = sp_io::TestExternalities::default();
-        ext.register_extension(budget.clone());
-        executor
-            .call(
-                &mut ext.ext(),
-                &RuntimeCode::empty(),
-                method,
-                data,
+    fn detached_request_retains_permit_until_runtime_finishes() {
+        let (executor, entered) = executor();
+        executor.inner.behavior.store(3, Ordering::SeqCst);
+        let worker = executor.clone();
+        let (done, finished) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            execute(
+                &worker,
+                VALIDATE,
+                &validation(Some(5367)),
                 CallContext::Offchain,
-            )
-            .0
-    }
-
-    fn assert_bounded_pending_replay(extrinsics: usize) {
-        use fc_rpc::execution_admission::{
-            MAX_PENDING_EXTRINSICS, PENDING_TIMEOUT, PendingExecution,
-        };
-        let _serial = PENDING_TEST_LOCK.lock().unwrap();
-        assert!(extrinsics <= MAX_PENDING_EXTRINSICS);
-        let (executor, _) = executor();
-        let [_, _, _, pending] = &executor.states;
-        {
-            let mut state = pending.lock().unwrap();
-            // No refill can hide per-step charging. One token must cover the
-            // entire snapshot (including inherents), initialization and reads.
-            state.tokens = 1;
-            state.refilled = Instant::now() + Duration::from_secs(60);
-        }
-        let budget = PendingExecution::try_new(Instant::now() + PENDING_TIMEOUT).unwrap();
-        execute_pending(
-            &executor,
-            &budget,
-            "EthereumRuntimeRPCApi_initialize_pending_block",
-            &[],
-        )
-        .unwrap();
-        execute_pending(&executor, &budget, "BlockBuilder_inherent_extrinsics", &[]).unwrap();
-        for index in 0..extrinsics {
-            execute_pending(
-                &executor.clone(),
-                &budget,
-                "BlockBuilder_apply_extrinsic",
-                &index.to_le_bytes(),
+                false,
             )
             .unwrap();
-        }
-        execute_pending(
-            &executor,
-            &budget,
-            "EthereumRuntimeRPCApi_account_basic",
-            &[],
-        )
-        .unwrap();
-        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), extrinsics + 3);
-        assert_eq!(pending.lock().unwrap().tokens, 0);
-    }
-
-    #[test]
-    fn pending_replay_of_80_extrinsics_completes_without_rate_refill() {
-        assert_bounded_pending_replay(80);
-    }
-
-    #[test]
-    fn pending_replay_of_100_extrinsics_completes_without_rate_refill() {
-        assert_bounded_pending_replay(100);
-    }
-
-    #[test]
-    fn pending_replay_of_256_extrinsics_completes_without_rate_refill() {
-        assert_bounded_pending_replay(256);
-    }
-
-    #[test]
-    fn pending_job_rate_overload_does_not_strand_admitted_replays() {
-        use fc_rpc::execution_admission::{PENDING_TIMEOUT, PendingExecution};
-        let _serial = PENDING_TEST_LOCK.lock().unwrap();
-        let (executor, _) = executor();
-        let [_, _, _, pending] = &executor.states;
-        let frozen_refill = Instant::now() + Duration::from_secs(60);
-        pending.lock().unwrap().refilled = frozen_refill;
-        let first = PendingExecution::try_new(Instant::now() + PENDING_TIMEOUT).unwrap();
-        execute_pending(&executor, &first, "Core_initialize_block", &[]).unwrap();
-        for _ in 1..BURST / 2 {
-            let job = PendingExecution::try_new(Instant::now() + PENDING_TIMEOUT).unwrap();
-            execute_pending(&executor, &job, "Core_initialize_block", &[]).unwrap();
-        }
-        let waiting = PendingExecution::try_new(Instant::now() + PENDING_TIMEOUT).unwrap();
-        let calls = executor.inner.calls.load(Ordering::SeqCst);
-        for _ in 0..2 {
-            let error =
-                execute_pending(&executor, &waiting, "Core_initialize_block", &[]).unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains(fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR)
-            );
-        }
-        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), calls);
-        // An admitted job finishes even when new jobs exhaust the bucket.
-        for _ in 0..256 {
-            execute_pending(&executor, &first, "BlockBuilder_apply_extrinsic", &[]).unwrap();
-        }
-        // Final EVM simulation is unthrottled, but still spends the job work
-        // budget and shares its deadline with reconstruction.
-        for _ in 0..BURST * 2 {
-            execute_pending(&executor, &first, "EthereumRuntimeRPCApi_call", &[]).unwrap();
-        }
-        // Refill exactly one job token. Failed admission did not give waiting
-        // a free pass, and its retry spends the newly available token.
-        {
-            let mut state = pending.lock().unwrap();
-            state.refilled = Instant::now() - state.refill;
-        }
-        execute_pending(&executor, &waiting, "Core_initialize_block", &[]).unwrap();
-        assert_eq!(pending.lock().unwrap().tokens, 0);
-    }
-
-    #[test]
-    fn paid_pending_jobs_still_enforce_concurrency_bytes_and_work_limits() {
-        use fc_rpc::execution_admission::{PENDING_LIMIT_ERROR, PENDING_TIMEOUT, PendingExecution};
-        let _serial = PENDING_TEST_LOCK.lock().unwrap();
-        let (executor, _) = executor();
-        let [_, _, _, pending] = &executor.states;
-        pending.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
-        let budget = PendingExecution::try_new(Instant::now() + PENDING_TIMEOUT).unwrap();
-        let held = executor.acquire(Service::Pending, 0).unwrap();
-        assert!(execute_pending(&executor, &budget, "Core_initialize_block", &[]).is_err());
-        drop(held);
-        execute_pending(&executor, &budget, "Core_initialize_block", &[]).unwrap();
-        assert_eq!(pending.lock().unwrap().tokens, BURST / 2 - 2);
-        let held = executor.acquire(Service::Pending, 0).unwrap();
-        assert!(execute_pending(&executor, &budget, "BlockBuilder_apply_extrinsic", &[]).is_err());
-        drop(held);
-        assert!(
-            execute_pending(
-                &executor,
-                &budget,
-                "BlockBuilder_apply_extrinsic",
-                &vec![0; MAX_ACTIVE_BYTES / 2 + 1]
-            )
-            .is_err()
-        );
-        // All four attempts above count, including pre-execution rejections.
-        for _ in 4..1024 {
-            execute_pending(&executor, &budget, "BlockBuilder_apply_extrinsic", &[]).unwrap();
-        }
-        let calls = executor.inner.calls.load(Ordering::SeqCst);
-        for method in [
-            "BlockBuilder_apply_extrinsic",
-            "EthereumRuntimeRPCApi_account_basic",
-        ] {
-            let error = execute_pending(&executor, &budget, method, &[]).unwrap_err();
-            assert!(error.to_string().contains(PENDING_LIMIT_ERROR));
-        }
-        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), calls);
-        assert_eq!(pending.lock().unwrap().tokens, BURST / 2 - 3);
-    }
-
-    #[test]
-    fn only_trusted_pending_api_can_use_reserved_reconstruction_capacity() {
-        use fc_rpc::execution_admission::{PENDING_TIMEOUT, PendingExecution};
-        let _serial = PENDING_TEST_LOCK.lock().unwrap();
-        let (executor, _) = executor();
-        executor
-            .states
-            .get(Service::Other as usize)
-            .unwrap()
-            .lock()
-            .unwrap()
-            .refilled = Instant::now() + Duration::from_secs(60);
-        for _ in 0..BURST / 2 {
-            assert!(
-                execute(
-                    &executor,
-                    "NonexistentApi_call",
-                    b"fail",
-                    CallContext::Offchain
-                )
-                .is_err()
-            );
-        }
-        // Naming the pending export or encoding a marker-looking payload is
-        // insufficient: only the trusted host can attach this extension.
-        for method in [
-            "EthereumRuntimeRPCApi_initialize_pending_block",
-            "BlockBuilder_apply_extrinsic",
-        ] {
-            assert!(
-                execute(
-                    &executor,
-                    method,
-                    b"PendingExecution",
-                    CallContext::Offchain
-                )
-                .is_err()
-            );
-        }
-        let mut ext = sp_io::TestExternalities::default();
-        ext.register_extension(
-            PendingExecution::try_new(Instant::now() + PENDING_TIMEOUT).unwrap(),
-        );
-        for method in [
-            "EthereumRuntimeRPCApi_initialize_pending_block",
-            "Core_initialize_block",
-            "BlockBuilder_apply_extrinsic",
-        ] {
-            assert!(
-                executor
-                    .call(
-                        &mut ext.ext(),
-                        &RuntimeCode::empty(),
-                        method,
-                        &[],
-                        CallContext::Offchain
-                    )
-                    .0
-                    .is_ok()
-            );
-        }
-        // The extension does not promote arbitrary exports to pending capacity.
-        assert!(
-            executor
-                .call(
-                    &mut ext.ext(),
-                    &RuntimeCode::empty(),
-                    "NonexistentApi_call",
-                    &[],
-                    CallContext::Offchain
-                )
-                .0
-                .is_err()
-        );
-        let pending = executor
-            .acquire(Service::Pending, MAX_INPUT_BYTES / 2)
-            .unwrap();
-        assert!(executor.acquire(Service::Pending, 0).is_err());
-        drop(pending);
-        assert!(
-            executor
-                .acquire(Service::Pending, MAX_INPUT_BYTES / 2 + 1)
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn expired_pending_budget_stops_even_final_reads_without_affecting_latest_reads() {
-        use fc_rpc::execution_admission::{PENDING_LIMIT_ERROR, PendingExecution};
-        let _serial = PENDING_TEST_LOCK.lock().unwrap();
-        let (executor, _) = executor();
-        let mut ext = sp_io::TestExternalities::default();
-        ext.register_extension(
-            PendingExecution::try_new(Instant::now() + Duration::from_millis(10)).unwrap(),
-        );
-        std::thread::sleep(Duration::from_millis(20));
-        for method in [
-            "EthereumRuntimeRPCApi_account_basic",
-            "EthereumRuntimeRPCApi_account_code_at",
-            "EthereumRuntimeRPCApi_storage_at",
-            "EthereumRuntimeRPCApi_call",
-            "EthereumRuntimeRPCApi_create",
-        ] {
-            let error = executor
-                .call(
-                    &mut ext.ext(),
-                    &RuntimeCode::empty(),
-                    method,
-                    &[],
-                    CallContext::Offchain,
-                )
-                .0
-                .unwrap_err();
-            assert!(error.to_string().contains(PENDING_LIMIT_ERROR));
-            execute(&executor, method, &[], CallContext::Offchain).unwrap();
-        }
-        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 5);
-    }
-}
-
-#[cfg(test)]
-#[allow(
-    clippy::arithmetic_side_effects,
-    clippy::unwrap_used,
-    clippy::await_holding_lock
-)]
-mod admission_tests {
-    use fc_rpc::{
-        execution_admission::{
-            PENDING_LIMIT_ERROR, PENDING_TIMEOUT, PendingExecution, pending_limit_error,
-            retry_execution_capacity, retry_pending_execution,
-        },
-        internal_err,
-    };
-    use jsonrpsee::types::error::CALL_EXECUTION_FAILED_CODE;
-    use std::{cell::Cell, time::Duration};
-
-    fn capacity_error() -> jsonrpsee::types::ErrorObjectOwned {
-        internal_err(format!(
-            "runtime error: Execution failed: Other: {}",
-            fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR
-        ))
-    }
-
-    #[tokio::test]
-    async fn retries_only_temporary_execution_capacity_failures() {
-        let attempts = Cell::new(0);
-        let result = retry_execution_capacity(
-            || async {
-                attempts.set(attempts.get() + 1);
-                if attempts.get() < 3 {
-                    Err(capacity_error())
-                } else {
-                    Ok(42)
-                }
-            },
-            tokio::time::Instant::now() + Duration::from_secs(2),
-        )
-        .await;
-        assert_eq!(result, Ok(42));
-        assert_eq!(attempts.get(), 3);
-    }
-
-    #[tokio::test]
-    async fn execution_errors_are_returned_without_retry() {
-        for error in [
-            internal_err("VM Exception while processing transaction: revert"),
-            internal_err("runtime error: Execution failed: Other: unrelated error"),
-            jsonrpsee::types::ErrorObjectOwned::owned(
-                CALL_EXECUTION_FAILED_CODE,
-                capacity_error().message(),
-                None::<()>,
-            ),
-        ] {
-            let attempts = Cell::new(0);
-            let result = retry_execution_capacity::<(), _>(
-                || async {
-                    attempts.set(attempts.get() + 1);
-                    Err(error.clone())
-                },
-                tokio::time::Instant::now() + Duration::from_secs(2),
-            )
-            .await;
-            assert_eq!(result, Err(error));
-            assert_eq!(attempts.get(), 1);
-        }
-    }
-
-    #[tokio::test]
-    async fn expired_deadline_does_not_retry() {
-        let attempts = Cell::new(0);
-        let result = retry_execution_capacity::<(), _>(
-            || async {
-                attempts.set(attempts.get() + 1);
-                Err(capacity_error())
-            },
-            tokio::time::Instant::now(),
-        )
-        .await;
-        assert_eq!(result, Err(capacity_error()));
-        assert_eq!(attempts.get(), 1);
-    }
-
-    #[tokio::test]
-    async fn cancellation_drops_pending_retry() {
-        let attempts = Cell::new(0);
-        let mut pending = Box::pin(retry_execution_capacity::<(), _>(
-            || async {
-                attempts.set(attempts.get() + 1);
-                Err(capacity_error())
-            },
-            tokio::time::Instant::now() + Duration::from_secs(2),
-        ));
-        assert!(futures::poll!(&mut pending).is_pending());
-        drop(pending);
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        assert_eq!(attempts.get(), 1);
-    }
-
-    #[tokio::test]
-    async fn pending_retries_only_capacity_on_the_same_retained_state() {
-        let _serial = super::PENDING_TEST_LOCK.lock().unwrap();
-        let budget =
-            PendingExecution::try_new(std::time::Instant::now() + PENDING_TIMEOUT).unwrap();
-        let mut state = (vec![1, 2, 3], 0);
-        let value = retry_pending_execution(&mut state, |state| {
-            assert_eq!(state.0, [1, 2, 3]);
-            state.1 += 1;
-            if state.1 < 3 {
-                Err(pending_limit_error("Execution failed: Other: Local runtime execution capacity reached; retry later"))
-            } else {
-                state.0.push(4);
-                Ok(42)
-            }
-        }, &budget).await.unwrap();
-        assert_eq!(value, 42);
-        assert_eq!(state, (vec![1, 2, 3, 4], 3));
-        for message in [
-            "runtime trapped",
-            "BadProof",
-            fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR,
-        ] {
-            let mut attempts = 0;
-            assert!(
-                retry_pending_execution(
-                    &mut attempts,
-                    |attempts| {
-                        *attempts += 1;
-                        Err::<(), _>(pending_limit_error(message))
-                    },
-                    &budget
-                )
-                .await
-                .is_err()
-            );
-            assert_eq!(attempts, 1);
-        }
-    }
-
-    #[tokio::test]
-    async fn pending_job_limits_deadline_and_cancellation_release_leases() {
-        let _serial = super::PENDING_TEST_LOCK.lock().unwrap();
-        let first = PendingExecution::try_new(std::time::Instant::now() + PENDING_TIMEOUT).unwrap();
-        let retained = first.clone();
-        let second =
-            PendingExecution::try_new(std::time::Instant::now() + PENDING_TIMEOUT).unwrap();
-        assert!(PendingExecution::try_new(std::time::Instant::now() + PENDING_TIMEOUT).is_err());
-        drop(first);
-        assert!(PendingExecution::try_new(std::time::Instant::now() + PENDING_TIMEOUT).is_err());
-        drop(retained);
-        let short =
-            PendingExecution::try_new(std::time::Instant::now() + Duration::from_millis(20))
-                .unwrap();
-        let mut attempts = 0;
-        let error = retry_pending_execution(&mut attempts, |attempts| {
-            *attempts += 1;
-            Err::<(), _>(pending_limit_error("Execution failed: Other: Local runtime execution capacity reached; retry later"))
-        }, &short).await.unwrap_err();
-        assert_eq!(error.to_string(), PENDING_LIMIT_ERROR);
-        assert_eq!(attempts, 1);
-        drop(short);
-        let mut attempts = 0;
-        let mut pending = Box::pin(async {
-            let budget =
-                PendingExecution::try_new(std::time::Instant::now() + PENDING_TIMEOUT).unwrap();
-            retry_pending_execution(&mut attempts, |attempts| {
-                *attempts += 1;
-                Err::<(), _>(pending_limit_error("Execution failed: Other: Local runtime execution capacity reached; retry later"))
-            }, &budget).await
+            done.send(()).unwrap();
         });
-        assert!(futures::poll!(&mut pending).is_pending());
-        assert!(PendingExecution::try_new(std::time::Instant::now() + PENDING_TIMEOUT).is_err());
-        drop(pending);
-        assert_eq!(attempts, 1);
-        let reclaimed =
-            PendingExecution::try_new(std::time::Instant::now() + PENDING_TIMEOUT).unwrap();
-        drop((second, reclaimed));
+        entered.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(handle); // Dropping a request does not stop synchronous execution.
+        assert_eq!(executor.raw.lock().unwrap().active, 1);
+        let (lock, wake) = &*executor.inner.resume;
+        *lock.lock().unwrap() = true;
+        wake.notify_all();
+        finished.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(executor.raw.lock().unwrap().active, 0);
     }
 
     #[test]
-    fn pending_cumulative_work_budget_is_shared_and_never_reset_by_clones() {
-        let _serial = super::PENDING_TEST_LOCK.lock().unwrap();
-        let budget =
-            PendingExecution::try_new(std::time::Instant::now() + PENDING_TIMEOUT).unwrap();
-        let clone = budget.clone();
-        for _ in 0..1024 {
-            budget.charge(1).unwrap();
-        }
-        assert_eq!(clone.charge(0), Err(PENDING_LIMIT_ERROR));
-        drop((budget, clone));
-        let budget =
-            PendingExecution::try_new(std::time::Instant::now() + PENDING_TIMEOUT).unwrap();
-        budget.charge(64 * 1024 * 1024).unwrap();
-        assert_eq!(budget.clone().charge(1), Err(PENDING_LIMIT_ERROR));
+    fn pool_waits_for_shared_capacity_and_wakes_when_released() {
+        let (executor, _) = executor();
+        let permit = executor
+            .acquire_pool(Work {
+                proofs: 1,
+                bytes: MAX_ACTIVE_BYTES,
+            })
+            .unwrap();
+        let worker = executor.clone();
+        let (ready, started) = mpsc::channel();
+        let (done, finished) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            ready.send(()).unwrap();
+            let _permit = worker
+                .acquire_pool(Work {
+                    proofs: 1,
+                    bytes: 1,
+                })
+                .unwrap();
+            done.send(()).unwrap();
+        });
+        started.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(finished.recv_timeout(Duration::from_millis(20)).is_err());
+        drop(permit);
+        finished.recv_timeout(Duration::from_secs(5)).unwrap();
+        handle.join().unwrap();
+        assert_eq!(executor.pool.lock().unwrap().active, 0);
+        assert!(
+            executor
+                .acquire_pool(Work {
+                    proofs: 1,
+                    bytes: MAX_ACTIVE_BYTES + 1
+                })
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn state_bounds_bytes_concurrency_and_refill_without_refunding_attempts() {
+        let now = Instant::now();
+        let work = Work {
+            proofs: 1,
+            bytes: 1,
+        };
+        let mut state = State::new(now);
+        assert!(
+            state
+                .acquire(
+                    Work {
+                        proofs: 1,
+                        bytes: MAX_ACTIVE_BYTES + 1
+                    },
+                    now,
+                    true
+                )
+                .is_err()
+        );
+        state.acquire(work, now, true).unwrap();
+        state.acquire(work, now, true).unwrap();
+        assert!(state.acquire(work, now, true).is_err());
+        assert_eq!(state.tokens, BURST - 2);
+        state.active = 0;
+        state.bytes = usize::MAX;
+        assert!(state.acquire(work, now, true).is_err());
+        state.bytes = 0;
+        state.tokens = 0;
+        assert!(state.acquire(work, now - REFILL, true).is_err());
+        assert_eq!(state.refilled, now);
+        assert!(state.acquire(work, now + REFILL / 2, true).is_err());
+        state.acquire(work, now + REFILL, true).unwrap();
+        assert_eq!(state.tokens, 0);
     }
 }

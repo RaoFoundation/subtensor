@@ -21,6 +21,7 @@ mod consensus;
 mod dev_keystore;
 mod ethereum;
 mod execution_admission;
+mod pq_execution;
 mod rpc;
 mod service;
 
