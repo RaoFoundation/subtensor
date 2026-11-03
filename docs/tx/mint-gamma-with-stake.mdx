@@ -16,7 +16,7 @@ less `rate_tolerance`. Its plan's `preview` and result's
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma_with_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L3235-L3257) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma_with_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L3245-L3267) |
 
 ## Parameters
 
@@ -78,7 +78,7 @@ result = sub.execute_tool("mint_gamma_with_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.mint_gamma_with_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L3237`](/code/pallets/subtensor/src/macros/dispatches.rs#L3235-L3257):
+`SubtensorModule.mint_gamma_with_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L3247`](/code/pallets/subtensor/src/macros/dispatches.rs#L3245-L3267):
 
 ```rust
 #[pallet::call_index(159)]

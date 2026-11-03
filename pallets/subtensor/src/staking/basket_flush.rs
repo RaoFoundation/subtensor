@@ -4,13 +4,13 @@
 //! Epochs enqueue `(hotkey, origin subnet) -> alpha` credits into [`PendingBasketDeposits`]
 //! (cheap map mutations). Credits are flushed per hotkey as one batched deposit — a single
 //! full-NAV share mint for all queued origins ([`Pallet::deposit_root_alpha_batch`], the
-//! deposit engine at the bottom of this module) — ONLY by the one-hotkey-per-block
-//! round-robin drain, before user calls can move pools. Dispatches check settlement and
-//! refuse changes to the claimant base or fund while material credits remain pending.
-//! Thus a pump/flush/unwind cannot mint at a transient intra-block NAV, arriving stake
-//! cannot capture earlier dividends, and departing stake cannot forfeit them. The existing
-//! dust policy remains: sub-threshold credits merge until worth depositing and may cross
-//! staker sets, but eligibility uses the immutable-in-block fast mark, never live spot.
+//! deposit engine at the bottom of this module) — by the one-hotkey-per-block round-robin
+//! drain or synchronously before a user call changes the claimant base or fund. Dividend
+//! valuation clamps live quotes to the immutable-in-block fast-price band, so synchronous
+//! settlement cannot mint at a transient pump/dump while arriving stake cannot capture an
+//! earlier dividend and departing stake cannot forfeit it. The existing dust policy remains:
+//! sub-threshold credits merge until worth depositing and may cross staker sets, but
+//! eligibility uses the fast mark, never live spot.
 
 use super::*;
 use crate::weights::WeightInfo;
@@ -64,8 +64,8 @@ impl BasketFlushWork {
 
 impl<T: Config> Pallet<T> {
     /// Full-settlement work envelope for the bounded queue/holding dimensions below.
-    /// The block drain charges its actual work; dispatches do not settle dividends and use
-    /// the smaller [`Self::basket_pending_work_bound`] for their queue checks instead.
+    /// The block drain and synchronous callers charge their actual work; wide calls use the
+    /// aggregate admission envelope below.
     ///
     /// Let `Q` be the queued rows scanned, `H` the holdings before the deposit, and
     /// `C <= Q` the credits deposited. One flush is:
@@ -91,18 +91,43 @@ impl<T: Config> Pallet<T> {
         BasketFlushWork::new(MAX_BASKET_ROWS.saturating_mul(10), MAX_BASKET_FLUSH_ROWS)
     }
 
-    /// Root stake dispatches inspect at most one pending row per subnet. Reuse the
-    /// existing quote/credit envelope (including stale-row recycling), rather than
-    /// charging an unbounded queue walk to the old fixed stake weight.
+    /// Worst-case allowance for a single hotkey's bounded pending-dividend settlement.
+    /// Call-specific stake weights use [`Self::root_pending_dividend_weight_for`] instead.
     pub fn root_pending_dividend_weight(on_root: bool) -> Weight {
         if on_root {
             Self::basket_flush_weight(BasketFlushWork::new(
-                MAX_BASKET_ROWS.saturating_add(1),
+                MAX_BASKET_ROWS.saturating_mul(6),
                 MAX_BASKET_ROWS,
             ))
         } else {
             Weight::zero()
         }
+    }
+
+    /// Allowance sized to the pending rows and current holdings of `hotkey`. The settlement
+    /// does at most `Q + H + 2Q + H + Q = 4Q + 2H` quotes and `Q` credit rows. This keeps
+    /// ordinary root stake calls cheap while preserving the full bounded envelope for a
+    /// hotkey that really has 256 queued credits and 256 holdings.
+    pub fn root_pending_dividend_weight_for(hotkey: &T::AccountId, on_root: bool) -> Weight {
+        if !on_root {
+            return Weight::zero();
+        }
+        let queued = PendingBasketDeposits::<T>::iter_key_prefix(hotkey)
+            .take(MAX_BASKET_ROWS.saturating_add(1) as usize)
+            .count() as u64;
+        if queued > MAX_BASKET_ROWS {
+            return Self::root_pending_dividend_weight(true);
+        }
+        if queued == 0 {
+            return Weight::zero();
+        }
+        let holdings = (Self::get_basket_holdings(hotkey).len() as u64).min(MAX_BASKET_ROWS);
+        Self::basket_flush_weight(BasketFlushWork::new(
+            queued
+                .saturating_mul(4)
+                .saturating_add(holdings.saturating_mul(2)),
+            queued,
+        ))
     }
 
     /// Weight of the work reported by [`Self::flush_basket_deposits_for_hotkey`]: quotes are
@@ -131,13 +156,10 @@ impl<T: Config> Pallet<T> {
         quotes.saturating_add(rows)
     }
 
-    /// Dispatches only scan pending rows and recycle stale entries. They never run the
-    /// block drain's NAV sweeps or dividend mint. Include one overflow-detection read.
+    /// Admission envelope for a coldkey-wide operation. It covers full synchronous
+    /// settlement over the bounded aggregate queue and holding dimensions.
     pub fn basket_pending_work_bound() -> BasketFlushWork {
-        BasketFlushWork::new(
-            MAX_BASKET_FLUSH_ROWS.saturating_add(1),
-            MAX_BASKET_FLUSH_ROWS,
-        )
+        Self::basket_flush_work_bound()
     }
 
     /// Flat pre-dispatch queue-check allowance, separate from the full block-drain work.
@@ -149,6 +171,7 @@ impl<T: Config> Pallet<T> {
     /// allowance: the queued credit rows summed over the hotkeys are at most
     /// [`MAX_BASKET_FLUSH_ROWS`]. Stops as soon as the budget is exceeded, so the check
     /// itself is bounded work.
+    #[cfg(test)]
     pub(crate) fn basket_flush_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
         let mut rows: u64 = 0;
         for hotkey in hotkeys {
@@ -177,13 +200,12 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// Check settlement before changing the claimant base or fund. Never price dividends
-    /// from a dispatch: even a within-band swap could bias the live mint then be unwound
-    /// in the same block. Only the round-robin block drain may settle credits.
+    /// Settle material credits before changing the claimant base or fund. Quotes are clamped
+    /// to the immutable fast-price band, so a dispatch cannot choose a manipulated mint mark.
     pub(crate) fn flush_basket_deposits_for_hotkey(
         hotkey: &T::AccountId,
     ) -> (BasketFlushWork, Option<Vec<u8>>, bool) {
-        Self::process_basket_deposits_for_hotkey(hotkey, false)
+        Self::process_basket_deposits_for_hotkey(hotkey)
     }
 
     /// Simulate a block-drain turn without advancing unrelated emission machinery.
@@ -191,7 +213,7 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn settle_basket_deposits_for_test(
         hotkey: &T::AccountId,
     ) -> (BasketFlushWork, Option<Vec<u8>>, bool) {
-        Self::process_basket_deposits_for_hotkey(hotkey, true)
+        Self::process_basket_deposits_for_hotkey(hotkey)
     }
 
     /// Deposit all of a hotkey's flushable queued credits into its basket as one batch.
@@ -221,7 +243,6 @@ impl<T: Config> Pallet<T> {
     /// deferred dust still gets skipped past instead of pinning the queue head.
     fn process_basket_deposits_for_hotkey(
         hotkey: &T::AccountId,
-        settle: bool,
     ) -> (BasketFlushWork, Option<Vec<u8>>, bool) {
         let threshold: u64 =
             RootClaimableThreshold::<T>::get(NetUid::ROOT).saturating_to_num::<u64>();
@@ -233,9 +254,9 @@ impl<T: Config> Pallet<T> {
         for (netuid, alpha) in PendingBasketDeposits::<T>::iter_prefix(hotkey) {
             last_netuid = Some(netuid);
             work.quotes = work.quotes.saturating_add(1);
-            // Governance/network churn must not make a dispatch walk an arbitrarily
-            // long queue. The extra row only detects overflow; no price or write follows.
-            if !settle && work.quotes > MAX_BASKET_ROWS {
+            // Governance/network churn must not make any caller walk an arbitrarily long
+            // queue. The extra row only detects overflow; no further price or write follows.
+            if work.quotes > MAX_BASKET_ROWS {
                 return (work, None, false);
             }
             if !Self::if_subnet_exist(netuid) {
@@ -277,9 +298,6 @@ impl<T: Config> Pallet<T> {
         if batch.is_empty() {
             return (work, last_key, true);
         }
-        if !settle {
-            return (work, last_key, false);
-        }
         for (netuid, _) in batch.iter() {
             PendingBasketDeposits::<T>::remove(hotkey, netuid);
             #[cfg(test)]
@@ -298,10 +316,10 @@ impl<T: Config> Pallet<T> {
     /// its turn resetting it). One per block is enough because root dividends only accrue
     /// to root-registered hotkeys and root churn finalizes (recycles + purges) any queued
     /// credits on the outgoing hotkey, so the queue stays capped by the root UID table —
-    /// a full cycle fits well inside a tempo, each flush is itself bounded work (holdings +
-    /// 2 x origins quotes). Claims, basket deposits/trades and root stake changes must retry
-    /// after this drain settles their material credits. Runs right after coinbase, before
-    /// Scheduler and user extrinsics in the runtime's initialization order.
+    /// a full cycle fits well inside a tempo, and each flush is itself bounded work. User
+    /// calls that need the same settlement may also flush their hotkey synchronously. This
+    /// drain runs right after coinbase, before Scheduler and user extrinsics in the runtime's
+    /// initialization order.
     pub fn flush_pending_basket_deposits_block() -> Weight {
         let overhead = T::DbWeight::get().reads_writes(4, 1);
         if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
@@ -322,7 +340,7 @@ impl<T: Config> Pallet<T> {
         };
         drop(keys);
 
-        let (work, last_key, _) = Self::process_basket_deposits_for_hotkey(&hotkey, true);
+        let (work, last_key, _) = Self::process_basket_deposits_for_hotkey(&hotkey);
         match last_key {
             Some(last_key) => {
                 PendingBasketFlushCursor::<T>::put(last_key);
@@ -561,12 +579,10 @@ impl<T: Config> Pallet<T> {
     /// Each credit is valued as the realizable delta on its origin holding alone: crediting
     /// stake moves no pool, so every other holding's quote is unchanged and a full-fund
     /// `nav_after` sweep collapses to one extra quote per origin. Both the pre-deposit NAV and
-    /// each added-value delta stay live, matching the NAV those shares redeem against.
-    /// This calculation runs only in the block drain, not at a dispatcher's chosen point
-    /// between pool swaps. Additionally, every holding and origin must remain within the
-    /// fast-EMA band to limit exposure to price dislocations across blocks. Once an honest
-    /// price move has pulled the fast mark into range, live/live pricing attributes its full
-    /// value without gifting or taxing either side.
+    /// each added-value delta use realizable quotes with their price clamped to the fast-EMA
+    /// band. Inside the band this is exactly the live quote; outside it the same realizable
+    /// quote is scaled back to the nearest trusted band edge. Settlement therefore remains
+    /// live without letting a same-block pump or dump choose the share price.
     /// The origins are distinct pools, so the per-origin deltas are independent and sum to
     /// exactly the value the batch added against the shared `nav_before` snapshot.
     /// Realizable valuation keeps deposit pricing honest on thin pools exactly as it does for
@@ -579,8 +595,7 @@ impl<T: Config> Pallet<T> {
         escrow_root: u64,
     ) -> DispatchResult {
         let escrow = Self::get_beta_escrow_account_id();
-        Self::ensure_basket_dividend_prices_stable(hotkey, batch)?;
-        let nav_before: u64 = Self::try_get_validator_basket_nav_tao(hotkey)?;
+        let nav_before: u64 = Self::try_get_validator_basket_dividend_nav_tao(hotkey)?;
 
         // Each credit's accumulation is isolated: an unknown valuation failure re-queues
         // that credit alone and the batch goes on with the others.
@@ -607,9 +622,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// One credit's step of the batch: credit the origin alpha to the fund's holding on that
-    /// subnet and value it as the live realizable delta on that holding alone. The shared
-    /// precondition above has already ensured the origin is inside the immutable-in-block
-    /// fast-price band.
+    /// subnet and value it as the fast-band-clamped realizable delta on that holding alone.
     /// `Ok(Some(delta))` accumulated; `Ok(None)` the holding is (or would become) terminally
     /// untradeable and the credit was recycled; `Err` an unknown failure the caller isolates.
     fn try_accumulate_basket_credit(
@@ -621,7 +634,8 @@ impl<T: Config> Pallet<T> {
         let held_before: u64 =
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, origin_netuid)
                 .to_u64();
-        let Some(origin_before) = Self::try_realizable_tao_for_alpha(origin_netuid, held_before)?
+        let Some(origin_before_live) =
+            Self::try_realizable_tao_for_alpha(origin_netuid, held_before)?
         else {
             // Do not add fresh dividends to a holding which is already terminally
             // untradeable. The credit has not been assigned to a staker yet, so recycle it
@@ -629,6 +643,8 @@ impl<T: Config> Pallet<T> {
             Self::recycle_subnet_alpha(origin_netuid, root_alpha);
             return Ok(None);
         };
+        let origin_before =
+            Self::basket_dividend_holding_value(origin_netuid, held_before, origin_before_live);
 
         Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
             hotkey,
@@ -641,7 +657,8 @@ impl<T: Config> Pallet<T> {
         let held_after: u64 =
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, origin_netuid)
                 .to_u64();
-        let Some(origin_after) = Self::try_realizable_tao_for_alpha(origin_netuid, held_after)?
+        let Some(origin_after_live) =
+            Self::try_realizable_tao_for_alpha(origin_netuid, held_after)?
         else {
             // Adding the credit crossed into terminal territory. Undo only the amount
             // actually assigned to the holding, recycle the whole unassigned credit, and
@@ -656,56 +673,45 @@ impl<T: Config> Pallet<T> {
             Self::recycle_subnet_alpha(origin_netuid, root_alpha);
             return Ok(None);
         };
+        let origin_after =
+            Self::basket_dividend_holding_value(origin_netuid, held_after, origin_after_live);
         Ok(Some(origin_after.saturating_sub(origin_before)))
     }
 
-    /// Dividend minting uses live realizable marks on both sides. Refuse to take that snapshot
-    /// while any relevant pool is outside the same fast-price band used to protect basket
-    /// trades: an extrinsic in this block can move spot, but cannot move the fast EMA.
-    fn ensure_basket_dividend_prices_stable(
+    fn try_get_validator_basket_dividend_nav_tao(
         hotkey: &T::AccountId,
-        batch: &[(NetUid, AlphaBalance)],
-    ) -> DispatchResult {
-        let holdings = Self::get_basket_holdings(hotkey);
-        for (netuid, _) in holdings.iter() {
-            ensure!(
-                Self::basket_dividend_price_is_stable(*netuid),
-                Error::<T>::SlippageTooHigh
-            );
+    ) -> Result<u64, DispatchError> {
+        let mut nav = 0u64;
+        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+            let live = Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())?.unwrap_or(0);
+            nav = nav.saturating_add(Self::basket_dividend_holding_value(
+                netuid,
+                alpha.to_u64(),
+                live,
+            ));
         }
-        for (netuid, alpha) in batch {
-            if holdings.iter().any(|(held, _)| held == netuid)
-                || Self::basket_dividend_price_is_stable(*netuid)
-            {
-                continue;
-            }
-            // A new holding which is terminally untradeable cannot affect NAV: let the
-            // ordinary credit path recycle it instead of pinning the whole queue. A
-            // priceable origin outside the band is a pump/dump and must wait.
-            if Self::try_realizable_tao_for_alpha(*netuid, alpha.to_u64())?.is_none() {
-                continue;
-            }
-            return Err(Error::<T>::SlippageTooHigh.into());
-        }
-        Ok(())
+        Ok(nav)
     }
 
-    fn basket_dividend_price_is_stable(netuid: NetUid) -> bool {
-        // Dissolving pools no longer admit user trades or update their EMA. Their retained
-        // reserves remain realizable until basket conversion, which itself waits for the
-        // dividend drain; requiring the frozen EMA here would deadlock that conversion.
-        if !Self::if_subnet_exist(netuid) {
-            return true;
+    /// Scale a realizable quote as if spot were at the nearest edge of the immutable fast
+    /// EMA band. Scaling rather than marking `alpha * price` preserves the holding's
+    /// slippage discount. Missing fast state falls back to the immutable slow EMA; dissolved
+    /// pools and non-dynamic slots retain their realizable value.
+    fn basket_dividend_holding_value(netuid: NetUid, alpha: u64, realizable: u64) -> u64 {
+        if alpha == 0
+            || realizable == 0
+            || !Self::if_subnet_exist(netuid)
+            || netuid.is_root()
+            || SubnetMechanism::<T>::get(netuid) != 1
+        {
+            return realizable;
         }
-        if netuid.is_root() || SubnetMechanism::<T>::get(netuid) != 1 {
-            return true;
-        }
-        let Some(fast) = SubnetFastMovingPrice::<T>::get(netuid) else {
-            return false;
-        };
+        let fast = SubnetFastMovingPrice::<T>::get(netuid)
+            .filter(|price| *price > U64F64::saturating_from_num(0))
+            .unwrap_or_else(|| Self::get_moving_alpha_price(netuid));
         let spot = T::SwapInterface::current_alpha_price(netuid.into());
         if fast == U64F64::saturating_from_num(0) || spot == U64F64::saturating_from_num(0) {
-            return false;
+            return Self::guarded_basket_holding_value(netuid, alpha, realizable);
         }
 
         let denominator = U64F64::saturating_from_num(10_000u64);
@@ -719,6 +725,9 @@ impl<T: Config> Pallet<T> {
                 10_000u64.saturating_add(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
             ))
             .safe_div(denominator);
-        spot >= lower && spot <= upper
+        let clamped = spot.max(lower).min(upper);
+        U64F64::saturating_from_num(realizable)
+            .saturating_mul(clamped.safe_div(spot))
+            .saturating_to_num::<u64>()
     }
 }

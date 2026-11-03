@@ -431,8 +431,8 @@ impl<T: Config> Pallet<T> {
         let precheck = Self::stake_into_basket_precheck_weight();
         Self::check_stake_into_basket(&coldkey, &hotkey, tao)
             .map_err(|err| (precheck, err.into()))?;
-        // Require the block drain to settle material credits before changing fund ownership
-        // or its escrow root stake. Charge the queue check even on refusal.
+        // Settle material credits at the clamped dividend mark before changing fund ownership
+        // or its escrow root stake.
         let (flush_work, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
         let flush_weight = Self::basket_flush_weight(flush_work);
         if !completed {
@@ -572,13 +572,19 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().reads_writes(8_u64, 6_u64))
     }
 
-    /// Pre-dispatch weight of `stake_into_basket`: a cap sized for the row cap of holdings
-    /// as deployment slots over the row cap of holdings, plus the flat pending-deposit flush allowance
-    /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes. Refunded
-    /// to actual post-dispatch.
+    /// Worst-case pre-dispatch weight of `stake_into_basket`: deployment and NAV work at the
+    /// holding cap plus aggregate pending-dividend settlement. Runtime calls use the
+    /// hotkey-specific variant below and refund to actual post-dispatch work.
     pub fn stake_into_basket_declared_weight() -> Weight {
         Self::stake_into_basket_weight(MAX_BASKET_ROWS, MAX_BASKET_ROWS)
             .saturating_add(Self::basket_flush_weight_bound())
+    }
+
+    /// Call-specific envelope: the deployment stays capped at the holding bound, while the
+    /// pending-dividend term is sized from this fund's actual queue and holdings.
+    pub fn stake_into_basket_declared_weight_for(hotkey: &T::AccountId) -> Weight {
+        Self::stake_into_basket_weight(MAX_BASKET_ROWS, MAX_BASKET_ROWS)
+            .saturating_add(Self::root_pending_dividend_weight_for(hotkey, true))
     }
 
     /// Weight of one realizable-NAV sweep over `num_holdings` escrow rows: one sim-swap
@@ -674,9 +680,9 @@ impl<T: Config> Pallet<T> {
         ignore_minimum_condition: bool,
         outcome: &mut RootClaimOutcome,
     ) -> DispatchResult {
-        // Require queued dividend credits to be settled before redemption against the
-        // fund's full, current state. Dispatches only check settlement; the block drain
-        // performs the actual dividend mint. Queue-check work is priced into the outcome.
+        // Settle queued dividend credits before redemption against the fund's full, current
+        // state. The clamped valuation makes synchronous settlement safe; its actual work is
+        // priced into the outcome.
         let (flush_work, _, flush_completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
         outcome.flush = flush_work;
 
@@ -1162,26 +1168,35 @@ impl<T: Config> Pallet<T> {
     /// Weight of a claim over `units` hotkeys-plus-holdings (full claim work plus scan-only
     /// work for every unit) that flushes `flush` queued-deposit work first.
     pub fn root_claim_weight_for_work(units: u32, flush: BasketFlushWork) -> Weight {
-        <T as crate::pallet::Config>::WeightInfo::claim_root(units)
-            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
-                units,
-            ))
-            .saturating_add(Self::basket_flush_weight(flush))
+        <T as crate::pallet::Config>::WeightInfo::claim_root(
+            units.saturating_add(u32::try_from(flush.rows).unwrap_or(u32::MAX)),
+        )
+        .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+            units,
+        ))
+        // Credit-row writes are already represented by the combined claim_root units.
+        .saturating_add(Self::basket_flush_weight(BasketFlushWork::new(
+            flush.quotes,
+            0,
+        )))
     }
 
-    /// Pre-dispatch weight for every independently bounded dimension: full claim work,
-    /// scan-only work, and the flat pending-deposit flush allowance
-    /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes.
+    /// Pre-dispatch weight for the shared claim budget. Holding/hotkey rows and pending
+    /// credit rows consume the same admission limit; four quote units per limit unit cover
+    /// the synchronous settlement sweep.
     pub fn root_claim_declared_weight_for(limit: u32) -> Weight {
-        Self::root_claim_weight_for_work(limit, Self::basket_pending_work_bound())
+        Self::root_claim_weight_for_work(
+            limit,
+            BasketFlushWork::new(u64::from(limit).saturating_mul(4), 0),
+        )
     }
 
-    /// Coldkey-wide declared weight: the 256-unit envelope plus the flush allowance.
+    /// Coldkey-wide declared weight for the 256-unit combined claim/settlement envelope.
     pub(crate) fn root_claim_declared_weight() -> Weight {
         Self::root_claim_declared_weight_for(Self::root_claim_declared_work())
     }
 
-    /// Single-hotkey declared weight: the 130-unit envelope plus the same flush allowance.
+    /// Single-hotkey declared weight for the 130-unit combined claim/settlement envelope.
     pub(crate) fn root_claim_hotkey_declared_weight() -> Weight {
         Self::root_claim_declared_weight_for(Self::root_claim_hotkey_declared_work())
     }
@@ -1208,11 +1223,9 @@ impl<T: Config> Pallet<T> {
         hotkeys.into_iter().collect()
     }
 
-    /// True when the hotkeys plus the basket storage rows the claim will scan fit the fixed
-    /// admission envelope, and the pending-deposit flushes the claim runs first fit the flat
-    /// flush allowance ([`Self::basket_flush_fits_declared_budget`]). Count raw Alpha/AlphaV2
-    /// rows so legacy duplicates and malformed zero rows are charged conservatively, and stop
-    /// as soon as a bound is exceeded.
+    /// True when hotkeys, basket storage rows, and pending credits fit the fixed shared
+    /// admission envelope. Count raw Alpha/AlphaV2 rows so legacy duplicates and malformed
+    /// zero rows are charged conservatively, and stop as soon as the bound is exceeded.
     pub(crate) fn root_claim_fits_budget(hotkeys: &[T::AccountId], budget: u32) -> bool {
         let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
         if work > budget {
@@ -1233,8 +1246,14 @@ impl<T: Config> Pallet<T> {
                     return false;
                 }
             }
+            for _ in PendingBasketDeposits::<T>::iter_key_prefix(hotkey) {
+                work = work.saturating_add(1);
+                if work > budget {
+                    return false;
+                }
+            }
         }
-        Self::basket_flush_fits_declared_budget(hotkeys)
+        true
     }
 
     pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
@@ -1267,11 +1286,16 @@ impl<T: Config> Pallet<T> {
             .max(selection_scanned)
             .max(1);
         let scanned = outcome.rows.saturating_sub(outcome.realized);
-        <T as crate::pallet::Config>::WeightInfo::claim_root(active)
-            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
-                scanned,
-            ))
-            .saturating_add(Self::basket_flush_weight(outcome.flush))
+        <T as crate::pallet::Config>::WeightInfo::claim_root(
+            active.saturating_add(u32::try_from(outcome.flush.rows).unwrap_or(u32::MAX)),
+        )
+        .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+            scanned,
+        ))
+        .saturating_add(Self::basket_flush_weight(BasketFlushWork::new(
+            outcome.flush.quotes,
+            0,
+        )))
     }
 
     /// Weight of a claim's admission scan, charged on top of the work done when an admitted
@@ -1610,15 +1634,15 @@ impl<T: Config> Pallet<T> {
             }
             weight_meter.consume(per_key);
             // Conversion creates escrow root stake, which must not capture a fraction of
-            // dividends earned before it existed. Preserve this cursor and retry after the
-            // block drain, rather than skipping the fund and letting teardown erase it.
+            // dividends earned before it existed. Settle first if this call's meter can afford
+            // the bounded work; otherwise preserve the cursor for the next cleanup call.
             let held = Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid);
             if !held.is_zero()
                 && PendingBasketDeposits::<T>::iter_key_prefix(&hotkey)
                     .next()
                     .is_some()
             {
-                let check_weight = Self::root_pending_dividend_weight(true);
+                let check_weight = Self::root_pending_dividend_weight_for(&hotkey, true);
                 if !weight_meter.can_consume(check_weight) {
                     return (false, cursor);
                 }

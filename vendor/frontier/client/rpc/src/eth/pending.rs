@@ -29,16 +29,8 @@ use sp_runtime::{
 	TransactionOutcome,
 };
 
-use crate::{
-	eth::Eth,
-	execution_admission::{
-		pending_limit_error, retry_pending_execution, PendingExecution, MAX_PENDING_EXTRINSICS,
-		MAX_PENDING_SNAPSHOT_BYTES, PENDING_LIMIT_ERROR, PENDING_TIMEOUT,
-	},
-};
+use crate::{eth::Eth, execution_admission::retry_pending_execution};
 use fp_rpc::EthereumRuntimeRPCApi;
-use scale_codec::Encode;
-use std::time::Instant;
 
 const LOG_TARGET: &str = "eth-pending";
 
@@ -94,49 +86,23 @@ where
 {
 	/// Creates a pending runtime API.
 	pub(crate) async fn pending_runtime_api(&self) -> Result<(B::Hash, ApiRef<'_, C::Api>), Error> {
-		self.pending_runtime_api_until(Instant::now() + PENDING_TIMEOUT)
-			.await
-	}
-
-	pub(crate) async fn pending_runtime_api_until(
-		&self,
-		deadline: Instant,
-	) -> Result<(B::Hash, ApiRef<'_, C::Api>), Error> {
-		let budget = PendingExecution::try_new(deadline).map_err(pending_limit_error)?;
 		let mut api = self.client.runtime_api();
-		// The executor charges one reconstruction rate token through this shared
-		// capability. Every replay step still needs a concurrency/input permit
-		// and spends this job's cumulative work budget; retries never restart it.
-		api.register_extension(budget.clone());
-
-		// Bound and pin the pool once, before awaiting or executing any runtime
-		// work. Never return a truncated snapshot as successful pending state.
-		let mut extrinsics = Vec::new();
-		let mut snapshot_bytes = 0usize;
-		for tx in self.graph.ready() {
-			budget.check().map_err(pending_limit_error)?;
-			snapshot_bytes = snapshot_bytes.saturating_add(tx.data().encoded_size());
-			if extrinsics.len() >= MAX_PENDING_EXTRINSICS
-				|| snapshot_bytes > MAX_PENDING_SNAPSHOT_BYTES
-			{
-				return Err(pending_limit_error(PENDING_LIMIT_ERROR).into());
-			}
-			extrinsics.push(tx.data().as_ref().clone());
-		}
+		// Pin the complete pool before awaiting or executing runtime work. Local
+		// PQ admission may fail reconstruction, but must never truncate it.
+		let extrinsics: Vec<_> = self
+			.graph
+			.ready()
+			.map(|tx| tx.data().as_ref().clone())
+			.collect();
 
 		let info = self.client.info();
 		let (best_number, best_hash) = (info.best_number, info.best_hash);
 
-		let inherent_data =
-			tokio::time::timeout_at(tokio::time::Instant::from_std(budget.deadline()), async {
-				let provider = self
-					.pending_create_inherent_data_providers
-					.create_inherent_data_providers(best_hash, ())
-					.await?;
-				Ok::<_, Error>(provider.create_inherent_data().await?)
-			})
-			.await
-			.map_err(|_| pending_limit_error(PENDING_LIMIT_ERROR))??;
+		let provider = self
+			.pending_create_inherent_data_providers
+			.create_inherent_data_providers(best_hash, ())
+			.await?;
+		let inherent_data = provider.create_inherent_data().await?;
 
 		let digest = if let Some(digest_provider) = &self.pending_consensus_data_provider {
 			if let Some(header) = self.client.header(best_hash)? {
@@ -160,82 +126,51 @@ where
 
 		// Roll back an unsuccessful initialization. Only a genuinely absent
 		// legacy export permits fallback; admission and execution failures do not.
-		let initialized = retry_pending_execution(
-			&mut api,
-			|api| {
-				api.execute_in_transaction(|api| {
-					match api.initialize_pending_block(best_hash, &pending_header) {
-						Ok(()) => TransactionOutcome::Commit(Ok(())),
-						Err(error) => TransactionOutcome::Rollback(Err(error)),
-					}
-				})
-			},
-			&budget,
-		)
-		.await;
+		let initialized = api.execute_in_transaction(|api| {
+			match api.initialize_pending_block(best_hash, &pending_header) {
+				Ok(()) => TransactionOutcome::Commit(Ok(())),
+				Err(error) => TransactionOutcome::Rollback(Err(error)),
+			}
+		});
 		match initialized {
             Err(error) if error.to_string() == "Execution failed: Method not found: 'EthereumRuntimeRPCApi_initialize_pending_block'" => {
-                retry_pending_execution(&mut api, |api| api.execute_in_transaction(|api| {
+                api.execute_in_transaction(|api| {
                     match api.initialize_block(best_hash, &pending_header) {
                         Ok(_) => TransactionOutcome::Commit(Ok(())),
                         Err(error) => TransactionOutcome::Rollback(Err(error)),
                     }
-                }), &budget).await?;
+                })?;
             }
             result => result?,
         }
 
-		// Inherent construction must never commit storage effects, even on a
-		// transient failure. All later retries retain this exact pool/header.
-		let inherents = retry_pending_execution(
-			&mut api,
-			|api| {
-				api.execute_in_transaction(|api| {
-					TransactionOutcome::Rollback(
-						api.inherent_extrinsics(best_hash, inherent_data.clone()),
-					)
-				})
-			},
-			&budget,
-		)
-		.await?;
-		if inherents.len().saturating_add(extrinsics.len()) > MAX_PENDING_EXTRINSICS
-			|| inherents.iter().fold(snapshot_bytes, |bytes, ext| {
-				bytes.saturating_add(ext.encoded_size())
-			}) > MAX_PENDING_SNAPSHOT_BYTES
-		{
-			return Err(pending_limit_error(PENDING_LIMIT_ERROR).into());
-		}
+		// Inherent construction must never commit storage effects.
+		let inherents = api.execute_in_transaction(|api| {
+			TransactionOutcome::Rollback(api.inherent_extrinsics(best_hash, inherent_data))
+		})?;
 		log::debug!(target: LOG_TARGET, "Pending runtime API: inherent len = {}, pool len = {}", inherents.len(), extrinsics.len());
 		for (ext, is_inherent) in inherents
 			.into_iter()
 			.map(|ext| (ext, true))
 			.chain(extrinsics.into_iter().map(|ext| (ext, false)))
 		{
-			retry_pending_execution(
-				&mut api,
-				|api| {
-					api.execute_in_transaction(|api| {
-						match api.apply_extrinsic(best_hash, ext.clone()) {
-							Err(error) => TransactionOutcome::Rollback(Err(error)),
-							Ok(result) => {
-								match pending_extrinsic_outcome(Ok(result), is_inherent) {
-									TransactionOutcome::Commit(result) => {
-										TransactionOutcome::Commit(Ok(result))
-									}
-									TransactionOutcome::Rollback(result) => {
-										TransactionOutcome::Rollback(Ok(result))
-									}
-								}
+			retry_pending_execution(&mut api, |api| {
+				api.execute_in_transaction(|api| {
+					match api.apply_extrinsic(best_hash, ext.clone()) {
+						Err(error) => TransactionOutcome::Rollback(Err(error)),
+						Ok(result) => match pending_extrinsic_outcome(Ok(result), is_inherent) {
+							TransactionOutcome::Commit(result) => {
+								TransactionOutcome::Commit(Ok(result))
 							}
-						}
-					})
-				},
-				&budget,
-			)
+							TransactionOutcome::Rollback(result) => {
+								TransactionOutcome::Rollback(Ok(result))
+							}
+						},
+					}
+				})
+			})
 			.await??;
 		}
-		budget.check().map_err(pending_limit_error)?;
 
 		Ok((best_hash, api))
 	}

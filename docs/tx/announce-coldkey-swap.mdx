@@ -25,7 +25,7 @@ an unauthorized one with `dispute_coldkey_swap`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.announce_coldkey_swap_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L2510-L2559) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.announce_coldkey_swap_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L2517-L2566) |
 
 ## Parameters
 
@@ -75,7 +75,7 @@ result = sub.execute_tool("announce_coldkey_swap", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.announce_coldkey_swap_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L2515`](/code/pallets/subtensor/src/macros/dispatches.rs#L2510-L2559):
+`SubtensorModule.announce_coldkey_swap_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L2522`](/code/pallets/subtensor/src/macros/dispatches.rs#L2517-L2566):
 
 ```rust
 #[pallet::call_index(155)]

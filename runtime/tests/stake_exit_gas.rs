@@ -296,6 +296,7 @@ fn unstake_all_reserves_every_slot_walk_for_the_callers_list() {
                 validated: 1,
                 // Only unstakeAllAlpha stakes the proceeds into root in this fixture.
                 root_checked: alpha,
+                flush: Default::default(),
             };
             let actual = if alpha {
                 Subtensor::unstake_all_alpha_actual_weight(&coldkey, work)

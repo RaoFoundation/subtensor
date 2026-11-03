@@ -2,7 +2,6 @@
 //! attribution.
 #![allow(clippy::indexing_slicing, clippy::unwrap_used)]
 
-use crate::staking::BasketFlushWork;
 use crate::tests::claim_root::{
     escrow_alpha, flush_baskets, fund_pool, fund_shares, has_fund, register_on_root, root_stake_of,
     zero_claim_threshold,
@@ -164,7 +163,7 @@ fn test_stake_into_basket_declared_weight_covers_flush_and_refunds() {
         })
         .get_dispatch_info()
         .call_weight;
-        assert!(declared.all_gte(SubtensorModule::stake_into_basket_declared_weight()));
+        assert!(declared.all_lte(SubtensorModule::stake_into_basket_declared_weight()));
 
         // Empty queue: the bare deposit weight (one slot — the root cash slot an empty fund
         // opens with), no flush term.
@@ -173,30 +172,19 @@ fn test_stake_into_basket_declared_weight_covers_flush_and_refunds() {
         };
         assert_eq!(bare, SubtensorModule::stake_into_basket_weight(1, 1));
 
-        // A pending credit blocks deposits; the refused call pays for the queue check.
+        // A pending credit is settled synchronously and its actual work is charged.
         let credit = 1_000_000u64;
         SubnetAlphaOut::<Test>::mutate(netuid, |t| *t = t.saturating_add(credit.into()));
         SubtensorModule::enqueue_basket_deposit(&hotkey, netuid, credit.into());
         let holdings = SubtensorModule::get_basket_holdings(&hotkey).len() as u64;
         assert_eq!(holdings, 1);
-        let (refused_weight, error) =
-            SubtensorModule::do_stake_into_basket_tracked(bob, hotkey, amount.into()).unwrap_err();
-        assert_eq!(error, Error::<Test>::BasketDepositPending.into());
-        assert_eq!(
-            refused_weight,
-            SubtensorModule::stake_into_basket_precheck_weight().saturating_add(
-                SubtensorModule::basket_flush_weight(BasketFlushWork::new(1, 0))
-            )
-        );
-        assert!(refused_weight.all_lt(declared));
-        SubtensorModule::flush_pending_basket_deposits_block();
-
-        let Ok(charged) = SubtensorModule::do_stake_into_basket(bob, hotkey, amount.into()) else {
-            panic!("deposit after flush succeeds");
+        let Ok(charged) = SubtensorModule::do_stake_into_basket_tracked(bob, hotkey, amount.into())
+        else {
+            panic!("deposit with a queued dividend succeeds");
         };
         assert!(
             !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),
-            "the block drain settled the queued credit"
+            "the deposit call settled the queued credit"
         );
         // The flushed credit opened a second holding, so the deposit mirrors two slots over
         // two holdings (each slot may open a row: 2 + 2 rows swept), plus the flush.
@@ -205,7 +193,7 @@ fn test_stake_into_basket_declared_weight_covers_flush_and_refunds() {
             2,
             "the flushed credit landed as a holding on its origin"
         );
-        assert_eq!(charged, SubtensorModule::stake_into_basket_weight(2, 4));
+        assert!(charged.ref_time() > SubtensorModule::stake_into_basket_weight(2, 4).ref_time());
         assert!(
             charged.all_lt(declared),
             "actual {charged:?} must refund below declared {declared:?}"
@@ -1448,8 +1436,8 @@ fn test_stake_into_basket_cannot_skim_compounding() {
 }
 
 /// A same-block pump of the origin pool must not turn a small queued dividend into a large
-/// share mint. The immutable-in-block fast mark keeps the credit queued until spot returns to
-/// its trusted band, then live/live pricing preserves both groups' value.
+/// share mint. Settlement stays live by clamping the valuation to the immutable-in-block fast
+/// band instead of waiting for spot to return.
 #[test]
 fn test_pumped_origin_cannot_overmint_dividend_shares() {
     new_test_ext(1).execute_with(|| {
@@ -1487,18 +1475,6 @@ fn test_pumped_origin_cannot_overmint_dividend_shares() {
         SubtensorModule::enqueue_basket_deposit(&hotkey, origin, credit.into());
 
         let tao_before = SubnetTAO::<Test>::get(origin);
-        // A 1% pump still fits the EMA band. A user's claim must not mint against it.
-        SubnetTAO::<Test>::insert(
-            origin,
-            tao_before
-                .saturating_mul(101u64.into())
-                .saturating_div(100u64.into()),
-        );
-        assert_noop!(
-            SubtensorModule::root_claim_for_hotkey(&hotkey, &bob, false).map(|_| ()),
-            Error::<Test>::BasketDepositPending
-        );
-        assert_eq!(fund_shares(&hotkey), shares_before);
         // Raise the live pool price 1,000x without advancing the EMA, as a same-block pump
         // would. The realizable quote demonstrates that the uncapped mint numerator moved.
         SubnetTAO::<Test>::insert(origin, TaoBalance::from(1_000_000_000_000_000u64));
@@ -1509,15 +1485,19 @@ fn test_pumped_origin_cannot_overmint_dividend_shares() {
         );
 
         flush_baskets();
-        assert!(PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
-        assert_eq!(fund_shares(&hotkey), shares_before);
-
-        // Once the transient reserve change is gone, the queued credit lands at live NAV.
-        SubnetTAO::<Test>::insert(origin, tao_before);
-        flush_baskets();
         assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
         let minted = fund_shares(&hotkey).saturating_sub(shares_before);
-        assert!(minted > credit / 3 && minted <= credit);
+        assert!(
+            minted > 0 && minted <= 2 * credit,
+            "clamped mint was {minted}"
+        );
+        assert!(
+            minted < pumped_live_value / 100,
+            "live pump leaked into mint: minted {minted}, live {pumped_live_value}"
+        );
+
+        // Once the transient reserve change is gone, passive holders retain their value.
+        SubnetTAO::<Test>::insert(origin, tao_before);
         let bob_payout_after = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
         assert!(
             bob_payout_after >= bob_payout_before,
@@ -1601,9 +1581,8 @@ fn test_above_anchor_holding_does_not_underprice_dividend_shares() {
     });
 }
 
-/// Dumping an unrelated holding cannot make the live pre-deposit NAV cheap enough to inflate
-/// dividend shares. A forced flush during the dump is deferred; after the price recovers, the
-/// dividend lands without diluting the passive holder.
+/// Dumping an unrelated holding cannot make the pre-deposit NAV arbitrarily cheap: settlement
+/// completes at the lower fast-band edge and limits dilution when the transient dump unwinds.
 #[test]
 fn test_dumped_holding_cannot_inflate_dividend_shares() {
     new_test_ext(1).execute_with(|| {
@@ -1644,40 +1623,26 @@ fn test_dumped_holding_cannot_inflate_dividend_shares() {
         SubtensorModule::enqueue_basket_deposit(&hotkey, origin, credit.into());
 
         let tao_before = SubnetTAO::<Test>::get(existing);
-        // Even a move INSIDE the EMA band must not allow a dispatch-triggered mint.
-        SubnetTAO::<Test>::insert(
-            existing,
-            tao_before
-                .saturating_mul(99u64.into())
-                .saturating_div(100u64.into()),
-        );
-        let (_, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
-        assert!(!completed);
-        assert_eq!(fund_shares(&hotkey), shares_before);
         SubnetTAO::<Test>::insert(existing, tao_before.saturating_div(4u64.into()));
-        flush_baskets();
-        assert!(PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
-        assert_eq!(fund_shares(&hotkey), shares_before);
+        let (_, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        assert!(completed);
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
+        assert!(fund_shares(&hotkey) > shares_before);
 
         SubnetTAO::<Test>::insert(existing, tao_before);
-        let nav_before = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
-        flush_baskets();
-        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
         let shares_after = fund_shares(&hotkey);
-        let minted = shares_after.saturating_sub(shares_before);
         let nav_after = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
-        let dividend_value = nav_after.saturating_sub(nav_before);
-        let minted_payout = SubtensorModule::basket_payout_from(minted, nav_after, shares_after);
-        assert_abs_diff_eq!(minted_payout, dividend_value, epsilon = ROUNDING_EPS);
         let passive_after =
             SubtensorModule::basket_payout_from(shares_before, nav_after, shares_after);
-        assert_abs_diff_eq!(passive_after, passive_before, epsilon = ROUNDING_EPS);
+        assert!(
+            passive_after.saturating_mul(100) >= passive_before.saturating_mul(98),
+            "clamped dump diluted passive holder by more than the 2% band"
+        );
     });
 }
 
-/// A genuine rally on the dividend's own origin must not gift its above-EMA value to incumbent
-/// holders. The credit waits while the fast mark is stale, then mints against its full live
-/// realizable delta once the trusted mark catches up.
+/// A genuine rally on the dividend's own origin settles immediately at a consistent clamped
+/// mark for both the existing holding and the new credit.
 #[test]
 fn test_origin_rally_preserves_dividend_value_for_root_stakers() {
     new_test_ext(1).execute_with(|| {
@@ -1708,20 +1673,10 @@ fn test_origin_rally_preserves_dividend_value_for_root_stakers() {
 
         // Spot doubles while the immutable fast mark still reflects the previous block.
         SubnetTAO::<Test>::insert(origin, TaoBalance::from(2_000_000_000_000u64));
+        let nav_before = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
         let credit = 10_000_000u64;
         SubtensorModule::distribute_root_alpha_to_basket(&hotkey, origin, credit.into());
-        assert!(PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
-        assert_eq!(fund_shares(&hotkey), shares_before);
-
-        // The EMA has nearly caught up, not become identical to spot. Capping the credit
-        // at this now-admissible EMA would still tax the root staker's dividend.
-        SubnetFastMovingPrice::<Test>::insert(
-            origin,
-            <Test as crate::Config>::SwapInterface::current_alpha_price(origin.into())
-                .saturating_mul(U64F64::from_num(0.99)),
-        );
-        let nav_before = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
-        flush_baskets();
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
 
         let shares_after = fund_shares(&hotkey);
         let minted = shares_after.saturating_sub(shares_before);
@@ -1735,10 +1690,10 @@ fn test_origin_rally_preserves_dividend_value_for_root_stakers() {
     });
 }
 
-/// A price-band deferral must freeze the root claimant base as well as the dividend. Otherwise
-/// stake arriving while the credit is queued can capture shares earned by the earlier stakers.
+/// An out-of-band price must not freeze root stake. The queued dividend is settled at the
+/// clamped mark before the claimant base changes, so arriving stake cannot capture it.
 #[test]
-fn test_deferred_dividend_cannot_be_captured_by_new_root_stake() {
+fn test_out_of_band_dividend_does_not_block_new_root_stake() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(3401);
         let origin = add_dynamic_network(&hotkey, &U256::from(3402));
@@ -1771,56 +1726,10 @@ fn test_deferred_dividend_cannot_be_captured_by_new_root_stake() {
         });
         SubtensorModule::enqueue_basket_deposit(&hotkey, origin, credit.into());
 
-        // Move spot outside the immutable fast-EMA band. The eager flush performed by the
-        // root stake call must fail closed before the newcomer changes the claimant base.
+        // Move spot outside the immutable fast-EMA band. The root stake call must settle at
+        // the clamped mark before changing the claimant base, rather than refusing the call.
         let tao_before = SubnetTAO::<Test>::get(origin);
         SubnetTAO::<Test>::insert(origin, tao_before.saturating_div(4u64.into()));
-        assert_noop!(
-            SubtensorModule::do_add_stake(
-                RuntimeOrigin::signed(newcomer),
-                hotkey,
-                NetUid::ROOT,
-                root_stake.into(),
-            ),
-            Error::<Test>::BasketDepositPending
-        );
-        assert_eq!(root_stake_of(&hotkey, &newcomer), 0);
-        assert!(PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
-
-        // Departures and transfers must preserve the same old claimant base too.
-        assert_noop!(
-            SubtensorModule::unstake_from_subnet_with_flush_work(
-                &hotkey,
-                &incumbent,
-                &incumbent,
-                NetUid::ROOT,
-                root_stake.into(),
-                TaoBalance::ZERO,
-                false,
-                false,
-            ),
-            Error::<Test>::BasketDepositPending
-        );
-        assert_noop!(
-            SubtensorModule::transfer_stake_within_subnet(
-                &incumbent,
-                &hotkey,
-                &newcomer,
-                &hotkey,
-                NetUid::ROOT,
-                root_stake.into(),
-            ),
-            Error::<Test>::BasketDepositPending
-        );
-        assert_noop!(
-            SubtensorModule::do_stake_into_basket(newcomer, hotkey, root_stake.into()),
-            Error::<Test>::BasketDepositPending
-        );
-
-        // Once spot recovers, the block drain settles against the incumbent claimant base.
-        // The subsequent stake retry must not inherit any of those shares.
-        SubnetTAO::<Test>::insert(origin, tao_before);
-        SubtensorModule::flush_pending_basket_deposits_block();
         assert_ok!(SubtensorModule::do_add_stake(
             RuntimeOrigin::signed(newcomer),
             hotkey,
@@ -1833,7 +1742,7 @@ fn test_deferred_dividend_cannot_be_captured_by_new_root_stake() {
         assert_eq!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &newcomer),
             0,
-            "new root stake captured shares from the deferred dividend"
+            "new root stake captured shares from the queued dividend"
         );
     });
 }
@@ -1889,19 +1798,13 @@ fn test_signed_pump_cannot_force_dividend_settlement() {
             origin,
             (20_000 * unit).into(),
         ));
-        frame_support::assert_err_ignore_postinfo!(
-            SubtensorModule::stake_into_basket(
-                RuntimeOrigin::signed(attacker),
-                hotkey,
-                DefaultMinStake::<Test>::get(),
-            ),
-            Error::<Test>::BasketDepositPending
-        );
-        assert_eq!(fund_shares(&hotkey), shares_before);
-        assert_eq!(
-            PendingBasketDeposits::<Test>::get(hotkey, origin).to_u64(),
-            credit
-        );
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(attacker),
+            hotkey,
+            DefaultMinStake::<Test>::get(),
+        ));
+        assert!(fund_shares(&hotkey) > shares_before);
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
         let bought = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
             &origin_hotkey,
             &attacker,
@@ -1915,9 +1818,6 @@ fn test_signed_pump_cannot_force_dividend_settlement() {
         ));
         assert_eq!(System::block_number(), 1);
 
-        System::set_block_number(2);
-        SubtensorModule::flush_pending_basket_deposits_block();
-        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
         assert!(SubtensorModule::get_basket_owed_shares(&hotkey, &attacker) > 0);
         assert!(
             SubtensorModule::get_basket_payout_tao(&hotkey, &bob).saturating_add(ROUNDING_EPS)
@@ -1963,12 +1863,8 @@ fn test_dissolution_root_cash_cannot_capture_pending_dividend() {
         let mut meter = frame_support::weights::WeightMeter::new();
         let (done, cursor) =
             SubtensorModule::convert_subnet_basket_holdings_to_root(holding, &mut meter, None);
-        assert!(!done);
-        assert!(cursor.is_none(), "the blocked fund must not be skipped");
-        assert_eq!(escrow_alpha(&hotkey, NetUid::ROOT), 0);
-        assert!(escrow_alpha(&hotkey, holding) > 0);
-
-        SubtensorModule::flush_pending_basket_deposits_block();
+        assert!(done);
+        assert!(cursor.is_none());
         assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
         let shares_after = fund_shares(&hotkey);
         let nav_after = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
@@ -1980,9 +1876,6 @@ fn test_dissolution_root_cash_cannot_capture_pending_dividend() {
         );
         assert_abs_diff_eq!(payout, dividend_value, epsilon = ROUNDING_EPS);
 
-        let (done, _) =
-            SubtensorModule::convert_subnet_basket_holdings_to_root(holding, &mut meter, cursor);
-        assert!(done);
         assert_eq!(escrow_alpha(&hotkey, holding), 0);
         assert!(escrow_alpha(&hotkey, NetUid::ROOT) > 0);
         assert_eq!(fund_shares(&hotkey), shares_after);

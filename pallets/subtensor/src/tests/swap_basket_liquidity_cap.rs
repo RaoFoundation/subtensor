@@ -737,48 +737,25 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
         // fixed extension weight the runtime adds to every call), actual is the bare row
         // weight.
         let bare_declared = declared_swap_weight(coldkey, hotkey, a, b, TAO);
-        assert!(bare_declared.all_gte(SubtensorModule::swap_basket_declared_weight()));
-        assert!(
-            bare_declared.all_gte(
-                SubtensorModule::swap_basket_weight(256)
-                    .saturating_add(SubtensorModule::basket_flush_weight_bound())
-            )
-        );
+        assert!(bare_declared.all_lte(SubtensorModule::swap_basket_declared_weight()));
         let bare_actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO, 0).unwrap();
         assert_eq!(bare_actual, SubtensorModule::swap_basket_weight(3));
 
-        // Queued origins do not move the declared weight: the allowance is flat, and the
-        // weight function reads no storage.
+        // Queued origins increase the call-specific declaration by their bounded settlement.
         SubtensorModule::enqueue_basket_deposit(&hotkey, b, (5 * TAO).into());
         SubtensorModule::enqueue_basket_deposit(&hotkey, a, (5 * TAO).into());
         let declared_two = declared_swap_weight(coldkey, hotkey, a, b, TAO);
-        assert_eq!(declared_two, bare_declared);
+        assert!(declared_two.ref_time() > bare_declared.ref_time());
 
-        // Both trade entry points must refuse to mutate the fund until the block settles it.
-        let (refused_weight, error) =
-            SubtensorModule::do_swap_basket_tracked(coldkey, hotkey, a, b, TAO, 0).unwrap_err();
-        assert_eq!(error, Error::<Test>::BasketDepositPending.into());
-        assert_eq!(
-            refused_weight,
-            SubtensorModule::swap_basket_precheck_weight().saturating_add(
-                SubtensorModule::basket_flush_weight(BasketFlushWork::new(2, 0))
-            )
-        );
-        assert!(refused_weight.all_lt(declared_two));
-        let (_, batch_error) =
-            SubtensorModule::do_swap_basket_many_tracked(coldkey, hotkey, &[(a, b, TAO.into(), 0)])
-                .unwrap_err();
-        assert_eq!(batch_error, Error::<Test>::BasketDepositPending.into());
-        SubtensorModule::flush_pending_basket_deposits_block();
-        pin_ema_to_spot(a);
-        pin_ema_to_spot(b);
-        let actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO, 0).unwrap();
+        // The trade settles both credits before mutating the fund.
+        let actual =
+            SubtensorModule::do_swap_basket_tracked(coldkey, hotkey, a, b, TAO, 0).unwrap();
         assert!(
             PendingBasketDeposits::<Test>::iter_prefix(hotkey)
                 .next()
                 .is_none()
         );
-        assert_eq!(actual, SubtensorModule::swap_basket_weight(3));
+        assert!(actual.ref_time() > SubtensorModule::swap_basket_weight(3).ref_time());
         assert!(
             actual.all_lt(declared_two),
             "actual must refund below declared"
@@ -840,9 +817,15 @@ fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
                 1_000
             );
         }
-        // Only the bounded scan runs; no valuation or per-credit retry in a dispatch.
+        // One bounded batch attempt runs and re-queues after the shared mint failure.
         let credits = origins.len() as u64;
-        let flush_work = BasketFlushWork::new(credits, 0);
+        let holdings = 3u64;
+        let flush_work = BasketFlushWork::new(
+            credits
+                .saturating_add(holdings)
+                .saturating_add(credits.saturating_mul(2)),
+            credits,
+        );
         let bound = SubtensorModule::basket_flush_work_bound();
         assert!(flush_work.quotes <= bound.quotes && flush_work.rows <= bound.rows);
         assert_eq!(

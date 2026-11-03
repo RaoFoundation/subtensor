@@ -17,7 +17,7 @@ deposit and a small fee headroom.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1541-L1563) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1544-L1566) |
 
 ## Parameters
 
@@ -76,13 +76,13 @@ result = sub.execute_tool("add_stake_limit", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1546`](/code/pallets/subtensor/src/macros/dispatches.rs#L1541-L1563):
+`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1549`](/code/pallets/subtensor/src/macros/dispatches.rs#L1544-L1566):
 
 ```rust
 #[pallet::call_index(88)]
 #[pallet::weight(
     <T as crate::pallet::Config>::WeightInfo::add_stake_limit()
-        .saturating_add(Pallet::<T>::root_pending_dividend_weight(netuid.is_root()))
+        .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, netuid.is_root()))
 )]
 pub fn add_stake_limit(
     origin: OriginFor<T>,
