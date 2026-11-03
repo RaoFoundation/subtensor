@@ -37,8 +37,9 @@ def test_parse_positive_amount_accepts_decimal_string():
 
 
 def test_format_valid_until_none_sentinel():
-    assert _format_valid_until(VALID_UNTIL_NONE) == "none"
-    assert _format_valid_until(2**32 - 1) == "none"
+    # Match Transaction card wording (N15): "no deadline", not "none".
+    assert _format_valid_until(VALID_UNTIL_NONE) == "no deadline"
+    assert _format_valid_until(2**32 - 1) == "no deadline"
     assert "block 100" in _format_valid_until(100, head=50)
 
 
@@ -176,7 +177,8 @@ def test_open_help_matches_runtime_minimum_loan_value():
     assert "MINIMUM_LOAN_VALUE_TAO" in source or "0.001" in source
     assert "0.1 TAO" not in source
     assert "``CloseLoan``" not in inspect.getsource(lending_cli.close_loan)
-    assert "~0.001 TAO" in LENDING_DESCRIPTIONS["AmountTooSmall"]
+    # Human AmountTooSmall copy uses τ (F12); still names the ~0.001 minimum.
+    assert "~0.001 τ" in LENDING_DESCRIPTIONS["AmountTooSmall"]
 
 
 def test_proceeds_docstring_no_longer_claims_zero_for_new_shorts():
