@@ -44,7 +44,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1330-L1356), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L1359-L1388) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1330-L1359), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L1362-L1391) |
 
 ## Parameters
 
@@ -105,11 +105,14 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open` — [`pallets/lending/src/lib.rs#L1332`](/code/pallets/lending/src/lib.rs#L1330-L1356):
+`Lending.open` — [`pallets/lending/src/lib.rs#L1335`](/code/pallets/lending/src/lib.rs#L1330-L1359):
 
 ```rust
 #[pallet::call_index(0)]
-#[pallet::weight(T::WeightInfo::open())]
+// Short and long auto-size paths differ (long: up to 64× `v_dyn` + stake
+// locks). Charge the componentwise max of both measured benchmarks
+// (Skeptic fid:75297abf).
+#[pallet::weight(T::WeightInfo::open().max(T::WeightInfo::open_long()))]
 pub fn open(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -137,7 +140,7 @@ pub fn open(
 }
 ```
 
-`Lending.open_exact` — [`pallets/lending/src/lib.rs#L1361`](/code/pallets/lending/src/lib.rs#L1359-L1388):
+`Lending.open_exact` — [`pallets/lending/src/lib.rs#L1364`](/code/pallets/lending/src/lib.rs#L1362-L1391):
 
 ```rust
 #[pallet::call_index(1)]

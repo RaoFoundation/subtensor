@@ -98,6 +98,49 @@ mod benchmarks {
         );
     }
 
+    /// Long auto-size path for `open`: up to 64 `v_dyn` / Balancer probes plus
+    /// staked-collateral locks. Charged as `open().max(open_long())`
+    /// (Skeptic fid:75297abf).
+    #[benchmark]
+    fn open_long() {
+        let caller: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("hk", 0, 0);
+        let netuid = NetUid::from(1u16);
+        seed_lending_ready::<T>(netuid, &caller, &hotkey);
+        // Seed peer longs so `a_ahead` walks OpenByNetuid / Positions (not an
+        // empty book). Bounded so the fixture stays within benchmark time.
+        for i in 1u32..=8 {
+            let peer: T::AccountId = account("peer", i, 0);
+            let peer_hk: T::AccountId = account("peer_hk", i, 0);
+            T::Pool::benchmark_mint_alpha(&peer, &peer_hk, netuid, 5_000_000_000_000);
+            let now = frame_system::Pallet::<T>::block_number();
+            assert_ok!(Pallet::<T>::open(
+                RawOrigin::Signed(peer).into(),
+                netuid,
+                Side::Long,
+                100_000_000u64,
+                Some(peer_hk),
+                1u64,
+                0u64,
+                0u64,
+                now.saturating_add(100u32.into()),
+            ));
+        }
+        let now = frame_system::Pallet::<T>::block_number();
+        #[extrinsic_call]
+        open(
+            RawOrigin::Signed(caller),
+            netuid,
+            Side::Long,
+            1_000_000_000u64,
+            Some(hotkey),
+            1u64,
+            0u64,
+            0u64,
+            now.saturating_add(100u32.into()),
+        );
+    }
+
     #[benchmark]
     fn open_exact() {
         let caller: T::AccountId = whitelisted_caller();

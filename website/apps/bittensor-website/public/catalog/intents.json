@@ -704,9 +704,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1398,
-        "end_line": 1417,
-        "url": "/code/pallets/lending/src/lib.rs#L1395-L1417",
+        "line": 1401,
+        "end_line": 1420,
+        "url": "/code/pallets/lending/src/lib.rs#L1398-L1420",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2079,18 +2079,18 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1332,
-        "end_line": 1356,
-        "url": "/code/pallets/lending/src/lib.rs#L1330-L1356",
+        "line": 1335,
+        "end_line": 1359,
+        "url": "/code/pallets/lending/src/lib.rs#L1330-L1359",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
         "pallet": "Lending",
         "call": "open_exact",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1361,
-        "end_line": 1388,
-        "url": "/code/pallets/lending/src/lib.rs#L1359-L1388",
+        "line": 1364,
+        "end_line": 1391,
+        "url": "/code/pallets/lending/src/lib.rs#L1362-L1391",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2309,9 +2309,9 @@
         "pallet": "Lending",
         "call": "open_long_and_sell",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1423,
-        "end_line": 1451,
-        "url": "/code/pallets/lending/src/lib.rs#L1420-L1451",
+        "line": 1426,
+        "end_line": 1454,
+        "url": "/code/pallets/lending/src/lib.rs#L1423-L1454",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2894,9 +2894,9 @@
         "pallet": "Lending",
         "call": "repay",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1480,
-        "end_line": 1501,
-        "url": "/code/pallets/lending/src/lib.rs#L1475-L1501",
+        "line": 1483,
+        "end_line": 1504,
+        "url": "/code/pallets/lending/src/lib.rs#L1478-L1504",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

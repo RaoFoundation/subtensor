@@ -1328,7 +1328,10 @@ pub mod pallet {
         /// stake). Shorts are TAO-only and must pass `None` — no hotkey is
         /// stored on the position either way.
         #[pallet::call_index(0)]
-        #[pallet::weight(T::WeightInfo::open())]
+        // Short and long auto-size paths differ (long: up to 64× `v_dyn` + stake
+        // locks). Charge the componentwise max of both measured benchmarks
+        // (Skeptic fid:75297abf).
+        #[pallet::weight(T::WeightInfo::open().max(T::WeightInfo::open_long()))]
         pub fn open(
             origin: OriginFor<T>,
             netuid: NetUid,
