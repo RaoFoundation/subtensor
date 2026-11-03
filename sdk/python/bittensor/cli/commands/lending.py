@@ -707,8 +707,23 @@ def close_loan(
         ("quoted leftover refund", _fmt_amount(quote["refund"])),
         ("minimum leftover refund", _fmt_amount(intent.min_refund)),
     ]
-    if isinstance(shortfall, Balance) and shortfall.rao > 0:
+    # Only shorts collect a free-TAO top-up on the escrow path; insolvent longs
+    # must use --repay-from-wallet for the full principal (Auditor fid:7d5e8753).
+    if side == "Short" and isinstance(shortfall, Balance) and shortfall.rao > 0:
         repay_rows.append(("wallet top-up (shortfall)", _fmt_amount(shortfall)))
+    elif (
+        side == "Long"
+        and not repay_from_wallet
+        and isinstance(shortfall, Balance)
+        and shortfall.rao > 0
+    ):
+        repay_rows.append(
+            (
+                "close now",
+                f"use --repay-from-wallet for {_fmt_amount(position['principal'])} "
+                f"(escrow path cannot top up a long shortfall)",
+            )
+        )
     if int(intent.valid_until) < VALID_UNTIL_NONE:
         repay_rows.append(("valid until", _format_valid_until(intent.valid_until, head=head)))
 
@@ -864,8 +879,13 @@ def repay_loan(
         ("quoted refund", _fmt_amount(quote["refund"])),
         ("minimum refund", _fmt_amount(intent.min_refund)),
     ]
-    if isinstance(shortfall, Balance) and shortfall.rao > 0:
-        repay_rows.append(("shortfall (top-up)", _fmt_amount(shortfall)))
+    if (
+        position.get("side") == "Short"
+        and isinstance(shortfall, Balance)
+        and shortfall.rao > 0
+        and not repay_from_wallet
+    ):
+        repay_rows.append(("wallet top-up (shortfall)", _fmt_amount(shortfall)))
     expires = position.get("expires_at")
     if expires is not None:
         repay_rows.append(("expires at (unchanged)", _format_expiry(expires, head=head)))
@@ -1379,8 +1399,14 @@ def show_position(
         fields["at expiry"] = (
             "forfeit if still insolvent (burn remaining C, restore lift+escrow, no refund)"
         )
-        if isinstance(shortfall, Balance) and shortfall.rao > 0:
+        # Shorts can fund a free-TAO top-up on escrow close; longs cannot —
+        # they need --repay-from-wallet for the full principal (Auditor fid:7d5e8753).
+        if position.get("side") == "Short" and isinstance(shortfall, Balance) and shortfall.rao > 0:
             fields["wallet top-up to close now"] = _fmt_amount(shortfall)
+        elif position.get("side") == "Long":
+            fields["wallet repayment to close now"] = (
+                f"{_fmt_amount(position['principal'])} with --repay-from-wallet"
+            )
     json_fields = {
         **_position_json(position),
         "underwater": underwater,
