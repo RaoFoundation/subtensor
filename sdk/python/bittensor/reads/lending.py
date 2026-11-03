@@ -175,6 +175,18 @@ async def _annotate_close_solvency(view, record: dict) -> dict:
     return record
 
 
+async def _load_position_storage(view, coldkey_ss58: str, netuid: int) -> Optional[dict]:
+    """Storage-only position record (no close-quote solvency annotation).
+
+    Used by close/repay quotes so they do not nest a second ``quote_close``
+    through :func:`lending_position`.
+    """
+    raw = await view.query(POSITIONS, [coldkey_ss58, netuid])
+    if not isinstance(raw, dict):
+        return None
+    return _position_record(view, coldkey_ss58, netuid, raw, await _interest_clock(view, netuid))
+
+
 @read(
     "lending_position",
     {"coldkey_ss58": "string", "netuid": "integer"},
@@ -197,10 +209,7 @@ async def lending_position(view, coldkey_ss58: str, netuid: int) -> Optional[dic
     quote reports a positive ``shortfall`` (AMM cannot cover principal).
     """
     view = await view.at()
-    raw = await view.query(POSITIONS, [coldkey_ss58, netuid])
-    if not isinstance(raw, dict):
-        return None
-    record = _position_record(view, coldkey_ss58, netuid, raw, await _interest_clock(view, netuid))
+    record = await _load_position_storage(view, coldkey_ss58, netuid)
     if record is None:
         return None
     return await _annotate_close_solvency(view, record)
@@ -480,7 +489,7 @@ async def lending_required_collateral(
         raise BittensorError("borrow amount must be positive and fit the chain's token units")
     unit = 0 if side == "Short" else netuid
     maximum = (1 << 64) - 1
-    existing = await lending_position(view, coldkey_ss58, netuid)
+    existing = await _load_position_storage(view, coldkey_ss58, netuid)
     if existing is not None:
         remaining = existing["collateral"].rao - existing["interest_due"].rao
         if remaining <= 0:
@@ -601,7 +610,8 @@ async def lending_close_quote(
     hotkey-existence checks; omit it on TAO-only short escrow buyback.
     """
     view = await view.at()
-    position = await lending_position(view, coldkey_ss58, netuid)
+    # Storage only: avoid nested quote_close from lending_position annotation.
+    position = await _load_position_storage(view, coldkey_ss58, netuid)
     if position is None:
         raise BittensorError(f"no lending position on netuid {netuid}")
     raw = _ok(
@@ -658,7 +668,8 @@ async def lending_repay_quote(
     chain.
     """
     view = await view.at()
-    position = await lending_position(view, coldkey_ss58, netuid)
+    # Storage only: avoid nested quote_close from lending_position annotation.
+    position = await _load_position_storage(view, coldkey_ss58, netuid)
     if position is None:
         raise BittensorError(f"no lending position on netuid {netuid}")
     short = position["side"] == "Short"
