@@ -52,12 +52,13 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         }
     }
     pub fn update_moving_prices() {
-        let subnets_to_emit_to: Vec<NetUid> =
-            Self::get_subnets_to_emit_to(&Self::get_all_subnet_netuids());
-        // Only update price EMA for subnets that we emit to.
-        for netuid_i in subnets_to_emit_to.iter() {
-            // Update moving prices after using them above.
-            Self::update_moving_price(*netuid_i);
+        // Price anchors protect basket valuation and trading even when a subnet is not
+        // currently eligible for emission (for example, registration was disabled). Keep
+        // every live dynamic subnet's EMA moving so governance cannot freeze its anchor.
+        for netuid in Self::get_all_subnet_netuids() {
+            if !netuid.is_root() && SubnetMechanism::<T>::get(netuid) == 1 {
+                Self::update_moving_price(netuid);
+            }
         }
     }
 

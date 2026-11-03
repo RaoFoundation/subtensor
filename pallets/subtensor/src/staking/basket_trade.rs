@@ -149,8 +149,7 @@ impl<T: Config> Pallet<T> {
         Self::check_swap_basket(&coldkey, &hotkey, origin_netuid, destination_netuid, amount)
             .map_err(|err| (precheck, err.into()))?;
 
-        // Pending credits freeze fund composition, including its escrow root stake.
-        // Only the block drain may settle them; charge the queue check on refusal.
+        // Settle pending credits at the clamped dividend mark before changing composition.
         let (flush_work, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
         let flush_weight = Self::basket_flush_weight(flush_work);
         if !completed {
@@ -834,10 +833,20 @@ impl<T: Config> Pallet<T> {
             .saturating_add(Self::basket_flush_weight_bound())
     }
 
-    /// Pre-dispatch weight of `swap_basket`: the trade over the row cap plus the flat
-    /// pending-deposit flush allowance ([`Self::basket_flush_weight_bound`]) shared by every
-    /// extrinsic that flushes. Refunded to actual post-dispatch.
+    pub fn swap_basket_many_declared_weight_for(hotkey: &T::AccountId, num_legs: u32) -> Weight {
+        Self::swap_basket_many_weight(MAX_BASKET_ROWS, num_legs)
+            .saturating_add(Self::root_pending_dividend_weight_for(hotkey, true))
+    }
+
+    /// Worst-case pre-dispatch weight of `swap_basket`: the capped trade plus aggregate
+    /// pending-dividend settlement. Runtime calls use the hotkey-specific variant below and
+    /// refund to actual post-dispatch work.
     pub fn swap_basket_declared_weight() -> Weight {
         Self::swap_basket_weight(MAX_BASKET_ROWS).saturating_add(Self::basket_flush_weight_bound())
+    }
+
+    pub fn swap_basket_declared_weight_for(hotkey: &T::AccountId) -> Weight {
+        Self::swap_basket_weight(MAX_BASKET_ROWS)
+            .saturating_add(Self::root_pending_dividend_weight_for(hotkey, true))
     }
 }

@@ -241,13 +241,6 @@ fn test_flush_root_eviction_deposits_pending_credits() {
         queue_credit(&hot, netuid, credit);
         let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
 
-        assert!(!SubtensorModule::replace_neuron(
-            NetUid::ROOT,
-            uid,
-            &replacement,
-            1
-        ));
-        SubtensorModule::flush_pending_basket_deposits_block();
         assert!(SubtensorModule::replace_neuron(
             NetUid::ROOT,
             uid,
@@ -327,11 +320,10 @@ fn test_flush_root_eviction_recycles_dust_after_membership_drop() {
     });
 }
 
-/// A root neuron whose selected dividend batch is deferred must keep its membership and
-/// claimant base. Once the manipulated price recovers, a retry settles the dividend first and
-/// only then permits replacement.
+/// A root neuron with an out-of-band dividend settles it at the clamped mark before replacement,
+/// without waiting for the manipulated price to recover.
 #[test]
-fn test_flush_root_eviction_waits_for_deferred_dividend() {
+fn test_flush_root_eviction_settles_out_of_band_dividend() {
     new_test_ext(1).execute_with(|| {
         SubtensorModule::set_tao_weight(u64::MAX);
         RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(500_000));
@@ -361,25 +353,11 @@ fn test_flush_root_eviction_waits_for_deferred_dividend() {
         let tao_before = SubnetTAO::<Test>::get(netuid);
         SubnetTAO::<Test>::insert(netuid, tao_before.saturating_div(4u64.into()));
 
-        assert!(!SubtensorModule::replace_neuron(
-            NetUid::ROOT,
-            uid,
-            &replacement,
-            1
-        ));
-        assert_eq!(Keys::<Test>::get(NetUid::ROOT, uid), hot);
-        assert_eq!(Uids::<Test>::get(NetUid::ROOT, hot), Some(uid));
-        assert!(!Uids::<Test>::contains_key(NetUid::ROOT, replacement));
-        assert!(PendingBasketDeposits::<Test>::contains_key(hot, netuid));
-        assert_eq!(fund_shares(&hot), 0);
-
-        SubnetTAO::<Test>::insert(netuid, tao_before);
-        SubtensorModule::flush_pending_basket_deposits_block();
         assert!(SubtensorModule::replace_neuron(
             NetUid::ROOT,
             uid,
             &replacement,
-            2
+            1
         ));
         assert_eq!(Keys::<Test>::get(NetUid::ROOT, uid), replacement);
         assert!(!Uids::<Test>::contains_key(NetUid::ROOT, hot));
@@ -748,7 +726,7 @@ fn test_basket_flush_fits_declared_budget_bounds_queued_rows() {
         ]));
 
         // The claim admission check folds the flush axis in.
-        assert!(SubtensorModule::root_claim_fits_declared_budget(&[hot_a]));
+        assert!(!SubtensorModule::root_claim_fits_declared_budget(&[hot_a]));
         assert!(!SubtensorModule::root_claim_fits_declared_budget(&[
             hot_a, hot_b, hot_c
         ]));

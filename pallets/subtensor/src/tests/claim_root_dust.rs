@@ -1037,16 +1037,11 @@ fn claim_preview_flushes_and_consolidates_like_the_claim() {
         let holdings_before = SubtensorModule::get_basket_holdings(&fund.hotkey).len();
         assert_eq!(holdings_before, 22);
 
-        assert!(
-            SubtensorModule::get_basket_claim_preview(&fund.hotkey, &claimant).is_none(),
-            "a queued dividend blocks redemption until the block drain"
-        );
-        SubtensorModule::flush_pending_basket_deposits_block();
         let preview =
             SubtensorModule::get_basket_claim_preview(&fund.hotkey, &claimant).expect("preview");
         // The view changed nothing.
         assert_eq!(SubtensorModule::get_basket_holdings(&fund.hotkey).len(), 22);
-        assert!(!crate::PendingBasketDeposits::<Test>::contains_key(
+        assert!(crate::PendingBasketDeposits::<Test>::contains_key(
             fund.hotkey,
             fund.netuids[0]
         ));

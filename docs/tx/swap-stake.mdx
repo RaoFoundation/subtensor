@@ -22,7 +22,7 @@ not its declared weight.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1472-L1506), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1654-L1692) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1476-L1509), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1659-L1696) |
 
 ## Parameters
 
@@ -82,14 +82,14 @@ result = sub.execute_tool("swap_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1481`](/code/pallets/subtensor/src/macros/dispatches.rs#L1472-L1506):
+`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1485`](/code/pallets/subtensor/src/macros/dispatches.rs#L1476-L1509):
 
 ```rust
 #[pallet::call_index(87)]
 #[pallet::weight((
     <T as crate::pallet::Config>::WeightInfo::swap_stake()
-        .saturating_add(Pallet::<T>::root_pending_dividend_weight(origin_netuid.is_root()))
-        .saturating_add(Pallet::<T>::root_pending_dividend_weight(destination_netuid.is_root()))
+        .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, origin_netuid.is_root()))
+        .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, destination_netuid.is_root()))
         .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
     DispatchClass::Normal,
     Pays::Yes
@@ -102,6 +102,10 @@ pub fn swap_stake(
     alpha_amount: AlphaBalance,
 ) -> DispatchResultWithPostInfo {
     let coldkey = ensure_signed(origin.clone())?;
+    let pending_weight = Pallet::<T>::root_pending_dividend_weight_for(
+        &hotkey,
+        origin_netuid.is_root() || destination_netuid.is_root(),
+    );
     Self::with_actual_weight(
         Self::do_swap_stake(
             origin,
@@ -111,12 +115,7 @@ pub fn swap_stake(
             alpha_amount,
         ),
         <T as crate::pallet::Config>::WeightInfo::swap_stake()
-            .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                origin_netuid.is_root(),
-            ))
-            .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                destination_netuid.is_root(),
-            ))
+            .saturating_add(pending_weight)
             .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
     )
 }
@@ -124,14 +123,14 @@ pub fn swap_stake(
 
 Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1671), [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L350), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1611).
 
-`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1663`](/code/pallets/subtensor/src/macros/dispatches.rs#L1654-L1692):
+`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1668`](/code/pallets/subtensor/src/macros/dispatches.rs#L1659-L1696):
 
 ```rust
 #[pallet::call_index(90)]
 #[pallet::weight((
     <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
-        .saturating_add(Pallet::<T>::root_pending_dividend_weight(origin_netuid.is_root()))
-        .saturating_add(Pallet::<T>::root_pending_dividend_weight(destination_netuid.is_root()))
+        .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, origin_netuid.is_root()))
+        .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, destination_netuid.is_root()))
         .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
     DispatchClass::Normal,
     Pays::Yes
@@ -146,6 +145,10 @@ pub fn swap_stake_limit(
     allow_partial: bool,
 ) -> DispatchResultWithPostInfo {
     let coldkey = ensure_signed(origin.clone())?;
+    let pending_weight = Pallet::<T>::root_pending_dividend_weight_for(
+        &hotkey,
+        origin_netuid.is_root() || destination_netuid.is_root(),
+    );
     Self::with_actual_weight(
         Self::do_swap_stake_limit(
             origin,
@@ -157,12 +160,7 @@ pub fn swap_stake_limit(
             allow_partial,
         ),
         <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
-            .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                origin_netuid.is_root(),
-            ))
-            .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                destination_netuid.is_root(),
-            ))
+            .saturating_add(pending_weight)
             .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
     )
 }

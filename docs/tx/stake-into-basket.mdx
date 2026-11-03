@@ -22,7 +22,7 @@ admission; a refused deposit pays its pre-check reads.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2306-L2323) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2315-L2331) |
 
 ## Parameters
 
@@ -74,17 +74,16 @@ result = sub.execute_tool("stake_into_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2314`](/code/pallets/subtensor/src/macros/dispatches.rs#L2306-L2323):
+`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2322`](/code/pallets/subtensor/src/macros/dispatches.rs#L2315-L2331):
 
 ```rust
 #[pallet::call_index(147)]
 // Declared weight is a cap sized for 256 mirrored holdings as deployment slots
 // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
-// sim-swap valuations plus a quantity-coverage lookup) plus the flat pending-deposit
-// flush allowance every flushing extrinsic declares; the actual weight is computed in
-// `do_stake_into_basket` from the real slot, holding, and flush counts and
-// refunded post-dispatch, mirroring `claim_root`.
-#[pallet::weight((Pallet::<T>::stake_into_basket_declared_weight(), DispatchClass::Normal, Pays::Yes))]
+// sim-swap valuations plus a quantity-coverage lookup) plus a hotkey-specific pending
+// dividend settlement allowance; actual weight is computed from real slot, holding,
+// and flush counts and refunded post-dispatch, mirroring `claim_root`.
+#[pallet::weight((Pallet::<T>::stake_into_basket_declared_weight_for(&hotkey), DispatchClass::Normal, Pays::Yes))]
 pub fn stake_into_basket(
     origin: OriginFor<T>,
     hotkey: T::AccountId,

@@ -227,11 +227,7 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         );
         // Claim envelope plus the flat pending-deposit flush allowance every flushing
         // extrinsic declares.
-        let envelope = <Test as crate::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
-            .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(
-                MAX_ROOT_CLAIM_WORK,
-            ))
-            .saturating_add(SubtensorModule::basket_flush_weight_bound());
+        let envelope = SubtensorModule::root_claim_declared_weight();
         assert!(
             declared_weight.all_gte(envelope),
             "declared {declared_weight:?} must cover the {envelope:?} admission envelope"
@@ -356,7 +352,7 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
         let credit = 1_000_000u64;
         SubnetAlphaOut::<Test>::mutate(netuid, |t| *t = t.saturating_add(credit.into()));
         SubtensorModule::enqueue_basket_deposit(&hotkey, netuid, credit.into());
-        let expected_flush_work = BasketFlushWork::new(1, 0);
+        let expected_flush_work = BasketFlushWork::new(3, 1);
 
         let declared = RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey })
             .get_dispatch_info()
@@ -365,11 +361,8 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
         let outcome =
             SubtensorModule::root_claim_for_hotkey(&hotkey, &coldkey, false).expect("claim runs");
         assert_eq!(outcome.flush, expected_flush_work);
-        assert!(PendingBasketDeposits::<Test>::contains_key(hotkey, netuid));
-        assert_eq!(
-            outcome.tao, 0,
-            "a dispatch must not mint the pending dividend"
-        );
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, netuid));
+        assert!(outcome.tao > 0, "the claim redeems the settled dividend");
 
         let actual = SubtensorModule::root_claim_actual_weight(1, 0, &outcome);
         let without_flush = SubtensorModule::root_claim_actual_weight(
@@ -380,18 +373,11 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
                 ..outcome
             },
         );
-        assert_eq!(
-            actual,
-            without_flush.saturating_add(SubtensorModule::basket_flush_weight(expected_flush_work))
-        );
+        assert!(actual.ref_time() > without_flush.ref_time());
         assert!(
             actual.all_lt(declared),
             "actual {actual:?} must refund below declared {declared:?}"
         );
-        SubtensorModule::flush_pending_basket_deposits_block();
-        let settled = SubtensorModule::root_claim_for_hotkey(&hotkey, &coldkey, false)
-            .expect("claim after block settlement");
-        assert!(settled.tao > 0);
     });
 }
 

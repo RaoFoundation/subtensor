@@ -557,7 +557,7 @@ mod dispatches {
         #[pallet::call_index(2)]
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::add_stake()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, netuid.is_root()))
         )]
         pub fn add_stake(
             origin: OriginFor<T>,
@@ -594,7 +594,7 @@ mod dispatches {
         #[pallet::call_index(3)]
         #[pallet::weight((
             <T as crate::pallet::Config>::WeightInfo::remove_stake()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, netuid.is_root()))
                 .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
             DispatchClass::Normal,
             Pays::Yes
@@ -606,10 +606,12 @@ mod dispatches {
             amount_unstaked: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let pending_weight =
+                Pallet::<T>::root_pending_dividend_weight_for(&hotkey, netuid.is_root());
             Self::with_actual_weight(
                 Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked),
                 <T as crate::pallet::Config>::WeightInfo::remove_stake()
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(netuid.is_root()))
+                    .saturating_add(pending_weight)
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
@@ -1267,7 +1269,7 @@ mod dispatches {
         /// the subnets actually visited and unstaked. Remaining positions stay for a
         /// later call so the envelope fits the normal-class block.
         #[pallet::call_index(83)]
-        #[pallet::weight(Pallet::<T>::unstake_all_declared_weight())]
+        #[pallet::weight(Pallet::<T>::unstake_all_declared_weight_for(&hotkey))]
         pub fn unstake_all(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1307,7 +1309,7 @@ mod dispatches {
         /// the subnets actually visited and unstaked. Remaining positions stay for a
         /// later call so the envelope fits the normal-class block.
         #[pallet::call_index(84)]
-        #[pallet::weight(Pallet::<T>::unstake_all_alpha_declared_weight())]
+        #[pallet::weight(Pallet::<T>::unstake_all_alpha_declared_weight_for(&hotkey))]
         pub fn unstake_all_alpha(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1347,8 +1349,8 @@ mod dispatches {
         #[pallet::call_index(85)]
         #[pallet::weight((
             <T as crate::pallet::Config>::WeightInfo::move_stake()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(origin_netuid.is_root()))
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(destination_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&origin_hotkey, origin_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&destination_hotkey, destination_netuid.is_root()))
                 .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
             DispatchClass::Normal,
             Pays::Yes
@@ -1362,6 +1364,14 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let pending_weight = Pallet::<T>::root_pending_dividend_weight_for(
+                &origin_hotkey,
+                origin_netuid.is_root(),
+            )
+            .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(
+                &destination_hotkey,
+                destination_netuid.is_root(),
+            ));
             Self::with_actual_weight(
                 Self::do_move_stake(
                     origin,
@@ -1372,12 +1382,7 @@ mod dispatches {
                     alpha_amount,
                 ),
                 <T as crate::pallet::Config>::WeightInfo::move_stake()
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        origin_netuid.is_root(),
-                    ))
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        destination_netuid.is_root(),
-                    ))
+                    .saturating_add(pending_weight)
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
@@ -1411,8 +1416,8 @@ mod dispatches {
         #[pallet::call_index(86)]
         #[pallet::weight((
             <T as crate::pallet::Config>::WeightInfo::transfer_stake()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(origin_netuid.is_root()))
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(destination_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, origin_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, destination_netuid.is_root()))
                 .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
             DispatchClass::Normal,
             Pays::Yes
@@ -1426,6 +1431,10 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let pending_weight = Pallet::<T>::root_pending_dividend_weight_for(
+                &hotkey,
+                origin_netuid.is_root() || destination_netuid.is_root(),
+            );
             Self::with_actual_weight(
                 Self::do_transfer_stake(
                     origin,
@@ -1436,12 +1445,7 @@ mod dispatches {
                     alpha_amount,
                 ),
                 <T as crate::pallet::Config>::WeightInfo::transfer_stake()
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        origin_netuid.is_root(),
-                    ))
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        destination_netuid.is_root(),
-                    ))
+                    .saturating_add(pending_weight)
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
@@ -1472,8 +1476,8 @@ mod dispatches {
         #[pallet::call_index(87)]
         #[pallet::weight((
             <T as crate::pallet::Config>::WeightInfo::swap_stake()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(origin_netuid.is_root()))
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(destination_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, origin_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, destination_netuid.is_root()))
                 .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
             DispatchClass::Normal,
             Pays::Yes
@@ -1486,6 +1490,10 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let pending_weight = Pallet::<T>::root_pending_dividend_weight_for(
+                &hotkey,
+                origin_netuid.is_root() || destination_netuid.is_root(),
+            );
             Self::with_actual_weight(
                 Self::do_swap_stake(
                     origin,
@@ -1495,12 +1503,7 @@ mod dispatches {
                     alpha_amount,
                 ),
                 <T as crate::pallet::Config>::WeightInfo::swap_stake()
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        origin_netuid.is_root(),
-                    ))
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        destination_netuid.is_root(),
-                    ))
+                    .saturating_add(pending_weight)
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
@@ -1540,7 +1543,7 @@ mod dispatches {
         #[pallet::call_index(88)]
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::add_stake_limit()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, netuid.is_root()))
         )]
         pub fn add_stake_limit(
             origin: OriginFor<T>,
@@ -1596,7 +1599,7 @@ mod dispatches {
         #[pallet::call_index(89)]
         #[pallet::weight((
             <T as crate::pallet::Config>::WeightInfo::remove_stake_limit()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, netuid.is_root()))
                 .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
             DispatchClass::Normal,
             Pays::Yes
@@ -1610,6 +1613,8 @@ mod dispatches {
             allow_partial: bool,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let pending_weight =
+                Pallet::<T>::root_pending_dividend_weight_for(&hotkey, netuid.is_root());
             Self::with_actual_weight(
                 Self::do_remove_stake_limit(
                     origin,
@@ -1620,7 +1625,7 @@ mod dispatches {
                     allow_partial,
                 ),
                 <T as crate::pallet::Config>::WeightInfo::remove_stake_limit()
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(netuid.is_root()))
+                    .saturating_add(pending_weight)
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
@@ -1654,8 +1659,8 @@ mod dispatches {
         #[pallet::call_index(90)]
         #[pallet::weight((
             <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(origin_netuid.is_root()))
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(destination_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, origin_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, destination_netuid.is_root()))
                 .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
             DispatchClass::Normal,
             Pays::Yes
@@ -1670,6 +1675,10 @@ mod dispatches {
             allow_partial: bool,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let pending_weight = Pallet::<T>::root_pending_dividend_weight_for(
+                &hotkey,
+                origin_netuid.is_root() || destination_netuid.is_root(),
+            );
             Self::with_actual_weight(
                 Self::do_swap_stake_limit(
                     origin,
@@ -1681,12 +1690,7 @@ mod dispatches {
                     allow_partial,
                 ),
                 <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        origin_netuid.is_root(),
-                    ))
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        destination_netuid.is_root(),
-                    ))
+                    .saturating_add(pending_weight)
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
@@ -1702,8 +1706,8 @@ mod dispatches {
         #[pallet::call_index(149)]
         #[pallet::weight((
             <T as crate::pallet::Config>::WeightInfo::move_stake_limit()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(origin_netuid.is_root()))
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(destination_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&origin_hotkey, origin_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&destination_hotkey, destination_netuid.is_root()))
                 .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
             DispatchClass::Normal,
             Pays::Yes
@@ -1719,6 +1723,14 @@ mod dispatches {
             allow_partial: bool,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let pending_weight = Pallet::<T>::root_pending_dividend_weight_for(
+                &origin_hotkey,
+                origin_netuid.is_root(),
+            )
+            .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(
+                &destination_hotkey,
+                destination_netuid.is_root(),
+            ));
             Self::with_actual_weight(
                 Self::do_move_stake_limit(
                     origin,
@@ -1731,12 +1743,7 @@ mod dispatches {
                     allow_partial,
                 ),
                 <T as crate::pallet::Config>::WeightInfo::move_stake_limit()
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        origin_netuid.is_root(),
-                    ))
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        destination_netuid.is_root(),
-                    ))
+                    .saturating_add(pending_weight)
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
@@ -1880,7 +1887,7 @@ mod dispatches {
         #[pallet::call_index(103)]
         #[pallet::weight((
             <T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, netuid.is_root()))
                 .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
             DispatchClass::Normal,
             Pays::Yes
@@ -1892,10 +1899,12 @@ mod dispatches {
             limit_price: Option<TaoBalance>,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let pending_weight =
+                Pallet::<T>::root_pending_dividend_weight_for(&hotkey, netuid.is_root());
             Self::with_actual_weight(
                 Self::do_remove_stake_full_limit(origin, hotkey, netuid, limit_price),
                 <T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit()
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(netuid.is_root()))
+                    .saturating_add(pending_weight)
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
@@ -2306,11 +2315,10 @@ mod dispatches {
         #[pallet::call_index(147)]
         // Declared weight is a cap sized for 256 mirrored holdings as deployment slots
         // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
-        // sim-swap valuations plus a quantity-coverage lookup) plus the flat pending-deposit
-        // flush allowance every flushing extrinsic declares; the actual weight is computed in
-        // `do_stake_into_basket` from the real slot, holding, and flush counts and
-        // refunded post-dispatch, mirroring `claim_root`.
-        #[pallet::weight((Pallet::<T>::stake_into_basket_declared_weight(), DispatchClass::Normal, Pays::Yes))]
+        // sim-swap valuations plus a quantity-coverage lookup) plus a hotkey-specific pending
+        // dividend settlement allowance; actual weight is computed from real slot, holding,
+        // and flush counts and refunded post-dispatch, mirroring `claim_root`.
+        #[pallet::weight((Pallet::<T>::stake_into_basket_declared_weight_for(&hotkey), DispatchClass::Normal, Pays::Yes))]
         pub fn stake_into_basket(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -2361,11 +2369,10 @@ mod dispatches {
         /// * `BasketConcentrationCapExceeded`: The destination would exceed the concentration cap.
         #[pallet::call_index(150)]
         // Declared weight is a cap sized for 256 holdings (one NAV sim-swap sweep, two
-        // post-trade re-quotes, and two AMM legs) plus the flat pending-deposit flush
-        // allowance every flushing extrinsic declares; the actual weight is computed in
-        // `do_swap_basket` from the real holding count and flush work and refunded
-        // post-dispatch, mirroring `stake_into_basket` / `claim_root`.
-        #[pallet::weight((Pallet::<T>::swap_basket_declared_weight(), DispatchClass::Normal, Pays::Yes))]
+        // post-trade re-quotes, and two AMM legs) plus a hotkey-specific pending dividend
+        // settlement allowance; actual weight is computed from the real holding count and
+        // flush work and refunded post-dispatch, mirroring `stake_into_basket` / `claim_root`.
+        #[pallet::weight((Pallet::<T>::swap_basket_declared_weight_for(&hotkey), DispatchClass::Normal, Pays::Yes))]
         pub fn swap_basket(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -2397,7 +2404,7 @@ mod dispatches {
         ///
         /// Each tuple is `(origin_netuid, destination_netuid, amount, min_amount_out)`.
         #[pallet::call_index(151)]
-        #[pallet::weight((Pallet::<T>::swap_basket_many_declared_weight(legs.len() as u32), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight((Pallet::<T>::swap_basket_many_declared_weight_for(&hotkey, legs.len() as u32), DispatchClass::Normal, Pays::Yes))]
         pub fn swap_basket_many(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -3072,8 +3079,8 @@ mod dispatches {
         #[pallet::call_index(143)]
         #[pallet::weight((
             <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(origin_netuid.is_root()))
-                .saturating_add(Pallet::<T>::root_pending_dividend_weight(destination_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&origin_hotkey, origin_netuid.is_root()))
+                .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&destination_hotkey, destination_netuid.is_root()))
                 .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
             DispatchClass::Normal,
             Pays::Yes
@@ -3088,6 +3095,14 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let pending_weight = Pallet::<T>::root_pending_dividend_weight_for(
+                &origin_hotkey,
+                origin_netuid.is_root(),
+            )
+            .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(
+                &destination_hotkey,
+                destination_netuid.is_root(),
+            ));
             Self::with_actual_weight(
                 Self::do_transfer_stake_and_hotkey(
                     origin,
@@ -3099,12 +3114,7 @@ mod dispatches {
                     alpha_amount,
                 ),
                 <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        origin_netuid.is_root(),
-                    ))
-                    .saturating_add(Pallet::<T>::root_pending_dividend_weight(
-                        destination_netuid.is_root(),
-                    ))
+                    .saturating_add(pending_weight)
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
