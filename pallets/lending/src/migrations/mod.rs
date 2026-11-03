@@ -13,7 +13,7 @@ pub(crate) use migrate_drop_position_hotkey::{PositionBeforeHotkeyDrop, RETIRED_
 pub use migrate_lift_params_ema_band::{
     Migration as LiftParamsEmaBandMigration, migrate_lift_params_ema_band,
 };
-#[cfg(feature = "try-runtime")]
+#[cfg(any(test, feature = "try-runtime"))]
 pub(crate) use migrate_position_terms_version::PositionBeforeTermsVersion;
 #[allow(unused_imports)]
 pub use migrate_position_terms_version::{

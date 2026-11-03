@@ -3019,6 +3019,120 @@ fn drop_hotkey_migration_try_runtime_checks_pass() {
     });
 }
 
+fn terms_version_migration_key() -> BoundedVec<u8, ConstU32<128>> {
+    BoundedVec::truncate_from(b"migrate_position_terms_version_v1".to_vec())
+}
+
+fn pre_terms_position(custody: Account) -> migrations::PositionBeforeTermsVersion<Account, u64> {
+    migrations::PositionBeforeTermsVersion {
+        side: Side::Long,
+        custody,
+        principal: 11,
+        collateral: 12,
+        proceeds: 0,
+        escrow_alpha: 13,
+        lift_tao: 14,
+        lift_alpha: 15,
+        annual_interest: 16,
+        last_accrued: 17,
+        interest_remainder: 18,
+        due: 19,
+        expires_at: 20,
+        expiry_due: 21,
+    }
+}
+
+#[test]
+fn position_terms_version_migration_rewrites_and_is_idempotent() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let custody = account(7);
+        let old = pre_terms_position(custody.clone());
+        frame_support::storage::unhashed::put_raw(
+            &Positions::<Test>::hashed_key_for(&owner, netuid()),
+            &old.encode(),
+        );
+        let migrated_owner = account(5);
+        let current = old.clone().into_position::<Test>();
+        Positions::<Test>::insert(&migrated_owner, netuid(), &current);
+        // Force the unset→v1 path even when the genesis default is already v1.
+        CurrentTermsVersion::<Test>::put(0);
+
+        let _ = migrations::migrate_position_terms_version::<Test>();
+        assert!(HasMigrationRun::<Test>::get(terms_version_migration_key()));
+        assert_eq!(CurrentTermsVersion::<Test>::get(), TERMS_VERSION_V1);
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(
+            after, current,
+            "every pre-terms field survives with v1 snapshots"
+        );
+        assert_eq!(after.terms_version, TERMS_VERSION_V1);
+        assert_eq!(
+            after.interest_period,
+            <<Test as Config>::InterestPeriod as Get<u64>>::get()
+        );
+        assert_eq!(
+            after.blocks_per_year,
+            <<Test as Config>::BlocksPerYear as Get<u64>>::get()
+        );
+        assert_eq!(
+            Positions::<Test>::get(&migrated_owner, netuid()),
+            Some(current.clone()),
+            "current-layout rows are left alone"
+        );
+
+        HasMigrationRun::<Test>::remove(terms_version_migration_key());
+        let _ = migrations::migrate_position_terms_version::<Test>();
+        assert_eq!(Positions::<Test>::get(&owner, netuid()), Some(current));
+        assert_eq!(Positions::<Test>::iter().count(), 2);
+    });
+}
+
+#[test]
+fn position_terms_version_migration_keeps_undecodable_rows_and_retries() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let key = Positions::<Test>::hashed_key_for(&owner, netuid());
+        frame_support::storage::unhashed::put_raw(&key, &[0xff, 0x01]);
+
+        let _ = migrations::migrate_position_terms_version::<Test>();
+        assert!(!HasMigrationRun::<Test>::get(terms_version_migration_key()));
+        assert_eq!(
+            frame_support::storage::unhashed::get_raw(&key),
+            Some(vec![0xff, 0x01])
+        );
+    });
+}
+
+#[cfg(feature = "try-runtime")]
+#[test]
+fn position_terms_version_migration_try_runtime_checks_pass() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        frame_support::storage::unhashed::put_raw(
+            &Positions::<Test>::hashed_key_for(&owner, netuid()),
+            &pre_terms_position(account(7)).encode(),
+        );
+        CurrentTermsVersion::<Test>::put(0);
+        let state = <migrations::PositionTermsVersionMigration<Test> as OnRuntimeUpgrade>::pre_upgrade()
+            .expect("pre_upgrade must accept the pre-terms layout");
+        let _ = <migrations::PositionTermsVersionMigration<Test> as OnRuntimeUpgrade>::on_runtime_upgrade(
+        );
+        assert_ok!(
+            <migrations::PositionTermsVersionMigration<Test> as OnRuntimeUpgrade>::post_upgrade(
+                state
+            )
+        );
+        assert_eq!(
+            Positions::<Test>::get(&owner, netuid())
+                .unwrap()
+                .terms_version,
+            TERMS_VERSION_V1
+        );
+        assert_eq!(CurrentTermsVersion::<Test>::get(), TERMS_VERSION_V1);
+    });
+}
+
 #[test]
 fn registration_hook_seeds_without_manual_warm_and_open_succeeds_after_gate() {
     cold_lending_ext().execute_with(|| {
