@@ -119,13 +119,20 @@ pub fn burn_amounts_to_invariant_baseline(
         return (0, 0);
     }
 
+    // Ceil keep (round toward the pool) so fixed-point drift on a clean
+    // proportional readd burns 0 rather than a few hundred rao of dust (N30).
+    // Floor would over-burn and leave L slightly below target.
     let keep_tao = sigma_eff
         .saturating_mul(y)
-        .saturating_to_num::<u64>()
+        .checked_ceil()
+        .map(|v| v.saturating_to_num::<u64>())
+        .unwrap_or(tao)
         .clamp(floor_tao, tao);
     let keep_alpha = sigma_eff
         .saturating_mul(x)
-        .saturating_to_num::<u64>()
+        .checked_ceil()
+        .map(|v| v.saturating_to_num::<u64>())
+        .unwrap_or(alpha)
         .clamp(floor_alpha, alpha);
 
     (
@@ -304,11 +311,11 @@ mod tests {
         };
         assert!((bt as i64 - 110).unsigned_abs() <= 2);
         assert!((ba as i64 - 110).unsigned_abs() <= 2);
-        // Clean proportional readd: post = pre + lift. Fixed-point σ may leave
-        // a 1–2 unit dust burn; never burns past the credit (floor=100).
+        // N30: clean proportional readd (post = pre + lift) must burn 0 —
+        // ceil keep rounds toward the pool so fixed-point drift cannot
+        // dust-burn below target.
         let (burn_t, burn_a) = burn_amounts_to_invariant_baseline(110, 110, w, bt, ba, 100, 100);
-        assert!(burn_t <= 2 && burn_a <= 2);
-        assert_eq!(110 - burn_t, 110 - burn_a);
+        assert_eq!((burn_t, burn_a), (0, 0));
     }
 
     #[test]

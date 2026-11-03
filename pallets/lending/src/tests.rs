@@ -5760,6 +5760,204 @@ fn within_band_forfeit_buyback_restores_k_or_records_shortfall() {
     });
 }
 
+/// N31: in-band forfeit with under-recovery must target `L(pre)+L(position
+/// lift)`, not `L(pre)+L(credited)`. When repaid alpha < principal, post-credit
+/// L sits below that target — burn must be 0 (never deepen further) and the
+/// deficit lands in `pool_value_given_below_baseline_tao`.
+#[test]
+fn forfeit_in_band_under_recovery_burns_zero_records_shortfall() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        // Mild in-band pump (~10%) so buyback recovers less than principal.
+        let alpha_now = pool_alpha() * 100 / 110;
+        write(&key(b"test/pool_alpha", netuid()), alpha_now);
+        sync_reference_ema_to_spot();
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let spot = MockPool::price();
+        let ceiling = ema.saturating_mul(U64F64::from_num(11_500u32)) / U64F64::from_num(10_000u32);
+        assert!(spot <= ceiling, "precondition: inside EMA band");
+        // Drain most C so pot cannot fully cover the pumped buyback → forfeit.
+        let drain = position.collateral.saturating_sub(1);
+        if drain > 0 {
+            let custody = position.custody.clone();
+            assert_ok!(MockPool::burn_interest_tao(&custody, drain.into()));
+            Positions::<Test>::mutate(&owner, netuid(), |p| {
+                if let Some(p) = p {
+                    p.collateral = 1;
+                    p.last_accrued = position.expires_at;
+                }
+            });
+        }
+        let pot = Positions::<Test>::get(&owner, netuid())
+            .unwrap()
+            .proceeds
+            .saturating_add(1);
+        let cost = Lending::quote_close(&owner, netuid(), None, false)
+            .unwrap()
+            .payment;
+        assert!(cost > pot, "precondition: underwater ({cost} > {pot})");
+
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter);
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. }))),
+            "must forfeit"
+        );
+        let readd_alpha = System::events()
+            .into_iter()
+            .find_map(|e| match e.event {
+                RuntimeEvent::Lending(Event::Readded { alpha, .. }) => Some(alpha),
+                _ => None,
+            })
+            .expect("forfeit emits Readded");
+        assert!(
+            readd_alpha < position.principal,
+            "precondition: under-recovery ({readd_alpha} < {})",
+            position.principal
+        );
+        assert_eq!(
+            burned_tao_surplus(),
+            0,
+            "N31: must not surplus-burn when L < L(pre)+L(lift)"
+        );
+        assert_eq!(
+            burned_alpha_surplus(),
+            0,
+            "N31: must not surplus-burn alpha below the position-lift target"
+        );
+        assert!(
+            !System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::InvariantSurplusBurned { .. })
+            )),
+            "no InvariantSurplusBurned on under-recovery forfeit"
+        );
+        let stats = Lending::lending_stats(netuid());
+        assert!(
+            stats.pool_value_given_below_baseline_tao > 1_000_000_000,
+            "under-recovery must record a real TAO shortfall (>1τ), got {}",
+            stats.pool_value_given_below_baseline_tao
+        );
+    });
+}
+
+/// N31: extreme out-of-band pump through forced settle — buyback under-recovers
+/// and the real L deficit is recorded in `pool_value_given_below_baseline_tao`
+/// (not dust from an over-burn against credited legs).
+#[test]
+fn forfeit_extreme_forced_settle_records_shortfall() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        let l_before = balancer_l_approx();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = snap.expires_at;
+            }
+        });
+        // Extreme thin: spot jumps far past the band; buyback will recover
+        // only a fraction of principal.
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 50);
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let spot = MockPool::price();
+        let ceiling = ema.saturating_mul(U64F64::from_num(11_500u32)) / U64F64::from_num(10_000u32);
+        assert!(spot > ceiling, "precondition: outside band");
+
+        System::set_block_number(snap.expires_at);
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(snap.expires_at, &mut meter);
+        assert!(
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "must defer outside the band"
+        );
+        let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
+        let force_at =
+            since.saturating_add(<<Test as Config>::MaxSettlementDeferral as Get<u64>>::get());
+
+        if let Some(pos) = Positions::<Test>::get(&owner, netuid()) {
+            let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (&owner, netuid()));
+        }
+        ExpiryRetryPending::<Test>::put(0);
+        NextExpiryRetry::<Test>::kill();
+        ExpiryRetryCursor::<Test>::kill();
+        ExpiryRetry::<Test>::insert(force_at, (&owner, netuid()), ());
+        ExpiryRetryPending::<Test>::put(1);
+        NextExpiryRetry::<Test>::put(force_at);
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.expiry_due = force_at;
+            }
+        });
+
+        // Keep reserves extreme so forced settle forfeits with under-recovery.
+        System::set_block_number(force_at);
+        System::reset_events();
+        let shortfall_before = Lending::lending_stats(netuid()).pool_value_given_below_baseline_tao;
+        let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. }))),
+            "extreme forced settle must forfeit"
+        );
+        assert!(
+            !Positions::<Test>::contains_key(&owner, netuid()),
+            "position removed after forfeit"
+        );
+        let l_after = balancer_l_approx();
+        let stats = Lending::lending_stats(netuid());
+        let shortfall_delta = stats
+            .pool_value_given_below_baseline_tao
+            .saturating_sub(shortfall_before);
+        assert!(
+            shortfall_delta > 1_000_000_000,
+            "N31: extreme under-recovery must record a real TAO shortfall (>1τ), got {shortfall_delta}"
+        );
+        // Burn must not be what pushes k further below the buyback-restored
+        // level: shortfall counter owns the deficit accounting.
+        let rel = (l_after - l_before) / l_before.max(1.0);
+        assert!(
+            rel < 0.0,
+            "extreme pump forfeit leaves k below pre-open (rel={rel})"
+        );
+        assert_eq!(
+            stats.pool_value_given_below_baseline_alpha, 0,
+            "N24: alpha shortfall counter stays unused"
+        );
+    });
+}
+
 /// Auditor fid:160e365a — quotes must track close/repay when borrowing is off.
 #[test]
 fn quote_close_and_repay_available_when_borrowing_disabled() {

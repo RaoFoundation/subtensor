@@ -3425,14 +3425,16 @@ pub mod pallet {
                 Side::Short => (position.lift_tao, position.principal),
                 Side::Long => (position.principal, position.lift_alpha),
             };
-            // L(lift) uses the legs actually credited (short alpha leg = principal;
-            // lift_alpha may exceed principal by held dust that stays out of the pool).
+            // N31: L(lift) is the position's lifted amounts — not the credited
+            // legs. Credited alpha on a short is the bought-back principal;
+            // using it as L(lift) under-sizes the target when buyback recovers
+            // less than was lent (forfeit) and over-burns below the no-loan level.
             Self::maybe_burn_invariant_surplus(
                 netuid,
                 credited_tao,
                 credited_alpha,
-                credited_tao,
-                credited_alpha,
+                position.lift_tao,
+                position.lift_alpha,
                 Dissolutions::<T>::contains_key(netuid),
             )?;
 
@@ -3804,12 +3806,14 @@ pub mod pallet {
                 Side::Short => (slice_lift_tao, slice_p),
                 Side::Long => (slice_p, slice_lift_alpha),
             };
+            // N31: burn target uses the slice's lifted amounts, not credited
+            // principal (same as full close / forfeit).
             Self::maybe_burn_invariant_surplus(
                 netuid,
                 credited_tao,
                 credited_alpha,
-                credited_tao,
-                credited_alpha,
+                slice_lift_tao,
+                slice_lift_alpha,
                 Dissolutions::<T>::contains_key(netuid),
             )?;
 
@@ -4699,12 +4703,15 @@ pub mod pallet {
                     }
                 };
 
+            // N31: target = L(pre) + L(position.lift_*). Credited may be a
+            // partial buyback (repaid_alpha < principal); burning against that
+            // as L(lift) deepens k below the no-loan level.
             Self::maybe_burn_invariant_surplus(
                 netuid,
                 credited_tao,
                 credited_alpha,
-                credited_tao,
-                credited_alpha,
+                position.lift_tao,
+                position.lift_alpha,
                 Dissolutions::<T>::contains_key(netuid),
             )?;
             let principal_lost = principal;
@@ -4760,14 +4767,19 @@ pub mod pallet {
         ///
         /// - `credited_*`: reserves just credited by this readd (burn floor /
         ///   cap — never burn past the credit).
-        /// - `lift_*`: this position's (or repay slice's) lifted amounts; used
-        ///   for `L(lift)`. Summed lifts across increases at different prices
-        ///   slightly under-burn versus per-increase `L` (safe; see spec).
+        /// - `lift_*`: this position's (or repay slice's) **lifted** amounts —
+        ///   never the credited buyback legs (N31). Using credited alpha when
+        ///   a forfeit under-recovers under-sizes the target and burns the
+        ///   pool below the no-loan level. Summed lifts across increases at
+        ///   different prices slightly under-burn versus per-increase `L`
+        ///   (safe; see spec).
         /// - `skip_burn`: dissolution paths skip (subnet winding down).
         ///
         /// No pool-wide idle snapshot: every close / repay / expiry / forfeit
         /// burns against its own target, so a busy book cannot accumulate
         /// surplus and emission growth between open and close is not burned.
+        /// A forfeit must never end below baseline because of the burn itself
+        /// — under-recovery records shortfall instead.
         fn maybe_burn_invariant_surplus(
             netuid: NetUid,
             credited_tao: u64,
@@ -6511,12 +6523,13 @@ pub mod pallet {
 
             // Burn before the leftover-collateral sale so solvent expiry matches
             // a manual close that returns alpha then sells it after the burn.
+            // N31: L(lift) = position lift, not credited buyback legs.
             Self::maybe_burn_invariant_surplus(
                 netuid,
                 credited_tao,
                 credited_alpha,
-                credited_tao,
-                credited_alpha,
+                position.lift_tao,
+                position.lift_alpha,
                 false,
             )?;
             // No hotkey at expiry: `close` would return leftover long collateral
