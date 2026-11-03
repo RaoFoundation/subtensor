@@ -8,7 +8,8 @@
 * **2026-11-03: settlement EMA band + forfeit buyback (Jacob, resolves N5).** Clone-502 drain-loop report: normal closes are k-safe; expiry/forfeit was the hole (spot close with no band → pump → one-sided readd burns k).
 * **Permissionless settlement band (§5.4 / §15.2).** Automatic expiry settlement and interest-exhaustion forfeit execute only when spot is inside the symmetric 15% EMA band `[EMA·(1−band), EMA·(1+band)]` (same `ema_band_bps` / lending EMA as opens). Outside the band: defer with `SettlementDeferred` / `InterestDeferred`, `LastDeferral`, 100-block retry, reason `SettlementPriceOutsideEmaBand`. Manual borrower `close` / `repay` unchanged (user slippage limits).
 * **Max deferral bound.** `Config::MaxSettlementDeferral = 7_200` blocks (~24 h at 12 s; matches `settle_ema_blocks`). Counted from the first band deferral (`BandDeferralSince`). After the window the settle runs even outside the band so a sustained pump cannot strand the claim.
-* **Forfeit buyback (terms v1, §4 / §15.2).** Replaces collateral burn + one-sided readd. Short: TAO collateral (+escrow) buys alpha through the pool; long: alpha collateral (+escrow) sells for TAO. Then weight-preserving two-sided readd + k-neutral burn. Leftover collateral after restoring the pool is burned (borrower still gets nothing). If collateral cannot cover the buyback, record the remaining shortfall in `pool_value_given_below_baseline_*` (N5). Accumulators also track `forfeit_buyback_{tao,alpha}`.
+* **Forfeit buyback (terms v1, §4 / §15.2).** Replaces collateral burn + one-sided readd. Short: TAO collateral (+escrow) buys alpha through the pool; long: alpha collateral (+escrow) sells for TAO. Then weight-preserving two-sided readd + k-neutral burn. Leftover collateral after restoring the pool is burned (borrower still gets nothing). If the buyback leaves Balancer `L` below `InvariantBaseline`, record the **TAO-valued** k-deficit in `pool_value_given_below_baseline_tao` (N5 / N24 — not per-reserve dips when `k` is restored). Accumulators also track `forfeit_buyback_{tao,alpha}`.
+* **2026-11-03 (E2E clone-503):** N24 shortfall = real `L` deficit in TAO; U1 `lending-stats` `--netuid` optional with τ/α display; U2 deferred/past-expiry `show` wording; U3 open/raise result cards show `terms_version`; N26 strict `terms_version` read; interest accrual stops at `expires_at` during band deferral. N25 (7200 forced settle) unchanged.
 * Touched: header, §4.1/§4.2, §5.4, §8, §15.2, §15.5, §16, §17.
 
 ## Changelog: v5.4 vs v5.3
@@ -841,7 +842,7 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 ### 15.2 What happens on expiry
 * In `on_idle`, after interest collection, the pallet walks the expiry schedule with a `WeightMeter` (same bounded / resumable pattern as `Due` and dissolution settle).
 * For each due entry whose subnet is **not** dissolving, run **expiry == default close at spot**:
-  1. Accrue and charge interest through `now` (final charge). If interest exhausts collateral the position forfeits, exactly as in `close`.
+  1. Accrue and charge interest through **`expires_at`** (final charge) — never past the term end, so a settlement-band deferral does not bill the borrower for waiting. If interest exhausts collateral the position forfeits, exactly as in `close`.
   2. **Settlement EMA band.** If spot is outside `[EMA·(1−band), EMA·(1+band)]` and `MaxSettlementDeferral` has not elapsed since the first band deferral, roll back and defer (`SettlementDeferred`, `ExpiryRetry`, reason `SettlementPriceOutsideEmaBand`). Manual close/repay are not gated.
   3. **Solvency check.** If escrow + collateral cannot fully repay principal at spot (no wallet top-up), take the §4 **forfeit buyback** path and stop — no `Expired` event:
      * **Short:** buy back as much of `P` as `E_S + C` affords; `readd(τ_L, bought_α)`; burn leftover TAO.
@@ -870,7 +871,8 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 * `underwater_short_expiry_forfeits_no_retry`: pot < buy cost **inside the EMA band**; emits `Forfeited` (not `Expired`), buyback + two-sided `readd(τ_L, bought_α)`, burns leftover TAO, returns nothing to the borrower, nothing queued for retry. Variants cover a pool that no longer holds `P` alpha and an insolvent long buyback.
 * `expiry_squeeze_outside_ema_band_defers_settlement`: thin-pool short + large spot pump at expiry → `SettlementDeferred` (no forfeit).
 * `expiry_band_deferral_bound_forces_settlement`: after `MaxSettlementDeferral`, settle proceeds even outside the band.
-* `within_band_forfeit_buyback_restores_k_or_records_shortfall`: mild in-band underwater forfeit keeps `L` near baseline or records N5 shortfall; `forfeit_buyback_*` increments.
+* `within_band_forfeit_buyback_restores_k_or_records_shortfall`: mild in-band underwater forfeit keeps `L` near baseline or records N24 TAO-valued shortfall; `forfeit_buyback_*` increments; alpha shortfall counter stays 0.
+* `band_deferral_stops_interest_accrual_at_expires_at`: forced settle after a band deferral charges interest only through `expires_at`.
 * `expiry_k_neutral_burn_restores_l_at_half_weight`: the k-neutral burn still restores Balancer `L` after an expiry exit.
 * `fixed_term_expiry_closes_at_spot_not_reference_ema`: a far-away reference EMA does not move the expiry valuation; `Expired.rate` is spot.
 * Many expiries in one bucket: a tight `WeightMeter` settles some but not all; a later full-weight pass finishes the rest.
@@ -893,11 +895,11 @@ Cumulative counters so anyone can measure what lending earns versus what pools l
 * `expiry_settlement_count` (`Expired`).
 * `opens_*` / `closes_*` by side (`Opened` / `Closed`); raise fresh opens count as opens.
 * `wallet_top_ups_tao` (`Closed.wallet_top_up`).
-* `pool_value_given_below_baseline_*`: last-loan readd shortfall vs `InvariantBaseline` (N5 — forfeit buyback that cannot restore the pool).
+* `pool_value_given_below_baseline_tao`: TAO value of a real Balancer-`L` shortfall vs `InvariantBaseline` after a last-loan readd (N5 / N24). Computed as `(σ−1)·(y + p·x)` with `σ = L*/L'` only when `σ > 1`; per-reserve dips with `k` at baseline do **not** increment it. `pool_value_given_below_baseline_alpha` is retained for ABI and stays 0 on new updates.
 * `principal_opened_*`: cumulative principal on `Opened` / `Increased` / raise.
 
 ### 16.3 Access
-* Runtime API: `lending_stats(netuid)`, `lending_stats_global()`, also SDK reads and `btcli query lending-stats [--netuid] --json`.
+* Runtime API: `lending_stats(netuid)`, `lending_stats_global()`, also SDK reads and `btcli query lending-stats` (omit `--netuid` for global totals). Human output uses τ/α units; `--json` keeps rao ints.
 
 ## 17. Versioned loan terms
 

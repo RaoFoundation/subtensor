@@ -102,9 +102,12 @@ def _parse_query_prompt(ptype: str, _app_ctx: AppContext, raw: str) -> Any:
 
 
 def _jsonable(obj: Any) -> Any:
-    """Normalize a read result to JSON-friendly primitives."""
+    """Normalize a read result to JSON-friendly primitives.
+
+    Balances become rao ints so ``--json`` stays machine-raw (U1).
+    """
     if isinstance(obj, Balance):
-        return str(obj)
+        return int(obj.rao)
     if isinstance(obj, datetime):
         return obj.isoformat(timespec="seconds")
     if is_dataclass(obj) and not isinstance(obj, type):
@@ -113,6 +116,21 @@ def _jsonable(obj: Any) -> Any:
         return {k: _jsonable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_jsonable(v) for v in obj]
+    return obj
+
+
+def _displayable(obj: Any) -> Any:
+    """Human view of a read result: Balance → τ/α string, datetime ISO."""
+    if isinstance(obj, Balance):
+        return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat(timespec="seconds")
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return {k: _displayable(v) for k, v in asdict(obj).items()}
+    if isinstance(obj, dict):
+        return {k: _displayable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_displayable(v) for v in obj]
     return obj
 
 
@@ -180,11 +198,12 @@ def _make_command(name: str, spec):
                 continue
             kwargs[pname] = app_ctx.resolve_address(pname, raw)
         result = app_ctx.run(lambda client: client.read(name, **kwargs))
-        payload = _jsonable(result)
         output = app_ctx.output
         if output.json_mode:
-            output.value(payload)
-        elif payload is None or (isinstance(payload, (list, dict)) and not payload):
+            output.value(_jsonable(result))
+            return
+        payload = _displayable(result)
+        if payload is None or (isinstance(payload, (list, dict)) and not payload):
             output.detail(name, {})  # title + the dim `none` convention
         elif isinstance(spec.render, Grouped):
             key = spec.render.key

@@ -9,6 +9,8 @@ from typing import Any, Optional, cast
 
 import typer
 
+from ..._generated import runtime_apis as api
+from ..._generated.storage import Item as StorageItem
 from ...balance import Balance
 from ...executor import _find_event
 from ...intents import CloseLoan, OpenLoan, RaiseLoan, RepayLoan
@@ -20,12 +22,17 @@ from ...settings import (
     BLOCKTIME,
     DEFAULT_ERA_PERIOD,
     MEV_SHIELD_ERA_PERIOD,
+    RAO_PER_TAO,
     TAO_SYMBOL,
     query_docs_url,
 )
 from ..context import address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..prompt import PromptSpec, ask, confirm_wallet, fill_missing
+
+_REF = StorageItem("Lending", "References", "LendingReference")
+_LIFT_PARAMS = StorageItem("Lending", "LiftParamsStore", "LiftParams")
+_BAND_SINCE = StorageItem("Lending", "BandDeferralSince", "u32")
 
 Side = Enum("Side", [("short", "short"), ("long", "long")], type=str)
 
@@ -132,6 +139,63 @@ def _format_expiry(block: Optional[int], *, head: int, head_time: Optional[datet
     base = head_time or datetime.now(timezone.utc)
     when = base + timedelta(seconds=(int(block) - head) * BLOCKTIME)
     return f"{block} (~{when.strftime('%Y-%m-%d')} UTC)"
+
+
+def _terms_version_label(value: Any) -> str:
+    """Strict terms_version display — never hide a missing/0 behind `or 1` (N26)."""
+    if value is None:
+        return "-"
+    try:
+        return str(int(value))
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _past_expiry(position: dict, head: int) -> bool:
+    expires = position.get("expires_at")
+    return expires is not None and int(expires) <= int(head)
+
+
+def _format_expiry_field(position: dict, *, head: int, head_time: Optional[datetime] = None) -> str:
+    """Expiry line for list/show; past-due deferred loans say awaiting settlement (U2)."""
+    expires = position.get("expires_at")
+    if expires is None:
+        return "-"
+    if _past_expiry(position, head):
+        return f"past expiry (block {int(expires)}); awaiting settlement"
+    return _format_expiry(expires, head=head, head_time=head_time)
+
+
+def _format_runway_field(position: dict, *, head: int) -> str:
+    """Runway for list/show; never print ``0d`` once the term has ended (U2)."""
+    if _past_expiry(position, head):
+        return "past expiry"
+    runway = position.get("runway_days")
+    if runway is None:
+        return "-"
+    return f"{runway:.0f}d"
+
+
+def _explain_band_deferral(
+    reason: str,
+    *,
+    spot_vs_ema_pct: Optional[float],
+    band_bps: Optional[int],
+    retry_at: Any,
+    force_at: Optional[int],
+) -> str:
+    """Turn ``SettlementPriceOutsideEmaBand`` into a readable deferral line (U2)."""
+    if "SettlementPriceOutsideEmaBand" not in reason:
+        return reason
+    band_pct = (int(band_bps) / 100.0) if band_bps is not None else 15.0
+    if spot_vs_ema_pct is None:
+        head = f"spot is outside the EMA band (±{band_pct:g}%)"
+    else:
+        head = f"spot is {spot_vs_ema_pct:+.1f}% from EMA (band ±{band_pct:g}%)"
+    parts = [head, f"retries at block {retry_at}"]
+    if force_at is not None:
+        parts.append(f"forced settle at block {force_at}")
+    return "; ".join(parts)
 
 
 def _alpha_label(netuid: int) -> str:
@@ -693,6 +757,9 @@ def open_loan(
         else:
             display["escrowed"] = _fmt_amount(Balance.from_rao(escrow_rao, net))
             raw["escrowed"] = escrow_rao
+        # U3: surface the snapshotted terms version on the result card.
+        if attrs.get("terms_version") is not None:
+            display["terms_version"] = _terms_version_label(attrs.get("terms_version"))
         _result_amounts(result, display=display, raw=raw)
 
     context.submit(
@@ -1473,16 +1540,20 @@ def raise_loan(
         escrow_rao = int(attrs.get("escrow_alpha") or 0)
         sell_rao = int(attrs.get("sell_alpha") or 0)
         free_tao_rao = int(attrs.get("free_tao_out") or 0)
+        display = {
+            "borrowed": _fmt_amount(Balance.from_rao(principal_rao, 0)),
+            "collateral_posted": _fmt_amount(Balance.from_rao(collateral_rao, net)),
+            "escrowed": _fmt_amount(Balance.from_rao(escrow_rao, net)),
+            "sold": _fmt_amount(Balance.from_rao(sell_rao, net)),
+            # N19: sale TAO is proceeds received, not a "payment".
+            "received": _fmt_amount(Balance.from_rao(free_tao_rao, 0)),
+        }
+        # U3: raise keeps the open-time terms_version — show it on the result.
+        if attrs.get("terms_version") is not None:
+            display["terms_version"] = _terms_version_label(attrs.get("terms_version"))
         _result_amounts(
             result,
-            display={
-                "borrowed": _fmt_amount(Balance.from_rao(principal_rao, 0)),
-                "collateral_posted": _fmt_amount(Balance.from_rao(collateral_rao, net)),
-                "escrowed": _fmt_amount(Balance.from_rao(escrow_rao, net)),
-                "sold": _fmt_amount(Balance.from_rao(sell_rao, net)),
-                # N19: sale TAO is proceeds received, not a "payment".
-                "received": _fmt_amount(Balance.from_rao(free_tao_rao, 0)),
-            },
+            display=display,
             raw={
                 "borrowed": principal_rao,
                 "collateral_posted": collateral_rao,
@@ -1576,7 +1647,6 @@ def list_positions(
     ]
     rows = []
     for position in positions:
-        runway = position.get("runway_days")
         status = _position_status_label(position)
         rows.append(
             [
@@ -1585,11 +1655,11 @@ def list_positions(
                 _fmt_amount(position["principal"]),
                 _fmt_amount(position["collateral"]),
                 status,
-                str(position.get("terms_version") or 1),
+                _terms_version_label(position.get("terms_version")),
                 _fmt_amount(position.get("escrow") or position.get("proceeds")),
-                _format_expiry(position.get("expires_at"), head=head, head_time=head_time),
+                _format_expiry_field(position, head=head, head_time=head_time),
                 str(position.get("due") or "-"),
-                f"{runway:.0f}d" if runway is not None else "-",
+                _format_runway_field(position, head=head),
             ]
         )
     context.output.table(
@@ -1643,7 +1713,7 @@ def show_position(
     async def _load(client):
         position = await client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
         if position is None:
-            return None, None, await client.block(), None
+            return None, None, await client.block(), None, None
         head = await client.block()
         try:
             head_time = await client.timestamp(block=head)
@@ -1656,10 +1726,46 @@ def show_position(
             hotkey_ss58=hotkey,
             repay_from_wallet=repay_from_wallet,
         )
-        return position, quote, head, head_time
+        # U2: spot / EMA / band / forced-settle anchors for deferred show lines.
+        band_ctx: dict[str, Any] = {}
+        try:
+            view = await client.at()
+            ref = await view.query(_REF, [netuid])
+            params = await view.query(_LIFT_PARAMS, [])
+            since = await view.query(_BAND_SINCE, [owner, netuid])
+            max_defer = await client.constant(("Lending", "MaxSettlementDeferral"))
+            spot_rao = await view.runtime(api.SwapRuntimeApi.current_alpha_price, [netuid])
+            ema = None
+            price_raw = None
+            if isinstance(ref, dict):
+                price_raw = ref.get("price")
+            elif isinstance(ref, (list, tuple)) and ref:
+                price_raw = ref[0]
+            if isinstance(price_raw, dict):
+                ema = int(price_raw.get("bits") or 0) / float(2**64)
+            elif price_raw is not None:
+                ema = int(price_raw) / float(2**64)
+            spot = float(int(spot_rao or 0)) / float(RAO_PER_TAO)
+            band_bps = None
+            if isinstance(params, dict) and params.get("ema_band_bps") is not None:
+                band_bps = int(params["ema_band_bps"])
+            spot_vs_ema_pct = None
+            if ema is not None and ema > 0 and spot > 0:
+                spot_vs_ema_pct = (spot / ema - 1.0) * 100.0
+            force_at = None
+            if since is not None and max_defer is not None:
+                force_at = int(since) + int(max_defer)
+            band_ctx = {
+                "spot_vs_ema_pct": spot_vs_ema_pct,
+                "band_bps": band_bps,
+                "force_at": force_at,
+            }
+        except Exception:
+            band_ctx = {}
+        return position, quote, head, head_time, band_ctx
 
     try:
-        position, quote, head, head_time = context.run(_load)
+        position, quote, head, head_time, band_ctx = context.run(_load)
     except BittensorError as error:
         # Close quote should no longer raise for insolvent longs; keep a clear
         # read-path message if a node is still on the old InsufficientEscrow path.
@@ -1670,6 +1776,7 @@ def show_position(
         )
     if position is None:
         _exit_error(context, f"no lending position on netuid {netuid}", code=1)
+    band_ctx = band_ctx or {}
     shortfall = quote.get("shortfall")
     shortfall_rao = shortfall.rao if isinstance(shortfall, Balance) else int(shortfall or 0)
     underwater = (
@@ -1688,12 +1795,10 @@ def show_position(
         "escrow": _fmt_amount(position.get("escrow") or position.get("proceeds")),
         "interest due": _fmt_amount(position["interest_due"]),
         "status": status,
-        "terms version": position.get("terms_version") or 1,
-        "expires": _format_expiry(position.get("expires_at"), head=head, head_time=head_time),
+        "terms version": _terms_version_label(position.get("terms_version")),
+        "expires": _format_expiry_field(position, head=head, head_time=head_time),
         "due": position.get("due"),
-        "runway": (
-            f"{position['runway_days']:.0f}d" if position.get("runway_days") is not None else "-"
-        ),
+        "runway": _format_runway_field(position, head=head),
         "quoted payment": _fmt_amount(quote["payment"]),
         "quoted leftover refund": _fmt_amount(quote["refund"]),
         "shortfall": _fmt_amount(shortfall),
@@ -1714,21 +1819,31 @@ def show_position(
     if not isinstance(deferrals, list) or not deferrals:
         deferred = position.get("deferred")
         deferrals = [deferred] if isinstance(deferred, dict) and deferred.get("kind") else []
+
+    def _deferral_line(entry: dict) -> str:
+        reason = str(entry.get("reason") or entry.get("kind") or "deferred")
+        explained = _explain_band_deferral(
+            reason,
+            spot_vs_ema_pct=band_ctx.get("spot_vs_ema_pct"),
+            band_bps=band_ctx.get("band_bps"),
+            retry_at=entry.get("retry_at"),
+            force_at=band_ctx.get("force_at"),
+        )
+        if explained != reason:
+            return explained
+        return f"{reason}; retry at block {entry.get('retry_at')}"
+
     if len(deferrals) == 1:
         entry = deferrals[0]
         kind = entry.get("kind")
-        retry_at = entry.get("retry_at")
-        reason = entry.get("reason") or kind
-        fields["deferred"] = f"{kind} — {reason}; retry at block {retry_at}"
+        fields["deferred"] = f"{kind} — {_deferral_line(entry)}"
     elif len(deferrals) > 1:
         # N18: show every pending kind (interest + settlement).
         for entry in deferrals:
             if not isinstance(entry, dict) or not entry.get("kind"):
                 continue
             kind = entry["kind"]
-            fields[f"deferred ({kind})"] = (
-                f"{entry.get('reason') or kind}; retry at block {entry.get('retry_at')}"
-            )
+            fields[f"deferred ({kind})"] = _deferral_line(entry)
     json_fields = {
         **_position_json(position),
         "underwater": underwater,

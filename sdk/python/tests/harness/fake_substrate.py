@@ -70,6 +70,11 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
         "last_accrued": 0,
         "interest_remainder": 0,
         "due": 10**9,
+        "expires_at": 2_628_000,
+        "expiry_due": 2_628_000,
+        "terms_version": 1,
+        "interest_period": 50_400,
+        "blocks_per_year": 2_628_000,
     },
 }
 

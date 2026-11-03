@@ -5115,6 +5115,116 @@ fn expiry_squeeze_outside_ema_band_defers_settlement() {
     });
 }
 
+/// Forced settle after a band deferral must not charge interest past `expires_at`.
+#[test]
+fn band_deferral_stops_interest_accrual_at_expires_at() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let accrued_window: u64 = 100;
+        let annual: u64 = 10_000_000_000_000;
+        let year = <<Test as Config>::BlocksPerYear as Get<u64>>::get();
+        // Out-of-band spot so the first expiry attempt defers.
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 20);
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let spot = MockPool::price();
+        let ceiling = ema.saturating_mul(U64F64::from_num(11_500u32)) / U64F64::from_num(10_000u32);
+        assert!(spot > ceiling, "precondition: outside band");
+
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = snap.expires_at;
+            }
+        });
+        System::set_block_number(snap.expires_at);
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(snap.expires_at, &mut meter);
+        assert!(
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "must defer outside the band"
+        );
+        let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
+        let force_at =
+            since.saturating_add(<<Test as Config>::MaxSettlementDeferral as Get<u64>>::get());
+        assert!(
+            force_at > snap.expires_at.saturating_add(accrued_window),
+            "force block must sit well past expires_at"
+        );
+
+        // Re-queue at the force block (same pattern as the max-deferral test).
+        if let Some(pos) = Positions::<Test>::get(&owner, netuid()) {
+            let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (&owner, netuid()));
+        }
+        ExpiryRetryPending::<Test>::put(0);
+        NextExpiryRetry::<Test>::kill();
+        ExpiryRetryCursor::<Test>::kill();
+        ExpiryRetry::<Test>::insert(force_at, (&owner, netuid()), ());
+        ExpiryRetryPending::<Test>::put(1);
+        NextExpiryRetry::<Test>::put(force_at);
+
+        // Solvent coupon with a known accrual window ending at expires_at.
+        // Extra escrow keeps the force path on Expired (not forfeit).
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.proceeds = p.proceeds.saturating_add(p.principal.saturating_mul(2));
+                p.collateral = p.collateral.max(annual);
+                p.last_accrued = snap.expires_at.saturating_sub(accrued_window);
+                p.annual_interest = annual;
+                p.interest_remainder = 0;
+                p.expiry_due = force_at;
+            }
+        });
+        // Restore reserves so buyback can succeed; BandDeferralSince still forces.
+        write(
+            &key(b"test/pool_alpha", netuid()),
+            pool_alpha().saturating_mul(20),
+        );
+        sync_reference_ema_to_spot();
+
+        let expected_paid =
+            (u128::from(annual) * u128::from(accrued_window) / u128::from(year) + 1) as u64;
+        let unclamped = (u128::from(annual)
+            * u128::from(force_at.saturating_sub(snap.expires_at.saturating_sub(accrued_window)))
+            / u128::from(year)) as u64;
+        System::set_block_number(force_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
+        let burned: u64 = System::events()
+            .into_iter()
+            .filter_map(|e| match e.event {
+                RuntimeEvent::Lending(Event::InterestCollected {
+                    collateral_paid, ..
+                }) => Some(collateral_paid),
+                _ => None,
+            })
+            .sum();
+        assert!(
+            burned > 0,
+            "forced settle must charge the pre-expiry coupon"
+        );
+        assert!(
+            burned <= expected_paid.saturating_add(1),
+            "accrual must stop at expires_at: burned {burned} > expected ~{expected_paid}"
+        );
+        assert!(
+            burned < unclamped,
+            "must not charge the full deferral window: burned {burned} vs unclamped ~{unclamped}"
+        );
+    });
+}
+
 /// After MaxSettlementDeferral from the first band deferral, expiry settles
 /// even while spot remains outside the EMA band.
 #[test]
@@ -5260,11 +5370,14 @@ fn within_band_forfeit_buyback_restores_k_or_records_shortfall() {
         let l_after = balancer_l_approx();
         let stats = Lending::lending_stats(netuid());
         let rel = (l_after - l_open).abs() / l_open.max(1.0);
+        // N24: only a real L-deficit (valued in TAO) may increment; alpha stays 0.
+        assert_eq!(
+            stats.pool_value_given_below_baseline_alpha, 0,
+            "N24: alpha shortfall counter stays unused"
+        );
         assert!(
-            rel < 0.25
-                || stats.pool_value_given_below_baseline_tao > 0
-                || stats.pool_value_given_below_baseline_alpha > 0,
-            "k moved {rel:.3} without a recorded shortfall; baseline={baseline:?} L {l_open}→{l_after}"
+            rel < 0.25 || stats.pool_value_given_below_baseline_tao > 0,
+            "k moved {rel:.3} without a recorded TAO shortfall; baseline={baseline:?} L {l_open}→{l_after}"
         );
         assert!(stats.forfeit_buyback_tao > 0 || stats.forfeit_buyback_alpha > 0);
         // Two-sided readd: lift TAO plus some bought alpha (not the old one-sided 0-alpha path).

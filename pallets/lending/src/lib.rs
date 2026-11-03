@@ -729,7 +729,7 @@ pub struct RaiseQuote {
 /// k-neutral surplus burns) versus what pools lose (forfeited collateral,
 /// shortfalls below [`InvariantBaseline`]). Never reset except that
 /// per-netuid values may be removed on dissolution while globals stay.
-#[freeze_struct("24c822e6b89bae47")]
+#[freeze_struct("202664312187e3bb")]
 #[derive(
     Encode,
     Decode,
@@ -776,9 +776,12 @@ pub struct LendingStats {
     /// Free-balance TAO paid into escrow on underwater short closes
     /// (`Closed.wallet_top_up`).
     pub wallet_top_ups_tao: u128,
-    /// Reserve TAO short of [`InvariantBaseline`] after a last-loan readd (N5).
+    /// TAO-valued Balancer-`L` shortfall vs [`InvariantBaseline`] after a
+    /// last-loan readd (N5 / N24). Only increments when `L' < L*`; per-reserve
+    /// dips with `k` restored do not count. Valued at the live spot.
     pub pool_value_given_below_baseline_tao: u128,
-    /// Reserve alpha short of [`InvariantBaseline`] after a last-loan readd (N5).
+    /// Retained for ABI / storage layout. New shortfalls are recorded only in
+    /// `pool_value_given_below_baseline_tao` (N24); this stays 0.
     pub pool_value_given_below_baseline_alpha: u128,
     /// Cumulative long principal opened (`Opened` / `Increased` / raise).
     pub principal_opened_long: u128,
@@ -4394,6 +4397,18 @@ pub mod pallet {
                     }
                 }
             }
+            // Stop accrual at term end so a settlement-band deferral does not
+            // charge the borrower for blocks past expires_at.
+            if until > position.expires_at {
+                return Self::charge_interest(
+                    owner,
+                    netuid,
+                    position,
+                    position.expires_at,
+                    final_charge,
+                    permissionless,
+                );
+            }
             let (due, remainder) = Self::interest_due(position, until, final_charge)?;
             let paid = due.min(position.collateral);
             if paid > 0 {
@@ -4775,18 +4790,20 @@ pub mod pallet {
                 });
             }
 
-            // N5 instrumentation: last-loan readd left reserves below the
-            // pre-lending baseline (pumped-price forfeit). Record the deficit.
-            let shortfall_tao = baseline.tao.saturating_sub(y);
-            let shortfall_alpha = baseline.alpha.saturating_sub(x);
-            if shortfall_tao > 0 || shortfall_alpha > 0 {
+            // N24: record only a real invariant shortfall (L' < L*), valued in
+            // TAO at the live spot. Per-reserve dips with k restored are not losses.
+            let shortfall_tao = subtensor_swap_interface::invariant_shortfall_tao(
+                y,
+                x,
+                w,
+                baseline.tao,
+                baseline.alpha,
+            );
+            if shortfall_tao > 0 {
                 Self::bump_stats(netuid, |s| {
                     s.pool_value_given_below_baseline_tao = s
                         .pool_value_given_below_baseline_tao
                         .saturating_add(u128::from(shortfall_tao));
-                    s.pool_value_given_below_baseline_alpha = s
-                        .pool_value_given_below_baseline_alpha
-                        .saturating_add(u128::from(shortfall_alpha));
                 });
             }
             Ok(())

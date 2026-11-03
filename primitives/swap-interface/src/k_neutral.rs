@@ -119,6 +119,61 @@ fn sigma_to_baseline(
     exp(log_sigma).ok()
 }
 
+/// TAO value of a real Balancer-`L` shortfall versus the baseline invariant.
+///
+/// `σ = L*/L'`. When `σ ≤ 1` (`L' ≥ L*`) there is **no** shortfall — return 0 —
+/// even if one reserve sits below its baseline counterpart after a price move.
+/// When `σ > 1`, restoring `L*` at the live spot needs a proportional scale-up
+/// of `(σ−1)` on both reserves; valued in TAO that is
+/// `(σ−1)·(y + p·x)` with Balancer spot `p = (w_b/w_q)·(y/x)`.
+pub fn invariant_shortfall_tao(
+    tao: u64,
+    alpha: u64,
+    quote_weight_parts: u64,
+    baseline_tao: u64,
+    baseline_alpha: u64,
+) -> u64 {
+    if tao == 0 || alpha == 0 || baseline_tao == 0 || baseline_alpha == 0 {
+        return 0;
+    }
+    let Some(sigma) =
+        sigma_to_baseline(tao, alpha, quote_weight_parts, baseline_tao, baseline_alpha)
+    else {
+        return 0;
+    };
+    // L' ≥ L*: invariant restored (or in surplus). Per-reserve dips are not losses.
+    if sigma <= I64F64::from_num(1) {
+        return 0;
+    }
+    let acc = I64F64::from_num(WEIGHT_ACCURACY as i128);
+    let w_q_parts = (quote_weight_parts as u128).min(WEIGHT_ACCURACY as u128);
+    let w_b_parts = (WEIGHT_ACCURACY as u128).saturating_sub(w_q_parts);
+    let Some(w_q) = I64F64::from_num(w_q_parts as i128).checked_div(acc) else {
+        return 0;
+    };
+    let Some(w_b) = I64F64::from_num(w_b_parts as i128).checked_div(acc) else {
+        return 0;
+    };
+    if w_q <= I64F64::from_num(0) {
+        return 0;
+    }
+    let y = I64F64::from_num(tao as i128);
+    let x = I64F64::from_num(alpha as i128);
+    // p = (w_b / w_q) · (y / x)
+    let Some(yx) = y.checked_div(x) else {
+        return 0;
+    };
+    let Some(wb_over_wq) = w_b.checked_div(w_q) else {
+        return 0;
+    };
+    let Some(price) = wb_over_wq.checked_mul(yx) else {
+        return 0;
+    };
+    let pool_value = y.saturating_add(price.saturating_mul(x));
+    let factor = sigma.saturating_sub(I64F64::from_num(1));
+    factor.saturating_mul(pool_value).saturating_to_num::<u64>()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +227,25 @@ mod tests {
         assert_eq!(keep_t, keep_a);
         // Within rounding of 100.
         assert!(keep_t.abs_diff(100) <= 1);
+    }
+
+    #[test]
+    fn shortfall_zero_when_k_at_or_above_baseline() {
+        // Price moved: tao below baseline, alpha above, but √(xy) = √(100·100).
+        let w = WEIGHT_ACCURACY / 2;
+        assert_eq!(invariant_shortfall_tao(80, 125, w, 100, 100), 0);
+        assert_eq!(invariant_shortfall_tao(121, 121, w, 100, 100), 0);
+    }
+
+    #[test]
+    fn shortfall_tao_valued_when_k_below_baseline() {
+        // Equal weight: L' = 90, L* = 100 → σ = 100/90; V = 2·90; shortfall ≈ (σ−1)·V.
+        let w = WEIGHT_ACCURACY / 2;
+        let got = invariant_shortfall_tao(90, 90, w, 100, 100);
+        let expect = ((100.0_f64 / 90.0) - 1.0) * 180.0;
+        assert!(
+            (got as f64 - expect).abs() <= 2.0,
+            "got {got} expect ~{expect}"
+        );
     }
 }

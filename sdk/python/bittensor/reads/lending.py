@@ -307,7 +307,10 @@ def _position_record(
     # Fixed one-year term end; absent only on pre-term storage layouts.
     expires_at = int(raw["expires_at"]) if raw.get("expires_at") is not None else None
     expiry_due = int(raw["expiry_due"]) if raw.get("expiry_due") is not None else expires_at
-    terms_version = int(raw.get("terms_version") or 1)
+    # N26: read terms_version strictly — do not hide 0 / missing behind `or 1`.
+    if "terms_version" not in raw or raw["terms_version"] is None:
+        raise BittensorError("lending position is missing terms_version")
+    terms_version = int(raw["terms_version"])
     interest_period = (
         int(raw["interest_period"]) if raw.get("interest_period") is not None else None
     )
@@ -1075,35 +1078,47 @@ async def lending_repay_quote(
 
 
 def _lending_stats_record(raw: Any, *, netuid: Optional[int]) -> dict:
-    """Normalize a LendingStats runtime-API / storage blob to plain ints."""
+    """Normalize LendingStats: Balance amounts for display, ints for counts.
+
+    ``--json`` keeps rao via the query ``_jsonable`` Balance→``.rao`` path (U1).
+    Alpha amounts use ``netuid`` when scoped; global alpha uses a generic unit.
+    """
     raw = raw if isinstance(raw, dict) else {}
+    alpha_net = int(netuid) if netuid is not None and int(netuid) > 0 else 1
 
     def u(name: str) -> int:
         return int(raw.get(name) or 0)
 
-    out = {
-        "interest_burned_tao": u("interest_burned_tao"),
-        "interest_burned_alpha": u("interest_burned_alpha"),
-        "k_neutral_surplus_burned_tao": u("k_neutral_surplus_burned_tao"),
-        "k_neutral_surplus_burned_alpha": u("k_neutral_surplus_burned_alpha"),
-        "forfeited_collateral_tao": u("forfeited_collateral_tao"),
-        "forfeited_collateral_alpha": u("forfeited_collateral_alpha"),
-        "forfeit_buyback_tao": u("forfeit_buyback_tao"),
-        "forfeit_buyback_alpha": u("forfeit_buyback_alpha"),
+    def tao(name: str) -> Balance:
+        return Balance.from_rao(u(name), 0)
+
+    def alpha(name: str) -> Balance:
+        return Balance.from_rao(u(name), alpha_net)
+
+    out: dict[str, Any] = {
+        "interest_burned_tao": tao("interest_burned_tao"),
+        "interest_burned_alpha": alpha("interest_burned_alpha"),
+        "k_neutral_surplus_burned_tao": tao("k_neutral_surplus_burned_tao"),
+        "k_neutral_surplus_burned_alpha": alpha("k_neutral_surplus_burned_alpha"),
+        "forfeited_collateral_tao": tao("forfeited_collateral_tao"),
+        "forfeited_collateral_alpha": alpha("forfeited_collateral_alpha"),
+        "forfeit_buyback_tao": tao("forfeit_buyback_tao"),
+        "forfeit_buyback_alpha": alpha("forfeit_buyback_alpha"),
         "forfeit_count": u("forfeit_count"),
         "expiry_settlement_count": u("expiry_settlement_count"),
         "closes_long": u("closes_long"),
         "closes_short": u("closes_short"),
         "opens_long": u("opens_long"),
         "opens_short": u("opens_short"),
-        "wallet_top_ups_tao": u("wallet_top_ups_tao"),
-        "pool_value_given_below_baseline_tao": u("pool_value_given_below_baseline_tao"),
-        "pool_value_given_below_baseline_alpha": u("pool_value_given_below_baseline_alpha"),
-        "principal_opened_long": u("principal_opened_long"),
-        "principal_opened_short": u("principal_opened_short"),
+        "wallet_top_ups_tao": tao("wallet_top_ups_tao"),
+        # N24: TAO-valued k-shortfall; alpha field retained but unused (0).
+        "pool_value_given_below_baseline_tao": tao("pool_value_given_below_baseline_tao"),
+        "pool_value_given_below_baseline_alpha": alpha("pool_value_given_below_baseline_alpha"),
+        "principal_opened_long": tao("principal_opened_long"),
+        "principal_opened_short": alpha("principal_opened_short"),
     }
-    if netuid is not None:
-        out["netuid"] = netuid
+    if netuid is not None and int(netuid) > 0:
+        out["netuid"] = int(netuid)
     else:
         out["scope"] = "global"
     return out
@@ -1116,22 +1131,26 @@ def _lending_stats_record(raw: Any, *, netuid: Optional[int]) -> dict:
     param_docs={
         "netuid": (
             "Subnet whose cumulative lending health counters to read. "
-            "Omit (or use lending_stats_global) for chain-wide totals."
+            "Omit (or pass 0) for chain-wide totals; "
+            "or use lending_stats_global."
         ),
     },
 )
-async def lending_stats(view, netuid: Optional[int] = None) -> dict:
+async def lending_stats(view, netuid: Optional[int] = 0) -> dict:
     """Cumulative lending health counters (saturating, monotonic).
 
     Per-netuid values may clear on dissolution; the global totals never reset.
     Counters update at the same sites as the matching pallet events.
+    Omit ``netuid`` (or pass 0) for chain-wide totals.
     """
     view = await view.at()
-    if netuid is None:
+    # Default 0 keeps the generated CLI option optional (None-default would
+    # be treated as required by query._is_required).
+    if netuid is None or int(netuid) <= 0:
         raw = await view.runtime(LENDING_STATS_GLOBAL, [])
         return _lending_stats_record(raw, netuid=None)
-    raw = await view.runtime(LENDING_STATS, [netuid])
-    return _lending_stats_record(raw, netuid=netuid)
+    raw = await view.runtime(LENDING_STATS, [int(netuid)])
+    return _lending_stats_record(raw, netuid=int(netuid))
 
 
 @read(
