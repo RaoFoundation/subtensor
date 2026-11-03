@@ -529,4 +529,7 @@ class Lending:
     ActiveNets = Item('Lending', 'ActiveNets', '()')
     ActiveNetCount = Item('Lending', 'ActiveNetCount', 'u32')
     TaoEma = Item('Lending', 'TaoEma', 'u64')
+    StatsByNetuid = Item('Lending', 'StatsByNetuid', 'LendingStats')
+    StatsGlobal = Item('Lending', 'StatsGlobal', 'LendingStats')
+    CurrentTermsVersion = Item('Lending', 'CurrentTermsVersion', 'u16')
     HasMigrationRun = Item('Lending', 'HasMigrationRun', 'bool')

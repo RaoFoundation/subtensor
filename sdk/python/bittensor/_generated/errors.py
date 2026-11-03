@@ -474,5 +474,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 37): ErrorInfo('Lending', 'PrincipalExceedsAlphaIn', 'Short principal is not strictly less than pool alpha in.'),
     (33, 38): ErrorInfo('Lending', 'PrincipalExceedsTaoIn', 'Long principal is not strictly less than pool TAO in.'),
     (33, 39): ErrorInfo('Lending', 'CollateralExceedsMax', 'Raise / open collateral exceeds the caller’s max collateral cap.'),
-    (33, 40): ErrorInfo('Lending', 'UnsupportedTermsVersion', 'Position carries a terms_version this runtime does not implement.'),
+    (33, 40): ErrorInfo('Lending', 'UnsupportedTermsVersion', 'Position carries a `terms_version` this runtime does not implement.'),
 }
