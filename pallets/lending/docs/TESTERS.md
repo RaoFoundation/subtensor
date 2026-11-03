@@ -72,4 +72,15 @@ and runway capped at the one-year term. JSON amounts are rao integers.
 - Volatility-targeting controller is **not** in V1.
 - Never-deepen burn: **per-loan on every readd** (not idle-book last-close).
   Emission growth between open and close is not burned. Terms v1.
-- Unchanged for now: N25 7200-block forced settle, curve independence (HOLD).
+- Max settlement deferral: **50_400 blocks (~7 days)** (N28). Band gate lifts then;
+  settle runs on the next collector retry. Interest still stops at `expires_at`.
+- Curve independence: **HOLD**.
+
+## Known issues / residual risk
+
+- **N28 residual:** a large pump held the full 7-day max-deferral window through
+  forced settle can still cost the pool (504 clone: ~3k τ pump on a thin SN86
+  book → forfeit buyback under-recovered alpha, `k` down, attacker PnL positive).
+  Longer deadline raises the cost of holding the pump; it does not eliminate it.
+- Global `lending-stats` alpha totals are mixed-subnet sums labeled plain `α`
+  (not a single-subnet glyph). Prefer `--netuid` for per-subnet alpha.

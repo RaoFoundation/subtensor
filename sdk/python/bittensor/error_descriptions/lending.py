@@ -151,9 +151,10 @@ DESCRIPTIONS: dict[str, str] = {
     "SettlementPriceOutsideEmaBand": (
         "Permissionless settlement (fixed-term expiry or interest-exhaustion forfeit) saw "
         "spot outside the 15% EMA band. The claim is deferred (~100 blocks) and retried; "
-        "after MaxSettlementDeferral (~24 h / 7_200 blocks from the first band deferral) "
-        "it settles anyway. Manual close/repay is unaffected — use those with your own "
-        "slippage limits if you need to exit now."
+        "after MaxSettlementDeferral (~7 days / 50_400 blocks from the first band deferral) "
+        "the band gate lifts and the next collector retry settles anyway. Manual "
+        "close/repay is unaffected — use those with your own slippage limits if you need "
+        "to exit now."
     ),
     "InvalidLiftParams": (
         "Lift parameters are out of range (for example floor/thin_floor above ceiling). Check "

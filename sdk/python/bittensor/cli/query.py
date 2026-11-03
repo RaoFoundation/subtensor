@@ -101,21 +101,23 @@ def _parse_query_prompt(ptype: str, _app_ctx: AppContext, raw: str) -> Any:
     return raw
 
 
-def _jsonable(obj: Any) -> Any:
+def _jsonable(obj: Any, *, balance_as_rao: bool = False) -> Any:
     """Normalize a read result to JSON-friendly primitives.
 
-    Balances become rao ints so ``--json`` stays machine-raw (U1).
+    Non-lending queries keep Balance as the human τ/α string (N29). Lending
+    reads pass ``balance_as_rao=True`` so ``--json`` stays machine-raw rao
+    ints (U1, scoped to lending only).
     """
     if isinstance(obj, Balance):
-        return int(obj.rao)
+        return int(obj.rao) if balance_as_rao else str(obj)
     if isinstance(obj, datetime):
         return obj.isoformat(timespec="seconds")
     if is_dataclass(obj) and not isinstance(obj, type):
-        return {k: _jsonable(v) for k, v in asdict(obj).items()}
+        return {k: _jsonable(v, balance_as_rao=balance_as_rao) for k, v in asdict(obj).items()}
     if isinstance(obj, dict):
-        return {k: _jsonable(v) for k, v in obj.items()}
+        return {k: _jsonable(v, balance_as_rao=balance_as_rao) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return [_jsonable(v) for v in obj]
+        return [_jsonable(v, balance_as_rao=balance_as_rao) for v in obj]
     return obj
 
 
@@ -200,7 +202,8 @@ def _make_command(name: str, spec):
         result = app_ctx.run(lambda client: client.read(name, **kwargs))
         output = app_ctx.output
         if output.json_mode:
-            output.value(_jsonable(result))
+            # U1 rao-ints apply only to lending_* reads (N29).
+            output.value(_jsonable(result, balance_as_rao=name.startswith("lending_")))
             return
         payload = _displayable(result)
         if payload is None or (isinstance(payload, (list, dict)) and not payload):

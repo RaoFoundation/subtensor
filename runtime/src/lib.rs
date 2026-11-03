@@ -1458,8 +1458,9 @@ parameter_types! {
     // Same bound for failed interest collections (Auditor fid:2aff7381).
     pub const LendingInterestRetryDelay: BlockNumber = 100;
     // Max band-deferral window for permissionless expiry / interest-exhaustion
-    // forfeit (~24 h at 12 s). Matches LiftParams.settle_ema_blocks default.
-    pub const LendingMaxSettlementDeferral: BlockNumber = 7_200;
+    // forfeit (~7 days at 12 s). Longer than settle_ema_blocks (24 h) so a
+    // sustained pump through forced settle is far costlier (N28 / Jacob).
+    pub const LendingMaxSettlementDeferral: BlockNumber = 50_400;
 }
 
 impl pallet_lending::Config for Runtime {
@@ -1811,6 +1812,7 @@ type Migrations = (
     pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
     pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
     pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,
+    pallet_lending::migrations::ResetN24ShortfallCountersMigration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.

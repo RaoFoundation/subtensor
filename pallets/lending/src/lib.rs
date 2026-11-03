@@ -844,8 +844,9 @@ pub mod pallet {
         /// forfeit) may stay deferred because spot is outside the §5.4 EMA
         /// band. Counted from the first band deferral (`BandDeferralSince`);
         /// after this many blocks the settle runs even outside the band so a
-        /// sustained pump cannot strand the claim forever. Production: 7_200
-        /// (~24 h at 12 s blocks), matching `LiftParams.settle_ema_blocks`.
+        /// sustained pump cannot strand the claim forever. Production: 50_400
+        /// (~7 days at 12 s blocks; N28). Longer than `settle_ema_blocks`
+        /// (24 h) so holding a pump through forced settle is far costlier.
         #[pallet::constant]
         type MaxSettlementDeferral: Get<BlockNumberFor<Self>>;
         type WeightInfo: WeightInfo;

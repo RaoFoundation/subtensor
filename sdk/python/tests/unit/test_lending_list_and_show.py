@@ -64,6 +64,35 @@ def test_position_json_uses_rao_ints():
     assert out["coldkey"] == "5Owner"
 
 
+def test_query_jsonable_rao_only_for_lending():
+    """N29: Balance→rao ints are lending-scoped; other queries keep τ strings."""
+    from bittensor.cli.query import _jsonable
+
+    bal = Balance.from_rao(1_500_000_000)
+    assert _jsonable(bal) == str(bal)
+    assert "τ" in _jsonable(bal)
+    assert _jsonable(bal, balance_as_rao=True) == 1_500_000_000
+    assert _jsonable({"free": bal}, balance_as_rao=False)["free"] == str(bal)
+    assert _jsonable({"free": bal}, balance_as_rao=True)["free"] == 1_500_000_000
+
+
+def test_global_lending_stats_alpha_is_neutral():
+    """U4: global mixed-subnet alpha sums must not render as α₁."""
+    from bittensor.settings import ALPHA_SYMBOL
+
+    global_stats = lending_reads._lending_stats_record(
+        {"interest_burned_alpha": 2_000_000_000}, netuid=None
+    )
+    alpha = global_stats["interest_burned_alpha"]
+    assert isinstance(alpha, Balance)
+    assert alpha.symbol == ALPHA_SYMBOL
+    assert ALPHA_SYMBOL in str(alpha)
+    assert "₁" not in str(alpha)
+    scoped = lending_reads._lending_stats_record({"interest_burned_alpha": 2_000_000_000}, netuid=7)
+    assert scoped["interest_burned_alpha"].netuid == 7
+    assert scoped["interest_burned_alpha"].symbol is None
+
+
 def test_runway_capped_at_expires_at():
     """Interest runway cannot exceed days remaining until expires_at."""
 
@@ -263,20 +292,44 @@ def test_terms_version_read_strictly():
 
 
 def test_past_expiry_and_band_deferral_wording():
-    """U2: past-expiry labels and SettlementPriceOutsideEmaBand explanation."""
+    """U2/U5/U6: past-expiry labels and band-deferral explanation."""
     position = {"expires_at": 100, "runway_days": 0.0}
     assert "past expiry" in _format_expiry_field(position, head=200)
     assert "awaiting settlement" in _format_expiry_field(position, head=200)
     assert _format_runway_field(position, head=200) == "past expiry"
     assert "0d" not in _format_runway_field(position, head=200)
+    # Outside band, before force window: band-stop wording (not "forced settle at").
     explained = _explain_band_deferral(
         "Lending::SettlementPriceOutsideEmaBand",
         spot_vs_ema_pct=22.5,
         band_bps=1_500,
         retry_at=350,
-        force_at=7_400,
+        force_at=50_400,
     )
     assert "22.5%" in explained
     assert "±15%" in explained
     assert "retries at block 350" in explained
-    assert "forced settle at block 7400" in explained
+    assert "band stops applying at block 50400" in explained
+    assert "7-day" in explained
+    assert "forced settle at block" not in explained
+    # U6: spot already back inside → settle at next retry.
+    inside = _explain_band_deferral(
+        "Lending::SettlementPriceOutsideEmaBand",
+        spot_vs_ema_pct=2.0,
+        band_bps=1_500,
+        retry_at=420,
+        force_at=50_400,
+    )
+    assert inside == "spot now inside band; settles at next retry block 420"
+    # After band gate lifts, next retry ≥ force_at is the expected settle.
+    after = _explain_band_deferral(
+        "Lending::SettlementPriceOutsideEmaBand",
+        spot_vs_ema_pct=40.0,
+        band_bps=1_500,
+        retry_at=50_500,
+        force_at=50_400,
+    )
+    assert "band no longer applies" in after
+    assert "expected settle at next retry block 50500" in after
+    assert "7 days" in LENDING_DESCRIPTIONS["SettlementPriceOutsideEmaBand"]
+    assert "50_400" in LENDING_DESCRIPTIONS["SettlementPriceOutsideEmaBand"]

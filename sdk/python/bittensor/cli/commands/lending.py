@@ -184,17 +184,36 @@ def _explain_band_deferral(
     retry_at: Any,
     force_at: Optional[int],
 ) -> str:
-    """Turn ``SettlementPriceOutsideEmaBand`` into a readable deferral line (U2)."""
+    """Turn ``SettlementPriceOutsideEmaBand`` into a readable deferral line (U2/U5/U6).
+
+    ``force_at`` is when the band gate lifts (MaxSettlementDeferral after first
+    band deferral; production 50_400 ≈ 7 days). Actual settle runs on a collector
+    retry at or after that block — not exactly at ``force_at``.
+    """
     if "SettlementPriceOutsideEmaBand" not in reason:
         return reason
     band_pct = (int(band_bps) / 100.0) if band_bps is not None else 15.0
+    # U6: spot may already be back inside while waiting for the next retry.
+    if spot_vs_ema_pct is not None and abs(spot_vs_ema_pct) <= band_pct:
+        return f"spot now inside band; settles at next retry block {retry_at}"
     if spot_vs_ema_pct is None:
         head = f"spot is outside the EMA band (±{band_pct:g}%)"
     else:
         head = f"spot is {spot_vs_ema_pct:+.1f}% from EMA (band ±{band_pct:g}%)"
     parts = [head, f"retries at block {retry_at}"]
     if force_at is not None:
-        parts.append(f"forced settle at block {force_at}")
+        # U5: band stops applying at force_at; settle is the next retry ≥ that.
+        try:
+            retry_n = int(retry_at) if retry_at is not None else None
+        except (TypeError, ValueError):
+            retry_n = None
+        if retry_n is not None and retry_n >= int(force_at):
+            parts.append(f"band no longer applies; expected settle at next retry block {retry_n}")
+        else:
+            parts.append(
+                f"band stops applying at block {int(force_at)}; "
+                "settles on the next retry at or after that (~7-day max deferral)"
+            )
     return "; ".join(parts)
 
 

@@ -1082,11 +1082,13 @@ async def lending_repay_quote(
 def _lending_stats_record(raw: Any, *, netuid: Optional[int]) -> dict:
     """Normalize LendingStats: Balance amounts for display, ints for counts.
 
-    ``--json`` keeps rao via the query ``_jsonable`` Balance→``.rao`` path (U1).
-    Alpha amounts use ``netuid`` when scoped; global alpha uses a generic unit.
+    Lending ``--json`` keeps rao via query ``_jsonable(..., balance_as_rao=True)``
+    (U1, N29). Per-netuid alpha uses ``α_N``; global mixed-subnet alpha sums use
+    a neutral ``α`` label (U4) — not ``α₁``.
     """
     raw = raw if isinstance(raw, dict) else {}
-    alpha_net = int(netuid) if netuid is not None and int(netuid) > 0 else 1
+    scoped = netuid is not None and int(netuid) > 0
+    alpha_net = int(netuid) if scoped else 1
 
     def u(name: str) -> int:
         return int(raw.get(name) or 0)
@@ -1095,6 +1097,9 @@ def _lending_stats_record(raw: Any, *, netuid: Optional[int]) -> dict:
         return Balance.from_rao(u(name), 0)
 
     def alpha(name: str) -> Balance:
+        # Global totals mix subnets: tag with plain α (U4), not α₁.
+        if not scoped:
+            return Balance.from_rao(u(name), alpha_net, symbol=ALPHA_SYMBOL)
         return Balance.from_rao(u(name), alpha_net)
 
     out: dict[str, Any] = {
