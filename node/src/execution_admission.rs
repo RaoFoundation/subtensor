@@ -1,7 +1,7 @@
 //! Shared admission at the runtime execution boundary, including raw RPC calls.
 //!
 //! Pool admission alone cannot bound `state_call`, chain-head/archive calls,
-//! dry-run, or simulations carrying detached ML-DSA order proofs. Executor clones
+//! dry-run, or pending blocks that authenticate post-quantum extrinsics. Executor clones
 //! share per-service budgets. Raw RPC calls cannot consume the transaction
 //! pool's reserved validation capacity. A permit lives until synchronous Wasm
 //! execution returns, including when the original RPC future is cancelled.
@@ -20,10 +20,22 @@ use std::{
 
 const MAX_ACTIVE: usize = 2;
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
-// Pending and Other split one of the four original service reservations.
+// Pending and Other split one service reservation.
 const MAX_ACTIVE_BYTES: usize = MAX_INPUT_BYTES;
 const BURST: u32 = 16;
 const REFILL: Duration = Duration::from_millis(125);
+// Normal selective queries contain only the supported u16 indices. Historical runtimes
+// did not bound or deduplicate them, so large raw state_call inputs stay guarded.
+const MAX_SELECTIVE_QUERY_BYTES: usize = 1024;
+
+/// Only the local benchmark command may construct an unrestricted executor.
+/// This mode is not selected by runtime method names, RPC data or feature flags.
+#[derive(Clone, Copy)]
+pub enum ExecutionMode {
+    Node,
+    #[cfg(any(test, feature = "runtime-benchmarks"))]
+    Benchmark,
+}
 
 #[cfg(test)]
 static PENDING_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -32,9 +44,18 @@ fn busy() -> error::Error {
     error::Error::Other(fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR.into())
 }
 
-/// Explicitly enumerated read/conversion APIs. New exports are budgeted until
-/// reviewed; an entire API family must not silently inherit this exemption.
-fn read_only(method: &str) -> bool {
+/// Explicitly reviewed APIs that do not authenticate post-quantum extrinsics.
+/// Normal queries and gas/weight-bounded simulations retain the base behavior.
+/// New exports are budgeted until reviewed; an entire API family must not
+/// silently inherit this exemption.
+fn exempt(method: &str, data: &[u8]) -> bool {
+    if matches!(
+        method,
+        "SubnetInfoRuntimeApi_get_selective_metagraph"
+            | "SubnetInfoRuntimeApi_get_selective_mechagraph"
+    ) {
+        return data.len() <= MAX_SELECTIVE_QUERY_BYTES;
+    }
     matches!(
         method,
         "Core_version"
@@ -57,11 +78,13 @@ fn read_only(method: &str) -> bool {
             | "GrandpaApi_grandpa_authorities"
             | "GrandpaApi_current_set_id"
             | "GrandpaApi_generate_key_ownership_proof"
+            | "GrandpaApi_submit_report_equivocation_unsigned_extrinsic"
             | "BabeApi_configuration"
             | "BabeApi_current_epoch_start"
             | "BabeApi_current_epoch"
             | "BabeApi_next_epoch"
             | "BabeApi_generate_key_ownership_proof"
+            | "BabeApi_submit_report_equivocation_unsigned_extrinsic"
             | "AccountNonceApi_account_nonce"
             | "TransactionPaymentApi_query_info"
             | "TransactionPaymentApi_query_fee_details"
@@ -84,8 +107,15 @@ fn read_only(method: &str) -> bool {
             | "EthereumRuntimeRPCApi_extrinsic_filter"
             | "EthereumRuntimeRPCApi_elasticity"
             | "EthereumRuntimeRPCApi_gas_limit_multiplier_support"
+            // These run the EVM directly, not Executive::apply_extrinsic.
+            // Dispatchables no longer accept detached PQ order proofs.
+            | "EthereumRuntimeRPCApi_call"
+            | "EthereumRuntimeRPCApi_create"
             | "ConvertTransactionRuntimeApi_convert_transaction"
             | "ContractsApi_get_storage"
+            | "ContractsApi_call"
+            | "ContractsApi_instantiate"
+            | "ContractsApi_upload_code"
             | "Benchmark_benchmark_metadata"
             | "DelegateInfoRuntimeApi_get_delegates"
             | "DelegateInfoRuntimeApi_get_delegate"
@@ -113,6 +143,7 @@ fn read_only(method: &str) -> bool {
             | "SubnetInfoRuntimeApi_get_subnet_account_id"
             | "SubnetInfoRuntimeApi_get_next_epoch_start_block"
             | "SubnetInfoRuntimeApi_get_block_emission"
+            | "SubnetInfoRuntimeApi_get_subnet_emission_weights"
             | "StakeInfoRuntimeApi_get_stake_info_for_coldkey"
             | "StakeInfoRuntimeApi_get_stake_info_for_coldkeys"
             | "StakeInfoRuntimeApi_get_stake_info_for_hotkey_coldkey_netuid"
@@ -176,7 +207,7 @@ fn pq_validation(data: &[u8]) -> bool {
 
 fn needs_admission(method: &str, data: &[u8], context: CallContext) -> bool {
     context == CallContext::Offchain
-        && !read_only(method)
+        && !exempt(method, data)
         && (method != "TaggedTransactionQueue_validate_transaction" || pq_validation(data))
 }
 
@@ -185,18 +216,18 @@ fn needs_admission(method: &str, data: &[u8], context: CallContext) -> bool {
 /// raw validation calls share the Other budget with unclassified RPC exports.
 /// Each service retains its own bounded concurrency and bytes;
 /// no idle quota is borrowed across services. Pending and Other each receive
-/// half of one original reservation, preserving the total ceiling of eight
-/// simultaneous executions and 64 MiB of input. Pending rate tokens admit
+/// half of one original reservation. Ordinary simulations need no reservation;
+/// the remaining ceiling is six simultaneous executions and 48 MiB of input.
+/// Pending rate tokens admit
 /// entire bounded reconstruction jobs; other RPC services charge each execution.
 /// Pool submissions already have ingress admission, so internal fork validation
 /// and revalidation wait for capacity without spending another rate token.
 #[derive(Clone, Copy)]
 enum Service {
     PoolValidation = 0,
-    Evm = 1,
-    Contracts = 2,
-    Other = 3,
-    Pending = 4,
+    BlockSimulation = 1,
+    Other = 2,
+    Pending = 3,
 }
 
 fn pending_method(method: &str) -> bool {
@@ -210,12 +241,7 @@ fn pending_method(method: &str) -> bool {
 
 fn service(method: &str) -> Service {
     match method {
-        "EthereumRuntimeRPCApi_call"
-        | "EthereumRuntimeRPCApi_create"
-        | "EthereumRuntimeRPCApi_pending_block" => Service::Evm,
-        "ContractsApi_call" | "ContractsApi_instantiate" | "ContractsApi_upload_code" => {
-            Service::Contracts
-        }
+        "EthereumRuntimeRPCApi_pending_block" => Service::BlockSimulation,
         _ => Service::Other,
     }
 }
@@ -325,15 +351,17 @@ impl Drop for Permit {
 #[derive(Clone)]
 pub struct AdmissionExecutor<E> {
     inner: E,
-    states: [Arc<Mutex<State>>; 5],
+    mode: ExecutionMode,
+    states: [Arc<Mutex<State>>; 4],
     pool_available: Arc<Condvar>,
 }
 
 impl<E> AdmissionExecutor<E> {
     /// Wrap an executor with fresh service budgets shared by subsequent clones.
-    pub fn new(inner: E) -> Self {
+    pub fn new(inner: E, mode: ExecutionMode) -> Self {
         Self {
             inner,
+            mode,
             states: std::array::from_fn(|index| {
                 Arc::new(Mutex::new(State::for_service(index, Instant::now())))
             }),
@@ -345,11 +373,10 @@ impl<E> AdmissionExecutor<E> {
         if matches!(service, Service::PoolValidation) {
             return self.acquire_pool(bytes);
         }
-        let [validation, evm, contracts, other, pending] = &self.states;
+        let [validation, block_simulation, other, pending] = &self.states;
         let state = match service {
             Service::PoolValidation => validation,
-            Service::Evm => evm,
-            Service::Contracts => contracts,
+            Service::BlockSimulation => block_simulation,
             Service::Other => other,
             Service::Pending => pending,
         };
@@ -394,7 +421,7 @@ impl<E> AdmissionExecutor<E> {
     ) -> Result<Permit, error::Error> {
         budget
             .admit(|charge_rate| {
-                let [_, _, _, _, state] = &self.states;
+                let [_, _, _, state] = &self.states;
                 state
                     .lock()
                     .map_err(|_| fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR)?
@@ -421,6 +448,9 @@ impl<E: CodeExecutor<Error = error::Error>> CodeExecutor for AdmissionExecutor<E
         data: &[u8],
         context: CallContext,
     ) -> (Result<Vec<u8>, Self::Error>, bool) {
+        if !matches!(self.mode, ExecutionMode::Node) {
+            return self.inner.call(ext, runtime_code, method, data, context);
+        }
         let pending = if context == CallContext::Offchain {
             if let Some(budget) = ext.extension::<fc_rpc::execution_admission::PendingExecution>() {
                 if let Err(message) = budget.charge(data.len()) {
@@ -539,11 +569,14 @@ mod tests {
     fn executor() -> (AdmissionExecutor<MockExecutor>, mpsc::Receiver<()>) {
         let (entered, receiver) = mpsc::channel();
         (
-            AdmissionExecutor::new(MockExecutor {
-                calls: Arc::new(AtomicUsize::new(0)),
-                entered,
-                resume: Arc::new((Mutex::new(false), Condvar::new())),
-            }),
+            AdmissionExecutor::new(
+                MockExecutor {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                    entered,
+                    resume: Arc::new((Mutex::new(false), Condvar::new())),
+                },
+                ExecutionMode::Node,
+            ),
             receiver,
         )
     }
@@ -587,7 +620,7 @@ mod tests {
     }
 
     #[test]
-    fn only_legacy_validation_and_reviewed_queries_bypass_offchain_admission() {
+    fn legacy_validation_and_reviewed_apis_bypass_offchain_admission() {
         let queue = "TaggedTransactionQueue_validate_transaction";
         assert!(!needs_admission(
             queue,
@@ -616,19 +649,18 @@ mod tests {
                 CallContext::Onchain
             ));
         }
-        // Execution can contain detached proofs even with a legacy outer signer.
+        // These exports can authenticate full extrinsics or run arbitrary work.
         for method in [
             "BlockBuilder_apply_extrinsic",
             "Core_execute_block",
             "Core_initialize_block",
             "EthereumRuntimeRPCApi_pending_block",
-            "EthereumRuntimeRPCApi_call",
-            "EthereumRuntimeRPCApi_create",
-            "ContractsApi_call",
+            "EthereumRuntimeRPCApi_initialize_pending_block",
+            "BlockBuilder_finalize_block",
             "TryRuntime_execute_block",
             "Benchmark_dispatch_benchmark",
-            "SubnetInfoRuntimeApi_get_selective_metagraph",
-            "SubnetInfoRuntimeApi_get_selective_mechagraph",
+            "GenesisBuilder_build_state",
+            "SessionKeys_generate_session_keys",
             "FutureApi_unknown",
         ] {
             assert!(
@@ -652,6 +684,16 @@ mod tests {
             "TransactionPaymentCallApi_query_call_fee_details",
             "ContractsApi_get_storage",
             "SubnetInfoRuntimeApi_get_metagraph",
+            "SubnetInfoRuntimeApi_get_selective_metagraph",
+            "SubnetInfoRuntimeApi_get_selective_mechagraph",
+            "SubnetInfoRuntimeApi_get_subnet_emission_weights",
+            "EthereumRuntimeRPCApi_call",
+            "EthereumRuntimeRPCApi_create",
+            "ContractsApi_call",
+            "ContractsApi_instantiate",
+            "ContractsApi_upload_code",
+            "GrandpaApi_submit_report_equivocation_unsigned_extrinsic",
+            "BabeApi_submit_report_equivocation_unsigned_extrinsic",
         ] {
             assert!(!needs_admission(
                 method,
@@ -662,24 +704,116 @@ mod tests {
     }
 
     #[test]
-    fn selective_graph_calls_share_admission_and_reject_before_execution() {
+    fn selective_graph_queries_bypass_admission_but_large_historical_inputs_do_not() {
         let (executor, _) = executor();
         let permit = executor.acquire(Service::Other, 1).unwrap();
         for method in [
             "SubnetInfoRuntimeApi_get_selective_metagraph",
             "SubnetInfoRuntimeApi_get_selective_mechagraph",
         ] {
-            assert!(execute(&executor.clone(), method, &[], CallContext::Offchain).is_err());
-            assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 0);
+            execute(
+                &executor.clone(),
+                method,
+                &vec![0; MAX_SELECTIVE_QUERY_BYTES],
+                CallContext::Offchain,
+            )
+            .unwrap();
+            let calls = executor.inner.calls.load(Ordering::SeqCst);
+            assert!(
+                execute(
+                    &executor,
+                    method,
+                    &vec![0; MAX_SELECTIVE_QUERY_BYTES + 1],
+                    CallContext::Offchain,
+                )
+                .is_err()
+            );
+            assert_eq!(executor.inner.calls.load(Ordering::SeqCst), calls);
         }
         drop(permit);
         for method in [
             "SubnetInfoRuntimeApi_get_selective_metagraph",
             "SubnetInfoRuntimeApi_get_selective_mechagraph",
         ] {
-            execute(&executor, method, &[], CallContext::Offchain).unwrap();
+            execute(
+                &executor,
+                method,
+                &vec![0; MAX_SELECTIVE_QUERY_BYTES + 1],
+                CallContext::Offchain,
+            )
+            .unwrap();
         }
-        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 2);
+        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 4);
+    }
+
+    #[test]
+    fn ordinary_rpc_and_equivocation_reports_ignore_saturated_budgets() {
+        let (executor, _) = executor();
+        for state in &executor.states {
+            let mut state = state.lock().unwrap();
+            state.tokens = 0;
+            state.refilled = Instant::now() + Duration::from_secs(60);
+            state.active = state.max_active;
+            state.bytes = state.max_bytes;
+        }
+        let methods = [
+            "SubnetInfoRuntimeApi_get_selective_metagraph",
+            "SubnetInfoRuntimeApi_get_selective_mechagraph",
+            "SubnetInfoRuntimeApi_get_subnet_emission_weights",
+            "EthereumRuntimeRPCApi_call",
+            "EthereumRuntimeRPCApi_create",
+            "ContractsApi_call",
+            "ContractsApi_instantiate",
+            "ContractsApi_upload_code",
+            "GrandpaApi_submit_report_equivocation_unsigned_extrinsic",
+            "BabeApi_submit_report_equivocation_unsigned_extrinsic",
+        ];
+        // More than any bucket's burst: each call reaches the wrapped executor,
+        // even through a clone, without spending tokens or needing a free slot.
+        for _ in 0..BURST * 2 {
+            for method in methods {
+                execute(&executor.clone(), method, &[], CallContext::Offchain).unwrap();
+            }
+        }
+        assert_eq!(
+            executor.inner.calls.load(Ordering::SeqCst),
+            BURST as usize * 2 * methods.len()
+        );
+        for state in &executor.states {
+            let state = state.lock().unwrap();
+            assert_eq!(state.tokens, 0);
+            assert_eq!(state.active, state.max_active);
+            assert_eq!(state.bytes, state.max_bytes);
+        }
+    }
+
+    #[test]
+    fn local_benchmarks_bypass_admission_without_exempting_public_benchmark_calls() {
+        let (node, _) = executor();
+        let benchmark = AdmissionExecutor::new(node.inner.clone(), ExecutionMode::Benchmark);
+        for executor in [&node, &benchmark] {
+            for state in &executor.states {
+                let mut state = state.lock().unwrap();
+                state.tokens = 0;
+                state.refilled = Instant::now() + Duration::from_secs(60);
+            }
+        }
+        for method in [
+            "Benchmark_dispatch_benchmark",
+            "Core_initialize_block",
+            "BlockBuilder_apply_extrinsic",
+            "BlockBuilder_finalize_block",
+            "Core_execute_block",
+        ] {
+            assert!(execute(&node, method, &[], CallContext::Offchain).is_err());
+            for _ in 0..BURST * 2 {
+                execute(&benchmark.clone(), method, &[], CallContext::Offchain).unwrap();
+            }
+        }
+        assert_eq!(
+            node.inner.calls.load(Ordering::SeqCst),
+            BURST as usize * 2 * 5
+        );
     }
 
     #[test]
@@ -801,11 +935,7 @@ mod tests {
         for state in &executor.states {
             state.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
         }
-        for method in [
-            "NonexistentApi_call",
-            "EthereumRuntimeRPCApi_call",
-            "ContractsApi_call",
-        ] {
+        for method in ["NonexistentApi_call", "EthereumRuntimeRPCApi_pending_block"] {
             let burst = executor
                 .states
                 .get(service(method) as usize)
@@ -819,7 +949,7 @@ mod tests {
             let calls = executor.inner.calls.load(Ordering::SeqCst);
             assert!(execute(&executor, method, b"fail", CallContext::Offchain).is_err());
             assert_eq!(executor.inner.calls.load(Ordering::SeqCst), calls);
-            // Neither bad names, EVM failures nor contract failures spend the
+            // Neither bad names nor block simulation failures spend the
             // reserved pool validation capacity, including through a clone.
             execute_pool(
                 &executor.clone(),
@@ -839,9 +969,13 @@ mod tests {
             .unwrap();
 
         assert!(execute(&executor, "UnknownApi_call", &[], CallContext::Offchain).is_err());
-        for method in ["EthereumRuntimeRPCApi_call", "ContractsApi_call"] {
-            execute(&executor.clone(), method, &[], CallContext::Offchain).unwrap();
-        }
+        execute(
+            &executor.clone(),
+            "EthereumRuntimeRPCApi_pending_block",
+            &[],
+            CallContext::Offchain,
+        )
+        .unwrap();
         execute_pool(
             &executor,
             "TaggedTransactionQueue_validate_transaction",
@@ -872,7 +1006,7 @@ mod tests {
             assert_eq!(executor.inner.calls.load(Ordering::SeqCst), calls);
             execute_pool(&executor.clone(), method, &data, CallContext::Offchain).unwrap();
         }
-        let [pool, _, _, other, _] = &executor.states;
+        let [pool, _, other, _] = &executor.states;
         assert_eq!(other.lock().unwrap().tokens, 0);
         let pool = pool.lock().unwrap();
         assert_eq!(pool.active, 0);
@@ -883,7 +1017,7 @@ mod tests {
     #[test]
     fn pool_fork_validation_and_revalidation_do_not_spend_request_tokens() {
         let (executor, _) = executor();
-        let [pool, _, _, other, _] = &executor.states;
+        let [pool, _, other, _] = &executor.states;
         pool.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
         other.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
         let data = validation(Some(5367));
@@ -916,8 +1050,7 @@ mod tests {
         }
         for method in [
             "NonexistentApi_call",
-            "EthereumRuntimeRPCApi_call",
-            "ContractsApi_call",
+            "EthereumRuntimeRPCApi_pending_block",
             "Core_initialize_block",
             "BlockBuilder_apply_extrinsic",
         ] {
@@ -1087,13 +1220,13 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             states.iter().map(|state| state.max_active).sum::<usize>(),
-            8
+            6
         );
         assert_eq!(
             states.iter().map(|state| state.max_bytes).sum::<usize>(),
-            64 * 1024 * 1024
+            48 * 1024 * 1024
         );
-        assert_eq!(states.iter().map(|state| state.burst).sum::<u32>(), 48);
+        assert_eq!(states.iter().map(|state| state.burst).sum::<u32>(), 32);
         // Pending counts whole jobs; other RPC buckets count calls. Pool
         // validation has concurrency/byte limits but no repeated rate charge.
         assert_eq!(
@@ -1102,7 +1235,7 @@ mod tests {
                 .filter(|state| state.burst != 0)
                 .map(|state| 1000 / state.refill.as_millis())
                 .sum::<u128>(),
-            24
+            16
         );
     }
 
@@ -1132,7 +1265,7 @@ mod tests {
         let _serial = PENDING_TEST_LOCK.lock().unwrap();
         assert!(extrinsics <= MAX_PENDING_EXTRINSICS);
         let (executor, _) = executor();
-        let [_, _, _, _, pending] = &executor.states;
+        let [_, _, _, pending] = &executor.states;
         {
             let mut state = pending.lock().unwrap();
             // No refill can hide per-step charging. One token must cover the
@@ -1189,10 +1322,9 @@ mod tests {
         use fc_rpc::execution_admission::{PENDING_TIMEOUT, PendingExecution};
         let _serial = PENDING_TEST_LOCK.lock().unwrap();
         let (executor, _) = executor();
-        let [_, evm, _, _, pending] = &executor.states;
+        let [_, _, _, pending] = &executor.states;
         let frozen_refill = Instant::now() + Duration::from_secs(60);
         pending.lock().unwrap().refilled = frozen_refill;
-        evm.lock().unwrap().refilled = frozen_refill;
         let first = PendingExecution::try_new(Instant::now() + PENDING_TIMEOUT).unwrap();
         execute_pending(&executor, &first, "Core_initialize_block", &[]).unwrap();
         for _ in 1..BURST / 2 {
@@ -1215,11 +1347,11 @@ mod tests {
         for _ in 0..256 {
             execute_pending(&executor, &first, "BlockBuilder_apply_extrinsic", &[]).unwrap();
         }
-        // The independent EVM simulation bucket is still charged per call.
-        for _ in 0..BURST {
+        // Final EVM simulation is unthrottled, but still spends the job work
+        // budget and shares its deadline with reconstruction.
+        for _ in 0..BURST * 2 {
             execute_pending(&executor, &first, "EthereumRuntimeRPCApi_call", &[]).unwrap();
         }
-        assert!(execute_pending(&executor, &first, "EthereumRuntimeRPCApi_call", &[]).is_err());
         // Refill exactly one job token. Failed admission did not give waiting
         // a free pass, and its retry spends the newly available token.
         {
@@ -1235,7 +1367,7 @@ mod tests {
         use fc_rpc::execution_admission::{PENDING_LIMIT_ERROR, PENDING_TIMEOUT, PendingExecution};
         let _serial = PENDING_TEST_LOCK.lock().unwrap();
         let (executor, _) = executor();
-        let [_, _, _, _, pending] = &executor.states;
+        let [_, _, _, pending] = &executor.states;
         pending.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
         let budget = PendingExecution::try_new(Instant::now() + PENDING_TIMEOUT).unwrap();
         let held = executor.acquire(Service::Pending, 0).unwrap();
@@ -1371,6 +1503,8 @@ mod tests {
             "EthereumRuntimeRPCApi_account_basic",
             "EthereumRuntimeRPCApi_account_code_at",
             "EthereumRuntimeRPCApi_storage_at",
+            "EthereumRuntimeRPCApi_call",
+            "EthereumRuntimeRPCApi_create",
         ] {
             let error = executor
                 .call(
@@ -1385,7 +1519,7 @@ mod tests {
             assert!(error.to_string().contains(PENDING_LIMIT_ERROR));
             execute(&executor, method, &[], CallContext::Offchain).unwrap();
         }
-        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 3);
+        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 5);
     }
 }
 
