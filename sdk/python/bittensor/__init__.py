@@ -274,6 +274,6 @@ def __getattr__(name: str):
         raise AttributeError(
             f"bittensor.{name} was removed in v11 — {hint}. "
             "Migration guide: https://github.com/RaoFoundation/subtensor/blob/"
-            "cursor/lift-lending-escrowed-raise-352f/docs/migration.mdx"
+            "main/docs/migration.mdx"
         )
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

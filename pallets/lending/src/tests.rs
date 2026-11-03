@@ -3400,6 +3400,10 @@ fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
             retry_at,
             (&owner, netuid())
         ));
+        assert!(
+            LastDeferral::<Test>::get(&owner, netuid()).is_some(),
+            "failed expiry must record LastDeferral under the current owner"
+        );
         assert_ok!(Lending::on_coldkey_swap(&owner, &new_owner));
         assert!(!Positions::<Test>::contains_key(&owner, netuid()));
         assert!(!ExpiryRetry::<Test>::contains_key(
@@ -3410,6 +3414,14 @@ fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
             retry_at,
             (&new_owner, netuid())
         ));
+        assert!(
+            LastDeferral::<Test>::get(&owner, netuid()).is_none(),
+            "LastDeferral must leave the old coldkey (Auditor fid:0566f709)"
+        );
+        assert!(
+            LastDeferral::<Test>::get(&new_owner, netuid()).is_some(),
+            "LastDeferral must move with the position on coldkey swap"
+        );
         assert_eq!(
             Positions::<Test>::get(&new_owner, netuid())
                 .unwrap()
@@ -3422,6 +3434,10 @@ fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
         System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(retry_at, Weight::MAX);
         assert!(!Positions::<Test>::contains_key(&new_owner, netuid()));
+        assert!(
+            LastDeferral::<Test>::get(&new_owner, netuid()).is_none(),
+            "successful settle must clear LastDeferral under the new owner"
+        );
         assert!(System::events().into_iter().any(|e| matches!(
             e.event,
             RuntimeEvent::Lending(Event::Expired {
@@ -3430,6 +3446,23 @@ fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
                 ..
             }) if o == &new_owner
         )));
+        // Old owner can open again without inheriting a stale deferral.
+        mint_alpha(&owner, &account(2), netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(account(2)),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        assert!(
+            LastDeferral::<Test>::get(&owner, netuid()).is_none(),
+            "reopened position on the old coldkey must not see a stale deferral"
+        );
     });
 }
 

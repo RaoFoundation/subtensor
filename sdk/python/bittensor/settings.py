@@ -107,8 +107,10 @@ _REVERSE_NETWORKS = {url: name for name, url in NETWORKS.items()}
 # docs.bittensor.com soft-redirects every deep link to the docs home page
 # (E2E N12 / clone 499). Until that host publishes the generated MDX, point
 # CLI `see:` / Docs: footers at the sources that ship in this repository.
-# Override with BITTENSOR_DOCS_URL (site root) or BITTENSOR_DOCS_REF (git ref).
-_DOCS_REF = os.getenv("BITTENSOR_DOCS_REF", "cursor/lift-lending-escrowed-raise-352f")
+# Default to a durable ref (`main`) so links survive branch deletion after
+# merge (Auditor fid:607bf5c7). Override with BITTENSOR_DOCS_URL (site root)
+# or BITTENSOR_DOCS_REF (git ref) for clone-specific testing.
+_DOCS_REF = os.getenv("BITTENSOR_DOCS_REF", "main")
 _DOCS_REPO_BLOB = f"https://github.com/RaoFoundation/subtensor/blob/{_DOCS_REF}/docs"
 DOCS_URL = os.getenv("BITTENSOR_DOCS_URL", _DOCS_REPO_BLOB)
 

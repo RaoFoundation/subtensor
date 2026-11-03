@@ -6774,6 +6774,11 @@ pub mod pallet {
                     Self::enqueue_expiry_retry(new, netuid, position.expiry_due);
                     rekeyed_expiry = true;
                 }
+                // Move LastDeferral with the position so the old coldkey cannot
+                // inherit a stale deferral when it opens again (Auditor fid:0566f709).
+                if let Some(deferred) = LastDeferral::<T>::take(old, netuid) {
+                    LastDeferral::<T>::insert(new, netuid, deferred);
+                }
             }
             if rekeyed_due {
                 DueBucketCursor::<T>::kill();
