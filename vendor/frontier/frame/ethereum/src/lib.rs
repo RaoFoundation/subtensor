@@ -561,11 +561,11 @@ impl<T: Config> Pallet<T> {
 		)
 		.map_err(|e| InvalidTransaction::Custom(e as u8))?;
 		let input: fp_evm::CheckEvmTransactionInput = transaction_data.clone().into();
-		let evm_config = pallet_evm::account_cost::config::<T>(T::config());
+		let evm_config = T::config();
 
 		let _ = CheckEvmTransaction::<InvalidTransactionWrapper>::new(
 			CheckEvmTransactionConfig {
-				evm_config: &evm_config,
+				evm_config,
 				block_gas_limit: T::BlockGasLimit::get(),
 				base_fee,
 				chain_id: T::ChainId::get(),
@@ -990,11 +990,11 @@ impl<T: Config> Pallet<T> {
 		)
 		.map_err(|e| InvalidTransaction::Custom(e as u8))?;
 		let input: fp_evm::CheckEvmTransactionInput = transaction_data.clone().into();
-		let evm_config = pallet_evm::account_cost::config::<T>(T::config());
+		let evm_config = T::config();
 
 		let _ = CheckEvmTransaction::<InvalidTransactionWrapper>::new(
 			CheckEvmTransactionConfig {
-				evm_config: &evm_config,
+				evm_config,
 				block_gas_limit: T::BlockGasLimit::get(),
 				base_fee,
 				chain_id: T::ChainId::get(),

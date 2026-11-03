@@ -1047,7 +1047,7 @@ fn claim_preview_flushes_and_consolidates_like_the_claim() {
         ));
         assert_eq!(escrow_alpha(&fund.hotkey, NetUid::ROOT), 0);
 
-        assert_eq!(preview.flushed_credits, 1);
+        assert_eq!(preview.flushed_credits, 0);
         assert_eq!(
             preview.swept, 20,
             "the sub-threshold rows are consolidated first"

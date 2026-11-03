@@ -51,6 +51,26 @@ use super::{
 use crate::graph;
 use tracing::{trace, warn, Level};
 
+/// Identifies a runtime API call initiated by the transaction pool.
+///
+/// This host-only extension has no wire encoding or runtime host function, so raw RPC
+/// callers cannot request the pool's execution capacity. Executors must recognize it
+/// only for transaction-validation exports; it does not change the call context.
+#[derive(Clone, Copy, Default)]
+pub struct PoolValidation;
+
+// The pinned SDK exposes Extension through sp-api's macro support. Use that
+// existing dependency rather than adding a second direct SDK dependency here.
+impl sp_api::__private::Extension for PoolValidation {
+	fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
+		self
+	}
+
+	fn type_id(&self) -> std::any::TypeId {
+		std::any::TypeId::of::<Self>()
+	}
+}
+
 /// The transaction pool logic for full client.
 pub struct FullChainApi<Client, Block> {
 	client: Arc<Client>,
@@ -339,7 +359,11 @@ where
 
 	let result = sp_tracing::within_span!(sp_tracing::Level::TRACE, "validate_transaction";
 	{
-		let runtime_api = client.runtime_api();
+		let mut runtime_api = client.runtime_api();
+		// All pool validation paths meet here: submissions, fork views,
+		// maintenance, and synchronous local submissions. Keep the marker on
+		// this runtime API instance, including legacy validation API versions.
+		runtime_api.register_extension(PoolValidation);
 		let api_version = sp_tracing::within_span! { sp_tracing::Level::TRACE, "check_version";
 			runtime_api
 				.api_version::<dyn TaggedTransactionQueue<Block>>(at)

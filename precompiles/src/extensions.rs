@@ -25,7 +25,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         self.mapped_account_id::<R>(self.context().caller)
     }
 
-    /// Reserve gas and external weight before the infallible mapping reads storage.
+    /// Reserve external weight before the infallible mapping reads storage.
     fn mapped_account_id<R>(&mut self, address: H160) -> EvmResult<R::AccountId>
     where
         R: pallet_evm::Config,

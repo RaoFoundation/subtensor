@@ -565,18 +565,12 @@ pub enum SelectiveMetagraphIndex {
     CollateralEarned,
 }
 
-/// A request can select every field once. Bound the raw list before sorting so
-/// repeated or unknown indices cannot amplify runtime work or normalization.
-pub const MAX_SELECTIVE_METAGRAPH_INDICES: usize =
-    SelectiveMetagraphIndex::CollateralEarned as usize + 1;
-
-pub fn normalize_metagraph_indices(mut indices: Vec<u16>) -> Option<Vec<u16>> {
-    if indices.len() > MAX_SELECTIVE_METAGRAPH_INDICES {
-        return None;
-    }
+/// Evaluate each requested field once without restricting legacy input lengths.
+/// Retain unknown indices so RPC callers can query newer runtime field layouts.
+pub fn normalize_metagraph_indices(mut indices: Vec<u16>) -> Vec<u16> {
     indices.sort_unstable();
     indices.dedup();
-    Some(indices)
+    indices
 }
 
 impl SelectiveMetagraphIndex {
@@ -894,7 +888,7 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
-        let metagraph_indexes = normalize_metagraph_indices(metagraph_indexes)?;
+        let metagraph_indexes = normalize_metagraph_indices(metagraph_indexes);
         if !Self::is_subnet_reportable(netuid) {
             None
         } else {
@@ -912,7 +906,7 @@ impl<T: Config> Pallet<T> {
         mecid: MechId,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
-        let metagraph_indexes = normalize_metagraph_indices(metagraph_indexes)?;
+        let metagraph_indexes = normalize_metagraph_indices(metagraph_indexes);
         if !Self::is_subnet_reportable(netuid) {
             None
         } else {
@@ -1633,23 +1627,20 @@ impl<T: Config> Pallet<T> {
 }
 
 #[test]
-fn selective_metagraph_indices_are_bounded_before_deduplication() {
-    assert_eq!(normalize_metagraph_indices(vec![]), Some(vec![]));
+fn selective_metagraph_indices_accept_repetitions_and_preserve_unknown_fields() {
+    assert_eq!(normalize_metagraph_indices(vec![]), Vec::<u16>::new());
+    assert_eq!(normalize_metagraph_indices(vec![54; 1_024]), vec![54]);
     assert_eq!(
-        normalize_metagraph_indices(vec![54; MAX_SELECTIVE_METAGRAPH_INDICES]),
-        Some(vec![54])
+        normalize_metagraph_indices(vec![u16::MAX, 54, 1, u16::MAX, 54]),
+        vec![1, 54, u16::MAX]
     );
-    assert!(normalize_metagraph_indices(vec![54; MAX_SELECTIVE_METAGRAPH_INDICES + 1]).is_none());
-    let all: Vec<_> = (0..MAX_SELECTIVE_METAGRAPH_INDICES as u16).collect();
-    assert!(
-        all.iter()
-            .all(|index| SelectiveMetagraphIndex::from_index(*index as usize).is_some())
-    );
-    assert_eq!(normalize_metagraph_indices(all.clone()), Some(all));
+    let all: Vec<_> = (0..=u16::MAX).collect();
+    let repeated = all.iter().rev().chain(all.iter()).copied().collect();
+    assert_eq!(normalize_metagraph_indices(repeated), all);
 }
 
 #[test]
-fn selective_graph_getters_bound_raw_calls_and_preserve_selected_fields() {
+fn selective_graph_getters_preserve_legacy_results_for_long_selections() {
     use crate::tests::mock::{SubtensorModule, add_network, new_test_ext};
     use sp_core::U256;
 
@@ -1669,8 +1660,12 @@ fn selective_graph_getters_bound_raw_calls_and_preserve_selected_fields() {
             assert_eq!(once.identities.as_ref().map(Vec::len), Some(1));
             assert_eq!(get(vec![54, 1, 52, 54, 52, 1]), Some(once));
             assert_eq!(get(vec![u16::MAX]), get(vec![]));
-            assert!(get((0..MAX_SELECTIVE_METAGRAPH_INDICES as u16).collect()).is_some());
-            assert!(get(vec![54; MAX_SELECTIVE_METAGRAPH_INDICES + 1]).is_none());
+            assert_eq!(get(vec![u16::MAX; 1_024]), get(vec![]));
+            assert_eq!(get(vec![54; 1_024]), get(vec![54]));
+            let repeated = [54, 52, 1, 59, 62, u16::MAX].repeat(128);
+            assert_eq!(get(repeated), get(vec![1, 52, 54, 59, 62]));
+            let all = (0..=SelectiveMetagraphIndex::CollateralEarned as u16).collect();
+            assert!(get(all).is_some());
         }
     });
 }

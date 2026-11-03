@@ -334,25 +334,22 @@ async def test_hashed_http_preparation_fails_closed(tmp_path, crypto_type, state
 
 
 @pytest.mark.parametrize("crypto_type", [CRYPTO_HASHED, CRYPTO_HASHED_ED25519])
-async def test_http_preparation_uses_actual_hotkey_not_stale_companion(tmp_path, crypto_type):
+async def test_http_preparation_rejects_stale_hotkey_public_companion(tmp_path, crypto_type):
     from bittensor import Client, http_auth
     from tests.harness.fake_substrate import FakeSubstrate
 
     wallet = Wallet("sender", path=str(tmp_path))
     wallet.regenerate_hotkey(mnemonic=MNEMONIC, crypto_type=crypto_type, suppress=True)
-    actual = wallet.hotkey
     unrelated = Keypair.create_from_seed(bytes([95]) * 32, crypto_type)
     wallet.hotkeypub_file.set_keypair(unrelated.public_only(), encrypt=False, overwrite=True)
     wallet = Wallet("sender", path=str(tmp_path))
     chain = FakeSubstrate()
-
-    async def query(module, storage, params, *, block_hash):
-        assert params == [actual.ss58_address]
-        return {"descriptor": descriptor_value(bytes(actual.hashed_descriptor)), "generation": 0}
-
-    chain.query = query
-    with pytest.raises(ValueError, match="generation zero"):
+    chain.query = AsyncMock()
+    with pytest.raises(
+        ValueError, match="unlocked signing identity does not match the public wallet"
+    ):
         await http_auth.prepare_signer(wallet, client=Client(substrate=chain))
+    chain.query.assert_not_awaited()
 
 
 @pytest.mark.parametrize("crypto_type", [CRYPTO_SR25519, CRYPTO_ED25519])

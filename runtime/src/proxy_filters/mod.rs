@@ -394,6 +394,7 @@ mod tests {
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -420,6 +421,7 @@ mod tests {
         let denied = &denied | &group_calls::<(LockCalls, SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -689,6 +691,7 @@ mod tests {
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(EvmCalls, CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -1425,6 +1428,7 @@ mod tests {
             assert!(!allowed.contains("LimitOrders::authorize_order"));
             assert!(!allowed.contains("Utility::as_protected_derivative"));
             assert!(!allowed.contains("Proxy::create_protected_pure"));
+            assert!(!allowed.contains("Proxy::announce"));
             assert!(!allowed.contains("AdminUtils::sudo_set_sn_owner_hotkey"));
         }
         // `root_dissolve_network` leaked into NonCritical specifically.

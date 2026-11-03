@@ -123,8 +123,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 916,
-          "url": "/code/pallets/proxy/src/lib.rs#L916",
+          "line": 922,
+          "url": "/code/pallets/proxy/src/lib.rs#L922",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -447,8 +447,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 912,
-          "url": "/code/pallets/proxy/src/lib.rs#L912",
+          "line": 918,
+          "url": "/code/pallets/proxy/src/lib.rs#L918",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -581,7 +581,7 @@
     },
     "BasketDepositPending": {
       "code": "too_early",
-      "description": "A queued root-dividend deposit on this validator could not be settled yet, so an operation that changes the hotkey's root claimant base was refused. No current dispatch raises it; if it appears, wait for the pending deposit to flush (the next claim or basket operation on the hotkey settles it) and retry.",
+      "description": "A queued root-dividend deposit on this validator could not be settled yet, so an operation that changes the claimant base or basket was refused. Wait for the block queue processor to settle the dividend, then retry. Settlement also requires the affected basket prices to be within their fast-EMA band; user calls cannot force a dividend mint between pool swaps.",
       "docs_url": "/docs/errors/chain/BasketDepositPending",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketDepositPending/content.md",
       "pallets": [
@@ -1894,8 +1894,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 904,
-          "url": "/code/pallets/proxy/src/lib.rs#L904",
+          "line": 910,
+          "url": "/code/pallets/proxy/src/lib.rs#L910",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -2874,8 +2874,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 914,
-          "url": "/code/pallets/proxy/src/lib.rs#L914",
+          "line": 920,
+          "url": "/code/pallets/proxy/src/lib.rs#L920",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4241,8 +4241,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 906,
-          "url": "/code/pallets/proxy/src/lib.rs#L906",
+          "line": 912,
+          "url": "/code/pallets/proxy/src/lib.rs#L912",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4259,8 +4259,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 910,
-          "url": "/code/pallets/proxy/src/lib.rs#L910",
+          "line": 916,
+          "url": "/code/pallets/proxy/src/lib.rs#L916",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4531,8 +4531,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 898,
-          "url": "/code/pallets/proxy/src/lib.rs#L898",
+          "line": 904,
+          "url": "/code/pallets/proxy/src/lib.rs#L904",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4585,8 +4585,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 900,
-          "url": "/code/pallets/proxy/src/lib.rs#L900",
+          "line": 906,
+          "url": "/code/pallets/proxy/src/lib.rs#L906",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -5484,8 +5484,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 918,
-          "url": "/code/pallets/proxy/src/lib.rs#L918",
+          "line": 924,
+          "url": "/code/pallets/proxy/src/lib.rs#L924",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -6042,8 +6042,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 896,
-          "url": "/code/pallets/proxy/src/lib.rs#L896",
+          "line": 902,
+          "url": "/code/pallets/proxy/src/lib.rs#L902",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -6474,8 +6474,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 908,
-          "url": "/code/pallets/proxy/src/lib.rs#L908",
+          "line": 914,
+          "url": "/code/pallets/proxy/src/lib.rs#L914",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -6583,8 +6583,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 902,
-          "url": "/code/pallets/proxy/src/lib.rs#L902",
+          "line": 908,
+          "url": "/code/pallets/proxy/src/lib.rs#L908",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]

@@ -304,8 +304,11 @@ call_filter_group!(
     ]
 );
 
+// Proxy calls broad restricted grants may execute. `announce` is deliberately inventory-only:
+// the proxy pallet rejects it for every non-Any proxy because a hash cannot prove the deferred
+// payload satisfies the current origin filter.
 call_filter_group!(
-    ProxyCalls,
+    RestrictedProxyCalls,
     [
         RuntimeCall::Proxy(ProxyCall::proxy),
         RuntimeCall::Proxy(ProxyCall::add_proxy),
@@ -315,7 +318,6 @@ call_filter_group!(
         RuntimeCall::Proxy(ProxyCall::kill_pure),
         RuntimeCall::Proxy(ProxyCall::create_safe_pure),
         RuntimeCall::Proxy(ProxyCall::kill_safe_pure),
-        RuntimeCall::Proxy(ProxyCall::announce),
         RuntimeCall::Proxy(ProxyCall::remove_announcement),
         RuntimeCall::Proxy(ProxyCall::reject_announcement),
         RuntimeCall::Proxy(ProxyCall::proxy_announced),
@@ -323,6 +325,16 @@ call_filter_group!(
         RuntimeCall::Proxy(ProxyCall::set_real_pays_fee),
     ]
 );
+
+#[cfg(test)]
+call_filter_group!(
+    ProxyAnnouncementCalls,
+    [RuntimeCall::Proxy(ProxyCall::announce),]
+);
+
+/// Complete proxy-pallet inventory for deny proofs and metadata coverage.
+#[cfg(test)]
+pub(super) type ProxyCalls = (RestrictedProxyCalls, ProxyAnnouncementCalls);
 
 // A neuron publishing its own commitment. Deposit-free on this runtime
 // (`CommitmentInitialDeposit` / `CommitmentFieldDeposit` are zero), so it
@@ -790,7 +802,7 @@ pub(super) type InfraCommonCalls = (
     UtilityCalls,
     PreimageCalls,
     SchedulerCalls,
-    ProxyCalls,
+    RestrictedProxyCalls,
     CommitmentCalls,
     CommitmentsAdminCalls,
     SafeModeCalls,
@@ -813,6 +825,7 @@ pub(super) type AllCalls = (
 #[cfg(test)]
 type WholesalePalletCalls = (
     InfraCommonCalls,
+    ProxyAnnouncementCalls,
     HashedAccountsCalls,
     HashedAccountChecks,
     SudoCalls,

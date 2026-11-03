@@ -80,6 +80,12 @@ _SHIELDED_POLL_ATTEMPTS_PER_BLOCK = 4
 _SHIELDED_FINALITY_RPC_RETRIES = 4
 
 
+def _require_planned_signer(keypair, address: str) -> None:
+    """Keep the submitting identity tied to the account used for the plan."""
+    if bytes(ss58_decode(keypair.ss58_address)) != bytes(ss58_decode(address)):
+        raise ValueError("signing identity does not match the planned account")
+
+
 class _FeeAddressView:
     """Public-only keypair shape for fee estimation (zeroed signature)."""
 
@@ -1247,6 +1253,7 @@ class Executor:
                 on_progress=on_progress,
                 max_registration_deposit=max_registration_deposit,
                 on_registration_sponsorship=on_registration_sponsorship,
+                expected_signer_address=plan.signer_address,
             )
 
         await authorize_registration_sponsorship(
@@ -1257,6 +1264,7 @@ class Executor:
         )
 
         keypair = resolve_signer(wallet, intent.signer)
+        _require_planned_signer(keypair, plan.signer_address)
         attempts = max(0, int(retries)) + 1
         for attempt in range(attempts):
             result = await self.substrate.submit(
@@ -1402,6 +1410,7 @@ class Executor:
         on_progress,
         max_registration_deposit,
         on_registration_sponsorship,
+        expected_signer_address=None,
     ) -> ExtrinsicResult:
         """Submit the already selected call; never rebuild after selecting its route."""
         semantic_intent = await _coerce_addresses(self.substrate, intent.semantic_intent())
@@ -1425,6 +1434,7 @@ class Executor:
         )
 
         keypair = resolve_signer(wallet, intent.signer)
+        _require_planned_signer(keypair, expected_signer_address or fee_payer)
         result = await self._submit_encrypted_call(
             call,
             keypair,

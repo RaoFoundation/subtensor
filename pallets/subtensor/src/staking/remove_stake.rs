@@ -29,6 +29,10 @@ pub struct UnstakeAllWork {
     /// (lock / collateral), so a locked skip still costs the walk, not just the
     /// cheap quote reads.
     pub validated: u32,
+    /// Whether the pending-root-dividend settlement point was reached.
+    pub root_checked: bool,
+    /// Pending-dividend settlement work actually performed.
+    pub flush: crate::staking::basket_flush::BasketFlushWork,
 }
 
 impl<T: Config> Pallet<T> {
@@ -178,7 +182,8 @@ impl<T: Config> Pallet<T> {
                 Self::unstake_all_consider_subnet(work, &coldkey, &hotkey, netuid)
             {
                 work.legs = work.legs.saturating_add(1);
-                Self::unstake_from_subnet(
+                work.root_checked |= netuid.is_root();
+                let (_, flush) = Self::unstake_from_subnet_with_flush_work(
                     &hotkey,
                     &coldkey,
                     &coldkey,
@@ -188,6 +193,7 @@ impl<T: Config> Pallet<T> {
                     false,
                     true,
                 )?;
+                work.flush = work.flush.saturating_add(flush);
                 Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
             }
         }
@@ -235,15 +241,17 @@ impl<T: Config> Pallet<T> {
     fn unstake_all_weight(base: Weight, work: UnstakeAllWork, walk: Weight) -> Weight {
         let cheap = u64::from(work.scanned.saturating_sub(work.validated));
         let expensive_skips = u64::from(work.validated.saturating_sub(work.legs));
-        base.saturating_add(
-            <T as crate::pallet::Config>::WeightInfo::remove_stake()
-                .saturating_add(walk)
-                .saturating_mul(u64::from(work.legs)),
-        )
-        .saturating_add(walk.saturating_mul(expensive_skips))
-        .saturating_add(
-            T::DbWeight::get().reads(UNSTAKE_ALL_SKIPPED_SUBNET_READS.saturating_mul(cheap)),
-        )
+        // At most one visited subnet is root, including a failed pending-dividend check.
+        base.saturating_add(Self::basket_flush_weight(work.flush))
+            .saturating_add(
+                <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                    .saturating_add(walk)
+                    .saturating_mul(u64::from(work.legs)),
+            )
+            .saturating_add(walk.saturating_mul(expensive_skips))
+            .saturating_add(
+                T::DbWeight::get().reads(UNSTAKE_ALL_SKIPPED_SUBNET_READS.saturating_mul(cheap)),
+            )
     }
 
     /// Worst case one call will admit: a full unstake on every envelope slot,
@@ -257,6 +265,11 @@ impl<T: Config> Pallet<T> {
             scanned: networks,
             legs: cap,
             validated: cap,
+            root_checked: true,
+            flush: crate::staking::basket_flush::BasketFlushWork::new(
+                crate::staking::basket_flush::MAX_BASKET_ROWS.saturating_mul(6),
+                crate::staking::basket_flush::MAX_BASKET_ROWS,
+            ),
         }
     }
 
@@ -279,6 +292,17 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    pub fn unstake_all_declared_weight_for(hotkey: &T::AccountId) -> Weight {
+        let mut work = Self::unstake_all_worst_case_work();
+        work.flush = Default::default();
+        Self::unstake_all_weight(
+            <T as crate::pallet::Config>::WeightInfo::unstake_all(),
+            work,
+            Self::staking_hotkeys_walk_bound(),
+        )
+        .saturating_add(Self::root_pending_dividend_weight_for(hotkey, true))
+    }
+
     /// Post-dispatch weight of `unstake_all` for the work it really did.
     pub fn unstake_all_actual_weight(coldkey: &T::AccountId, work: UnstakeAllWork) -> Weight {
         Self::unstake_all_weight(
@@ -296,6 +320,17 @@ impl<T: Config> Pallet<T> {
             Self::unstake_all_worst_case_work(),
             Self::staking_hotkeys_walk_bound(),
         )
+    }
+
+    pub fn unstake_all_alpha_declared_weight_for(hotkey: &T::AccountId) -> Weight {
+        let mut work = Self::unstake_all_worst_case_work();
+        work.flush = Default::default();
+        Self::unstake_all_weight(
+            <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
+            work,
+            Self::staking_hotkeys_walk_bound(),
+        )
+        .saturating_add(Self::root_pending_dividend_weight_for(hotkey, true))
     }
 
     /// Post-dispatch weight of `unstake_all_alpha` for the work it really did.
@@ -396,6 +431,10 @@ impl<T: Config> Pallet<T> {
         }
 
         // Stake into root.
+        work.root_checked = true;
+        let (flush, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
+        work.flush = work.flush.saturating_add(flush);
+        ensure!(completed, Error::<T>::BasketDepositPending);
         Self::stake_into_subnet(
             &hotkey,
             &coldkey,

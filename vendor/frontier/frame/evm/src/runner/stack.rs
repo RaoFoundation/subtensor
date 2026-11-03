@@ -249,10 +249,7 @@ where
 		// Used to record the external costs in the evm through the StackState implementation
 		// Keep external ref-time accounting even on chains without a PoV gas
 		// ratio. Gas refunds must not erase the cost of registry work performed.
-		let weight_limit = weight_limit.or_else(|| {
-			(T::AddressMapping::extra_read_weight() != Weight::zero())
-				.then(|| T::GasWeightMapping::gas_to_weight(gas_limit, false))
-		});
+		let weight_limit = crate::account_cost::external_weight_limit::<T>(gas_limit, weight_limit);
 		let mut maybe_weight_info =
 			WeightInfo::new_from_weight_limit(weight_limit, proof_size_base_cost).map_err(
 				|_| RunnerError {
@@ -571,7 +568,6 @@ where
 		evm_config: &evm::Config,
 	) -> Result<(), RunnerError<Self::Error>> {
 		Self::check_authorization_size(authorization_list.len())?;
-		let evm_config = &crate::account_cost::config::<T>(evm_config);
 		let mut policy_weight = Weight::zero();
 		for authority in authorization_list.iter().filter_map(|item| item.3) {
 			policy_weight = policy_weight.saturating_add(T::AddressMapping::extra_read_weight());
@@ -698,7 +694,6 @@ where
 		// Recover once after validation, retaining the protected-authority check
 		// for both validated and already-validated execution entry points.
 		let authorization_list = Self::recover_authorizations(&signed_authorizations)?;
-		let config = &crate::account_cost::config::<T>(config);
 		let precompiles = T::PrecompilesValue::get();
 		Self::execute(
 			source,
@@ -822,7 +817,6 @@ where
 		// Recover once after validation, retaining the protected-authority check
 		// for both validated and already-validated execution entry points.
 		let authorization_list = Self::recover_authorizations(&signed_authorizations)?;
-		let config = &crate::account_cost::config::<T>(config);
 		let precompiles = T::PrecompilesValue::get();
 		Self::execute(
 			source,
@@ -949,7 +943,6 @@ where
 		// Recover once after validation, retaining the protected-authority check
 		// for both validated and already-validated execution entry points.
 		let authorization_list = Self::recover_authorizations(&signed_authorizations)?;
-		let config = &crate::account_cost::config::<T>(config);
 		let precompiles = T::PrecompilesValue::get();
 		let code_hash = H256::from(sp_io::hashing::keccak_256(&init));
 		Self::execute(
@@ -1224,10 +1217,9 @@ where
 {
 	fn record_mapping_reads(&mut self, reads: u64) -> Result<(), ExitError> {
 		let weight = crate::account_cost::weight::<T>(reads);
-		self.substate
-			.metadata
-			.gasometer_mut()
-			.record_cost(crate::account_cost::gas::<T>(weight))?;
+		// Mapping work uses the transaction-wide external meter. Charging the
+		// frame's gasometer would change opcode costs and forwarded call gas.
+		// Keep this reservation before the read, including on failed subcalls.
 		if let Some(info) = self.weight_info.as_mut() {
 			info.try_record_ref_time_or_fail(weight.ref_time())?;
 			info.try_record_proof_size_or_fail(weight.proof_size())?;
@@ -1461,8 +1453,8 @@ where
 	}
 
 	fn transfer(&mut self, transfer: Transfer) -> Result<(), ExitError> {
-		// Prepaid by the calling opcode or transaction intrinsic cost. Charging
-		// here would consume the recipient's already allocated CALL stipend.
+		// Reserved in the external resource meter by the calling opcode or
+		// transaction admission before entering the recipient's CALL frame.
 		let source = T::AddressMapping::into_account_id(transfer.source);
 		let target = T::AddressMapping::into_account_id(transfer.target);
 

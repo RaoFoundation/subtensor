@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -38,7 +39,13 @@ from .sp_core import FIXED_PQ_CRYPTO_TYPES as FIXED_PQ_CRYPTO_TYPES
 from .sp_core import HASHED_CRYPTO_TYPES as HASHED_CRYPTO_TYPES
 from .sp_core import REGISTERED_CRYPTO_TYPES as REGISTERED_CRYPTO_TYPES
 from .sp_core import requires_registration as requires_registration
-from .wallet import DEFAULT_WALLET_PATH, Wallet
+from .wallet import (
+    DEFAULT_WALLET_PATH,
+    Wallet,
+    _cleanup_backups,
+    _keyfile_inode,
+    _wallet_directory_lock,
+)
 
 CRYPTO_TYPE_NAMES: dict[int, str] = {
     CRYPTO_ED25519: "ed25519",
@@ -356,20 +363,85 @@ def create(
     ):
         raise ValueError("post-quantum wallets require a fresh 24-word mnemonic")
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
-    wallet.create_new_coldkey(
-        n_words=n_words,
-        use_password=use_password,
-        overwrite=overwrite,
-        crypto_type=coldkey_crypto_type,
-        on_mnemonic=(lambda m: on_mnemonic("coldkey", m)) if on_mnemonic else None,
-    )
-    wallet.create_new_hotkey(
-        n_words=n_words,
-        use_password=False,
-        overwrite=overwrite,
-        crypto_type=hotkey_crypto_type,
-        on_mnemonic=(lambda m: on_mnemonic("hotkey", m)) if on_mnemonic else None,
-    )
+    wallet_dir = Path(wallet.coldkey_file.path).parent
+    with _wallet_directory_lock(wallet_dir):
+        # Resolve all four interactive decisions before changing either pair.
+        decisions = {}
+        for keyfile in (
+            wallet.coldkey_file,
+            wallet.coldkeypub_file,
+            wallet.hotkey_file,
+            wallet.hotkeypub_file,
+        ):
+            key_path = Path(keyfile.path)
+            if key_path.is_symlink():
+                raise ValueError("paired wallet keyfiles cannot be symlinks")
+            decisions[key_path] = (_keyfile_inode(key_path), keyfile._confirm_overwrite(overwrite))
+        wallet._preapproved_overwrites = decisions
+
+        cold_files = (wallet.coldkeypub_file, wallet.coldkey_file)
+        backup_dir = Path(tempfile.mkdtemp(prefix=".wallet-create-backup.", dir=wallet_dir))
+        backups: dict[Path, Path] = {}
+        rollback_failed = False
+        cold_env_name = wallet.coldkey_file.env_var_name()
+        old_cold_env = os.environ.get(cold_env_name)
+        old_save_to_env = wallet.coldkey_file.should_save_to_env
+        try:
+            for keyfile in cold_files:
+                key_path = Path(keyfile.path)
+                expected = decisions[key_path][0]
+                if expected is not None:
+                    if _keyfile_inode(key_path) != expected:
+                        raise FileExistsError(f"wallet keyfile changed before backup: {key_path}")
+                    backup = backup_dir / key_path.name
+                    os.link(key_path, backup, follow_symlinks=False)
+                    backups[key_path] = backup
+                    if _keyfile_inode(backup) != expected:
+                        raise FileExistsError(f"wallet keyfile changed during backup: {key_path}")
+            wallet.create_new_coldkey(
+                n_words=n_words,
+                use_password=use_password,
+                overwrite=overwrite,
+                crypto_type=coldkey_crypto_type,
+                on_mnemonic=(lambda m: on_mnemonic("coldkey", m)) if on_mnemonic else None,
+            )
+            wallet.create_new_hotkey(
+                n_words=n_words,
+                use_password=False,
+                overwrite=overwrite,
+                crypto_type=hotkey_crypto_type,
+                on_mnemonic=(lambda m: on_mnemonic("hotkey", m)) if on_mnemonic else None,
+            )
+        except BaseException:
+            for key_path, inode in reversed(wallet._last_cold_published):
+                try:
+                    if _keyfile_inode(key_path) != inode:
+                        raise RuntimeError(f"keyfile changed concurrently: {key_path}")
+                    backup = backups.get(key_path)
+                    if backup is None:
+                        key_path.unlink()
+                    else:
+                        os.replace(backup, key_path)
+                except OSError as rollback_exc:
+                    rollback_failed = True
+                    raise RuntimeError(
+                        f"could not restore {key_path}; backup remains in {backup_dir}"
+                    ) from rollback_exc
+                except RuntimeError:
+                    rollback_failed = True
+                    raise
+            wallet._coldkey = None
+            wallet._coldkeypub = None
+            wallet.coldkey_file.should_save_to_env = old_save_to_env
+            if old_cold_env is None:
+                os.environ.pop(cold_env_name, None)
+            else:
+                os.environ[cold_env_name] = old_cold_env
+            raise
+        finally:
+            wallet._preapproved_overwrites = None
+            if not rollback_failed:
+                _cleanup_backups(backup_dir, backups)
     return wallet
 
 

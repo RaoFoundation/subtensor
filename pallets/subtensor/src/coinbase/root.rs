@@ -65,10 +65,11 @@ impl<T: Config> Pallet<T> {
 
     /// Declared weight for [`crate::Pallet::root_register`].
     ///
-    /// `WeightInfo::root_register` is the pre-auto-parent measurement.
-    /// The extra term is `TotalNetworks`-scaled `DbWeight` for one persist
-    /// per subnet on apply, and one more persist per subnet if a seat is
-    /// pruned. This is not a substitute for a reference re-benchmark.
+    /// `WeightInfo::root_register` is the pre-auto-parent and pre-basket-flush
+    /// measurement. The extra terms cover a worst-case pending-dividend flush
+    /// when a seat is pruned, plus `TotalNetworks`-scaled `DbWeight` for one
+    /// persist per subnet on apply and one more persist per subnet on prune.
+    /// This is not a substitute for a reference re-benchmark.
     pub fn root_register_dispatch_weight() -> Weight {
         let n = TotalNetworks::<T>::get() as u64;
         // Per persist: subnet exists, owner, child set, pending, parent
@@ -78,6 +79,7 @@ impl<T: Config> Pallet<T> {
         const PROOF_PER_PERSIST: u64 = 256;
         let persists = n.saturating_mul(2);
         <T as crate::pallet::Config>::WeightInfo::root_register()
+            .saturating_add(Self::basket_flush_weight_bound())
             .saturating_add(Self::hotkey_owner_policy_weight())
             .saturating_add(T::DbWeight::get().reads(1))
             .saturating_add(T::DbWeight::get().reads(persists.saturating_mul(READS_PER_PERSIST)))
@@ -108,6 +110,7 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     /// * `DispatchResult`: A result type indicating success or failure of the registration.
     ///
+    #[frame_support::transactional]
     pub fn do_root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
         // --- 0. Get the unique identifier (UID) for the root network.
         let current_block_number: u64 = Self::get_current_block_as_u64();
@@ -193,7 +196,10 @@ impl<T: Config> Pallet<T> {
                 uid
             }
             Some((lowest_uid, replaced_hotkey)) => {
-                Self::replace_neuron(NetUid::ROOT, lowest_uid, &hotkey, current_block_number);
+                ensure!(
+                    Self::replace_neuron(NetUid::ROOT, lowest_uid, &hotkey, current_block_number),
+                    Error::<T>::BasketDepositPending
+                );
                 log::debug!(
                     "replace neuron: {replaced_hotkey:?} with {hotkey:?} on uid {lowest_uid:?}"
                 );

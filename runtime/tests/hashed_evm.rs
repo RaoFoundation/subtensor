@@ -194,7 +194,7 @@ fn native_owner_can_spend_but_another_matching_prefix_cannot() {
                 target,
                 Vec::new(),
                 U256::from(1_000_000_000_000_000_000_u64),
-                100_000,
+                21_000,
                 fee,
                 None,
                 None,
@@ -552,6 +552,14 @@ fn ordinary_7702_delegation_still_executes_in_production() {
 }
 
 fn metered_call(code: Vec<u8>, gas_limit: u64) -> fp_evm::CallInfo {
+    metered_call_with_limit(code, gas_limit, None)
+}
+
+fn metered_call_with_limit(
+    code: Vec<u8>,
+    gas_limit: u64,
+    weight_limit: Option<frame_support::weights::Weight>,
+) -> fp_evm::CallInfo {
     let source = H160::repeat_byte(70);
     let target = H160::repeat_byte(71);
     fund(&Mapping::into_account_id(source));
@@ -569,7 +577,7 @@ fn metered_call(code: Vec<u8>, gas_limit: u64) -> fp_evm::CallInfo {
         Vec::new(),
         false,
         false,
-        None,
+        weight_limit,
         None,
         <Runtime as pallet_evm::Config>::config(),
     )
@@ -633,7 +641,7 @@ fn mapping_charges_preserve_the_recipient_call_stipend() {
 }
 
 #[test]
-fn warm_balance_reads_pay_mapping_gas_and_weight_with_registration_disabled() {
+fn warm_balance_reads_preserve_opcode_gas_and_charge_mapping_weight() {
     for instruction in [vec![0x47, 0x50], vec![0x30, 0x31, 0x50]] {
         let run = |count| ext().execute_with(|| metered_call(instruction.repeat(count), 1_000_000));
         let one = run(1);
@@ -641,11 +649,10 @@ fn warm_balance_reads_pay_mapping_gas_and_weight_with_registration_disabled() {
         assert!(one.exit_reason.is_succeed());
         assert!(eleven.exit_reason.is_succeed());
         let read = Mapping::extra_read_weight();
-        let gas = pallet_evm::account_cost::gas::<Runtime>(read);
-        let opcode_gas = if instruction.len() == 2 { 7 } else { 104 };
+        let opcode_gas: u64 = if instruction.len() == 2 { 7 } else { 104 };
         assert_eq!(
             eleven.used_gas.standard - one.used_gas.standard,
-            U256::from(10 * (gas + opcode_gas))
+            U256::from(10 * opcode_gas)
         );
         assert_eq!(
             eleven.weight_info.unwrap().ref_time_usage.unwrap()
@@ -656,9 +663,9 @@ fn warm_balance_reads_pay_mapping_gas_and_weight_with_registration_disabled() {
 }
 
 #[test]
-fn mapping_gas_exhaustion_reverts_contract_storage() {
+fn mapping_external_weight_exhaustion_reverts_contract_storage() {
     let mut code = vec![0x60, 1, 0x60, 0, 0x55]; // SSTORE(0, 1)
-    code.extend([0x47, 0x50].repeat(100)); // repeated SELFBALANCE/POP
+    code.extend([0x47, 0x50]); // SELFBALANCE/POP
     let full = ext().execute_with(|| {
         let result = metered_call(code.clone(), 1_000_000);
         assert!(result.exit_reason.is_succeed());
@@ -666,10 +673,17 @@ fn mapping_gas_exhaustion_reverts_contract_storage() {
             pallet_evm::AccountStorages::<Runtime>::get(H160::repeat_byte(71), H256::zero()),
             H256::from_low_u64_be(1)
         );
-        result.used_gas.standard.as_u64()
+        result.weight_info.unwrap().ref_time_usage.unwrap()
     });
     ext().execute_with(|| {
-        let result = metered_call(code, full - 1);
+        let result = metered_call_with_limit(
+            code,
+            1_000_000,
+            Some(frame_support::weights::Weight::from_parts(
+                full - 1,
+                u64::MAX,
+            )),
+        );
         assert_eq!(
             result.exit_reason,
             fp_evm::ExitReason::Error(fp_evm::ExitError::OutOfGas)
@@ -682,7 +696,7 @@ fn mapping_gas_exhaustion_reverts_contract_storage() {
 }
 
 #[test]
-fn create_mapping_charge_precedes_commit_for_create_and_create2() {
+fn create_gas_limit_failure_precedes_commit_for_create_and_create2() {
     for create2 in [false, true] {
         let deploy = |gas_limit| {
             let source = H160::repeat_byte(72);
@@ -843,7 +857,7 @@ fn unchanged_mapping_precompile_returns_registered_owner_and_charges_its_lookup(
 }
 
 #[test]
-fn unchanged_transfer_precompile_spends_from_owner_and_reverts_on_mapping_oog() {
+fn unchanged_transfer_precompile_spends_from_owner_and_reverts_on_dispatch_oog() {
     let source = H160::repeat_byte(75);
     let destination = AccountId32::new([76; 32]);
     let input = || {
@@ -1024,39 +1038,33 @@ mod precompile_mapping_budget {
     }
 
     #[test]
-    fn mapping_rejects_insufficient_gas_or_weight_before_reading_alias_storage() {
+    fn mapping_rejects_insufficient_weight_before_reading_alias_storage() {
         let cost = Mapping::extra_read_weight();
-        let gas = pallet_evm::account_cost::gas::<Runtime>(cost);
-        assert!(gas > 0 && cost.ref_time() > 0 && cost.proof_size() > 0);
-        for (gas_limit, weight_limit) in [
-            (0, Weight::MAX),
-            (gas - 1, Weight::MAX),
-            (gas, Weight::from_parts(cost.ref_time() - 1, u64::MAX)),
-            (gas, Weight::from_parts(u64::MAX, cost.proof_size() - 1)),
+        assert!(cost.ref_time() > 0 && cost.proof_size() > 0);
+        for weight_limit in [
+            Weight::from_parts(cost.ref_time() - 1, u64::MAX),
+            Weight::from_parts(u64::MAX, cost.proof_size() - 1),
         ] {
             // No externalities: any alias read (including a missing alias) panics.
-            // Repeat with distinct addresses as a contract catching failed subcalls can do.
-            for byte in 1..=4 {
-                let alias = H160::repeat_byte(byte);
-                let mut handle = handle(mapping_input(alias), alias, gas_limit, weight_limit);
-                assert_eq!(
-                    AddressMappingPrecompile::<Runtime>::execute(&mut handle),
-                    Err(PrecompileFailure::Error {
-                        exit_status: ExitError::OutOfGas
-                    })
-                );
-                assert_eq!(handle.charged, Weight::zero());
-            }
+            let alias = H160::repeat_byte(90);
+            let mut handle = handle(mapping_input(alias), alias, u64::MAX, weight_limit);
+            assert_eq!(
+                AddressMappingPrecompile::<Runtime>::execute(&mut handle),
+                Err(PrecompileFailure::Error {
+                    exit_status: ExitError::OutOfGas
+                })
+            );
+            assert_eq!(handle.charged, Weight::zero());
         }
     }
 
     #[test]
-    fn caller_mapping_also_rejects_zero_gas_before_reading_alias_storage() {
+    fn caller_mapping_rejects_zero_weight_before_reading_alias_storage() {
         let mut input =
             sp_io::hashing::keccak_256(b"transferKeepAlive(bytes32,uint256)")[..4].to_vec();
         input.extend([42; 32]);
         input.extend(U256::from(1_000_000).to_big_endian());
-        let mut handle = handle(input, H160::repeat_byte(91), 0, Weight::MAX);
+        let mut handle = handle(input, H160::repeat_byte(91), u64::MAX, Weight::zero());
         // No externalities: caller lookup and dispatch must both remain unreachable.
         assert_eq!(
             BalanceTransferPrecompile::<Runtime>::execute(&mut handle),
@@ -1067,7 +1075,7 @@ mod precompile_mapping_budget {
     }
 
     #[test]
-    fn typed_dispatch_rejects_mapping_gas_shortfall_before_balance_transfer() {
+    fn typed_dispatch_preserves_its_gas_budget_and_charges_mapping_weight() {
         ext().execute_with(|| {
             let alias = H160::repeat_byte(95);
             let owner = bind(alias);
@@ -1080,11 +1088,9 @@ mod precompile_mapping_budget {
                 value: amount,
             });
             let mapping_cost = Mapping::extra_read_weight();
-            let mapping_gas = pallet_evm::account_cost::gas::<Runtime>(mapping_cost);
             let dispatch_gas =
                 pallet_evm::account_cost::gas::<Runtime>(call.get_dispatch_info().total_weight());
-            assert!(mapping_gas > 0 && dispatch_gas > 0);
-            let sufficient_gas = mapping_gas.checked_add(dispatch_gas).unwrap();
+            assert!(dispatch_gas > 0);
             let mut input =
                 sp_io::hashing::keccak_256(b"transferKeepAlive(bytes32,uint256)")[..4].to_vec();
             input.extend(AsRef::<[u8; 32]>::as_ref(&recipient));
@@ -1092,7 +1098,7 @@ mod precompile_mapping_budget {
             let owner_before = Balances::free_balance(&owner);
             let recipient_before = Balances::free_balance(&recipient);
 
-            let mut short = handle(input.clone(), alias, sufficient_gas - 1, Weight::MAX);
+            let mut short = handle(input.clone(), alias, dispatch_gas - 1, Weight::MAX);
             // Direct precompile execution has no EVM frame to roll back a late gas error.
             // Unchanged balances and no dispatch-weight reservation prove early rejection.
             assert_eq!(
@@ -1101,14 +1107,15 @@ mod precompile_mapping_budget {
                     exit_status: ExitError::OutOfGas
                 })
             );
-            // Dispatch rejection exhausts this frame's remaining gas after the mapping charge.
-            assert_eq!(short.inner.gas_used, sufficient_gas - 1);
+            // Dispatch rejection exhausts this frame's remaining gas. Mapping
+            // reserves only external weight and leaves the EVM gas budget intact.
+            assert_eq!(short.inner.gas_used, dispatch_gas - 1);
             assert_eq!(short.charged, mapping_cost);
             assert_eq!(Balances::free_balance(&owner), owner_before);
             assert_eq!(Balances::free_balance(&recipient), recipient_before);
 
-            // The same call succeeds once both mapping and dispatch fit the budget.
-            let mut sufficient = handle(input, alias, sufficient_gas, Weight::MAX);
+            // The historical dispatch gas budget remains sufficient.
+            let mut sufficient = handle(input, alias, dispatch_gas, Weight::MAX);
             assert_ok!(BalanceTransferPrecompile::<Runtime>::execute(
                 &mut sufficient
             ));
@@ -1127,31 +1134,22 @@ mod precompile_mapping_budget {
 
         let input = RuntimeCall::System(frame_system::Call::remark { remark: vec![] }).encode();
         let address = H160::from_low_u64_be(6);
-        let mapping_gas = pallet_evm::account_cost::gas::<Runtime>(Mapping::extra_read_weight());
-        for (gas_limit, weight_limit) in [(0, Weight::MAX), (mapping_gas, Weight::zero())] {
-            let mut handle = handle(
-                input.clone(),
-                H160::repeat_byte(94),
-                gas_limit,
-                weight_limit,
-            );
-            handle.inner.code_address = address;
-            handle.inner.context.address = address;
-            // No externalities: the actual runtime route must stop before the caller lookup.
-            assert_eq!(
-                Precompiles::<Runtime>::new().execute(&mut handle),
-                Some(Err(PrecompileFailure::Error {
-                    exit_status: ExitError::OutOfGas
-                }))
-            );
-        }
+        let mut handle = handle(input, H160::repeat_byte(94), u64::MAX, Weight::zero());
+        handle.inner.code_address = address;
+        handle.inner.context.address = address;
+        // No externalities: the actual runtime route must stop before the caller lookup.
+        assert_eq!(
+            Precompiles::<Runtime>::new().execute(&mut handle),
+            Some(Err(PrecompileFailure::Error {
+                exit_status: ExitError::OutOfGas
+            }))
+        );
     }
 
     #[test]
-    fn mapping_exact_budget_returns_bound_or_legacy_account_and_charges_once() {
+    fn mapping_exact_weight_budget_preserves_zero_gas_cost_for_bound_and_legacy_accounts() {
         ext().execute_with(|| {
             let cost = Mapping::extra_read_weight();
-            let gas = pallet_evm::account_cost::gas::<Runtime>(cost);
             let alias = H160::repeat_byte(92);
             let owner = bind(alias);
             let ordinary = H160::repeat_byte(93);
@@ -1159,10 +1157,10 @@ mod precompile_mapping_budget {
                 (alias, owner),
                 (ordinary, Mapping::into_account_id(ordinary)),
             ] {
-                let mut handle = handle(mapping_input(address), address, gas, cost);
+                let mut handle = handle(mapping_input(address), address, 0, cost);
                 let result = AddressMappingPrecompile::<Runtime>::execute(&mut handle).unwrap();
                 assert_eq!(result.output, AsRef::<[u8; 32]>::as_ref(&expected));
-                assert_eq!(handle.inner.gas_used, gas);
+                assert_eq!(handle.inner.gas_used, 0);
                 assert_eq!(handle.charged, cost);
             }
         });

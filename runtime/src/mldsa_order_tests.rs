@@ -427,3 +427,85 @@ fn balance_reaping_removes_approvals_without_locking_an_existential_balance() {
         );
     });
 }
+
+#[test]
+fn derived_protection_requires_cancelling_classical_proxy_orders() {
+    mldsa::with_profiles(|| {
+        let parent = mldsa::register(240);
+        let descriptor =
+            pallet_hashed_accounts::DerivedDescriptor::Derivative { parent, index: 240 };
+        let owner = descriptor.account_id();
+        let delegate = AccountId::from(pair(241).public());
+        let netuid = NetUid::from(42u16);
+        let _ = Balances::make_free_balance_be(&owner, TaoBalance::new(1_000_000_000_000));
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(owner.clone()),
+            delegate.clone().into(),
+            ProxyType::Any,
+            0
+        ));
+        pallet_limit_orders::LimitOrdersEnabled::<Runtime>::put(true);
+        let signed = orders(&owner, &delegate, netuid)[0].clone();
+        let approve = RuntimeCall::LimitOrders(pallet_limit_orders::Call::authorize_order {
+            order: signed.order.clone().with_nonce(signed.nonce).unwrap(),
+        });
+        assert_ok!(Proxy::proxy(
+            RuntimeOrigin::signed(delegate.clone()),
+            owner.clone().into(),
+            Some(ProxyType::Any),
+            Box::new(approve)
+        ));
+        assert_eq!(
+            pallet_proxy::LastCallResult::<Runtime>::get(&owner),
+            Some(Ok(()))
+        );
+        assert!(LimitOrders::approved_order(&owner, signed.nonce).is_some());
+        assert_ok!(Proxy::remove_proxy(
+            RuntimeOrigin::signed(owner.clone()),
+            delegate.clone().into(),
+            ProxyType::Any,
+            0
+        ));
+        assert_noop!(
+            HashedAccounts::register_derived(
+                RuntimeOrigin::signed(owner.clone()),
+                descriptor.clone()
+            ),
+            sp_runtime::DispatchError::Other("MlDsaPendingOrderApproval")
+        );
+        assert!(!HashedAccounts::is_protected(&owner));
+        assert!(LimitOrders::approved_order(&owner, signed.nonce).is_some());
+
+        assert_ok!(LimitOrders::cancel_order(
+            RuntimeOrigin::signed(owner.clone()),
+            signed.order.clone().with_nonce(signed.nonce).unwrap()
+        ));
+        assert_ok!(HashedAccounts::register_derived(
+            RuntimeOrigin::signed(owner.clone()),
+            descriptor
+        ));
+        assert!(HashedAccounts::is_protected(&owner));
+
+        SubtensorModule::init_new_network(netuid, 100);
+        pallet_subtensor::SubnetMechanism::<Runtime>::insert(netuid, 0);
+        pallet_subtensor::SubtokenEnabled::<Runtime>::insert(netuid, true);
+        pallet_subtensor::SubnetTAO::<Runtime>::insert(netuid, TaoBalance::new(1_000_000_000_000));
+        pallet_subtensor::SubnetAlphaIn::<Runtime>::insert(
+            netuid,
+            AlphaBalance::new(1_000_000_000_000),
+        );
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &owner, &owner
+        ));
+        let before = Balances::free_balance(&owner);
+        assert_noop!(
+            LimitOrders::execute_orders(
+                RuntimeOrigin::signed(delegate),
+                unified_orders(vec![signed].try_into().unwrap()),
+                true
+            ),
+            pallet_limit_orders::Error::<Runtime>::OrderCancelled
+        );
+        assert_eq!(Balances::free_balance(&owner), before);
+    });
+}
