@@ -983,34 +983,55 @@ def repay_loan(
     def _attach_repaid(result):
         if not result.success:
             return
-        attrs = _find_event(result.events, "Lending", "Repaid")
-        if not isinstance(attrs, dict):
-            return
-        net = int(attrs.get("netuid") or netuid)
-        repaid_rao = int(attrs.get("principal_repaid") or 0)
-        refund_rao = int(attrs.get("refund") or 0)
-        escrow_rao = int(attrs.get("escrow_returned") or 0)
-        principal_unit = net if side == "Short" else 0
-        refund_unit = 0 if side == "Short" else net
+        # Partial repay emits Repaid; full-principal repay closes and emits Closed
+        # (Auditor fid:fe25eda6).
+        repaid = _find_event(result.events, "Lending", "Repaid")
+        closed = _find_event(result.events, "Lending", "Closed")
         payment = quote["payment"]
         payment_rao = payment.rao if isinstance(payment, Balance) else int(payment or 0)
-        _result_amounts(
-            result,
-            display={
-                "principal_repaid": _fmt_amount(Balance.from_rao(repaid_rao, principal_unit)),
-                "payment": _fmt_amount(payment),
-                "refund": _fmt_amount(Balance.from_rao(refund_rao, refund_unit)),
-                "escrow_returned": _fmt_amount(
-                    Balance.from_rao(escrow_rao, 0 if side == "Short" else net)
-                ),
-            },
-            raw={
-                "principal_repaid": repaid_rao,
-                "payment": payment_rao,
-                "refund": refund_rao,
-                "escrow_returned": escrow_rao,
-            },
-        )
+        if isinstance(repaid, dict):
+            net = int(repaid.get("netuid") or netuid)
+            repaid_rao = int(repaid.get("principal_repaid") or 0)
+            refund_rao = int(repaid.get("refund") or 0)
+            escrow_rao = int(repaid.get("escrow_returned") or 0)
+            principal_unit = net if side == "Short" else 0
+            refund_unit = 0 if side == "Short" else net
+            _result_amounts(
+                result,
+                display={
+                    "principal_repaid": _fmt_amount(Balance.from_rao(repaid_rao, principal_unit)),
+                    "payment": _fmt_amount(payment),
+                    "refund": _fmt_amount(Balance.from_rao(refund_rao, refund_unit)),
+                    "escrow_returned": _fmt_amount(
+                        Balance.from_rao(escrow_rao, 0 if side == "Short" else net)
+                    ),
+                },
+                raw={
+                    "principal_repaid": repaid_rao,
+                    "payment": payment_rao,
+                    "refund": refund_rao,
+                    "escrow_returned": escrow_rao,
+                },
+            )
+            return
+        if isinstance(closed, dict):
+            net = int(closed.get("netuid") or netuid)
+            refund_rao = int(closed.get("refund") or 0)
+            top_up = int(closed.get("wallet_top_up") or 0)
+            refund_unit = 0 if side == "Short" else net
+            _result_amounts(
+                result,
+                display={
+                    "payment": _fmt_amount(payment),
+                    "refund": _fmt_amount(Balance.from_rao(refund_rao, refund_unit)),
+                    "wallet_top_up": _fmt_amount(Balance.from_rao(top_up, 0)),
+                },
+                raw={
+                    "payment": payment_rao,
+                    "refund": refund_rao,
+                    "wallet_top_up": top_up,
+                },
+            )
 
     context.submit(
         intent,
