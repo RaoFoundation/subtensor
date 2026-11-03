@@ -14,6 +14,7 @@ from ..balance import Balance
 from ..intents._money import alpha_amount, tao_amount
 from ..intents.lending import POSITIONS, check_side
 from ..result import BittensorError, ChainError, chain_error_from_dispatch
+from ..settings import ALPHA_SYMBOL, TAO_SYMBOL
 from .base import read
 
 LIFTS = Item("Lending", "Lifts", "LiftBook")
@@ -23,6 +24,8 @@ INTEREST_RETRY = Item("Lending", "InterestRetry")
 EXPIRY_RETRY = Item("Lending", "ExpiryRetry")
 LAST_DEFERRAL = Item("Lending", "LastDeferral")
 MINER_COLLATERAL = Item("SubtensorModule", "MinerCollateral", "MinerCollateralState")
+SUBNET_TAO = Item("SubtensorModule", "SubnetTAO", "TaoBalance")
+SUBNET_ALPHA_IN = Item("SubtensorModule", "SubnetAlphaIn", "AlphaBalance")
 QUOTE_OPEN = Method("LendingRuntimeApi", "quote_open")
 QUOTE_OPEN_FOR = Method("LendingRuntimeApi", "quote_open_for")
 QUOTE_OPEN_EXACT_FOR = Method("LendingRuntimeApi", "quote_open_exact_for")
@@ -84,6 +87,103 @@ def _ok(raw: Any) -> dict:
     if not isinstance(result, dict):
         raise BittensorError("invalid lending quote response")
     return result
+
+
+def _fmt_rao(rao: int, netuid: int) -> str:
+    """τ / α_N money text (same form as CLI Result cards)."""
+    amount = int(rao) / 1_000_000_000
+    if netuid == 0:
+        return f"{TAO_SYMBOL}{amount:,.9f}"
+    return f"{amount:,.9f}{ALPHA_SYMBOL}_{netuid}"
+
+
+async def pool_capacity_detail(
+    view, netuid: int, side: str, principal: Balance, error: ChainError
+) -> ChainError:
+    """N20: PrincipalExceeds* → exceeds pool capacity with max ~pool reserve."""
+    side = check_side(side)
+    try:
+        if side == "Short":
+            raw = await view.query(SUBNET_ALPHA_IN, [netuid])
+            pool = int(raw or 0)
+            unit = netuid
+            name = "PrincipalExceedsAlphaIn"
+        else:
+            raw = await view.query(SUBNET_TAO, [netuid])
+            pool = int(raw or 0)
+            unit = 0
+            name = "PrincipalExceedsTaoIn"
+    except Exception:
+        pool = 0
+        unit = netuid if side == "Short" else 0
+        name = error.name or (
+            "PrincipalExceedsAlphaIn" if side == "Short" else "PrincipalExceedsTaoIn"
+        )
+    # Chain requires principal strictly less than the reserve.
+    cap = max(pool - 1, 0) if pool > 0 else 0
+    message = (
+        f"exceeds pool capacity for borrow {_fmt_rao(principal.rao, principal.netuid)}: "
+        f"max ~{_fmt_rao(cap, unit)} ({name})"
+    )
+    out = ChainError(message, name)
+    out.remediation_override = (
+        f"reduce --amount below ~{_fmt_rao(cap, unit)}, or wait for deeper "
+        f"{'alpha' if side == 'Short' else 'TAO'} reserves on netuid {netuid}"
+    )
+    return out
+
+
+async def stake_unavailable_lending_detail(
+    view,
+    coldkey_ss58: str,
+    hotkey_ss58: str,
+    netuid: int,
+    *,
+    need: Optional[Balance] = None,
+) -> BittensorError:
+    """N20: lending-specific StakeUnavailable naming locked vs free alpha."""
+    info, availability, bond = await asyncio.gather(
+        view.runtime(
+            api.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
+            [hotkey_ss58, coldkey_ss58, netuid],
+        ),
+        view.runtime(
+            api.StakeInfoRuntimeApi.get_stake_availability_for_coldkeys,
+            [[coldkey_ss58], [netuid]],
+        ),
+        view.query(MINER_COLLATERAL, [netuid, hotkey_ss58, coldkey_ss58]),
+    )
+    stake = _nonnegative(info.get("stake") if isinstance(info, dict) else 0, "alpha stake")
+    per_owner = availability.get(coldkey_ss58, {}) if isinstance(availability, dict) else {}
+    entry = (
+        per_owner.get(netuid, per_owner.get(str(netuid), {})) if isinstance(per_owner, dict) else {}
+    )
+    available = _nonnegative(
+        entry.get("available", 0) if isinstance(entry, dict) else 0, "available alpha"
+    )
+    # Availability already subtracts conviction Lock; surface the locked remainder.
+    locked_conviction = max(stake - available, 0)
+    miner_locked = _nonnegative(
+        bond.get("locked") if isinstance(bond, dict) else 0, "miner collateral"
+    )
+    free = min(available, max(stake - miner_locked, 0))
+    parts = [
+        f"lending stake unavailable on {hotkey_ss58} (netuid {netuid})",
+        f"free {_fmt_rao(free, netuid)}",
+        f"conviction-locked {_fmt_rao(locked_conviction, netuid)}",
+        f"miner-collateral {_fmt_rao(miner_locked, netuid)}",
+    ]
+    if need is not None:
+        parts.append(f"needed {_fmt_rao(need.rao, need.netuid)}")
+    err = ChainError("; ".join(parts), "StakeUnavailable")
+    err.remediation_override = (
+        "lending can only take unlocked alpha on this hotkey — wait out conviction "
+        f"Lock ({_fmt_rao(locked_conviction, netuid)}), free miner collateral "
+        f"({_fmt_rao(miner_locked, netuid)}), stake more, or pass a hotkey with free "
+        f"alpha (have {_fmt_rao(free, netuid)}; check `btcli stake list` / "
+        "`btcli conviction show`)"
+    )
+    return err
 
 
 async def _interest_clock(view, netuid: int) -> tuple[int, int]:
@@ -446,12 +546,26 @@ async def lending_raise_quote(
         else cast(Balance, alpha_amount(collateral_alpha, netuid)).rao
     )
     sell = None if sell_alpha is None else cast(Balance, alpha_amount(sell_alpha, netuid)).rao
-    raw = _ok(
-        await view.runtime(
-            QUOTE_RAISE,
-            [coldkey_ss58, netuid, hotkey_ss58, amount, collateral, sell],
+    try:
+        raw = _ok(
+            await view.runtime(
+                QUOTE_RAISE,
+                [coldkey_ss58, netuid, hotkey_ss58, amount, collateral, sell],
+            )
         )
-    )
+    except ChainError as error:
+        if error.name == "StakeUnavailable":
+            need = None
+            if collateral is not None or sell is not None:
+                need = view.balance(int(collateral or 0) + int(sell or 0), netuid)
+            raise await stake_unavailable_lending_detail(
+                view, coldkey_ss58, hotkey_ss58, netuid, need=need
+            ) from error
+        if error.name in ("PrincipalExceedsAlphaIn", "PrincipalExceedsTaoIn") and amount:
+            raise await pool_capacity_detail(
+                view, netuid, "Long", view.balance(int(amount), 0), error
+            ) from error
+        raise
     return {
         "principal_tao": view.balance(int(raw["principal_tao"]), 0),
         "collateral_alpha": view.balance(int(raw["collateral_alpha"]), netuid),
@@ -658,12 +772,23 @@ async def lending_required_collateral(
             except ChainError as error:
                 if error.name == "InsufficientCollateral":
                     quotes[collateral] = None
+                elif error.name in ("PrincipalExceedsAlphaIn", "PrincipalExceedsTaoIn"):
+                    # N20: pool-capacity refusals are not collateral shortages.
+                    raise await pool_capacity_detail(
+                        view, netuid, side, principal, error
+                    ) from error
                 elif error.name == "StakeUnavailable" and available is not None:
                     # Probe above unlocked stake — treat as out of search range.
                     if collateral > available:
                         quotes[collateral] = None
                     else:
-                        raise
+                        raise await stake_unavailable_lending_detail(
+                            view,
+                            coldkey_ss58,
+                            hotkey_ss58 or "",
+                            netuid,
+                            need=view.balance(collateral, unit),
+                        ) from error
                 else:
                     raise
         return quotes[collateral]
@@ -723,8 +848,9 @@ async def lending_required_collateral(
             "only). When omitted, the runtime skips the hotkey-existence check."
         ),
         "repay_from_wallet": (
-            "False (default): quote the escrow AMM buyback for a short. "
-            "True: repay short alpha from a call-supplied hotkey stake."
+            "False / --from-escrow (default): quote the escrow AMM buyback for a short. "
+            "True / --from-wallet (alias --repay-from-wallet): repay short alpha from a "
+            "call-supplied hotkey stake."
         ),
     },
 )
@@ -787,8 +913,9 @@ async def lending_close_quote(
             "alpha refund (long repay). Omit for short escrow buyback (TAO only)."
         ),
         "repay_from_wallet": (
-            "False (default): quote the escrow AMM path for the slice. "
-            "True: repay short alpha from a call-supplied hotkey stake."
+            "False / --from-escrow (default): quote the escrow AMM path for the slice. "
+            "True / --from-wallet (alias --repay-from-wallet): repay short alpha from a "
+            "call-supplied hotkey stake."
         ),
     },
 )

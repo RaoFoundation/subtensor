@@ -139,6 +139,10 @@ def _make_command(name: str, spec):
     def command(ctx: typer.Context, **kwargs: Any) -> None:
         g.apply(ctx, kwargs)
         app_ctx = ctx_of(ctx)
+        # N21: hidden --repay-from-wallet alias maps onto repay_from_wallet.
+        alias = kwargs.pop("_repay_from_wallet_alias", None)
+        if alias is not None and "repay_from_wallet" in spec.params:
+            kwargs["repay_from_wallet"] = alias
         missing: list[PromptSpec] = []
         for pname, ptype in spec.params.items():
             if not _is_required(pname, fetch_params) or kwargs.get(pname) is not None:
@@ -235,15 +239,39 @@ def _make_command(name: str, spec):
         annotations[pname] = Optional[base_type]
         # Bool options get a negated twin (--flag/--no-flag) so default-True
         # fields (e.g. lite) can be turned off — same pattern as `tx.py`.
-        flag_name = f"{cli_name}/--no-{cli_name[2:]}" if ptype == "boolean" else cli_name
+        # N21: lending close/repay quotes share --from-wallet with tx commands.
+        if pname == "repay_from_wallet" and ptype == "boolean":
+            flag_name = "--from-wallet/--from-escrow"
+        elif ptype == "boolean":
+            flag_name = f"{cli_name}/--no-{cli_name[2:]}"
+        else:
+            flag_name = cli_name
+        option_kwargs: dict[str, Any] = {"help": help_text}
         params.append(
             inspect.Parameter(
                 pname,
                 inspect.Parameter.KEYWORD_ONLY,
-                default=typer.Option(option_default, flag_name, help=help_text),
+                default=typer.Option(option_default, flag_name, **option_kwargs),
                 annotation=annotations[pname],
             )
         )
+        # Hidden deprecated alias so scripts using --repay-from-wallet still work.
+        if pname == "repay_from_wallet" and ptype == "boolean":
+            alias_name = "_repay_from_wallet_alias"
+            annotations[alias_name] = Optional[bool]
+            params.append(
+                inspect.Parameter(
+                    alias_name,
+                    inspect.Parameter.KEYWORD_ONLY,
+                    default=typer.Option(
+                        None,
+                        "--repay-from-wallet/--no-repay-from-wallet",
+                        hidden=True,
+                        help="Deprecated alias of --from-wallet/--from-escrow.",
+                    ),
+                    annotation=Optional[bool],
+                )
+            )
     for p in g.parameters("read"):
         annotations[p.name] = p.annotation
         params.append(p)

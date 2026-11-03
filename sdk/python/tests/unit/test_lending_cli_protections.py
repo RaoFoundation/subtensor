@@ -148,7 +148,8 @@ def test_raise_loan_valid_until_default_is_none():
 def test_insufficient_escrow_mentions_shortfall():
     text = LENDING_DESCRIPTIONS["InsufficientEscrow"]
     assert "shortfall" in text.lower()
-    assert "repay-from-wallet" in text.lower() or "repay_from_wallet" in text.lower()
+    assert "--from-wallet" in text or "from-wallet" in text.lower()
+    assert "repay-from-wallet" in text.lower()  # documented alias
     assert "§" not in text
     for name, body in LENDING_DESCRIPTIONS.items():
         assert "§" not in body, name

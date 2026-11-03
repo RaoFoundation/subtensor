@@ -394,8 +394,10 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "`btcli wallet balance`"
     ),
     "StakeUnavailable": (
-        "only free stake can move — wait out conviction locks or drain miner "
-        "collateral, then retry; check locked vs free with `btcli stake list`"
+        "only unlocked stake can move — conviction Lock and/or miner collateral "
+        "still reserves some of this hotkey's alpha. For lending collateral / raise "
+        "sales, free that locked stake or use a hotkey with free alpha; check "
+        "`btcli stake list` / `btcli conviction show`"
     ),
     "LockHotkeyMismatch": (
         "reuse the existing lock hotkey, or for transfers of locked alpha land "

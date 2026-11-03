@@ -1152,7 +1152,7 @@
       "coldkey_ss58": "Position owner.",
       "netuid": "Subnet of the position.",
       "hotkey_ss58": "Optional per-call hotkey for alpha repay (short wallet path) or alpha refund (long close). Omit for short escrow buyback (TAO only). When omitted, the runtime skips the hotkey-existence check.",
-      "repay_from_wallet": "False (default): quote the escrow AMM buyback for a short. True: repay short alpha from a call-supplied hotkey stake."
+      "repay_from_wallet": "False / --from-escrow (default): quote the escrow AMM buyback for a short. True / --from-wallet (alias --repay-from-wallet): repay short alpha from a call-supplied hotkey stake."
     },
     "category": "Prices & swaps",
     "docs_url": "/docs/query/lending-close-quote",
@@ -1257,7 +1257,7 @@
       "netuid": "Subnet of the position.",
       "principal_part": "Principal to repay: alpha for a short, TAO for a long. Must be > 0 and \u2264 stored principal; full principal matches lending_close_quote.",
       "hotkey_ss58": "Optional per-call hotkey for alpha repay (short wallet path) or alpha refund (long repay). Omit for short escrow buyback (TAO only).",
-      "repay_from_wallet": "False (default): quote the escrow AMM path for the slice. True: repay short alpha from a call-supplied hotkey stake."
+      "repay_from_wallet": "False / --from-escrow (default): quote the escrow AMM path for the slice. True / --from-wallet (alias --repay-from-wallet): repay short alpha from a call-supplied hotkey stake."
     },
     "category": "Prices & swaps",
     "docs_url": "/docs/query/lending-repay-quote",

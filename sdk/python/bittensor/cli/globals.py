@@ -30,7 +30,6 @@ from typing import Any, Callable, Iterable, Literal, Optional
 import typer
 
 from ..intents.proxy import ProxyTypeChoice
-from ..settings import guide_docs_url
 from .logs import setup_logging
 from .multisig_helpers import SIGNATORY_BACKENDS
 
@@ -204,9 +203,9 @@ _TX_FLOW = [
         typer.Option(
             None,
             "--proxy-for",
-            help="Dispatch as this account (ss58, proxy-book/address-book name, or "
-            "local wallet name) via Proxy.proxy; your wallet key signs as its "
-            "registered proxy. Pass `self` to bypass a configured default.",
+            help="Dispatch as this account (ss58, named proxy/address, or local "
+            "wallet) via Proxy.proxy; your wallet key signs as its registered "
+            "proxy. Pass `self` to bypass a configured default.",
             rich_help_panel=PANEL_EXECUTION,
         ),
     ),
@@ -216,7 +215,9 @@ _TX_FLOW = [
         typer.Option(
             None,
             "--force-proxy-type",
-            help="Require this exact proxy type to be used (with --proxy-for).",
+            metavar="TYPE",
+            show_choices=False,
+            help="Require this exact proxy type with --proxy-for (Any, Owner, Staking, …).",
             rich_help_panel=PANEL_EXECUTION,
         ),
     ),
@@ -280,8 +281,8 @@ _SIGNER = [
             None,
             "--signer",
             help="Signing backend: wallet (default), extension, ledger, or vault "
-            "(Polkadot Vault via QR). Guides: "
-            f"{guide_docs_url('ledger')} and {guide_docs_url('vault')}.",
+            "(Polkadot Vault via QR). Docs paths: guides/ledger.mdx, guides/vault.mdx "
+            "(BITTENSOR_DOCS_REF / BITTENSOR_DOCS_URL).",
             rich_help_panel=PANEL_EXTENSION,
         ),
     ),

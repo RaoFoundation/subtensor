@@ -449,7 +449,8 @@ def open_loan(
         async def size(client):
             # Enrich inside this coroutine: AppContext.run catches BittensorError,
             # prints it, and raises typer.Exit — so a surrounding except never
-            # runs (U4 / N16).
+            # runs (U4 / N16). N20: only collateral shortages get need-vs-available
+            # wrapping — PrincipalExceeds* / other chain errors keep their own text.
             try:
                 required = await client.read(
                     "lending_required_collateral",
@@ -460,8 +461,25 @@ def open_loan(
                     **({"hotkey_ss58": hotkey} if hotkey is not None else {}),
                 )
             except BittensorError as error:
-                detail = str(error)
                 name = getattr(error, "name", None) or ""
+                detail = str(error).strip()
+                # SDK already maps PrincipalExceeds* / StakeUnavailable (N20).
+                if name in (
+                    "PrincipalExceedsAlphaIn",
+                    "PrincipalExceedsTaoIn",
+                    "StakeUnavailable",
+                ):
+                    raise
+                if name and name not in (
+                    "InsufficientCollateral",
+                    "",
+                ):
+                    # Preserve SideCapacity / EmptyPool / PriceTooFarFromEma / …
+                    if name not in detail:
+                        detail = f"{detail} ({name})" if detail else name
+                    if "borrow" not in detail.lower():
+                        detail = f"{detail} (borrow {_fmt_amount(requested)})"
+                    raise BittensorError(detail) from error
                 try:
                     if side == Side.long and hotkey is not None:
                         available = await _available_alpha(client._substrate, owner, hotkey, netuid)
@@ -479,9 +497,13 @@ def open_loan(
                         )
                     elif name:
                         detail = f"{detail} (borrow {_fmt_amount(requested)})"
+                    elif not detail:
+                        detail = f"loan sizing failed (borrow {_fmt_amount(requested)})"
                 except Exception:
                     if name:
-                        detail = f"{detail} (borrow {_fmt_amount(requested)})"
+                        detail = f"{detail or name} (borrow {_fmt_amount(requested)})"
+                    elif not detail:
+                        detail = f"loan sizing failed (borrow {_fmt_amount(requested)})"
                 raise BittensorError(detail) from error
             minimum = required["collateral"]
             provided = await _provided_collateral(client, minimum, netuid, owner, max_slippage)
@@ -693,9 +715,15 @@ def close_loan(
     ),
     repay_from_wallet: bool = typer.Option(
         False,
-        # Short names only — long aliases overflow an 80-col Options column (F15).
+        # Short names in help (F15); --repay-from-wallet restored as hidden alias (N21).
         "--from-wallet/--from-escrow",
         help=("Escrow path (default) or wallet repay. Longs still need --hotkey for alpha refund."),
+    ),
+    repay_from_wallet_alias: Optional[bool] = typer.Option(
+        None,
+        "--repay-from-wallet/--no-repay-from-wallet",
+        hidden=True,
+        help="Deprecated alias of --from-wallet/--from-escrow.",
     ),
     max_slippage: float = typer.Option(
         1.0,
@@ -712,13 +740,15 @@ def close_loan(
 
     Positions store no hotkey. By default closes take the TAO-refund path
     (escrow AMM buyback for shorts; sell escrow for longs) — matching the
-    SDK CloseLoan default. Pass --from-wallet to repay short alpha from
-    --hotkey stake or pay long TAO from free balance. Pass --hotkey for alpha
-    repay (short wallet path) or alpha refund (long close / short buyback
-    surplus). The full runtime quote sets a payment ceiling and refund floor;
-    a failed quote stops submission.
+    SDK CloseLoan default. Pass --from-wallet (alias: --repay-from-wallet) to
+    repay short alpha from --hotkey stake or pay long TAO from free balance.
+    Pass --hotkey for alpha repay (short wallet path) or alpha refund (long
+    close / short buyback surplus). The full runtime quote sets a payment
+    ceiling and refund floor; a failed quote stops submission.
     """
     context = ctx_of(ctx)
+    if repay_from_wallet_alias is not None:
+        repay_from_wallet = repay_from_wallet_alias
     try:
         _require_slippage(max_slippage)
     except BittensorError as error:
@@ -788,7 +818,7 @@ def close_loan(
         ("minimum leftover refund", _fmt_amount(intent.min_refund)),
     ]
     # Only shorts collect a free-TAO top-up on the escrow path; insolvent longs
-    # must use --repay-from-wallet for the full principal (Auditor fid:7d5e8753).
+    # must use --from-wallet for the full principal (Auditor fid:7d5e8753).
     if side == "Short" and isinstance(shortfall, Balance) and shortfall.rao > 0:
         repay_rows.append(("wallet top-up (shortfall)", _fmt_amount(shortfall)))
     elif (
@@ -861,8 +891,14 @@ def repay_loan(
     principal: Optional[str] = typer.Option(
         None,
         "--principal",
-        "--amount",
         help=RepayLoan.field_help("principal_part"),
+    ),
+    # Hidden --amount alias: listing both names truncates at 80 cols (F15).
+    principal_amount_alias: Optional[str] = typer.Option(
+        None,
+        "--amount",
+        hidden=True,
+        help="Alias of --principal.",
     ),
     hotkey_ss58: Optional[str] = typer.Option(
         None,
@@ -873,6 +909,12 @@ def repay_loan(
         False,
         "--from-wallet/--from-escrow",
         help=("Escrow path (default) or wallet repay. Longs still need --hotkey for alpha refund."),
+    ),
+    repay_from_wallet_alias: Optional[bool] = typer.Option(
+        None,
+        "--repay-from-wallet/--no-repay-from-wallet",
+        hidden=True,
+        help="Deprecated alias of --from-wallet/--from-escrow.",
     ),
     max_slippage: float = typer.Option(
         1.0,
@@ -885,20 +927,25 @@ def repay_loan(
         ),
     ),
 ):
-    """Partially repay principal and return a pro-rata collateral slice.
+    """Repay principal (partial or full) and return a pro-rata collateral slice.
 
-    Pass --principal / --amount (alpha for a short, TAO for a long). Full
-    principal equals btcli lending close. Hotkey and wallet/escrow flags match
-    close. The runtime quote sets payment ceiling and refund floor for the
-    slice. Partial repay does not restart the one-year term.
+    Pass --principal (alias: --amount; alpha for a short, TAO for a long). Full
+    principal equals btcli lending close. Hotkey and --from-wallet flags match
+    close (--repay-from-wallet is a hidden alias). The runtime quote sets
+    payment ceiling and refund floor for the slice. Partial repay does not
+    restart the one-year term.
     """
     context = ctx_of(ctx)
+    if repay_from_wallet_alias is not None:
+        repay_from_wallet = repay_from_wallet_alias
+    if principal is None and principal_amount_alias is not None:
+        principal = principal_amount_alias
     try:
         _require_slippage(max_slippage)
     except BittensorError as error:
         _exit_error(context, str(error))
     if principal is None:
-        _exit_error(context, "provide --principal / --amount of debt to repay")
+        _exit_error(context, "provide --principal of debt to repay")
     owner = context.review_account()
     if owner is None:
         _exit_error(context, "select the account that owns this position before repaying")
@@ -925,7 +972,7 @@ def repay_loan(
             principal,
             tao=side != "Short",
             netuid=netuid,
-            label="--principal / --amount",
+            label="--principal",
         )
     except BittensorError as error:
         _exit_error(context, str(error))
@@ -957,6 +1004,7 @@ def repay_loan(
         max_payment=_bound(quote["payment"], max_slippage, ceiling=True),
         min_refund=_bound(quote["refund"], max_slippage),
     )
+    intent._closes_position = part.rao == stored.rao
     shortfall = quote.get("shortfall")
     head = context.run(lambda client: client.block())
     repay_rows = [
@@ -1377,6 +1425,15 @@ def raise_loan(
                 f"{_fmt_amount(intent.min_tao_out)}. Re-quote and raise --max-slippage "
                 f"(was {max_slippage}%), or reduce size"
             )
+        if error is not None and error.name == "StakeUnavailable":
+            # Extrinsic-time stake gate: name locked vs free alpha (N20).
+            error.remediation_override = (
+                "lending raise needs unlocked alpha on --hotkey for collateral "
+                "(and the default escrowed sale). Conviction Lock / miner collateral "
+                "blocks that stake — check free vs locked with `btcli stake list` / "
+                "`btcli conviction show`, wait out the lock, free collateral, or use "
+                "a hotkey with free alpha"
+            )
         if not result.success:
             return
         attrs = _find_event(result.events, "Lending", "Raised")
@@ -1516,9 +1573,17 @@ def show_position(
         "--from-wallet/--from-escrow",
         help="Quote wallet-repay close instead of the default escrow path.",
     ),
+    repay_from_wallet_alias: Optional[bool] = typer.Option(
+        None,
+        "--repay-from-wallet/--no-repay-from-wallet",
+        hidden=True,
+        help="Deprecated alias of --from-wallet/--from-escrow.",
+    ),
 ):
     """Show one open loan and its close quote (read-only; no transaction)."""
     context = ctx_of(ctx)
+    if repay_from_wallet_alias is not None:
+        repay_from_wallet = repay_from_wallet_alias
     owner = context.resolve_address("coldkey_ss58", coldkey_ss58)
     if owner is None:
         _exit_error(context, "select the account that owns this position")
@@ -1559,7 +1624,10 @@ def show_position(
     underwater = (
         bool(position.get("underwater")) or bool(position.get("insolvent")) or shortfall_rao > 0
     )
-    status = "underwater" if underwater else "ok"
+    # Mirror list: pending deferral beats ok even when the close quote is solvent.
+    if underwater and not position.get("underwater"):
+        position = {**position, "underwater": True, "close_shortfall": shortfall}
+    status = _position_status_label(position)
     fields = {
         "owner": owner,
         "netuid": netuid,
@@ -1583,7 +1651,7 @@ def show_position(
             "forfeit if still insolvent (burn remaining C, restore lift+escrow, no refund)"
         )
         # Shorts can fund a free-TAO top-up on escrow close; longs cannot —
-        # they need --repay-from-wallet for the full principal (Auditor fid:7d5e8753).
+        # they need --from-wallet for the full principal (Auditor fid:7d5e8753).
         if position.get("side") == "Short" and isinstance(shortfall, Balance) and shortfall.rao > 0:
             fields["wallet top-up to close now"] = _fmt_amount(shortfall)
         elif position.get("side") == "Long":

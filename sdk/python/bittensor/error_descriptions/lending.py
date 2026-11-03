@@ -56,12 +56,14 @@ DESCRIPTIONS: dict[str, str] = {
         "Wait for liquidity or pick another subnet."
     ),
     "PrincipalExceedsAlphaIn": (
-        "Short principal must be strictly less than pool alpha in. Reduce principal or wait "
-        "for deeper alpha reserves."
+        "Short principal exceeds pool capacity (must be strictly less than SubnetAlphaIn). "
+        "Reduce --amount below ~pool alpha in, or wait for deeper alpha reserves. This is "
+        "not an insufficient-collateral failure."
     ),
     "PrincipalExceedsTaoIn": (
-        "Long principal must be strictly less than pool TAO in. Reduce principal or wait for "
-        "deeper TAO reserves."
+        "Long principal exceeds pool capacity (must be strictly less than SubnetTAO). "
+        "Reduce --amount below ~pool TAO in, or wait for deeper TAO reserves. This is not "
+        "an insufficient-collateral failure."
     ),
     "CollateralExceedsMax": (
         "Collateral exceeds the caller's max_collateral_alpha (or that max is zero). Raise "
@@ -92,8 +94,8 @@ DESCRIPTIONS: dict[str, str] = {
         "Escrow plus collateral cannot cover this repay/close path (or free TAO cannot cover "
         "an underwater-short top-up). Check lending_close_quote / lending_repay_quote for "
         "payment, leftover refund, and shortfall; fund free TAO for the top-up or use "
-        "--repay-from-wallet. Insolvent longs forfeit at expiry if still uncovered. Accrued "
-        "interest reduces usable collateral."
+        "--from-wallet (alias: --repay-from-wallet). Insolvent longs forfeit at expiry if "
+        "still uncovered. Accrued interest reduces usable collateral."
     ),
     "InsufficientCollateral": (
         "The requested additional debt needs more collateral under V_dyn / LTV checks. Use "

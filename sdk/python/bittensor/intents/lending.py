@@ -264,14 +264,13 @@ class OpenLoan(Intent):
         )
 
     def summary(self) -> str:
+        collateral = _fmt_lending_amount(self.collateral)
         if self.amount is not None:
             return (
-                f"borrow exactly {self.amount} as {self.side.lower()} on netuid {self.netuid}, "
-                f"add {self.collateral}"
+                f"borrow exactly {_fmt_lending_amount(self.amount)} as {self.side.lower()} "
+                f"on netuid {self.netuid}, add {collateral}"
             )
-        return (
-            f"open or increase {self.side.lower()} on netuid {self.netuid}, add {self.collateral}"
-        )
+        return f"open or increase {self.side.lower()} on netuid {self.netuid}, add {collateral}"
 
     async def preflight(
         self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
@@ -505,8 +504,15 @@ class RaiseLoan(Intent):
         return await substrate.compose(Call("Lending", "open_long_and_sell", params))
 
     def summary(self) -> str:
-        sell = self.sell_alpha if self.sell_alpha is not None else "escrowed α (default)"
-        return f"raise on netuid {self.netuid}: long + sell {sell} (min out {self.min_tao_out})"
+        sell = (
+            _fmt_lending_amount(self.sell_alpha)
+            if self.sell_alpha is not None
+            else "escrowed α (default)"
+        )
+        return (
+            f"raise on netuid {self.netuid}: long + sell {sell} "
+            f"(min out {_fmt_lending_amount(self.min_tao_out)})"
+        )
 
     def spend(self) -> Spend:
         return None
@@ -751,6 +757,7 @@ class RepayLoan(Intent):
             raise BittensorError(
                 f"principal_part {principal.rao} exceeds stored principal {stored}"
             )
+        self._closes_position = principal.rao == stored
         payment = cast(
             Balance,
             (
@@ -796,6 +803,8 @@ class RepayLoan(Intent):
         )
 
     def summary(self) -> str:
+        if getattr(self, "_closes_position", False):
+            return f"fully repay lending position on netuid {self.netuid}"
         return f"partially repay lending position on netuid {self.netuid}"
 
     def spend(self) -> Spend:
@@ -810,6 +819,13 @@ def _fmt_outcome_amount(rao: int, netuid: int) -> str:
     if netuid == 0:
         return f"{TAO_SYMBOL}{amount:,.9f}"
     return f"{amount:,.9f}{ALPHA_SYMBOL}_{netuid}"
+
+
+def _fmt_lending_amount(amount: Any) -> str:
+    """Prefer α_N over Balance's subscript α₁ in lending summaries."""
+    if isinstance(amount, Balance):
+        return _fmt_outcome_amount(amount.rao, amount.netuid)
+    return str(amount)
 
 
 def _find_lending_event(events: list, *names: str) -> Optional[dict]:
