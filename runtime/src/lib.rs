@@ -1457,6 +1457,9 @@ parameter_types! {
     pub const LendingExpiryRetryDelay: BlockNumber = 100;
     // Same bound for failed interest collections (Auditor fid:2aff7381).
     pub const LendingInterestRetryDelay: BlockNumber = 100;
+    // Max band-deferral window for permissionless expiry / interest-exhaustion
+    // forfeit (~24 h at 12 s). Matches LiftParams.settle_ema_blocks default.
+    pub const LendingMaxSettlementDeferral: BlockNumber = 7_200;
 }
 
 impl pallet_lending::Config for Runtime {
@@ -1470,6 +1473,7 @@ impl pallet_lending::Config for Runtime {
     type MaxTotalPositions = LendingMaxTotalPositions;
     type ExpiryRetryDelay = LendingExpiryRetryDelay;
     type InterestRetryDelay = LendingInterestRetryDelay;
+    type MaxSettlementDeferral = LendingMaxSettlementDeferral;
     type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
 }
 

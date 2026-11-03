@@ -1088,6 +1088,8 @@ def _lending_stats_record(raw: Any, *, netuid: Optional[int]) -> dict:
         "k_neutral_surplus_burned_alpha": u("k_neutral_surplus_burned_alpha"),
         "forfeited_collateral_tao": u("forfeited_collateral_tao"),
         "forfeited_collateral_alpha": u("forfeited_collateral_alpha"),
+        "forfeit_buyback_tao": u("forfeit_buyback_tao"),
+        "forfeit_buyback_alpha": u("forfeit_buyback_alpha"),
         "forfeit_count": u("forfeit_count"),
         "expiry_settlement_count": u("expiry_settlement_count"),
         "closes_long": u("closes_long"),

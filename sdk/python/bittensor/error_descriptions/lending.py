@@ -94,8 +94,9 @@ DESCRIPTIONS: dict[str, str] = {
         "Escrow plus collateral cannot cover this repay/close path (or free TAO cannot cover "
         "an underwater-short top-up). Check lending_close_quote / lending_repay_quote for "
         "payment, leftover refund, and shortfall; fund free TAO for the top-up or use "
-        "--from-wallet (alias: --repay-from-wallet). Insolvent longs forfeit at expiry if "
-        "still uncovered. Accrued interest reduces usable collateral."
+        "--from-wallet (alias: --repay-from-wallet). Insolvent positions forfeit at expiry "
+        "(buyback through the pool; leftover collateral burned; no refund) once spot is "
+        "inside the EMA band. Accrued interest reduces usable collateral."
     ),
     "InsufficientCollateral": (
         "The requested additional debt needs more collateral under V_dyn / LTV checks. Use "
@@ -144,8 +145,15 @@ DESCRIPTIONS: dict[str, str] = {
         "Post-trade spot would leave the directional EMA band on the exploitable side "
         "(longs above EMA·(1+band), shorts below EMA·(1−band); default band 15%). Wait for "
         "spot to mean-revert, open the other side, reduce size, or close/repay an existing "
-        "position (exits are never blocked). Confirm free balance / unlocked stake before "
-        "retrying a large collateral quote."
+        "position (manual exits are never blocked). Confirm free balance / unlocked stake "
+        "before retrying a large collateral quote."
+    ),
+    "SettlementPriceOutsideEmaBand": (
+        "Permissionless settlement (fixed-term expiry or interest-exhaustion forfeit) saw "
+        "spot outside the 15% EMA band. The claim is deferred (~100 blocks) and retried; "
+        "after MaxSettlementDeferral (~24 h / 7_200 blocks from the first band deferral) "
+        "it settles anyway. Manual close/repay is unaffected — use those with your own "
+        "slippage limits if you need to exit now."
     ),
     "InvalidLiftParams": (
         "Lift parameters are out of range (for example floor/thin_floor above ceiling). Check "

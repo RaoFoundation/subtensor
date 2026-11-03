@@ -1700,7 +1700,7 @@ def show_position(
     }
     if shortfall_rao > 0 and not repay_from_wallet:
         fields["at expiry"] = (
-            "forfeit if still insolvent (burn remaining C, restore lift+escrow, no refund)"
+            "forfeit if still insolvent (buy back through pool, burn leftover C, no refund)"
         )
         # Shorts can fund a free-TAO top-up on escrow close; longs cannot —
         # they need --from-wallet for the full principal (Auditor fid:7d5e8753).

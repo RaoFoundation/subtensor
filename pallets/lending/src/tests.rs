@@ -49,6 +49,8 @@ impl Config for Test {
     // 64-block empty-bump budget (Skeptic fid:1c6bb1dc).
     type ExpiryRetryDelay = ConstU64<100>;
     type InterestRetryDelay = ConstU64<100>;
+    // Short window so band-force tests stay cheap (2× ExpiryRetryDelay).
+    type MaxSettlementDeferral = ConstU64<200>;
     type WeightInfo = ();
 }
 
@@ -3218,6 +3220,8 @@ fn fixed_term_expiry_closes_at_spot_not_reference_ema() {
         ));
 
         // A far-away smoothed reference must not influence expiry valuation.
+        // Spot is outside the settlement band, so the first attempt defers; force
+        // after MaxSettlementDeferral so we still settle with EMA far from spot.
         let reference_rate = U64F64::from_num(1u64) / U64F64::from_num(4u64); // 0.25 τ/α
         set_reference_price(reference_rate);
         let spot = MockPool::price();
@@ -3225,12 +3229,36 @@ fn fixed_term_expiry_closes_at_spot_not_reference_ema() {
         let owner_tao_before = tao(&owner);
 
         System::set_block_number(position.expires_at);
-        System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(position.expires_at, Weight::MAX);
+        assert!(
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "far EMA must defer the first expiry attempt"
+        );
+        let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
+        let force_at =
+            since.saturating_add(<<Test as Config>::MaxSettlementDeferral as Get<u64>>::get());
+        if let Some(pos) = Positions::<Test>::get(&owner, netuid()) {
+            let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (&owner, netuid()));
+        }
+        ExpiryRetryPending::<Test>::put(0);
+        NextExpiryRetry::<Test>::kill();
+        ExpiryRetryCursor::<Test>::kill();
+        ExpiryRetry::<Test>::insert(force_at, (&owner, netuid()), ());
+        ExpiryRetryPending::<Test>::put(1);
+        NextExpiryRetry::<Test>::put(force_at);
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = force_at;
+                p.expiry_due = force_at;
+            }
+        });
+        System::set_block_number(force_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
 
         assert!(
             Positions::<Test>::get(&owner, netuid()).is_none(),
-            "expired position must be auto-closed"
+            "expired position must be auto-closed after max deferral"
         );
         assert!(!Expiry::<Test>::contains_key(
             position.expires_at,
@@ -4705,17 +4733,19 @@ fn underwater_short_expiry_forfeits_no_retry() {
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
         let pot = position.proceeds.saturating_add(position.collateral);
-        let expected_readd = position.lift_tao.saturating_add(position.proceeds);
-        let collateral = position.collateral;
+        let lift_tao = position.lift_tao;
         // Shrink the alpha reserve: buying P now costs far more than E_S + C.
         write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 10);
+        // Keep settlement inside the EMA band so this exercises buyback-forfeit
+        // (not the squeeze-deferral path covered separately).
+        sync_reference_ema_to_spot();
         let quoted = Lending::quote_close(&owner, netuid(), None, false).unwrap();
         assert!(
             quoted.payment > pot,
             "precondition: pot {pot} < buy cost {}",
             quoted.payment
         );
-        // Skip the year of interest so the collateral burn assertion is exact.
+        // Skip the year of interest so leftover-burn assertions stay exact.
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(p) = p {
                 p.last_accrued = position.expires_at;
@@ -4724,7 +4754,6 @@ fn underwater_short_expiry_forfeits_no_retry() {
         // Spare wallet TAO must not be touched at expiry.
         mint_tao(&owner, 1_000_000_000_000_000);
         let wallet_before = tao(&owner);
-        let burn_sink_before = tao(&account(255));
 
         System::set_block_number(position.expires_at);
         System::reset_events();
@@ -4756,19 +4785,20 @@ fn underwater_short_expiry_forfeits_no_retry() {
             RuntimeEvent::Lending(Event::Readded { tao, alpha, .. }) => Some((tao, alpha)),
             _ => None,
         });
-        assert_eq!(
-            readded,
-            Some((expected_readd, 0)),
-            "forfeit readds lift TAO + escrowed proceeds, 0 alpha"
-        );
-        assert_eq!(
-            tao(&account(255)).saturating_sub(burn_sink_before),
-            collateral,
-            "remaining short collateral must be burned"
+        let Some((readd_tao, readd_alpha)) = readded else {
+            panic!("forfeit must emit Readded");
+        };
+        assert_eq!(readd_tao, lift_tao, "forfeit readds the short lift TAO");
+        assert!(
+            readd_alpha < position.principal,
+            "underwater buyback cannot cover full principal"
         );
         assert_eq!(tao(&position.custody), 0, "escrow emptied");
         let book = Lifts::<Test>::get(netuid());
         assert_eq!((book.l_s, book.held_tao, book.escrow_tao), (0, 0, 0));
+        let stats = Lending::lending_stats(netuid());
+        assert!(stats.forfeit_count >= 1);
+        assert!(stats.forfeit_buyback_tao > 0 || stats.forfeit_buyback_alpha > 0);
 
         // Nothing is queued for later: further blocks produce no new settles.
         System::reset_events();
@@ -4805,9 +4835,15 @@ fn underwater_short_expiry_when_principal_exceeds_pool_alpha() {
             deadline(),
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
-        let expected_readd = position.lift_tao.saturating_add(position.proceeds);
+        let lift_tao = position.lift_tao;
         // The pool no longer holds P alpha: the full buyback cannot even be quoted.
         write(&key(b"test/pool_alpha", netuid()), position.principal / 2);
+        sync_reference_ema_to_spot();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = position.expires_at;
+            }
+        });
         mint_tao(&owner, 1_000_000_000_000_000);
         let wallet_before = tao(&owner);
 
@@ -4832,7 +4868,11 @@ fn underwater_short_expiry_when_principal_exceeds_pool_alpha() {
             RuntimeEvent::Lending(Event::Readded { tao, alpha, .. }) => Some((tao, alpha)),
             _ => None,
         });
-        assert_eq!(readded, Some((expected_readd, 0)));
+        let Some((readd_tao, readd_alpha)) = readded else {
+            panic!("forfeit must emit Readded");
+        };
+        assert_eq!(readd_tao, lift_tao);
+        assert!(readd_alpha <= position.principal / 2);
         let book = Lifts::<Test>::get(netuid());
         assert_eq!((book.l_s, book.held_tao, book.escrow_tao), (0, 0, 0));
     });
@@ -4856,13 +4896,14 @@ fn insolvent_long_expiry_forfeits_no_retry() {
             deadline(),
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
-        let expected_readd_alpha = position.lift_alpha.saturating_add(position.escrow_alpha);
+        let lift_alpha = position.lift_alpha;
         let collateral = position.collateral;
         let custody = position.custody.clone();
         let custody_hot = Lending::custody_hotkey().unwrap();
         // Crash the price: selling all of A + C raises less than P.
         write(&key(b"test/pool_tao", netuid()), pool_tao() / 1_000);
-        // Skip the year of interest so the burn assertion sees the full C.
+        sync_reference_ema_to_spot();
+        // Skip the year of interest so leftover-burn assertions stay exact.
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(p) = p {
                 p.last_accrued = position.expires_at;
@@ -4899,17 +4940,23 @@ fn insolvent_long_expiry_forfeits_no_retry() {
             RuntimeEvent::Lending(Event::Readded { tao, alpha, .. }) => Some((tao, alpha)),
             _ => None,
         });
+        let Some((readd_tao, readd_alpha)) = readded else {
+            panic!("forfeit must emit Readded");
+        };
         assert_eq!(
-            readded,
-            Some((0, expected_readd_alpha)),
-            "forfeit readds 0 TAO + lift alpha + escrowed A"
+            readd_alpha, lift_alpha,
+            "forfeit readds the long lift alpha"
+        );
+        assert!(
+            readd_tao < position.principal,
+            "insolvent long cannot repay full principal"
         );
         assert_eq!(tao(&owner), wallet_before, "nothing returned to borrower");
         assert_eq!(alpha(&owner, &hotkey, netuid()), stake_before);
         assert_eq!(
             alpha(&custody, &custody_hot, netuid()),
             0,
-            "custody alpha emptied (C burned, A readded)"
+            "custody alpha emptied (A sold, leftover C burned)"
         );
         let book = Lifts::<Test>::get(netuid());
         assert_eq!(
@@ -4977,6 +5024,7 @@ fn long_expiry_forfeits_when_fees_make_escrow_insolvent() {
             fee_aware < p,
             "precondition: fee-aware liquidation misses P ({fee_aware} >= {p})"
         );
+        sync_reference_ema_to_spot();
 
         System::set_block_number(position.expires_at);
         System::reset_events();
@@ -4995,6 +5043,240 @@ fn long_expiry_forfeits_when_fees_make_escrow_insolvent() {
                 .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. })))
         );
         assert_no_expiry_retry_left(&owner);
+    });
+}
+
+/// Squeeze-to-forfeit at expiry (spot pumped far above EMA) must defer via the
+/// settlement band instead of forfeiting into a one-sided readd.
+#[test]
+fn expiry_squeeze_outside_ema_band_defers_settlement() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = position.expires_at;
+            }
+        });
+        // Thin the alpha side hard so spot jumps well past the 15% EMA band
+        // (report: pump just before expiry).
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 20);
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let spot = MockPool::price();
+        let ceiling = ema.saturating_mul(U64F64::from_num(11_500u32)) / U64F64::from_num(10_000u32);
+        assert!(
+            spot > ceiling,
+            "precondition: spot {spot} must exceed EMA ceiling {ceiling}"
+        );
+
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter);
+
+        assert!(
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "outside-band expiry must keep the position"
+        );
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::SettlementDeferred { .. })
+            )),
+            "must emit SettlementDeferred"
+        );
+        assert!(
+            System::events().into_iter().all(|e| !matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Forfeited { .. } | Event::Expired { .. })
+            )),
+            "must not forfeit or expire outside the band"
+        );
+        assert!(BandDeferralSince::<Test>::get(&owner, netuid()).is_some());
+        assert!(LastDeferral::<Test>::get(&owner, netuid()).is_some());
+        let deferred = LastDeferral::<Test>::get(&owner, netuid()).unwrap();
+        let reason = core::str::from_utf8(&deferred.2).unwrap_or("");
+        assert!(
+            reason.contains("SettlementPriceOutsideEmaBand"),
+            "deferral reason must name the band: {reason}"
+        );
+    });
+}
+
+/// After MaxSettlementDeferral from the first band deferral, expiry settles
+/// even while spot remains outside the EMA band.
+#[test]
+fn expiry_band_deferral_bound_forces_settlement() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = position.expires_at;
+            }
+        });
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 20);
+
+        System::set_block_number(position.expires_at);
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter);
+        assert!(Positions::<Test>::contains_key(&owner, netuid()));
+        let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
+        let force_at =
+            since.saturating_add(<<Test as Config>::MaxSettlementDeferral as Get<u64>>::get());
+
+        // Drop the first retry row and re-queue at the force block so
+        // collect_expiry_retries walks it once past the max window.
+        if let Some(pos) = Positions::<Test>::get(&owner, netuid()) {
+            let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (&owner, netuid()));
+        }
+        ExpiryRetryPending::<Test>::put(0);
+        NextExpiryRetry::<Test>::kill();
+        ExpiryRetryCursor::<Test>::kill();
+        ExpiryRetry::<Test>::insert(force_at, (&owner, netuid()), ());
+        ExpiryRetryPending::<Test>::put(1);
+        NextExpiryRetry::<Test>::put(force_at);
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = force_at;
+                p.expiry_due = force_at;
+            }
+        });
+
+        // Keep spot outside the band; advance past the max deferral window.
+        System::set_block_number(force_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
+
+        assert!(
+            !Positions::<Test>::contains_key(&owner, netuid()),
+            "max deferral must force settlement"
+        );
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Forfeited { .. } | Event::Expired { .. })
+            )),
+            "forced settle must forfeit or expire"
+        );
+    });
+}
+
+/// Within-band ordinary forfeit buyback: with escrow≈principal and little
+/// leftover C, a mild in-band price rise still buys most of P back; two-sided
+/// readd + k-burn keeps L near baseline, and any residual shortfall is recorded.
+#[test]
+fn within_band_forfeit_buyback_restores_k_or_records_shortfall() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let baseline = InvariantBaseline::<Test>::get(netuid()).expect("baseline");
+        let l_open = balancer_l_approx();
+        // Drain most collateral into the burn sink so pot ≈ E_S only, then nudge
+        // spot up ~10% (still inside the 15% band) so buyback is slightly short.
+        let drain = position.collateral.saturating_sub(1);
+        if drain > 0 {
+            let custody = position.custody.clone();
+            assert_ok!(MockPool::burn_interest_tao(&custody, drain.into()));
+            Positions::<Test>::mutate(&owner, netuid(), |p| {
+                if let Some(p) = p {
+                    p.collateral = 1;
+                }
+            });
+            Lifts::<Test>::mutate(netuid(), |book| {
+                // Short collateral is free TAO; book has no long_collateral field.
+                let _ = book;
+            });
+        }
+        let alpha_now = pool_alpha() * 100 / 110;
+        write(&key(b"test/pool_alpha", netuid()), alpha_now);
+        sync_reference_ema_to_spot();
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let spot = MockPool::price();
+        let ceiling = ema.saturating_mul(U64F64::from_num(11_500u32)) / U64F64::from_num(10_000u32);
+        assert!(spot <= ceiling, "precondition: still inside EMA band");
+        let pot = Positions::<Test>::get(&owner, netuid())
+            .unwrap()
+            .proceeds
+            .saturating_add(1);
+        let cost = Lending::quote_close(&owner, netuid(), None, false)
+            .unwrap()
+            .payment;
+        assert!(cost > pot, "precondition: underwater after C drain ({cost} > {pot})");
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = position.expires_at;
+            }
+        });
+
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter);
+
+        assert_no_expiry_retry_left(&owner);
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. })))
+        );
+        let l_after = balancer_l_approx();
+        let stats = Lending::lending_stats(netuid());
+        let rel = (l_after - l_open).abs() / l_open.max(1.0);
+        assert!(
+            rel < 0.25
+                || stats.pool_value_given_below_baseline_tao > 0
+                || stats.pool_value_given_below_baseline_alpha > 0,
+            "k moved {rel:.3} without a recorded shortfall; baseline={baseline:?} L {l_open}→{l_after}"
+        );
+        assert!(stats.forfeit_buyback_tao > 0 || stats.forfeit_buyback_alpha > 0);
+        // Two-sided readd: lift TAO plus some bought alpha (not the old one-sided 0-alpha path).
+        let readded = System::events().into_iter().find_map(|e| match e.event {
+            RuntimeEvent::Lending(Event::Readded { tao, alpha, .. }) => Some((tao, alpha)),
+            _ => None,
+        });
+        let Some((readd_tao, readd_alpha)) = readded else {
+            panic!("forfeit must emit Readded");
+        };
+        assert_eq!(readd_tao, position.lift_tao);
+        assert!(readd_alpha > 0, "buyback must return some alpha into the readd");
     });
 }
 
@@ -5087,6 +5369,14 @@ fn expiry_k_neutral_burn_restores_l_at_half_weight() {
             0u64.into(),
             false,
         ));
+        // Keep settlement inside the EMA band so this exercises solvent expiry
+        // + k-neutral burn (squeeze deferral is covered separately).
+        sync_reference_ema_to_spot();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = position.expires_at;
+            }
+        });
 
         System::set_block_number(position.expires_at);
         System::reset_events();
@@ -5123,6 +5413,11 @@ fn set_reference_price(price: U64F64) {
             r.price = price;
         }
     });
+}
+
+/// Keep permissionless settlement inside the §5.4 EMA band.
+fn sync_reference_ema_to_spot() {
+    set_reference_price(MockPool::price());
 }
 
 #[test]

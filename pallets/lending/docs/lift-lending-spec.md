@@ -1,8 +1,15 @@
-# Lift-based lending on main's Balancer pools: final spec (v5.5: health accumulators + versioned loan terms)
-**Version:** v5.4, 2026-10-28. Encodes Jacob's locked decisions as of 2026-10-20 (term locked that day; EMA band added 2026-10-28). Supersedes v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
+# Lift-based lending on main's Balancer pools: final spec (v5.6: settlement band + forfeit buyback)
+**Version:** v5.6, 2026-11-03. Encodes Jacob's locked decisions as of 2026-10-20 (term locked that day; EMA band added 2026-10-28; settlement band + forfeit buyback 2026-11-03). Supersedes v5.5 (health accumulators + versioned terms), v5.4 (2026-10-28, kept as `lift-lending-spec.v5.4-backup-20261103.md` when archived), v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
 **Target:** RaoFoundation/subtensor `main` @ 7ba9601d (2026-10-15 15:53 CT). PR #3211 is a parts bin only (§11).
 **Numbers:** live chain state at block 9,298,539 (2026-10-16), with real `Swap.SwapBalancer` weights; P&L uses the same 117-subnet bootstrap paths as before.
 **Files:** scripts `lending-pnl/{final,final2,final3,sim_final2,pnl_final2,plot11}.py`; data `data/final*.{json,csv}` (floor sweep: `data/final3.json`, `data/final3_pnl.csv`), `data/balancer_now.json`; figure `fig11_final.png`. v5 additions: `lift-lending-raise/calc.py` + `res.json` (escrowed-long impacts, raise example); companion implementer notes `lift-lending-raise-cli.md`; v5.1: `lift-lending-dereg/calc.py` + `res.json` (dereg settlement examples); why not zero-loss LTV: `zero-loss-ltv-example.md`; v5.2: `sn29-analysis.md` + `sn29/calc.py` → `res.json` (`r`-pump attack and fix numbers); v5.3: `lending-pnl/sim_final4.py` (escrowed-long books, same seeds and paths as `sim_final2.py`) + `lending-pnl/final4.py` → `data/final4.json`, `data/final4_pnl.csv`, `data/final4_long_default.csv` (thin floor on, tier LTV, escrowed-long P&L); `lift-lending-raise/calc.py` → `res.json` key `v53_raise_table` (raise tables, thin-tier mirrors).
+
+## Changelog: v5.6 vs v5.5
+* **2026-11-03: settlement EMA band + forfeit buyback (Jacob, resolves N5).** Clone-502 drain-loop report: normal closes are k-safe; expiry/forfeit was the hole (spot close with no band → pump → one-sided readd burns k).
+* **Permissionless settlement band (§5.4 / §15.2).** Automatic expiry settlement and interest-exhaustion forfeit execute only when spot is inside the symmetric 15% EMA band `[EMA·(1−band), EMA·(1+band)]` (same `ema_band_bps` / lending EMA as opens). Outside the band: defer with `SettlementDeferred` / `InterestDeferred`, `LastDeferral`, 100-block retry, reason `SettlementPriceOutsideEmaBand`. Manual borrower `close` / `repay` unchanged (user slippage limits).
+* **Max deferral bound.** `Config::MaxSettlementDeferral = 7_200` blocks (~24 h at 12 s; matches `settle_ema_blocks`). Counted from the first band deferral (`BandDeferralSince`). After the window the settle runs even outside the band so a sustained pump cannot strand the claim.
+* **Forfeit buyback (terms v1, §4 / §15.2).** Replaces collateral burn + one-sided readd. Short: TAO collateral (+escrow) buys alpha through the pool; long: alpha collateral (+escrow) sells for TAO. Then weight-preserving two-sided readd + k-neutral burn. Leftover collateral after restoring the pool is burned (borrower still gets nothing). If collateral cannot cover the buyback, record the remaining shortfall in `pool_value_given_below_baseline_*` (N5). Accumulators also track `forfeit_buyback_{tao,alpha}`.
+* Touched: header, §4.1/§4.2, §5.4, §8, §15.2, §15.5, §16, §17.
 
 ## Changelog: v5.4 vs v5.3
 * **2026-10-27 (Oct 27, 2026): one-year fixed term (Jacob, locked 2026-10-20).**
@@ -154,7 +161,11 @@ Notation: `C` = collateral, `P` = principal, `(α_L, τ_L)` = the lift legs, `E_
   1. By default (`repay_from_wallet=false` / `btcli lending close`) `E_S` plus collateral buys back `P` alpha through the pool. If the price rose so the pot cannot cover the buyback, the owner tops up free-balance TAO (capped by `max_payment`); there is no liquidation. `--repay-from-wallet` supplies `P` alpha from stake and takes `E_S`.
   2. `readd(τ_L, P)`.
   3. Refund the remaining collateral (0 when the top-up is exact).
-* Default (collateral exhausted by interest): `readd(τ_L + E_S, 0)`. **The pool is quantity-whole**: the sold alpha is already in the pool, and the burned interest came from the borrower.
+* Default / forfeit (collateral exhausted by interest, or underwater at expiry) — **v1 buyback (2026-11-03):**
+  1. Buy back as much of `P` alpha as `E_S + C` can afford through the pool (best-effort stepwise buy).
+  2. Weight-preserving `readd(τ_L, bought_α)`.
+  3. Burn any leftover TAO (borrower gets nothing). Apply the k-neutral burn.
+  4. If `bought_α < P`, record the below-baseline shortfall in the §16 accumulators (N5). **No one-sided readd.**
 
 ### 4.2 Forced long (borrow TAO, alpha collateral `C`, LTV 25% / 15% thin): escrowed, no free TAO
 * Open:
@@ -167,10 +178,11 @@ Notation: `C` = collateral, `P` = principal, `(α_L, τ_L)` = the lift legs, `E_
   1. By default (`repay_from_wallet=false` / `btcli lending close`) `A` is sold, then only as much of `C` as needed to cover any shortfall to `P`; leftover `C` returns as alpha stake (`min_refund` is alpha). Dust TAO above `P` from rounding also returns free. `--repay-from-wallet` supplies `P` TAO and takes `A`.
   2. `readd(P, α_L)`; `B_L −= P`; `L_L −= P`.
   3. Refund the remaining collateral alpha (and `A`, if the borrower repaid from the wallet).
-* Default (collateral exhausted by interest; there is no liquidation):
-  1. `readd(0, α_L + A)`.
-  2. **The pool is quantity-whole.** The `P` TAO is already back in the pool from the forced buy, and the alpha it bought comes back from escrow. Starting from `(y, x)`: open gives `(y, x − α_L − A)`, then default gives `(y, x)`.
-  3. All of the collateral has by then been sold into the pool as interest, and the TAO received was burned.
+* Default / forfeit (collateral exhausted by interest, or insolvent at expiry) — **v1 buyback (2026-11-03):**
+  1. Sell escrow `A`, then as much of `C` as needed (or all of `C`), through the pool.
+  2. Repay `min(raised, P)` to the reserve; weight-preserving `readd(repaid, α_L)`.
+  3. Burn leftover TAO above `P` and any leftover alpha `C` (borrower gets nothing). Apply the k-neutral burn.
+  4. If `raised < P`, record the below-baseline shortfall in the §16 accumulators (N5). **No one-sided readd.**
 * What the borrower gets: leveraged long exposure only. Rising price makes `A` worth more than `P` on close. **No usable TAO.**
 
 ### 4.3 Atomic raise (escrowed long + spot sale of own alpha), the "borrow TAO on alpha" flow
@@ -279,8 +291,9 @@ require P ≤ LTV_tier · V_dyn
 * **Longs / buy legs** (`open` long, `open_exact` long, increase long, `open_long_and_sell`'s forced buy): reject with `PriceTooFarFromEma` if `spot_after > EMA · (1 + ema_band_bps/10_000)`.
 * **Shorts / sell legs** (`open` short, `open_exact` short, increase short): reject if `spot_after < EMA · (1 − ema_band_bps/10_000)`.
 * **Opposite side always allowed.** If spot is already above the long ceiling, shorts may still open (they push price down). If spot is already below the short floor, longs may still open.
-* **Never blocks:** `close`, `repay` (partial or full), dissolution settle, fixed-term expiry settle, interest collection, paced long-interest sales.
-* **Parameter:** `LiftParams.ema_band_bps`, default **1_500** (15%), root-settable via `set_lift_params`, validated `≤ 10_000` like the other bps fields.
+* **Never blocks (manual):** `close`, `repay` (partial or full). Dissolution settle and paced long-interest sales are also ungated.
+* **Permissionless settlement band (2026-11-03):** fixed-term expiry settle and interest-exhaustion forfeit run only when spot is **inside** the symmetric band `[EMA·(1−band), EMA·(1+band)]`. Outside: defer with `SettlementDeferred` / `InterestDeferred`, `LastDeferral`, 100-block retry, reason `SettlementPriceOutsideEmaBand`. First band deferral stamps `BandDeferralSince`; after `MaxSettlementDeferral = 7_200` blocks (~24 h) the settle is forced even outside the band.
+* **Parameter:** `LiftParams.ema_band_bps`, default **1_500** (15%), root-settable via `set_lift_params`, validated `≤ 10_000` like the other bps fields. `MaxSettlementDeferral` is a runtime constant (not root-settable).
 * **Why not a per-trade impact cap.** A size/impact cap per extrinsic can be bypassed by splitting. A band on **price state vs EMA** cannot: after the first fills that walk spot to the edge, further same-side opens fail until the EMA catches up or the other side / ordinary flow mean-reverts spot.
 * **Relation to capacity `move_bps` / `ref_tao`.** Those size `Cap` ("a 1k τ buy moves price 10%") and are unchanged. They are not a per-open trade limit.
 * **Relation to §5.2 user slippage limits.** `min_proceeds` / `min_escrow_alpha` / `max_payment` remain: they protect the caller against sandwiches. The EMA band is a protocol policy on opens only.
@@ -829,16 +842,18 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 * In `on_idle`, after interest collection, the pallet walks the expiry schedule with a `WeightMeter` (same bounded / resumable pattern as `Due` and dissolution settle).
 * For each due entry whose subnet is **not** dissolving, run **expiry == default close at spot**:
   1. Accrue and charge interest through `now` (final charge). If interest exhausts collateral the position forfeits, exactly as in `close`.
-  2. **Solvency check.** If escrow + collateral cannot fully repay principal at spot (no wallet top-up), take the collateral-exhaustion **forfeit** path (§4) and stop — no `Expired` event:
-     * Burn any remaining collateral (`C`).
-     * **Short:** `readd(τ_L + E_S, 0)`. **Long:** `readd(0, α_L + A)`.
-     * Return nothing to the borrower. Apply the k-neutral burn. Emit `Forfeited`.
-  3. Otherwise close through the pool with `max_payment = u64::MAX`, `min_refund = 0` and no min-out on sells. MEV at expiry is accepted.
+  2. **Settlement EMA band.** If spot is outside `[EMA·(1−band), EMA·(1+band)]` and `MaxSettlementDeferral` has not elapsed since the first band deferral, roll back and defer (`SettlementDeferred`, `ExpiryRetry`, reason `SettlementPriceOutsideEmaBand`). Manual close/repay are not gated.
+  3. **Solvency check.** If escrow + collateral cannot fully repay principal at spot (no wallet top-up), take the §4 **forfeit buyback** path and stop — no `Expired` event:
+     * **Short:** buy back as much of `P` as `E_S + C` affords; `readd(τ_L, bought_α)`; burn leftover TAO.
+     * **Long:** sell `A` then `C` as needed; `readd(min(raised,P), α_L)`; burn leftover TAO / leftover alpha `C`.
+     * Return nothing to the borrower. Apply the k-neutral burn; record below-baseline shortfall when the buyback cannot cover `P`. Emit `Forfeited`.
+  4. Otherwise close through the pool with `max_payment = u64::MAX`, `min_refund = 0` and no min-out on sells.
      * **Short:** buy back `P` alpha with `E_S + C` (stepwise, `MAX_BUYBACK_STEPS`). Refund the unspent TAO to the owner. Weight-preserving readd of `lift_tao` and the bought alpha, k-neutral burn, remove the position. Buyback overshoot alpha is sold at spot and paid as TAO.
      * **Long:** sell escrow `A`, then the minimal collateral needed to cover `P`; repay `P` to the pool; weight-preserving readd of `P` TAO and `lift_alpha`; k-neutral burn; remove the position. The owner receives TAO surplus above `P`, and the collateral alpha `close` would have returned is **sold at spot and paid as TAO** (expiry has no hotkey to stake it to, §14).
-  4. **No top-up.** Expiry never pulls free TAO from the owner's wallet. A solvent position behaves like a default `close` in that block.
-  5. Emit `Expired { owner, netuid, side, principal_tao_equiv, principal, payment, tao_to_pool, tao_refund, rate, shortfall_alpha, shortfall_tao }` for solvent exits only. `rate` is the **spot price sampled before the closing trades** (not the EMA). Shorts: `payment` is the TAO spent on the buyback; longs: the TAO repaid to the pool. `shortfall_alpha` / `shortfall_tao` are always zero (ABI retained; insolvency forfeits).
-* Only infrastructure failures (e.g. the pool refuses a sale, the subtoken is disabled) roll the settle back and defer the claim onto the `ExpiryRetry` side queue; economic insolvency forfeits in-place and never retries.
+  5. **No top-up.** Expiry never pulls free TAO from the owner's wallet. A solvent position behaves like a default `close` in that block.
+  6. Emit `Expired { owner, netuid, side, principal_tao_equiv, principal, payment, tao_to_pool, tao_refund, rate, shortfall_alpha, shortfall_tao }` for solvent exits only. `rate` is the **spot price sampled before the closing trades** (not the EMA). Shorts: `payment` is the TAO spent on the buyback; longs: the TAO repaid to the pool. `shortfall_alpha` / `shortfall_tao` are always zero (ABI retained; insolvency forfeits).
+* Infrastructure failures (e.g. the pool refuses a sale, the subtoken is disabled) and **out-of-band spot** roll the settle back onto `ExpiryRetry`. Economic insolvency forfeits in-place (when inside the band, or after the max-deferral force) and never retries.
+* **Max deferral:** `MaxSettlementDeferral = 7_200` blocks (~24 h). After `BandDeferralSince + MaxSettlementDeferral`, expiry settles even outside the band.
 * Weight is bounded per block. A cursor (`ExpiryBucketCursor`) resumes mid-bucket. Many expiries in one block may span several blocks of `on_idle`.
 
 ### 15.3 Top-ups, partial repay, and dissolution
@@ -852,7 +867,10 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 
 ### 15.5 Tests
 * `expiry_matches_manual_close_{short,long}_{flat,up,down}`: at `expires_at` the expiry outcome (owner TAO, reserves, burn, lift book, escrow) equals a twin position closed in the same block. For longs the twin's refunded collateral alpha is sold at spot afterwards.
-* `underwater_short_expiry_forfeits_no_retry`: pot < buy cost; emits `Forfeited` (not `Expired`), readds `τ_L + E_S` with 0 alpha, burns remaining collateral, returns nothing to the borrower, nothing queued for retry. Variants cover a pool that no longer holds `P` alpha and an insolvent long (`readd(0, α_L + A)`).
+* `underwater_short_expiry_forfeits_no_retry`: pot < buy cost **inside the EMA band**; emits `Forfeited` (not `Expired`), buyback + two-sided `readd(τ_L, bought_α)`, burns leftover TAO, returns nothing to the borrower, nothing queued for retry. Variants cover a pool that no longer holds `P` alpha and an insolvent long buyback.
+* `expiry_squeeze_outside_ema_band_defers_settlement`: thin-pool short + large spot pump at expiry → `SettlementDeferred` (no forfeit).
+* `expiry_band_deferral_bound_forces_settlement`: after `MaxSettlementDeferral`, settle proceeds even outside the band.
+* `within_band_forfeit_buyback_restores_k_or_records_shortfall`: mild in-band underwater forfeit keeps `L` near baseline or records N5 shortfall; `forfeit_buyback_*` increments.
 * `expiry_k_neutral_burn_restores_l_at_half_weight`: the k-neutral burn still restores Balancer `L` after an expiry exit.
 * `fixed_term_expiry_closes_at_spot_not_reference_ema`: a far-away reference EMA does not move the expiry valuation; `Expired.rate` is spot.
 * Many expiries in one bucket: a tight `WeightMeter` settles some but not all; a later full-weight pass finishes the rest.
@@ -870,11 +888,12 @@ Cumulative counters so anyone can measure what lending earns versus what pools l
 ### 16.2 Counters (event-aligned)
 * Interest burned: TAO (`InterestBurned.tao`) and alpha (`LongInterestSold.alpha`, plus dissolution in-place destroy).
 * k-neutral surplus burned: TAO and alpha (`InvariantSurplusBurned`).
-* Forfeited collateral burned/destroyed: TAO (short) / alpha (long), plus `forfeit_count` (`Forfeited`).
+* Forfeited leftover collateral burned/destroyed after buyback: TAO (short) / alpha (long), plus `forfeit_count` (`Forfeited`).
+* `forfeit_buyback_{tao,alpha}`: TAO spent / alpha bought (short) or TAO repaid / alpha sold (long) on the forfeit buyback path.
 * `expiry_settlement_count` (`Expired`).
 * `opens_*` / `closes_*` by side (`Opened` / `Closed`); raise fresh opens count as opens.
 * `wallet_top_ups_tao` (`Closed.wallet_top_up`).
-* `pool_value_given_below_baseline_*`: last-loan readd shortfall vs `InvariantBaseline` (N5 instrumentation).
+* `pool_value_given_below_baseline_*`: last-loan readd shortfall vs `InvariantBaseline` (N5 — forfeit buyback that cannot restore the pool).
 * `principal_opened_*`: cumulative principal on `Opened` / `Increased` / raise.
 
 ### 16.3 Access
@@ -892,8 +911,8 @@ Future economic rule changes apply only to loans opened after them. Existing pos
 Already stored and therefore version-stable without a new field: `annual_interest`, `expires_at` / `expiry_due`, lift legs, escrow / collateral / principal.
 
 ### 17.2 What is per-version vs tunable for new opens only
-* **Per-version (rules 1–5 behaviour):** close math (weight-preserving re-add + k-neutral burn), expiry-as-close, forfeit, dissolution rate settlement, wallet top-up, interest charging, deferral/retry. Dispatch is `match terms_version` with a v1 arm today; unsupported versions return `UnsupportedTermsVersion`.
-* **Tunable for new opens only (not snapshotted on the position):** LTV, capacity caps / split, EMA band, APR / coupon at open (coupon itself is stored as `annual_interest`), thin thresholds, lift params generally.
+* **Per-version (rules 1–5 behaviour):** close math (weight-preserving re-add + k-neutral burn), expiry-as-close, **forfeit buyback**, settlement EMA band + max-deferral bound, dissolution rate settlement, wallet top-up, interest charging, deferral/retry. Dispatch is `match terms_version` with a v1 arm today; unsupported versions return `UnsupportedTermsVersion`.
+* **Tunable for new opens only (not snapshotted on the position):** LTV, capacity caps / split, EMA band width (`ema_band_bps`), APR / coupon at open (coupon itself is stored as `annual_interest`), thin thresholds, lift params generally. `MaxSettlementDeferral` is a runtime constant shared by all versions.
 
 ### 17.3 Migration
 * `PositionTermsVersionMigration` appends the three fields to pre-terms rows as v1 with the live cadence constants, and ensures `CurrentTermsVersion ≥ 1`.

@@ -729,7 +729,7 @@ pub struct RaiseQuote {
 /// k-neutral surplus burns) versus what pools lose (forfeited collateral,
 /// shortfalls below [`InvariantBaseline`]). Never reset except that
 /// per-netuid values may be removed on dissolution while globals stay.
-#[freeze_struct("e5021c8babc16a2c")]
+#[freeze_struct("24c822e6b89bae47")]
 #[derive(
     Encode,
     Decode,
@@ -753,10 +753,14 @@ pub struct LendingStats {
     pub k_neutral_surplus_burned_tao: u128,
     /// Alpha burned by the k-neutral surplus path (`InvariantSurplusBurned.alpha`).
     pub k_neutral_surplus_burned_alpha: u128,
-    /// Short collateral TAO burned on forfeit.
+    /// Leftover short collateral TAO burned on forfeit (after buyback).
     pub forfeited_collateral_tao: u128,
-    /// Long collateral alpha destroyed on forfeit.
+    /// Leftover long collateral alpha destroyed on forfeit (after buyback).
     pub forfeited_collateral_alpha: u128,
+    /// TAO spent on forfeit buyback (short) or repaid to the pool (long).
+    pub forfeit_buyback_tao: u128,
+    /// Alpha bought on short forfeit buyback, or alpha sold toward long repay.
+    pub forfeit_buyback_alpha: u128,
     /// Number of [`Event::Forfeited`] emissions.
     pub forfeit_count: u64,
     /// Number of [`Event::Expired`] emissions (solvent expiry settlements).
@@ -832,6 +836,14 @@ pub mod pallet {
         /// Surviving loans must not lose `Due` coverage (Auditor fid:2aff7381).
         #[pallet::constant]
         type InterestRetryDelay: Get<BlockNumberFor<Self>>;
+        /// Max window a permissionless settle (expiry / interest-exhaustion
+        /// forfeit) may stay deferred because spot is outside the §5.4 EMA
+        /// band. Counted from the first band deferral (`BandDeferralSince`);
+        /// after this many blocks the settle runs even outside the band so a
+        /// sustained pump cannot strand the claim forever. Production: 7_200
+        /// (~24 h at 12 s blocks), matching `LiftParams.settle_ema_blocks`.
+        #[pallet::constant]
+        type MaxSettlementDeferral: Get<BlockNumberFor<Self>>;
         type WeightInfo: WeightInfo;
     }
 
@@ -1001,6 +1013,18 @@ pub mod pallet {
         Identity,
         NetUid,
         (u8, BlockNumberFor<T>, BoundedVec<u8, ConstU32<64>>),
+        OptionQuery,
+    >;
+    /// Block of the first §5.4-band deferral for a permissionless settle.
+    /// Anchors [`Config::MaxSettlementDeferral`]; cleared with the position.
+    #[pallet::storage]
+    pub type BandDeferralSince<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        BlockNumberFor<T>,
         OptionQuery,
     >;
     #[pallet::storage]
@@ -1303,8 +1327,14 @@ pub mod pallet {
         EscrowInUse,
         /// Post-trade spot is outside the directional EMA band on the
         /// exploitable side (§5.4). Longs: spot > EMA·(1+band); shorts:
-        /// spot < EMA·(1−band). Closes and repays are never blocked by this.
+        /// spot < EMA·(1−band). Manual closes and repays are never blocked by
+        /// this; permissionless settlement uses
+        /// [`Self::SettlementPriceOutsideEmaBand`] instead.
         PriceTooFarFromEma,
+        /// Permissionless settle (expiry / interest-exhaustion forfeit) saw
+        /// spot outside the §5.4 EMA band and the max-deferral window has not
+        /// yet elapsed. Defers via `SettlementDeferred` / `InterestDeferred`.
+        SettlementPriceOutsideEmaBand,
         /// Principal, principal_part, or borrow amount is zero.
         PrincipalZero,
         /// Collateral amount is zero.
@@ -1332,6 +1362,7 @@ pub mod pallet {
             assert!(T::InterestPeriod::get() > BlockNumberFor::<T>::default());
             assert!(T::ExpiryRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::InterestRetryDelay::get() > BlockNumberFor::<T>::default());
+            assert!(T::MaxSettlementDeferral::get() > BlockNumberFor::<T>::default());
             assert!(T::MinimumLoanValue::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() <= T::MaxTotalPositions::get());
@@ -1663,8 +1694,9 @@ pub mod pallet {
         /// §5.4: directional EMA band on opens. Checked against **post-trade**
         /// spot so one large trade cannot jump past the band; splitting cannot
         /// either, because the limit is on price state, not per-trade size.
-        /// Opposite-side opens are always allowed. Closes / repays / settles
-        /// never call this.
+        /// Opposite-side opens are always allowed. Manual closes / repays never
+        /// call this; permissionless settlement uses
+        /// [`Self::ensure_settlement_ema_band`] (symmetric inside-band check).
         fn ensure_open_ema_band(
             side: Side,
             spot_after: U64F64,
@@ -1690,6 +1722,81 @@ pub mod pallet {
                 }
             }
             Ok(())
+        }
+
+        /// True when spot is inside the symmetric §5.4 EMA band
+        /// `[EMA·(1−band), EMA·(1+band)]`. Missing reference → treat as inside
+        /// (settlement must not stall for lack of an EMA seed).
+        fn spot_within_settlement_band(netuid: NetUid) -> bool {
+            let Some(reference) = References::<T>::get(netuid) else {
+                return true;
+            };
+            let band = u32::from(Self::lift_params().ema_band_bps);
+            let denom = U64F64::from_num(10_000u32);
+            let ema = reference.price;
+            let ceiling =
+                ema.saturating_mul(U64F64::from_num(10_000u32.saturating_add(band))) / denom;
+            let floor =
+                ema.saturating_mul(U64F64::from_num(10_000u32.saturating_sub(band))) / denom;
+            let spot = T::Pool::current_alpha_price(netuid);
+            spot >= floor && spot <= ceiling
+        }
+
+        /// Force permissionless settle after [`Config::MaxSettlementDeferral`]
+        /// blocks from the first band deferral.
+        fn force_settlement_despite_band(
+            owner: &T::AccountId,
+            netuid: NetUid,
+            now: BlockNumberFor<T>,
+        ) -> bool {
+            BandDeferralSince::<T>::get(owner, netuid)
+                .map(|since| now >= since.saturating_add(T::MaxSettlementDeferral::get()))
+                .unwrap_or(false)
+        }
+
+        /// Gate permissionless expiry / interest-exhaustion forfeit on the
+        /// §5.4 EMA band. Manual close / repay never call this. Returns
+        /// [`Error::SettlementPriceOutsideEmaBand`] so collectors defer with
+        /// the existing retry / `LastDeferral` machinery.
+        fn ensure_settlement_ema_band(
+            owner: &T::AccountId,
+            netuid: NetUid,
+            now: BlockNumberFor<T>,
+        ) -> DispatchResult {
+            if Self::force_settlement_despite_band(owner, netuid, now) {
+                return Ok(());
+            }
+            ensure!(
+                Self::spot_within_settlement_band(netuid),
+                Error::<T>::SettlementPriceOutsideEmaBand
+            );
+            Ok(())
+        }
+
+        /// Stamp [`BandDeferralSince`] on the first band deferral (outside the
+        /// rolled-back settle transaction).
+        fn note_band_deferral(
+            owner: &T::AccountId,
+            netuid: NetUid,
+            now: BlockNumberFor<T>,
+            error: DispatchError,
+        ) {
+            let is_band = match error {
+                DispatchError::Module(module)
+                    if module.index
+                        == <Pallet<T> as frame_support::traits::PalletInfoAccess>::index()
+                            as u8 =>
+                {
+                    matches!(
+                        Error::<T>::decode(&mut &module.error[..]),
+                        Ok(Error::<T>::SettlementPriceOutsideEmaBand)
+                    )
+                }
+                _ => false,
+            };
+            if is_band && !BandDeferralSince::<T>::contains_key(owner, netuid) {
+                BandDeferralSince::<T>::insert(owner, netuid, now);
+            }
         }
 
         /// §2.3: subtoken started, age ≥ min_age, reference warm, G_ema aged one EMA window.
@@ -2268,7 +2375,7 @@ pub mod pallet {
                 Self::ensure_matching_side(position, side)?;
             }
             if let Some(mut position) = existing.take() {
-                Self::charge_interest(owner, netuid, &mut position, now, false)?;
+                Self::charge_interest(owner, netuid, &mut position, now, false, false)?;
                 if Positions::<T>::contains_key(owner, netuid) {
                     Positions::<T>::insert(owner, netuid, &position);
                     existing = Some(position);
@@ -2651,7 +2758,7 @@ pub mod pallet {
                 Self::ensure_matching_side(position, side)?;
             }
             if let Some(mut position) = existing.take() {
-                Self::charge_interest(&owner, netuid, &mut position, now, false)?;
+                Self::charge_interest(&owner, netuid, &mut position, now, false, false)?;
                 if Positions::<T>::contains_key(&owner, netuid) {
                     // Persist accrued collateral so aggregate `a_ahead` exclusion
                     // matches pending interest already moved off the book.
@@ -2985,7 +3092,7 @@ pub mod pallet {
             // Versioned close path (wallet top-up, weight-preserving readd,
             // k-neutral burn). v1 is today's behaviour.
             Self::ensure_terms_version(position.terms_version)?;
-            Self::charge_interest(&owner, netuid, &mut position, now, true)?;
+            Self::charge_interest(&owner, netuid, &mut position, now, true, false)?;
             // Interest can exhaust collateral and `forfeit`, which already restored
             // lifts, moved escrow, and removed indexes. Do not continue close on a
             // forfeited loan (would double-readd / undercount PositionCount).
@@ -3365,7 +3472,7 @@ pub mod pallet {
             }
             let mut position = existing;
             // Interest first on the whole position (§4.4).
-            Self::charge_interest(&owner, netuid, &mut position, now, true)?;
+            Self::charge_interest(&owner, netuid, &mut position, now, true, false)?;
             // Same as close / settle: forfeit already cleaned up — stop.
             if !Positions::<T>::contains_key(&owner, netuid) {
                 return Ok(());
@@ -3965,6 +4072,21 @@ pub mod pallet {
             principal: u64,
             budget: u64,
         ) -> Result<(u64, u64), DispatchError> {
+            let (payment, alpha) =
+                Self::execute_buyback_best_effort(escrow, custody, netuid, principal, budget)?;
+            ensure!(alpha >= principal, Error::<T>::InsufficientEscrow);
+            Ok((payment, alpha))
+        }
+
+        /// Like [`Self::execute_buyback`] but returns a partial fill when the
+        /// budget or pool depth cannot cover `principal` (forfeit path).
+        fn execute_buyback_best_effort(
+            escrow: &T::AccountId,
+            custody: &T::AccountId,
+            netuid: NetUid,
+            principal: u64,
+            budget: u64,
+        ) -> Result<(u64, u64), DispatchError> {
             let mut payment = 0u64;
             let mut alpha = 0u64;
             for _ in 0..MAX_BUYBACK_STEPS {
@@ -3972,31 +4094,35 @@ pub mod pallet {
                 if remaining == 0 {
                     return Ok((payment, alpha));
                 }
-                // Bound each buy by the TAO needed for the remaining principal,
-                // not the entire surplus collateral budget.
-                let needed = Self::tao_to_buy_alpha(netuid, remaining)?;
+                let needed = match Self::tao_to_buy_alpha(netuid, remaining) {
+                    Ok(n) => n,
+                    Err(_) => break,
+                };
                 let capacity = budget
                     .saturating_sub(payment)
                     .min(T::Pool::buy_spendable_tao(escrow).to_u64())
                     .min(T::Pool::max_buy_input(netuid).to_u64())
                     .min(needed);
-                ensure!(capacity > 0, Error::<T>::InsufficientEscrow);
-                let received = T::Pool::buy_alpha(
+                if capacity == 0 {
+                    break;
+                }
+                let received = match T::Pool::buy_alpha(
                     escrow,
                     custody,
                     netuid,
                     capacity.into(),
                     u64::MAX.into(),
                     false,
-                )?
-                .to_u64();
+                ) {
+                    Ok(out) => out.to_u64(),
+                    Err(_) => break,
+                };
                 payment = Self::add(payment, capacity)?;
                 alpha = Self::add(alpha, received)?;
                 if received == 0 {
                     break;
                 }
             }
-            ensure!(alpha >= principal, Error::<T>::InsufficientEscrow);
             Ok((payment, alpha))
         }
 
@@ -4031,7 +4157,7 @@ pub mod pallet {
             // prior book, and LTV sizing sees the post-interest position.
             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                 Self::ensure_matching_side(&position, Side::Long)?;
-                Self::charge_interest(&owner, netuid, &mut position, now, false)?;
+                Self::charge_interest(&owner, netuid, &mut position, now, false, false)?;
                 if Positions::<T>::contains_key(&owner, netuid) {
                     Positions::<T>::insert(&owner, netuid, &position);
                 }
@@ -4240,12 +4366,15 @@ pub mod pallet {
             ))
         }
 
+        /// `permissionless`: when true (collectors), interest-exhaustion
+        /// forfeit is gated by [`Self::ensure_settlement_ema_band`].
         fn charge_interest(
             owner: &T::AccountId,
             netuid: NetUid,
             position: &mut Position<T::AccountId, BlockNumberFor<T>>,
             until: BlockNumberFor<T>,
             final_charge: bool,
+            permissionless: bool,
         ) -> DispatchResult {
             // Versioned interest path: v1 is the current burn / pending-sell
             // behaviour. Future versions branch here without touching v1.
@@ -4260,6 +4389,7 @@ pub mod pallet {
                             position,
                             d.frozen_at,
                             final_charge,
+                            permissionless,
                         );
                     }
                 }
@@ -4340,115 +4470,192 @@ pub mod pallet {
                 // Dissolution already re-added lift legs; never forfeit there.
                 // Live-market path still defaults when collateral is exhausted.
                 if !Dissolutions::<T>::contains_key(netuid) {
+                    if permissionless {
+                        Self::ensure_settlement_ema_band(owner, netuid, until)?;
+                    }
                     Self::forfeit(owner, netuid, position)?;
                 }
             }
             Ok(())
         }
 
+        /// v1 forfeit: buy back principal through the pool with escrow +
+        /// collateral, weight-preserving two-sided readd, k-neutral burn.
+        /// Leftover collateral after restoring the pool is burned (borrower
+        /// still gets nothing). Uncovered principal records below-baseline
+        /// shortfall via [`Self::maybe_burn_invariant_surplus`]. No one-sided
+        /// readd.
         fn forfeit(
             owner: &T::AccountId,
             netuid: NetUid,
             position: &Position<T::AccountId, BlockNumberFor<T>>,
         ) -> DispatchResult {
-            // Versioned forfeit path. v1 burns leftover C and readds lift+escrow.
             Self::ensure_terms_version(position.terms_version)?;
             let custody = Self::custody_hotkey()?;
             let reserve = Self::reserve_account(netuid);
             let escrow = position.custody.clone();
-            // Burn leftover collateral before restoring lift + escrowed proceeds.
-            // Interest exhaustion already leaves C = 0; underwater expiry may not
-            // (Karl / Shorting: nothing returns to the borrower).
-            let forfeited_collateral = position.collateral;
-            if forfeited_collateral > 0 {
-                match position.side {
+            let side = position.side;
+            let principal = position.principal;
+
+            let (credited_tao, credited_alpha, leftover_collateral, buyback_tao, buyback_alpha) =
+                match side {
                     Side::Short => {
-                        T::Pool::burn_interest_tao(&escrow, forfeited_collateral.into())?;
-                    }
-                    Side::Long => {
-                        T::Pool::destroy_custody_alpha(
-                            &escrow,
-                            &custody,
-                            netuid,
-                            forfeited_collateral.into(),
+                        // Buy as much of P as E_S + C can afford; leftover TAO burns.
+                        let pot = position.proceeds.saturating_add(position.collateral);
+                        let (paid, bought) = Self::execute_buyback_best_effort(
+                            &escrow, &custody, netuid, principal, pot,
                         )?;
-                    }
-                }
-            }
-            match position.side {
-                Side::Short => {
-                    // Default: readd(τ_L + E_S, 0) — restores the exact TAO
-                    // quantities removed at open (lift + sold-alpha proceeds).
-                    if position.proceeds > 0 {
-                        T::Pool::transfer_tao(&escrow, &reserve, position.proceeds.into())?;
-                    }
-                    let tao = position.lift_tao.saturating_add(position.proceeds);
-                    T::Pool::readd_and_credit(netuid, &reserve, &custody, tao.into(), 0u64.into())?;
-                    Self::deposit_event(Event::Readded {
-                        netuid,
-                        tao,
-                        alpha: 0,
-                    });
-                    Lifts::<T>::mutate(netuid, |book| {
-                        book.l_s = book.l_s.saturating_sub(position.lift_tao);
-                        book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
-                        book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
-                    });
-                }
-                Side::Long => {
-                    // Default: readd(0, α_L + A) — restores the exact alpha
-                    // quantities removed at open (lift + escrowed buy).
-                    let alpha = position.lift_alpha.saturating_add(position.escrow_alpha);
-                    if position.escrow_alpha > 0 {
-                        T::Pool::transfer_staked_alpha(
-                            &escrow,
-                            &custody,
+                        let repaid_alpha = bought.min(principal);
+                        let leftover_tao = pot.saturating_sub(paid);
+                        // Sell buyback overshoot alpha into TAO then burn with leftover.
+                        let excess = bought.saturating_sub(principal);
+                        let mut burn_tao = leftover_tao;
+                        if excess > 0 {
+                            if let Ok(dust) = T::Pool::sell_alpha(
+                                &escrow,
+                                &custody,
+                                netuid,
+                                excess.into(),
+                                0u64.into(),
+                                false,
+                            ) {
+                                burn_tao = burn_tao.saturating_add(dust.to_u64());
+                            }
+                        }
+                        if burn_tao > 0 {
+                            T::Pool::burn_interest_tao(&escrow, burn_tao.into())?;
+                        }
+                        if repaid_alpha > 0 {
+                            T::Pool::transfer_staked_alpha(
+                                &escrow,
+                                &custody,
+                                &reserve,
+                                &custody,
+                                netuid,
+                                repaid_alpha.into(),
+                                false,
+                                false,
+                            )?;
+                        }
+                        T::Pool::readd_and_credit(
+                            netuid,
                             &reserve,
                             &custody,
-                            netuid,
-                            position.escrow_alpha.into(),
-                            false,
-                            false,
+                            position.lift_tao.into(),
+                            repaid_alpha.into(),
                         )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: position.lift_tao,
+                            alpha: repaid_alpha,
+                        });
+                        Lifts::<T>::mutate(netuid, |book| {
+                            book.l_s = book.l_s.saturating_sub(position.lift_tao);
+                            book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
+                            book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
+                        });
+                        (
+                            position.lift_tao,
+                            repaid_alpha,
+                            burn_tao,
+                            paid,
+                            repaid_alpha,
+                        )
                     }
-                    T::Pool::readd_and_credit(
-                        netuid,
-                        &reserve,
-                        &custody,
-                        0u64.into(),
-                        alpha.into(),
-                    )?;
-                    Self::deposit_event(Event::Readded {
-                        netuid,
-                        tao: 0,
-                        alpha,
-                    });
-                    Lifts::<T>::mutate(netuid, |book| {
-                        book.l_l = book.l_l.saturating_sub(position.principal);
-                        book.b_l = book.b_l.saturating_sub(position.principal);
-                        book.held_alpha = book.held_alpha.saturating_sub(position.lift_alpha);
-                        book.escrow_alpha = book.escrow_alpha.saturating_sub(position.escrow_alpha);
-                        book.long_collateral_alpha = book
-                            .long_collateral_alpha
-                            .saturating_sub(position.collateral);
-                    });
-                }
-            }
-            let (credited_tao, credited_alpha) = match position.side {
-                Side::Short => (position.lift_tao.saturating_add(position.proceeds), 0u64),
-                Side::Long => (
-                    0u64,
-                    position.lift_alpha.saturating_add(position.escrow_alpha),
-                ),
-            };
+                    Side::Long => {
+                        // Sell A, then as much of C as needed (or all of C), repay
+                        // min(raised, P); burn leftover TAO and leftover alpha C.
+                        let mut raised = 0u64;
+                        let mut sold_alpha = 0u64;
+                        if position.escrow_alpha > 0 {
+                            let out = T::Pool::forced_sell_into_escrow(
+                                &escrow,
+                                &custody,
+                                &escrow,
+                                netuid,
+                                position.escrow_alpha.into(),
+                                0u64.into(),
+                            )?;
+                            raised = Self::add(raised, out.to_u64())?;
+                            sold_alpha = Self::add(sold_alpha, position.escrow_alpha)?;
+                        }
+                        let mut coll_left = position.collateral;
+                        if raised < principal && coll_left > 0 {
+                            let need = principal.saturating_sub(raised);
+                            let sell = match Self::alpha_to_raise_tao(netuid, need) {
+                                Ok(needed_alpha) => needed_alpha.min(coll_left),
+                                Err(_) => coll_left,
+                            };
+                            if sell > 0 {
+                                match T::Pool::forced_sell_into_escrow(
+                                    &escrow,
+                                    &custody,
+                                    &escrow,
+                                    netuid,
+                                    sell.into(),
+                                    0u64.into(),
+                                ) {
+                                    Ok(out) => {
+                                        raised = Self::add(raised, out.to_u64())?;
+                                        sold_alpha = Self::add(sold_alpha, sell)?;
+                                        coll_left = coll_left.saturating_sub(sell);
+                                    }
+                                    Err(e) if T::Pool::quote_may_round_to_zero(&e) => {
+                                        // Dust C cannot raise TAO — burn it below.
+                                    }
+                                    Err(e) => return Err(e),
+                                }
+                            }
+                        }
+                        let repay = raised.min(principal);
+                        let surplus_tao = raised.saturating_sub(repay);
+                        if repay > 0 {
+                            T::Pool::transfer_tao(&escrow, &reserve, repay.into())?;
+                        }
+                        if surplus_tao > 0 {
+                            T::Pool::burn_interest_tao(&escrow, surplus_tao.into())?;
+                        }
+                        if coll_left > 0 {
+                            T::Pool::destroy_custody_alpha(
+                                &escrow,
+                                &custody,
+                                netuid,
+                                coll_left.into(),
+                            )?;
+                        }
+                        T::Pool::readd_and_credit(
+                            netuid,
+                            &reserve,
+                            &custody,
+                            repay.into(),
+                            position.lift_alpha.into(),
+                        )?;
+                        Self::deposit_event(Event::Readded {
+                            netuid,
+                            tao: repay,
+                            alpha: position.lift_alpha,
+                        });
+                        Lifts::<T>::mutate(netuid, |book| {
+                            book.l_l = book.l_l.saturating_sub(position.principal);
+                            book.b_l = book.b_l.saturating_sub(position.principal);
+                            book.held_alpha = book.held_alpha.saturating_sub(position.lift_alpha);
+                            book.escrow_alpha =
+                                book.escrow_alpha.saturating_sub(position.escrow_alpha);
+                            book.long_collateral_alpha = book
+                                .long_collateral_alpha
+                                .saturating_sub(position.collateral);
+                        });
+                        (repay, position.lift_alpha, coll_left, repay, sold_alpha)
+                    }
+                };
+
             Self::maybe_burn_invariant_surplus(
                 netuid,
                 credited_tao,
                 credited_alpha,
                 Dissolutions::<T>::contains_key(netuid),
             )?;
-            let principal_lost = position.principal;
-            let side = position.side;
+            let principal_lost = principal;
             Self::remove_position(owner, netuid, position);
             Self::deposit_event(Event::Forfeited {
                 owner: owner.clone(),
@@ -4458,16 +4665,22 @@ pub mod pallet {
             });
             Self::bump_stats(netuid, |s| {
                 s.forfeit_count = s.forfeit_count.saturating_add(1);
+                s.forfeit_buyback_tao = s
+                    .forfeit_buyback_tao
+                    .saturating_add(u128::from(buyback_tao));
+                s.forfeit_buyback_alpha = s
+                    .forfeit_buyback_alpha
+                    .saturating_add(u128::from(buyback_alpha));
                 match side {
                     Side::Short => {
                         s.forfeited_collateral_tao = s
                             .forfeited_collateral_tao
-                            .saturating_add(u128::from(forfeited_collateral));
+                            .saturating_add(u128::from(leftover_collateral));
                     }
                     Side::Long => {
                         s.forfeited_collateral_alpha = s
                             .forfeited_collateral_alpha
-                            .saturating_add(u128::from(forfeited_collateral));
+                            .saturating_add(u128::from(leftover_collateral));
                     }
                 }
             });
@@ -4586,6 +4799,7 @@ pub mod pallet {
         ) {
             Positions::<T>::remove(owner, netuid);
             LastDeferral::<T>::remove(owner, netuid);
+            BandDeferralSince::<T>::remove(owner, netuid);
             OpenByNetuid::<T>::remove(netuid, owner);
             EscrowOwner::<T>::remove(netuid, &position.custody);
             if Due::<T>::take(position.due, (owner, netuid)).is_some() {
@@ -5002,7 +5216,7 @@ pub mod pallet {
                             if Dissolutions::<T>::contains_key(netuid) {
                                 return Ok(());
                             }
-                            Self::charge_interest(&owner, netuid, &mut position, now, false)?;
+                            Self::charge_interest(&owner, netuid, &mut position, now, false, true)?;
                             if Positions::<T>::contains_key(&owner, netuid) {
                                 let next = now.saturating_add(position.interest_period);
                                 if Due::<T>::take(position.due, (&owner, netuid)).is_some() {
@@ -5039,6 +5253,7 @@ pub mod pallet {
                                 Due::<T>::remove(due, (&owner, netuid));
                                 Self::note_due_removed(due);
                             }
+                            Self::note_band_deferral(&owner, netuid, now, error);
                             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                                 let retry_at = now.saturating_add(T::InterestRetryDelay::get());
                                 Self::enqueue_interest_retry(&owner, netuid, retry_at);
@@ -5174,6 +5389,7 @@ pub mod pallet {
                                 Expiry::<T>::remove(at, (&owner, netuid));
                                 Self::note_expiry_removed(at);
                             }
+                            Self::note_band_deferral(&owner, netuid, now, error);
                             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                                 let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
                                 Self::enqueue_expiry_retry(&owner, netuid, retry_at);
@@ -5265,7 +5481,7 @@ pub mod pallet {
                             if Dissolutions::<T>::contains_key(netuid) {
                                 return Ok(());
                             }
-                            Self::charge_interest(&owner, netuid, &mut position, now, false)?;
+                            Self::charge_interest(&owner, netuid, &mut position, now, false, true)?;
                             if Positions::<T>::contains_key(&owner, netuid) {
                                 let next = now.saturating_add(position.interest_period);
                                 let _ = Self::take_interest_retry(position.due, &owner, netuid);
@@ -5288,6 +5504,7 @@ pub mod pallet {
                         }
                         Err(error) => {
                             let _ = Self::take_interest_retry(at, &owner, netuid);
+                            Self::note_band_deferral(&owner, netuid, now, error);
                             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                                 let retry_at = now.saturating_add(T::InterestRetryDelay::get());
                                 Self::enqueue_interest_retry(&owner, netuid, retry_at);
@@ -5416,6 +5633,7 @@ pub mod pallet {
                         }
                         Err(error) => {
                             let _ = Self::take_expiry_retry(at, &owner, netuid);
+                            Self::note_band_deferral(&owner, netuid, now, error);
                             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                                 let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
                                 Self::enqueue_expiry_retry(&owner, netuid, retry_at);
@@ -5845,7 +6063,7 @@ pub mod pallet {
                 return Self::settle_expiry_as_close(netuid, owner, position, r, interest_until);
             }
             // Accrue and burn interest through the cutoff before settlement.
-            Self::charge_interest(owner, netuid, &mut position, interest_until, true)?;
+            Self::charge_interest(owner, netuid, &mut position, interest_until, true, false)?;
             // Dissolution skips forfeit inside `charge_interest`, so the claim
             // always survives here; keep the guard for defence in depth.
             if !Positions::<T>::contains_key(owner, netuid) {
@@ -6067,17 +6285,16 @@ pub mod pallet {
         }
 
         /// Fixed-term expiry (§15): the default `close` path (`repay_from_wallet =
-        /// false`) through the pool at spot, with three intentional differences:
+        /// false`) through the pool at spot, with these intentional differences:
         ///
+        /// * Gated by the §5.4 EMA band (unless
+        ///   [`Config::MaxSettlementDeferral`] has elapsed since the first band
+        ///   deferral). Manual close / repay are not gated.
         /// * No wallet top-up and no user slippage limits (`max_payment = MAX`,
-        ///   `min_refund = 0`, no min-out on sells). MEV at expiry is accepted.
-        /// * Underwater short / insolvent long: reuse the collateral-exhaustion
-        ///   [`Self::forfeit`] path (readd lift + escrowed proceeds, burn any
-        ///   remaining collateral, nothing to the borrower, k-neutral burn). No
-        ///   shortfall is recorded and no `Expired` event is emitted.
-        /// * No hotkey is available, so alpha is never staked to the owner: surplus
-        ///   alpha from a short buyback and long collateral left after covering
-        ///   `P` are sold at spot and paid to the owner as TAO.
+        ///   `min_refund = 0`, no min-out on sells).
+        /// * Underwater short / insolvent long: [`Self::forfeit`] buyback path
+        ///   (two-sided readd + leftover burn; nothing to the borrower).
+        /// * No hotkey: surplus alpha / leftover long collateral sold as TAO.
         ///
         /// Interest accrual, weight-preserving readd and the k-neutral burn are
         /// the same as `do_close`.
@@ -6090,7 +6307,9 @@ pub mod pallet {
         ) -> DispatchResult {
             // Versioned expiry-as-close. v1 mirrors a default close at spot.
             Self::ensure_terms_version(position.terms_version)?;
-            Self::charge_interest(owner, netuid, &mut position, interest_until, true)?;
+            Self::ensure_settlement_ema_band(owner, netuid, interest_until)?;
+            // Band already checked above; interest forfeit may proceed.
+            Self::charge_interest(owner, netuid, &mut position, interest_until, true, false)?;
             // Interest can exhaust collateral and `forfeit`, which already restored
             // lifts, moved escrow, and removed the claim.
             if !Positions::<T>::contains_key(owner, netuid) {
@@ -7054,6 +7273,9 @@ pub mod pallet {
                 // inherit a stale deferral when it opens again (Auditor fid:0566f709).
                 if let Some(deferred) = LastDeferral::<T>::take(old, netuid) {
                     LastDeferral::<T>::insert(new, netuid, deferred);
+                }
+                if let Some(since) = BandDeferralSince::<T>::take(old, netuid) {
+                    BandDeferralSince::<T>::insert(new, netuid, since);
                 }
             }
             if rekeyed_due {

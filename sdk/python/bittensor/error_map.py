@@ -525,6 +525,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "CustodyHotkey": _C.INVALID_ARGUMENT,
     "EscrowInUse": _C.ALREADY_EXISTS,
     "PriceTooFarFromEma": _C.POLICY_VIOLATION,
+    "SettlementPriceOutsideEmaBand": _C.POLICY_VIOLATION,
     "ConflictingSizing": _C.INVALID_ARGUMENT,
     "InvalidLiftParams": _C.INVALID_ARGUMENT,
     "PositionSideMismatch": _C.INVALID_ARGUMENT,
