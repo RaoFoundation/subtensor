@@ -526,6 +526,18 @@ call_filter_group!(
     ]
 );
 
+// Changing who may spend a gamma deposit, or weakening/removing the limit on
+// that authority. Kept apart so `NonTransfer` cannot bootstrap gamma spending
+// authority for itself even though it cannot call `spend_gamma` through the
+// proxy directly.
+call_filter_group!(
+    GammaDepositAuthorityCalls,
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::set_gamma_deposit_spender),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_gamma_deposit_daily_spend_cap),
+    ]
+);
+
 // Naming the spender a service's customers name on their deposits; granted to proxies that may
 // transfer, and to a lease's beneficiary for the subnet's own service.
 call_filter_group!(
@@ -561,7 +573,7 @@ call_filter_group!(
 
 // pallet-subtensor calls that spend or destroy the signer's TAO or alpha
 // without being a transfer or a stake-position change: burning stake in,
-// recycling/burning alpha, paying a network lock cost, and managing gamma
+// recycling/burning alpha, paying a network lock cost, and closing gamma
 // deposits.
 // Granted to the broad value-capable proxies, never to `NonFungible`.
 call_filter_group!(
@@ -574,8 +586,6 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::register_network_with_identity),
         RuntimeCall::SubtensorModule(SubtensorCall::register_leased_network),
         RuntimeCall::SubtensorModule(SubtensorCall::close_gamma_deposit),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_gamma_deposit_spender),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_gamma_deposit_daily_spend_cap),
     ]
 );
 
@@ -885,6 +895,7 @@ type SubtensorSplitCalls = (
     BasketTradingCalls,
     GammaSpendCalls,
     GammaCreditCalls,
+    GammaDepositAuthorityCalls,
     ServiceCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,

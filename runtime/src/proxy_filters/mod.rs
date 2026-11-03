@@ -72,10 +72,11 @@ type ValidateAllowed = (WeightCalls, NeuronServingCalls, CommitmentCalls);
 /// wrappers (they re-dispatch on a fresh origin that drops this filter),
 /// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
 /// owner-key rotation, deferred order approvals, protected-account creation,
-/// crediting gamma to a hotkey or naming a service's spender, and basket trading
-/// and gamma spending (which need the explicit `BasketTrading` and `GammaSpend`
-/// grants). Sudo is excluded because a sudo-key principal would otherwise hand
-/// the delegate root, including forced transfers.
+/// crediting gamma to a hotkey, changing a gamma deposit's spending authority,
+/// or naming a service's spender, and basket trading and gamma spending (which
+/// need the explicit `BasketTrading` and `GammaSpend` grants). Sudo is excluded
+/// because a sudo-key principal would otherwise hand the delegate root,
+/// including forced transfers.
 /// `SudoCalls` and `TaoUsdPriceFeedCalls` are inventory-only: no restricted
 /// proxy grants them.
 type NonTransferAllowed = (
@@ -145,6 +146,7 @@ type NonCriticalAllowed = (
     WeightCalls,
     NeuronServingCalls,
     GammaCreditCalls,
+    GammaDepositAuthorityCalls,
     ServiceCalls,
     SubtensorCommonCalls,
 );
@@ -406,6 +408,7 @@ mod tests {
                 BasketTradingCalls,
                 GammaSpendCalls,
                 GammaCreditCalls,
+                GammaDepositAuthorityCalls,
                 ServiceCalls,
             )>();
         let denied = &denied
@@ -439,6 +442,7 @@ mod tests {
                 BasketTradingCalls,
                 GammaSpendCalls,
                 GammaCreditCalls,
+                GammaDepositAuthorityCalls,
                 ServiceCalls,
             )>();
         let denied = &denied
@@ -594,6 +598,46 @@ mod tests {
                     "{name}"
                 );
             }
+        }
+    }
+
+    /// A `NonTransfer` delegate must not be able to turn itself into a direct
+    /// gamma spender and then escape the proxy filter. Removing the cap is part
+    /// of the same authority escalation and is denied with the spender change.
+    #[test]
+    fn non_transfer_cannot_grant_itself_gamma_spending_authority() {
+        use subtensor_runtime_common::{AccountId, NetUid};
+
+        let delegate = AccountId::new([8; 32]);
+        let hotkey = AccountId::new([7; 32]);
+        let authority_changes = [
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::set_gamma_deposit_spender {
+                hotkey: hotkey.clone(),
+                netuid: NetUid::from(1),
+                spender: Some(delegate),
+            }),
+            RuntimeCall::SubtensorModule(
+                pallet_subtensor::Call::set_gamma_deposit_daily_spend_cap {
+                    hotkey,
+                    netuid: NetUid::from(1),
+                    daily_spend_cap: None,
+                },
+            ),
+        ];
+
+        for call in &authority_changes {
+            let metadata = call.get_call_metadata();
+            let name = format!("{}::{}", metadata.pallet_name, metadata.function_name);
+            assert!(GammaDepositAuthorityCalls::contains(call));
+            assert!(
+                !ProxyType::NonTransfer.filter(call),
+                "NonTransfer must not dispatch {name}"
+            );
+            assert!(!allowed_calls(ProxyType::NonTransfer).contains(&name));
+            assert!(
+                ProxyType::NonCritical.filter(call),
+                "NonCritical keeps {name}"
+            );
         }
     }
 
@@ -1131,6 +1175,7 @@ mod tests {
             BasketTradingCalls,
             GammaSpendCalls,
             GammaCreditCalls,
+            GammaDepositAuthorityCalls,
             ServiceCalls,
             LockCalls,
             SubtensorValueCalls,
