@@ -360,3 +360,77 @@ def test_lending_amount_uses_underscore_alpha():
     )
     assert "α_1" in intent.summary()
     assert "α₁" not in intent.summary()
+
+
+@pytest.mark.asyncio
+async def test_stake_unavailable_uses_availability_locked_not_stake_minus_available():
+    """Auditor fid:6caee553 — conviction Lock is entry['locked'], not stake−available."""
+
+    cold = "5Owner"
+    hot = "5HotA"
+    # Hotkey has 100α; 40α miner collateral; no conviction lock.
+    # Coldkey available is 60α (100 − 0 lock − 40 collateral).
+    # Bug would report conviction-locked = 100−60 = 40 (same as miner).
+
+    class _View:
+        async def runtime(self, method, params):
+            name = str(method)
+            if "get_stake_info_for_hotkey" in name:
+                return {"stake": 100 * 10**9}
+            if "get_stake_availability" in name:
+                return {
+                    cold: {
+                        1: {
+                            "total": 100 * 10**9,
+                            "locked": 0,  # no conviction
+                            "available": 60 * 10**9,
+                        }
+                    }
+                }
+            return None
+
+        async def query(self, item, params):
+            return {"locked": 40 * 10**9}
+
+    err = await lending_reads.stake_unavailable_lending_detail(_View(), cold, hot, 1)
+    text = str(err)
+    assert "subnet conviction Lock 0.000000000α_1" in text
+    assert "miner-collateral on hotkey 40.000000000α_1" in text
+    assert "free 60.000000000α_1" in text
+    # Must not double-count miner collateral as conviction.
+    assert "subnet conviction Lock 40.000000000α_1" not in text
+
+
+@pytest.mark.asyncio
+async def test_stake_unavailable_reports_subnet_lock_with_sibling_hotkey():
+    """Sibling hotkey free stake must not hide a real subnet conviction Lock."""
+
+    cold = "5Owner"
+    hot = "5HotA"
+
+    class _View:
+        async def runtime(self, method, params):
+            name = str(method)
+            if "get_stake_info_for_hotkey" in name:
+                # This hotkey alone: 30α; sibling holds the rest.
+                return {"stake": 30 * 10**9}
+            if "get_stake_availability" in name:
+                return {
+                    cold: {
+                        1: {
+                            "total": 100 * 10**9,
+                            "locked": 50 * 10**9,  # real conviction
+                            "available": 50 * 10**9,
+                        }
+                    }
+                }
+            return None
+
+        async def query(self, item, params):
+            return {"locked": 0}
+
+    err = await lending_reads.stake_unavailable_lending_detail(_View(), cold, hot, 1)
+    text = str(err)
+    assert "subnet conviction Lock 50.000000000α_1" in text
+    assert "hotkey stake 30.000000000α_1" in text
+    assert "free 30.000000000α_1" in text

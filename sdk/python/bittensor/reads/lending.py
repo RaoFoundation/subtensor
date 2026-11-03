@@ -141,7 +141,13 @@ async def stake_unavailable_lending_detail(
     *,
     need: Optional[Balance] = None,
 ) -> BittensorError:
-    """N20: lending-specific StakeUnavailable naming locked vs free alpha."""
+    """N20: lending-specific StakeUnavailable naming locked vs free alpha.
+
+    ``available`` / ``locked`` from stake availability are coldkey+subnet-wide
+    (conviction Lock already in ``locked``; miner collateral already removed
+    from ``available``). Hotkey ``stake`` and per-hotkey miner collateral are
+    separate — never derive conviction Lock as ``stake - available``.
+    """
     info, availability, bond = await asyncio.gather(
         view.runtime(
             api.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
@@ -158,30 +164,32 @@ async def stake_unavailable_lending_detail(
     entry = (
         per_owner.get(netuid, per_owner.get(str(netuid), {})) if isinstance(per_owner, dict) else {}
     )
-    available = _nonnegative(
-        entry.get("available", 0) if isinstance(entry, dict) else 0, "available alpha"
-    )
-    # Availability already subtracts conviction Lock; surface the locked remainder.
-    locked_conviction = max(stake - available, 0)
+    if not isinstance(entry, dict):
+        entry = {}
+    available = _nonnegative(entry.get("available", 0), "available alpha")
+    # Subnet-wide conviction Lock from the availability entry (Auditor fid:6caee553).
+    locked_conviction = _nonnegative(entry.get("locked", 0), "conviction lock")
     miner_locked = _nonnegative(
         bond.get("locked") if isinstance(bond, dict) else 0, "miner collateral"
     )
+    # Lending takes from this hotkey only; still bounded by coldkey free alpha.
     free = min(available, max(stake - miner_locked, 0))
     parts = [
         f"lending stake unavailable on {hotkey_ss58} (netuid {netuid})",
+        f"hotkey stake {_fmt_rao(stake, netuid)}",
         f"free {_fmt_rao(free, netuid)}",
-        f"conviction-locked {_fmt_rao(locked_conviction, netuid)}",
-        f"miner-collateral {_fmt_rao(miner_locked, netuid)}",
+        f"subnet conviction Lock {_fmt_rao(locked_conviction, netuid)}",
+        f"miner-collateral on hotkey {_fmt_rao(miner_locked, netuid)}",
     ]
     if need is not None:
         parts.append(f"needed {_fmt_rao(need.rao, need.netuid)}")
     err = ChainError("; ".join(parts), "StakeUnavailable")
     err.remediation_override = (
-        "lending can only take unlocked alpha on this hotkey — wait out conviction "
-        f"Lock ({_fmt_rao(locked_conviction, netuid)}), free miner collateral "
-        f"({_fmt_rao(miner_locked, netuid)}), stake more, or pass a hotkey with free "
-        f"alpha (have {_fmt_rao(free, netuid)}; check `btcli stake list` / "
-        "`btcli conviction show`)"
+        "lending can only take unlocked alpha on this hotkey — wait out the subnet "
+        f"conviction Lock ({_fmt_rao(locked_conviction, netuid)}), free miner "
+        f"collateral on this hotkey ({_fmt_rao(miner_locked, netuid)}), stake more "
+        f"here, or pass a hotkey with free alpha (have {_fmt_rao(free, netuid)}; "
+        "check `btcli stake list` / `btcli conviction show`)"
     )
     return err
 
