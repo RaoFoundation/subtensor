@@ -135,15 +135,16 @@ DESCRIPTIONS: dict[str, str] = {
         "(usually after a coldkey swap that kept the original custody account). Close or "
         "wait for that loan to settle before opening a new position on this subnet."
     ),
+    "ConflictingSizing": (
+        "Provide collateral_alpha and/or borrow_tao for a raise (at least one). "
+        "Both together sizes an exact lower-LTV C+P raise."
+    ),
     "PriceTooFarFromEma": (
-        "The post-trade spot would leave the directional EMA band on the exploitable side "
+        "Post-trade spot would leave the directional EMA band on the exploitable side "
         "(longs above EMA·(1+band), shorts below EMA·(1−band); default band 15%). Wait for "
         "spot to mean-revert, open the other side, reduce size, or close/repay an existing "
-        "position (exits are never blocked by this check). Confirm free balance / unlocked "
-        "stake before retrying a large collateral quote."
-    ),
-    "ConflictingSizing": (
-        "Provide exactly one of collateral or borrow amount for a raise, not both and not neither."
+        "position (exits are never blocked). Confirm free balance / unlocked stake before "
+        "retrying a large collateral quote."
     ),
     "InvalidLiftParams": (
         "Lift parameters are out of range (for example floor/thin_floor above ceiling). Check "

@@ -704,9 +704,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1358,
-        "end_line": 1377,
-        "url": "/code/pallets/lending/src/lib.rs#L1355-L1377",
+        "line": 1384,
+        "end_line": 1403,
+        "url": "/code/pallets/lending/src/lib.rs#L1381-L1403",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2079,18 +2079,18 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1292,
-        "end_line": 1316,
-        "url": "/code/pallets/lending/src/lib.rs#L1290-L1316",
+        "line": 1318,
+        "end_line": 1342,
+        "url": "/code/pallets/lending/src/lib.rs#L1316-L1342",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
         "pallet": "Lending",
         "call": "open_exact",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1321,
-        "end_line": 1348,
-        "url": "/code/pallets/lending/src/lib.rs#L1319-L1348",
+        "line": 1347,
+        "end_line": 1374,
+        "url": "/code/pallets/lending/src/lib.rs#L1345-L1374",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2237,7 +2237,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "Ceiling on alpha collateral when sizing from borrow_tao."
+          "description": "Ceiling on alpha collateral when sizing from borrow_tao. Required in amount mode (omit only when collateral_alpha is set)."
         },
         "min_borrow_tao": {
           "anyOf": [
@@ -2263,7 +2263,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "Unlocked alpha to sell for free TAO; omit to sell the newly escrowed alpha (runtime sell_alpha.unwrap_or(realised_a))."
+          "description": "Unlocked alpha to sell for free TAO; omit to sell the newly escrowed alpha."
         },
         "min_tao_out": {
           "anyOf": [
@@ -2309,9 +2309,9 @@
         "pallet": "Lending",
         "call": "open_long_and_sell",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1383,
-        "end_line": 1411,
-        "url": "/code/pallets/lending/src/lib.rs#L1380-L1411",
+        "line": 1409,
+        "end_line": 1437,
+        "url": "/code/pallets/lending/src/lib.rs#L1406-L1437",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2894,9 +2894,9 @@
         "pallet": "Lending",
         "call": "repay",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1438,
-        "end_line": 1459,
-        "url": "/code/pallets/lending/src/lib.rs#L1435-L1459",
+        "line": 1466,
+        "end_line": 1487,
+        "url": "/code/pallets/lending/src/lib.rs#L1461-L1487",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

@@ -303,6 +303,7 @@ class OpenLoan(Intent):
             principal = _nonnegative(quote.get("principal"), "quoted principal")
             opening = _nonnegative(quote.get("opening_value"), "quoted opening value")
             annual = _nonnegative(quote.get("annual_interest"), "quoted annual interest")
+            escrow_estimate = int(quote.get("escrow_estimate") or 0)
             if principal == 0 or opening == 0 or annual == 0:
                 raise BittensorError("lending quote must contain a positive loan and coupon")
             if self.amount is not None and principal != cast(Balance, self.amount).rao:
@@ -311,8 +312,14 @@ class OpenLoan(Intent):
                 raise BittensorError(
                     "fresh lending quote is below the minimum additional principal"
                 )
-            if self.side == "Short" and opening < cast(Balance, self.min_proceeds).rao:
-                raise BittensorError("fresh lending quote is below the minimum opening value")
+            # Shorts floor min_proceeds on simulated sale fill (escrow_estimate),
+            # not collateral×LTV opening_value (E2E N3).
+            if self.side == "Short":
+                proceeds = escrow_estimate if escrow_estimate > 0 else opening
+                if proceeds < cast(Balance, self.min_proceeds).rao:
+                    raise BittensorError("fresh lending quote is below the minimum sale proceeds")
+            elif escrow_estimate > 0 and escrow_estimate < cast(Balance, self.min_escrow_alpha).rao:
+                raise BittensorError("fresh lending quote is below the minimum escrow alpha")
             fee = await substrate.estimate_fee(call, _FeeAddress(fee_payer))
             if not isinstance(fee, Balance) or fee.netuid != 0 or fee.rao < 0:
                 raise BittensorError("invalid lending transaction fee estimate")
@@ -395,9 +402,14 @@ class RaiseLoan(Intent):
         default=None,
         metadata={"help": "Exact TAO principal to borrow; omit to size from collateral_alpha."},
     )
-    max_collateral_alpha: Money = field(
-        default=0,
-        metadata={"help": "Ceiling on alpha collateral when sizing from borrow_tao."},
+    max_collateral_alpha: Optional[Money] = field(
+        default=None,
+        metadata={
+            "help": (
+                "Ceiling on alpha collateral when sizing from borrow_tao. "
+                "Required in amount mode (omit only when collateral_alpha is set)."
+            )
+        },
     )
     min_borrow_tao: Money = field(
         default=0,
@@ -406,10 +418,7 @@ class RaiseLoan(Intent):
     sell_alpha: Optional[Money] = field(
         default=None,
         metadata={
-            "help": (
-                "Unlocked alpha to sell for free TAO; omit to sell the newly "
-                "escrowed alpha (runtime sell_alpha.unwrap_or(realised_a))."
-            )
+            "help": "Unlocked alpha to sell for free TAO; omit to sell the newly escrowed alpha."
         },
     )
     min_tao_out: Money = field(
@@ -440,7 +449,20 @@ class RaiseLoan(Intent):
             self.collateral_alpha = alpha_amount(self.collateral_alpha, self.netuid)
         if self.borrow_tao is not None:
             self.borrow_tao = tao_amount(self.borrow_tao)
+        # Amount mode must not default the collateral ceiling to 0 (E2E N2).
+        if self.max_collateral_alpha is None:
+            if self.collateral_alpha is None:
+                raise BittensorError(
+                    "max_collateral_alpha is required when sizing from borrow_tao "
+                    "(pass a positive ceiling, or set collateral_alpha)"
+                )
+            self.max_collateral_alpha = self.collateral_alpha
         self.max_collateral_alpha = alpha_amount(self.max_collateral_alpha, self.netuid)
+        if self.collateral_alpha is None and cast(Balance, self.max_collateral_alpha).rao == 0:
+            raise BittensorError(
+                "max_collateral_alpha must be > 0 when sizing from borrow_tao "
+                "(zero ceiling always fails with CollateralExceedsMax)"
+            )
         self.min_borrow_tao = tao_amount(self.min_borrow_tao)
         if self.sell_alpha is not None:
             self.sell_alpha = alpha_amount(self.sell_alpha, self.netuid)
@@ -459,6 +481,10 @@ class RaiseLoan(Intent):
         if until is None:
             until = (await substrate.block_number()) + 50
             self.valid_until = until
+        elif int(until) < int(await substrate.block_number()):
+            raise BittensorError(
+                f"valid_until {until} is already past; omit it for head+50 or pass a future block"
+            )
         params = {
             "netuid": self.netuid,
             "hotkey": hotkey,
@@ -476,7 +502,7 @@ class RaiseLoan(Intent):
         return await substrate.compose(Call("Lending", "open_long_and_sell", params))
 
     def summary(self) -> str:
-        sell = self.sell_alpha if self.sell_alpha is not None else 0
+        sell = self.sell_alpha if self.sell_alpha is not None else "escrowed α (default)"
         return f"raise on netuid {self.netuid}: long + sell {sell} (min out {self.min_tao_out})"
 
     def spend(self) -> Spend:

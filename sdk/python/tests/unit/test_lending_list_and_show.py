@@ -93,7 +93,7 @@ def test_runway_capped_at_expires_at():
     assert record["runway_days"] < uncapped
     assert record["underwater"] is False
     assert record["escrow"].rao == 500
-    assert record["opened_at"] is None
+    assert "opened_at" not in record
 
 
 def test_underwater_when_interest_exhausts_collateral():

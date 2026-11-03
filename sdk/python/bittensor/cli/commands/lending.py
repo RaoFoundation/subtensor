@@ -20,7 +20,6 @@ from ...settings import (
     DEFAULT_ERA_PERIOD,
     MEV_SHIELD_ERA_PERIOD,
     TAO_SYMBOL,
-    query_docs_url,
 )
 from ..context import address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -36,9 +35,11 @@ MINIMUM_LOAN_VALUE_TAO = "0.001"
 
 app = typer.Typer(
     no_args_is_help=True,
+    # Wide terminals: don't ellipsize long option names / help (E2E F15).
+    context_settings={"max_content_width": 120, "help_option_names": ["-h", "--help"]},
     help=(
         "Lift-based escrowed loans: open, close, repay, raise, list, show.\n\n"
-        f"Position query: {query_docs_url('lending-position')}"
+        "Queries: lending_position / lending_close_quote (SDK reads)."
     ),
 )
 
@@ -82,11 +83,17 @@ async def _resolve_valid_until(client, valid_until: Optional[int]) -> int:
     """Return an explicit deadline, or head + :data:`DEFAULT_RAISE_VALIDITY_BLOCKS`.
 
     Uses :meth:`Client.block` — never client.substrate (the public Client
-    has no such attribute).
+    has no such attribute). Refuses a past deadline before submit (E2E N7).
     """
+    head = await client.block()
     if valid_until is not None:
-        return valid_until
-    return (await client.block()) + DEFAULT_RAISE_VALIDITY_BLOCKS
+        if int(valid_until) < int(head):
+            raise BittensorError(
+                f"--valid-until {valid_until} is already past (head block {head}); "
+                "omit it for head+50, or pass a future block"
+            )
+        return int(valid_until)
+    return int(head) + DEFAULT_RAISE_VALIDITY_BLOCKS
 
 
 def _format_valid_until(block: int, *, head: Optional[int] = None) -> str:
@@ -145,6 +152,9 @@ def _position_json(position: dict) -> dict:
     """JSON shape: Balance fields as rao ints (not formatted strings)."""
     out: dict[str, Any] = {}
     for key, value in position.items():
+        if key == "opened_at":
+            # Storage has no opened_at; omit the always-null field (E2E F8).
+            continue
         if isinstance(value, Balance):
             out[key] = value.rao
         elif isinstance(value, float) and key == "runway_days":
@@ -152,6 +162,18 @@ def _position_json(position: dict) -> dict:
         else:
             out[key] = value
     return out
+
+
+def _position_status_label(position: dict) -> str:
+    """Human status: underwater when interest-exhausted or AMM shortfall (N4)."""
+    if position.get("underwater"):
+        return "underwater"
+    shortfall = position.get("close_shortfall")
+    if isinstance(shortfall, Balance) and shortfall.rao > 0:
+        return "underwater"
+    if isinstance(shortfall, int) and shortfall > 0:
+        return "underwater"
+    return "ok"
 
 
 async def _provided_collateral(client, minimum: Balance, netuid: int, owner: str, percent: float):
@@ -467,21 +489,30 @@ def open_loan(
         requested if requested is not None else _bound(quote["principal"], max_slippage)
     )
     if side == Side.short:
-        intent.min_proceeds = _bound(quote["opening_value"], max_slippage)
+        # Floor on simulated sale proceeds (escrow_estimate), not collateral×LTV
+        # opening_value — that overstates fill when the sale moves price (E2E N3).
+        proceeds = quote.get("escrow_estimate")
+        if not isinstance(proceeds, Balance) or proceeds.rao <= 0:
+            proceeds = quote.get("opening_value")
+        if isinstance(proceeds, Balance) and proceeds.rao > 0:
+            intent.min_proceeds = _bound(proceeds, max_slippage)
     else:
         escrow = quote.get("escrow_estimate")
         if isinstance(escrow, Balance) and escrow.rao > 0:
             intent.min_escrow_alpha = _bound(escrow, max_slippage)
 
-    # Warn when capacity (not LTV) is what limits borrow vs collateral value.
+    # Warn when capacity (not LTV) likely limits borrow. Short default LTV is
+    # 25%; long thin LTV is often ~10–15%, so the old principal×4 < V_dyn
+    # heuristic falsely fired on every long open (E2E N6).
     v_dyn = quote.get("v_dyn")
     principal = quote.get("principal")
     if (
-        isinstance(v_dyn, Balance)
+        side == Side.short
+        and isinstance(v_dyn, Balance)
         and isinstance(principal, Balance)
         and v_dyn.rao > 0
         and principal.rao > 0
-        and principal.rao * 4 < v_dyn.rao  # well below ~25% LTV of V_dyn
+        and principal.rao * 4 < v_dyn.rao
     ):
         context.output.message(
             f"warning: capacity-limited — borrow {_fmt_amount(principal)} is well below "
@@ -514,7 +545,8 @@ def open_loan(
         ("quoted opening value", _fmt_amount(quote["opening_value"])),
     ]
     if side == Side.short:
-        loan_rows.append(("minimum additional opening value", _fmt_amount(intent.min_proceeds)))
+        loan_rows.append(("quoted sale proceeds", _fmt_amount(quote.get("escrow_estimate"))))
+        loan_rows.append(("minimum proceeds", _fmt_amount(intent.min_proceeds)))
     else:
         # Longs: drop useless min_proceeds=0; show min escrow alpha instead.
         escrow_floor = intent.min_escrow_alpha
@@ -529,7 +561,9 @@ def open_loan(
                 _format_expiry(new_expires, head=head),
             )
         )
-    loan_rows.append(("valid until", _format_valid_until(intent.valid_until, head=head)))
+    # Open defaults valid_until to u32::MAX ("none"); only show when explicit.
+    if int(intent.valid_until) < VALID_UNTIL_NONE:
+        loan_rows.append(("valid until", _format_valid_until(intent.valid_until, head=head)))
     context.submit(
         intent,
         proxy_for=proxy or "self",
@@ -787,7 +821,11 @@ def raise_loan(
         None, "--collateral", help=RaiseLoan.field_help("collateral_alpha")
     ),
     amount: Optional[str] = typer.Option(None, "--amount", help=RaiseLoan.field_help("borrow_tao")),
-    sell: Optional[str] = typer.Option(None, "--sell", help=RaiseLoan.field_help("sell_alpha")),
+    sell: Optional[str] = typer.Option(
+        None,
+        "--sell",
+        help="Unlocked alpha to sell for free TAO; omit to sell the newly escrowed alpha.",
+    ),
     min_tao_out: str = typer.Option("0", "--min-tao-out", help=RaiseLoan.field_help("min_tao_out")),
     max_collateral: Optional[str] = typer.Option(
         None,
@@ -962,18 +1000,6 @@ def raise_loan(
             context.output.error("raise quote is unavailable for sized LTV")
             raise typer.Exit(2)
 
-    intent = RaiseLoan(
-        netuid=netuid,
-        hotkey_ss58=hotkey,
-        collateral_alpha=collateral_alpha,
-        borrow_tao=borrow_tao if collateral_alpha is None or ltv_sized_from_collateral else None,
-        max_collateral_alpha=collateral or "0",
-        min_borrow_tao=borrow_tao or amount or "0",
-        sell_alpha=sell,
-        min_tao_out=min_tao_out,
-        valid_until=until,
-    )
-
     quoted_collateral = quote.get("collateral_alpha")
     quoted_escrow = quote.get("escrow_alpha")
     quoted_principal = quote.get("principal_tao")
@@ -981,17 +1007,20 @@ def raise_loan(
         context.output.error("raise quote is missing collateral or escrow alpha")
         raise typer.Exit(2)
 
-    if intent.collateral_alpha is not None and intent.borrow_tao is not None:
-        # Exact C+P (lower-LTV): lock the supplied collateral and sized borrow.
-        intent.max_collateral_alpha = alpha_amount(intent.collateral_alpha, netuid)
-        intent.min_borrow_tao = tao_amount(intent.borrow_tao)
+    # Resolve max_collateral before constructing RaiseLoan — amount mode must
+    # never default the ceiling to 0 (E2E N2 / CollateralExceedsMax).
+    borrow_for_intent = (
+        borrow_tao if collateral_alpha is None or ltv_sized_from_collateral else None
+    )
+    if collateral_alpha is not None and borrow_for_intent is not None:
         if max_collateral is not None:
             context.output.error(
                 "--max-collateral is unused when --collateral and --ltv size together"
             )
             raise typer.Exit(2)
-    elif intent.collateral_alpha is None:
-        # Amount / borrow_tao mode: ceiling on solved collateral (≥ quoted min).
+        ceiling: Balance = cast(Balance, alpha_amount(collateral_alpha, netuid))
+        min_borrow: Balance = cast(Balance, tao_amount(borrow_for_intent))
+    elif collateral_alpha is None:
         if max_collateral is not None:
             ceiling = cast(Balance, alpha_amount(max_collateral, netuid))
             if ceiling.rao < quoted_collateral.rao:
@@ -999,19 +1028,35 @@ def raise_loan(
                     f"--max-collateral {ceiling} is below the quoted minimum {quoted_collateral}"
                 )
                 raise typer.Exit(2)
-            intent.max_collateral_alpha = ceiling
         else:
-            intent.max_collateral_alpha = _bound(quoted_collateral, max_slippage, ceiling=True)
-        if borrow_tao is not None:
-            intent.min_borrow_tao = tao_amount(borrow_tao)
+            ceiling = _bound(quoted_collateral, max_slippage, ceiling=True)
+        min_borrow = (
+            cast(Balance, tao_amount(borrow_tao))
+            if borrow_tao is not None
+            else cast(Balance, tao_amount(amount or "0"))
+        )
     else:
-        # Collateral mode: floor on solved principal from the quote.
-        if isinstance(quoted_principal, Balance):
-            intent.min_borrow_tao = _bound(quoted_principal, max_slippage)
         if max_collateral is not None:
             context.output.error("--max-collateral applies only with --amount (borrow mode)")
             raise typer.Exit(2)
+        ceiling = cast(Balance, alpha_amount(collateral_alpha, netuid))
+        min_borrow = (
+            _bound(quoted_principal, max_slippage)
+            if isinstance(quoted_principal, Balance)
+            else cast(Balance, tao_amount(amount or "0"))
+        )
 
+    intent = RaiseLoan(
+        netuid=netuid,
+        hotkey_ss58=hotkey,
+        collateral_alpha=collateral_alpha,
+        borrow_tao=borrow_for_intent,
+        max_collateral_alpha=ceiling,
+        min_borrow_tao=min_borrow,
+        sell_alpha=sell,
+        min_tao_out=min_tao_out,
+        valid_until=until,
+    )
     intent.min_escrow_alpha = _bound(quoted_escrow, max_slippage)
 
     # Runtime defaults an omitted --sell to the newly escrowed alpha
@@ -1042,14 +1087,17 @@ def raise_loan(
         except Exception as error:
             raise BittensorError("could not verify requested raise slippage protection") from error
 
-    quoted_sell = quote.get("sell_alpha")
-    sell_display = (
-        quoted_sell
-        if isinstance(quoted_sell, Balance)
-        else intent.sell_alpha
-        if intent.sell_alpha is not None
-        else quoted_escrow
-    )
+    # Card sell amount: explicit --sell, else quoted default sale (= escrowed α).
+    if intent.sell_alpha is not None:
+        sell_display = intent.sell_alpha
+        sell_label = "sell (explicit)"
+    else:
+        sell_display = (
+            quote.get("sell_alpha")
+            if isinstance(quote.get("sell_alpha"), Balance)
+            else quoted_escrow
+        )
+        sell_label = "sell (default = escrowed α)"
     head = context.run(lambda client: client.block())
     year = context.run(lambda client: client.constant(("Lending", "BlocksPerYear")))
     new_expires = (head + int(year)) if isinstance(year, int) and year > 0 else None
@@ -1075,7 +1123,7 @@ def raise_loan(
         card.append(("requested LTV", f"{ltv:.2%}"))
     card.extend(
         [
-            ("sell", _fmt_amount(sell_display)),
+            (sell_label, _fmt_amount(sell_display)),
             ("min tao out", _fmt_amount(intent.min_tao_out)),
             ("valid until", _format_valid_until(intent.valid_until, head=head)),
         ]
@@ -1125,6 +1173,25 @@ def list_positions(
         else:
             position = await client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
             positions = [position] if position is not None else []
+        # Annotate escrow-buyback shortfall so list status matches show (E2E N4).
+        for position in positions:
+            if position is None or position.get("side") != "Short":
+                continue
+            if position.get("underwater"):
+                continue
+            try:
+                close_quote = await client.read(
+                    "lending_close_quote",
+                    coldkey_ss58=position["coldkey"],
+                    netuid=netuid,
+                    repay_from_wallet=False,
+                )
+            except Exception:
+                continue
+            shortfall = close_quote.get("shortfall") if isinstance(close_quote, dict) else None
+            if isinstance(shortfall, Balance) and shortfall.rao > 0:
+                position["underwater"] = True
+                position["close_shortfall"] = shortfall
         return positions, head, head_time
 
     positions, head, head_time = context.run(_positions)
@@ -1142,13 +1209,14 @@ def list_positions(
     rows = []
     for position in positions:
         runway = position.get("runway_days")
+        status = _position_status_label(position)
         rows.append(
             [
                 position["coldkey"],
                 position["side"],
                 _fmt_amount(position["principal"]),
                 _fmt_amount(position["collateral"]),
-                "underwater" if position.get("underwater") else "ok",
+                status,
                 _fmt_amount(position.get("escrow") or position.get("proceeds")),
                 _format_expiry(position.get("expires_at"), head=head, head_time=head_time),
                 str(position.get("due") or "-"),
@@ -1210,6 +1278,10 @@ def show_position(
     position, quote, head, head_time = context.run(_load)
     if position is None:
         _exit_error(context, f"no lending position on netuid {netuid}", code=1)
+    shortfall = quote.get("shortfall")
+    shortfall_rao = shortfall.rao if isinstance(shortfall, Balance) else int(shortfall or 0)
+    underwater = bool(position.get("underwater")) or shortfall_rao > 0
+    status = "underwater" if underwater else "ok"
     fields = {
         "owner": owner,
         "netuid": netuid,
@@ -1218,7 +1290,7 @@ def show_position(
         "collateral": _fmt_amount(position["collateral"]),
         "escrow": _fmt_amount(position.get("escrow") or position.get("proceeds")),
         "interest due": _fmt_amount(position["interest_due"]),
-        "status": "underwater" if position.get("underwater") else "ok",
+        "status": status,
         "expires": _format_expiry(position.get("expires_at"), head=head, head_time=head_time),
         "due": position.get("due"),
         "runway": (
@@ -1226,10 +1298,13 @@ def show_position(
         ),
         "quoted payment": _fmt_amount(quote["payment"]),
         "quoted refund": _fmt_amount(quote["refund"]),
-        "shortfall": _fmt_amount(quote.get("shortfall")),
+        "shortfall": _fmt_amount(shortfall),
     }
+    if shortfall_rao > 0 and position.get("side") == "Short" and not repay_from_wallet:
+        fields["at expiry"] = "forfeit if still underwater (burn C, restore lift+escrow, no refund)"
     json_fields = {
         **_position_json(position),
+        "underwater": underwater,
         "close_quote": {
             "payment": quote["payment"].rao
             if isinstance(quote["payment"], Balance)
@@ -1237,18 +1312,14 @@ def show_position(
             "refund": quote["refund"].rao
             if isinstance(quote["refund"], Balance)
             else quote["refund"],
-            "shortfall": (
-                quote["shortfall"].rao
-                if isinstance(quote.get("shortfall"), Balance)
-                else quote.get("shortfall")
-            ),
+            "shortfall": shortfall_rao,
             "repay_from_wallet": repay_from_wallet,
             "hotkey_ss58": hotkey,
         },
     }
+    # Lending query docs are not yet on the public site (N12/F12); omit 404 links.
     context.output.detail(
         f"lending position on netuid {netuid}",
         fields,
         json_fields=json_fields,
-        docs=[query_docs_url("lending-position"), query_docs_url("lending-close-quote")],
     )

@@ -17,6 +17,7 @@
 * **2026-10-29: Jacob pass/fail + slippage chart.** Keep-weights criterion: no ≤N-action self-contained sequence yields $\Delta>0$ for $\varphi\le\varphi_{\max}$ on live SN29 / SN64 / SN51 / SN4 / SN119. Search PASS ($N=8$). Slippage $M(\varphi)\approx 1/(1-\varphi)$ — `no-arbitrage-slippage.pdf`.
 * **2026-10-29: lift/readd inverse (SN29 drain).** `readd_protocol_liquidity` preserves Balancer weights. $\varphi=$ lift fraction (not fee).
 * **2026-10-30: k-neutrality burn (Jacob).** After the last outstanding lift is re-added, burn proportional surplus TAO/alpha so Balancer $L=x^{w_b}y^{w_q}$ returns to the pre-lending baseline (spot fixed, weights unchanged). Floors at pre-credit reserves; never touches user funds or escrow. Dissolution skips. See `no-arbitrage.tex` §K-neutrality burn.
+* **2026-11-03 (E2E N8):** After a squeeze the burn can leave `L` slightly above the pre-lending baseline because each surplus burn is **capped at the just-credited readd legs** (`burn_t ≤ credited_tao`, `burn_a ≤ credited_alpha`). Residual surplus from earlier credit/debit asymmetry is intentionally not clawed from idle pool or user funds. Documented; economics unchanged.
 * Economics unchanged: 25% LTV / 15% thin, 100% APR burn-all interest, escrowed longs and shorts, pro-rata partial repay, custody earns no emissions, dissolution `r` protections, new-subnet gate and ramp.
 * Touched: header, §0, §3, §5.4 (new), §8, §9, §15 (new).
 

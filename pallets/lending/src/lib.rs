@@ -968,6 +968,10 @@ pub mod pallet {
             side: Side,
             refund: u64,
             escrow_returned: u64,
+            /// Free-balance TAO the owner paid into escrow on an underwater
+            /// short close (0 when the pot covered buyback / wallet-repay /
+            /// long paths). E2E N10.
+            wallet_top_up: u64,
         },
         Forfeited {
             owner: T::AccountId,
@@ -999,6 +1003,8 @@ pub mod pallet {
             tao_in: u64,
             alpha_escrowed: u64,
         },
+        /// Atomic raise completed: escrowed long + spot sale. Emitted for both
+        /// fresh opens and increases (see `increased`). E2E N11.
         Raised {
             owner: T::AccountId,
             hotkey: T::AccountId,
@@ -1010,6 +1016,8 @@ pub mod pallet {
             free_tao_out: u64,
             price_before: U64F64,
             price_after: U64F64,
+            /// True when this raise topped up an existing long (not a fresh open).
+            increased: bool,
         },
         InterestCollected {
             owner: T::AccountId,
@@ -2826,6 +2834,7 @@ pub mod pallet {
             let reserve = Self::reserve_account(netuid);
             let escrow = position.custody.clone();
             let side = position.side;
+            let mut wallet_top_up = 0u64;
             let (refund, escrow_returned) = match side {
                 Side::Short => {
                     let payment = if repay_from_wallet {
@@ -2889,6 +2898,7 @@ pub mod pallet {
                             ensure!(free >= top_up, Error::<T>::InsufficientEscrow);
                             T::Pool::transfer_tao(&owner, &escrow, top_up.into())?;
                         }
+                        wallet_top_up = top_up;
                         let budget = Self::add(pot, top_up)?;
                         let (paid, bought) = Self::execute_buyback(
                             &escrow,
@@ -3125,6 +3135,7 @@ pub mod pallet {
                 side,
                 refund,
                 escrow_returned,
+                wallet_top_up,
             });
             Ok(())
         }
@@ -3962,6 +3973,7 @@ pub mod pallet {
 
             // Post-interest escrow snapshot: increase → sale defaults to delta;
             // forfeited / fresh → entire new escrow (escrow_before is 0).
+            let increasing = Positions::<T>::contains_key(&owner, netuid);
             let escrow_before = Positions::<T>::get(&owner, netuid)
                 .map(|p| p.escrow_alpha)
                 .unwrap_or(0);
@@ -4001,6 +4013,7 @@ pub mod pallet {
                 free_tao_out: out.to_u64(),
                 price_before,
                 price_after,
+                increased: increasing,
             });
             let _ = a_quote;
             Ok(())
@@ -6056,7 +6069,7 @@ pub mod pallet {
             }
             // Post-trade EMA band for both exact and collateral-only sizing
             // (same gate as `do_open`; catches OpenLoan / quote_open without amount).
-            let spot_after = Self::simulate_open_spot_after(netuid, side, principal)?;
+            let (spot_after, escrow_estimate) = Self::simulate_open_trade(netuid, side, principal)?;
             Self::ensure_open_ema_band(side, spot_after, reference.price, &params)?;
             let total_p = Self::add(
                 existing.as_ref().map(|p| p.principal).unwrap_or(0),
@@ -6071,18 +6084,31 @@ pub mod pallet {
                 Side::Short => total_c,
                 Side::Long => Self::v_dyn(netuid, total_c, total_p, &reference, owner)?,
             };
+            // `escrow_estimate`: short = simulated TAO proceeds; long = simulated
+            // escrowed alpha. CLI floors min_proceeds / min_escrow on this (N3 / F10).
             Self::validate_sized_principal(
-                netuid, side, principal, price, collateral, v, 0, &params,
+                netuid,
+                side,
+                principal,
+                price,
+                collateral,
+                v,
+                escrow_estimate,
+                &params,
             )
         }
 
-        /// Approximate post-forced-trade spot after a proportional lift + buy/sell.
-        /// Price is assumed ∝ reserve ratio (equal-weight Balancer / MockPool).
-        fn simulate_open_spot_after(
+        /// Approximate post-forced-trade spot and escrow fill after a
+        /// proportional lift + buy/sell. Price ∝ reserve ratio.
+        ///
+        /// Returns `(spot_after, escrow_out)` where `escrow_out` is TAO proceeds
+        /// for a short sale or alpha escrowed for a long buy — the same fill the
+        /// open path realises (fee-free quote_sell_on / quote_buy_on).
+        fn simulate_open_trade(
             netuid: NetUid,
             side: Side,
             principal: u64,
-        ) -> Result<U64F64, DispatchError> {
+        ) -> Result<(U64F64, u64), DispatchError> {
             let spot_before = T::Pool::current_alpha_price(netuid);
             let y = T::Pool::pool_tao(netuid).to_u64();
             let x = T::Pool::pool_alpha(netuid).to_u64();
@@ -6096,16 +6122,24 @@ pub mod pallet {
             let y1 = y.saturating_sub(lift_tao);
             let x1 = x.saturating_sub(lift_alpha);
             ensure!(y1 > 0 && x1 > 0, Error::<T>::EmptyPool);
-            let (y2, x2) = match side {
+            let (y2, x2, escrow_out) = match side {
                 Side::Long => {
                     let a_out =
                         T::Pool::quote_buy_on(y1.into(), x1.into(), w, principal.into()).to_u64();
-                    (y1.saturating_add(principal), x1.saturating_sub(a_out))
+                    (
+                        y1.saturating_add(principal),
+                        x1.saturating_sub(a_out),
+                        a_out,
+                    )
                 }
                 Side::Short => {
                     let t_out =
                         T::Pool::quote_sell_on(y1.into(), x1.into(), w, principal.into()).to_u64();
-                    (y1.saturating_sub(t_out), x1.saturating_add(principal))
+                    (
+                        y1.saturating_sub(t_out),
+                        x1.saturating_add(principal),
+                        t_out,
+                    )
                 }
             };
             ensure!(y2 > 0 && x2 > 0, Error::<T>::Arithmetic);
@@ -6114,9 +6148,20 @@ pub mod pallet {
             let factor = after_ratio
                 .checked_div(before_ratio)
                 .ok_or(Error::<T>::Arithmetic)?;
-            spot_before
+            let spot_after = spot_before
                 .checked_mul(factor)
-                .ok_or_else(|| Error::<T>::Arithmetic.into())
+                .ok_or(Error::<T>::Arithmetic)?;
+            Ok((spot_after, escrow_out))
+        }
+
+        /// Approximate post-forced-trade spot after a proportional lift + buy/sell.
+        #[allow(dead_code)]
+        fn simulate_open_spot_after(
+            netuid: NetUid,
+            side: Side,
+            principal: u64,
+        ) -> Result<U64F64, DispatchError> {
+            Ok(Self::simulate_open_trade(netuid, side, principal)?.0)
         }
 
         pub fn quote_close(
@@ -6332,7 +6377,7 @@ pub mod pallet {
         pub fn quote_raise(
             owner: &T::AccountId,
             netuid: NetUid,
-            _source_hotkey: &T::AccountId,
+            source_hotkey: &T::AccountId,
             amount: Option<u64>,
             collateral: Option<u64>,
             sell: Option<u64>,
@@ -6341,7 +6386,12 @@ pub mod pallet {
             use frame_support::storage::{TransactionOutcome, with_transaction};
             with_transaction(|| {
                 TransactionOutcome::Rollback(Self::quote_raise_after_accrual(
-                    owner, netuid, amount, collateral, sell,
+                    owner,
+                    netuid,
+                    source_hotkey,
+                    amount,
+                    collateral,
+                    sell,
                 ))
             })
         }
@@ -6349,6 +6399,7 @@ pub mod pallet {
         fn quote_raise_after_accrual(
             owner: &T::AccountId,
             netuid: NetUid,
+            source_hotkey: &T::AccountId,
             amount: Option<u64>,
             collateral: Option<u64>,
             sell: Option<u64>,
@@ -6504,7 +6555,16 @@ pub mod pallet {
             ensure!(y_buy > 0 && x_buy > 0, Error::<T>::Arithmetic);
             let price_after_buy =
                 Self::approx_spot_after(price_before, y_lift, x_lift, y_buy, x_buy)?;
+            // Same EMA gate as `do_open` for the long leg (E2E N1).
+            Self::ensure_open_ema_band(Side::Long, price_after_buy, reference.price, &params)?;
             let s = sell.unwrap_or(a);
+            // Same stake gates as `do_open_long_and_sell` (collateral + sale).
+            T::Pool::ensure_collateral_stake(source_hotkey, owner, netuid, c.into())?;
+            let unlocked = T::Pool::unlocked_stake(source_hotkey, owner, netuid).to_u64();
+            ensure!(
+                unlocked >= c.saturating_add(s),
+                Error::<T>::InsufficientSellStake
+            );
             let free = T::Pool::quote_sell_on(y_buy.into(), x_buy.into(), w, s.into()).to_u64();
             let y_after = y_buy.saturating_sub(free);
             let x_after = x_buy.saturating_add(s);

@@ -2088,6 +2088,65 @@ fn long_open_enforces_min_escrow_alpha_short_uses_min_proceeds_only() {
     });
 }
 
+/// E2E N3 / F10: open quote fills `escrow_estimate` from the simulated trade
+/// (short = sale TAO, long = buy alpha), not collateral×LTV opening_value.
+#[test]
+fn open_quote_escrow_estimate_matches_simulated_trade() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+
+        let short = Lending::quote_open_for(&owner, netuid(), Side::Short, 5_000_000_000_000, None)
+            .expect("short quote");
+        assert!(
+            short.escrow_estimate > 0,
+            "short escrow_estimate = simulated proceeds"
+        );
+        assert!(
+            short.escrow_estimate <= short.opening_value,
+            "sale fill must not exceed collateral×LTV opening_value (got {} > {})",
+            short.escrow_estimate,
+            short.opening_value
+        );
+        // Floor at simulated fill succeeds; floor above it fails.
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            short.escrow_estimate.saturating_mul(99) / 100,
+            0,
+            deadline(),
+        ));
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            true,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+
+        let long = Lending::quote_open_for(
+            &owner,
+            netuid(),
+            Side::Long,
+            5_000_000_000_000,
+            Some(&hotkey),
+        )
+        .expect("long quote");
+        assert!(
+            long.escrow_estimate > 0,
+            "long escrow_estimate = simulated buy alpha"
+        );
+    });
+}
+
 #[test]
 fn partial_repay_scales_position_pro_rata() {
     new_test_ext().execute_with(|| {

@@ -111,8 +111,6 @@ def _position_record(
     escrow_alpha = int(raw.get("escrow_alpha") or 0)
     # Fixed one-year term end; absent only on pre-term storage layouts.
     expires_at = int(raw["expires_at"]) if raw.get("expires_at") is not None else None
-    # Storage has no opened_at; expose when a future layout adds it.
-    opened_at = int(raw["opened_at"]) if raw.get("opened_at") is not None else None
     runway_days = None
     if annual:
         runway_days = max(collateral - interest_due, 0) * 365 / annual
@@ -121,6 +119,8 @@ def _position_record(
             days_to_expiry = max(expires_at - now, 0) * 365 / blocks_per_year
             runway_days = min(runway_days, days_to_expiry)
     remaining = max(collateral - interest_due, 0)
+    # Interest exhaustion. AMM buyback shortfall is annotated by CLI show/list
+    # via lending_close_quote (E2E N4) — storage alone cannot know pool cost.
     underwater = remaining <= 0 and principal > 0
     return {
         "coldkey": owner,
@@ -141,7 +141,6 @@ def _position_record(
         "last_accrued": int(raw["last_accrued"]),
         "due": int(raw["due"]),
         "expires_at": expires_at,
-        "opened_at": opened_at,
         "underwater": underwater,
         "runway_days": runway_days,
     }

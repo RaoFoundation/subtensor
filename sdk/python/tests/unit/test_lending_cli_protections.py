@@ -96,10 +96,10 @@ async def test_raise_loan_valid_until_none_resolves_from_block_number():
 
 
 @pytest.mark.asyncio
-async def test_raise_loan_explicit_valid_until_skips_block_number():
+async def test_raise_loan_explicit_valid_until_checks_not_past():
     class _Substrate:
         async def block_number(self) -> int:
-            raise AssertionError("explicit valid_until must not read head")
+            return 1_000
 
         async def compose(self, call):
             return call
@@ -117,6 +117,28 @@ async def test_raise_loan_explicit_valid_until_skips_block_number():
     )
     call = await intent.build(_Substrate(), _Wallet())
     assert call.params["valid_until"] == 2_000
+
+    past = RaiseLoan(
+        netuid=1,
+        hotkey_ss58="5Hotkey",
+        borrow_tao="1",
+        max_collateral_alpha="10",
+        valid_until=500,
+    )
+    with pytest.raises(BittensorError, match="already past"):
+        await past.build(_Substrate(), _Wallet())
+
+
+def test_raise_loan_amount_mode_rejects_zero_max_collateral():
+    with pytest.raises(BittensorError, match="max_collateral_alpha"):
+        RaiseLoan(netuid=1, hotkey_ss58="5Hotkey", borrow_tao="1")
+    with pytest.raises(BittensorError, match="must be > 0"):
+        RaiseLoan(
+            netuid=1,
+            hotkey_ss58="5Hotkey",
+            borrow_tao="1",
+            max_collateral_alpha="0",
+        )
 
 
 def test_raise_loan_valid_until_default_is_none():

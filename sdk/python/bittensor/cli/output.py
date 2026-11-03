@@ -11,6 +11,7 @@ import contextlib
 import json as _json
 import os
 import re
+import shutil
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -136,11 +137,23 @@ def _diagnostic(text: str) -> str:
 
     The first character is lowered only when it starts an ordinary word (next
     character lowercase), so acronyms and identifiers keep their casing.
+    CamelCase chain error names (SubnetUnavailable) and § section refs are
+    left alone / stripped for user-facing headlines (E2E F12).
     """
     text = text.strip()
+    # Drop pallet §section cross-refs from headlines ("§5.4: …" → remainder).
+    text = re.sub(r"^§\d+(?:\.\d+)*\s*[:—-]\s*", "", text)
+    text = re.sub(r"\s*§\d+(?:\.\d+)*\b", "", text)
     if text.endswith(".") and not text.endswith(".."):
         text = text[:-1]
-    if len(text) > 1 and text[0].isupper() and text[1].islower():
+    # Do not camelCase-mangle PascalCase identifiers (SubnetUnavailable).
+    # "Price too far" → "price too far"; "PriceTooFarFromEma" stays.
+    if (
+        len(text) > 1
+        and text[0].isupper()
+        and text[1].islower()
+        and (not any(c.isupper() for c in text[1:]) or " " in text)
+    ):
         text = text[0].lower() + text[1:]
     return text
 
@@ -279,8 +292,14 @@ class Output:
         self.network = network
         # highlight=False: rich's default highlighter colors digits, parens,
         # and quoted strings on its own; every color here should be deliberate.
-        self._out = Console(highlight=False, theme=_THEME)
-        self._err = Console(stderr=True, highlight=False, theme=_THEME)
+        # Prefer the real tty width so loan tables are not stuck at 80 cols
+        # on wide terminals (E2E F8). Fallback 120 when size is unavailable.
+        try:
+            term_width = max(shutil.get_terminal_size(fallback=(120, 24)).columns, 80)
+        except Exception:
+            term_width = 120
+        self._out = Console(highlight=False, theme=_THEME, width=term_width)
+        self._err = Console(stderr=True, highlight=False, theme=_THEME, width=term_width)
         # Whether the terminal honors OSC-8 hyperlinks (invisible clickable
         # text). Apple's Terminal.app ignores them entirely, so on it a link
         # must be printed as visible URL text to be clickable (Terminal.app
@@ -2375,16 +2394,27 @@ class Output:
         header.append(f"[{error.code.value}]", style=STYLE_ERROR)
         header.append(":", style=STYLE_ERROR)
         header.append(" ")
-        body = _prose(_diagnostic(self.with_subnets(self.with_names(message))))
+        # Prefer the human description over a raw CamelCase error name /
+        # pallet §docs string for the headline (E2E F12).
+        headline = message
+        if error.description and (
+            not message
+            or message == error.name
+            or message.startswith("§")
+            or "Replaces " in message
+        ):
+            headline = error.description
+        body = _prose(_diagnostic(self.with_subnets(self.with_names(headline))))
         body.style = STYLE_MESSAGE
         header.append_text(body)
         self._err.print(header)
-        if error.name:
+        if error.name and headline != error.name:
             self._sub_diag("note", f"the chain rejected the call with `{error.name}`")
-        if error.description and error.description != message:
+        if error.description and error.description != message and error.description != headline:
             self._sub_diag("note", error.description)
         self._sub_diag("help", error.remediation)
-        if error.docs_url:
+        # Lending query/tx pages are not on the public docs host yet (N12/F12).
+        if error.docs_url and "/lending" not in error.docs_url and "/loan" not in error.docs_url:
             self._sub_diag("see", error.docs_url)
         if explorer_url:
             self._sub_diag("see", explorer_url)
