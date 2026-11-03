@@ -63,14 +63,16 @@ async function setupTwoSubnetsWithBasket(
     await sudoSetSubtokenEnabled(api, ROOT_NETUID, true);
 
     const netuid1 = await addNewSubnetwork(api, owner1Hotkey, owner1Coldkey);
-    await startCall(api, netuid1, owner1Coldkey);
     log(`Created netuid1: ${netuid1}`);
 
     const netuid2 = await addNewSubnetwork(api, owner2Hotkey, owner2Coldkey);
-    await startCall(api, netuid2, owner2Coldkey);
     log(`Created netuid2: ${netuid2}`);
 
     for (const netuid of [netuid1, netuid2]) {
+        // Prepare stake before starting emissions, so the first fast price EMA sample
+        // reflects the funded pool. The slow EMA settings below do not accelerate the
+        // independent 600-block EMA used by the basket dividend price guard.
+        await sudoSetSubtokenEnabled(api, netuid, true);
         await sudoSetTempo(api, netuid, 5);
         await sudoSetEmaPriceHalvingPeriod(api, netuid, 1);
     }
@@ -98,6 +100,9 @@ async function setupTwoSubnetsWithBasket(
     // alpha on the subnets they are earned on.
     await rootRegister(api, oldHotkeyColdkey, oldHotkey.address);
     log("oldHotkey registered on root");
+
+    await startCall(api, netuid1, owner1Coldkey);
+    await startCall(api, netuid2, owner2Coldkey);
 
     log("Waiting 30 blocks for the basket fund to accumulate...");
     await waitForBlocks(api, 30);
