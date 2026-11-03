@@ -48,6 +48,8 @@ class _RecordingView:
             "due": self.block + 100,
             "expires_at": self.block + 1000,
             "expiry_due": self.block + 1000,
+            "terms_version": 1,
+            "blocks_per_year": 50_400,
         }
 
     async def constant(self, item):

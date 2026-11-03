@@ -1,10 +1,15 @@
-//! K-neutrality burn math for lending readd (Jacob 2026-10-30).
+//! K-neutrality burn math for lending readd (Jacob 2026-10-30; per-loan
+//! readd target 2026-11-03).
 //!
-//! After a weight-preserving full credit of lift legs, Balancer
-//! `L = x^{w_b} y^{w_q}` is typically above the pre-lending baseline. Burn a
-//! common fraction of both reserves so that `L` returns to the baseline while
-//! the post-credit spot (and weights) stay fixed. Floors stop the burn from
-//! eating pre-credit reserves (user funds / escrow never touched).
+//! After a weight-preserving credit of a position's lift legs, Balancer
+//! `L = x^{w_b} y^{w_q}` is typically above the per-loan target
+//! `L(pre) + L(lift)`. Burn a common fraction of both reserves so that `L`
+//! returns to that target while the post-credit spot (and weights) stay
+//! fixed. Floors stop the burn from eating pre-credit reserves (user funds /
+//! escrow never touched).
+//!
+//! Using summed `lift_tao`/`lift_alpha` across increases at different prices
+//! slightly under-burns versus summing each increase's `L` (safe direction).
 
 use substrate_fixed::{
     transcendental::{exp, ln},
@@ -14,13 +19,52 @@ use substrate_fixed::{
 /// Perquintill accuracy — matches Balancer `ACCURACY` / `Perquintill` parts.
 pub const WEIGHT_ACCURACY: u64 = 1_000_000_000_000_000_000;
 
+/// Synthetic baseline reserves whose invariant equals `L(pre) + L(lift)`.
+///
+/// Scale pre-credit reserves by `s = 1 + L(lift)/L(pre)` (homogeneous of
+/// degree 1). Pass the result to [`burn_amounts_to_invariant_baseline`] /
+/// [`invariant_shortfall_tao`] as the target baseline.
+pub fn loan_target_baseline_reserves(
+    pre_tao: u64,
+    pre_alpha: u64,
+    lift_tao: u64,
+    lift_alpha: u64,
+    quote_weight_parts: u64,
+) -> Option<(u64, u64)> {
+    if pre_tao == 0 || pre_alpha == 0 {
+        return None;
+    }
+    if lift_tao == 0 || lift_alpha == 0 {
+        // Two-sided lift expected; a zero leg contributes L=0 → target = L(pre).
+        return Some((pre_tao, pre_alpha));
+    }
+    let ratio = invariant_ratio(lift_tao, lift_alpha, pre_tao, pre_alpha, quote_weight_parts)?;
+    let s = I64F64::from_num(1).saturating_add(ratio);
+    // Ceil the scaled reserves so a clean proportional readd (post = pre+lift)
+    // lands at-or-above target and burns 0 despite fixed-point drift. Slight
+    // under-burn vs floor is the safe direction.
+    let base_tao = s
+        .saturating_mul(I64F64::from_num(pre_tao as i128))
+        .checked_ceil()
+        .map(|v| v.saturating_to_num::<u64>())
+        .unwrap_or(u64::MAX)
+        .max(1);
+    let base_alpha = s
+        .saturating_mul(I64F64::from_num(pre_alpha as i128))
+        .checked_ceil()
+        .map(|v| v.saturating_to_num::<u64>())
+        .unwrap_or(u64::MAX)
+        .max(1);
+    Some((base_tao, base_alpha))
+}
+
 /// Compute `(burn_tao, burn_alpha)` that restore `L` to the baseline invariant
 /// at the current spot price.
 ///
 /// - `tao` / `alpha`: post-credit reserves (`y'`, `x'`).
 /// - `quote_weight_parts`: Balancer `w_q` as `Perquintill::deconstruct()`.
-/// - `baseline_tao` / `baseline_alpha`: reserves snapshotted when the lift book
-///   last went idle→busy (defines `L* = (x*)^{w_b}(y*)^{w_q}`).
+/// - `baseline_tao` / `baseline_alpha`: target reserves defining
+///   `L* = (x*)^{w_b}(y*)^{w_q}` (per-loan: pre scaled to `L(pre)+L(lift)`).
 /// - `floor_tao` / `floor_alpha`: pre-credit reserves; burn never takes either
 ///   side below these.
 ///
@@ -45,13 +89,12 @@ pub fn burn_amounts_to_invariant_baseline(
         return (0, 0);
     }
 
-    let Some(sigma) =
-        sigma_to_baseline(tao, alpha, quote_weight_parts, baseline_tao, baseline_alpha)
+    let Some(sigma) = invariant_ratio(baseline_tao, baseline_alpha, tao, alpha, quote_weight_parts)
     else {
         return (0, 0);
     };
 
-    // Already at or below baseline invariant.
+    // Already at or below baseline invariant (σ = L*/L' ≥ 1 ⇒ L' ≤ L*).
     if sigma >= I64F64::from_num(1) {
         return (0, 0);
     }
@@ -91,32 +134,36 @@ pub fn burn_amounts_to_invariant_baseline(
     )
 }
 
-fn sigma_to_baseline(
-    tao: u64,
-    alpha: u64,
+/// `L(num)/L(den) = (num_α/den_α)^{w_b} (num_τ/den_τ)^{w_q}`.
+fn invariant_ratio(
+    num_tao: u64,
+    num_alpha: u64,
+    den_tao: u64,
+    den_alpha: u64,
     quote_weight_parts: u64,
-    baseline_tao: u64,
-    baseline_alpha: u64,
 ) -> Option<I64F64> {
+    if num_tao == 0 || num_alpha == 0 || den_tao == 0 || den_alpha == 0 {
+        return None;
+    }
     let acc = I64F64::from_num(WEIGHT_ACCURACY as i128);
     let w_q_parts = (quote_weight_parts as u128).min(WEIGHT_ACCURACY as u128);
     let w_b_parts = (WEIGHT_ACCURACY as u128).saturating_sub(w_q_parts);
     let w_q = I64F64::from_num(w_q_parts as i128).checked_div(acc)?;
     let w_b = I64F64::from_num(w_b_parts as i128).checked_div(acc)?;
 
-    let ratio_x = I64F64::checked_from_num(baseline_alpha as i128)?
-        .checked_div(I64F64::checked_from_num(alpha as i128)?)?;
-    let ratio_y = I64F64::checked_from_num(baseline_tao as i128)?
-        .checked_div(I64F64::checked_from_num(tao as i128)?)?;
+    let ratio_x = I64F64::checked_from_num(num_alpha as i128)?
+        .checked_div(I64F64::checked_from_num(den_alpha as i128)?)?;
+    let ratio_y = I64F64::checked_from_num(num_tao as i128)?
+        .checked_div(I64F64::checked_from_num(den_tao as i128)?)?;
     if ratio_x <= I64F64::from_num(0) || ratio_y <= I64F64::from_num(0) {
         return None;
     }
     let ln_x: I64F64 = ln(ratio_x).ok()?;
     let ln_y: I64F64 = ln(ratio_y).ok()?;
-    let log_sigma = w_b
+    let log_ratio = w_b
         .saturating_mul(ln_x)
         .saturating_add(w_q.saturating_mul(ln_y));
-    exp(log_sigma).ok()
+    exp(log_ratio).ok()
 }
 
 /// TAO value of a real Balancer-`L` shortfall versus the baseline invariant.
@@ -136,8 +183,7 @@ pub fn invariant_shortfall_tao(
     if tao == 0 || alpha == 0 || baseline_tao == 0 || baseline_alpha == 0 {
         return 0;
     }
-    let Some(sigma) =
-        sigma_to_baseline(tao, alpha, quote_weight_parts, baseline_tao, baseline_alpha)
+    let Some(sigma) = invariant_ratio(baseline_tao, baseline_alpha, tao, alpha, quote_weight_parts)
     else {
         return 0;
     };
@@ -247,5 +293,37 @@ mod tests {
             (got as f64 - expect).abs() <= 2.0,
             "got {got} expect ~{expect}"
         );
+    }
+
+    #[test]
+    fn loan_target_baseline_scales_pre_by_one_plus_lift_ratio() {
+        let w = WEIGHT_ACCURACY / 2;
+        // Equal weight: L(lift)/L(pre) = √((10/100)*(10/100)) = 0.1 → s ≈ 1.1.
+        let Some((bt, ba)) = loan_target_baseline_reserves(100, 100, 10, 10, w) else {
+            panic!("loan target baseline should succeed for positive proportional inputs");
+        };
+        assert!((bt as i64 - 110).unsigned_abs() <= 2);
+        assert!((ba as i64 - 110).unsigned_abs() <= 2);
+        // Clean proportional readd: post = pre + lift. Fixed-point σ may leave
+        // a 1–2 unit dust burn; never burns past the credit (floor=100).
+        let (burn_t, burn_a) = burn_amounts_to_invariant_baseline(110, 110, w, bt, ba, 100, 100);
+        assert!(burn_t <= 2 && burn_a <= 2);
+        assert_eq!(110 - burn_t, 110 - burn_a);
+    }
+
+    #[test]
+    fn loan_target_burn_clears_surplus_above_pre_plus_lift() {
+        let w = WEIGHT_ACCURACY / 2;
+        let Some((bt, ba)) = loan_target_baseline_reserves(100, 100, 10, 10, w) else {
+            panic!("loan target baseline should succeed for positive proportional inputs");
+        };
+        // Post has extra surplus (121) above target (~110).
+        let (burn_t, burn_a) = burn_amounts_to_invariant_baseline(121, 121, w, bt, ba, 100, 100);
+        let keep_t = 121 - burn_t;
+        let keep_a = 121 - burn_a;
+        assert!((keep_t as i64 - bt as i64).unsigned_abs() <= 1);
+        assert!((keep_a as i64 - ba as i64).unsigned_abs() <= 1);
+        assert!(burn_t >= 8 && burn_a >= 8, "must clear most of the surplus");
+        assert!(burn_t <= 21 && burn_a <= 21);
     }
 }

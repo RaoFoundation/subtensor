@@ -14,7 +14,7 @@ mod order;
 
 pub use k_neutral::{
     WEIGHT_ACCURACY as K_NEUTRAL_WEIGHT_ACCURACY, burn_amounts_to_invariant_baseline,
-    invariant_shortfall_tao,
+    invariant_shortfall_tao, loan_target_baseline_reserves,
 };
 
 /// Coarse failure classification for protocol-owned basket operations. Callers may recover from

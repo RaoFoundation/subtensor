@@ -193,6 +193,41 @@ def test_proceeds_docstring_no_longer_claims_zero_for_new_shorts():
     assert "escrowed TAO" in doc or "E_S" in doc
 
 
+def test_interest_due_stops_at_expires_at():
+    """Display accrual matches runtime: no interest past expires_at."""
+
+    class _View:
+        block = 5_000
+
+        def balance(self, rao, netuid=0):
+            return Balance.from_rao(rao, netuid)
+
+    raw = {
+        "side": "Short",
+        "principal": 1_000,
+        "collateral": 10_000_000,
+        "proceeds": 0,
+        "escrow_alpha": 0,
+        "lift_tao": 0,
+        "lift_alpha": 0,
+        "annual_interest": 365_000,
+        "last_accrued": 1_000,
+        "interest_remainder": 0,
+        "due": 2_000,
+        "expires_at": 1_100,
+        "terms_version": 1,
+        "blocks_per_year": 365,
+    }
+    # now=5000, but accrual window is only expires_at-last_accrued=100.
+    record = lending_reads._position_record(_View(), "5Owner", 1, raw, (5_000, 365))
+    assert record is not None
+    assert record["interest_due"].rao == 365_000 * 100 // 365
+    raw_fully_accrued = {**raw, "last_accrued": 1_100}
+    zero = lending_reads._position_record(_View(), "5Owner", 1, raw_fully_accrued, (5_000, 365))
+    assert zero is not None
+    assert zero["interest_due"].rao == 0
+
+
 def test_terms_version_read_strictly():
     """N26: missing / null terms_version must not become 1."""
 

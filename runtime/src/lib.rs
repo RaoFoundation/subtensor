@@ -1810,6 +1810,7 @@ type Migrations = (
     pallet_lending::migrations::LiftParamsEmaBandMigration<Runtime>,
     pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
     pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
+    pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.

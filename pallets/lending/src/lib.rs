@@ -653,12 +653,13 @@ pub struct Dissolution<BlockNumber> {
     pub t_ema_flag: u64,
 }
 
-/// Pre-lending pool reserves used as the k-neutrality baseline.
+/// Retired: was the pool-wide idle→busy k-neutrality snapshot.
 ///
-/// Snapshotted when the lift book goes idle→busy (before the first lift of a
-/// nonempty period). After the last outstanding lift is re-added, excess
-/// reserves above this invariant are burned at the current spot.
-#[freeze_struct("6bbbb1de809790e")]
+/// Per-loan readd burn (2026-11-03) no longer uses a pool-wide baseline.
+/// Storage entries are cleared by
+/// [`migrations::migrate_clear_invariant_baseline`]; the type remains so the
+/// migration can decode and drain legacy rows.
+#[freeze_struct("d5ab536ed45fbf01")]
 #[derive(
     Encode,
     Decode,
@@ -727,7 +728,7 @@ pub struct RaiseQuote {
 ///
 /// Monotonic saturating accumulators for what the chain earns (interest /
 /// k-neutral surplus burns) versus what pools lose (forfeited collateral,
-/// shortfalls below [`InvariantBaseline`]). Never reset except that
+/// shortfalls below the per-loan readd target). Never reset except that
 /// per-netuid values may be removed on dissolution while globals stay.
 #[freeze_struct("202664312187e3bb")]
 #[derive(
@@ -776,7 +777,7 @@ pub struct LendingStats {
     /// Free-balance TAO paid into escrow on underwater short closes
     /// (`Closed.wallet_top_up`).
     pub wallet_top_ups_tao: u128,
-    /// TAO-valued Balancer-`L` shortfall vs [`InvariantBaseline`] after a
+    /// TAO-valued Balancer-`L` shortfall vs the per-loan readd target after a
     /// last-loan readd (N5 / N24). Only increments when `L' < L*`; per-reserve
     /// dips with `k` restored do not count. Valued at the live spot.
     pub pool_value_given_below_baseline_tao: u128,
@@ -856,8 +857,9 @@ pub mod pallet {
     pub type LiftParamsStore<T> = StorageValue<_, LiftParams, ValueQuery>;
     #[pallet::storage]
     pub type Lifts<T: Config> = StorageMap<_, Identity, NetUid, LiftBook, ValueQuery>;
-    /// Pool reserves `(tao, alpha)` when the lift book last went idle→busy.
-    /// Cleared when the book returns to idle after a k-neutral surplus burn.
+    /// Retired pool-wide k-baseline (idle→busy snapshot). Cleared by
+    /// [`migrations::migrate_clear_invariant_baseline`]; per-loan readd burn
+    /// no longer reads or writes this map. Kept so the migration can drain it.
     #[pallet::storage]
     pub type InvariantBaseline<T: Config> =
         StorageMap<_, Identity, NetUid, InvariantBaselineReserves, OptionQuery>;
@@ -2273,6 +2275,17 @@ pub mod pallet {
             Ok(rounded.saturating_to_num())
         }
 
+        /// F16 (locked, terms v1): coupon / opening-value price is
+        /// `min(lending EMA, spot)`.
+        ///
+        /// For shorts this is the TAO value of borrowed alpha, so a pumped spot
+        /// cannot inflate the annual TAO interest and a pumped reference cannot
+        /// either. Kept on terms v1 (no mainnet positions; this has been the
+        /// open-path price since the pallet landed).
+        fn coupon_price(netuid: NetUid, reference: &LendingReference<BlockNumberFor<T>>) -> U64F64 {
+            reference.price.min(T::Pool::current_alpha_price(netuid))
+        }
+
         fn alpha_for_tao(tao: u64, price: U64F64, round_up: bool) -> Result<u64, DispatchError> {
             ensure!(price.to_bits() > 0, Error::<T>::Arithmetic);
             let value = U64F64::from_num(tao)
@@ -2822,7 +2835,7 @@ pub mod pallet {
                 )?
             };
 
-            let price = reference.price.min(T::Pool::current_alpha_price(netuid));
+            let price = Self::coupon_price(netuid, &reference);
             // Dust / side-capacity before V_dyn and min_borrow so a capacity-bound
             // zero sizes as SideCapacity (not PrincipalZero / BelowMinimumBorrow).
             if principal == 0 {
@@ -2890,9 +2903,6 @@ pub mod pallet {
             let custody = Self::custody_hotkey()?;
             let reserve = Self::reserve_account(netuid);
             let escrow = position.custody.clone();
-            // Snapshot pre-lift reserves when the book is idle so close/readd
-            // can burn surplus back to this invariant (k-neutrality).
-            Self::snapshot_invariant_baseline_if_idle(netuid);
             let (g_numer, g_denom) = Self::lift_fraction(netuid, side, principal)?;
             let (lift_alpha, lift_tao) =
                 T::Pool::lift_and_debit(netuid, g_numer, g_denom, &reserve, &custody)?;
@@ -3398,8 +3408,12 @@ pub mod pallet {
                 Side::Short => (position.lift_tao, position.principal),
                 Side::Long => (position.principal, position.lift_alpha),
             };
+            // L(lift) uses the legs actually credited (short alpha leg = principal;
+            // lift_alpha may exceed principal by held dust that stays out of the pool).
             Self::maybe_burn_invariant_surplus(
                 netuid,
+                credited_tao,
+                credited_alpha,
                 credited_tao,
                 credited_alpha,
                 Dissolutions::<T>::contains_key(netuid),
@@ -3775,6 +3789,8 @@ pub mod pallet {
             };
             Self::maybe_burn_invariant_surplus(
                 netuid,
+                credited_tao,
+                credited_alpha,
                 credited_tao,
                 credited_alpha,
                 Dissolutions::<T>::contains_key(netuid),
@@ -4210,11 +4226,10 @@ pub mod pallet {
                 )?;
                 // Same dust/capacity map as `do_open` / quotes before min_borrow.
                 if p == 0 {
-                    let price = reference.price.min(price_before);
                     return Err(Self::refuse_dust_or_capacity(
                         netuid,
                         Side::Long,
-                        price,
+                        Self::coupon_price(netuid, &reference),
                         &params,
                     ));
                 }
@@ -4344,6 +4359,9 @@ pub mod pallet {
             final_charge: bool,
         ) -> Result<(u64, u64), DispatchError> {
             Self::ensure_terms_version(position.terms_version)?;
+            // Shared expiry cap for `charge_interest` and close/repay quotes so a
+            // settlement-band deferral cannot invent interest past term end.
+            let until = until.min(position.expires_at);
             let elapsed: u64 = until.saturating_sub(position.last_accrued).saturated_into();
             // Accrual year length is snapshotted on the position at open so a
             // later Config / terms bump cannot rewrite remaining interest.
@@ -4668,6 +4686,8 @@ pub mod pallet {
                 netuid,
                 credited_tao,
                 credited_alpha,
+                credited_tao,
+                credited_alpha,
                 Dissolutions::<T>::contains_key(netuid),
             )?;
             let principal_lost = principal;
@@ -4718,41 +4738,27 @@ pub mod pallet {
             StatsGlobal::<T>::get()
         }
 
-        /// Record pre-lift pool reserves when no lifts are outstanding.
-        fn snapshot_invariant_baseline_if_idle(netuid: NetUid) {
-            let book = Lifts::<T>::get(netuid);
-            if book.l_s != 0 || book.l_l != 0 {
-                return;
-            }
-            if InvariantBaseline::<T>::contains_key(netuid) {
-                return;
-            }
-            InvariantBaseline::<T>::insert(
-                netuid,
-                InvariantBaselineReserves {
-                    tao: T::Pool::pool_tao(netuid).to_u64(),
-                    alpha: T::Pool::pool_alpha(netuid).to_u64(),
-                },
-            );
-        }
-
-        /// After readd + book update: if the lift book is idle, burn surplus
-        /// reserves so Balancer `L` returns to [`InvariantBaseline`]. Floors at
-        /// pre-credit reserves (`current − credited`). Dissolution skips this
-        /// (subnet is winding down); clears the baseline either way when idle.
+        /// After every position readd: burn surplus so Balancer `L` returns to
+        /// the per-loan target `L(pre) + L(lift)` (Jacob 2026-11-03).
+        ///
+        /// - `credited_*`: reserves just credited by this readd (burn floor /
+        ///   cap — never burn past the credit).
+        /// - `lift_*`: this position's (or repay slice's) lifted amounts; used
+        ///   for `L(lift)`. Summed lifts across increases at different prices
+        ///   slightly under-burn versus per-increase `L` (safe; see spec).
+        /// - `skip_burn`: dissolution paths skip (subnet winding down).
+        ///
+        /// No pool-wide idle snapshot: every close / repay / expiry / forfeit
+        /// burns against its own target, so a busy book cannot accumulate
+        /// surplus and emission growth between open and close is not burned.
         fn maybe_burn_invariant_surplus(
             netuid: NetUid,
             credited_tao: u64,
             credited_alpha: u64,
+            lift_tao: u64,
+            lift_alpha: u64,
             skip_burn: bool,
         ) -> DispatchResult {
-            let book = Lifts::<T>::get(netuid);
-            if book.l_s != 0 || book.l_l != 0 {
-                return Ok(());
-            }
-            let Some(baseline) = InvariantBaseline::<T>::take(netuid) else {
-                return Ok(());
-            };
             if skip_burn || (credited_tao == 0 && credited_alpha == 0) {
                 return Ok(());
             }
@@ -4761,12 +4767,19 @@ pub mod pallet {
             let floor_y = y.saturating_sub(credited_tao);
             let floor_x = x.saturating_sub(credited_alpha);
             let w = T::Pool::quote_weight_parts(netuid);
+            let Some((base_tao, base_alpha)) =
+                subtensor_swap_interface::loan_target_baseline_reserves(
+                    floor_y, floor_x, lift_tao, lift_alpha, w,
+                )
+            else {
+                return Ok(());
+            };
             let (burn_t, burn_a) = T::Pool::burn_amounts_to_k_baseline(
                 y.into(),
                 x.into(),
                 w,
-                baseline.tao.into(),
-                baseline.alpha.into(),
+                base_tao.into(),
+                base_alpha.into(),
                 floor_y.into(),
                 floor_x.into(),
             );
@@ -4790,14 +4803,12 @@ pub mod pallet {
                 });
             }
 
-            // N24: record only a real invariant shortfall (L' < L*), valued in
-            // TAO at the live spot. Per-reserve dips with k restored are not losses.
+            // N24: real invariant shortfall vs the per-loan target, valued in
+            // TAO. Measure after the burn so a successful restore records 0.
+            let y_after = y.saturating_sub(burn_t);
+            let x_after = x.saturating_sub(burn_a);
             let shortfall_tao = subtensor_swap_interface::invariant_shortfall_tao(
-                y,
-                x,
-                w,
-                baseline.tao,
-                baseline.alpha,
+                y_after, x_after, w, base_tao, base_alpha,
             );
             if shortfall_tao > 0 {
                 Self::bump_stats(netuid, |s| {
@@ -5911,9 +5922,15 @@ pub mod pallet {
                 b.l_s = 0;
                 b.l_l = 0;
             });
-            // Dissolution winds the subnet down — skip k-burn, drop baseline.
-            let _ =
-                Self::maybe_burn_invariant_surplus(netuid, book.held_tao, book.held_alpha, true);
+            // Dissolution winds the subnet down — skip k-burn.
+            let _ = Self::maybe_burn_invariant_surplus(
+                netuid,
+                book.held_tao,
+                book.held_alpha,
+                book.held_tao,
+                book.held_alpha,
+                true,
+            );
             if let Some(mut d) = Dissolutions::<T>::get(netuid) {
                 d.lifts_readded = true;
                 Dissolutions::<T>::insert(netuid, d);
@@ -6131,9 +6148,15 @@ pub mod pallet {
                         book.l_s = book.l_s.saturating_sub(position.lift_tao);
                         book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
                     });
-                    // Dissolution already re-added lift legs; cap burn by what
-                    // this settle credited (skipped for dissolving subnets).
-                    Self::maybe_burn_invariant_surplus(netuid, recovered, 0, true)?;
+                    // Dissolution already re-added lift legs; skip k-burn.
+                    Self::maybe_burn_invariant_surplus(
+                        netuid,
+                        recovered,
+                        0,
+                        position.lift_tao,
+                        position.lift_alpha,
+                        true,
+                    )?;
                     Self::remove_position(owner, netuid, &position);
                     Self::deposit_event(Event::DissolutionSettled {
                         owner: owner.clone(),
@@ -6204,7 +6227,14 @@ pub mod pallet {
                             .long_collateral_alpha
                             .saturating_sub(position.collateral);
                     });
-                    Self::maybe_burn_invariant_surplus(netuid, 0, 0, true)?;
+                    Self::maybe_burn_invariant_surplus(
+                        netuid,
+                        0,
+                        0,
+                        position.lift_tao,
+                        position.lift_alpha,
+                        true,
+                    )?;
                     Self::remove_position(owner, netuid, &position);
                     Self::deposit_event(Event::DissolutionSettled {
                         owner: owner.clone(),
@@ -6464,7 +6494,14 @@ pub mod pallet {
 
             // Burn before the leftover-collateral sale so solvent expiry matches
             // a manual close that returns alpha then sells it after the burn.
-            Self::maybe_burn_invariant_surplus(netuid, credited_tao, credited_alpha, false)?;
+            Self::maybe_burn_invariant_surplus(
+                netuid,
+                credited_tao,
+                credited_alpha,
+                credited_tao,
+                credited_alpha,
+                false,
+            )?;
             // No hotkey at expiry: `close` would return leftover long collateral
             // as alpha. Sell it at spot and pay TAO instead — **before**
             // `remove_position`, so a failed sale rolls the whole settle back
@@ -6521,7 +6558,7 @@ pub mod pallet {
             DissolutionPhase::<T>::remove(netuid);
             References::<T>::remove(netuid);
             Lifts::<T>::remove(netuid);
-            InvariantBaseline::<T>::remove(netuid);
+            let _ = InvariantBaseline::<T>::take(netuid);
             LongInterestPending::<T>::remove(netuid);
             LongInterestSince::<T>::remove(netuid);
             // Per-netuid accumulators may be cleaned up; globals stay.
@@ -6682,7 +6719,7 @@ pub mod pallet {
                     &params,
                 )?
             };
-            let price = reference.price.min(T::Pool::current_alpha_price(netuid));
+            let price = Self::coupon_price(netuid, &reference);
             // Zero additional principal: map via shared dust/capacity gate before
             // V_dyn / EMA (those require a positive principal).
             if principal == 0 {
@@ -7150,7 +7187,7 @@ pub mod pallet {
                 let best = best.ok_or(Error::<T>::InsufficientCollateral)?;
                 (best, p)
             };
-            let price = reference.price.min(price_before);
+            let price = Self::coupon_price(netuid, &reference);
             // Same dust / capacity / MinimumLoanValue gate as `do_open`.
             if p == 0 {
                 return Err(Self::refuse_dust_or_capacity(

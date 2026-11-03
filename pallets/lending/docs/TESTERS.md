@@ -63,6 +63,13 @@ Dry-run shows the Loan / Repayment / Raise card (quoted payment, refund,
 shortfall). List columns include status (underwater), escrow, expires_at, due,
 and runway capped at the one-year term. JSON amounts are rao integers.
 
-## Intentionally unchanged
+## Locked V1 economics (testers)
 
-Short interest still uses `min(reference, spot)` (E2E F16 — design question).
+- Short interest / opening value = `min(lending EMA, spot)` (F16, Jacob 2026-11-03).
+  A pumped spot or pumped EMA cannot inflate the TAO coupon. Terms v1 (no bump).
+- Caps: floor 33%, thin floor 15% below 3k τ, 50/50 split → 7.5% per side on thin
+  pools (to be raised after launch). LTV 25% (15% thin longs).
+- Volatility-targeting controller is **not** in V1.
+- Never-deepen burn: **per-loan on every readd** (not idle-book last-close).
+  Emission growth between open and close is not burned. Terms v1.
+- Unchanged for now: N25 7200-block forced settle, curve independence (HOLD).

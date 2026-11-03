@@ -8,9 +8,27 @@
 * **2026-11-03: settlement EMA band + forfeit buyback (Jacob, resolves N5).** Clone-502 drain-loop report: normal closes are k-safe; expiry/forfeit was the hole (spot close with no band → pump → one-sided readd burns k).
 * **Permissionless settlement band (§5.4 / §15.2).** Automatic expiry settlement and interest-exhaustion forfeit execute only when spot is inside the symmetric 15% EMA band `[EMA·(1−band), EMA·(1+band)]` (same `ema_band_bps` / lending EMA as opens). Outside the band: defer with `SettlementDeferred` / `InterestDeferred`, `LastDeferral`, 100-block retry, reason `SettlementPriceOutsideEmaBand`. Manual borrower `close` / `repay` unchanged (user slippage limits).
 * **Max deferral bound.** `Config::MaxSettlementDeferral = 7_200` blocks (~24 h at 12 s; matches `settle_ema_blocks`). Counted from the first band deferral (`BandDeferralSince`). After the window the settle runs even outside the band so a sustained pump cannot strand the claim.
-* **Forfeit buyback (terms v1, §4 / §15.2).** Replaces collateral burn + one-sided readd. Short: TAO collateral (+escrow) buys alpha through the pool; long: alpha collateral (+escrow) sells for TAO. Then weight-preserving two-sided readd + k-neutral burn. Leftover collateral after restoring the pool is burned (borrower still gets nothing). If the buyback leaves Balancer `L` below `InvariantBaseline`, record the **TAO-valued** k-deficit in `pool_value_given_below_baseline_tao` (N5 / N24 — not per-reserve dips when `k` is restored). Accumulators also track `forfeit_buyback_{tao,alpha}`.
-* **2026-11-03 (E2E clone-503):** N24 shortfall = real `L` deficit in TAO; U1 `lending-stats` `--netuid` optional with τ/α display; U2 deferred/past-expiry `show` wording; U3 open/raise result cards show `terms_version`; N26 strict `terms_version` read; interest accrual stops at `expires_at` during band deferral. N25 (7200 forced settle) unchanged.
-* Touched: header, §4.1/§4.2, §5.4, §8, §15.2, §15.5, §16, §17.
+* **Forfeit buyback (terms v1, §4 / §15.2).** Replaces collateral burn + one-sided readd. Short: TAO collateral (+escrow) buys alpha through the pool; long: alpha collateral (+escrow) sells for TAO. Then weight-preserving two-sided readd + **per-loan** k-neutral burn. Leftover collateral after restoring the pool is burned (borrower still gets nothing). If the buyback leaves Balancer `L` below the per-loan target `L(pre)+L(lift)`, record the **TAO-valued** k-deficit in `pool_value_given_below_baseline_tao` (N5 / N24 — not per-reserve dips when `k` is restored). Accumulators also track `forfeit_buyback_{tao,alpha}`.
+* **2026-11-03 (E2E clone-503):** N24 shortfall = real `L` deficit in TAO; U1 `lending-stats` `--netuid` optional with τ/α display; U2 deferred/past-expiry `show` wording; U3 open/raise result cards show `terms_version`; N26 strict `terms_version` read; interest accrual stops at `expires_at` during band deferral (shared by `charge_interest` and close/repay quotes). N25 (7200 forced settle) unchanged.
+* **2026-11-03: F16 short interest locked (Jacob).** Short opening value / annual interest is valued at `min(lending EMA, spot)` so neither a pumped spot nor a pumped reference can inflate the TAO coupon. **Kept on terms v1** — this has been the open-path price since the pallet landed, and there are no open mainnet positions, so a version bump would only add empty surface. See §6 / §17 / V1 launch params below.
+* **2026-11-03: per-loan never-deepen burn (Jacob).** Replace the pool-wide idle→busy `InvariantBaseline` + last-close-only burn with a burn on **every** readd against `L(pre)+L(lift)`. Fixes surplus accumulation on busy books, emission-growth burns, and first/last closer ordering. Migration clears legacy `InvariantBaseline`. **Kept on terms v1** (no mainnet positions). See `no-arbitrage.md` and §8.
+* Touched: header, §4.1/§4.2, §5.4, §6, §8, §15.2, §15.5, §16, §17.
+
+## V1 launch parameters (locked 2026-11-03)
+
+Ship with these values; raise the thin-side caps after launch once the book is observed:
+
+| Param | V1 value | Notes |
+| --- | --- | --- |
+| Capacity floor | **33%** of `G_ref` | §2.2 |
+| Thin floor | **15%** of `G_ref` when `G_ref < 3,000 τ` | §2.2 / §10.5 |
+| Side split | **50/50** | → **7.5% per side** on thin pools |
+| LTV | **25%** (shorts and non-thin longs); **15%** thin longs | §5 |
+| Short interest price | **`min(lending EMA, spot)`** (F16) | §6; terms v1 |
+| Volatility-targeting controller | **Not in V1** | deferred |
+| Max settlement deferral | **7,200** blocks (~24 h) | N25; design question for Jacob if changed |
+| Curve independence | **HOLD** | no change |
+| Never-deepen burn | **per-loan on every readd** | replaces idle-book last-close burn (2026-11-03) |
 
 ## Changelog: v5.4 vs v5.3
 * **2026-10-27 (Oct 27, 2026): one-year fixed term (Jacob, locked 2026-10-20).**
@@ -302,6 +320,7 @@ require P ≤ LTV_tier · V_dyn
 
 ## 6. Interest: 100% APR, burn all, with paced long sales
 * **Short TAO interest:** burned immediately (#3211 `burn_interest_tao`).
+* **F16 short coupon price (locked, terms v1):** at open / increase / quote, short `opening_value` and `annual_interest` use **`min(lending EMA, spot)`**. A pumped spot cannot inflate the TAO coupon, and a pumped reference cannot either. Long interest alpha uses the same `coupon_price` helper (lower price → larger alpha coupon). No terms bump: this was already the v1 open-path price and there are no open mainnet positions.
 * **Long alpha interest:** goes to `LongInterestPending[netuid]` and is sold over the next 7 days, one aggregated sale per subnet per block:
   * slice = `pending / blocks_left`, capped at a 1 bps spot move, `Δx_max = x·((1/(1 − 10⁻⁴))^{w_q} − 1)`;
   * slices below 0.01 τ wait;
@@ -842,7 +861,7 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 ### 15.2 What happens on expiry
 * In `on_idle`, after interest collection, the pallet walks the expiry schedule with a `WeightMeter` (same bounded / resumable pattern as `Due` and dissolution settle).
 * For each due entry whose subnet is **not** dissolving, run **expiry == default close at spot**:
-  1. Accrue and charge interest through **`expires_at`** (final charge) — never past the term end, so a settlement-band deferral does not bill the borrower for waiting. If interest exhausts collateral the position forfeits, exactly as in `close`.
+  1. Accrue and charge interest through **`expires_at`** (final charge) — never past the term end, so a settlement-band deferral does not bill the borrower for waiting. `interest_due` applies this cap for both execution and `quote_close` / `quote_repay`, so quotes cannot invent post-expiry interest while settlement is deferred. If interest exhausts collateral the position forfeits, exactly as in `close`.
   2. **Settlement EMA band.** If spot is outside `[EMA·(1−band), EMA·(1+band)]` and `MaxSettlementDeferral` has not elapsed since the first band deferral, roll back and defer (`SettlementDeferred`, `ExpiryRetry`, reason `SettlementPriceOutsideEmaBand`). Manual close/repay are not gated.
   3. **Solvency check.** If escrow + collateral cannot fully repay principal at spot (no wallet top-up), take the §4 **forfeit buyback** path and stop — no `Expired` event:
      * **Short:** buy back as much of `P` as `E_S + C` affords; `readd(τ_L, bought_α)`; burn leftover TAO.
@@ -873,6 +892,8 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 * `expiry_band_deferral_bound_forces_settlement`: after `MaxSettlementDeferral`, settle proceeds even outside the band.
 * `within_band_forfeit_buyback_restores_k_or_records_shortfall`: mild in-band underwater forfeit keeps `L` near baseline or records N24 TAO-valued shortfall; `forfeit_buyback_*` increments; alpha shortfall counter stays 0.
 * `band_deferral_stops_interest_accrual_at_expires_at`: forced settle after a band deferral charges interest only through `expires_at`.
+* `quote_close_and_repay_cap_interest_at_expires_at`: close and partial-repay quotes use the same `expires_at` cap (including `last_accrued == expires_at`).
+* `short_interest_valued_at_min_reference_and_spot`: F16 — pumped spot or pumped EMA cannot inflate short `opening_value` / `annual_interest`.
 * `expiry_k_neutral_burn_restores_l_at_half_weight`: the k-neutral burn still restores Balancer `L` after an expiry exit.
 * `fixed_term_expiry_closes_at_spot_not_reference_ema`: a far-away reference EMA does not move the expiry valuation; `Expired.rate` is spot.
 * Many expiries in one bucket: a tight `WeightMeter` settles some but not all; a later full-weight pass finishes the rest.
@@ -895,7 +916,7 @@ Cumulative counters so anyone can measure what lending earns versus what pools l
 * `expiry_settlement_count` (`Expired`).
 * `opens_*` / `closes_*` by side (`Opened` / `Closed`); raise fresh opens count as opens.
 * `wallet_top_ups_tao` (`Closed.wallet_top_up`).
-* `pool_value_given_below_baseline_tao`: TAO value of a real Balancer-`L` shortfall vs `InvariantBaseline` after a last-loan readd (N5 / N24). Computed as `(σ−1)·(y + p·x)` with `σ = L*/L'` only when `σ > 1`; per-reserve dips with `k` at baseline do **not** increment it. `pool_value_given_below_baseline_alpha` is retained for ABI and stays 0 on new updates.
+* `pool_value_given_below_baseline_tao`: TAO value of a real Balancer-`L` shortfall vs the per-loan readd target `L(pre)+L(lift)` (N5 / N24). Computed as `(σ−1)·(y + p·x)` with `σ = L*/L'` only when `σ > 1`; per-reserve dips with `k` at target do **not** increment it. `pool_value_given_below_baseline_alpha` is retained for ABI and stays 0 on new updates.
 * `principal_opened_*`: cumulative principal on `Opened` / `Increased` / raise.
 
 ### 16.3 Access

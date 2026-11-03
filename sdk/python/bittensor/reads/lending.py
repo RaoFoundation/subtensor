@@ -296,7 +296,12 @@ def _position_record(
     blocks_per_year = int(raw.get("blocks_per_year") or default_year)
     if blocks_per_year <= 0:
         blocks_per_year = default_year
-    accrued_blocks = max(now - int(raw["last_accrued"]), 0)
+    # Fixed one-year term end; absent only on pre-term storage layouts.
+    expires_at = int(raw["expires_at"]) if raw.get("expires_at") is not None else None
+    expiry_due = int(raw["expiry_due"]) if raw.get("expiry_due") is not None else expires_at
+    # Match runtime: stop display accrual at expires_at during band deferral.
+    accrual_until = now if expires_at is None else min(now, expires_at)
+    accrued_blocks = max(accrual_until - int(raw["last_accrued"]), 0)
     interest_due = (
         annual * accrued_blocks + int(raw.get("interest_remainder") or 0)
     ) // blocks_per_year
@@ -304,9 +309,6 @@ def _position_record(
     principal = int(raw["principal"])
     proceeds = int(raw["proceeds"])
     escrow_alpha = int(raw.get("escrow_alpha") or 0)
-    # Fixed one-year term end; absent only on pre-term storage layouts.
-    expires_at = int(raw["expires_at"]) if raw.get("expires_at") is not None else None
-    expiry_due = int(raw["expiry_due"]) if raw.get("expiry_due") is not None else expires_at
     # N26: read terms_version strictly — do not hide 0 / missing behind `or 1`.
     if "terms_version" not in raw or raw["terms_version"] is None:
         raise BittensorError("lending position is missing terms_version")

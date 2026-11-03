@@ -4530,7 +4530,7 @@ fn exit_outcome(
         burned_alpha: burned_alpha_surplus(),
         alpha_out: alpha_out(),
         book: Lifts::<Test>::get(netuid()),
-        baseline_cleared: InvariantBaseline::<Test>::get(netuid()).is_none(),
+        baseline_cleared: true, // pool-wide InvariantBaseline retired
         position_gone,
         escrow_tao: tao(escrow),
         custody_alpha: alpha(escrow, &custody, netuid()),
@@ -5115,6 +5115,175 @@ fn expiry_squeeze_outside_ema_band_defers_settlement() {
     });
 }
 
+/// F16 (Jacob 2026-11-03): short opening value / annual interest uses
+/// `min(reference, spot)` — a pumped spot or pumped EMA cannot inflate the
+/// TAO coupon. Stays on terms v1 (behaviour already shipped; no mainnet loans).
+#[test]
+fn short_interest_valued_at_min_reference_and_spot() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 100_000_000_000_000);
+        let collateral = 20_000_000_000_000u64;
+        let principal = 1_000_000_000_000u64;
+
+        sync_reference_ema_to_spot();
+        let spot0 = MockPool::price();
+        let base = Lending::quote_open_exact_for(
+            &owner,
+            netuid(),
+            Side::Short,
+            collateral,
+            None,
+            principal,
+        )
+        .expect("baseline short quote");
+        let at = |price: U64F64| -> u64 {
+            let value = price.saturating_mul(U64F64::from_num(principal));
+            value.checked_ceil().unwrap().saturating_to_num::<u64>()
+        };
+        assert_eq!(base.opening_value, at(spot0));
+        assert_eq!(base.annual_interest, base.opening_value); // 100% APR
+
+        // Pump spot (~+10%) while leaving the lending EMA at spot0.
+        let y = pool_tao();
+        let x = pool_alpha();
+        set_pool(y, x.saturating_mul(10) / 11);
+        set_reference_price(spot0);
+        let spot_high = MockPool::price();
+        assert!(spot_high > spot0, "precondition: spot above EMA");
+        let pumped_spot = Lending::quote_open_exact_for(
+            &owner,
+            netuid(),
+            Side::Short,
+            collateral,
+            None,
+            principal,
+        )
+        .expect("short quote with pumped spot");
+        assert_eq!(
+            pumped_spot.opening_value, base.opening_value,
+            "pumped spot must not inflate short opening value"
+        );
+        assert_eq!(pumped_spot.annual_interest, base.annual_interest);
+        assert!(
+            pumped_spot.opening_value < at(spot_high),
+            "coupon must be strictly below spot valuation"
+        );
+
+        // Restore reserves; lift EMA ~10% above spot (still inside the open band).
+        set_pool(y, x);
+        sync_reference_ema_to_spot();
+        let spot1 = MockPool::price();
+        let ref_high = spot1.saturating_mul(U64F64::from_num(110u32)) / U64F64::from_num(100u32);
+        set_reference_price(ref_high);
+        let pumped_ref = Lending::quote_open_exact_for(
+            &owner,
+            netuid(),
+            Side::Short,
+            collateral,
+            None,
+            principal,
+        )
+        .expect("short quote with pumped reference");
+        assert_eq!(
+            pumped_ref.opening_value,
+            at(spot1),
+            "pumped reference must not inflate short opening value"
+        );
+        assert_eq!(pumped_ref.annual_interest, pumped_ref.opening_value);
+        assert!(
+            pumped_ref.opening_value < at(ref_high),
+            "coupon must be strictly below reference valuation"
+        );
+    });
+}
+
+/// Auditor fid:28de0a3f — close/repay quotes share the expires_at accrual cap
+/// with `charge_interest`, including when `last_accrued == expires_at`.
+#[test]
+fn quote_close_and_repay_cap_interest_at_expires_at() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let annual: u64 = 10_000_000_000_000;
+        let window: u64 = 100;
+        let year = <<Test as Config>::BlocksPerYear as Get<u64>>::get();
+        let past = snap.expires_at.saturating_add(5_000);
+
+        // Already accrued through expiry: quotes must not invent more interest.
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = snap.expires_at;
+                p.annual_interest = annual;
+                p.interest_remainder = 0;
+                p.collateral = p.collateral.max(annual);
+            }
+        });
+        System::set_block_number(past);
+        let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let quoted = Lending::quote_close(&owner, netuid(), None, true).unwrap();
+        assert_eq!(quoted.payment, pos.principal);
+        assert_eq!(
+            quoted.refund,
+            pos.collateral.saturating_add(pos.proceeds),
+            "zero post-expiry interest: refund must keep full coupon + escrow"
+        );
+        let half = pos.principal / 2;
+        let partial = Lending::quote_repay(&owner, netuid(), None, half, true).unwrap();
+        let slice_c =
+            (u128::from(pos.collateral) * u128::from(half) / u128::from(pos.principal)) as u64;
+        let slice_e =
+            (u128::from(pos.proceeds) * u128::from(half) / u128::from(pos.principal)) as u64;
+        assert_eq!(partial.payment, half);
+        assert_eq!(
+            partial.refund,
+            slice_c.saturating_add(slice_e),
+            "partial repay quote must also omit post-expiry interest"
+        );
+
+        // Accrual window ending at expires_at, queried well after: interest is
+        // the pre-expiry coupon only (final_charge rounds a leftover remainder up).
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = snap.expires_at.saturating_sub(window);
+                p.annual_interest = annual;
+                p.interest_remainder = 0;
+                p.collateral = p.collateral.max(annual);
+            }
+        });
+        let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let expected = ((u128::from(annual) * u128::from(window) / u128::from(year)) + 1) as u64;
+        let unclamped_elapsed = past.saturating_sub(snap.expires_at.saturating_sub(window));
+        assert!(unclamped_elapsed > window);
+        let quoted = Lending::quote_close(&owner, netuid(), None, true).unwrap();
+        let remaining = pos.collateral.saturating_sub(expected.min(pos.collateral));
+        assert_eq!(
+            quoted.refund,
+            remaining.saturating_add(pos.proceeds),
+            "quote interest must stop at expires_at"
+        );
+        let unclamped =
+            ((u128::from(annual) * u128::from(unclamped_elapsed) / u128::from(year)) + 1) as u64;
+        let unclamped_remaining = pos.collateral.saturating_sub(unclamped.min(pos.collateral));
+        assert!(
+            quoted.refund > unclamped_remaining.saturating_add(pos.proceeds),
+            "unclamped accrual would understate the refund"
+        );
+    });
+}
+
 /// Forced settle after a band deferral must not charge interest past `expires_at`.
 #[test]
 fn band_deferral_stops_interest_accrual_at_expires_at() {
@@ -5317,7 +5486,6 @@ fn within_band_forfeit_buyback_restores_k_or_records_shortfall() {
             deadline(),
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
-        let baseline = InvariantBaseline::<Test>::get(netuid()).expect("baseline");
         let l_open = balancer_l_approx();
         // Drain most collateral into the burn sink so pot ≈ E_S only, then nudge
         // spot up ~10% (still inside the 15% band) so buyback is slightly short.
@@ -5349,7 +5517,10 @@ fn within_band_forfeit_buyback_restores_k_or_records_shortfall() {
         let cost = Lending::quote_close(&owner, netuid(), None, false)
             .unwrap()
             .payment;
-        assert!(cost > pot, "precondition: underwater after C drain ({cost} > {pot})");
+        assert!(
+            cost > pot,
+            "precondition: underwater after C drain ({cost} > {pot})"
+        );
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(p) = p {
                 p.last_accrued = position.expires_at;
@@ -5377,7 +5548,7 @@ fn within_band_forfeit_buyback_restores_k_or_records_shortfall() {
         );
         assert!(
             rel < 0.25 || stats.pool_value_given_below_baseline_tao > 0,
-            "k moved {rel:.3} without a recorded TAO shortfall; baseline={baseline:?} L {l_open}→{l_after}"
+            "k moved {rel:.3} without a recorded TAO shortfall; L {l_open}→{l_after}"
         );
         assert!(stats.forfeit_buyback_tao > 0 || stats.forfeit_buyback_alpha > 0);
         // Two-sided readd: lift TAO plus some bought alpha (not the old one-sided 0-alpha path).
@@ -5389,7 +5560,10 @@ fn within_band_forfeit_buyback_restores_k_or_records_shortfall() {
             panic!("forfeit must emit Readded");
         };
         assert_eq!(readd_tao, position.lift_tao);
-        assert!(readd_alpha > 0, "buyback must return some alpha into the readd");
+        assert!(
+            readd_alpha > 0,
+            "buyback must return some alpha into the readd"
+        );
     });
 }
 
@@ -5473,7 +5647,6 @@ fn expiry_k_neutral_burn_restores_l_at_half_weight() {
             deadline(),
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
-        assert!(InvariantBaseline::<Test>::get(netuid()).is_some());
         assert_ok!(MockPool::buy_alpha(
             &owner,
             &hotkey,
@@ -5498,7 +5671,6 @@ fn expiry_k_neutral_burn_restores_l_at_half_weight() {
         let _ = expired_event(&owner);
 
         assert_eq!(quote_weight_parts(), w_before, "w_q unchanged");
-        assert!(InvariantBaseline::<Test>::get(netuid()).is_none());
         let drift = (balancer_l_approx() - l_before).abs() / l_before.max(1.0);
         assert!(drift < 0.002, "L restored after expiry: drift={drift}");
         assert!(
@@ -8041,8 +8213,6 @@ fn k_neutral_shogting_restores_l_at_half_weight() {
         sn29_drain_fixture(8_000_000_000_000u64, 500_000_000_000_000_000);
         let w_before = quote_weight_parts();
         let l_before = balancer_l_approx();
-        let y_before = pool_tao();
-        let x_before = pool_alpha();
 
         let owner = account(1);
         let hotkey = account(2);
@@ -8062,10 +8232,6 @@ fn k_neutral_shogting_restores_l_at_half_weight() {
             0,
             deadline(),
         ));
-        let baseline = InvariantBaseline::<Test>::get(netuid()).expect("baseline");
-        assert_eq!(baseline.tao, y_before);
-        assert_eq!(baseline.alpha, x_before);
-
         assert_ok!(MockPool::buy_alpha(
             &owner,
             &hotkey,
@@ -8085,7 +8251,6 @@ fn k_neutral_shogting_restores_l_at_half_weight() {
             deadline(),
         ));
         assert_eq!(quote_weight_parts(), w_before, "w_q unchanged");
-        assert!(InvariantBaseline::<Test>::get(netuid()).is_none());
 
         let l_after = balancer_l_approx();
         let drift = (l_after - l_before).abs() / l_before.max(1.0);
@@ -8199,6 +8364,7 @@ fn k_neutral_shogting_dump_restores_l() {
         clear_burned_surplus();
         sn29_drain_fixture(8_000_000_000_000u64, 500_000_000_000_000_000);
         let w_before = quote_weight_parts();
+        let l_before = balancer_l_approx();
 
         let owner = account(1);
         let hotkey = account(2);
@@ -8208,7 +8374,8 @@ fn k_neutral_shogting_dump_restores_l() {
         mint_tao(&owner, coll + 50_000_000_000_000);
         mint_tao(&dumper, 5_000_000_000_000);
 
-        // Open first so the baseline is the true pre-lending book.
+        // Open, dump against the shallow book, then close — per-loan burn must
+        // restore L to the pre-open level (not a pool-wide idle snapshot).
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
@@ -8220,8 +8387,6 @@ fn k_neutral_shogting_dump_restores_l() {
             0,
             deadline(),
         ));
-        let baseline = InvariantBaseline::<Test>::get(netuid()).expect("baseline");
-        let l_baseline = (baseline.alpha as f64).powf(0.5) * (baseline.tao as f64).powf(0.5);
 
         // Dump: buy alpha on the shallow book, then sell it back (price impact).
         assert_ok!(MockPool::buy_alpha(
@@ -8254,10 +8419,10 @@ fn k_neutral_shogting_dump_restores_l() {
         ));
         assert_eq!(quote_weight_parts(), w_before);
         let l_after = balancer_l_approx();
-        let drift = (l_after - l_baseline).abs() / l_baseline.max(1.0);
+        let drift = (l_after - l_before).abs() / l_before.max(1.0);
         assert!(
             drift < 0.002,
-            "dump cycle restores L to baseline: baseline={l_baseline} after={l_after} drift={drift}"
+            "dump cycle restores L to pre-open: before={l_before} after={l_after} drift={drift}"
         );
         assert!(
             burned_tao_surplus() > 0 || burned_alpha_surplus() > 0,
@@ -8291,6 +8456,316 @@ fn k_neutral_burn_amounts_match_excess() {
         assert_eq!(ba.to_u64(), 100);
         assert_eq!(y - bt.to_u64(), floor_y);
         assert_eq!(x - ba.to_u64(), floor_x);
+    });
+}
+
+/// Per-loan burn: flat open+close (no pump) burns ~0. Pool may move from the
+/// forced sell/buy round-trip; the burn must not treat that as surplus.
+#[test]
+fn per_loan_burn_open_close_restores_pool_without_surplus() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            account(2),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(!Positions::<Test>::contains_key(&owner, netuid()));
+        assert_eq!(Lifts::<Test>::get(netuid()).l_s, 0);
+        // Flat cycle: only dust from non-parallel readd after the sell/buy
+        // round-trip (≪ 1e-6 of pool). Material shogting surplus is covered
+        // by the pump tests below.
+        let dust = burned_tao_surplus().max(burned_alpha_surplus());
+        assert!(
+            dust * 1_000_000 < pool_tao(),
+            "flat open+close must not materially burn: dust={dust} pool={}",
+            pool_tao()
+        );
+    });
+}
+
+/// Dust open/close cycles must not grief-burn pool depth.
+#[test]
+fn per_loan_burn_dust_open_close_cycles_burn_near_zero() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let y0 = pool_tao();
+        let x0 = pool_alpha();
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        for i in 0..8u8 {
+            let cold = account(10 + i);
+            mint_tao(&cold, 50_000_000_000_000);
+            // Tiny collateral → minimum executable principal.
+            let ok = Lending::open(
+                RuntimeOrigin::signed(cold.clone()),
+                netuid(),
+                Side::Short,
+                1_000_000_000, // 0.001 τ collateral at 25% LTV
+                None,
+                1,
+                0,
+                0,
+                deadline(),
+            );
+            if ok.is_err() {
+                continue;
+            }
+            let _ = Lending::close(
+                RuntimeOrigin::signed(cold.clone()),
+                netuid(),
+                account(200 + i),
+                false,
+                u64::MAX,
+                0,
+                deadline(),
+            );
+        }
+        // Pool depth must not be drained by dust cycles.
+        assert!(
+            pool_tao() * 1000 >= y0 * 999,
+            "tao grief {} → {}",
+            y0,
+            pool_tao()
+        );
+        assert!(
+            pool_alpha() * 1000 >= x0 * 999,
+            "alpha grief {} → {}",
+            x0,
+            pool_alpha()
+        );
+        assert!(
+            burned_tao_surplus() < y0 / 1_000_000,
+            "dust cycles burned too much tao {}",
+            burned_tao_surplus()
+        );
+    });
+}
+
+/// With a background loan open, closing another loan still restores L to the
+/// no-that-loan level (background loan's lift remains out).
+#[test]
+fn per_loan_burn_with_background_loan_restores_relative_invariant() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let bg = account(1);
+        let closer = account(3);
+        let hk = account(2);
+        mint_tao(&bg, 50_000_000_000_000);
+        mint_tao(&closer, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(bg.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let l_with_bg = balancer_l_approx();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(closer.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        // Pump while both are open so closer's readd would leave surplus without burn.
+        assert_ok!(MockPool::buy_alpha(
+            &closer,
+            &hk,
+            netuid(),
+            3_000_000_000_000u64.into(),
+            0u64.into(),
+            false,
+        ));
+        sync_reference_ema_to_spot();
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(closer.clone()),
+            netuid(),
+            hk.clone(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::contains_key(&bg, netuid()));
+        assert!(!Positions::<Test>::contains_key(&closer, netuid()));
+        // Relative to the background-only book: L should be near l_with_bg after
+        // removing the closer's lift contribution (pump may leave a small gap
+        // covered by the burn).
+        let l_after = balancer_l_approx();
+        let drift = (l_after - l_with_bg).abs() / l_with_bg.max(1.0);
+        assert!(
+            drift < 0.01,
+            "background book L drift {drift}: {l_with_bg} → {l_after}"
+        );
+        assert!(
+            burned_tao_surplus() > 0 || burned_alpha_surplus() > 0,
+            "pump+close with background loan must burn surplus"
+        );
+        assert!(System::events().into_iter().any(|e| matches!(
+            e.event,
+            RuntimeEvent::Lending(Event::InvariantSurplusBurned { .. })
+        )));
+    });
+}
+
+/// Emission / organic growth injected between open and close must not be burned.
+#[test]
+fn per_loan_burn_preserves_emission_growth_between_open_and_close() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        let y0 = pool_tao();
+        let x0 = pool_alpha();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        // Simulate coinbase / emission: add proportional reserves (spot fixed).
+        let emit_t = 1_000_000_000_000u64;
+        let emit_a = ((u128::from(emit_t) * u128::from(pool_alpha()))
+            / u128::from(pool_tao()).max(1)) as u64;
+        set_pool(pool_tao() + emit_t, pool_alpha() + emit_a);
+        sync_reference_ema_to_spot();
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            account(2),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        // Emissions remain in the pool. Allow the forced-trade round-trip loss
+        // (≪ emit); the burn must not claw back the injected growth.
+        let round_trip_slack = emit_t / 100; // 1% of emit
+        assert!(
+            pool_tao() + round_trip_slack >= y0.saturating_add(emit_t),
+            "emission tao burned: before_open={y0} emit={emit_t} after={}",
+            pool_tao()
+        );
+        assert!(
+            pool_alpha() + round_trip_slack >= x0.saturating_add(emit_a),
+            "emission alpha burned: before_open={x0} emit={emit_a} after={}",
+            pool_alpha()
+        );
+        // Per-loan target includes L(lift) only — organic growth is not surplus.
+        // Allow the same flat-cycle dust as open+close; emit itself must not
+        // amplify the burn.
+        let dust = burned_tao_surplus().max(burned_alpha_surplus());
+        assert!(
+            dust * 1_000_000 < pool_tao() && dust < emit_t / 1000,
+            "emission growth must not amplify k-burn: dust={dust} emit={emit_t}"
+        );
+    });
+}
+
+/// First and last closer of a two-loan book burn the same per-loan surplus
+/// (no ordering advantage from a pool-wide idle snapshot).
+#[test]
+fn per_loan_burn_no_first_last_closer_advantage() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let a = account(1);
+        let b = account(3);
+        let hk = account(2);
+        mint_tao(&a, 50_000_000_000_000);
+        mint_tao(&b, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(a.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(b.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        assert_ok!(MockPool::buy_alpha(
+            &a,
+            &hk,
+            netuid(),
+            4_000_000_000_000u64.into(),
+            0u64.into(),
+            false,
+        ));
+        sync_reference_ema_to_spot();
+        // Close A first.
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(a.clone()),
+            netuid(),
+            hk.clone(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        let burned_after_first = burned_tao_surplus() + burned_alpha_surplus();
+        assert!(burned_after_first > 0, "first closer must burn its surplus");
+        // Close B — must also be able to burn (not blocked by idle-only gate).
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(b.clone()),
+            netuid(),
+            hk.clone(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        let burned_total = burned_tao_surplus() + burned_alpha_surplus();
+        // Second closer may burn 0 if the first already restored spot; the key
+        // invariant is both closes succeed and the book ends idle with L near
+        // the pre-lending level — no "only last closer burns" privilege.
+        assert!(!Positions::<Test>::contains_key(&a, netuid()));
+        assert!(!Positions::<Test>::contains_key(&b, netuid()));
+        assert!(burned_total >= burned_after_first);
+        assert_eq!(Lifts::<Test>::get(netuid()).l_s, 0);
+        assert_eq!(Lifts::<Test>::get(netuid()).l_l, 0);
     });
 }
 

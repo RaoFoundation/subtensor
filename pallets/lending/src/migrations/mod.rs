@@ -1,8 +1,13 @@
 //! One-shot storage migrations for the lending pallet.
+mod migrate_clear_invariant_baseline;
 mod migrate_drop_position_hotkey;
 mod migrate_lift_params_ema_band;
 mod migrate_position_terms_version;
 mod migrate_warm_references;
+#[allow(unused_imports)]
+pub use migrate_clear_invariant_baseline::{
+    Migration as ClearInvariantBaselineMigration, migrate_clear_invariant_baseline,
+};
 #[allow(unused_imports)]
 pub use migrate_drop_position_hotkey::{
     Migration as DropPositionHotkeyMigration, migrate_drop_position_hotkey,

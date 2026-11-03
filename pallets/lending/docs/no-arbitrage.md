@@ -43,10 +43,23 @@ Lift identity $y_s/y=(1-\varphi)^{1/w_q}$ **reduces to** μ’s $(1-\varphi)^{1/
 
 Keep-weights readd (fixed shogting path). No undefined “ship (a)” / “design (b)” labels.
 
-## K-neutrality burn (Jacob 2026-10-30)
+## K-neutrality burn (Jacob 2026-10-30; per-loan readd 2026-11-03)
 
-Keep-weights stops the SN29 weight ratchet, but a shogting cycle can still raise $L=x^{w_b}y^{w_q}$ (cycle loss stays in the pool). On the last readd when the lift book returns to idle, burn a common fraction of both reserves so $L$ returns to the pre-lending baseline $L^\star$ snapshotted at first open:
+Keep-weights stops the SN29 weight ratchet, but a shogting cycle can still raise $L=x^{w_b}y^{w_q}$ (cycle loss stays in the pool).
 
-$$\sigma=(x^\star/x')^{w_b}(y^\star/y')^{w_q},\quad\text{keep }\sigma\text{ of each reserve (spot fixed)}.$$
+**Per-loan burn (locked, terms v1).** On every readd of a position's lifted amounts (close, partial-repay slice, expiry, forfeit), burn against that loan's own target — not a pool-wide idle snapshot:
 
-Floors at pre-credit reserves: never burn user funds or escrow. Works for any weights; dissolution skips.
+- $\mathrm{pre}=$ post-credit reserves minus what was just credited.
+- $\mathrm{target}=L_w(\mathrm{pre})+L_w(\mathrm{lift}_\tau,\mathrm{lift}_\alpha)$ (for a partial repay, the slice's lift).
+- If $L_w(\mathrm{post})>\mathrm{target}$: keep fraction
+  $f=\max(\mathrm{target}/L_w(\mathrm{post}),\ \mathrm{pre}_y/\mathrm{post}_y,\ \mathrm{pre}_x/\mathrm{post}_x)$
+  of both reserves and burn the rest (spot fixed; burn ≤ credit). Implemented by
+  passing pre-credit reserves scaled by $\mathrm{target}/L_w(\mathrm{pre})$ into
+  `burn_amounts_to_invariant_baseline`.
+- If $L_w(\mathrm{post})<\mathrm{target}$: add
+  $(\mathrm{target}/L_w(\mathrm{post})-1)\cdot(y+p\cdot x)$ to
+  `pool_value_given_below_baseline_tao`.
+
+The retired pool-wide `InvariantBaseline` (idle→busy snapshot + last-close-only burn) is cleared by migration and must not run alongside the per-loan burn (that would double-burn). Dissolution still skips. Settlement deferral is unaffected (burn runs at actual settlement).
+
+Using summed `lift_tao`/`lift_alpha` across increases at different prices slightly under-burns versus summing each increase's $L$ (safe direction). Emission / organic growth between open and close is not burned.
