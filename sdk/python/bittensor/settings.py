@@ -107,9 +107,10 @@ _REVERSE_NETWORKS = {url: name for name, url in NETWORKS.items()}
 # docs.bittensor.com soft-redirects every deep link to the docs home page
 # (E2E N12 / clone 499). Until that host publishes the generated MDX, point
 # CLI `see:` / Docs: footers at the sources that ship in this repository.
-# Default to a durable ref (`main`) so links survive branch deletion after
-# merge (Auditor fid:607bf5c7). Override with BITTENSOR_DOCS_URL (site root)
-# or BITTENSOR_DOCS_REF (git ref) for clone-specific testing.
+# Default to a durable ref (`main`) — PR #3268 merges there — so links survive
+# branch deletion after merge (Auditor fid:607bf5c7). Testers can point at a
+# PR tip before merge with BITTENSOR_DOCS_REF=<sha-or-branch>, or replace the
+# whole root with BITTENSOR_DOCS_URL (documented on `btcli --help` / lending).
 _DOCS_REF = os.getenv("BITTENSOR_DOCS_REF", "main")
 _DOCS_REPO_BLOB = f"https://github.com/RaoFoundation/subtensor/blob/{_DOCS_REF}/docs"
 DOCS_URL = os.getenv("BITTENSOR_DOCS_URL", _DOCS_REPO_BLOB)

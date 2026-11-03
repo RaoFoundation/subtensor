@@ -28,6 +28,7 @@ from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
 from .intents.base import BuiltCall, IntentPreflight
+from .intents.lending import lending_outcome_data
 from .intents.proxy import check_proxy_type
 from .result import (
     ChainError,
@@ -852,6 +853,15 @@ class Executor:
             semantic_intent = _coerce_addresses(intent.semantic_intent())
             if semantic_intent.op == "create_pure_proxy":
                 data.update(_pure_created_data(result))
+            if semantic_intent.op in {
+                "open_loan",
+                "close_loan",
+                "repay_loan",
+                "raise_loan",
+            }:
+                # N19: SDK ExtrinsicResult.data gets the same decoded outcome
+                # the CLI Result card prints (CLI on_result may refine further).
+                data.update(lending_outcome_data(result.events, op=semantic_intent.op))
             data.update(plan.extras)
             if data != result.data:
                 result = replace(result, data=data)

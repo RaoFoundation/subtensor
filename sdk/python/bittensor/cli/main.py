@@ -84,10 +84,11 @@ app = typer.Typer(
     help=(
         "btcli - a lean command line for the Bittensor chain."
         f"\n\nDocs: [underline link={DOCS_URL}]{DOCS_URL}[/underline link]"
+        "\n\nOverride docs links with BITTENSOR_DOCS_REF=<git-ref> "
+        "(default main) or BITTENSOR_DOCS_URL=<site-root>."
     ),
-    # Wide enough that long option names (e.g. --repay-from-wallet) stay intact
-    # on 80-col panes; lending also sets this, but root help width wins for
-    # nested option columns on some Typer/Click versions (E2E F15).
+    # Wide enough that long option names stay intact on typical panes;
+    # lending shortens 80-col alias lists separately (E2E F15).
     context_settings={
         "help_option_names": ["-h", "--help"],
         "max_content_width": 200,

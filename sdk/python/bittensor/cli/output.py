@@ -2347,7 +2347,11 @@ class Output:
             if result.explorer_url:
                 fields["explorer"] = result.explorer_url
             fields.update(
-                (key, value) for key, value in result.data.items() if key != "multisig_followup"
+                (key, value)
+                for key, value in result.data.items()
+                # N19: *_rao companions are --json / SDK only; keep text Result
+                # cards on the human display strings.
+                if key != "multisig_followup" and not str(key).endswith("_rao")
             )
             if fields:
                 self.result_fields(fields)

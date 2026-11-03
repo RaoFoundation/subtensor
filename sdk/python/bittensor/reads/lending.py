@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any, Optional, cast
 
 from .._generated import runtime_apis as api
+from .._generated.errors import ERRORS
 from .._generated.runtime_apis import Method
 from .._generated.storage import Item
 from ..balance import Balance
@@ -155,62 +157,124 @@ def _position_record(
 
 
 def _decode_deferral_reason(raw: Any) -> str:
-    """BoundedVec / bytes / str → printable deferral reason."""
+    """BoundedVec / bytes / str → ``Pallet::ErrorName`` when resolvable (N17).
+
+    Accepts the runtime's compact ``Pallet::{index}`` / ``Pallet::Name`` labels,
+    legacy truncated ``Module { index: N, error: [...] }`` dumps, and plain text.
+    """
     if isinstance(raw, (bytes, bytearray)):
-        return bytes(raw).decode("utf-8", errors="replace")
-    if isinstance(raw, str):
-        return raw
-    if isinstance(raw, (list, tuple)):
+        text = bytes(raw).decode("utf-8", errors="replace")
+    elif isinstance(raw, str):
+        text = raw
+    elif isinstance(raw, (list, tuple)):
         try:
-            return bytes(raw).decode("utf-8", errors="replace")
+            text = bytes(raw).decode("utf-8", errors="replace")
         except Exception:
-            return str(raw)
-    return str(raw) if raw is not None else ""
+            text = str(raw)
+    else:
+        text = str(raw) if raw is not None else ""
+    text = text.strip()
+    if not text:
+        return ""
+
+    # Legacy Debug dump: Module { index: 7, error: [98, 0, 0, 0] } (may be truncated).
+    dump = re.search(
+        r"Module\s*\{[^}]*index:\s*(\d+)[^}]*error:\s*\[(\d+)",
+        text,
+    )
+    if dump:
+        info = ERRORS.get((int(dump.group(1)), int(dump.group(2))))
+        if info is not None:
+            return f"{info.pallet}::{info.name}"
+
+    # Compact runtime form: PalletName::index or bare index::err (unknown pallet).
+    compact = re.fullmatch(r"([A-Za-z][A-Za-z0-9_]*)::(\d+)$", text)
+    if compact:
+        pallet_name, code = compact.group(1), int(compact.group(2))
+        for (_index, err), info in ERRORS.items():
+            if info.pallet == pallet_name and err == code:
+                return f"{info.pallet}::{info.name}"
+        return text
+    numeric = re.fullmatch(r"(\d+)::(\d+)$", text)
+    if numeric:
+        info = ERRORS.get((int(numeric.group(1)), int(numeric.group(2))))
+        if info is not None:
+            return f"{info.pallet}::{info.name}"
+
+    # Already Pallet::ErrorName (or Lending-local Error Debug name).
+    return text
 
 
 async def _annotate_deferral(view, record: dict) -> dict:
-    """Flag pending interest / settlement deferral (N13).
+    """Flag pending interest / settlement deferral (N13 / N18).
 
-    Prefer ``LastDeferral`` (kind, retry_at, decoded reason). Fall back to
-    InterestRetry / ExpiryRetry membership when the map is empty.
+    Derive every pending kind from InterestRetry / ExpiryRetry so an interest
+    retry and a settlement retry can both surface. Overlay ``LastDeferral``
+    reason (and retry_at) when its kind matches; otherwise keep the queue
+    membership defaults. ``deferred`` stays the newest entry for back-compat;
+    ``deferrals`` lists every pending kind.
     """
     owner = record["coldkey"]
     netuid = int(record["netuid"])
     due = record.get("due")
     expiry_due = record.get("expiry_due")
     try:
+        last_kind = None
+        last_retry_at = None
+        last_reason = ""
         last = await view.query(LAST_DEFERRAL, [owner, netuid])
         if isinstance(last, (list, tuple)) and len(last) >= 3:
             kind_code, retry_at, reason_raw = last[0], last[1], last[2]
-            kind = "interest" if int(kind_code) == 0 else "settlement"
-            reason = _decode_deferral_reason(reason_raw) or (
-                "interest charge failed; pending retry"
-                if kind == "interest"
-                else "expiry settlement failed; pending retry"
-            )
-            record["deferred"] = {
-                "kind": kind,
-                "retry_at": int(retry_at),
-                "reason": reason,
-            }
-            return record
+            last_kind = "interest" if int(kind_code) == 0 else "settlement"
+            last_retry_at = int(retry_at)
+            last_reason = _decode_deferral_reason(reason_raw)
+
+        deferrals: list[dict] = []
         if due is not None:
             pending = await view.query(INTEREST_RETRY, [int(due), (owner, netuid)])
             if pending is not None:
-                record["deferred"] = {
-                    "kind": "interest",
-                    "retry_at": int(due),
-                    "reason": "interest charge failed; pending retry",
-                }
-                return record
+                reason = (
+                    last_reason
+                    if last_kind == "interest" and last_reason
+                    else "interest charge failed; pending retry"
+                )
+                retry = last_retry_at if last_kind == "interest" and last_retry_at else int(due)
+                deferrals.append({"kind": "interest", "retry_at": retry, "reason": reason})
         if expiry_due is not None:
             pending = await view.query(EXPIRY_RETRY, [int(expiry_due), (owner, netuid)])
             if pending is not None:
-                record["deferred"] = {
-                    "kind": "settlement",
-                    "retry_at": int(expiry_due),
-                    "reason": "expiry settlement failed; pending retry",
+                reason = (
+                    last_reason
+                    if last_kind == "settlement" and last_reason
+                    else "expiry settlement failed; pending retry"
+                )
+                retry = (
+                    last_retry_at
+                    if last_kind == "settlement" and last_retry_at
+                    else int(expiry_due)
+                )
+                deferrals.append({"kind": "settlement", "retry_at": retry, "reason": reason})
+
+        # LastDeferral alone (queues already drained / not yet readable).
+        if not deferrals and last_kind is not None:
+            deferrals.append(
+                {
+                    "kind": last_kind,
+                    "retry_at": int(last_retry_at or 0),
+                    "reason": last_reason
+                    or (
+                        "interest charge failed; pending retry"
+                        if last_kind == "interest"
+                        else "expiry settlement failed; pending retry"
+                    ),
                 }
+            )
+
+        if deferrals:
+            # Newest by retry_at for the singular ``deferred`` field (N18).
+            newest = max(deferrals, key=lambda d: int(d.get("retry_at") or 0))
+            record["deferred"] = newest
+            record["deferrals"] = deferrals
     except Exception:
         return record
     return record
@@ -614,8 +678,13 @@ async def lending_required_collateral(
             break
         if high == maximum:
             if available is not None:
+                # Need-vs-available for --amount mode (U4 / N16): enrich here so
+                # AppContext.run prints it before any CLI except can run.
+                borrow = view.balance(principal.rao, 0 if side == "Long" else netuid)
+                have = view.balance(available, unit)
                 raise BittensorError(
-                    "the required collateral exceeds unlocked alpha on the source hotkey"
+                    f"insufficient collateral for borrow {borrow}: "
+                    f"needed more than unlocked alpha {have} on {hotkey_ss58}"
                 )
             raise BittensorError("the required collateral exceeds the chain's position limit")
         low, high = high, min(high * 2, maximum)

@@ -320,6 +320,12 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     "PositionSideMismatch": (
         "close the existing loan first, or reuse its saved side (short vs long)"
     ),
+    # F12: do not fall through to the generic INSUFFICIENT_LIQUIDITY pool line.
+    "SlippageExceeded": (
+        "the forced trade missed your bound (quoted payment/refund vs "
+        "max_payment/min_refund, or raise min_tao_out); re-quote, raise "
+        "`--max-slippage` above the default 1%, or reduce size"
+    ),
     "SlippageTooHigh": (
         "the price moved past the slippage-protection limit (stake trades are "
         "protected by default with a 5% tolerance); retry, raise the tolerance "

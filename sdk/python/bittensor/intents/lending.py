@@ -11,6 +11,7 @@ from .._generated.runtime_apis import StakeInfoRuntimeApi
 from .._generated.storage import Item
 from ..balance import Balance
 from ..result import BittensorError, ChainError
+from ..settings import ALPHA_SYMBOL, TAO_SYMBOL
 from ..sp_core import ss58_decode
 from ._money import Money, Spend, alpha_amount, tao_amount
 from .base import Intent, IntentPreflight
@@ -558,7 +559,7 @@ class CloseLoan(Intent):
             "help": (
                 "Hotkey for alpha repay (short wallet path) or alpha refund "
                 "(long close). Required whenever alpha moves; short escrow "
-                "buyback (repay_from_wallet=False) may omit it."
+                "buyback (from-escrow) may omit it."
             )
         },
     )
@@ -696,7 +697,7 @@ class RepayLoan(Intent):
             "help": (
                 "Hotkey for alpha repay (short wallet path) or alpha refund "
                 "(long repay). Required whenever alpha moves; short escrow "
-                "buyback (repay_from_wallet=False) may omit it."
+                "buyback (from-escrow) may omit it."
             )
         },
     )
@@ -801,3 +802,120 @@ class RepayLoan(Intent):
         if isinstance(self.max_payment, Balance) and self.max_payment.netuid != 0:
             return None
         return cast(Balance, tao_amount(self.max_payment))
+
+
+def _fmt_outcome_amount(rao: int, netuid: int) -> str:
+    """Match CLI Result card money formatting for SDK ExtrinsicResult.data."""
+    amount = rao / 1_000_000_000
+    if netuid == 0:
+        return f"{TAO_SYMBOL}{amount:,.9f}"
+    return f"{amount:,.9f}{ALPHA_SYMBOL}_{netuid}"
+
+
+def _find_lending_event(events: list, *names: str) -> Optional[dict]:
+    for entry in events or []:
+        record = entry.value if hasattr(entry, "value") else entry
+        event = record.get("event", record) if isinstance(record, dict) else {}
+        if not isinstance(event, dict):
+            continue
+        if event.get("module_id") != "Lending":
+            continue
+        if event.get("event_id") in names:
+            attrs = event.get("attributes")
+            return attrs if isinstance(attrs, dict) else None
+    return None
+
+
+def _event_side(attrs: dict) -> str:
+    side = attrs.get("side") or ""
+    if isinstance(side, dict):
+        side = next(iter(side), "")
+    return str(side).capitalize()
+
+
+def lending_outcome_data(events: list, *, op: Optional[str] = None) -> dict[str, Any]:
+    """Decoded lending receipt fields for SDK ExtrinsicResult.data (N19).
+
+    Mirrors the CLI Result card: human display strings plus ``*_rao`` ints.
+    """
+    if op in (None, "open_loan"):
+        attrs = _find_lending_event(events, "Opened", "Increased")
+        if isinstance(attrs, dict):
+            net = int(attrs.get("netuid") or 0)
+            side = _event_side(attrs)
+            collateral_unit = 0 if side == "Short" else net
+            principal_unit = net if side == "Short" else 0
+            principal_rao = int(attrs.get("principal") or 0)
+            collateral_rao = int(attrs.get("collateral") or 0)
+            proceeds_rao = int(attrs.get("proceeds") or 0)
+            escrow_rao = int(attrs.get("escrow_alpha") or 0)
+            interest_rao = int(attrs.get("annual_interest") or 0)
+            data = {
+                "borrowed": _fmt_outcome_amount(principal_rao, principal_unit),
+                "borrowed_rao": principal_rao,
+                "collateral_posted": _fmt_outcome_amount(collateral_rao, collateral_unit),
+                "collateral_posted_rao": collateral_rao,
+                "annual_interest": _fmt_outcome_amount(interest_rao, collateral_unit),
+                "annual_interest_rao": interest_rao,
+            }
+            if side == "Short":
+                data["escrowed"] = _fmt_outcome_amount(proceeds_rao, 0)
+                data["escrowed_rao"] = proceeds_rao
+            else:
+                data["escrowed"] = _fmt_outcome_amount(escrow_rao, net)
+                data["escrowed_rao"] = escrow_rao
+            return data
+    if op in (None, "raise_loan"):
+        attrs = _find_lending_event(events, "Raised")
+        if isinstance(attrs, dict):
+            net = int(attrs.get("netuid") or 0)
+            collateral_rao = int(attrs.get("collateral_alpha") or 0)
+            principal_rao = int(attrs.get("principal_tao") or 0)
+            escrow_rao = int(attrs.get("escrow_alpha") or 0)
+            sell_rao = int(attrs.get("sell_alpha") or 0)
+            free_tao_rao = int(attrs.get("free_tao_out") or 0)
+            return {
+                "borrowed": _fmt_outcome_amount(principal_rao, 0),
+                "borrowed_rao": principal_rao,
+                "collateral_posted": _fmt_outcome_amount(collateral_rao, net),
+                "collateral_posted_rao": collateral_rao,
+                "escrowed": _fmt_outcome_amount(escrow_rao, net),
+                "escrowed_rao": escrow_rao,
+                "sold": _fmt_outcome_amount(sell_rao, net),
+                "sold_rao": sell_rao,
+                "received": _fmt_outcome_amount(free_tao_rao, 0),
+                "received_rao": free_tao_rao,
+            }
+    if op in (None, "close_loan"):
+        attrs = _find_lending_event(events, "Closed")
+        if isinstance(attrs, dict):
+            net = int(attrs.get("netuid") or 0)
+            side = _event_side(attrs)
+            refund_rao = int(attrs.get("refund") or 0)
+            top_up = int(attrs.get("wallet_top_up") or 0)
+            refund_unit = 0 if side == "Short" else net
+            return {
+                "refund": _fmt_outcome_amount(refund_rao, refund_unit),
+                "refund_rao": refund_rao,
+                "wallet_top_up": _fmt_outcome_amount(top_up, 0),
+                "wallet_top_up_rao": top_up,
+            }
+    if op in (None, "repay_loan"):
+        attrs = _find_lending_event(events, "Repaid")
+        if isinstance(attrs, dict):
+            net = int(attrs.get("netuid") or 0)
+            side = _event_side(attrs)
+            principal_rao = int(attrs.get("principal_repaid") or 0)
+            refund_rao = int(attrs.get("refund") or 0)
+            escrow_rao = int(attrs.get("escrow_returned") or 0)
+            principal_unit = net if side == "Short" else 0
+            refund_unit = 0 if side == "Short" else net
+            return {
+                "principal_repaid": _fmt_outcome_amount(principal_rao, principal_unit),
+                "principal_repaid_rao": principal_rao,
+                "refund": _fmt_outcome_amount(refund_rao, refund_unit),
+                "refund_rao": refund_rao,
+                "escrow_returned": _fmt_outcome_amount(escrow_rao, 0 if side == "Short" else net),
+                "escrow_returned_rao": escrow_rao,
+            }
+    return {}

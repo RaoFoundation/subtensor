@@ -4386,18 +4386,30 @@ pub mod pallet {
         }
 
         /// O(1) enqueue onto the interest-retry side queue (Skeptic fid:0776a829).
-        /// Human-readable deferral reason for events (E2E N14): prefer the
-        /// Lending error name when the DispatchError is this pallet's Module
-        /// error; otherwise a short DispatchError discriminant label.
+        /// Human-readable deferral reason for events (E2E N14 / N17): prefer
+        /// `Pallet::ErrorName` for Module errors. This pallet decodes its own
+        /// Error enum; foreign modules use a compact `Pallet::{idx|name}` form
+        /// (production indices) so clients can expand via metadata. Avoid the
+        /// Debug dump of `Module { index, error: [...] }`, which truncates past
+        /// 64 bytes before the error index is readable.
         fn deferral_reason(error: DispatchError) -> BoundedVec<u8, ConstU32<64>> {
             use frame_support::traits::PalletInfoAccess;
             let label = match error {
-                DispatchError::Module(module)
-                    if module.index == <Pallet<T> as PalletInfoAccess>::index() as u8 =>
-                {
-                    match Error::<T>::decode(&mut &module.error[..]) {
-                        Ok(e) => alloc::format!("{e:?}"),
-                        Err(_) => alloc::format!("Module({:?})", module.error),
+                DispatchError::Module(module) => {
+                    let self_index = <Pallet<T> as PalletInfoAccess>::index() as u8;
+                    if module.index == self_index {
+                        match Error::<T>::decode(&mut &module.error[..]) {
+                            Ok(e) => alloc::format!("{e:?}"),
+                            Err(_) => alloc::format!("Lending::{}", module.error[0]),
+                        }
+                    } else {
+                        let pallet = Self::module_pallet_label(module.index);
+                        if let Some(msg) = module.message {
+                            alloc::format!("{pallet}::{msg}")
+                        } else {
+                            // Compact; SDK expands `Pallet::{code}` via ERRORS.
+                            alloc::format!("{pallet}::{}", module.error[0])
+                        }
                     }
                 }
                 DispatchError::Token(t) => alloc::format!("Token.{t:?}"),
@@ -4408,6 +4420,19 @@ pub mod pallet {
                 other => alloc::format!("{other:?}"),
             };
             BoundedVec::<u8, ConstU32<64>>::truncate_from(label.into_bytes())
+        }
+
+        /// Production `construct_runtime!` pallet names for foreign Module
+        /// errors (N17). Unknown indices stay numeric so the SDK can still
+        /// resolve `(index, err)` via generated metadata.
+        fn module_pallet_label(index: u8) -> alloc::string::String {
+            match index {
+                5 => alloc::string::String::from("Balances"),
+                7 => alloc::string::String::from("SubtensorModule"),
+                28 => alloc::string::String::from("Swap"),
+                33 => alloc::string::String::from("Lending"),
+                other => alloc::format!("{other}"),
+            }
         }
 
         fn enqueue_interest_retry(

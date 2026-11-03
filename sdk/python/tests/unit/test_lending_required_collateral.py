@@ -137,5 +137,5 @@ async def test_required_collateral_reports_when_needed_exceeds_available(monkeyp
     monkeypatch.setattr(lending_reads, "lending_open_quote", fake_open_quote)
     monkeypatch.setattr(lending_reads, "lending_position", no_position)
 
-    with pytest.raises(BittensorError, match="unlocked alpha"):
+    with pytest.raises(BittensorError, match=r"insufficient collateral for borrow.*unlocked alpha"):
         await lending_reads.lending_required_collateral(view, 1, "long", "1", "5Owner", "5Hotkey")

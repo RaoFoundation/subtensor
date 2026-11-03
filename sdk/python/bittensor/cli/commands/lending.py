@@ -38,11 +38,13 @@ MINIMUM_LOAN_VALUE_TAO = "0.001"
 app = typer.Typer(
     no_args_is_help=True,
     # Wide terminals: don't ellipsize long option names / help (E2E F15).
-    # 200 keeps `--repay-from-wallet` intact on typical 160-col panes.
     context_settings={"max_content_width": 200, "help_option_names": ["-h", "--help"]},
     help=(
         "Lift-based escrowed loans: open, close, repay, raise, list, show.\n\n"
-        "Queries: lending_position / lending_close_quote (SDK reads)."
+        "Queries: lending_position / lending_close_quote (SDK reads).\n\n"
+        "Docs `see:` links default to RaoFoundation/subtensor@main; set "
+        "BITTENSOR_DOCS_REF=<git-ref> (or BITTENSOR_DOCS_URL) for a PR tip / "
+        "clone before merge (N12)."
     ),
 )
 
@@ -111,10 +113,11 @@ def _format_valid_until(block: int, *, head: Optional[int] = None) -> str:
 
 
 def _result_amounts(result, *, display: dict[str, str], raw: dict[str, int]) -> None:
-    """Attach Result card strings plus rao ints for --json (F9 / N15).
+    """Attach Result card strings plus rao ints for --json (F9 / N15 / N19).
 
-    Human Result uses ``display`` keys; JSON keeps those strings and adds
-    ``*_rao`` companions so list/show/close share a raw-int convention.
+    Human Result uses ``display`` keys only; ``*_rao`` companions stay in
+    ``result.data`` for ``--json`` / SDK consumers, and text rendering skips
+    them (see :meth:`Output.result`).
     """
     for key, text in display.items():
         result.data[key] = text
@@ -181,6 +184,11 @@ def _position_json(position: dict) -> dict:
 
 def _position_status_label(position: dict) -> str:
     """Human status: deferred / underwater when interest-exhausted or AMM shortfall."""
+    deferrals = position.get("deferrals")
+    if isinstance(deferrals, list) and deferrals:
+        kinds = [str(d.get("kind")) for d in deferrals if isinstance(d, dict) and d.get("kind")]
+        if kinds:
+            return "deferred:" + "+".join(kinds)
     deferred = position.get("deferred")
     if isinstance(deferred, dict) and deferred.get("kind"):
         return f"deferred:{deferred['kind']}"
@@ -439,41 +447,31 @@ def open_loan(
     if requested is not None:
 
         async def size(client):
-            required = await client.read(
-                "lending_required_collateral",
-                netuid=netuid,
-                side=side.value,
-                amount=requested,
-                coldkey_ss58=owner,
-                **({"hotkey_ss58": hotkey} if hotkey is not None else {}),
-            )
-            minimum = required["collateral"]
-            provided = await _provided_collateral(client, minimum, netuid, owner, max_slippage)
-            return minimum, provided
-
-        with context.output.activity("finding the minimum required collateral…"):
+            # Enrich inside this coroutine: AppContext.run catches BittensorError,
+            # prints it, and raises typer.Exit — so a surrounding except never
+            # runs (U4 / N16).
             try:
-                minimum_collateral, collateral = context.run(size)
+                required = await client.read(
+                    "lending_required_collateral",
+                    netuid=netuid,
+                    side=side.value,
+                    amount=requested,
+                    coldkey_ss58=owner,
+                    **({"hotkey_ss58": hotkey} if hotkey is not None else {}),
+                )
             except BittensorError as error:
-                # Surface need vs available for --amount mode (U4 / clone 499).
                 detail = str(error)
                 name = getattr(error, "name", None) or ""
                 try:
                     if side == Side.long and hotkey is not None:
-                        available = context.run(
-                            lambda client: _available_alpha(
-                                client._substrate, owner, hotkey, netuid
-                            )
-                        )
+                        available = await _available_alpha(client._substrate, owner, hotkey, netuid)
                         detail = (
                             f"insufficient collateral for borrow {_fmt_amount(requested)}: "
                             f"needed more than unlocked alpha {_fmt_amount(available)} "
                             f"on {hotkey}" + (f" ({name})" if name else "")
                         )
                     elif side == Side.short:
-                        available = context.run(
-                            lambda client: _spendable_tao(client._substrate, owner)
-                        )
+                        available = await _spendable_tao(client._substrate, owner)
                         detail = (
                             f"insufficient collateral for borrow {_fmt_amount(requested)}: "
                             f"needed more than free TAO {_fmt_amount(available)}"
@@ -482,9 +480,15 @@ def open_loan(
                     elif name:
                         detail = f"{detail} (borrow {_fmt_amount(requested)})"
                 except Exception:
-                    if name and requested is not None:
+                    if name:
                         detail = f"{detail} (borrow {_fmt_amount(requested)})"
-                _exit_error(context, detail, code=1)
+                raise BittensorError(detail) from error
+            minimum = required["collateral"]
+            provided = await _provided_collateral(client, minimum, netuid, owner, max_slippage)
+            return minimum, provided
+
+        with context.output.activity("finding the minimum required collateral…"):
+            minimum_collateral, collateral = context.run(size)
     if collateral is None:
         _exit_error(context, "provide --amount or --collateral")
     collateral_bal = (
@@ -621,6 +625,21 @@ def open_loan(
         loan_rows.append(("valid until", _format_valid_until(intent.valid_until, head=head)))
 
     def _attach_opened(result):
+        error = getattr(result, "error", None)
+        if error is not None and error.name == "SlippageExceeded":
+            # F12: quoted vs bound for open floors (not the generic pool line).
+            if side == Side.short:
+                error.remediation_override = (
+                    f"quoted sale proceeds {_fmt_amount(quote.get('escrow_estimate'))} vs min "
+                    f"{_fmt_amount(intent.min_proceeds)}. Re-quote and raise --max-slippage "
+                    f"(was {max_slippage}%), or reduce size"
+                )
+            else:
+                error.remediation_override = (
+                    f"quoted escrow alpha {_fmt_amount(quote.get('escrow_estimate'))} vs min "
+                    f"{_fmt_amount(intent.min_escrow_alpha)}. Re-quote and raise --max-slippage "
+                    f"(was {max_slippage}%), or reduce size"
+                )
         if not result.success:
             return
         attrs = _find_event(result.events, "Lending", "Opened") or _find_event(
@@ -674,9 +693,8 @@ def close_loan(
     ),
     repay_from_wallet: bool = typer.Option(
         False,
-        # Short primary names fit an 80-col help pane (E2E F15); keep long aliases.
+        # Short names only — long aliases overflow an 80-col Options column (F15).
         "--from-wallet/--from-escrow",
-        "--repay-from-wallet/--no-repay-from-wallet",
         help=("Escrow path (default) or wallet repay. Longs still need --hotkey for alpha refund."),
     ),
     max_slippage: float = typer.Option(
@@ -694,11 +712,11 @@ def close_loan(
 
     Positions store no hotkey. By default closes take the TAO-refund path
     (escrow AMM buyback for shorts; sell escrow for longs) — matching the
-    SDK CloseLoan default. Pass --from-wallet / --repay-from-wallet to repay
-    short alpha from --hotkey stake or pay long TAO from free balance. Pass
-    --hotkey for alpha repay (short wallet path) or alpha refund (long close /
-    short buyback surplus). The full runtime quote sets a payment ceiling and
-    refund floor; a failed quote stops submission.
+    SDK CloseLoan default. Pass --from-wallet to repay short alpha from
+    --hotkey stake or pay long TAO from free balance. Pass --hotkey for alpha
+    repay (short wallet path) or alpha refund (long close / short buyback
+    surplus). The full runtime quote sets a payment ceiling and refund floor;
+    a failed quote stops submission.
     """
     context = ctx_of(ctx)
     try:
@@ -854,7 +872,6 @@ def repay_loan(
     repay_from_wallet: bool = typer.Option(
         False,
         "--from-wallet/--from-escrow",
-        "--repay-from-wallet/--no-repay-from-wallet",
         help=("Escrow path (default) or wallet repay. Longs still need --hotkey for alpha refund."),
     ),
     max_slippage: float = typer.Option(
@@ -1332,6 +1349,13 @@ def raise_loan(
         card.append(("expires at (after raise)", _format_expiry(new_expires, head=head)))
 
     def _attach_raised(result):
+        error = getattr(result, "error", None)
+        if error is not None and error.name == "SlippageExceeded":
+            error.remediation_override = (
+                f"quoted free TAO out {_fmt_amount(quote.get('free_tao_out'))} vs min "
+                f"{_fmt_amount(intent.min_tao_out)}. Re-quote and raise --max-slippage "
+                f"(was {max_slippage}%), or reduce size"
+            )
         if not result.success:
             return
         attrs = _find_event(result.events, "Lending", "Raised")
@@ -1350,14 +1374,15 @@ def raise_loan(
                 "collateral_posted": _fmt_amount(Balance.from_rao(collateral_rao, net)),
                 "escrowed": _fmt_amount(Balance.from_rao(escrow_rao, net)),
                 "sold": _fmt_amount(Balance.from_rao(sell_rao, net)),
-                "payment": _fmt_amount(Balance.from_rao(free_tao_rao, 0)),
+                # N19: sale TAO is proceeds received, not a "payment".
+                "received": _fmt_amount(Balance.from_rao(free_tao_rao, 0)),
             },
             raw={
                 "borrowed": principal_rao,
                 "collateral_posted": collateral_rao,
                 "escrowed": escrow_rao,
                 "sold": sell_rao,
-                "payment": free_tao_rao,
+                "received": free_tao_rao,
             },
         )
 
@@ -1468,7 +1493,6 @@ def show_position(
     repay_from_wallet: bool = typer.Option(
         False,
         "--from-wallet/--from-escrow",
-        "--repay-from-wallet/--no-repay-from-wallet",
         help="Quote wallet-repay close instead of the default escrow path.",
     ),
 ):
@@ -1545,12 +1569,25 @@ def show_position(
             fields["wallet repayment to close now"] = (
                 f"{_fmt_amount(position['principal'])} with --from-wallet"
             )
-    deferred = position.get("deferred")
-    if isinstance(deferred, dict) and deferred.get("kind"):
-        kind = deferred.get("kind")
-        retry_at = deferred.get("retry_at")
-        reason = deferred.get("reason") or kind
+    deferrals = position.get("deferrals")
+    if not isinstance(deferrals, list) or not deferrals:
+        deferred = position.get("deferred")
+        deferrals = [deferred] if isinstance(deferred, dict) and deferred.get("kind") else []
+    if len(deferrals) == 1:
+        entry = deferrals[0]
+        kind = entry.get("kind")
+        retry_at = entry.get("retry_at")
+        reason = entry.get("reason") or kind
         fields["deferred"] = f"{kind} — {reason}; retry at block {retry_at}"
+    elif len(deferrals) > 1:
+        # N18: show every pending kind (interest + settlement).
+        for entry in deferrals:
+            if not isinstance(entry, dict) or not entry.get("kind"):
+                continue
+            kind = entry["kind"]
+            fields[f"deferred ({kind})"] = (
+                f"{entry.get('reason') or kind}; retry at block {entry.get('retry_at')}"
+            )
     json_fields = {
         **_position_json(position),
         "underwater": underwater,
