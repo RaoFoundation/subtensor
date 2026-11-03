@@ -475,20 +475,20 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
         Subtensor::<T>::set_max_allowed_validators(netuid, MAINNET_VALIDATORS_PER_SUBNET);
         SubtokenEnabled::<T>::insert(netuid, true);
         SubnetEmissionEnabled::<T>::insert(netuid, true);
-        // Exercise both newly enabled coinbase branches on every emitting subnet.
-        // Together they add four reads and four writes per subnet (AlphaBurned,
-        // AlphaRecycled, TotalAlphaIssuance, and SubnetAlphaOut). Keeping both
-        // shares nonzero prevents generated block_step weights from silently
-        // measuring the old zero-share fast path.
+        // Exercise burn, recycle, and owner payout together on every emitting
+        // subnet. Production permits all three shares to be nonzero, so the
+        // block-step envelope must include their combined storage work.
         let burn = MAX_BURN_RECYCLE_EMISSION / 2;
         let recycle = MAX_BURN_RECYCLE_EMISSION.saturating_sub(burn);
+        let owner = emission_fraction(1, 100);
         let miner = MIN_MINER_EMISSION;
         let validator = EMISSION_WEIGHT_ONE
             .saturating_sub(MAX_BURN_RECYCLE_EMISSION)
+            .saturating_sub(owner)
             .saturating_sub(miner);
         Subtensor::<T>::set_subnet_emission_weights_unchecked(
             netuid,
-            [burn, recycle, 0, validator, miner],
+            [burn, recycle, owner, validator, miner],
         );
         SubnetOwner::<T>::insert(netuid, subnet_owner);
         Subtensor::<T>::set_network_registration_allowed(netuid, true);

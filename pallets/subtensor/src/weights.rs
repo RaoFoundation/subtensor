@@ -1397,7 +1397,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetEmissionEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetAlphaIn` (r:128 w:127)
 	/// Proof: `SubtensorModule::SubnetAlphaIn` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:256 w:255)
+	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:128 w:127)
 	/// Proof: `SubtensorModule::SubnetAlphaOut` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::BalancerAlphaReservoir` (r:128 w:128)
 	/// Proof: `Swap::BalancerAlphaReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
@@ -1431,12 +1431,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::PendingValidatorEmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::PendingRootAlphaDivs` (r:128 w:128)
 	/// Proof: `SubtensorModule::PendingRootAlphaDivs` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `AlphaAssets::AlphaBurned` (r:130 w:128)
+	/// Storage: `AlphaAssets::AlphaBurned` (r:2 w:0)
 	/// Proof: `AlphaAssets::AlphaBurned` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `AlphaAssets::AlphaRecycled` (r:128 w:128)
-	/// Proof: `AlphaAssets::AlphaRecycled` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `AlphaAssets::TotalAlphaIssuance` (r:128 w:128)
-	/// Proof: `AlphaAssets::TotalAlphaIssuance` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkRegisteredAt` (r:2 w:0)
 	/// Proof: `SubtensorModule::NetworkRegisteredAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::MechanismEmissionSplit` (r:2 w:0)
@@ -1563,10 +1559,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `37656856`
 		// Minimum execution time: 72_193_613_000 picoseconds.
 		Weight::from_parts(73_474_016_000, 37656856)
-			// Burn plus recycle adds four reads and four writes for each of the
-			// 128 emitting subnets in the benchmark envelope.
-			.saturating_add(T::DbWeight::get().reads(11498_u64))
-			.saturating_add(T::DbWeight::get().writes(4636_u64))
+			.saturating_add(T::DbWeight::get().reads(10986_u64))
+			.saturating_add(T::DbWeight::get().writes(4124_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -5723,7 +5717,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetEmissionEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetAlphaIn` (r:128 w:127)
 	/// Proof: `SubtensorModule::SubnetAlphaIn` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:256 w:255)
+	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:128 w:127)
 	/// Proof: `SubtensorModule::SubnetAlphaOut` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::BalancerAlphaReservoir` (r:128 w:128)
 	/// Proof: `Swap::BalancerAlphaReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
@@ -5757,12 +5751,8 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::PendingValidatorEmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::PendingRootAlphaDivs` (r:128 w:128)
 	/// Proof: `SubtensorModule::PendingRootAlphaDivs` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `AlphaAssets::AlphaBurned` (r:130 w:128)
+	/// Storage: `AlphaAssets::AlphaBurned` (r:2 w:0)
 	/// Proof: `AlphaAssets::AlphaBurned` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `AlphaAssets::AlphaRecycled` (r:128 w:128)
-	/// Proof: `AlphaAssets::AlphaRecycled` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `AlphaAssets::TotalAlphaIssuance` (r:128 w:128)
-	/// Proof: `AlphaAssets::TotalAlphaIssuance` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkRegisteredAt` (r:2 w:0)
 	/// Proof: `SubtensorModule::NetworkRegisteredAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::MechanismEmissionSplit` (r:2 w:0)
@@ -5889,10 +5879,8 @@ impl WeightInfo for () {
 		//  Estimated: `37656856`
 		// Minimum execution time: 72_193_613_000 picoseconds.
 		Weight::from_parts(73_474_016_000, 37656856)
-			// Burn plus recycle adds four reads and four writes for each of the
-			// 128 emitting subnets in the benchmark envelope.
-			.saturating_add(RocksDbWeight::get().reads(11498_u64))
-			.saturating_add(RocksDbWeight::get().writes(4636_u64))
+			.saturating_add(RocksDbWeight::get().reads(10986_u64))
+			.saturating_add(RocksDbWeight::get().writes(4124_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
