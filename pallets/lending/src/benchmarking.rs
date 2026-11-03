@@ -162,6 +162,7 @@ mod benchmarks {
         );
     }
 
+    /// Fixed-collateral raise path (no amount-mode bisection).
     #[benchmark]
     fn open_long_and_sell() {
         let caller: T::AccountId = whitelisted_caller();
@@ -179,6 +180,34 @@ mod benchmarks {
             1_000_000_000u64,
             1u64,
             Some(1_000_000u64),
+            0u64,
+            0u64,
+            now.saturating_add(100u32.into()),
+        );
+    }
+
+    /// Amount-mode raise: up to 64 `principal_feasible` / `v_dyn` probes under a
+    /// large `max_collateral_alpha`, then the escrowed long + sell. Charged as
+    /// `open_long_and_sell().max(open_long_and_sell_by_amount())`
+    /// (Skeptic fid:98e6778c).
+    #[benchmark]
+    fn open_long_and_sell_by_amount() {
+        let caller: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("hk", 0, 0);
+        let netuid = NetUid::from(1u16);
+        seed_lending_ready::<T>(netuid, &caller, &hotkey);
+        let now = frame_system::Pallet::<T>::block_number();
+        #[extrinsic_call]
+        open_long_and_sell(
+            RawOrigin::Signed(caller),
+            netuid,
+            hotkey,
+            None,
+            Some(1_000_000u64),
+            // Wide ceiling so the bisection walks the full BISECTION_STEPS budget.
+            u64::MAX / 4,
+            1u64,
+            None,
             0u64,
             0u64,
             now.saturating_add(100u32.into()),

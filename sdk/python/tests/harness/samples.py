@@ -249,7 +249,8 @@ INTENT_SAMPLES: dict[str, dict] = {
         "netuid": 1,
         "hotkey_ss58": ALICE_HOT,
         "collateral_alpha": 10.0,
-        "max_collateral_alpha": 0,
+        # Ceiling must cover quoted collateral (FakeSubstrate quote = 10α).
+        "max_collateral_alpha": 10.0,
         "min_borrow_tao": 0,
         "sell_alpha": 1.0,
         "min_tao_out": 0,

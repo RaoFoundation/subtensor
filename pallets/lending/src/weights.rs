@@ -40,6 +40,7 @@ pub trait WeightInfo {
 	fn open_long() -> Weight;
 	fn open_exact() -> Weight;
 	fn open_long_and_sell() -> Weight;
+	fn open_long_and_sell_by_amount() -> Weight;
 	fn close() -> Weight;
 	fn repay() -> Weight;
 	fn set_enabled() -> Weight;
@@ -525,6 +526,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(5_408_512_000, 13563)
 			.saturating_add(T::DbWeight::get().reads(68_u64))
 			.saturating_add(T::DbWeight::get().writes(45_u64))
+	}
+	/// Amount-mode raise: 64-step collateral bisection + escrowed long + sell.
+	/// Interim: componentwise max of measured `open_long` (64× v_dyn search) and
+	/// fixed-collateral `open_long_and_sell` until reference-remeasured
+	/// (Skeptic fid:98e6778c).
+	fn open_long_and_sell_by_amount() -> Weight {
+		Self::open_long().max(Self::open_long_and_sell())
 	}
 	/// Storage: `Lending::Dissolutions` (r:1 w:0)
 	/// Proof: `Lending::Dissolutions` (`max_values`: None, `max_size`: Some(39), added: 2514, mode: `MaxEncodedLen`)
@@ -1498,6 +1506,13 @@ impl WeightInfo for () {
 		Weight::from_parts(5_408_512_000, 13563)
 			.saturating_add(RocksDbWeight::get().reads(68_u64))
 			.saturating_add(RocksDbWeight::get().writes(45_u64))
+	}
+	/// Amount-mode raise: 64-step collateral bisection + escrowed long + sell.
+	/// Interim: componentwise max of measured `open_long` (64× v_dyn search) and
+	/// fixed-collateral `open_long_and_sell` until reference-remeasured
+	/// (Skeptic fid:98e6778c).
+	fn open_long_and_sell_by_amount() -> Weight {
+		Self::open_long().max(Self::open_long_and_sell())
 	}
 	/// Storage: `Lending::Dissolutions` (r:1 w:0)
 	/// Proof: `Lending::Dissolutions` (`max_values`: None, `max_size`: Some(39), added: 2514, mode: `MaxEncodedLen`)

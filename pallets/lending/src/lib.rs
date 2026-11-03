@@ -1436,7 +1436,13 @@ pub mod pallet {
 
         /// Atomic raise: escrowed long + spot sale of own unlocked alpha.
         #[pallet::call_index(3)]
-        #[pallet::weight(T::WeightInfo::open_long_and_sell())]
+        // Fixed-collateral and amount-mode bisection paths differ (amount: up to
+        // 64× `principal_feasible` / `v_dyn`). Charge the componentwise max of
+        // both measured benchmarks (Skeptic fid:98e6778c).
+        #[pallet::weight(
+            T::WeightInfo::open_long_and_sell()
+                .max(T::WeightInfo::open_long_and_sell_by_amount())
+        )]
         #[transactional]
         pub fn open_long_and_sell(
             origin: OriginFor<T>,

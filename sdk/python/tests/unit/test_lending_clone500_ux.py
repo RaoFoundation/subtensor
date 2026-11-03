@@ -628,6 +628,9 @@ def test_close_loan_outcome_can_include_payment_from_quote():
 
 def test_close_quote_docs_usage_uses_from_wallet():
     """Query close-quote docs usage line matches tx flag names."""
-    text = Path("/workspace/docs/query/lending-close-quote.mdx").read_text()
+    # Repo-relative: CI checks out under an arbitrary workdir, not /workspace.
+    # .../sdk/python/tests/unit/this_file.py → parents[4] = repo root.
+    docs = Path(__file__).resolve().parents[4] / "docs/query/lending-close-quote.mdx"
+    text = docs.read_text()
     assert "--from-wallet/--from-escrow" in text
     assert "--repay-from-wallet/--no-repay-from-wallet" not in text

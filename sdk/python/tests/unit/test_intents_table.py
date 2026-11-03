@@ -105,7 +105,7 @@ def test_rejects_unknown_argument(op: str):
 async def test_composes_and_plans_offline(
     op: str, client: Client, substrate: FakeSubstrate, wallet
 ):
-    if op in ("claim_root", "claim_root_with_hotkey", "open_loan"):
+    if op in ("claim_root", "claim_root_with_hotkey", "open_loan", "raise_loan", "close_loan"):
         substrate.seed(
             "System",
             "Account",

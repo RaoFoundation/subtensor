@@ -92,6 +92,39 @@ class _FeeAddress:
         self.public_key = bytes(ss58_decode(address))
 
 
+class _ReadView:
+    """Read-shaped view over a Substrate for lending quote preflights.
+
+    Matches :class:`~bittensor.snapshot.Snapshot` accessors used by
+    ``reads.lending`` (``constant`` takes a ``(module, name)`` tuple;
+    ``block`` is the pinned head).
+    """
+
+    def __init__(self, substrate, block_hash):
+        self._substrate = substrate
+        self._block_hash = block_hash
+        self.block = int(getattr(substrate, "block", 0) or 0)
+
+    async def at(self):
+        return self
+
+    async def runtime(self, method, params):
+        return await self._substrate.runtime_call(
+            method.container, method.name, params, block_hash=self._block_hash
+        )
+
+    async def query(self, item, params):
+        return await self._substrate.query(
+            item.container, item.name, list(params), block_hash=self._block_hash
+        )
+
+    async def constant(self, item):
+        return await self._substrate.constant(item[0], item[1])
+
+    def balance(self, rao, netuid=0):
+        return Balance.from_rao(int(rao), int(netuid))
+
+
 def check_side(side: str) -> str:
     """Accept the two runtime variants, including lower-case CLI spelling."""
     result = str(side).capitalize()
@@ -533,25 +566,8 @@ class RaiseLoan(Intent):
             if hotkey is None:
                 raise BittensorError("raise requires a collateral source hotkey")
 
-            class _View:
-                async def at(self_inner):
-                    return self_inner
-
-                async def runtime(self_inner, method, params):
-                    return await substrate.runtime_call(
-                        method.container, method.name, params, block_hash=block_hash
-                    )
-
-                async def query(self_inner, item, params):
-                    return await substrate.query(
-                        item.container, item.name, list(params), block_hash=block_hash
-                    )
-
-                def balance(self_inner, rao, netuid=0):
-                    return Balance.from_rao(int(rao), int(netuid))
-
             quote = await lending_reads.lending_raise_quote(
-                _View(),
+                _ReadView(substrate, block_hash),
                 netuid=self.netuid,
                 coldkey_ss58=dispatch_origin,
                 hotkey_ss58=hotkey,
@@ -771,25 +787,8 @@ class CloseLoan(Intent):
                 raise BittensorError("composed lending call is unavailable for fee estimation")
             block_hash = await substrate.block_hash()
 
-            class _View:
-                async def at(self_inner):
-                    return self_inner
-
-                async def runtime(self_inner, method, params):
-                    return await substrate.runtime_call(
-                        method.container, method.name, params, block_hash=block_hash
-                    )
-
-                async def query(self_inner, item, params):
-                    return await substrate.query(
-                        item.container, item.name, list(params), block_hash=block_hash
-                    )
-
-                def balance(self_inner, rao, netuid=0):
-                    return Balance.from_rao(int(rao), int(netuid))
-
             quote = await lending_reads.lending_close_quote(
-                _View(),
+                _ReadView(substrate, block_hash),
                 coldkey_ss58=dispatch_origin,
                 netuid=self.netuid,
                 hotkey_ss58=self.hotkey_ss58,

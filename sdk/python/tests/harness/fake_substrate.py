@@ -93,10 +93,22 @@ _LENDING_OPEN_QUOTE = {
     "escrow_estimate": 10**9,
 }
 
+
+def _default_stake_availability(params: list) -> dict:
+    """Generous unlocked alpha so RaiseLoan/OpenLoan long preflights pass offline."""
+    coldkeys = params[0] if params else []
+    netuids = params[1] if len(params) > 1 else []
+    entry = {"total": 10**18, "locked": 0, "available": 10**18}
+    return {ck: {int(n): dict(entry) for n in netuids} for ck in coldkeys}
+
+
 DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
     ("SwapRuntimeApi", "current_alpha_price"): 10**9,  # 1 TAO per alpha
     ("SubnetRegistrationRuntimeApi", "get_network_registration_cost"): 10**9,
     ("BetaBasketRuntimeApi", "get_validator_basket"): [],
+    # Raise/Close preflight reads stake availability; keep offline plans unblocked.
+    ("StakeInfoRuntimeApi", "get_stake_info_for_hotkey_coldkey_netuid"): {"stake": 10**18},
+    ("StakeInfoRuntimeApi", "get_stake_availability_for_coldkeys"): _default_stake_availability,
     ("LendingRuntimeApi", "quote_open"): _LENDING_OPEN_QUOTE,
     ("LendingRuntimeApi", "quote_open_for"): _LENDING_OPEN_QUOTE,
     ("LendingRuntimeApi", "quote_open_exact_for"): _LENDING_OPEN_QUOTE,

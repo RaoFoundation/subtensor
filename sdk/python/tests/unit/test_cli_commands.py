@@ -126,6 +126,20 @@ def _seed_tx_preview(substrate: FakeSubstrate) -> None:
     )
     substrate.seed_runtime("SubnetRegistrationRuntimeApi", "get_network_registration_cost", 10**9)
     substrate.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", [])
+    # RaiseLoan preflight needs unlocked alpha on the sample hotkey.
+    substrate.seed_runtime(
+        "StakeInfoRuntimeApi",
+        "get_stake_info_for_hotkey_coldkey_netuid",
+        {"stake": 10**18},
+    )
+    substrate.seed_runtime(
+        "StakeInfoRuntimeApi",
+        "get_stake_availability_for_coldkeys",
+        lambda params: {
+            ck: {int(n): {"total": 10**18, "locked": 0, "available": 10**18} for n in params[1]}
+            for ck in params[0]
+        },
+    )
     substrate.seed_runtime(
         "SubnetInfoRuntimeApi", "get_subnet_emission_weights", EMISSION_WEIGHTS_INFO
     )
