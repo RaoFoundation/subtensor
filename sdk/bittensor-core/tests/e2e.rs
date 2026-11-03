@@ -1316,7 +1316,8 @@ fn test_gamma_lifecycle() {
     let moved = read("get_gamma_deposit", &[u(netuid), s(moved_key.clone())]);
     let terms_moved = field(&moved, "deposit").expect("deposit");
     assert_eq!(value_str(terms_moved, "spender"), bob);
-    assert_eq!(value_u128(terms_moved, "daily_spend_cap"), GAMMA);
+    let daily_spend_cap = field(terms_moved, "daily_spend_cap").expect("daily spend cap");
+    assert_eq!(value_u128(daily_spend_cap, "cap"), GAMMA);
     assert_eq!(value_u128(terms_moved, "balance"), minted_gamma - GAMMA);
 
     terms(
