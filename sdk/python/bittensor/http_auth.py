@@ -36,7 +36,8 @@ multi-process servers).
 The wire format is deliberately language-neutral — sha256 over the raw body
 bytes, a newline-joined signed payload, sr25519/ed25519 signatures — so
 miners and validators in other languages interoperate from the spec alone.
-See the signed-requests guide (https://www.bittensor.com/docs/guides/signed-requests)
+See the signed-requests guide
+(https://github.com/RaoFoundation/subtensor/blob/cursor/lift-lending-escrowed-raise-352f/docs/guides/signed-requests.mdx)
 for the normative spec, framework recipes, and golden test vectors.
 """
 

@@ -425,6 +425,7 @@ def apply(
         obj.assume_yes = True
     if _pop("dry_run", False):
         obj.dry_run = True
+        obj.output.dry_run = True
     if (v := _pop("mev_shield")) is not None:
         obj.mev_shield = v
     if (v := _pop("proxy_for")) is not None:

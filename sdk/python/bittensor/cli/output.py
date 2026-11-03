@@ -313,6 +313,8 @@ class Output:
         self.json_mode = json_mode
         self.quiet = quiet
         self.network = network
+        # Set by AppContext when --dry-run is active (F12 wording).
+        self.dry_run = False
         # highlight=False: rich's default highlighter colors digits, parens,
         # and quoted strings on its own; every color here should be deliberate.
         term_width = _detect_terminal_width()
@@ -2416,21 +2418,31 @@ class Output:
         header.append(":", style=STYLE_ERROR)
         header.append(" ")
         # Prefer the human description over a raw CamelCase error name /
-        # pallet §docs string for the headline (E2E F12).
+        # pallet metadata doc string (often carries [`OtherError`] refs) (E2E F12).
         headline = message
-        if error.description and (
-            not message
-            or message == error.name
+        raw_docs = bool(message) and (
+            message == error.name
             or message.startswith("§")
             or "Replaces " in message
-        ):
+            or "[`" in message
+            or message.startswith("Opening value")
+            or message.startswith("Side-cap")
+            or message.startswith("Side capacity")
+            or message.startswith("Forced trade")
+            or message.startswith("Requested principal")
+        )
+        if error.description and (not message or raw_docs):
             headline = error.description
         body = _prose(_diagnostic(self.with_subnets(self.with_names(headline))))
         body.style = STYLE_MESSAGE
         header.append_text(body)
         self._err.print(header)
         if error.name and headline != error.name:
-            self._sub_diag("note", f"the chain rejected the call with `{error.name}`")
+            # Dry-run / simulation never submitted — don't say "rejected" (F12).
+            if getattr(self, "dry_run", False):
+                self._sub_diag("note", f"the call would fail with `{error.name}`")
+            else:
+                self._sub_diag("note", f"the chain rejected the call with `{error.name}`")
         if error.description and error.description != message and error.description != headline:
             self._sub_diag("note", error.description)
         self._sub_diag("help", error.remediation)

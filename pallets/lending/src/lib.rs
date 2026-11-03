@@ -917,6 +917,19 @@ pub mod pallet {
     pub type ExpiryRetryPending<T: Config> = StorageValue<_, u32, ValueQuery>;
     #[pallet::storage]
     pub type ExpiryRetryCursor<T: Config> = StorageValue<_, (T::AccountId, NetUid), OptionQuery>;
+    /// Last deferral for a position: `(kind, retry_at, reason)` where kind is
+    /// `0` = interest charge, `1` = expiry settlement (E2E N13). Cleared when
+    /// the retry succeeds or the position closes.
+    #[pallet::storage]
+    pub type LastDeferral<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        (u8, BlockNumberFor<T>, BoundedVec<u8, ConstU32<64>>),
+        OptionQuery,
+    >;
     #[pallet::storage]
     pub type ConversionCursor<T> = StorageValue<_, NetUid, OptionQuery>;
     #[pallet::storage]
@@ -1062,19 +1075,21 @@ pub mod pallet {
             refund: u64,
             escrow_returned: u64,
         },
-        /// Interest charge failed this block; retried at `retry_at` (E2E U5).
+        /// Interest charge failed this block; retried at `retry_at` (E2E U5 / N14).
         InterestDeferred {
             owner: T::AccountId,
             netuid: NetUid,
             retry_at: BlockNumberFor<T>,
-            error: DispatchError,
+            /// Decoded failure label (pallet error name or DispatchError variant).
+            reason: BoundedVec<u8, ConstU32<64>>,
         },
-        /// Expiry settle failed this block; retried at `retry_at` (E2E U5).
+        /// Expiry settle failed this block; retried at `retry_at` (E2E U5 / N14).
         SettlementDeferred {
             owner: T::AccountId,
             netuid: NetUid,
             retry_at: BlockNumberFor<T>,
-            error: DispatchError,
+            /// Decoded failure label (pallet error name or DispatchError variant).
+            reason: BoundedVec<u8, ConstU32<64>>,
         },
         DissolutionSettled {
             owner: T::AccountId,
@@ -4340,6 +4355,7 @@ pub mod pallet {
             position: &Position<T::AccountId, BlockNumberFor<T>>,
         ) {
             Positions::<T>::remove(owner, netuid);
+            LastDeferral::<T>::remove(owner, netuid);
             OpenByNetuid::<T>::remove(netuid, owner);
             EscrowOwner::<T>::remove(netuid, &position.custody);
             if Due::<T>::take(position.due, (owner, netuid)).is_some() {
@@ -4370,6 +4386,30 @@ pub mod pallet {
         }
 
         /// O(1) enqueue onto the interest-retry side queue (Skeptic fid:0776a829).
+        /// Human-readable deferral reason for events (E2E N14): prefer the
+        /// Lending error name when the DispatchError is this pallet's Module
+        /// error; otherwise a short DispatchError discriminant label.
+        fn deferral_reason(error: DispatchError) -> BoundedVec<u8, ConstU32<64>> {
+            use frame_support::traits::PalletInfoAccess;
+            let label = match error {
+                DispatchError::Module(module)
+                    if module.index == <Pallet<T> as PalletInfoAccess>::index() as u8 =>
+                {
+                    match Error::<T>::decode(&mut &module.error[..]) {
+                        Ok(e) => alloc::format!("{e:?}"),
+                        Err(_) => alloc::format!("Module({:?})", module.error),
+                    }
+                }
+                DispatchError::Token(t) => alloc::format!("Token.{t:?}"),
+                DispatchError::Arithmetic(a) => alloc::format!("Arithmetic.{a:?}"),
+                DispatchError::Transactional(t) => alloc::format!("Transactional.{t:?}"),
+                DispatchError::BadOrigin => alloc::string::String::from("BadOrigin"),
+                DispatchError::CannotLookup => alloc::string::String::from("CannotLookup"),
+                other => alloc::format!("{other:?}"),
+            };
+            BoundedVec::<u8, ConstU32<64>>::truncate_from(label.into_bytes())
+        }
+
         fn enqueue_interest_retry(
             owner: &T::AccountId,
             netuid: NetUid,
@@ -4733,6 +4773,7 @@ pub mod pallet {
                                 Due::<T>::remove(due, (&owner, netuid));
                                 Self::note_due_removed(due);
                             }
+                            LastDeferral::<T>::remove(&owner, netuid);
                         }
                         Err(error) => {
                             // Preserve coverage without pinning NextDue /
@@ -4748,11 +4789,17 @@ pub mod pallet {
                                 Self::enqueue_interest_retry(&owner, netuid, retry_at);
                                 position.due = retry_at;
                                 Positions::<T>::insert(&owner, netuid, position);
+                                let reason = Self::deferral_reason(error);
+                                LastDeferral::<T>::insert(
+                                    &owner,
+                                    netuid,
+                                    (0u8, retry_at, reason.clone()),
+                                );
                                 Self::deposit_event(Event::InterestDeferred {
                                     owner: owner.clone(),
                                     netuid,
                                     retry_at,
-                                    error,
+                                    reason,
                                 });
                             }
                         }
@@ -4862,6 +4909,7 @@ pub mod pallet {
                                 Expiry::<T>::remove(at, (&owner, netuid));
                                 Self::note_expiry_removed(at);
                             }
+                            LastDeferral::<T>::remove(&owner, netuid);
                         }
                         Err(error) => {
                             // Preserve coverage without pinning NextExpiry /
@@ -4876,11 +4924,17 @@ pub mod pallet {
                                 Self::enqueue_expiry_retry(&owner, netuid, retry_at);
                                 position.expiry_due = retry_at;
                                 Positions::<T>::insert(&owner, netuid, position);
+                                let reason = Self::deferral_reason(error);
+                                LastDeferral::<T>::insert(
+                                    &owner,
+                                    netuid,
+                                    (1u8, retry_at, reason.clone()),
+                                );
                                 Self::deposit_event(Event::SettlementDeferred {
                                     owner: owner.clone(),
                                     netuid,
                                     retry_at,
-                                    error,
+                                    reason,
                                 });
                             }
                         }
@@ -4975,6 +5029,7 @@ pub mod pallet {
                     match outcome {
                         Ok(()) => {
                             let _ = Self::take_interest_retry(at, &owner, netuid);
+                            LastDeferral::<T>::remove(&owner, netuid);
                         }
                         Err(error) => {
                             let _ = Self::take_interest_retry(at, &owner, netuid);
@@ -4983,11 +5038,17 @@ pub mod pallet {
                                 Self::enqueue_interest_retry(&owner, netuid, retry_at);
                                 position.due = retry_at;
                                 Positions::<T>::insert(&owner, netuid, position);
+                                let reason = Self::deferral_reason(error);
+                                LastDeferral::<T>::insert(
+                                    &owner,
+                                    netuid,
+                                    (0u8, retry_at, reason.clone()),
+                                );
                                 Self::deposit_event(Event::InterestDeferred {
                                     owner: owner.clone(),
                                     netuid,
                                     retry_at,
-                                    error,
+                                    reason,
                                 });
                             }
                         }
@@ -5096,6 +5157,7 @@ pub mod pallet {
                     match outcome {
                         Ok(()) => {
                             let _ = Self::take_expiry_retry(at, &owner, netuid);
+                            LastDeferral::<T>::remove(&owner, netuid);
                         }
                         Err(error) => {
                             let _ = Self::take_expiry_retry(at, &owner, netuid);
@@ -5104,11 +5166,17 @@ pub mod pallet {
                                 Self::enqueue_expiry_retry(&owner, netuid, retry_at);
                                 position.expiry_due = retry_at;
                                 Positions::<T>::insert(&owner, netuid, position);
+                                let reason = Self::deferral_reason(error);
+                                LastDeferral::<T>::insert(
+                                    &owner,
+                                    netuid,
+                                    (1u8, retry_at, reason.clone()),
+                                );
                                 Self::deposit_event(Event::SettlementDeferred {
                                     owner: owner.clone(),
                                     netuid,
                                     retry_at,
-                                    error,
+                                    reason,
                                 });
                             }
                         }

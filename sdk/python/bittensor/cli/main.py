@@ -85,7 +85,13 @@ app = typer.Typer(
         "btcli - a lean command line for the Bittensor chain."
         f"\n\nDocs: [underline link={DOCS_URL}]{DOCS_URL}[/underline link]"
     ),
-    context_settings={"help_option_names": ["-h", "--help"]},
+    # Wide enough that long option names (e.g. --repay-from-wallet) stay intact
+    # on 80-col panes; lending also sets this, but root help width wins for
+    # nested option columns on some Typer/Click versions (E2E F15).
+    context_settings={
+        "help_option_names": ["-h", "--help"],
+        "max_content_width": 200,
+    },
 )
 
 # Root --help is grouped into panels so it reads as a map, not a linear dump.
@@ -298,6 +304,8 @@ def main_callback(
     setup_logging(verbosity=verbosity, quiet=quiet)
     wallet_source = ctx.get_parameter_source("wallet_name")
     hotkey_source = ctx.get_parameter_source("hotkey_name")
+    output = Output(json_mode=json_output, quiet=quiet, network=network)
+    output.dry_run = bool(dry_run)
     ctx.obj = AppContext(
         network=network,
         fallback_endpoints=fallback_endpoints,
@@ -312,7 +320,7 @@ def main_callback(
         dry_run=dry_run,
         mev_shield=mev_shield,
         verbosity=verbosity,
-        output=Output(json_mode=json_output, quiet=quiet, network=network),
+        output=output,
         signer_backend=signer_backend,
         signer_address=signer_address,
         extension_source=extension_source,
@@ -521,7 +529,7 @@ def _warn_if_legacy_config() -> None:
         f"warning: {legacy} is the legacy (v9) btcli config and is ignored by this CLI; "
         f"migrate values with `btcli config set` (stored in {config_path()}), then rename "
         f"or delete the old file. "
-        f"Migration guide: {DOCS_URL}/migration",
+        f"Migration guide: {DOCS_URL}/migration.mdx",
         file=sys.stderr,
     )
     with contextlib.suppress(OSError):

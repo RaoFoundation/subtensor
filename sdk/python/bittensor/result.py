@@ -306,6 +306,20 @@ _SUBSTRING_FALLBACK: tuple[tuple[str, ErrorCode], ...] = (
 # Remediation overrides keyed by the exact chain error name; more specific
 # than the per-code defaults above.
 _NAME_HELP_OVERRIDES: dict[str, str] = {
+    "AmountTooSmall": (
+        "raise collateral / principal above the ~0.001 τ minimum, or close the "
+        "remaining dust fully; if the side is full, expect SideCapacity instead"
+    ),
+    "SideCapacity": (
+        "reduce borrow size, wait for repayment on this side, or check "
+        "`btcli query lending-reserves` / the quote's cap headroom"
+    ),
+    "SideCapacityRamping": (
+        "reduce size to fit the new-subnet Cap ramp, or retry later as the ramp rises"
+    ),
+    "PositionSideMismatch": (
+        "close the existing loan first, or reuse its saved side (short vs long)"
+    ),
     "SlippageTooHigh": (
         "the price moved past the slippage-protection limit (stake trades are "
         "protected by default with a 5% tolerance); retry, raise the tolerance "

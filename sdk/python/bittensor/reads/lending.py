@@ -17,6 +17,9 @@ from .base import read
 LIFTS = Item("Lending", "Lifts", "LiftBook")
 OPEN_BY_NETUID = Item("Lending", "OpenByNetuid")
 DISSOLUTIONS = Item("Lending", "Dissolutions", "Dissolution")
+INTEREST_RETRY = Item("Lending", "InterestRetry")
+EXPIRY_RETRY = Item("Lending", "ExpiryRetry")
+LAST_DEFERRAL = Item("Lending", "LastDeferral")
 MINER_COLLATERAL = Item("SubtensorModule", "MinerCollateral", "MinerCollateralState")
 QUOTE_OPEN = Method("LendingRuntimeApi", "quote_open")
 QUOTE_OPEN_FOR = Method("LendingRuntimeApi", "quote_open_for")
@@ -111,6 +114,7 @@ def _position_record(
     escrow_alpha = int(raw.get("escrow_alpha") or 0)
     # Fixed one-year term end; absent only on pre-term storage layouts.
     expires_at = int(raw["expires_at"]) if raw.get("expires_at") is not None else None
+    expiry_due = int(raw["expiry_due"]) if raw.get("expiry_due") is not None else expires_at
     runway_days = None
     if annual:
         runway_days = max(collateral - interest_due, 0) * 365 / annual
@@ -141,11 +145,75 @@ def _position_record(
         "last_accrued": int(raw["last_accrued"]),
         "due": int(raw["due"]),
         "expires_at": expires_at,
+        "expiry_due": expiry_due,
+        "deferred": None,
         "underwater": interest_exhausted,
         "insolvent": interest_exhausted,
         "shortfall": Balance.from_rao(0),
         "runway_days": runway_days,
     }
+
+
+def _decode_deferral_reason(raw: Any) -> str:
+    """BoundedVec / bytes / str → printable deferral reason."""
+    if isinstance(raw, (bytes, bytearray)):
+        return bytes(raw).decode("utf-8", errors="replace")
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, (list, tuple)):
+        try:
+            return bytes(raw).decode("utf-8", errors="replace")
+        except Exception:
+            return str(raw)
+    return str(raw) if raw is not None else ""
+
+
+async def _annotate_deferral(view, record: dict) -> dict:
+    """Flag pending interest / settlement deferral (N13).
+
+    Prefer ``LastDeferral`` (kind, retry_at, decoded reason). Fall back to
+    InterestRetry / ExpiryRetry membership when the map is empty.
+    """
+    owner = record["coldkey"]
+    netuid = int(record["netuid"])
+    due = record.get("due")
+    expiry_due = record.get("expiry_due")
+    try:
+        last = await view.query(LAST_DEFERRAL, [owner, netuid])
+        if isinstance(last, (list, tuple)) and len(last) >= 3:
+            kind_code, retry_at, reason_raw = last[0], last[1], last[2]
+            kind = "interest" if int(kind_code) == 0 else "settlement"
+            reason = _decode_deferral_reason(reason_raw) or (
+                "interest charge failed; pending retry"
+                if kind == "interest"
+                else "expiry settlement failed; pending retry"
+            )
+            record["deferred"] = {
+                "kind": kind,
+                "retry_at": int(retry_at),
+                "reason": reason,
+            }
+            return record
+        if due is not None:
+            pending = await view.query(INTEREST_RETRY, [int(due), (owner, netuid)])
+            if pending is not None:
+                record["deferred"] = {
+                    "kind": "interest",
+                    "retry_at": int(due),
+                    "reason": "interest charge failed; pending retry",
+                }
+                return record
+        if expiry_due is not None:
+            pending = await view.query(EXPIRY_RETRY, [int(expiry_due), (owner, netuid)])
+            if pending is not None:
+                record["deferred"] = {
+                    "kind": "settlement",
+                    "retry_at": int(expiry_due),
+                    "reason": "expiry settlement failed; pending retry",
+                }
+    except Exception:
+        return record
+    return record
 
 
 async def _annotate_close_solvency(view, record: dict) -> dict:
@@ -212,6 +280,7 @@ async def lending_position(view, coldkey_ss58: str, netuid: int) -> Optional[dic
     record = await _load_position_storage(view, coldkey_ss58, netuid)
     if record is None:
         return None
+    record = await _annotate_deferral(view, record)
     return await _annotate_close_solvency(view, record)
 
 
@@ -234,6 +303,7 @@ async def lending_positions(view, netuid: int) -> list[dict]:
         raw = await view.query(POSITIONS, [owner, netuid])
         record = _position_record(view, owner, netuid, raw, clock)
         if record is not None:
+            record = await _annotate_deferral(view, record)
             records.append(await _annotate_close_solvency(view, record))
     return sorted(records, key=lambda record: record["coldkey"])
 

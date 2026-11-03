@@ -27,10 +27,9 @@ DESCRIPTIONS: dict[str, str] = {
         "account."
     ),
     "AmountTooSmall": (
-        "The loan opening value (or remaining dust after a partial repay) is below the runtime "
-        "minimum (~0.001 TAO / Lending MinimumLoanValue), and side capacity is not the binder. "
-        "Increase collateral or principal, or close the remainder fully. When the side cap is "
-        "what blocks a minimum loan, the call returns SideCapacity instead."
+        "Borrow or remaining dust is below the runtime minimum (~0.001 τ). "
+        "Increase collateral or principal, or close the remainder fully. "
+        "If the side cap is what blocks a minimum loan, the chain returns SideCapacity instead."
     ),
     "PrincipalZero": (
         "Principal, principal_part, or borrow amount is zero. Pass a positive amount; a young "
@@ -40,16 +39,13 @@ DESCRIPTIONS: dict[str, str] = {
         "Collateral is zero. Pass a positive collateral amount (alpha for longs, TAO for shorts)."
     ),
     "SideCapacity": (
-        "Side-cap headroom cannot fit this borrow (or any MinimumLoanValue-sized borrow) even "
-        "at full Cap. This is capacity headroom, not AMM reserve depth — check the quote's "
-        "long_cap_headroom / lending_reserves lift book, reduce size, or wait for repayment. "
-        "When only the new-subnet Cap ramp is binding, the call returns SideCapacityRamping."
+        "This subnet's lend/borrow side cap has no headroom for this size (even at full Cap). "
+        "Reduce the borrow, wait for other loans to repay, or check lending_reserves headroom. "
+        "This is capacity, not AMM depth — SideCapacityRamping means only the ramp binds."
     ),
     "SideCapacityRamping": (
-        "Side capacity is binding only because this subnet is still inside the Cap ramp after "
-        "the new-subnet gate (LiftParams.new_subnet_ramp; default ~30 days after "
-        "new_subnet_min_age). Full Cap would allow the borrow — check live LiftParams, try "
-        "again later as the ramp rises, or reduce size to fit current ramped headroom."
+        "Side capacity is limited by the new-subnet Cap ramp (not full Cap yet). "
+        "Reduce size to fit current headroom, or retry later as the ramp rises."
     ),
     "DepthBelowThreshold": (
         "Legacy depth refusal. Prefer EmptyPool / PrincipalExceedsAlphaIn / "
@@ -154,7 +150,7 @@ DESCRIPTIONS: dict[str, str] = {
         "set_lift_params bounds against the live LiftParams storage."
     ),
     "PositionSideMismatch": (
-        "The existing position's side does not match this call. Close first or use the saved side."
+        "Existing loan side does not match this call. Close first, or use the saved side."
     ),
     "InvalidSourceHotkey": (
         "Long open / increase / raise requires a source_hotkey (alpha is locked from that "

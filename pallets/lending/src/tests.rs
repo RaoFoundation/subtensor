@@ -3237,10 +3237,11 @@ fn long_expiry_preserves_collateral_when_subtoken_disabled() {
                 e.event,
                 RuntimeEvent::Lending(Event::SettlementDeferred {
                     retry_at: r,
+                    ref reason,
                     ..
-                }) if r == retry_at
+                }) if r == retry_at && !reason.is_empty()
             )),
-            "failed expiry must emit SettlementDeferred with the retry block (E2E U5)"
+            "failed expiry must emit SettlementDeferred with retry block + decoded reason (E2E U5/N14)"
         );
         assert!(
             System::events().into_iter().all(|e| !matches!(
@@ -3304,10 +3305,11 @@ fn failed_interest_collection_defers_onto_retry_bucket() {
                 e.event,
                 RuntimeEvent::Lending(Event::InterestDeferred {
                     retry_at: r,
+                    ref reason,
                     ..
-                }) if r == retry_at
+                }) if r == retry_at && !reason.is_empty()
             )),
-            "failed interest must emit InterestDeferred with the retry block (E2E U5)"
+            "failed interest must emit InterestDeferred with retry block + decoded reason (E2E U5/N14)"
         );
         assert!(
             InterestRetry::<Test>::contains_key(retry_at, (&owner, netuid())),
