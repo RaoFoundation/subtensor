@@ -862,14 +862,14 @@ class Executor:
                 # N19: SDK ExtrinsicResult.data gets the same decoded outcome
                 # the CLI Result card prints (CLI on_result may refine further).
                 data.update(lending_outcome_data(result.events, op=semantic_intent.op))
-                # Close event has no payment field; attach the preflight quote
-                # so SDK results match the CLI Result card.
-                if semantic_intent.op == "close_loan" and "payment_rao" not in data:
+                # Closed has no payment field. Attach the preflight quote under
+                # quoted_* — never as executed payment (Auditor fid:fcde4084).
+                if semantic_intent.op == "close_loan" and "quoted_payment_rao" not in data:
                     quoted = getattr(semantic_intent, "_quoted_payment_rao", None)
                     if quoted is not None:
                         unit = int(getattr(semantic_intent, "_quoted_payment_unit", 0) or 0)
-                        data["payment"] = _fmt_outcome_amount(int(quoted), unit)
-                        data["payment_rao"] = int(quoted)
+                        data["quoted_payment"] = _fmt_outcome_amount(int(quoted), unit)
+                        data["quoted_payment_rao"] = int(quoted)
             data.update(plan.extras)
             if data != result.data:
                 result = replace(result, data=data)

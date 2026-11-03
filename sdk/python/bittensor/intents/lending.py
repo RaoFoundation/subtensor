@@ -777,7 +777,7 @@ class CloseLoan(Intent):
     async def preflight(
         self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
     ) -> IntentPreflight:
-        """Quote the close so ExtrinsicResult.data can include payment (CLI parity)."""
+        """Quote the close so ExtrinsicResult.data can include quoted_payment."""
         # Circular: reads.lending imports POSITIONS / check_side from this module.
         from ..reads import lending as lending_reads
 

@@ -597,8 +597,13 @@ def test_extrinsic_result_error_description_for_dynamic_collateral():
     assert payload["error"]["description"]
 
 
-def test_close_loan_outcome_can_include_payment_from_quote():
-    """SDK CloseLoan result data includes payment (CLI parity)."""
+def test_close_loan_outcome_exposes_quoted_payment_not_executed():
+    """Preflight quote is quoted_payment; never labeled as executed payment.
+
+    Auditor fid:fcde4084 — Closed has no payment field; intervening swaps can
+    change the buyback cost while the extrinsic still succeeds within
+    max_payment, so the preflight figure must not be reported as payment.
+    """
     events = [
         {
             "event": {
@@ -606,24 +611,35 @@ def test_close_loan_outcome_can_include_payment_from_quote():
                 "event_id": "Closed",
                 "attributes": {
                     "netuid": 1,
-                    "side": {"Long": None},
-                    "refund": 10**9,
+                    "side": {"Short": None},
+                    "refund": 0,
                     "escrow_returned": 0,
-                    "wallet_top_up": 0,
+                    "wallet_top_up": 2 * 10**9,  # actual top-up differed from quote
                 },
             }
         }
     ]
     data = lending_outcome_data(events, op="close_loan")
-    assert "payment" not in data  # event itself has no payment
+    assert "payment" not in data
+    assert "payment_rao" not in data
+    assert data["wallet_top_up_rao"] == 2 * 10**9
+
     intent = CloseLoan(netuid=1, max_payment="100", min_refund="0")
+    # Preflight quote was 50τ; executed path topped up only 2τ from wallet.
     intent._quoted_payment_rao = 50 * 10**9
     intent._quoted_payment_unit = 0
-    # Simulate executor merge.
-    data["payment"] = _fmt_outcome_amount(intent._quoted_payment_rao, intent._quoted_payment_unit)
-    data["payment_rao"] = intent._quoted_payment_rao
-    assert data["payment"].startswith("τ")
-    assert data["payment_rao"] == 50 * 10**9
+    quoted = getattr(intent, "_quoted_payment_rao", None)
+    assert quoted is not None
+    unit = int(getattr(intent, "_quoted_payment_unit", 0) or 0)
+    data["quoted_payment"] = _fmt_outcome_amount(int(quoted), unit)
+    data["quoted_payment_rao"] = int(quoted)
+
+    assert data["quoted_payment"].startswith("τ")
+    assert data["quoted_payment_rao"] == 50 * 10**9
+    # Must not collide with event-derived fields or claim executed payment.
+    assert "payment" not in data
+    assert "payment_rao" not in data
+    assert data["quoted_payment_rao"] != data["wallet_top_up_rao"]
 
 
 def test_close_quote_docs_usage_uses_from_wallet():
