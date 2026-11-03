@@ -89,9 +89,10 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "BasketDepositPending": (
         "A queued root-dividend deposit on this validator could not be settled yet, so an "
-        "operation that changes the hotkey's root claimant base was refused. No current "
-        "dispatch raises it; if it appears, wait for the pending deposit to flush (the next "
-        "claim or basket operation on the hotkey settles it) and retry."
+        "operation that changes the claimant base or basket was refused. Wait for the "
+        "block queue processor to settle the dividend, then retry. Settlement also requires "
+        "the affected basket prices to be within their fast-EMA band; user calls cannot "
+        "force a dividend mint between pool swaps."
     ),
     "BasketHasNoWeights": (
         "Retired on current runtimes: a basket deposit into a fund with no holdings is held "

@@ -352,10 +352,12 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
     ) -> Option<BasketClaimPreview<T::AccountId>> {
-        let flushed_credits =
-            u32::try_from(PendingBasketDeposits::<T>::iter_prefix(hotkey).count())
-                .unwrap_or(u32::MAX);
-        let _ = Self::flush_basket_deposits_for_hotkey(hotkey);
+        // A claim no longer mints credits; the block drain must have settled them first.
+        let flushed_credits = 0;
+        let (_, _, completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+        if !completed {
+            return None;
+        }
         let shares_total = BasketShares::<T>::get(hotkey);
         let owed_shares = Self::get_basket_owed_shares(hotkey, coldkey).min(shares_total);
         if owed_shares == 0 {

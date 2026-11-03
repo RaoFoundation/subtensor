@@ -2,8 +2,8 @@
 //!
 //! Pool admission alone cannot bound `state_call`, chain-head/archive calls,
 //! dry-run, or simulations carrying detached ML-DSA order proofs. Executor clones
-//! share per-service budgets. Unknown exports cannot consume simulation or
-//! transaction-validation capacity. A permit lives until synchronous Wasm
+//! share per-service budgets. Raw RPC calls cannot consume the transaction
+//! pool's reserved validation capacity. A permit lives until synchronous Wasm
 //! execution returns, including when the original RPC future is cancelled.
 //! These are local resource limits, never consensus checks: block import and
 //! authoring use `Onchain`.
@@ -14,7 +14,7 @@ use sp_core::traits::{
 };
 use sp_runtime::codec::{Compact, Decode};
 use std::{
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
     time::{Duration, Instant},
 };
 
@@ -185,15 +185,18 @@ fn needs_admission(method: &str, data: &[u8], context: CallContext) -> bool {
 }
 
 /// Keep independent workloads available even if another API is flooded with
-/// malformed requests. The executor boundary has no authenticated caller ID.
-/// Each service retains its own bounded concurrency, bytes and token bucket;
+/// malformed requests. Only a host extension identifies trusted pool validation;
+/// raw validation calls share the Other budget with unclassified RPC exports.
+/// Each service retains its own bounded concurrency and bytes;
 /// no idle quota is borrowed across services. Pending and Other each receive
 /// half of one original reservation, preserving the total ceiling of eight
 /// simultaneous executions and 64 MiB of input. Pending rate tokens admit
-/// entire bounded reconstruction jobs; other services charge each execution.
+/// entire bounded reconstruction jobs; other RPC services charge each execution.
+/// Pool submissions already have ingress admission, so internal fork validation
+/// and revalidation wait for capacity without spending another rate token.
 #[derive(Clone, Copy)]
 enum Service {
-    Validation = 0,
+    PoolValidation = 0,
     Evm = 1,
     Contracts = 2,
     Other = 3,
@@ -211,7 +214,6 @@ fn pending_method(method: &str) -> bool {
 
 fn service(method: &str) -> Service {
     match method {
-        "TaggedTransactionQueue_validate_transaction" => Service::Validation,
         "EthereumRuntimeRPCApi_call"
         | "EthereumRuntimeRPCApi_create"
         | "EthereumRuntimeRPCApi_pending_block" => Service::Evm,
@@ -249,6 +251,10 @@ impl State {
 
     fn for_service(service: usize, now: Instant) -> Self {
         let mut state = Self::new(now);
+        if service == Service::PoolValidation as usize {
+            state.burst = 0;
+            state.tokens = 0;
+        }
         if service == Service::Other as usize || service == Service::Pending as usize {
             state.max_active = MAX_ACTIVE / 2;
             state.max_bytes = MAX_ACTIVE_BYTES / 2;
@@ -303,6 +309,7 @@ impl State {
 struct Permit {
     state: Arc<Mutex<State>>,
     bytes: usize,
+    wake: Option<Arc<Condvar>>,
 }
 
 impl Drop for Permit {
@@ -312,6 +319,9 @@ impl Drop for Permit {
             state.active = state.active.saturating_sub(1);
             state.bytes = state.bytes.saturating_sub(self.bytes);
         }
+        if let Some(wake) = &self.wake {
+            wake.notify_all();
+        }
     }
 }
 
@@ -320,6 +330,7 @@ impl Drop for Permit {
 pub struct AdmissionExecutor<E> {
     inner: E,
     states: [Arc<Mutex<State>>; 5],
+    pool_available: Arc<Condvar>,
 }
 
 impl<E> AdmissionExecutor<E> {
@@ -330,13 +341,17 @@ impl<E> AdmissionExecutor<E> {
             states: std::array::from_fn(|index| {
                 Arc::new(Mutex::new(State::for_service(index, Instant::now())))
             }),
+            pool_available: Arc::new(Condvar::new()),
         }
     }
 
     fn acquire(&self, service: Service, bytes: usize) -> Result<Permit, error::Error> {
+        if matches!(service, Service::PoolValidation) {
+            return self.acquire_pool(bytes);
+        }
         let [validation, evm, contracts, other, pending] = &self.states;
         let state = match service {
-            Service::Validation => validation,
+            Service::PoolValidation => validation,
             Service::Evm => evm,
             Service::Contracts => contracts,
             Service::Other => other,
@@ -349,6 +364,30 @@ impl<E> AdmissionExecutor<E> {
         Ok(Permit {
             state: state.clone(),
             bytes,
+            wake: None,
+        })
+    }
+
+    fn acquire_pool(&self, bytes: usize) -> Result<Permit, error::Error> {
+        let [state, ..] = &self.states;
+        let mut budget = state.lock().map_err(|_| busy())?;
+        if bytes > MAX_INPUT_BYTES || bytes > budget.max_bytes {
+            return Err(busy());
+        }
+        // Only the pool's bounded validation workers and admitted synchronous
+        // local submissions reach this wait. Raw RPC cannot queue here. Wait
+        // rather than turn competition with maintenance into an initial-submit
+        // RuntimeApi error, which the network adapter does not retry.
+        while budget
+            .acquire_with_rate(bytes, Instant::now(), false)
+            .is_err()
+        {
+            budget = self.pool_available.wait(budget).map_err(|_| busy())?;
+        }
+        Ok(Permit {
+            state: state.clone(),
+            bytes,
+            wake: Some(self.pool_available.clone()),
         })
     }
 
@@ -368,6 +407,7 @@ impl<E> AdmissionExecutor<E> {
                 Ok(Permit {
                     state: state.clone(),
                     bytes,
+                    wake: None,
                 })
             })
             .map_err(|message| error::Error::Other(message.into()))
@@ -400,6 +440,12 @@ impl<E: CodeExecutor<Error = error::Error>> CodeExecutor for AdmissionExecutor<E
         let _permit = if needs_admission(method, data, context) {
             let permit = if let Some(budget) = pending {
                 self.acquire_pending(&budget, data.len())
+            } else if method == "TaggedTransactionQueue_validate_transaction"
+                && ext
+                    .extension::<sc_transaction_pool::PoolValidation>()
+                    .is_some()
+            {
+                self.acquire(Service::PoolValidation, data.len())
             } else {
                 self.acquire(service(method), data.len())
             };
@@ -474,7 +520,7 @@ mod tests {
             _: CallContext,
         ) -> (Result<Vec<u8>, Self::Error>, bool) {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            if data == b"wait" {
+            if data.ends_with(b"wait") {
                 self.entered.send(()).unwrap();
                 let (lock, wake) = &*self.resume;
                 let mut resumed = lock.lock().unwrap();
@@ -482,8 +528,9 @@ mod tests {
                     resumed = wake.wait(resumed).unwrap();
                 }
             }
+            assert!(!data.ends_with(b"panic"), "mock execution panic");
             (
-                if data == b"fail" {
+                if data.ends_with(b"fail") {
                     Err(error::Error::Other("invalid proof".into()))
                 } else {
                     Ok(vec![])
@@ -512,6 +559,19 @@ mod tests {
         context: CallContext,
     ) -> Result<Vec<u8>, error::Error> {
         let mut ext = sp_io::TestExternalities::default();
+        executor
+            .call(&mut ext.ext(), &RuntimeCode::empty(), method, data, context)
+            .0
+    }
+
+    fn execute_pool(
+        executor: &AdmissionExecutor<MockExecutor>,
+        method: &str,
+        data: &[u8],
+        context: CallContext,
+    ) -> Result<Vec<u8>, error::Error> {
+        let mut ext = sp_io::TestExternalities::default();
+        ext.register_extension(sc_transaction_pool::PoolValidation);
         executor
             .call(&mut ext.ext(), &RuntimeCode::empty(), method, data, context)
             .0
@@ -764,8 +824,8 @@ mod tests {
             assert!(execute(&executor, method, b"fail", CallContext::Offchain).is_err());
             assert_eq!(executor.inner.calls.load(Ordering::SeqCst), calls);
             // Neither bad names, EVM failures nor contract failures spend the
-            // reserved ML-DSA validation tokens, including through a clone.
-            execute(
+            // reserved pool validation capacity, including through a clone.
+            execute_pool(
                 &executor.clone(),
                 "TaggedTransactionQueue_validate_transaction",
                 &validation(Some(5367)),
@@ -786,7 +846,7 @@ mod tests {
         for method in ["EthereumRuntimeRPCApi_call", "ContractsApi_call"] {
             execute(&executor.clone(), method, &[], CallContext::Offchain).unwrap();
         }
-        execute(
+        execute_pool(
             &executor,
             "TaggedTransactionQueue_validate_transaction",
             &validation(Some(5367)),
@@ -794,6 +854,210 @@ mod tests {
         )
         .unwrap();
         drop(first);
+    }
+
+    #[test]
+    fn raw_validation_cannot_spend_pool_capacity_or_select_it_with_source_bytes() {
+        let (executor, _) = executor();
+        let method = "TaggedTransactionQueue_validate_transaction";
+        let mut data = validation(Some(5367));
+        for state in &executor.states {
+            state.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
+        }
+        for _ in 0..BURST / 2 {
+            execute(&executor, method, &data, CallContext::Offchain).unwrap();
+        }
+        // The same bytes take different budgets only when the trusted host
+        // attaches the extension. TransactionSource is encoded input, not trust.
+        for source in [0, 1, 2] {
+            *data.first_mut().unwrap() = source;
+            let calls = executor.inner.calls.load(Ordering::SeqCst);
+            assert!(execute(&executor, method, &data, CallContext::Offchain).is_err());
+            assert_eq!(executor.inner.calls.load(Ordering::SeqCst), calls);
+            execute_pool(&executor.clone(), method, &data, CallContext::Offchain).unwrap();
+        }
+        let [pool, _, _, other, _] = &executor.states;
+        assert_eq!(other.lock().unwrap().tokens, 0);
+        let pool = pool.lock().unwrap();
+        assert_eq!(pool.active, 0);
+        assert_eq!(pool.bytes, 0);
+        assert_eq!(pool.tokens, 0);
+    }
+
+    #[test]
+    fn pool_fork_validation_and_revalidation_do_not_spend_request_tokens() {
+        let (executor, _) = executor();
+        let [pool, _, _, other, _] = &executor.states;
+        pool.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
+        other.lock().unwrap().refilled = Instant::now() + Duration::from_secs(60);
+        let data = validation(Some(5367));
+        // One admitted transaction may be checked across many views and blocks.
+        // All checks still execute; admission does not reuse cached validity.
+        for _ in 0..BURST * 3 {
+            execute_pool(
+                &executor.clone(),
+                "TaggedTransactionQueue_validate_transaction",
+                &data,
+                CallContext::Offchain,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            executor.inner.calls.load(Ordering::SeqCst),
+            BURST as usize * 3
+        );
+        assert_eq!(pool.lock().unwrap().tokens, 0);
+        assert_eq!(other.lock().unwrap().tokens, BURST / 2);
+    }
+
+    #[test]
+    fn pool_marker_only_selects_transaction_validation_capacity() {
+        let (executor, _) = executor();
+        for state in &executor.states {
+            let mut state = state.lock().unwrap();
+            state.tokens = 0;
+            state.refilled = Instant::now() + Duration::from_secs(60);
+        }
+        for method in [
+            "NonexistentApi_call",
+            "EthereumRuntimeRPCApi_call",
+            "ContractsApi_call",
+            "Core_initialize_block",
+            "BlockBuilder_apply_extrinsic",
+        ] {
+            assert!(execute_pool(&executor, method, &[], CallContext::Offchain).is_err());
+        }
+        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 0);
+        execute_pool(
+            &executor,
+            "TaggedTransactionQueue_validate_transaction",
+            &validation(Some(5367)),
+            CallContext::Offchain,
+        )
+        .unwrap();
+        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 1);
+    }
+
+    fn assert_pool_waits_for_capacity(held_bytes: &[usize], requested_bytes: usize) {
+        let (executor, _) = executor();
+        let held = held_bytes
+            .iter()
+            .map(|bytes| executor.acquire_pool(*bytes).unwrap())
+            .collect::<Vec<_>>();
+        let (started, started_rx) = mpsc::channel();
+        let (admitted, admitted_rx) = mpsc::channel();
+        let clone = executor.clone();
+        drop(std::thread::spawn(move || {
+            started.send(()).unwrap();
+            // Sending the permit retains the reservation until the test drops it.
+            let _ = admitted.send(clone.acquire_pool(requested_bytes));
+        }));
+        let started = started_rx.recv_timeout(Duration::from_secs(5));
+        let before_release = admitted_rx.recv_timeout(Duration::from_millis(100));
+        // Release before assertions, including on failure, so a broken test
+        // cannot strand a worker behind permits retained by its parent thread.
+        drop(held);
+        assert!(started.is_ok());
+        assert!(matches!(
+            before_release,
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        let permit = admitted_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        let [pool, ..] = &executor.states;
+        {
+            let state = pool.lock().unwrap();
+            assert_eq!(state.active, 1);
+            assert_eq!(state.bytes, requested_bytes);
+            assert!(state.active <= state.max_active);
+            assert!(state.bytes <= state.max_bytes);
+        }
+        drop(permit);
+        let state = pool.lock().unwrap();
+        assert_eq!(state.active, 0);
+        assert_eq!(state.bytes, 0);
+    }
+
+    #[test]
+    fn pool_validation_waits_for_concurrency_and_wakes_across_executor_clones() {
+        assert_pool_waits_for_capacity(&[0, 0], 1);
+    }
+
+    #[test]
+    fn pool_validation_waits_for_bytes_even_with_an_unused_execution_slot() {
+        assert_pool_waits_for_capacity(&[MAX_ACTIVE_BYTES - 1], 2);
+    }
+
+    #[test]
+    fn oversized_pool_validation_rejects_without_waiting_for_capacity() {
+        let (executor, _) = executor();
+        let (finished, finished_rx) = mpsc::channel();
+        drop(std::thread::spawn(move || {
+            let _ = finished.send(executor.acquire_pool(MAX_ACTIVE_BYTES + 1).is_err());
+        }));
+        assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+    }
+
+    #[test]
+    fn saturated_pool_and_raw_capacity_preserve_legacy_and_onchain_validation() {
+        let (executor, _) = executor();
+        let held_pool = [
+            executor.acquire_pool(0).unwrap(),
+            executor.acquire_pool(0).unwrap(),
+        ];
+        let held_raw = executor.acquire(Service::Other, 0).unwrap();
+        let (finished, finished_rx) = mpsc::channel();
+        let clone = executor.clone();
+        drop(std::thread::spawn(move || {
+            let method = "TaggedTransactionQueue_validate_transaction";
+            let mut accepted = true;
+            for raw_length in [None, Some(169)] {
+                let data = validation(raw_length);
+                accepted &= execute(&clone, method, &data, CallContext::Offchain).is_ok();
+                accepted &= execute_pool(&clone, method, &data, CallContext::Offchain).is_ok();
+            }
+            let data = validation(Some(5367));
+            accepted &= execute(&clone, method, &data, CallContext::Onchain).is_ok();
+            accepted &= execute_pool(&clone, method, &data, CallContext::Onchain).is_ok();
+            let _ = finished.send(accepted);
+        }));
+        let accepted = finished_rx.recv_timeout(Duration::from_secs(5));
+        drop(held_pool);
+        drop(held_raw);
+        assert!(accepted.unwrap());
+        assert_eq!(executor.inner.calls.load(Ordering::SeqCst), 6);
+    }
+
+    #[test]
+    fn failed_or_panicking_pool_execution_releases_reserved_capacity() {
+        let (executor, _) = executor();
+        let method = "TaggedTransactionQueue_validate_transaction";
+        let mut failed = validation(Some(5367));
+        failed.extend_from_slice(b"fail");
+        assert!(execute_pool(&executor, method, &failed, CallContext::Offchain).is_err());
+        let mut panicking = validation(Some(5367));
+        panicking.extend_from_slice(b"panic");
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                execute_pool(&executor, method, &panicking, CallContext::Offchain)
+            }))
+            .is_err()
+        );
+        let [pool, ..] = &executor.states;
+        {
+            let state = pool.lock().unwrap();
+            assert_eq!(state.active, 0);
+            assert_eq!(state.bytes, 0);
+        }
+        execute_pool(
+            &executor,
+            method,
+            &validation(Some(5367)),
+            CallContext::Offchain,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -833,14 +1097,16 @@ mod tests {
             states.iter().map(|state| state.max_bytes).sum::<usize>(),
             64 * 1024 * 1024
         );
-        assert_eq!(states.iter().map(|state| state.burst).sum::<u32>(), 64);
-        // Pending's bucket counts whole jobs; the other buckets count calls.
+        assert_eq!(states.iter().map(|state| state.burst).sum::<u32>(), 48);
+        // Pending counts whole jobs; other RPC buckets count calls. Pool
+        // validation has concurrency/byte limits but no repeated rate charge.
         assert_eq!(
             states
                 .iter()
+                .filter(|state| state.burst != 0)
                 .map(|state| 1000 / state.refill.as_millis())
                 .sum::<u128>(),
-            32
+            24
         );
     }
 

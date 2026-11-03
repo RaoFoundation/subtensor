@@ -64,12 +64,102 @@ mod mapping_precharge_tests {
 
     use super::*;
     use evm::{Context, Handler, Stack};
+    use pallet_evm::GasWeightMapping;
+
+    #[test]
+    fn mapping_admission_preserves_standard_intrinsic_gas() {
+        MappingReadWeight::set(Weight::from_parts(1, 1));
+        let config = <Test as pallet_evm::Config>::config();
+        assert_eq!(config.gas_transaction_call, 21_000);
+        assert_eq!(config.gas_transaction_create, 53_000);
+        for (create, gas) in [(false, 21_000), (true, 53_000)] {
+            assert!(
+                pallet_evm::account_cost::check_budget::<Test>(
+                    config,
+                    create,
+                    0,
+                    gas,
+                    None,
+                    Some(0),
+                )
+                .is_ok()
+            );
+            assert!(matches!(
+                pallet_evm::account_cost::check_budget::<Test>(
+                    config,
+                    create,
+                    0,
+                    gas - 1,
+                    None,
+                    Some(0),
+                ),
+                Err(fp_evm::TransactionValidationError::GasLimitTooLow)
+            ));
+        }
+        MappingReadWeight::set(Weight::zero());
+    }
+
+    #[test]
+    fn mapping_admission_cannot_exceed_the_gas_derived_external_budget() {
+        let config = <Test as pallet_evm::Config>::config();
+        let gas = 21_000;
+        let bound = <Test as pallet_evm::Config>::GasWeightMapping::gas_to_weight(gas, false);
+        MappingReadWeight::set(Weight::from_parts(bound.ref_time() + 1, 0));
+        for supplied in [None, Some(Weight::MAX)] {
+            assert_eq!(
+                pallet_evm::account_cost::external_weight_limit::<Test>(gas, supplied),
+                Some(bound)
+            );
+            assert!(matches!(
+                pallet_evm::account_cost::check_budget::<Test>(
+                    config, false, 0, gas, supplied, None,
+                ),
+                Err(fp_evm::TransactionValidationError::GasLimitTooLow)
+            ));
+        }
+        MappingReadWeight::set(Weight::zero());
+    }
+
+    #[test]
+    fn mapping_admission_respects_tighter_external_ref_time_and_proof_limits() {
+        MappingReadWeight::set(Weight::from_parts(1_000_000, 32));
+        let config = <Test as pallet_evm::Config>::config();
+        let cost = pallet_evm::account_cost::transaction_weight::<Test>(false, 0);
+        for limit in [
+            Weight::from_parts(cost.ref_time() - 1, u64::MAX),
+            Weight::from_parts(u64::MAX, cost.proof_size() - 1),
+        ] {
+            assert!(matches!(
+                pallet_evm::account_cost::check_budget::<Test>(
+                    config,
+                    false,
+                    0,
+                    1_000_000,
+                    Some(limit),
+                    Some(0),
+                ),
+                Err(fp_evm::TransactionValidationError::GasLimitTooLow)
+            ));
+        }
+        MappingReadWeight::set(Weight::zero());
+    }
+
+    #[test]
+    fn stateless_mapping_preserves_optional_external_limits() {
+        MappingReadWeight::set(Weight::zero());
+        for supplied in [None, Some(Weight::zero()), Some(Weight::MAX)] {
+            assert_eq!(
+                pallet_evm::account_cost::external_weight_limit::<Test>(21_000, supplied),
+                supplied
+            );
+        }
+    }
 
     fn check(
         opcode: Opcode,
         gas: u64,
         limit: Weight,
-    ) -> (Result<(), ExitError>, u64, Option<WeightInfo>) {
+    ) -> (Result<(), ExitError>, u64, Option<WeightInfo>, u64) {
         let vicinity = Vicinity::default();
         let config = <Test as pallet_evm::Config>::config();
         let metadata = StackSubstateMetadata::new(gas, config);
@@ -93,7 +183,7 @@ mod mapping_precharge_tests {
             &stack,
         );
         let info = executor.state().weight_info();
-        (result, MappingReadCount::get(), info)
+        (result, MappingReadCount::get(), info, executor.used_gas())
     }
 
     #[test]
@@ -101,8 +191,6 @@ mod mapping_precharge_tests {
         sp_io::TestExternalities::default().execute_with(|| {
             let read = Weight::from_parts(1_000_000, 32);
             MappingReadWeight::set(read);
-            let cost = pallet_evm::account_cost::gas::<Test>(read);
-            assert!(cost > 0);
             for opcode in [
                 Opcode::CALL,
                 Opcode::CALLCODE,
@@ -110,35 +198,33 @@ mod mapping_precharge_tests {
                 Opcode::STATICCALL,
                 Opcode::SUICIDE,
             ] {
-                // Neither gas, ref-time nor proof-size exhaustion may expose the read.
-                for (gas, limit) in [
-                    (cost - 1, Weight::MAX),
-                    (u64::MAX, Weight::from_parts(read.ref_time() - 1, u64::MAX)),
-                    (
+                // External ref-time and proof-size must be reserved before the read.
+                for limit in [
+                    Weight::from_parts(read.ref_time() - 1, u64::MAX),
+                    Weight::from_parts(u64::MAX, read.proof_size() - 1),
+                    Weight::from_parts(
                         u64::MAX,
-                        Weight::from_parts(u64::MAX, read.proof_size() - 1),
-                    ),
-                    (
-                        u64::MAX,
-                        Weight::from_parts(
-                            u64::MAX,
-                            read.proof_size() + fp_evm::ACCOUNT_BASIC_PROOF_SIZE - 1,
-                        ),
+                        read.proof_size() + fp_evm::ACCOUNT_BASIC_PROOF_SIZE - 1,
                     ),
                 ] {
-                    let (result, reads, _) = check(opcode, gas, limit);
+                    let (result, reads, _, _) = check(opcode, u64::MAX, limit);
                     assert_eq!(result, Err(ExitError::OutOfGas), "{opcode:?}");
                     assert_eq!(reads, 0, "{opcode:?}");
                 }
             }
             // Source balance may be read only after its own charge, even if the
             // second (target existence) lookup cannot be afforded.
-            let (result, reads, info) = check(Opcode::SUICIDE, cost, Weight::MAX);
+            let (result, reads, info, _) = check(
+                Opcode::SUICIDE,
+                u64::MAX,
+                Weight::from_parts(read.ref_time() * 2 - 1, u64::MAX),
+            );
             assert_eq!(result, Err(ExitError::OutOfGas));
             assert_eq!(reads, 1);
-            assert_eq!(info.unwrap().ref_time_usage, Some(read.ref_time()));
+            // A failed reservation consumes the remaining external budget.
+            assert_eq!(info.unwrap().ref_time_usage, Some(read.ref_time() * 2 - 1));
             // Both early reads remain paid when ordinary opcode gas then fails.
-            let (result, reads, info) = check(Opcode::SUICIDE, cost * 2, Weight::MAX);
+            let (result, reads, info, _) = check(Opcode::SUICIDE, 0, Weight::MAX);
             assert_eq!(result, Err(ExitError::OutOfGas));
             assert_eq!(reads, 2);
             assert_eq!(info.unwrap().ref_time_usage, Some(read.ref_time() * 2));
@@ -149,7 +235,7 @@ mod mapping_precharge_tests {
         code: Vec<u8>,
         child_code: Vec<u8>,
         funded: bool,
-    ) -> (evm::ExitReason, Vec<u8>, u64) {
+    ) -> (evm::ExitReason, Vec<u8>, u64, Option<WeightInfo>) {
         use frame_support::traits::Currency;
         use std::rc::Rc;
         let parent = H160::repeat_byte(9);
@@ -162,7 +248,8 @@ mod mapping_precharge_tests {
         let vicinity = Vicinity::default();
         let config = <Test as pallet_evm::Config>::config();
         let metadata = StackSubstateMetadata::new(1_000_000, config);
-        let state = SubstrateStackState::<Test>::new(&vicinity, metadata, None, None);
+        let weight_info = WeightInfo::new_from_weight_limit(Some(Weight::MAX), Some(0)).unwrap();
+        let state = SubstrateStackState::<Test>::new(&vicinity, metadata, weight_info, None);
         let precompiles = ();
         let mut executor = StackExecutor::new_with_precompiles(state, config, &precompiles);
         let mut runtime = evm::Runtime::new(
@@ -182,6 +269,7 @@ mod mapping_precharge_tests {
             result,
             runtime.machine().return_value(),
             MappingReadCount::get(),
+            executor.state().weight_info(),
         )
     }
 
@@ -197,23 +285,35 @@ mod mapping_precharge_tests {
     }
 
     #[test]
-    fn caught_low_gas_children_cannot_repeat_unpaid_selfdestruct_reads() {
-        for attempts in [1, 8, 64] {
+    fn mapping_weight_preserves_standard_opcode_gas() {
+        for opcode in [
+            Opcode::BALANCE,
+            Opcode::SELFBALANCE,
+            Opcode::EXTCODEHASH,
+            Opcode::CALL,
+            Opcode::CALLCODE,
+            Opcode::DELEGATECALL,
+            Opcode::STATICCALL,
+            Opcode::CREATE,
+            Opcode::CREATE2,
+            Opcode::SUICIDE,
+        ] {
             sp_io::TestExternalities::default().execute_with(|| {
                 let read = Weight::from_parts(1_000_000, 32);
+                MappingReadWeight::set(Weight::zero());
+                let (baseline, baseline_reads, baseline_weight, baseline_gas) =
+                    check(opcode, 1_000_000, Weight::MAX);
                 MappingReadWeight::set(read);
-                let cost = u16::try_from(pallet_evm::account_cost::gas::<Test>(read)).unwrap();
-                let mut code = Vec::new();
-                for _ in 0..attempts {
-                    push_call(&mut code, cost - 1, 0);
-                    code.push(0x50); // caller catches child failure
-                }
-                code.push(0);
-                let (result, _, reads) = execute_parent(code, vec![0x60, 0, 0xff], false);
-                assert!(result.is_succeed(), "{result:?}");
-                // Each caller pays/reads target existence and the two transfer
-                // mappings. Exhausted children must perform zero alias reads.
-                assert_eq!(reads, attempts * 3);
+                let (result, reads, weight, gas) = check(opcode, 1_000_000, Weight::MAX);
+                assert_eq!(baseline, Ok(()), "{opcode:?}");
+                assert_eq!(result, baseline, "{opcode:?}");
+                assert_eq!(reads, baseline_reads, "{opcode:?}");
+                assert_eq!(gas, baseline_gas, "{opcode:?}");
+                assert!(
+                    weight.unwrap().ref_time_usage.unwrap()
+                        > baseline_weight.unwrap().ref_time_usage.unwrap(),
+                    "{opcode:?} must still reserve mapping weight"
+                );
                 MappingReadWeight::set(Weight::zero());
             });
         }
@@ -222,13 +322,19 @@ mod mapping_precharge_tests {
     #[test]
     fn value_transfer_with_only_the_2300_gas_stipend_still_succeeds() {
         sp_io::TestExternalities::default().execute_with(|| {
-            MappingReadWeight::set(Weight::from_parts(1_000_000, 32));
+            let read = Weight::from_parts(1_000_000, 32);
+            MappingReadWeight::set(read);
             let mut code = Vec::new();
             push_call(&mut code, 0, 1_000_000_000); // one rao; child gets only stipend
             code.extend_from_slice(&[0x60, 0, 0x52, 0x60, 32, 0x60, 0, 0xf3]);
-            let (result, output, _) = execute_parent(code, vec![0], true);
+            let (result, output, reads, weight_info) = execute_parent(code, vec![0], true);
             assert!(result.is_succeed(), "{result:?}");
             assert_eq!(U256::from_big_endian(&output), U256::one());
+            assert_eq!(reads, 3);
+            assert_eq!(
+                weight_info.unwrap().ref_time_usage,
+                Some(3 * read.ref_time())
+            );
             MappingReadWeight::set(Weight::zero());
         });
     }

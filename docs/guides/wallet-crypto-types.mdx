@@ -340,5 +340,12 @@ Standard and hashed ML-DSA/Falcon wallets do not support arbitrary message
 signing or HTTP authentication. Their transaction signing remains available,
 and they approve limit orders through a normal signed `authorize_order` call.
 
-For classical HTTP signatures, servers must pass `expected_crypto_type` to `http_auth.verify` from trusted
-configuration or registry state. The request's crypto header is not trusted.
+For ordinary and hashed Sr25519/Ed25519 HTTP signatures, configure trusted sender
+schemes once per receiving hotkey with `http_auth.configure_verifier`. Existing
+`http_auth.verify` calls can then omit `expected_crypto_type`; an explicit value
+still takes precedence. Configure every server worker from trusted configuration
+or registry state, and call `configure_verifier` again to replace its copied
+snapshot when that state changes. Unknown senders fail verification; the
+request's crypto header is never a trusted source. See
+[signed requests](/docs/guides/signed-requests#keep-existing-verification-calls)
+for setup and receiver isolation.

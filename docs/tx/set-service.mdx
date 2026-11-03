@@ -15,7 +15,7 @@ hotkey with the subnet owner signing. An empty url removes the service.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_service`](/code/pallets/subtensor/src/macros/dispatches.rs#L3280-L3290) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_service`](/code/pallets/subtensor/src/macros/dispatches.rs#L3341-L3351) |
 
 ## Parameters
 
@@ -69,7 +69,7 @@ result = sub.execute_tool("set_service", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_service` — [`pallets/subtensor/src/macros/dispatches.rs#L3282`](/code/pallets/subtensor/src/macros/dispatches.rs#L3280-L3290):
+`SubtensorModule.set_service` — [`pallets/subtensor/src/macros/dispatches.rs#L3343`](/code/pallets/subtensor/src/macros/dispatches.rs#L3341-L3351):
 
 ```rust
 #[pallet::call_index(165)]

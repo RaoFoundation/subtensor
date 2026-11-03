@@ -1,6 +1,6 @@
 ---
 title: "Pinned transaction pool maintenance patch"
-description: "Upstream provenance and the local treatment of indeterminate runtime validation errors."
+description: "Upstream provenance, trusted pool validation identity, and local treatment of indeterminate runtime validation errors."
 ---
 
 This is `sc-transaction-pool` 40.1.0 copied from
@@ -10,6 +10,15 @@ manifest resolves workspace inheritance explicitly; SDK dependencies keep the
 same repository and revision, and registry dependency requirements are unchanged.
 Trailing whitespace on two license lines and one mixed indentation line in a test are
 normalized for the repository whitespace gate; the license text is unchanged.
+
+`FullChainApi` also registers the host-only `PoolValidation` externalities
+extension in its shared blocking validation helper. This identifies submissions,
+fork-view validation, maintenance, and synchronous local submissions to the node's
+executor without changing their offchain call context. The node recognizes the
+extension only for the transaction-validation export and gives pool execution
+capacity independent of raw RPC calls. The extension has no wire encoding or
+runtime host function. It uses the pinned `sp-api` extension-trait reexport and
+adds no dependency or lockfile changes.
 
 The local patch adds `ChainApi::is_retriable_validation_error`, defaulting to
 false. `FullChainApi` identifies only `Error::RuntimeApi` as indeterminate.
@@ -45,7 +54,7 @@ This prevents local Wasm admission overload from becoming a transaction-eviction
 primitive. Regressions exercise the public pool APIs in
 `node/src/pool_revalidation_tests.rs` without adding the SDK's test dependency
 graph to Subtensor's lockfile. Production changes are confined to
-`src/graph/pool.rs`, `src/graph/validated_pool.rs`, `src/common/api.rs`,
+`src/lib.rs`, `src/graph/pool.rs`, `src/graph/validated_pool.rs`, `src/common/api.rs`,
 `src/single_state_txpool/revalidation.rs`,
 `src/single_state_txpool/single_state_txpool.rs`,
 `src/fork_aware_txpool/view.rs`, `src/fork_aware_txpool/tx_mem_pool.rs`,

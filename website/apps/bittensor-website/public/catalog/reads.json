@@ -1675,8 +1675,8 @@
         "container": "Proxy",
         "name": "Proxies",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 932,
-        "url": "/code/pallets/proxy/src/lib.rs#L932",
+        "line": 980,
+        "url": "/code/pallets/proxy/src/lib.rs#L980",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]

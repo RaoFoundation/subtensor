@@ -754,12 +754,22 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
         let declared_two = declared_swap_weight(coldkey, hotkey, a, b, TAO);
         assert_eq!(declared_two, bare_declared);
 
-        // Learn the flush work this exact queue implies, then restore the queue: the trade
-        // must charge precisely that on top of its row weight, and refund below declared.
-        let (flush_work, _, _) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
-        assert!(flush_work.total() > 0);
-        SubtensorModule::enqueue_basket_deposit(&hotkey, b, (5 * TAO).into());
-        SubtensorModule::enqueue_basket_deposit(&hotkey, a, (5 * TAO).into());
+        // Both trade entry points must refuse to mutate the fund until the block settles it.
+        let (refused_weight, error) =
+            SubtensorModule::do_swap_basket_tracked(coldkey, hotkey, a, b, TAO, 0).unwrap_err();
+        assert_eq!(error, Error::<Test>::BasketDepositPending.into());
+        assert_eq!(
+            refused_weight,
+            SubtensorModule::swap_basket_precheck_weight().saturating_add(
+                SubtensorModule::basket_flush_weight(BasketFlushWork::new(2, 0))
+            )
+        );
+        assert!(refused_weight.all_lt(declared_two));
+        let (_, batch_error) =
+            SubtensorModule::do_swap_basket_many_tracked(coldkey, hotkey, &[(a, b, TAO.into(), 0)])
+                .unwrap_err();
+        assert_eq!(batch_error, Error::<Test>::BasketDepositPending.into());
+        SubtensorModule::flush_pending_basket_deposits_block();
         pin_ema_to_spot(a);
         pin_ema_to_spot(b);
         let actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO, 0).unwrap();
@@ -768,12 +778,7 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
                 .next()
                 .is_none()
         );
-        assert_eq!(
-            actual,
-            SubtensorModule::swap_basket_weight(3)
-                .saturating_add(SubtensorModule::basket_flush_weight(flush_work))
-        );
-        assert!(actual.all_gt(bare_actual), "flush work must be charged");
+        assert_eq!(actual, SubtensorModule::swap_basket_weight(3));
         assert!(
             actual.all_lt(declared_two),
             "actual must refund below declared"
@@ -824,8 +829,9 @@ fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
         pin_ema_to_spot(b);
 
         let declared = declared_swap_weight(coldkey, hotkey, a, b, TAO);
-        let holdings_before = SubtensorModule::get_basket_holdings(&hotkey).len() as u64;
-        let actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO, 0).unwrap();
+        let (actual, error) =
+            SubtensorModule::do_swap_basket_tracked(coldkey, hotkey, a, b, TAO, 0).unwrap_err();
+        assert_eq!(error, Error::<Test>::BasketDepositPending.into());
 
         // Every credit is back on the queue after exactly one batch attempt.
         for netuid in &origins {
@@ -834,15 +840,14 @@ fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
                 1_000
             );
         }
-        // Quotes: scan (one per credit) + one attempt's NAV sweep over the holdings + two
-        // quotes per credit. Rows: one in-place credit per origin. No per-credit retry term.
+        // Only the bounded scan runs; no valuation or per-credit retry in a dispatch.
         let credits = origins.len() as u64;
-        let flush_work = BasketFlushWork::new(credits + holdings_before + 2 * credits, credits);
+        let flush_work = BasketFlushWork::new(credits, 0);
         let bound = SubtensorModule::basket_flush_work_bound();
         assert!(flush_work.quotes <= bound.quotes && flush_work.rows <= bound.rows);
         assert_eq!(
             actual,
-            SubtensorModule::swap_basket_weight(holdings_before)
+            SubtensorModule::swap_basket_precheck_weight()
                 .saturating_add(SubtensorModule::basket_flush_weight(flush_work))
         );
         assert!(

@@ -324,6 +324,36 @@ mod pallet_benchmarks {
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
     }
 
+    /// Exercise the full queue-check axis shared by root stake and root churn. The
+    /// dispatch envelopes reuse existing quote/credit weights; measurements remain a
+    /// reference-hardware task, not locally invented constants.
+    #[benchmark(extra)]
+    fn root_pending_dividend_check() {
+        let hotkey: T::AccountId = account("pending_root_hot", 0, 1);
+        Uids::<T>::insert(NetUid::ROOT, &hotkey, 1);
+        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(0));
+        for i in 0..crate::MAX_ROOT_CLAIM_WORK {
+            let netuid = NetUid::from(i as u16);
+            NetworksAdded::<T>::insert(netuid, true);
+            SubnetMechanism::<T>::insert(netuid, 1);
+            SubnetFastMovingPrice::<T>::insert(netuid, U64F64::from_num(1));
+            PendingBasketDeposits::<T>::insert(&hotkey, netuid, AlphaBalance::from(1_000_000u64));
+        }
+
+        #[block]
+        {
+            let (work, _, completed) = Subtensor::<T>::flush_basket_deposits_for_hotkey(&hotkey);
+            assert!(!completed);
+            assert_eq!(work.quotes, u64::from(crate::MAX_ROOT_CLAIM_WORK));
+            assert_eq!(work.rows, 0);
+        }
+        assert_eq!(
+            PendingBasketDeposits::<T>::iter_prefix(&hotkey).count(),
+            crate::MAX_ROOT_CLAIM_WORK as usize
+        );
+        assert_eq!(BasketShares::<T>::get(&hotkey), 0);
+    }
+
     #[benchmark]
     fn register_network() {
         let seed: u32 = 1;

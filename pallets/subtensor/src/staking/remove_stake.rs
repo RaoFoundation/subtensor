@@ -29,6 +29,8 @@ pub struct UnstakeAllWork {
     /// (lock / collateral), so a locked skip still costs the walk, not just the
     /// cheap quote reads.
     pub validated: u32,
+    /// Whether the pending-root-dividend guard was reached (including refusal).
+    pub root_checked: bool,
 }
 
 impl<T: Config> Pallet<T> {
@@ -178,6 +180,7 @@ impl<T: Config> Pallet<T> {
                 Self::unstake_all_consider_subnet(work, &coldkey, &hotkey, netuid)
             {
                 work.legs = work.legs.saturating_add(1);
+                work.root_checked |= netuid.is_root();
                 Self::unstake_from_subnet(
                     &hotkey,
                     &coldkey,
@@ -235,15 +238,17 @@ impl<T: Config> Pallet<T> {
     fn unstake_all_weight(base: Weight, work: UnstakeAllWork, walk: Weight) -> Weight {
         let cheap = u64::from(work.scanned.saturating_sub(work.validated));
         let expensive_skips = u64::from(work.validated.saturating_sub(work.legs));
-        base.saturating_add(
-            <T as crate::pallet::Config>::WeightInfo::remove_stake()
-                .saturating_add(walk)
-                .saturating_mul(u64::from(work.legs)),
-        )
-        .saturating_add(walk.saturating_mul(expensive_skips))
-        .saturating_add(
-            T::DbWeight::get().reads(UNSTAKE_ALL_SKIPPED_SUBNET_READS.saturating_mul(cheap)),
-        )
+        // At most one visited subnet is root, including a failed pending-dividend check.
+        base.saturating_add(Self::root_pending_dividend_weight(work.root_checked))
+            .saturating_add(
+                <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                    .saturating_add(walk)
+                    .saturating_mul(u64::from(work.legs)),
+            )
+            .saturating_add(walk.saturating_mul(expensive_skips))
+            .saturating_add(
+                T::DbWeight::get().reads(UNSTAKE_ALL_SKIPPED_SUBNET_READS.saturating_mul(cheap)),
+            )
     }
 
     /// Worst case one call will admit: a full unstake on every envelope slot,
@@ -257,6 +262,7 @@ impl<T: Config> Pallet<T> {
             scanned: networks,
             legs: cap,
             validated: cap,
+            root_checked: true,
         }
     }
 
@@ -396,6 +402,7 @@ impl<T: Config> Pallet<T> {
         }
 
         // Stake into root.
+        work.root_checked = true;
         Self::stake_into_subnet(
             &hotkey,
             &coldkey,

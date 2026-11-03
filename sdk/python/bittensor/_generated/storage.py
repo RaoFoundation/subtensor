@@ -389,6 +389,7 @@ class Scheduler:
 class Proxy:
     Proxies = Item('Proxy', 'Proxies', '(BoundedVec, TaoBalance)')
     Announcements = Item('Proxy', 'Announcements', '(BoundedVec, TaoBalance)')
+    AnnouncementValidFrom = Item('Proxy', 'AnnouncementValidFrom', 'u32')
     LastCallResult = Item('Proxy', 'LastCallResult', 'Result')
     RealPaysFeeConsentV1 = Item('Proxy', 'RealPaysFeeConsentV1', '()')
 

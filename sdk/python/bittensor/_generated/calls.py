@@ -460,7 +460,7 @@ class SubtensorModule:
 
     @staticmethod
     def root_register(hotkey: 'AccountId32') -> Call:
-        "Register the hotkey to root network.  Admission is burn-based: the coldkey pays the root burn price (demand-priced like subnet registration), recycled out of issuance. No prior stake is required. When the network is full, the lowest-staked non-immune member is pruned to make room.  After a successful registration, the hotkey is auto-childkeyed to every existing subnet owner unless the validator opted out of auto parent delegation. Pruning a seat clears that validator's protocol auto-parent edges.  Declared weight is `WeightInfo::root_register` plus a `TotalNetworks`-scaled `DbWeight` term for the per-subnet persist (and prune cleanup). Re-benchmark on reference hardware so the base measurement includes that work."
+        "Register the hotkey to root network.  Admission is burn-based: the coldkey pays the root burn price (demand-priced like subnet registration), recycled out of issuance. No prior stake is required. When the network is full, the lowest-staked non-immune member is pruned to make room.  After a successful registration, the hotkey is auto-childkeyed to every existing subnet owner unless the validator opted out of auto parent delegation. Pruning a seat clears that validator's protocol auto-parent edges.  Declared weight is `WeightInfo::root_register` plus a worst-case pending-dividend flush allowance and a `TotalNetworks`-scaled `DbWeight` term for the per-subnet persist (and prune cleanup). Re-benchmark on reference hardware so the base measurement includes that work."
         return Call('SubtensorModule', 'root_register', {'hotkey': hotkey})
 
     @staticmethod

@@ -411,6 +411,7 @@ mod tests {
                 GammaDepositAuthorityCalls,
                 ServiceCalls,
             )>();
+        let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -445,6 +446,7 @@ mod tests {
                 GammaDepositAuthorityCalls,
                 ServiceCalls,
             )>();
+        let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -755,6 +757,7 @@ mod tests {
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(EvmCalls, CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls)>();
+        let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -1500,6 +1503,7 @@ mod tests {
             assert!(!allowed.contains("LimitOrders::authorize_order"));
             assert!(!allowed.contains("Utility::as_protected_derivative"));
             assert!(!allowed.contains("Proxy::create_protected_pure"));
+            assert!(!allowed.contains("Proxy::announce"));
             assert!(!allowed.contains("AdminUtils::sudo_set_sn_owner_hotkey"));
         }
         // `root_dissolve_network` leaked into NonCritical specifically.

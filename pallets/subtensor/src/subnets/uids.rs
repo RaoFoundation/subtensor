@@ -72,7 +72,7 @@ impl<T: Config> Pallet<T> {
         uid_to_replace: u16,
         new_hotkey: &T::AccountId,
         block_number: u64,
-    ) {
+    ) -> bool {
         log::debug!(
             "replace_neuron( netuid: {netuid:?} | uid_to_replace: {uid_to_replace:?} | new_hotkey: {new_hotkey:?} ) "
         );
@@ -88,16 +88,15 @@ impl<T: Config> Pallet<T> {
                 "replace_neuron: Skipped replacement because neuron is the subnet owner hotkey. \
                     netuid: {netuid:?}, uid_to_replace: {uid_to_replace:?}, new_hotkey: {new_hotkey:?}, owner_hotkey: {sn_owner_hotkey:?}"
             );
-            return;
+            return false;
         }
 
         // Root churn: settle flushable pending basket credits while the hotkey is still
         // on root (earned dividends must deposit, not recycle). After membership drops,
         // a second flush recycles leftover sub-threshold dust the hotkey can no longer
         // merge by earning more.
-        if netuid.is_root() {
-            let _ = Self::flush_basket_deposits_for_hotkey(&old_hotkey);
-            Self::clear_auto_parent_for_root_validator(&old_hotkey);
+        if netuid.is_root() && !Self::prepare_root_neuron_for_removal(&old_hotkey) {
+            return false;
         }
 
         T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
@@ -137,6 +136,19 @@ impl<T: Config> Pallet<T> {
             let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
             Self::set_last_update_for_uid(netuid_index, uid_to_replace, block_number);
         }
+
+        true
+    }
+
+    /// Settle every selected dividend credit before a root validator can lose membership.
+    /// A price-band or valuation deferral leaves the neuron untouched so its existing root
+    /// stakers remain the claimant base when the credit is retried.
+    fn prepare_root_neuron_for_removal(hotkey: &T::AccountId) -> bool {
+        let (_, _, completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+        if completed {
+            Self::clear_auto_parent_for_root_validator(hotkey);
+        }
+        completed
     }
 
     /// Appends the uid to the network.
@@ -354,10 +366,10 @@ impl<T: Config> Pallet<T> {
 
                         // Same root-churn finalization as `replace_neuron`: deposit while
                         // still on root, then recycle leftover dust after membership drops.
-                        if netuid.is_root() {
-                            let _ = Self::flush_basket_deposits_for_hotkey(&hotkey);
-                            Self::clear_auto_parent_for_root_validator(&hotkey);
-                        }
+                        ensure!(
+                            !netuid.is_root() || Self::prepare_root_neuron_for_removal(&hotkey),
+                            Error::<T>::BasketDepositPending
+                        );
                         Uids::<T>::remove(netuid, &hotkey);
                         IsNetworkMember::<T>::remove(&hotkey, netuid);
                         LastHotkeyEmissionOnNetuid::<T>::remove(&hotkey, netuid);
