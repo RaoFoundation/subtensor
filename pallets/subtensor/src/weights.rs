@@ -47,7 +47,7 @@ pub trait WeightInfo {
     fn set_gamma_deposit_spender() -> Weight { Self::move_stake() }
     fn set_gamma_deposit_daily_spend_cap() -> Weight { Self::move_stake() }
     fn spend_gamma(n: u32, ) -> Weight { Self::move_stake().saturating_mul(n.into()) }
-    fn set_service() -> Weight { Self::serve_axon() }
+    fn set_service() -> Weight;
 	fn register() -> Weight;
 	fn set_weights() -> Weight;
 	fn add_stake() -> Weight;
@@ -445,6 +445,23 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(407_437_000, 8727)
 			.saturating_add(T::DbWeight::get().reads(35_u64))
 			.saturating_add(T::DbWeight::get().writes(18_u64))
+	}
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Storage: `SubtensorModule::Owner` (r:1 w:0)
+	/// Storage: `SubtensorModule::Uids` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Storage: `SubtensorModule::ValidatorPermit` (r:1 w:0)
+	/// Storage: `SubtensorModule::Services` (r:0 w:1)
+	/// Locally benchmarked, calibrated against CI run 41691082689; not a direct
+	/// reference-hardware measurement. See `.maintain/set-service-calibration.md`.
+	fn set_service() -> Weight {
+		// Local maximum: 38_000_000 ps; reference/local factor: 1.7150625.
+		// Add 25% margin and round up to 1 microsecond. Proof size is unscaled.
+		// Proof size: measured 3839 bytes; estimated 7304 bytes.
+		Weight::from_parts(82_000_000, 7304)
+			.saturating_add(T::DbWeight::get().reads(6_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -4765,6 +4782,14 @@ impl WeightInfo for () {
 		Weight::from_parts(407_437_000, 8727)
 			.saturating_add(RocksDbWeight::get().reads(35_u64))
 			.saturating_add(RocksDbWeight::get().writes(18_u64))
+	}
+	/// Locally benchmarked, calibrated against CI run 41691082689.
+	/// Same execution/proof bound as `SubstrateWeight<T>`; RocksDB costs for tests.
+	fn set_service() -> Weight {
+		// Proof size: measured 3839 bytes; estimated 7304 bytes.
+		Weight::from_parts(82_000_000, 7304)
+			.saturating_add(RocksDbWeight::get().reads(6_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
