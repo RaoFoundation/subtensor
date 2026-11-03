@@ -3037,6 +3037,14 @@ pub mod pallet {
                     // increased) annual_interest. Mid-term increases already
                     // have `last_accrued == now` from the pre-charge.
                     position.last_accrued = now;
+                    // Skeptic fid:f40d8fd2 — a deferred past-expiry renew must
+                    // not inherit the old BandDeferralSince stamp, or
+                    // force_settlement_despite_band would skip the EMA gate
+                    // for the entire new term. Clear the deferral markers so
+                    // the next out-of-band settle at the new expiry defers
+                    // again from a fresh stamp.
+                    BandDeferralSince::<T>::remove(&owner, netuid);
+                    LastDeferral::<T>::remove(&owner, netuid);
                 }
             }
             let terms_version = position.terms_version;

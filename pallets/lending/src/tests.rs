@@ -4348,6 +4348,123 @@ fn increase_after_deferred_expiry_resets_last_accrued() {
     });
 }
 
+/// Skeptic fid:f40d8fd2 — renewing after a band deferral must clear
+/// `BandDeferralSince` so the new term does not inherit a force-settle stamp.
+#[test]
+fn increase_after_band_deferral_clears_band_stamp() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 100_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = snap.expires_at;
+            }
+        });
+        // Pump spot outside the 15% EMA band, then hit expiry → defer.
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 20);
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let spot = MockPool::price();
+        let ceiling = ema.saturating_mul(U64F64::from_num(11_500u32)) / U64F64::from_num(10_000u32);
+        assert!(spot > ceiling, "precondition: spot outside band");
+
+        System::set_block_number(snap.expires_at);
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(snap.expires_at, &mut meter);
+        assert!(Positions::<Test>::contains_key(&owner, netuid()));
+        let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
+        assert!(LastDeferral::<Test>::get(&owner, netuid()).is_some());
+
+        // Renew past the old force window. Restore depth so the increase can
+        // size; the EMA reference is left alone so a later thin still lands
+        // outside the band.
+        let renew_at = since
+            .saturating_add(<<Test as Config>::MaxSettlementDeferral as Get<u64>>::get())
+            .saturating_add(50);
+        System::set_block_number(renew_at);
+        write(
+            &key(b"test/pool_alpha", netuid()),
+            pool_alpha().saturating_mul(20),
+        );
+        mint_tao(&owner, 20_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            2_000_000_000_000,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert!(after.expires_at > snap.expires_at);
+        assert!(
+            BandDeferralSince::<Test>::get(&owner, netuid()).is_none(),
+            "renew must clear the inherited band stamp"
+        );
+        assert!(
+            LastDeferral::<Test>::get(&owner, netuid()).is_none(),
+            "renew must clear the stale deferral marker"
+        );
+
+        // At the new expiry, thin again so spot is outside the (unchanged) EMA
+        // band: must defer again (not force-settle from the cleared stamp).
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = after.expires_at;
+            }
+        });
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 20);
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let spot = MockPool::price();
+        let ceiling = ema.saturating_mul(U64F64::from_num(11_500u32)) / U64F64::from_num(10_000u32);
+        assert!(
+            spot > ceiling,
+            "precondition at new expiry: spot outside band"
+        );
+        System::set_block_number(after.expires_at);
+        System::reset_events();
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(after.expires_at, &mut meter);
+        assert!(
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "new-term outside-band expiry must defer"
+        );
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::SettlementDeferred { .. })
+            )),
+            "must emit SettlementDeferred on the renewed term"
+        );
+        assert!(
+            System::events().into_iter().all(|e| !matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Forfeited { .. } | Event::Expired { .. })
+            )),
+            "must not force-settle from a stale BandDeferralSince"
+        );
+        let new_since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("fresh stamp");
+        assert!(
+            new_since >= after.expires_at,
+            "fresh band stamp must start at the new-term deferral"
+        );
+    });
+}
+
 #[test]
 fn long_expiry_sells_collateral_through_amm_not_at_ema() {
     new_test_ext().execute_with(|| {
