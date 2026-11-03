@@ -40,7 +40,7 @@ pub(crate) struct PositionBeforeTermsVersion<AccountId, BlockNumber> {
 }
 
 impl<AccountId, BlockNumber> PositionBeforeTermsVersion<AccountId, BlockNumber> {
-    fn into_position<T: Config>(self) -> Position<T::AccountId, BlockNumberFor<T>>
+    pub(crate) fn into_position<T: Config>(self) -> Position<T::AccountId, BlockNumberFor<T>>
     where
         AccountId: Into<T::AccountId>,
         BlockNumber: Into<BlockNumberFor<T>>,
