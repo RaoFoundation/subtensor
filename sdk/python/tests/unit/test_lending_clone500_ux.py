@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 from typer.testing import CliRunner
@@ -136,16 +137,30 @@ def test_slippage_exceeded_help_is_not_generic_pool_line():
     assert "max-slippage" in err.remediation.lower() or "max_payment" in err.remediation
 
 
+def _strip_help(text: str) -> str:
+    """Remove ANSI / OSC-8 and normalize dashes so help asserts stay stable on CI."""
+    text = re.sub(r"\x1b\]8;;.*?\x1b\\", "", text)
+    text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
+    text = text.replace("\u2011", "-").replace("\u2010", "-").replace("\u00ad", "")
+    return text
+
+
 def test_lending_close_help_fits_80_columns(monkeypatch):
     """F15: option names / hotkey help must not ellipsize at COLUMNS=80."""
     monkeypatch.setenv("COLUMNS", "80")
-    result = runner.invoke(app, ["lending", "close", "--help"], env={**os.environ, "COLUMNS": "80"})
+    monkeypatch.setenv("NO_COLOR", "1")
+    result = runner.invoke(
+        app,
+        ["lending", "close", "--help"],
+        env={**os.environ, "COLUMNS": "80", "NO_COLOR": "1", "TERM": "dumb"},
+    )
     assert result.exit_code == 0, result.output
-    assert "repay_from_wal…" not in result.output
-    assert "--from-wallet,…" not in result.output
-    assert "--from-wallet" in result.output
+    flat = _strip_help(result.output)
+    assert "repay_from_wal…" not in flat
+    assert "from-wallet,…" not in flat
+    assert "from-wallet" in flat, flat
     # Long alias pair removed so the Options column fits.
-    assert "--repay-from-wallet/--no-repay-from-wallet" not in result.output
+    assert "--repay-from-wallet/--no-repay-from-wallet" not in flat
 
 
 def test_lending_outcome_data_raise_uses_received():
