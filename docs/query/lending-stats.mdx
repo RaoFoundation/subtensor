@@ -7,6 +7,7 @@ description: "Cumulative lending health counters (saturating, monotonic)."
 
 Per-netuid values may clear on dissolution; the global totals never reset.
 Counters update at the same sites as the matching pallet events.
+Omit `netuid` (or pass 0) for chain-wide totals.
 
 **Category:** Prices & swaps
 
@@ -14,7 +15,7 @@ Counters update at the same sites as the matching pallet events.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `netuid` | integer | Subnet whose cumulative lending health counters to read. Omit (or use lending_stats_global) for chain-wide totals. |
+| `netuid` | integer | Subnet whose cumulative lending health counters to read. Omit (or pass 0) for chain-wide totals; or use lending_stats_global. |
 
 ## CLI
 

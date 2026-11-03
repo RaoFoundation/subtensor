@@ -1316,12 +1316,12 @@
   {
     "name": "lending_stats",
     "summary": "Cumulative lending health counters (saturating, monotonic).",
-    "description": "Cumulative lending health counters (saturating, monotonic).\n\nPer-netuid values may clear on dissolution; the global totals never reset.\nCounters update at the same sites as the matching pallet events.",
+    "description": "Cumulative lending health counters (saturating, monotonic).\n\nPer-netuid values may clear on dissolution; the global totals never reset.\nCounters update at the same sites as the matching pallet events.\nOmit `netuid` (or pass 0) for chain-wide totals.",
     "params": {
       "netuid": "integer"
     },
     "param_docs": {
-      "netuid": "Subnet whose cumulative lending health counters to read. Omit (or use lending_stats_global) for chain-wide totals."
+      "netuid": "Subnet whose cumulative lending health counters to read. Omit (or pass 0) for chain-wide totals; or use lending_stats_global."
     },
     "category": "Prices & swaps",
     "docs_url": "/docs/query/lending-stats",
