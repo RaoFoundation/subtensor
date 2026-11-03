@@ -2309,9 +2309,9 @@
         "pallet": "Lending",
         "call": "open_long_and_sell",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1441,
-        "end_line": 1469,
-        "url": "/code/pallets/lending/src/lib.rs#L1438-L1469",
+        "line": 1447,
+        "end_line": 1475,
+        "url": "/code/pallets/lending/src/lib.rs#L1438-L1475",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2894,9 +2894,9 @@
         "pallet": "Lending",
         "call": "repay",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1498,
-        "end_line": 1519,
-        "url": "/code/pallets/lending/src/lib.rs#L1493-L1519",
+        "line": 1504,
+        "end_line": 1525,
+        "url": "/code/pallets/lending/src/lib.rs#L1499-L1525",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

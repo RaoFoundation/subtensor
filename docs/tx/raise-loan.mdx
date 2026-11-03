@@ -11,7 +11,7 @@ legs succeed or the call rolls back. `valid_until` is a block deadline.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_long_and_sell`](/code/pallets/lending/src/lib.rs#L1438-L1469) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_long_and_sell`](/code/pallets/lending/src/lib.rs#L1438-L1475) |
 
 ## Parameters
 
@@ -69,11 +69,17 @@ result = sub.execute_tool("raise_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open_long_and_sell` — [`pallets/lending/src/lib.rs#L1441`](/code/pallets/lending/src/lib.rs#L1438-L1469):
+`Lending.open_long_and_sell` — [`pallets/lending/src/lib.rs#L1447`](/code/pallets/lending/src/lib.rs#L1438-L1475):
 
 ```rust
 #[pallet::call_index(3)]
-#[pallet::weight(T::WeightInfo::open_long_and_sell())]
+// Fixed-collateral and amount-mode bisection paths differ (amount: up to
+// 64× `principal_feasible` / `v_dyn`). Charge the componentwise max of
+// both measured benchmarks (Skeptic fid:98e6778c).
+#[pallet::weight(
+    T::WeightInfo::open_long_and_sell()
+        .max(T::WeightInfo::open_long_and_sell_by_amount())
+)]
 #[transactional]
 pub fn open_long_and_sell(
     origin: OriginFor<T>,
