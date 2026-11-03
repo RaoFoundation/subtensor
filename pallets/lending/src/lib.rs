@@ -1019,8 +1019,7 @@ pub mod pallet {
     /// Cumulative lending health counters per subnet. Cleared on dissolution;
     /// globals in [`StatsGlobal`] are kept.
     #[pallet::storage]
-    pub type StatsByNetuid<T: Config> =
-        StorageMap<_, Identity, NetUid, LendingStats, ValueQuery>;
+    pub type StatsByNetuid<T: Config> = StorageMap<_, Identity, NetUid, LendingStats, ValueQuery>;
     /// Chain-wide cumulative lending health counters. Never cleared.
     #[pallet::storage]
     pub type StatsGlobal<T: Config> = StorageValue<_, LendingStats, ValueQuery>;
@@ -1041,7 +1040,7 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-            Opened {
+        Opened {
             owner: T::AccountId,
             netuid: NetUid,
             side: Side,
@@ -2944,22 +2943,22 @@ pub mod pallet {
             });
             // Accumulators mirror Opened / Increased principal (and open count
             // for fresh opens only). Raise also lands here via do_open.
-            Self::bump_stats(netuid, |s| {
-                match side {
-                    Side::Long => {
-                        if !increasing {
-                            s.opens_long = s.opens_long.saturating_add(1);
-                        }
-                        s.principal_opened_long =
-                            s.principal_opened_long.saturating_add(u128::from(principal));
+            Self::bump_stats(netuid, |s| match side {
+                Side::Long => {
+                    if !increasing {
+                        s.opens_long = s.opens_long.saturating_add(1);
                     }
-                    Side::Short => {
-                        if !increasing {
-                            s.opens_short = s.opens_short.saturating_add(1);
-                        }
-                        s.principal_opened_short =
-                            s.principal_opened_short.saturating_add(u128::from(principal));
+                    s.principal_opened_long = s
+                        .principal_opened_long
+                        .saturating_add(u128::from(principal));
+                }
+                Side::Short => {
+                    if !increasing {
+                        s.opens_short = s.opens_short.saturating_add(1);
                     }
+                    s.principal_opened_short = s
+                        .principal_opened_short
+                        .saturating_add(u128::from(principal));
                 }
             });
             Ok(())
@@ -3310,8 +3309,9 @@ pub mod pallet {
                     Side::Long => s.closes_long = s.closes_long.saturating_add(1),
                     Side::Short => s.closes_short = s.closes_short.saturating_add(1),
                 }
-                s.wallet_top_ups_tao =
-                    s.wallet_top_ups_tao.saturating_add(u128::from(wallet_top_up));
+                s.wallet_top_ups_tao = s
+                    .wallet_top_ups_tao
+                    .saturating_add(u128::from(wallet_top_up));
             });
             Ok(())
         }
@@ -4553,8 +4553,9 @@ pub mod pallet {
                 });
 
                 Self::bump_stats(netuid, |s| {
-                    s.k_neutral_surplus_burned_tao =
-                        s.k_neutral_surplus_burned_tao.saturating_add(u128::from(burn_t));
+                    s.k_neutral_surplus_burned_tao = s
+                        .k_neutral_surplus_burned_tao
+                        .saturating_add(u128::from(burn_t));
                     s.k_neutral_surplus_burned_alpha = s
                         .k_neutral_surplus_burned_alpha
                         .saturating_add(u128::from(burn_a));
@@ -6603,7 +6604,12 @@ pub mod pallet {
                         let mut x = T::Pool::pool_alpha(netuid).to_u64();
                         let mut raised = 0u64;
                         if position.escrow_alpha > 0 {
-                            let out = T::Pool::quote_sell_on(y.into(), x.into(), w, position.escrow_alpha.into())
+                            let out = T::Pool::quote_sell_on(
+                                y.into(),
+                                x.into(),
+                                w,
+                                position.escrow_alpha.into(),
+                            )
                             .to_u64();
                             raised = Self::add(raised, out)?;
                             y = y.saturating_sub(out);

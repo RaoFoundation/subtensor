@@ -898,4 +898,3 @@ Already stored and therefore version-stable without a new field: `annual_interes
 ### 17.3 Migration
 * `PositionTermsVersionMigration` appends the three fields to pre-terms rows as v1 with the live cadence constants, and ensures `CurrentTermsVersion ≥ 1`.
 * Runtime API: `current_terms_version()`. Events `Opened` / `Increased` / `Raised` carry `terms_version`. CLI `show` / `list` surface it.
-

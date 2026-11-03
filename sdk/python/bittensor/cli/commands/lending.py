@@ -1434,14 +1434,13 @@ def raise_loan(
             # N22: state required vs available alpha (collateral + sale), not
             # a generic Lock blurb that hides how much the raise needs.
             sell_need = (
-                sell_display
-                if isinstance(sell_display, Balance)
-                else quote.get("sell_alpha")
+                sell_display if isinstance(sell_display, Balance) else quote.get("sell_alpha")
             )
             need_rao = int(quoted_collateral.rao) + (
                 int(sell_need.rao) if isinstance(sell_need, Balance) else 0
             )
             need = Balance.from_rao(need_rao, netuid)
+
             async def _avail(client):
                 return await _available_alpha(client._substrate, owner, hotkey, netuid)
 
@@ -1494,9 +1493,7 @@ def raise_loan(
         )
 
     # N22: fail before fee when unlocked alpha cannot cover collateral+sale.
-    sell_need = (
-        sell_display if isinstance(sell_display, Balance) else quote.get("sell_alpha")
-    )
+    sell_need = sell_display if isinstance(sell_display, Balance) else quote.get("sell_alpha")
     need_rao = int(quoted_collateral.rao) + (
         int(sell_need.rao) if isinstance(sell_need, Balance) else 0
     )

@@ -52,9 +52,7 @@ impl<AccountId, BlockNumber> PositionBeforeHotkeyDrop<AccountId, BlockNumber> {
     /// `Config` should prefer filling cadence from the runtime constants; the
     /// subsequent [`super::migrate_position_terms_version`] rewrite is a no-op
     /// once the new layout is already present.
-    pub(crate) fn into_position<T: Config>(
-        self,
-    ) -> Position<T::AccountId, BlockNumberFor<T>>
+    pub(crate) fn into_position<T: Config>(self) -> Position<T::AccountId, BlockNumberFor<T>>
     where
         AccountId: Into<T::AccountId>,
         BlockNumber: Into<BlockNumberFor<T>>,

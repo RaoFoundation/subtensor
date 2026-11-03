@@ -10,12 +10,7 @@ use alloc::vec::Vec;
 use codec::{Decode, DecodeAll, Encode};
 #[cfg(feature = "try-runtime")]
 use frame_support::ensure;
-use frame_support::{
-    BoundedVec,
-    storage::unhashed,
-    traits::OnRuntimeUpgrade,
-    weights::Weight,
-};
+use frame_support::{BoundedVec, storage::unhashed, traits::OnRuntimeUpgrade, weights::Weight};
 #[cfg(feature = "try-runtime")]
 use sp_runtime::TryRuntimeError;
 
@@ -45,9 +40,7 @@ pub(crate) struct PositionBeforeTermsVersion<AccountId, BlockNumber> {
 }
 
 impl<AccountId, BlockNumber> PositionBeforeTermsVersion<AccountId, BlockNumber> {
-    fn into_position<T: Config>(
-        self,
-    ) -> Position<T::AccountId, BlockNumberFor<T>>
+    fn into_position<T: Config>(self) -> Position<T::AccountId, BlockNumberFor<T>>
     where
         AccountId: Into<T::AccountId>,
         BlockNumber: Into<BlockNumberFor<T>>,
