@@ -278,6 +278,7 @@ class OpenLoan(Intent):
         """Verify available collateral and inclusion fees before any signature."""
         preview = IntentPreflight(effects=[self.summary()], warnings=[], blocks=[])
         try:
+            # Circular: reads.lending imports POSITIONS / check_side from this module.
             from ..reads.lending import _ok
 
             if call is None:
@@ -344,10 +345,12 @@ class OpenLoan(Intent):
                 available = await _available_alpha(
                     substrate, dispatch_origin, hotkey, self.netuid, block_hash=block_hash
                 )
-            preview.facts.append(("available collateral", str(available)))
+            preview.facts.append(("available collateral", _fmt_lending_amount(available)))
             if collateral.rao > available.rao:
                 preview.blocks.append(
-                    f"insufficient spendable collateral: need {collateral}, available {available}"
+                    "insufficient spendable collateral: need "
+                    f"{_fmt_lending_amount(collateral)}, available "
+                    f"{_fmt_lending_amount(available)}"
                     + (f" on hotkey {hotkey}" if self.side == "Long" else "")
                 )
             elif payer_available.rao < required:
@@ -514,6 +517,110 @@ class RaiseLoan(Intent):
             f"(min out {_fmt_lending_amount(self.min_tao_out)})"
         )
 
+    async def preflight(
+        self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
+    ) -> IntentPreflight:
+        """Same quote + stake / max-collateral gates the CLI runs (N23)."""
+        # Circular: reads.lending imports POSITIONS / check_side from this module.
+        from ..reads import lending as lending_reads
+
+        preview = IntentPreflight(effects=[self.summary()], warnings=[], blocks=[])
+        try:
+            if call is None:
+                raise BittensorError("composed lending call is unavailable for fee estimation")
+            block_hash = await substrate.block_hash()
+            hotkey = getattr(self, "_built_hotkey", None) or self.hotkey_ss58
+            if hotkey is None:
+                raise BittensorError("raise requires a collateral source hotkey")
+
+            class _View:
+                async def at(self_inner):
+                    return self_inner
+
+                async def runtime(self_inner, method, params):
+                    return await substrate.runtime_call(
+                        method.container, method.name, params, block_hash=block_hash
+                    )
+
+                async def query(self_inner, item, params):
+                    return await substrate.query(
+                        item.container, item.name, list(params), block_hash=block_hash
+                    )
+
+                def balance(self_inner, rao, netuid=0):
+                    return Balance.from_rao(int(rao), int(netuid))
+
+            quote = await lending_reads.lending_raise_quote(
+                _View(),
+                netuid=self.netuid,
+                coldkey_ss58=dispatch_origin,
+                hotkey_ss58=hotkey,
+                borrow_tao=(
+                    None
+                    if self.borrow_tao is None
+                    else format(cast(Balance, self.borrow_tao).decimal, "f")
+                ),
+                collateral_alpha=(
+                    None
+                    if self.collateral_alpha is None
+                    else format(cast(Balance, self.collateral_alpha).decimal, "f")
+                ),
+                sell_alpha=(
+                    None
+                    if self.sell_alpha is None
+                    else format(cast(Balance, self.sell_alpha).decimal, "f")
+                ),
+            )
+            quoted_c = cast(Balance, quote["collateral_alpha"])
+            quoted_p = cast(Balance, quote["principal_tao"])
+            quoted_sell = cast(Balance, quote["sell_alpha"])
+            ceiling = cast(Balance, self.max_collateral_alpha)
+            if quoted_c.rao > ceiling.rao:
+                preview.blocks.append(
+                    "quoted collateral "
+                    f"{_fmt_lending_amount(quoted_c)} exceeds max_collateral_alpha "
+                    f"{_fmt_lending_amount(ceiling)} — raise the ceiling or lower "
+                    "borrow_tao (would fail with DynamicCollateral on chain)"
+                )
+            if quoted_p.rao < cast(Balance, self.min_borrow_tao).rao:
+                preview.blocks.append("quoted borrow is below min_borrow_tao")
+            available = await _available_alpha(
+                substrate, dispatch_origin, hotkey, self.netuid, block_hash=block_hash
+            )
+            need_alpha = quoted_c.rao + quoted_sell.rao
+            preview.facts = [
+                ("quoted collateral", _fmt_lending_amount(quoted_c)),
+                ("quoted sell", _fmt_lending_amount(quoted_sell)),
+                ("available alpha", _fmt_lending_amount(available)),
+            ]
+            if need_alpha > available.rao:
+                preview.blocks.append(
+                    "insufficient unlocked alpha for raise: need "
+                    f"{_fmt_lending_amount(Balance.from_rao(need_alpha, self.netuid))} "
+                    f"(collateral+sale), available {_fmt_lending_amount(available)} "
+                    f"on {hotkey}"
+                )
+            fee = await substrate.estimate_fee(call, _FeeAddress(fee_payer))
+            if not isinstance(fee, Balance) or fee.netuid != 0 or fee.rao < 0:
+                raise BittensorError("invalid lending transaction fee estimate")
+            payer_available = await _spendable_tao(substrate, fee_payer, block_hash=block_hash)
+            preview.estimated_fee = fee
+            preview.required_free = fee
+            preview.available_free = payer_available
+            if payer_available.rao < fee.rao:
+                preview.blocks.append(
+                    f"insufficient spendable TAO for transaction fee: need {fee}, "
+                    f"available {payer_available}"
+                )
+        except Exception as error:
+            reason = (
+                f"{error.name}: {error}"
+                if isinstance(error, ChainError) and error.name
+                else str(error)
+            )
+            preview.blocks.append(f"could not verify raise quote, collateral and fees: {reason}")
+        return preview
+
     def spend(self) -> Spend:
         return None
 
@@ -650,6 +757,67 @@ class CloseLoan(Intent):
 
     def summary(self) -> str:
         return f"repay and close lending position on netuid {self.netuid}"
+
+    async def preflight(
+        self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
+    ) -> IntentPreflight:
+        """Quote the close so ExtrinsicResult.data can include payment (CLI parity)."""
+        # Circular: reads.lending imports POSITIONS / check_side from this module.
+        from ..reads import lending as lending_reads
+
+        preview = IntentPreflight(effects=[self.summary()], warnings=[], blocks=[])
+        try:
+            if call is None:
+                raise BittensorError("composed lending call is unavailable for fee estimation")
+            block_hash = await substrate.block_hash()
+
+            class _View:
+                async def at(self_inner):
+                    return self_inner
+
+                async def runtime(self_inner, method, params):
+                    return await substrate.runtime_call(
+                        method.container, method.name, params, block_hash=block_hash
+                    )
+
+                async def query(self_inner, item, params):
+                    return await substrate.query(
+                        item.container, item.name, list(params), block_hash=block_hash
+                    )
+
+                def balance(self_inner, rao, netuid=0):
+                    return Balance.from_rao(int(rao), int(netuid))
+
+            quote = await lending_reads.lending_close_quote(
+                _View(),
+                coldkey_ss58=dispatch_origin,
+                netuid=self.netuid,
+                hotkey_ss58=self.hotkey_ss58,
+                repay_from_wallet=self.repay_from_wallet,
+            )
+            payment = cast(Balance, quote["payment"])
+            self._quoted_payment_rao = payment.rao
+            self._quoted_payment_unit = payment.netuid
+            preview.facts = [("quoted payment", _fmt_lending_amount(payment))]
+            fee = await substrate.estimate_fee(call, _FeeAddress(fee_payer))
+            if isinstance(fee, Balance) and fee.netuid == 0 and fee.rao >= 0:
+                preview.estimated_fee = fee
+                preview.required_free = fee
+                payer_available = await _spendable_tao(substrate, fee_payer, block_hash=block_hash)
+                preview.available_free = payer_available
+                if payer_available.rao < fee.rao:
+                    preview.blocks.append(
+                        f"insufficient spendable TAO for transaction fee: need {fee}, "
+                        f"available {payer_available}"
+                    )
+        except Exception as error:
+            reason = (
+                f"{error.name}: {error}"
+                if isinstance(error, ChainError) and error.name
+                else str(error)
+            )
+            preview.blocks.append(f"could not verify close quote and fees: {reason}")
+        return preview
 
     def spend(self) -> Spend:
         # The ceiling also bounds any wallet TAO repayment. An AMM short close

@@ -144,6 +144,9 @@ def cli_placeholder(field_name: str, fragment: dict) -> str:
 def cli_arg(field_name: str, fragment: dict) -> str:
     """Full CLI arg for a field. Typer bools are ``--flag/--no-flag``."""
     if fragment.get("type") == "boolean":
+        # N21: lending close/repay quotes share --from-wallet with tx commands.
+        if field_name == "repay_from_wallet":
+            return "--from-wallet/--from-escrow"
         # Match the Typer bool pattern in cli (same as query --lite/--no-lite).
         flag = cli_flag(field_name)
         return f"{flag}/--no-{flag.removeprefix('--')}"
@@ -799,9 +802,13 @@ def read_cli_invocation(spec) -> tuple[list[str], list[str]]:
             cli_parts.append(f"{cli_flag(name)} {placeholder}")
             py_value = "[...]" if jtype == "array" else '"5F..."'
         elif jtype == "boolean":
-            # Match the Typer bool pattern in cli/query.py (--flag/--no-flag).
-            flag = f"--{kebab(name)}"
-            cli_parts.append(f"{flag}/--no-{kebab(name)}")
+            # N21: lending quotes use --from-wallet/--from-escrow (query.py).
+            if name == "repay_from_wallet":
+                cli_parts.append("--from-wallet/--from-escrow")
+            else:
+                # Match the Typer bool pattern in cli/query.py (--flag/--no-flag).
+                flag = f"--{kebab(name)}"
+                cli_parts.append(f"{flag}/--no-{kebab(name)}")
             py_value = _JSON_PY_PLACEHOLDER.get(jtype, "...")
         else:
             cli_parts.append(f"--{kebab(name)} <{jtype}>")

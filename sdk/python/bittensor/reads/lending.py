@@ -133,6 +133,64 @@ async def pool_capacity_detail(
     return out
 
 
+async def _raise_required_collateral_for_borrow(
+    view, coldkey_ss58: str, hotkey_ss58: str, netuid: int, borrow_rao: int
+) -> Optional[int]:
+    """Min alpha collateral for ``borrow_rao`` via exact C+P quotes (N22).
+
+    Uses DynamicCollateral vs other refusals so the search works even when
+    free stake is below the requirement (StakeUnavailable means LTV-ok).
+    """
+
+    async def probe(collateral_rao: int) -> str:
+        try:
+            _ok(
+                await view.runtime(
+                    QUOTE_RAISE,
+                    [coldkey_ss58, netuid, hotkey_ss58, borrow_rao, collateral_rao, None],
+                )
+            )
+            return "ok"
+        except ChainError as error:
+            if error.name == "DynamicCollateral":
+                return "low"
+            if error.name in ("StakeUnavailable", "InsufficientSellStake"):
+                return "ok_stake"
+            if error.name == "CollateralZero":
+                return "low"
+            raise
+
+    try:
+        hi = 1
+        found = False
+        for _ in range(64):
+            status = await probe(hi)
+            if status in ("ok", "ok_stake"):
+                found = True
+                break
+            nxt = hi * 2
+            if nxt <= hi or nxt > (1 << 62):
+                break
+            hi = nxt
+        if not found:
+            return None
+        lo = max(hi // 2, 1)
+        best = hi
+        for _ in range(64):
+            if lo > hi:
+                break
+            mid = lo + (hi - lo) // 2
+            status = await probe(mid)
+            if status in ("ok", "ok_stake"):
+                best = mid
+                hi = mid - 1
+            else:
+                lo = mid + 1
+        return best
+    except Exception:
+        return None
+
+
 async def stake_unavailable_lending_detail(
     view,
     coldkey_ss58: str,
@@ -141,7 +199,7 @@ async def stake_unavailable_lending_detail(
     *,
     need: Optional[Balance] = None,
 ) -> BittensorError:
-    """N20: lending-specific StakeUnavailable naming locked vs free alpha.
+    """N20/N22: lending StakeUnavailable with required vs free alpha.
 
     ``available`` / ``locked`` from stake availability are coldkey+subnet-wide
     (conviction Lock already in ``locked``; miner collateral already removed
@@ -176,21 +234,37 @@ async def stake_unavailable_lending_detail(
     free = min(available, max(stake - miner_locked, 0))
     parts = [
         f"lending stake unavailable on {hotkey_ss58} (netuid {netuid})",
-        f"hotkey stake {_fmt_rao(stake, netuid)}",
-        f"free {_fmt_rao(free, netuid)}",
-        f"subnet conviction Lock {_fmt_rao(locked_conviction, netuid)}",
-        f"miner-collateral on hotkey {_fmt_rao(miner_locked, netuid)}",
     ]
     if need is not None:
-        parts.append(f"needed {_fmt_rao(need.rao, need.netuid)}")
-    err = ChainError("; ".join(parts), "StakeUnavailable")
-    err.remediation_override = (
-        "lending can only take unlocked alpha on this hotkey — wait out the subnet "
-        f"conviction Lock ({_fmt_rao(locked_conviction, netuid)}), free miner "
-        f"collateral on this hotkey ({_fmt_rao(miner_locked, netuid)}), stake more "
-        f"here, or pass a hotkey with free alpha (have {_fmt_rao(free, netuid)}; "
-        "check `btcli stake list` / `btcli conviction show`)"
+        # N22: lead with required vs available so amount-mode raise is actionable.
+        parts.append(
+            f"needed {_fmt_rao(need.rao, need.netuid)}, available {_fmt_rao(free, netuid)}"
+        )
+    else:
+        parts.append(f"available {_fmt_rao(free, netuid)}")
+    parts.extend(
+        [
+            f"hotkey stake {_fmt_rao(stake, netuid)}",
+            f"subnet conviction Lock {_fmt_rao(locked_conviction, netuid)}",
+            f"miner-collateral on hotkey {_fmt_rao(miner_locked, netuid)}",
+        ]
     )
+    err = ChainError("; ".join(parts), "StakeUnavailable")
+    if need is not None and need.rao > free:
+        err.remediation_override = (
+            f"this raise needs about {_fmt_rao(need.rao, need.netuid)} unlocked alpha "
+            f"(collateral and default sale) but only {_fmt_rao(free, netuid)} is free on "
+            f"{hotkey_ss58} — stake more, free conviction Lock / miner collateral, reduce "
+            f"--amount, or pass a hotkey with enough free alpha"
+        )
+    else:
+        err.remediation_override = (
+            "lending can only take unlocked alpha on this hotkey — wait out the subnet "
+            f"conviction Lock ({_fmt_rao(locked_conviction, netuid)}), free miner "
+            f"collateral on this hotkey ({_fmt_rao(miner_locked, netuid)}), stake more "
+            f"here, or pass a hotkey with free alpha (have {_fmt_rao(free, netuid)}; "
+            "check `btcli stake list` / `btcli conviction show`)"
+        )
     return err
 
 
@@ -562,10 +636,24 @@ async def lending_raise_quote(
             )
         )
     except ChainError as error:
-        if error.name == "StakeUnavailable":
+        if error.name in ("StakeUnavailable", "InsufficientSellStake"):
             need = None
             if collateral is not None or sell is not None:
                 need = view.balance(int(collateral or 0) + int(sell or 0), netuid)
+            elif amount is not None:
+                # N22: amount mode sizes C inside the runtime before the stake
+                # gate; recover required collateral (+ default sale ≈ C escrow)
+                # via exact C+P probes so the error states need vs available.
+                required_c = await _raise_required_collateral_for_borrow(
+                    view, coldkey_ss58, hotkey_ss58, netuid, int(amount)
+                )
+                if required_c is not None:
+                    # StakeUnavailable is ensure_collateral_stake(C); sell is checked
+                    # next as InsufficientSellStake (unlocked >= C+S). Report C for
+                    # the first gate; C+C as a stand-in for C+default-sale on the
+                    # second (default S ≈ escrowed buy ≈ C order of magnitude).
+                    need_rao = required_c if error.name == "StakeUnavailable" else required_c * 2
+                    need = view.balance(need_rao, netuid)
             raise await stake_unavailable_lending_detail(
                 view, coldkey_ss58, hotkey_ss58, netuid, need=need
             ) from error

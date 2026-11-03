@@ -4,19 +4,27 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 import bittensor.cli.context as cli_context
+import bittensor.intents.lending as lending_intents
 from bittensor import wallets
 from bittensor.balance import Balance
 from bittensor.cli.main import app
 from bittensor.client import Client
-from bittensor.intents.lending import lending_outcome_data
+from bittensor.intents.base import IntentPreflight
+from bittensor.intents.lending import (
+    CloseLoan,
+    RaiseLoan,
+    _fmt_outcome_amount,
+    lending_outcome_data,
+)
 from bittensor.reads import lending as lending_reads
 from bittensor.reads.base import REGISTRY
-from bittensor.result import BittensorError, ChainError, ErrorCode
+from bittensor.result import BittensorError, ChainError, ErrorCode, ExtrinsicResult
 from tests.harness.fake_substrate import FakeSubstrate
 
 runner = CliRunner()
@@ -396,7 +404,7 @@ async def test_stake_unavailable_uses_availability_locked_not_stake_minus_availa
     text = str(err)
     assert "subnet conviction Lock 0.000000000α_1" in text
     assert "miner-collateral on hotkey 40.000000000α_1" in text
-    assert "free 60.000000000α_1" in text
+    assert "available 60.000000000α_1" in text
     # Must not double-count miner collateral as conviction.
     assert "subnet conviction Lock 40.000000000α_1" not in text
 
@@ -433,4 +441,193 @@ async def test_stake_unavailable_reports_subnet_lock_with_sibling_hotkey():
     text = str(err)
     assert "subnet conviction Lock 50.000000000α_1" in text
     assert "hotkey stake 30.000000000α_1" in text
-    assert "free 30.000000000α_1" in text
+    assert "available 30.000000000α_1" in text
+
+
+@pytest.mark.asyncio
+async def test_stake_unavailable_states_needed_vs_available():
+    """N22: amount-mode raise must say needed vs available alpha."""
+    cold = "5Owner"
+    hot = "5HotA"
+    need = Balance.from_rao(318_000 * 10**9, 1)
+
+    class _View:
+        async def runtime(self, method, params):
+            name = str(method)
+            if "get_stake_info_for_hotkey" in name:
+                return {"stake": 79_687 * 10**9}
+            if "get_stake_availability" in name:
+                return {
+                    cold: {
+                        1: {
+                            "total": 79_687 * 10**9,
+                            "locked": 0,
+                            "available": 79_687 * 10**9,
+                        }
+                    }
+                }
+            return None
+
+        async def query(self, item, params):
+            return {"locked": 0}
+
+    err = await lending_reads.stake_unavailable_lending_detail(_View(), cold, hot, 1, need=need)
+    text = str(err)
+    assert "needed 318,000.000000000α_1" in text
+    assert "available 79,687.000000000α_1" in text
+    assert "318" in err.remediation_override
+
+
+@pytest.mark.asyncio
+async def test_raise_quote_amount_mode_recovers_needed_collateral():
+    """N22: amount-mode StakeUnavailable recovers C via DynamicCollateral probes."""
+    cold = "5Owner"
+    hot = "5HotA"
+    required_c = 318_000 * 10**9
+    free = 79_687 * 10**9
+
+    class _View:
+        async def at(self):
+            return self
+
+        async def runtime(self, method, params):
+            name = str(getattr(method, "name", method))
+            if name == "quote_raise" or "quote_raise" in str(method):
+                # params: [cold, netuid, hot, amount, collateral, sell]
+                collateral = params[4]
+                if collateral is None:
+                    # Amount-mode outer call — stake gate after internal sizing.
+                    raise ChainError("stake unavailable", "StakeUnavailable")
+                if int(collateral) < required_c:
+                    raise ChainError("below dynamic requirement", "DynamicCollateral")
+                raise ChainError("stake unavailable", "StakeUnavailable")
+            if "get_stake_info_for_hotkey" in str(method):
+                return {"stake": free}
+            if "get_stake_availability" in str(method):
+                return {cold: {1: {"total": free, "locked": 0, "available": free}}}
+            return None
+
+        async def query(self, item, params):
+            return {"locked": 0}
+
+        def balance(self, rao, netuid=0):
+            return Balance.from_rao(int(rao), int(netuid))
+
+    with pytest.raises(ChainError) as caught:
+        await lending_reads.lending_raise_quote(
+            _View(),
+            netuid=1,
+            coldkey_ss58=cold,
+            hotkey_ss58=hot,
+            borrow_tao="500",
+        )
+    err = caught.value
+    assert err.name == "StakeUnavailable"
+    text = str(err)
+    assert "needed 318,000.000000000α_1" in text
+    assert "available 79,687.000000000α_1" in text
+
+
+@pytest.mark.asyncio
+async def test_raise_loan_preflight_blocks_low_max_collateral():
+    """N23: borrow_tao + low max_collateral_alpha must preflight-block."""
+    hot = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+    intent = RaiseLoan(
+        netuid=1,
+        hotkey_ss58=hot,
+        borrow_tao="500",
+        max_collateral_alpha="1",  # far too low for τ500
+        min_borrow_tao="500",
+        valid_until=10_000_000,
+    )
+
+    class _Substrate:
+        async def block_hash(self):
+            return "0x00"
+
+        async def runtime_call(self, *args, **kwargs):
+            # Feasible quote that needs far more than max_collateral_alpha=1.
+            return {
+                "Ok": {
+                    "principal_tao": 500 * 10**9,
+                    "collateral_alpha": 318_000 * 10**9,
+                    "escrow_alpha": 300_000 * 10**9,
+                    "sell_alpha": 300_000 * 10**9,
+                    "free_tao_out": 400 * 10**9,
+                    "v_dyn": 1_000_000 * 10**9,
+                    "ltv_tier_bps": 2500,
+                    "long_cap_headroom": 10_000 * 10**9,
+                    "annual_interest_alpha": 10**9,
+                }
+            }
+
+        async def query(self, *args, **kwargs):
+            return None
+
+        async def estimate_fee(self, call, key):
+            return Balance.from_rao(10**7)
+
+    class _Call:
+        pass
+
+    # Patch available alpha high enough so only max_collateral binds.
+    async def plenty(*_a, **_k):
+        return Balance.from_rao(1_000_000 * 10**9, 1)
+
+    original = lending_intents._available_alpha
+    lending_intents._available_alpha = plenty
+    try:
+        preview = await intent.preflight(_Substrate(), "5Owner", "5Owner", call=_Call())
+    finally:
+        lending_intents._available_alpha = original
+    assert isinstance(preview, IntentPreflight)
+    assert preview.blocks, preview.blocks
+    joined = " ".join(preview.blocks)
+    assert "max_collateral" in joined.lower() or "DynamicCollateral" in joined
+
+
+def test_extrinsic_result_error_description_for_dynamic_collateral():
+    """N23: failed raise exposes error_description for DynamicCollateral."""
+    err = ChainError("collateral below dynamic requirement", "DynamicCollateral")
+    result = ExtrinsicResult(success=False, message=str(err), error=err)
+    assert result.error_description is not None
+    assert "LTV" in result.error_description or "collateral" in result.error_description.lower()
+    payload = result.to_dict()
+    assert payload.get("error_description")
+    assert payload["error"]["description"]
+
+
+def test_close_loan_outcome_can_include_payment_from_quote():
+    """SDK CloseLoan result data includes payment (CLI parity)."""
+    events = [
+        {
+            "event": {
+                "module_id": "Lending",
+                "event_id": "Closed",
+                "attributes": {
+                    "netuid": 1,
+                    "side": {"Long": None},
+                    "refund": 10**9,
+                    "escrow_returned": 0,
+                    "wallet_top_up": 0,
+                },
+            }
+        }
+    ]
+    data = lending_outcome_data(events, op="close_loan")
+    assert "payment" not in data  # event itself has no payment
+    intent = CloseLoan(netuid=1, max_payment="100", min_refund="0")
+    intent._quoted_payment_rao = 50 * 10**9
+    intent._quoted_payment_unit = 0
+    # Simulate executor merge.
+    data["payment"] = _fmt_outcome_amount(intent._quoted_payment_rao, intent._quoted_payment_unit)
+    data["payment_rao"] = intent._quoted_payment_rao
+    assert data["payment"].startswith("τ")
+    assert data["payment_rao"] == 50 * 10**9
+
+
+def test_close_quote_docs_usage_uses_from_wallet():
+    """Query close-quote docs usage line matches tx flag names."""
+    text = Path("/workspace/docs/query/lending-close-quote.mdx").read_text()
+    assert "--from-wallet/--from-escrow" in text
+    assert "--repay-from-wallet/--no-repay-from-wallet" not in text

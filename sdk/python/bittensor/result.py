@@ -757,6 +757,11 @@ class ExtrinsicResult:
             raise self.error or ChainError(self.message or "Extrinsic failed.")
         return self
 
+    @property
+    def error_description(self) -> Optional[str]:
+        """Per-name chain error description, or None when unnamed / unknown."""
+        return self.error.description if self.error is not None else None
+
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"success": self.success, "message": self.message}
         if self.block_hash:
@@ -769,6 +774,9 @@ class ExtrinsicResult:
             payload["fee_tao"] = self.fee.tao
         if self.error is not None:
             payload["error"] = self.error.to_dict()
+            # Top-level alias for agents that look for error_description (N23).
+            if self.error.description:
+                payload["error_description"] = self.error.description
         if self.data:
             payload["data"] = self.data
         return payload

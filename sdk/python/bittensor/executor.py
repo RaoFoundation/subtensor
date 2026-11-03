@@ -28,7 +28,7 @@ from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
 from .intents.base import BuiltCall, IntentPreflight
-from .intents.lending import lending_outcome_data
+from .intents.lending import _fmt_outcome_amount, lending_outcome_data
 from .intents.proxy import check_proxy_type
 from .result import (
     ChainError,
@@ -862,6 +862,14 @@ class Executor:
                 # N19: SDK ExtrinsicResult.data gets the same decoded outcome
                 # the CLI Result card prints (CLI on_result may refine further).
                 data.update(lending_outcome_data(result.events, op=semantic_intent.op))
+                # Close event has no payment field; attach the preflight quote
+                # so SDK results match the CLI Result card.
+                if semantic_intent.op == "close_loan" and "payment_rao" not in data:
+                    quoted = getattr(semantic_intent, "_quoted_payment_rao", None)
+                    if quoted is not None:
+                        unit = int(getattr(semantic_intent, "_quoted_payment_unit", 0) or 0)
+                        data["payment"] = _fmt_outcome_amount(int(quoted), unit)
+                        data["payment_rao"] = int(quoted)
             data.update(plan.extras)
             if data != result.data:
                 result = replace(result, data=data)
