@@ -30,8 +30,6 @@ mod cache;
 mod debug;
 mod eth;
 mod eth_pubsub;
-#[doc(hidden)]
-pub mod execution_admission;
 mod net;
 mod signer;
 #[cfg(feature = "txpool")]

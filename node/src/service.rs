@@ -1,7 +1,6 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 mod grandpa_warp_sync;
-mod transaction_admission;
 mod warp_sync_checkpoint;
 
 use crate::consensus::ConsensusMechanism;
@@ -98,7 +97,6 @@ pub fn new_partial(
     config: &Configuration,
     eth_config: &EthConfiguration,
     build_import_queue: BIQ,
-    execution_mode: crate::execution_admission::ExecutionMode,
 ) -> Result<
     PartialComponents<
         FullClient,
@@ -127,10 +125,7 @@ pub fn new_partial(
         })
         .transpose()?;
 
-    let executor = RuntimeExecutor::new(
-        sc_service::new_wasm_executor::<HostFunctions>(&config.executor),
-        execution_mode,
-    );
+    let executor = sc_service::new_wasm_executor::<HostFunctions>(&config.executor);
     let (client, backend, keystore_container, task_manager) =
         sc_service::new_full_parts::<Block, RuntimeApi, RuntimeExecutor>(
             config,
@@ -219,7 +214,7 @@ pub fn new_partial(
         }
     };
 
-    let transaction_pool = Arc::from(transaction_admission::wrap(
+    let transaction_pool = Arc::from(
         sc_transaction_pool::Builder::new(
             task_manager.spawn_essential_handle(),
             client.clone(),
@@ -228,7 +223,7 @@ pub fn new_partial(
         .with_options(config.transaction_pool.clone())
         .with_prometheus(config.prometheus_registry())
         .build(),
-    ));
+    );
 
     let (import_queue, block_import) = build_import_queue(
         client.clone(),
@@ -324,12 +319,7 @@ where
         select_chain,
         transaction_pool,
         other: (mut telemetry, block_import, grandpa_link, frontier_backend, storage_override),
-    } = new_partial(
-        &config,
-        &eth_config,
-        build_import_queue,
-        crate::execution_admission::ExecutionMode::Node,
-    )?;
+    } = new_partial(&config, &eth_config, build_import_queue)?;
 
     let FrontierPartialComponents {
         filter_pool,
@@ -769,7 +759,6 @@ pub fn new_chain_ops<CM: ConsensusMechanism>(
         config,
         eth_config,
         consensus_mechanism.build_biq(skip_history_backfill)?,
-        crate::execution_admission::ExecutionMode::Node,
     )?;
     Ok((client, backend, import_queue, task_manager, other.3))
 }

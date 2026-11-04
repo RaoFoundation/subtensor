@@ -70,46 +70,34 @@ logger = logging.getLogger("bittensor.transport")
 _FINALIZED_TTL = 12.0
 
 _SubmissionResult = TypeVar("_SubmissionResult")
-_ADMISSION_DELAYS = (0.125, 0.25, 0.5, 1.0)
-_ADMISSION_ERRORS = (
-    "Local transaction admission capacity reached; retry later",
-    "Local runtime execution capacity reached; retry later",
-)
 
 
-async def _submit_with_admission_retry(
+async def _submit_once(
     submit: Callable[[], Awaitable[_SubmissionResult]],
 ) -> _SubmissionResult:
-    """Retry only explicit pre-admission rejection, never an ambiguous send.
+    """Classify definite initial rejection without repeating a submission.
 
-    The caller retains the same signed bytes. Once a watch is accepted, its
-    updates and failures are outside this retry boundary.
+    Once a watch is accepted, its updates and failures are outside this
+    rejection boundary.
     """
-    for attempt in range(len(_ADMISSION_DELAYS) + 1):
-        try:
-            return await submit()
-        except (MaxRetriesExceeded, RpcPolicyRejection):
-            raise
-        except SubstrateRequestException as error:
-            rpc_error = (error.payload or {}).get("error", {})
-            admission_rejected = (
-                any(message in str(error) for message in _ADMISSION_ERRORS)
-                if isinstance(rpc_error, dict) and rpc_error
-                else str(error) in _ADMISSION_ERRORS
-            )
-            if admission_rejected and attempt < len(_ADMISSION_DELAYS):
-                await asyncio.sleep(_ADMISSION_DELAYS[attempt])
-                continue
-            # Initial author RPC errors for bad format/verification, invalid
-            # transactions, insufficient replacement priority, or bad arguments
-            # establish rejection. Watch failures and AlreadyImported do not.
-            if admission_rejected or (
-                isinstance(rpc_error, dict)
-                and rpc_error.get("code") in (1001, 1002, 1010, 1014, -32602)
-            ):
-                raise ExtrinsicSubmissionRejected(error.payload or str(error)) from error
-            raise
-    raise AssertionError("unreachable admission retry state")
+    try:
+        return await submit()
+    except (MaxRetriesExceeded, RpcPolicyRejection):
+        raise
+    except SubstrateRequestException as error:
+        rpc_error = (error.payload or {}).get("error", {})
+        # Initial author RPC errors for bad format/verification, invalid
+        # transactions, insufficient replacement priority, or bad arguments
+        # establish rejection. Watch failures and AlreadyImported do not.
+        if isinstance(rpc_error, dict) and rpc_error.get("code") in (
+            1001,
+            1002,
+            1010,
+            1014,
+            -32602,
+        ):
+            raise ExtrinsicSubmissionRejected(error.payload or str(error)) from error
+        raise
 
 
 class QueryMapResult:
@@ -1139,12 +1127,12 @@ class SubstrateConnection:
         signer_address, nonce = extrinsic.signer_address, extrinsic.nonce
         nonce_token = self._nonces.token(signer_address) if signer_address is not None else None
         if not (wait_for_inclusion or wait_for_finalization):
-            result = await _submit_with_admission_retry(
+            result = await _submit_once(
                 lambda: self._session.request("author_submitExtrinsic", [data_hex])
             )
             return InclusionReport(extrinsic_hash=str(result))
 
-        subscription = await _submit_with_admission_retry(
+        subscription = await _submit_once(
             lambda: self._session.subscribe(
                 "author_submitAndWatchExtrinsic",
                 [data_hex],

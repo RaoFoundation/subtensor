@@ -193,7 +193,6 @@ pub fn run() -> sc_cli::Result<()> {
                     &config,
                     &cli.eth,
                     Box::new(crate::service::build_manual_seal_import_queue),
-                    crate::execution_admission::ExecutionMode::Benchmark,
                 )?;
 
                 // This switch needs to be in the client, since the client decides

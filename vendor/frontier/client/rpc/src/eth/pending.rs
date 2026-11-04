@@ -29,14 +29,14 @@ use sp_runtime::{
 	TransactionOutcome,
 };
 
-use crate::{eth::Eth, execution_admission::retry_pending_execution};
+use crate::eth::Eth;
 use fp_rpc::EthereumRuntimeRPCApi;
 
 const LOG_TARGET: &str = "eth-pending";
 
 /// Only a pool transaction's validity failure permits it to be skipped. An API
-/// failure (including local execution backpressure) says nothing about validity
-/// and must not produce a successful, incomplete pending-state response.
+/// failure says nothing about validity and must not produce a successful,
+/// incomplete pending-state response.
 fn pending_extrinsic_outcome(
 	result: Result<sp_runtime::ApplyExtrinsicResult, sp_api::ApiError>,
 	is_inherent: bool,
@@ -86,9 +86,8 @@ where
 {
 	/// Creates a pending runtime API.
 	pub(crate) async fn pending_runtime_api(&self) -> Result<(B::Hash, ApiRef<'_, C::Api>), Error> {
-		let mut api = self.client.runtime_api();
-		// Pin the complete pool before awaiting or executing runtime work. Local
-		// PQ admission may fail reconstruction, but must never truncate it.
+		let api = self.client.runtime_api();
+		// Pin the complete ready pool for this pending-state reconstruction.
 		let extrinsics: Vec<_> = self
 			.graph
 			.ready()
@@ -125,7 +124,7 @@ where
 		);
 
 		// Roll back an unsuccessful initialization. Only a genuinely absent
-		// legacy export permits fallback; admission and execution failures do not.
+		// legacy export permits fallback; execution failures do not.
 		let initialized = api.execute_in_transaction(|api| {
 			match api.initialize_pending_block(best_hash, &pending_header) {
 				Ok(()) => TransactionOutcome::Commit(Ok(())),
@@ -154,22 +153,9 @@ where
 			.map(|ext| (ext, true))
 			.chain(extrinsics.into_iter().map(|ext| (ext, false)))
 		{
-			retry_pending_execution(&mut api, |api| {
-				api.execute_in_transaction(|api| {
-					match api.apply_extrinsic(best_hash, ext.clone()) {
-						Err(error) => TransactionOutcome::Rollback(Err(error)),
-						Ok(result) => match pending_extrinsic_outcome(Ok(result), is_inherent) {
-							TransactionOutcome::Commit(result) => {
-								TransactionOutcome::Commit(Ok(result))
-							}
-							TransactionOutcome::Rollback(result) => {
-								TransactionOutcome::Rollback(Ok(result))
-							}
-						},
-					}
-				})
-			})
-			.await??;
+			api.execute_in_transaction(|api| {
+				pending_extrinsic_outcome(api.apply_extrinsic(best_hash, ext), is_inherent)
+			})?;
 		}
 
 		Ok((best_hash, api))
@@ -182,18 +168,15 @@ mod tests {
 	use sp_runtime::{transaction_validity::InvalidTransaction, DispatchError};
 
 	#[test]
-	fn execution_capacity_and_runtime_failures_abort_pending_reconstruction() {
+	fn runtime_failures_abort_pending_reconstruction() {
 		for is_inherent in [false, true] {
-			for message in [
-				fp_rpc::LOCAL_EXECUTION_CAPACITY_ERROR,
-				"runtime execution failed",
-			] {
-				let error = sp_api::ApiError::Application(std::io::Error::other(message).into());
-				assert!(matches!(
-					pending_extrinsic_outcome(Err(error), is_inherent),
-					TransactionOutcome::Rollback(Err(Error::CallApi(_)))
-				));
-			}
+			let error = sp_api::ApiError::Application(
+				std::io::Error::other("runtime execution failed").into(),
+			);
+			assert!(matches!(
+				pending_extrinsic_outcome(Err(error), is_inherent),
+				TransactionOutcome::Rollback(Err(Error::CallApi(_)))
+			));
 		}
 	}
 
