@@ -77,8 +77,25 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
+  test-tooling:
+    needs: trusted-pr
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact source for isolated tooling tests
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      # No write token, secrets, shared caches, or outputs for the apply job.
+      - name: Test benchmark tooling
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*benchmark*.py'
+
   validate-benchmarks:
-    needs: [trusted-pr, decide]
+    needs: [trusted-pr, decide, test-tooling]
     if: needs.decide.outputs.run == 'true'
     runs-on: Benchmarking
     # Gate-only runs (including apply-label changes) must not cancel a benchmark.
@@ -99,10 +116,8 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Validate benchmark runner and selection
-        run: |
-          python3 -m unittest discover -s scripts/tests -p 'test_*benchmark*.py'
-          bash scripts/benchmark_action.sh --check-selection
+      - name: Validate benchmark selection
+        run: bash scripts/benchmark_action.sh --check-selection
 
       - name: Install system dependencies
         run: |

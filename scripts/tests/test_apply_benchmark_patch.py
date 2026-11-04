@@ -331,6 +331,134 @@ class ArchiveValidationTest(unittest.TestCase):
         self.assertEqual(list(self.root.iterdir()), [self.archive])
 
 
+class PatchStagingTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="benchmark-staging-test-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.checkout = self.root / "checkout"
+        self.checkout.mkdir()
+        self.relative = "pallets/subtensor/src/weights.rs"
+        self.weights = self.checkout / self.relative
+        self.weights.parent.mkdir(parents=True)
+        self.original = "fn add_stake() { 10 }\nfn remove_stake() { 20 }\n"
+        self.weights.write_text(self.original)
+        (self.checkout / "README.md").write_text("Fixture documentation\n")
+        self.git("init", "--quiet")
+        self.git("config", "user.name", "Fixture")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "Fixture source")
+        self.sha = self.git("rev-parse", "HEAD").decode().strip()
+        self.patch_path = self.root / "weights.diff"
+
+    def git(self, *args):
+        return subprocess.check_output(
+            ["git", "-c", "core.hooksPath=/dev/null", *args],
+            cwd=self.checkout,
+            stderr=subprocess.PIPE,
+        )
+
+    def capture_patch(self):
+        self.git("add", "--all")
+        self.patch_path.write_bytes(
+            self.git("diff", "--cached", "--binary", "--no-ext-diff", "HEAD")
+        )
+        self.git("reset", "--hard", "--quiet", "HEAD")
+
+    def selected_patch(self):
+        self.weights.write_text(self.original.replace("10", "11"))
+        self.capture_patch()
+
+    def assert_rejected_without_changes(self):
+        before = self.git("status", "--porcelain=v1")
+        with self.assertRaises(apply_patch.ValidationError):
+            apply_patch.stage_patch(self.checkout, self.patch_path, self.sha)
+        self.assertEqual(self.git("status", "--porcelain=v1"), before)
+        self.assertEqual(self.weights.read_text(), self.original)
+
+    def test_selected_patch_is_staged_and_other_weights_are_preserved(self):
+        self.selected_patch()
+        apply_patch.stage_patch(self.checkout, self.patch_path, self.sha)
+        self.assertEqual(self.weights.read_text(), self.original.replace("10", "11"))
+        self.assertEqual(
+            self.git("diff", "--cached", "--name-only").decode().splitlines(),
+            [self.relative],
+        )
+        self.assertEqual(self.git("diff", "--name-only"), b"")
+        self.assertEqual(self.git("rev-parse", "HEAD").decode().strip(), self.sha)
+
+    def test_wrong_source_sha_is_rejected(self):
+        self.selected_patch()
+        with self.assertRaisesRegex(apply_patch.ValidationError, "Checkout HEAD"):
+            apply_patch.stage_patch(self.checkout, self.patch_path, "a" * 40)
+        self.assertEqual(self.git("status", "--porcelain=v1"), b"")
+
+    def test_dirty_index_and_worktree_are_rejected_without_losing_changes(self):
+        self.selected_patch()
+        for staged in (False, True):
+            with self.subTest(staged=staged):
+                (self.checkout / "README.md").write_text("User-owned change\n")
+                if staged:
+                    self.git("add", "README.md")
+                self.assert_rejected_without_changes()
+                self.assertEqual(
+                    (self.checkout / "README.md").read_text(), "User-owned change\n"
+                )
+
+    def test_nonweight_file_is_rejected(self):
+        (self.checkout / "README.md").write_text("Updated documentation\n")
+        self.capture_patch()
+        self.assert_rejected_without_changes()
+
+    def test_binary_weight_change_is_rejected(self):
+        self.weights.write_bytes(b"binary\0fixture\n")
+        self.capture_patch()
+        self.assert_rejected_without_changes()
+
+    def test_executable_mode_change_is_rejected(self):
+        self.weights.chmod(0o755)
+        self.capture_patch()
+        self.assert_rejected_without_changes()
+        self.assertEqual(self.weights.stat().st_mode & 0o111, 0)
+
+    def test_symlink_change_is_rejected(self):
+        self.weights.unlink()
+        self.weights.symlink_to("../../../README.md")
+        self.capture_patch()
+        self.assert_rejected_without_changes()
+        self.assertFalse(self.weights.is_symlink())
+
+    def test_added_weight_file_is_rejected(self):
+        added = self.checkout / "pallets/new-pallet/src/weights.rs"
+        added.parent.mkdir(parents=True)
+        added.write_text("fn new_call() { 10 }\n")
+        self.capture_patch()
+        self.assert_rejected_without_changes()
+        self.assertFalse(added.exists())
+
+    def test_deleted_weight_file_is_rejected(self):
+        self.weights.unlink()
+        self.capture_patch()
+        self.assert_rejected_without_changes()
+
+    def test_renamed_weight_file_is_rejected(self):
+        destination = self.checkout / "pallets/renamed/src/weights.rs"
+        destination.parent.mkdir(parents=True)
+        self.weights.rename(destination)
+        self.capture_patch()
+        self.assert_rejected_without_changes()
+        self.assertFalse(destination.exists())
+
+    def test_mixed_valid_and_invalid_changes_are_rejected_atomically(self):
+        self.weights.write_text(self.original.replace("10", "11"))
+        added = self.checkout / "pallets/new-pallet/src/weights.rs"
+        added.parent.mkdir(parents=True)
+        added.write_text("fn new_call() { 10 }\n")
+        self.capture_patch()
+        self.assert_rejected_without_changes()
+
+
 class DownloadIntegrationTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="benchmark-download-test-")
@@ -405,7 +533,7 @@ else:
             "GH_FIXTURE_ROOT": str(self.root),
         }
 
-    def execute(self):
+    def execute(self, *extra_args, sha=SHA):
         (self.root / "fixture.json").write_text(json.dumps(self.fixture))
         result = subprocess.run(
             [
@@ -416,9 +544,10 @@ else:
                 "--branch",
                 BRANCH,
                 "--sha",
-                SHA,
+                sha,
                 "--output-dir",
                 str(self.output),
+                *extra_args,
             ],
             cwd=self.checkout,
             env=self.env,
@@ -426,8 +555,9 @@ else:
             text=True,
             timeout=15,
         )
-        self.assertEqual(list(self.checkout.iterdir()), [self.source])
-        self.assertEqual(self.source.read_text(), "user-owned weights\n")
+        if not extra_args:
+            self.assertEqual(list(self.checkout.iterdir()), [self.source])
+            self.assertEqual(self.source.read_text(), "user-owned weights\n")
         return result
 
     def calls(self):
@@ -509,6 +639,36 @@ else:
         self.assertIn("Run attempt", result.stderr)
         self.assert_only_latest_downloaded()
         self.assertFalse(self.output.exists())
+
+    def test_apply_to_stages_only_the_validated_download(self):
+        fixture = PatchStagingTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.selected_patch()
+        self.latest["head_sha"] = fixture.sha
+        summary = summary_fixture(self.latest).replace(SHA, fixture.sha)
+        write_archive(self.root / "200.tgz", summary, fixture.patch_path.read_bytes())
+        result = self.execute("--apply-to", str(fixture.checkout), sha=fixture.sha)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("staged for commit", result.stdout)
+        self.assertEqual(
+            fixture.weights.read_text(), fixture.original.replace("10", "11")
+        )
+        self.assertEqual(
+            fixture.git("diff", "--cached", "--name-only").decode().splitlines(),
+            [fixture.relative],
+        )
+
+    def test_apply_to_keeps_no_drift_result_a_noop(self):
+        fixture = PatchStagingTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.latest["head_sha"] = fixture.sha
+        summary = summary_fixture(self.latest).replace(SHA, fixture.sha)
+        write_archive(self.root / "200.tgz", summary, patch=None)
+        result = self.execute("--apply-to", str(fixture.checkout), sha=fixture.sha)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(fixture.git("status", "--porcelain=v1"), b"")
 
 
 class WorkflowGateTest(unittest.TestCase):

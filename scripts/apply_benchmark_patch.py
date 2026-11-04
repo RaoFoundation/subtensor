@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -138,6 +139,97 @@ def read_patch_archive(archive_path, run, sha):
     return summary, patch if patch and patch.strip() else None
 
 
+def stage_patch(checkout, patch_path, sha):
+    """Stage only regular, existing weight-file modifications at an exact source."""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValidationError("Expected a full lowercase source commit SHA.")
+    checkout = Path(checkout).resolve()
+    patch = Path(patch_path).read_bytes()
+    environment = os.environ.copy()
+    environment.pop("GIT_INDEX_FILE", None)
+
+    def git(*args, index=None, input_data=None):
+        env = environment.copy()
+        if index is not None:
+            env["GIT_INDEX_FILE"] = str(index)
+        try:
+            return subprocess.check_output(
+                [
+                    "git",
+                    "--no-optional-locks",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-C",
+                    str(checkout),
+                    *args,
+                ],
+                input=input_data,
+                stderr=subprocess.PIPE,
+                env=env,
+            )
+        except (subprocess.CalledProcessError, OSError) as error:
+            raise ValidationError(f"Cannot stage benchmark patch: {error}") from error
+
+    def require_clean_source():
+        if git("rev-parse", "HEAD").decode().strip() != sha:
+            raise ValidationError("Checkout HEAD does not match the benchmark source.")
+        if git("status", "--porcelain=v1", "--untracked-files=no"):
+            raise ValidationError(
+                "Benchmark source has tracked changes; refusing to apply."
+            )
+
+    require_clean_source()
+    numstat = git("apply", "--numstat", "-z", input_data=patch).split(b"\0")
+    path_pattern = rb"pallets/[A-Za-z0-9_-]+/src/weights\.rs"
+    if numstat[-1] != b"" or len(numstat) < 2:
+        raise ValidationError("Benchmark patch has no weight-file changes.")
+    for record in numstat[:-1]:
+        if not re.fullmatch(rb"[0-9]+\t[0-9]+\t" + path_pattern, record):
+            raise ValidationError(
+                "Benchmark patch must contain only text weight-file changes."
+            )
+
+    # Validate the resulting tree before allowing any patch content into the
+    # source index or worktree. Path checks alone do not reject mode changes,
+    # additions, deletions, symlinks, or renames between otherwise valid paths.
+    with tempfile.TemporaryDirectory(prefix="benchmark-patch-index-") as temporary:
+        index = Path(temporary) / "index"
+        git("read-tree", sha, index=index)
+        git("apply", "--cached", index=index, input_data=patch)
+        records = git(
+            "diff",
+            "--cached",
+            "--raw",
+            "--no-renames",
+            "--no-ext-diff",
+            "--no-textconv",
+            "-z",
+            sha,
+            "--",
+            index=index,
+        ).split(b"\0")
+        if records[-1] != b"" or len(records) < 3 or len(records) % 2 != 1:
+            raise ValidationError(
+                "Benchmark patch does not modify existing weight files."
+            )
+        for metadata, path in zip(records[0:-1:2], records[1:-1:2]):
+            fields = metadata.split()
+            if (
+                len(fields) != 5
+                or fields[0:2] != [b":100644", b"100644"]
+                or fields[4] != b"M"
+                or not re.fullmatch(path_pattern, path)
+            ):
+                raise ValidationError(
+                    "Benchmark patch may only modify existing regular weight files."
+                )
+
+    require_clean_source()
+    git("apply", "--index", input_data=patch)
+
+
 def gh(*args):
     try:
         return subprocess.check_output(["gh", *args], text=True)
@@ -170,6 +262,7 @@ def main():
     parser.add_argument("--branch", required=True)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--apply-to", type=Path)
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repo):
         raise ValidationError("Expected an owner/repository name.")
@@ -215,8 +308,13 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "summary.txt").write_text(summary, encoding="utf-8")
     if patch is not None:
-        (args.output_dir / "benchmark_patch.diff").write_bytes(patch)
-        print("Validated benchmark patch is ready to apply.")
+        patch_path = args.output_dir / "benchmark_patch.diff"
+        patch_path.write_bytes(patch)
+        if args.apply_to is not None:
+            stage_patch(args.apply_to, patch_path, args.sha)
+            print("Validated benchmark patch staged for commit.")
+        else:
+            print("Validated benchmark patch is ready to apply.")
     else:
         print("Latest benchmark run completed with no weight changes to apply.")
 

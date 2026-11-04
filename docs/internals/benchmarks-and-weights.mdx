@@ -211,6 +211,18 @@ artifact, or incomplete measurements fails clearly instead of applying an older
 patch. A drift failure is expected and can be applied when all measurements
 completed. Adding or removing the apply label does not start another benchmark.
 
+The validation workflow runs PR tooling tests in a separate read-only job on a
+fresh GitHub-hosted runner. The writer uses another fresh runner, loads its helper
+from the immutable commit supplying the trusted apply workflow, and treats the
+exact labeled head commit as data.
+It accepts only changes to existing regular `pallets/*/src/weights.rs` files and
+publishes only if the PR branch still points to that head. PR scripts, imports,
+and Git hooks never run with the writer's credentials.
+
+The trusted apply workflow and its helper must first be deployed together to the
+default branch. If trusted tooling is missing, applying fails; it never falls
+back to the PR's copy of the helper.
+
 ## Running benchmarks locally
 
 ```sh
