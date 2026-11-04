@@ -833,15 +833,21 @@ mod dispatches {
         /// of auto parent delegation. Pruning a seat clears that
         /// validator's protocol auto-parent edges.
         ///
-        /// Declared weight is `WeightInfo::root_register` plus a worst-case
-        /// pending-dividend flush allowance and a `TotalNetworks`-scaled
+        /// Declared weight is `WeightInfo::root_register` plus the evicted hotkey's
+        /// two possible pending-dividend flushes and a `TotalNetworks`-scaled
         /// `DbWeight` term for the per-subnet persist (and prune cleanup).
         /// Re-benchmark on reference hardware so the base measurement
         /// includes that work.
         #[pallet::call_index(62)]
         #[pallet::weight(Pallet::<T>::root_register_dispatch_weight())]
-        pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-            Self::do_root_register(origin, hotkey)
+        pub fn root_register(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let (base, _) = Self::root_register_weight_parts();
+            let mut work = crate::staking::BasketFlushWork::default();
+            let result = Self::do_root_register_with_flush_work(origin, hotkey, &mut work);
+            Self::with_actual_weight(result, base.saturating_add(Self::basket_flush_weight(work)))
         }
 
         /// User register a new subnetwork via burning token

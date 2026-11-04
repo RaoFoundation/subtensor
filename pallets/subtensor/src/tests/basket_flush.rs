@@ -12,7 +12,6 @@ use crate::tests::claim_root::{
     escrow_alpha, fund_pool, fund_shares, register_on_root, zero_claim_threshold,
 };
 use crate::tests::mock::*;
-use crate::weights::WeightInfo;
 use crate::{
     AlphaV2, BasketShares, IsNetworkMember, Keys, PendingBasketDeposits, PendingBasketFlushCursor,
     RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetTAO, TotalNetworks, Uids,
@@ -664,12 +663,17 @@ fn test_flush_root_eviction_preserves_out_of_band_dividend() {
         let tao_before = SubnetTAO::<Test>::get(netuid);
         SubnetTAO::<Test>::insert(netuid, tao_before.saturating_div(4u64.into()));
 
-        assert!(SubtensorModule::replace_neuron(
+        let mut work = BasketFlushWork::default();
+        assert!(SubtensorModule::replace_neuron_with_flush_work(
             NetUid::ROOT,
             uid,
             &replacement,
-            1
+            1,
+            &mut work,
         ));
+        // The first attempt snapshots rights; the second still retries the retained
+        // out-of-band credit after membership is removed. Both attempts cost work.
+        assert_eq!(work, BasketFlushWork::new(6, 2));
         assert_eq!(Keys::<Test>::get(NetUid::ROOT, uid), replacement);
         assert!(!Uids::<Test>::contains_key(NetUid::ROOT, hot));
         assert_eq!(
@@ -1055,20 +1059,122 @@ fn test_basket_flush_fits_declared_budget_bounds_queued_rows() {
     });
 }
 
-/// Root replacement may synchronously flush the pruned validator's full pending-dividend queue.
-/// Keep that worst-case allowance in the dispatch weight even when the flush aborts registration.
 #[test]
-fn test_root_register_declared_weight_includes_basket_flush_bound() {
+fn test_root_register_without_eviction_does_not_reserve_dividend_settlement() {
     new_test_ext(1).execute_with(|| {
-        // Remove the independently-accounted auto-parent term so the expected fixed allowance is
-        // exact and this test fails if the basket-flush component is dropped.
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 1);
         TotalNetworks::<Test>::put(0);
-        let expected = <Test as crate::Config>::WeightInfo::root_register()
-            .saturating_add(SubtensorModule::basket_flush_weight_bound())
-            .saturating_add(SubtensorModule::hotkey_owner_policy_weight())
-            .saturating_add(<Test as frame_system::Config>::DbWeight::get().reads(1));
+        let (base, pending) = SubtensorModule::root_register_weight_parts();
+        assert_eq!(pending, frame_support::weights::Weight::zero());
+        assert_eq!(SubtensorModule::root_register_dispatch_weight(), base);
+        // A different validator's queued credits cannot make this registration expensive.
+        PendingBasketDeposits::<Test>::insert(
+            U256::from(123),
+            NetUid::from(1),
+            AlphaBalance::from(1),
+        );
+        assert_eq!(SubtensorModule::root_register_dispatch_weight(), base);
+    });
+}
 
-        assert_eq!(SubtensorModule::root_register_dispatch_weight(), expected);
+fn root_replacement_fixture() -> (U256, U256, U256) {
+    add_network(NetUid::ROOT, 1, 0);
+    SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 1);
+    SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
+    SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+    SubtensorModule::set_immunity_period(NetUid::ROOT, 0);
+    SubtensorModule::set_min_burn(NetUid::ROOT, TaoBalance::ZERO);
+    SubtensorModule::set_burn(NetUid::ROOT, TaoBalance::ZERO);
+    let old = U256::from(6101);
+    root_register_ok(old, U256::from(6102));
+    let coldkey = U256::from(6103);
+    let hotkey = U256::from(6104);
+    (old, coldkey, hotkey)
+}
+
+#[test]
+fn test_root_register_empty_eviction_queue_has_no_flush_charge() {
+    new_test_ext(1).execute_with(|| {
+        let (old, coldkey, hotkey) = root_replacement_fixture();
+        PendingBasketDeposits::<Test>::insert(
+            U256::from(9999),
+            NetUid::from(1),
+            AlphaBalance::from(1),
+        );
+        let (base, pending) = SubtensorModule::root_register_weight_parts();
+        assert_eq!(pending, frame_support::weights::Weight::zero());
+        let post = SubtensorModule::root_register(RuntimeOrigin::signed(coldkey), hotkey).unwrap();
+        assert_eq!(post.actual_weight, Some(base));
+        assert!(!Uids::<Test>::contains_key(NetUid::ROOT, old));
+    });
+}
+
+#[test]
+fn test_root_register_refunds_flush_reserve_but_charges_both_dust_scans() {
+    new_test_ext(1).execute_with(|| {
+        let (old, coldkey, hotkey) = root_replacement_fixture();
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(1_000_001));
+        for i in 1..=2_u16 {
+            let netuid = NetUid::from(i);
+            crate::NetworksAdded::<Test>::insert(netuid, true);
+            crate::SubnetMechanism::<Test>::insert(netuid, 1);
+            crate::SubnetFastMovingPrice::<Test>::insert(
+                netuid,
+                substrate_fixed::types::U64F64::from_num(1),
+            );
+            queue_credit(&old, netuid, 1_000_000);
+        }
+        let (base, pending) = SubtensorModule::root_register_weight_parts();
+        assert_eq!(
+            pending,
+            SubtensorModule::root_pending_dividend_weight_for(&old, true).saturating_mul(2)
+        );
+        let declared = SubtensorModule::root_register_dispatch_weight();
+        let post = SubtensorModule::root_register(RuntimeOrigin::signed(coldkey), hotkey).unwrap();
+        // First scan retains two dust credits; the post-eviction scan recycles both.
+        let actual = base.saturating_add(SubtensorModule::basket_flush_weight(
+            BasketFlushWork::new(4, 2),
+        ));
+        assert_eq!(post.actual_weight, Some(actual));
+        assert!(actual.all_lte(declared) && actual != declared);
+        assert_eq!(PendingBasketDeposits::<Test>::iter_prefix(old).count(), 0);
+    });
+}
+
+#[test]
+fn test_root_register_failed_flush_refunds_unused_work_without_losing_credits() {
+    new_test_ext(1).execute_with(|| {
+        let (old, coldkey, hotkey) = root_replacement_fixture();
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(u64::MAX));
+        for i in 1..=MAX_BASKET_ROWS.saturating_add(1) {
+            let netuid = NetUid::from(i as u16);
+            crate::NetworksAdded::<Test>::insert(netuid, true);
+            crate::SubnetMechanism::<Test>::insert(netuid, 1);
+            crate::SubnetFastMovingPrice::<Test>::insert(
+                netuid,
+                substrate_fixed::types::U64F64::from_num(1),
+            );
+            queue_credit(&old, netuid, 1);
+        }
+        let (base, _) = SubtensorModule::root_register_weight_parts();
+        let declared = SubtensorModule::root_register_dispatch_weight();
+        let error =
+            SubtensorModule::root_register(RuntimeOrigin::signed(coldkey), hotkey).unwrap_err();
+        assert_eq!(
+            error.error,
+            crate::Error::<Test>::BasketDepositPending.into()
+        );
+        let actual = base.saturating_add(SubtensorModule::basket_flush_weight(
+            BasketFlushWork::new(MAX_BASKET_ROWS + 1, 0),
+        ));
+        assert_eq!(error.post_info.actual_weight, Some(actual));
+        assert!(actual.all_lte(declared) && actual != declared);
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, old));
+        assert!(!Uids::<Test>::contains_key(NetUid::ROOT, hotkey));
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_prefix(old).count(),
+            (MAX_BASKET_ROWS + 1) as usize
+        );
     });
 }
 

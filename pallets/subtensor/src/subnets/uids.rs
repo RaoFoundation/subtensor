@@ -1,4 +1,5 @@
 use super::*;
+use crate::staking::BasketFlushWork;
 use frame_support::storage::IterableStorageDoubleMap;
 use sp_runtime::{PerU16, Percent};
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
@@ -73,6 +74,22 @@ impl<T: Config> Pallet<T> {
         new_hotkey: &T::AccountId,
         block_number: u64,
     ) -> bool {
+        Self::replace_neuron_with_flush_work(
+            netuid,
+            uid_to_replace,
+            new_hotkey,
+            block_number,
+            &mut BasketFlushWork::default(),
+        )
+    }
+
+    pub(crate) fn replace_neuron_with_flush_work(
+        netuid: NetUid,
+        uid_to_replace: u16,
+        new_hotkey: &T::AccountId,
+        block_number: u64,
+        flush_work: &mut BasketFlushWork,
+    ) -> bool {
         log::debug!(
             "replace_neuron( netuid: {netuid:?} | uid_to_replace: {uid_to_replace:?} | new_hotkey: {new_hotkey:?} ) "
         );
@@ -95,7 +112,9 @@ impl<T: Config> Pallet<T> {
         // on root (earned dividends must deposit, not recycle). After membership drops,
         // a second flush recycles leftover sub-threshold dust the hotkey can no longer
         // merge by earning more.
-        if netuid.is_root() && !Self::prepare_root_neuron_for_removal(&old_hotkey) {
+        if netuid.is_root()
+            && !Self::prepare_root_neuron_for_removal_with_work(&old_hotkey, flush_work)
+        {
             return false;
         }
 
@@ -109,7 +128,8 @@ impl<T: Config> Pallet<T> {
         Keys::<T>::remove(netuid, uid_to_replace);
 
         if netuid.is_root() {
-            let _ = Self::flush_basket_deposits_for_hotkey(&old_hotkey);
+            let (work, _, _) = Self::flush_basket_deposits_for_hotkey(&old_hotkey);
+            *flush_work = flush_work.saturating_add(work);
         }
 
         // 3. Create new set memberships.
@@ -144,7 +164,15 @@ impl<T: Config> Pallet<T> {
     /// A price-band or valuation deferral leaves the neuron untouched so its existing root
     /// stakers remain the claimant base when the credit is retried.
     fn prepare_root_neuron_for_removal(hotkey: &T::AccountId) -> bool {
-        let (_, _, completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+        Self::prepare_root_neuron_for_removal_with_work(hotkey, &mut BasketFlushWork::default())
+    }
+
+    fn prepare_root_neuron_for_removal_with_work(
+        hotkey: &T::AccountId,
+        flush_work: &mut BasketFlushWork,
+    ) -> bool {
+        let (work, _, completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+        *flush_work = flush_work.saturating_add(work);
         if completed {
             Self::clear_auto_parent_for_root_validator(hotkey);
         }

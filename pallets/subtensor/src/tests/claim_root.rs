@@ -3949,7 +3949,8 @@ fn test_root_register_requires_registrant_to_out_stake_pruned_seat() {
         for i in 0..stakes_tao.len() as u64 {
             let sybil = U256::from(30_000 + i);
             assert_err!(
-                SubtensorModule::root_register(RuntimeOrigin::signed(attacker), sybil),
+                SubtensorModule::root_register(RuntimeOrigin::signed(attacker), sybil)
+                    .map_err(|error| error.error),
                 Error::<Test>::StakeTooLowForRoot
             );
             step_block(1);
@@ -4001,7 +4002,8 @@ fn test_root_register_requires_registrant_to_out_stake_pruned_seat() {
         );
         add_balance_to_coldkey_account(&low_coldkey, TaoBalance::from(100 * TAO));
         assert_err!(
-            SubtensorModule::root_register(RuntimeOrigin::signed(low_coldkey), low_hotkey),
+            SubtensorModule::root_register(RuntimeOrigin::signed(low_coldkey), low_hotkey)
+                .map_err(|error| error.error),
             Error::<Test>::StakeTooLowForRoot
         );
 
@@ -4067,10 +4069,10 @@ fn test_root_register_interval_cap_binds_per_tempo() {
                 U256::from(4000 + i),
             );
             match result {
-                Ok(()) => accepted += 1,
+                Ok(_) => accepted += 1,
                 Err(error) => {
                     assert_eq!(
-                        error,
+                        error.error,
                         Error::<Test>::TooManyRegistrationsThisInterval.into()
                     );
                     refused += 1;

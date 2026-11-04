@@ -44,12 +44,15 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn update_moving_price(netuid: NetUid) {
+        let Some(first_emission_block) = FirstEmissionBlockNumber::<T>::get(netuid) else {
+            // Basket price protection needs a live fast anchor even before start_call.
+            // The slow emission/pruning EMA must not accumulate a pre-start history.
+            Self::update_fast_moving_price(netuid);
+            return;
+        };
         let blocks_since_start_call = U64F64::saturating_from_num({
-            // We expect FirstEmissionBlockNumber to be set earlier, and we take the block when
-            // `start_call` was called (first block before FirstEmissionBlockNumber).
-            let start_call_block = FirstEmissionBlockNumber::<T>::get(netuid)
-                .unwrap_or_default()
-                .saturating_sub(1);
+            // start_call records the following block as the first emission block.
+            let start_call_block = first_emission_block.saturating_sub(1);
 
             Self::get_current_block_as_u64().saturating_sub(start_call_block)
         });

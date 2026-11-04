@@ -324,6 +324,49 @@ mod pallet_benchmarks {
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
     }
 
+    /// Root eviction scans dust while registered, then scans and recycles it after
+    /// membership removal. Keep both passes in the bounded registration fixture.
+    #[benchmark(extra)]
+    fn root_register_pending_dividends() {
+        setup_full_root_registration_benchmark::<T>();
+        let coldkey: T::AccountId = account("root_pending_cold", 0, 1);
+        let hotkey: T::AccountId = account("root_pending_hot", 0, 1);
+        fund_for_registration::<T>(NetUid::ROOT, &coldkey);
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(2_u64),
+        );
+        let uid =
+            Subtensor::<T>::get_root_neuron_to_prune().expect("full root has a pruneable seat");
+        let old_hotkey = Keys::<T>::get(NetUid::ROOT, uid);
+        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(1_000_001));
+        for i in 1..=crate::MAX_ROOT_CLAIM_WORK {
+            let netuid = NetUid::from(i as u16);
+            NetworksAdded::<T>::insert(netuid, true);
+            SubnetMechanism::<T>::insert(netuid, 1);
+            SubnetFastMovingPrice::<T>::insert(netuid, U64F64::from_num(1));
+            SubnetAlphaOut::<T>::insert(netuid, AlphaBalance::from(1_000_000_u64));
+            PendingBasketDeposits::<T>::insert(
+                &old_hotkey,
+                netuid,
+                AlphaBalance::from(1_000_000_u64),
+            );
+        }
+
+        TotalNetworks::<T>::put(crate::MAX_ROOT_CLAIM_WORK.saturating_add(1) as u16);
+
+        #[extrinsic_call]
+        root_register(RawOrigin::Signed(coldkey), hotkey.clone());
+
+        assert_eq!(Keys::<T>::get(NetUid::ROOT, uid), hotkey);
+        assert_eq!(
+            PendingBasketDeposits::<T>::iter_prefix(old_hotkey).count(),
+            0
+        );
+    }
+
     /// Exercise the full queue-check axis shared by root stake and root churn. The
     /// dispatch envelopes reuse existing quote/credit weights; measurements remain a
     /// reference-hardware task, not locally invented constants.

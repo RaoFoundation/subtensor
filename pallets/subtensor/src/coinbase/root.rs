@@ -16,6 +16,7 @@
 // DEALINGS IN THE SOFTWARE.
 
 use super::*;
+use crate::staking::BasketFlushWork;
 use crate::weights::WeightInfo;
 use safe_math::*;
 use substrate_fixed::types::{I64F64, U64F64};
@@ -63,14 +64,16 @@ impl<T: Config> Pallet<T> {
         false
     }
 
-    /// Declared weight for [`crate::Pallet::root_register`].
-    ///
-    /// `WeightInfo::root_register` is the pre-auto-parent and pre-basket-flush
-    /// measurement. The extra terms cover a worst-case pending-dividend flush
-    /// when a seat is pruned, plus `TotalNetworks`-scaled `DbWeight` for one
-    /// persist per subnet on apply and one more persist per subnet on prune.
-    /// This is not a substitute for a reference re-benchmark.
+    /// Admission reserves only the evicted hotkey's pending work, never a coldkey-wide
+    /// claim. Replacement can flush twice: before removing membership and afterwards.
     pub fn root_register_dispatch_weight() -> Weight {
+        let (base, pending) = Self::root_register_weight_parts();
+        base.saturating_add(pending)
+    }
+
+    /// Separate the refundable settlement allowance from the fixed registration work.
+    /// The existing auto-parent allowance covers apply and prune persists per subnet.
+    pub(crate) fn root_register_weight_parts() -> (Weight, Weight) {
         let n = TotalNetworks::<T>::get() as u64;
         // Per persist: subnet exists, owner, child set, pending, parent
         // of the owner, plus the child/parent writes.
@@ -78,8 +81,7 @@ impl<T: Config> Pallet<T> {
         const WRITES_PER_PERSIST: u64 = 4;
         const PROOF_PER_PERSIST: u64 = 256;
         let persists = n.saturating_mul(2);
-        <T as crate::pallet::Config>::WeightInfo::root_register()
-            .saturating_add(Self::basket_flush_weight_bound())
+        let mut base = <T as crate::pallet::Config>::WeightInfo::root_register()
             .saturating_add(Self::hotkey_owner_policy_weight())
             .saturating_add(T::DbWeight::get().reads(1))
             .saturating_add(T::DbWeight::get().reads(persists.saturating_mul(READS_PER_PERSIST)))
@@ -87,7 +89,34 @@ impl<T: Config> Pallet<T> {
             .saturating_add(Weight::from_parts(
                 0,
                 persists.saturating_mul(PROOF_PER_PERSIST),
-            ))
+            ));
+        let validators = Self::get_num_root_validators();
+        base = base.saturating_add(T::DbWeight::get().reads(2));
+        if validators < Self::get_max_root_validators() {
+            return (base, Weight::zero());
+        }
+        // Weight inspection and dispatch each select the same eviction candidate.
+        // Each extra selection reads Keys, immunity/registration and total stake.
+        base = base.saturating_add(
+            T::DbWeight::get().reads(u64::from(validators).saturating_mul(10).saturating_add(4)),
+        );
+        let Some(uid) = Self::get_root_neuron_to_prune() else {
+            return (base, Weight::zero());
+        };
+        let hotkey = Keys::<T>::get(NetUid::ROOT, uid);
+        // Include the bounded queue inspection even if it finds no pending credits.
+        // No new execution/proof constants: reuse the existing single-hotkey envelope.
+        base = base.saturating_add(
+            T::DbWeight::get().reads(
+                u64::from(crate::MAX_ROOT_CLAIM_WORK)
+                    .saturating_add(1)
+                    .saturating_mul(2),
+            ),
+        );
+        (
+            base,
+            Self::root_pending_dividend_weight_for(&hotkey, true).saturating_mul(2),
+        )
     }
 
     /// Registers a user's hotkey to the root network.
@@ -110,8 +139,16 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     /// * `DispatchResult`: A result type indicating success or failure of the registration.
     ///
-    #[frame_support::transactional]
     pub fn do_root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
+        Self::do_root_register_with_flush_work(origin, hotkey, &mut BasketFlushWork::default())
+    }
+
+    #[frame_support::transactional]
+    pub(crate) fn do_root_register_with_flush_work(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+        flush_work: &mut BasketFlushWork,
+    ) -> DispatchResult {
         // --- 0. Get the unique identifier (UID) for the root network.
         let current_block_number: u64 = Self::get_current_block_as_u64();
         ensure!(
@@ -197,7 +234,13 @@ impl<T: Config> Pallet<T> {
             }
             Some((lowest_uid, replaced_hotkey)) => {
                 ensure!(
-                    Self::replace_neuron(NetUid::ROOT, lowest_uid, &hotkey, current_block_number),
+                    Self::replace_neuron_with_flush_work(
+                        NetUid::ROOT,
+                        lowest_uid,
+                        &hotkey,
+                        current_block_number,
+                        flush_work
+                    ),
                     Error::<T>::BasketDepositPending
                 );
                 log::debug!(
