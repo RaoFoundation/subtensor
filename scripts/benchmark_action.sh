@@ -107,6 +107,8 @@ save_progress() {
   fi
   {
     echo "Head SHA: $HEAD_SHA"
+    echo "Run ID: ${GITHUB_RUN_ID:-local}"
+    echo "Run attempt: ${GITHUB_RUN_ATTEMPT:-1}"
     echo "Status: $status"
     echo "Completed pallets: ${#SUMMARY[@]}/${#PALLETS[@]}"
     echo "Selected scope (completion covers only this selection):"
@@ -223,5 +225,5 @@ if (( ${#PATCHED[@]} == 0 )); then
   echo "All selected weights within tolerance."
   exit 0
 fi
-echo "Patch ready at $PATCH_DIR/benchmark_patch.diff (download bench-patch for manual runs; apply-benchmark-patch label for PR-label runs)."
+echo "Patch ready at $PATCH_DIR/benchmark_patch.diff — add 'apply-benchmark-patch' to the PR to apply this branch's latest benchmark results."
 exit 2

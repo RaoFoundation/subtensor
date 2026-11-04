@@ -22,70 +22,83 @@ jobs:
     needs: trusted-pr
     if: ${{ github.event.label.name == 'apply-benchmark-patch' }}
     runs-on: Benchmarking
+    concurrency:
+      group: apply-benchmark-patch-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
 
     steps:
       - name: Check out PR branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
+
+      - name: Validate benchmark patch tooling and source commit
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests -p 'test_*benchmark*.py'
+          if [[ "$(git rev-parse HEAD)" != "$PR_HEAD_SHA" ]]; then
+            echo "The PR branch changed after the label was added. Benchmark its current commit and reapply the label." >&2
+            exit 1
+          fi
+          echo "BENCH_PATCH_DIR=$RUNNER_TEMP/benchmark-patch-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
 
       - name: Install GitHub CLI
         run: |
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" gh
 
-      - name: Download latest bench patch artifact from heavy workflow
-        uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
-        with:
-          workflow: run-benchmarks.yml
-          pr: ${{ github.event.pull_request.number }}
-          name: bench-patch
-          path: .
-          allow_forks: false
-          check_artifacts: true
-          search_artifacts: true
-          workflow_conclusion: ""
-          if_no_artifact_found: warn
-
-      - name: Extract bench patch archive
+      - name: Download latest benchmark results for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -f "bench-patch.tgz" ]; then
-            tar -xzf bench-patch.tgz
-          elif [ -f "bench-patch/bench-patch.tgz" ]; then
-            tar -xzf bench-patch/bench-patch.tgz
-          else
-            echo "No bench-patch.tgz found after download."
-            exit 0
-          fi
-          ls -la .bench_patch || true
+          python3 scripts/apply_benchmark_patch.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --branch "$PR_HEAD_BRANCH" \
+            --sha "$PR_HEAD_SHA" \
+            --output-dir "$BENCH_PATCH_DIR"
+          {
+            echo '### Selected benchmark results'
+            echo '```text'
+            cat "$BENCH_PATCH_DIR/summary.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Apply and commit patch
         run: |
           set -euo pipefail
 
-          if [ ! -d ".bench_patch" ]; then
-            echo "No .bench_patch directory found after extraction."
+          if [ ! -s "$BENCH_PATCH_DIR/benchmark_patch.diff" ]; then
+            echo "The latest benchmark run found no weight drift; nothing to apply."
             exit 0
           fi
 
-          if [ -f ".bench_patch/summary.txt" ]; then
-            echo "==== summary.txt ===="
-            sed -n '1,200p' .bench_patch/summary.txt || true
-            echo "====================="
-          fi
+          # A benchmark patch may update only pallet weight files.
+          python3 - "$BENCH_PATCH_DIR/benchmark_patch.diff" <<'PY'
+          import re
+          import subprocess
+          import sys
 
-          if [ ! -f ".bench_patch/benchmark_patch.diff" ]; then
-            echo "No benchmark_patch.diff found (no auto-patch created)."
-            exit 0
-          fi
+          stats = subprocess.check_output(["git", "apply", "--numstat", "-z", sys.argv[1]])
+          records = [record for record in stats.split(b"\0") if record]
+          if not records:
+              raise SystemExit("Benchmark patch contains no changes")
+          for record in records:
+              added, removed, path = record.split(b"\t", 2)
+              if not added.isdigit() or not removed.isdigit() or not re.fullmatch(rb"pallets/[A-Za-z0-9_-]+/src/weights\.rs", path):
+                  raise SystemExit("Benchmark patch contains an unexpected file")
+          PY
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if ! git apply --index --3way .bench_patch/benchmark_patch.diff; then
+          if ! git apply --index --3way "$BENCH_PATCH_DIR/benchmark_patch.diff"; then
             echo "Patch failed to apply cleanly. Please re-run Validate-Benchmarks to regenerate."
             exit 1
           fi
@@ -114,6 +127,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo "${{ github.repository }}" \
+          gh pr edit "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
             --remove-label "apply-benchmark-patch" || true

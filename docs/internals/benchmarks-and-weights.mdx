@@ -198,11 +198,18 @@ Completed results are checkpointed between pallets so a later failure or timeout
 does not discard earlier measurements. A successful targeted run validates only
 its recorded selection.
 
-For PR-label runs, adding `apply-benchmark-patch` applies the patch from the PR's
-benchmark artifact. For manual runs, download that run's `bench-patch` artifact,
-extract `bench-patch.tgz`, check `.bench_patch/summary.txt` for its source SHA and
-scope, and apply `.bench_patch/benchmark_patch.diff` to the corresponding checkout.
-The apply label searches PR-associated runs and does not select manual dispatches.
+After the run finishes, add `apply-benchmark-patch` to the PR to commit and push
+the latest benchmark results for its branch and current commit. This works for
+manual and PR-label runs, whether they measured the full suite, one pallet, or
+individual extrinsics. Only drifted weights from that run's selection are applied.
+Benchmarks themselves never commit or push changes.
+
+The apply workflow selects the latest actual benchmark execution, including
+reruns. It verifies the artifact's source commit and run attempt before applying
+it. A completed run with no drift makes no changes; an unfinished run, missing
+artifact, or incomplete measurements fails clearly instead of applying an older
+patch. A drift failure is expected and can be applied when all measurements
+completed. Adding or removing the apply label does not start another benchmark.
 
 ## Running benchmarks locally
 
