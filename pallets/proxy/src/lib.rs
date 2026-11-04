@@ -774,7 +774,7 @@ pub mod pallet {
         /// Create a pure proxy and its permanent protection in one transaction.
         /// Its address derivation is identical to `create_pure`.
         #[pallet::call_index(12)]
-        #[pallet::weight(T::WeightInfo::create_protected_pure())]
+        #[pallet::weight(T::WeightInfo::create_protected_pure().saturating_add(T::DbWeight::get().reads(1)))]
         #[frame_support::transactional]
         pub fn create_protected_pure(
             origin: OriginFor<T>,

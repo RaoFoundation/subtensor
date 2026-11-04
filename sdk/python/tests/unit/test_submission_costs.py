@@ -93,7 +93,7 @@ async def test_pure_creation_reserve_is_quoted_aggregated_and_enforced(
 async def test_pure_reserve_uses_runtime_value_and_aggregates_with_payment():
     substrate = chain()
     wallet = protected_wallet(substrate, 7)
-    substrate.seed_constant("HashedAccounts", "DerivedRegistrationDeposit", DEPOSIT + 1)
+    substrate.seed("HashedAccounts", "HashedAccountRegistrationDeposit", [], DEPOSIT + 1)
     intent = Batch([CreatePureProxy(proxy_type="Any"), Transfer(BOB, 1)])
     executor = Executor(substrate)
     for headroom in (-1, 0):
@@ -101,6 +101,55 @@ async def test_pure_reserve_uses_runtime_value_and_aggregates_with_payment():
         plan = await executor.plan(intent, wallet, shielded=False, policy=Policy(max_spend_tao=cap))
         assert plan.ok is (headroom == 0)
         assert plan.spend == Balance.from_rao(DEPOSIT + 1 + 10**9)
+
+
+@pytest.mark.parametrize("deposit", [0, DEPOSIT, DEPOSIT + 1])
+async def test_pure_reserve_rereads_live_shared_deposit(deposit):
+    substrate = chain()
+    wallet = protected_wallet(substrate, 7)
+    executor = Executor(substrate)
+    intent = CreatePureProxy(proxy_type="Any")
+    await executor.preflight(intent, wallet, shielded=False)
+    substrate.seed("HashedAccounts", "HashedAccountRegistrationDeposit", [], deposit)
+    plan = await executor.plan(intent, wallet, shielded=False)
+    assert plan.extras["protected_pure_registration_deposit_rao"] == deposit
+    assert (plan.call.module, plan.call.function) == ("Utility", "batch_all")
+    guard, creation = plan.call.params["calls"]
+    assert (guard.module, guard.function, guard.params) == (
+        "HashedAccounts",
+        "check_registration_deposit",
+        {"max_deposit": deposit},
+    )
+    assert (creation.module, creation.function) == ("Proxy", "create_protected_pure")
+    assert plan.extras["pure_proxy_reserves"] == {wallet.ss58_address: deposit + 50}
+    preview = await executor.preflight(intent, wallet, shielded=False)
+    assert preview.required_free.rao == deposit + 50 + INNER
+
+
+async def test_legacy_pure_creation_keeps_direct_call():
+    substrate = chain()
+    wallet = protected_wallet(substrate, 7)
+    plan = await Executor(substrate).plan(CreatePureProxy(proxy_type="Any"), wallet)
+    assert (plan.call.module, plan.call.function) == ("Proxy", "create_protected_pure")
+
+
+async def test_batched_pure_creations_each_keep_atomic_price_bound():
+    substrate = chain()
+    substrate.seed("HashedAccounts", "HashedAccountRegistrationDeposit", [], DEPOSIT + 1)
+    wallet = protected_wallet(substrate, 7)
+    intent = Batch([CreatePureProxy(proxy_type="Any", index=i) for i in range(2)])
+    plan = await Executor(substrate).plan(intent, wallet, shielded=False)
+    assert plan.spend.rao == 2 * (DEPOSIT + 1)
+    assert [call.function for call in plan.call.params["calls"]] == [
+        "check_registration_deposit",
+        "create_protected_pure",
+        "check_registration_deposit",
+        "create_protected_pure",
+    ]
+    assert [call.params for call in plan.call.params["calls"][::2]] == [
+        {"max_deposit": DEPOSIT + 1},
+        {"max_deposit": DEPOSIT + 1},
+    ]
 
 
 async def test_classical_pure_creation_keeps_ordinary_route_and_no_registration_cost():

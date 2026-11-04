@@ -99,7 +99,7 @@ creating or restoring a keyfile.
 
 Standard ML-DSA and Falcon wallets use one ordinary **SS58 address** for display, receiving, and
 account identity. They can receive funds and submit their first transaction without
-registration, a sponsor, or a 0.2 TAO registration reserve. Ordinary transaction
+registration, a sponsor, or a registration reserve. Ordinary transaction
 fees and operation-specific deposits still apply. Recovery deterministically
 selects the same fixed key whose AccountId cannot also decode as an Ed25519 or
 Sr25519 public key.
@@ -108,8 +108,9 @@ All hashed wallets require registration before use, including rotating
 Sr25519, Ed25519, ML-DSA-65, Falcon-512, and Falcon-1024.
 Their `tao_` receiving addresses carry a public registration descriptor without revealing the active
 signing public key. A wallet has the same address on every network; registration,
-balances, and generations are independent on each chain. Creating and restoring
-wallets requires no network connection.
+balances, and generations are independent on each chain. Python key creation and
+wallet recovery work offline. CLI creation of hashed keys requires a connection
+to register them after explicit deposit consent.
 
 `btcli wallet show` and `btcli wallet list` always show the complete **receiving
 address** first for these wallets. Share this address for payments, including
@@ -125,7 +126,8 @@ which address is primary.
 
 If the RPC is unavailable, the commands still show local public addresses and
 report registration as unknown. Use `--offline` to skip the check entirely.
-Creation and recovery of rotating wallets also show both forms with registration not checked.
+Successful CLI creation of hashed keys shows finalized registration. Recovery
+shows both forms with registration not checked.
 The receiving address also supports watch-only recovery. JSON output exposes `ss58`,
 `receiving_address`, `primary_address`, and `registration` (with `coldkey_` or
 `hotkey_` prefixes where applicable); the existing `address` field continues to
@@ -145,14 +147,19 @@ to the payment and transaction fees. The amount comes from that chain's
 runtime, not from a fixed CLI price. Declining submits nothing. An already
 registered recipient requires no new deposit or sponsorship prompt.
 
-The candidate runtime uses one **0.2 TAO registration deposit** for hashed
-Sr25519/Ed25519, rotating ML-DSA/Falcon, and registered protected derived accounts.
-Standard ML-DSA and Falcon wallets do not register or reserve this deposit. Normal
-multisig and proxy deposits remain separate. Changing the registration price
-does not refund deposits already reserved on an earlier runtime.
+The runtime uses one shared registration deposit, **0.2 TAO by default**, for
+hashed Sr25519/Ed25519, rotating ML-DSA/Falcon, and registered protected derived
+accounts. The current amount is stored in
+`HashedAccounts.HashedAccountRegistrationDeposit`; sudo can change it with
+`AdminUtils.sudo_set_hashed_account_registration_deposit(value)`, where `value`
+is in rao and may be zero. Changes apply only to future registrations; amounts
+already permanently reserved remain unchanged. Standard ML-DSA and Falcon wallets
+do not register or reserve this deposit. Normal multisig and proxy deposits remain
+separate.
 
-Account registration defaults to MEV Shield, including registration added to
-a transfer. The CLI respects `--no-mev-shield` and the `mev_shield` setting;
+Wallet creation and `wallet register` require MEV Shield. Other account
+registration flows default to MEV Shield, including registration added to
+a transfer. Those flows respect `--no-mev-shield` and the `mev_shield` setting;
 `--mev-shield` requires encrypted submission. In the SDK, `execute` and
 `submit_call` accept `shielded=False` to opt out or `shielded=True` to require
 Shield. As with staking, the default can fall back to public submission with a
@@ -240,7 +247,23 @@ The chain must also support the wallet's account profile and have usable
 authorization weights for the selected profile. The runtime advertises supported
 ML-DSA profiles in `HashedAccounts.MldsaAccountProfiles` and Falcon profiles in
 `HashedAccounts.FalconAccountProfiles`.
-Wallet creation is local; transaction use requires a compatible, activated chain.
+Python wallet constructors create keys locally; transaction use requires a compatible,
+activated chain. Register hashed keys with `client.register_wallet(wallet, payer=payer,
+max_registration_deposit=Balance.from_tao("0.4"))` before receiving funds or sharing
+their addresses. The cap is the total reserve you approve; the live chain amount may differ.
+
+For hashed keys, `btcli wallet create`, `new-coldkey`, and `new-hotkey` show the live
+registration deposit and require an explicit y/n confirmation before creating or
+replacing any key files. **No cancels creation entirely.** Yes registers through
+MEV Shield and waits for finalized registration. The prompt explains that third
+parties can otherwise block registration and potentially make received funds
+inaccessible. Supply an existing funded wallet with `--registration-payer`; a new
+hotkey defaults to its existing coldkey as payer. `--yes` does not bypass this
+confirmation, and hashed creation requires an interactive terminal.
+
+If registration fails after the keys are saved, keep the recovery phrases and retry
+with `btcli wallet register --registration-payer PAYER --key both` using the same
+wallet and network. Existing registrations are verified without another deposit.
 See the [ML-DSA specification](/docs/design/ml-dsa-accounts-spec) and
 [Falcon wallet protocol](/docs/design/falcon-accounts) for protocol and activation
 requirements.

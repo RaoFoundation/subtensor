@@ -1246,6 +1246,14 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_hashed_account_registration_deposit() {
+        let value = subtensor_runtime_common::TaoBalance::new(300_000_000);
+        #[extrinsic_call]
+        _(RawOrigin::Root, value);
+        assert_eq!(T::RegistrationDeposit::get(), value);
+    }
+
+    #[benchmark]
     fn sudo_set_basket_trading_enabled() {
         #[extrinsic_call]
         _(RawOrigin::Root, true);

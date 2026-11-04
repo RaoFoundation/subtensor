@@ -99,7 +99,7 @@ fn rotating_falcon_registers_once_and_advances_only_matching_profile_and_generat
                 RuntimeOrigin::signed(sponsor()),
                 descriptor.into()
             ));
-            assert_eq!(Balances::reserved_balance(sponsor()), 20);
+            assert_eq!(Balances::reserved_balance(sponsor()), 10);
             assert!(HashedAccounts::authority_meets(
                 &account,
                 SecurityFloor::PqRequired

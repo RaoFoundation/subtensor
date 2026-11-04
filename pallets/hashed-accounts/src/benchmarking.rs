@@ -595,6 +595,14 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn check_registration_deposit() {
+        let sponsor: AccountId32 = whitelisted_caller();
+        let max_deposit = BalanceOf::<T>::max_value();
+        #[extrinsic_call]
+        _(RawOrigin::Signed(sponsor), max_deposit);
+    }
+
+    #[benchmark]
     fn check_registered() -> Result<(), BenchmarkError> {
         let (sponsor, descriptor, account, _) = setup::<T>()?;
         Pallet::<T>::register(RawOrigin::Signed(sponsor.clone()).into(), descriptor.into())?;

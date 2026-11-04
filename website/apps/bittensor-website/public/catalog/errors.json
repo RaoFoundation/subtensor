@@ -267,8 +267,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 265,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L265",
+          "line": 277,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L277",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -483,8 +483,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 267,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L267",
+          "line": 279,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L279",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -825,8 +825,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 229,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L229",
+          "line": 245,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L245",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1410,8 +1410,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 253,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L253",
+          "line": 269,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L269",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1428,8 +1428,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 251,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L251",
+          "line": 267,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L267",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1779,8 +1779,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 249,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L249",
+          "line": 265,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L265",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -1804,8 +1804,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 271,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L271",
+          "line": 283,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L283",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -1822,8 +1822,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 251,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L251",
+          "line": 263,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L263",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -1840,8 +1840,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 247,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L247",
+          "line": 259,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L259",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -2461,8 +2461,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 261,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L261",
+          "line": 273,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L273",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -2479,8 +2479,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 255,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L255",
+          "line": 271,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L271",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3018,8 +3018,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 269,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L269",
+          "line": 281,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L281",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -3180,8 +3180,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 259,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L259",
+          "line": 271,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L271",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -3379,8 +3379,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 263,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L263",
+          "line": 275,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L275",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -3432,8 +3432,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 243,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L243",
+          "line": 259,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L259",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3792,8 +3792,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 227,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L227",
+          "line": 243,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L243",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3810,8 +3810,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 241,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L241",
+          "line": 257,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L257",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3828,8 +3828,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 239,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L239",
+          "line": 255,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L255",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3900,8 +3900,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 225,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L225",
+          "line": 241,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L241",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3998,8 +3998,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 235,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L235",
+          "line": 251,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L251",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4016,8 +4016,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 237,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L237",
+          "line": 253,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L253",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4133,8 +4133,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 231,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L231",
+          "line": 247,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L247",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4711,8 +4711,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 245,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L245",
+          "line": 261,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L261",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4765,8 +4765,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 253,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L253",
+          "line": 265,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L265",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -5079,8 +5079,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 247,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L247",
+          "line": 263,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L263",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5299,6 +5299,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/Reentrancy/content.md",
       "pallets": [
         "EVM"
+      ]
+    },
+    "RegistrationDepositTooHigh": {
+      "code": "limit_exceeded",
+      "description": "The current hashed account registration reserve exceeds the transaction's approved maximum. Read HashedAccounts.HashedAccountRegistrationDeposit and approve a fresh quote before signing again.",
+      "docs_url": "/docs/errors/chain/RegistrationDepositTooHigh",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RegistrationDepositTooHigh/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 285,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L285",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "RegistrationNotPermittedOnRootSubnet": {
@@ -5934,8 +5952,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 223,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L223",
+          "line": 239,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L239",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -6799,8 +6817,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 249,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L249",
+          "line": 261,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L261",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -6871,8 +6889,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 233,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L233",
+          "line": 249,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L249",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -7006,8 +7024,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 257,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L257",
+          "line": 269,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L269",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
@@ -7024,8 +7042,8 @@
         {
           "pallet": "HashedAccounts",
           "path": "pallets/hashed-accounts/src/lib.rs",
-          "line": 255,
-          "url": "/code/pallets/hashed-accounts/src/lib.rs#L255",
+          "line": 267,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L267",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]

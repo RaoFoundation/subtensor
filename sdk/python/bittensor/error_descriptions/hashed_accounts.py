@@ -50,4 +50,9 @@ DESCRIPTIONS: dict[str, str] = {
         "The derived authority exceeds the runtime's member, depth, or resolution bounds. "
         "Use a smaller supported authority structure."
     ),
+    "RegistrationDepositTooHigh": (
+        "The current hashed account registration reserve exceeds the transaction's approved "
+        "maximum. Read HashedAccounts.HashedAccountRegistrationDeposit and approve a fresh quote "
+        "before signing again."
+    ),
 }

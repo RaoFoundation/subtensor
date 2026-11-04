@@ -19,7 +19,7 @@ the vector once per week per subnet.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_subnet_emission_weights`](/code/pallets/admin-utils/src/lib.rs#L2720-L2743) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_subnet_emission_weights`](/code/pallets/admin-utils/src/lib.rs#L2736-L2759) |
 
 ## Verify
 
@@ -84,7 +84,7 @@ result = sub.execute_tool("set_subnet_emission_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`AdminUtils.sudo_set_subnet_emission_weights` — [`pallets/admin-utils/src/lib.rs#L2722`](/code/pallets/admin-utils/src/lib.rs#L2720-L2743):
+`AdminUtils.sudo_set_subnet_emission_weights` — [`pallets/admin-utils/src/lib.rs#L2738`](/code/pallets/admin-utils/src/lib.rs#L2736-L2759):
 
 ```rust
 #[pallet::call_index(114)]

@@ -17,6 +17,11 @@ use frame_support::{
 pub trait WeightInfo {
     fn register() -> Weight;
     fn check_registered() -> Weight;
+    /// Reuse the existing read-only account-check envelope until reference
+    /// benchmarks measure this guard; dispatch adds the configurable reserve read.
+    fn check_registration_deposit() -> Weight {
+        Self::check_registered()
+    }
     fn authorize(n: u32) -> Weight;
     fn authorize_ed25519(n: u32) -> Weight;
     fn register_mldsa65() -> Weight;

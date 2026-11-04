@@ -86,6 +86,7 @@ async def test_real_metadata_and_builder_registration_detection(wrap, monkeypatc
             True,
         ),
         (calls.HashedAccounts.check_registered(descriptor={}), False),
+        (calls.Call("HashedAccounts", "check_registration_deposit", {"max_deposit": 0}), False),
         (calls.Balances.transfer_keep_alive(dest=BOB, value=1), False),
         (calls.System.remark(remark={"HashedAccounts": {"register": {}}}), False),
     ],

@@ -328,6 +328,7 @@
     "RecycleEmissionMustBeZero",
     "ReentranceDenied",
     "Reentrancy",
+    "RegistrationDepositTooHigh",
     "RegistrationNotPermittedOnRootSubnet",
     "RegistrationPriceLimitExceeded",
     "RelayerMissMatch",

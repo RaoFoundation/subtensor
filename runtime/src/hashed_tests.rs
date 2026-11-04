@@ -940,6 +940,272 @@ fn assert_no_received_account(recipient: &AccountId) {
 }
 
 #[test]
+fn registration_deposit_guard_obeys_live_changes_without_requiring_registration_enabled() {
+    ext().execute_with(|| {
+        assert!(!pallet_admin_utils::HashedAccountsEnabled::<Runtime>::get());
+        let quote = TaoBalance::new(200_000_000);
+        frame_support::assert_ok!(HashedAccounts::check_registration_deposit(
+            RuntimeOrigin::signed(account()),
+            quote
+        ));
+        for value in [
+            TaoBalance::new(350_000_000),
+            TaoBalance::new(100_000_000),
+            TaoBalance::new(0),
+        ] {
+            frame_support::assert_ok!(AdminUtils::sudo_set_hashed_account_registration_deposit(
+                RuntimeOrigin::root(),
+                value
+            ));
+            let result =
+                HashedAccounts::check_registration_deposit(RuntimeOrigin::signed(account()), quote);
+            if value > quote {
+                assert_eq!(
+                    result,
+                    Err(
+                        pallet_hashed_accounts::Error::<Runtime>::RegistrationDepositTooHigh.into()
+                    )
+                );
+            } else {
+                frame_support::assert_ok!(result);
+            }
+        }
+        frame_support::assert_ok!(HashedAccounts::check_registration_deposit(
+            RuntimeOrigin::signed(account()),
+            TaoBalance::new(0)
+        ));
+    });
+}
+
+#[test]
+fn registration_deposit_guard_rejects_a_stale_atomic_registration_and_funding_quote() {
+    for scheme in [Scheme::Sr25519, Scheme::Ed25519] {
+        ext().execute_with(|| {
+            System::set_block_number(1);
+            pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
+            hashed_auth::TestVerificationWeight::set(Weight::zero());
+            let key = pair(72);
+            let sponsor = AccountId::from(key.public());
+            let _ = Balances::make_free_balance_be(&sponsor, TaoBalance::new(100_000_000_000));
+            let descriptor = Descriptor {
+                scheme,
+                ..descriptor()
+            };
+            let recipient = AccountId::new(subtensor_hashed::account_id(&descriptor));
+            let quoted = TaoBalance::new(200_000_000);
+            let batch = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+                calls: vec![
+                    RuntimeCall::HashedAccounts(
+                        pallet_hashed_accounts::Call::check_registration_deposit {
+                            max_deposit: quoted,
+                        },
+                    ),
+                    RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
+                        descriptor: descriptor.into(),
+                    }),
+                    RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
+                        dest: recipient.clone().into(),
+                        value: TaoBalance::new(1_000_000_000),
+                    }),
+                ],
+            });
+            frame_support::assert_ok!(AdminUtils::sudo_set_hashed_account_registration_deposit(
+                RuntimeOrigin::root(),
+                TaoBalance::new(350_000_000)
+            ));
+            assert_eq!(
+                Executive::apply_extrinsic(legacy(&key, batch.clone())).unwrap(),
+                Err(pallet_hashed_accounts::Error::<Runtime>::RegistrationDepositTooHigh.into())
+            );
+            assert_no_received_account(&recipient);
+            assert_eq!(Balances::reserved_balance(&sponsor), TaoBalance::new(0));
+            // The rejected extrinsic still pays its ordinary transaction fee.
+            assert!(Balances::free_balance(&sponsor) < TaoBalance::new(100_000_000_000));
+            frame_support::assert_ok!(AdminUtils::sudo_set_hashed_account_registration_deposit(
+                RuntimeOrigin::root(),
+                TaoBalance::new(100_000_000)
+            ));
+            frame_support::assert_ok!(Executive::apply_extrinsic(legacy(&key, batch)).unwrap());
+            assert_eq!(
+                Balances::reserved_balance(&sponsor),
+                TaoBalance::new(100_000_000)
+            );
+            assert_eq!(
+                Balances::free_balance(&recipient),
+                TaoBalance::new(1_000_000_000)
+            );
+        });
+    }
+}
+
+#[test]
+fn registration_deposit_storage_is_owned_by_hashed_accounts() {
+    let encoded = hashed_extrinsic::metadata_at_version(15).unwrap();
+    let data = frame_metadata::RuntimeMetadataPrefixed::decode(&mut &encoded[..]).unwrap();
+    let frame_metadata::RuntimeMetadata::V15(data) = data.1 else {
+        panic!("metadata15 unavailable");
+    };
+    for (name, expected) in [("HashedAccounts", true), ("AdminUtils", false)] {
+        let pallet = data.pallets.iter().find(|p| p.name == name).unwrap();
+        let storage = pallet.storage.as_ref().unwrap();
+        let entry = storage
+            .entries
+            .iter()
+            .find(|entry| entry.name == "HashedAccountRegistrationDeposit");
+        assert_eq!(entry.is_some(), expected);
+        if let Some(entry) = entry {
+            assert_eq!(entry.default, TaoBalance::new(200_000_000).encode());
+        }
+    }
+}
+
+#[test]
+fn registration_deposit_updates_preserve_metadata_and_default_constants() {
+    // Metadata generation must also work outside Externalities for SDK export.
+    let versions = [14, 15, 16];
+    let metadata = versions.map(|version| {
+        hashed_extrinsic::metadata_at_version(version)
+            .unwrap()
+            .encode()
+    });
+    ext().execute_with(|| {
+        let default = TaoBalance::new(200_000_000);
+        assert!(!pallet_hashed_accounts::HashedAccountRegistrationDeposit::<
+            Runtime,
+        >::exists());
+        assert_eq!(
+            pallet_hashed_accounts::HashedAccountRegistrationDeposit::<Runtime>::get(),
+            default
+        );
+        for value in [TaoBalance::new(350_000_000), TaoBalance::new(0)] {
+            frame_support::assert_ok!(AdminUtils::sudo_set_hashed_account_registration_deposit(
+                RuntimeOrigin::root(),
+                value
+            ));
+            assert_eq!(
+                pallet_hashed_accounts::HashedAccountRegistrationDeposit::<Runtime>::get(),
+                value
+            );
+            assert_eq!(HashedRegistrationDeposit::get(), default);
+            assert_eq!(MlDsaRegistrationDeposit::get(), default);
+            assert_eq!(DerivedRegistrationDeposit::get(), default);
+            for (version, expected) in versions.into_iter().zip(&metadata) {
+                assert_eq!(
+                    &hashed_extrinsic::metadata_at_version(version)
+                        .unwrap()
+                        .encode(),
+                    expected
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn all_registration_profiles_use_the_live_deposit_without_repricing_existing_reserves() {
+    use subtensor_hashed::{RegistrationDescriptor, falcon, mldsa};
+
+    let profiles = [
+        Descriptor {
+            scheme: Scheme::Sr25519,
+            ..descriptor()
+        }
+        .into(),
+        Descriptor {
+            scheme: Scheme::Ed25519,
+            ..descriptor()
+        }
+        .into(),
+        mldsa::Descriptor {
+            version: mldsa::VERSION,
+            algorithm: mldsa::ALGORITHM,
+            initial_commitment: [41; mldsa::COMMITMENT_LEN],
+        }
+        .into(),
+        mldsa::Descriptor {
+            version: mldsa::VERSION,
+            algorithm: falcon::ALGORITHM_512,
+            initial_commitment: [41; mldsa::COMMITMENT_LEN],
+        }
+        .into(),
+        mldsa::Descriptor {
+            version: mldsa::VERSION,
+            algorithm: falcon::ALGORITHM_1024,
+            initial_commitment: [41; mldsa::COMMITMENT_LEN],
+        }
+        .into(),
+    ];
+    for profile in profiles {
+        ext().execute_with(|| {
+            System::set_block_number(1);
+            pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
+            hashed_auth::TestVerificationWeight::set(Weight::zero());
+            let key = pair(72);
+            let sponsor = AccountId::from(key.public());
+            let _ = Balances::make_free_balance_be(&sponsor, TaoBalance::new(100_000_000_000));
+            let mut reserved = TaoBalance::new(0);
+            let mut previous_registration = None;
+            for (marker, value) in [
+                (41, TaoBalance::new(200_000_000)),
+                (42, TaoBalance::new(350_000_000)),
+                (43, TaoBalance::new(0)),
+            ] {
+                frame_support::assert_ok!(
+                    AdminUtils::sudo_set_hashed_account_registration_deposit(
+                        RuntimeOrigin::root(),
+                        value
+                    )
+                );
+                assert_eq!(Balances::reserved_balance(&sponsor), reserved);
+                if let Some(previous) = previous_registration.take() {
+                    frame_support::assert_ok!(
+                        Executive::apply_extrinsic(legacy(&key, previous)).unwrap()
+                    );
+                    assert_eq!(Balances::reserved_balance(&sponsor), reserved);
+                }
+                let descriptor = match profile {
+                    RegistrationDescriptor::Classical(mut descriptor) => {
+                        descriptor.initial_commitment = [marker; 32];
+                        RegistrationDescriptor::Classical(descriptor)
+                    }
+                    RegistrationDescriptor::MlDsa65(mut descriptor) => {
+                        descriptor.initial_commitment = [marker; mldsa::COMMITMENT_LEN];
+                        RegistrationDescriptor::MlDsa65(descriptor)
+                    }
+                    RegistrationDescriptor::Falcon(mut descriptor) => {
+                        descriptor.initial_commitment = [marker; mldsa::COMMITMENT_LEN];
+                        RegistrationDescriptor::Falcon(descriptor)
+                    }
+                };
+                let registration =
+                    RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
+                        descriptor,
+                    });
+                frame_support::assert_ok!(
+                    Executive::apply_extrinsic(legacy(
+                        &key,
+                        RuntimeCall::Utility(pallet_utility::Call::batch_all {
+                            calls: vec![
+                                RuntimeCall::HashedAccounts(
+                                    pallet_hashed_accounts::Call::check_registration_deposit {
+                                        max_deposit: value
+                                    }
+                                ),
+                                registration.clone(),
+                            ]
+                        })
+                    ))
+                    .unwrap()
+                );
+                reserved += value;
+                assert_eq!(Balances::reserved_balance(&sponsor), reserved);
+                previous_registration = Some(registration);
+            }
+        });
+    }
+}
+
+#[test]
 fn all_registration_profiles_reserve_the_same_flat_deposit_once() {
     use frame_support::traits::ReservableCurrency;
     use subtensor_hashed::{RegistrationDescriptor, mldsa};
@@ -1379,8 +1645,6 @@ fn preassociated_classical_owner_blocks_activation_without_funding_the_account()
             pallet_subtensor::Owner::<Runtime>::get(account()),
             classical_owner
         );
-        // This fails closed against alternative authority. It does not resolve
-        // the activation denial caused by an earlier classical owner assignment.
     });
 }
 

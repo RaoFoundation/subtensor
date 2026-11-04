@@ -526,6 +526,32 @@ class Client:
         """
         return await self._executor.submit_call(call, wallet, **kwargs)
 
+    async def register_wallet(
+        self,
+        wallet: WalletLike,
+        *,
+        payer: WalletLike,
+        roles=("coldkey", "hotkey"),
+        max_registration_deposit: Balance | None = None,
+        on_registration_sponsorship=None,
+    ):
+        """Register persisted hashed keys with a funded payer through required MEV Shield.
+
+        Approval covers the aggregate permanent reserve. Waits for finalized
+        registration of every selected hashed key; standard keys require no RPC.
+        Failures preserve the wallet and any receipt in WalletRegistrationError.
+        """
+        from .wallet_registration import register_wallet
+
+        return await register_wallet(
+            self,
+            wallet,
+            payer=payer,
+            roles=roles,
+            max_registration_deposit=max_registration_deposit,
+            on_registration_sponsorship=on_registration_sponsorship,
+        )
+
     async def prepare_call(self, call, *, address: str, **kwargs) -> UnsignedExtrinsic:
         """Build an unsigned extrinsic to be signed out-of-process (QR vault,
         air-gapped machine, hardware device elsewhere).

@@ -89,7 +89,7 @@ pub fn create_pure(
 
 ```rust
 #[pallet::call_index(12)]
-#[pallet::weight(T::WeightInfo::create_protected_pure())]
+#[pallet::weight(T::WeightInfo::create_protected_pure().saturating_add(T::DbWeight::get().reads(1)))]
 #[frame_support::transactional]
 pub fn create_protected_pure(
     origin: OriginFor<T>,

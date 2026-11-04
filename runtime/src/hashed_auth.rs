@@ -829,10 +829,24 @@ impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
                 RuntimeCall::Balances(_) | RuntimeCall::SubtensorModule(_)
             )
         };
+        let deposit_guard = |call: &RuntimeCall| {
+            matches!(
+                call,
+                RuntimeCall::HashedAccounts(
+                    pallet_hashed_accounts::Call::check_registration_deposit { .. }
+                )
+            )
+        };
         let allowed = match &call {
             RuntimeCall::HashedAccounts(_) => matches_registration(&call),
             RuntimeCall::Utility(crate::pallet_utility::Call::batch_all { calls }) => {
                 match calls.as_slice() {
+                    [guard, registration] if deposit_guard(guard) => {
+                        matches_registration(registration)
+                    }
+                    [guard, registration, followup] if deposit_guard(guard) => {
+                        matches_registration(registration) && supported_followup(followup)
+                    }
                     [registration, followup] => {
                         matches_registration(registration) && supported_followup(followup)
                     }

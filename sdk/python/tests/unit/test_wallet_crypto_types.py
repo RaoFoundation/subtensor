@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import ExitStack
+from unittest.mock import patch
 
 import pytest
 from rich.text import Text
@@ -41,7 +43,15 @@ def wallet_path(tmp_path, monkeypatch):
 
 
 def invoke(*args):
-    return CliRunner().invoke(app, ["--yes", "--json", "wallet", *args])
+    # These tests isolate key selection and recovery. Registration consent is
+    # exercised through the actual CLI in test_wallet_creation_registration_cli.
+    with ExitStack() as stack:
+        if args and args[0] in {"create", "new-coldkey", "new-hotkey"}:
+            for helper in ("_prepare_hashed_creation", "_finish_hashed_creation"):
+                stack.enter_context(
+                    patch(f"bittensor.cli.commands.wallet.{helper}", return_value=None)
+                )
+        return CliRunner().invoke(app, ["--yes", "--json", "wallet", *args])
 
 
 @pytest.mark.parametrize("force_terminal", [False, True])

@@ -410,6 +410,16 @@ impl crate::GrandpaInterface<Test> for GrandpaInterfaceImpl {
     }
 }
 
+parameter_types! {
+    pub storage MockRegistrationDeposit: TaoBalance = TaoBalance::new(200_000_000);
+}
+
+impl crate::RegistrationDepositInterface for MockRegistrationDeposit {
+    fn set(value: TaoBalance) {
+        MockRegistrationDeposit::set(&value);
+    }
+}
+
 impl crate::Config for Test {
     type AuthorityId = AuraId;
     type MaxAuthorities = ConstU32<32>;
@@ -417,6 +427,7 @@ impl crate::Config for Test {
     type Grandpa = GrandpaInterfaceImpl;
     type Balance = Balance;
     type WeightInfo = ();
+    type RegistrationDeposit = MockRegistrationDeposit;
 }
 
 parameter_types! {

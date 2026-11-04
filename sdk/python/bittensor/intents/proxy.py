@@ -261,7 +261,7 @@ class CreatePureProxy(Intent):
 
     async def build(self, substrate, wallet: Any):
         from ..account_mode import validate_account_mode, warn_legacy_mldsa
-        from ..hashed import is_pq_required
+        from ..hashed import is_pq_required, quote_hashed_registration_deposit
         from ..signing import public_view
         from ..sp_core import is_stateless_pq
 
@@ -291,9 +291,13 @@ class CreatePureProxy(Intent):
         )
         if not protected:
             return call
-        deposit = await substrate.constant("HashedAccounts", "DerivedRegistrationDeposit")
-        if deposit is None:
-            raise ValueError("could not quote protected pure-proxy registration reserve")
+        quote = await quote_hashed_registration_deposit(substrate, "DerivedRegistrationDeposit")
+        deposit = quote.amount_rao
+        if quote.configurable:
+            guard = await substrate.compose(
+                calls.Call("HashedAccounts", "check_registration_deposit", {"max_deposit": deposit})
+            )
+            call = await substrate.compose(calls.Utility.batch_all(calls=[guard, call]))
         proxy_deposit = 0
         for name in ("ProxyDepositBase", "ProxyDepositFactor"):
             value = await substrate.constant("Proxy", name)

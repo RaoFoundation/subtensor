@@ -434,6 +434,43 @@ class SyncClient:
     def submit_call(self, call, wallet, **kwargs):
         return self._call(self._client.submit_call(call, wallet, **kwargs))
 
+    def register_wallet(
+        self,
+        wallet,
+        *,
+        payer,
+        roles=("coldkey", "hotkey"),
+        max_registration_deposit=None,
+        on_registration_sponsorship=None,
+    ):
+        """Register hashed keys through required Shield and wait for finalization."""
+        from .registration_sponsorship import validate_registration_deposit_limit
+        from .wallet_registration import (
+            WalletRegistrationError,
+            empty_registration_result,
+            registration_targets,
+        )
+
+        # _call connects before running the coroutine; keep fixed-key creation offline.
+        try:
+            roles = tuple(roles) if not isinstance(roles, str) else roles
+            validate_registration_deposit_limit(max_registration_deposit)
+            if not registration_targets(wallet, roles)[1]:
+                return empty_registration_result()
+            return self._call(
+                self._client.register_wallet(
+                    wallet,
+                    payer=payer,
+                    roles=roles,
+                    max_registration_deposit=max_registration_deposit,
+                    on_registration_sponsorship=on_registration_sponsorship,
+                )
+            )
+        except WalletRegistrationError:
+            raise
+        except Exception as error:
+            raise WalletRegistrationError(str(error), wallet=wallet) from error
+
     def prepare_call(self, call, *, address, **kwargs):
         return self._call(self._client.prepare_call(call, address=address, **kwargs))
 
