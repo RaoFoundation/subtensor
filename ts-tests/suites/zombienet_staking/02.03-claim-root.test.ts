@@ -20,6 +20,7 @@ import {
     getTotalHotkeyAlpha,
     isSubtokenEnabled,
     rootRegister,
+    settleBasketDividends,
     startCall,
     sudoSetAdminFreezeWindow,
     sudoSetEmaPriceHalvingPeriod,
@@ -31,26 +32,6 @@ import {
     tao,
     waitForBlocks,
 } from "../../utils";
-
-async function settleDividendsBeforeClaim(
-    api: TypedApi<typeof subtensor>,
-    hotkey: string,
-    netuids: number[]
-): Promise<void> {
-    // Stop the tempo=1 fixtures from queuing fresh credits between the readiness
-    // check and claim_root. The block drain settles only one hotkey per turn;
-    // claim_root intentionally rejects unsettled credits instead of minting them.
-    for (const netuid of netuids) {
-        await sudoSetTempo(api, netuid, 65_535);
-    }
-    await expect
-        .poll(() => api.query.SubtensorModule.PendingBasketDeposits.getEntries(hotkey), {
-            timeout: 10_000,
-            interval: 100,
-            message: "The block drain must settle all queued dividends before claim_root",
-        })
-        .toHaveLength(0);
-}
 
 describeSuite({
     id: "0203_claim_root",
@@ -108,8 +89,8 @@ describeSuite({
                 // root_sell_flag = sum(moving_prices) > 1.0
                 // Each subnet's moving price approaches 1.0 via EMA, so 2 subnets can exceed threshold
                 const netuid1 = await addNewSubnetwork(api, owner1Hotkey, owner1Coldkey);
-                // Fund pools before emissions seed the independent 600-block fast EMA.
-                // Accelerating the slow EMA below does not bypass the basket price guard.
+                // The independent fast EMA already runs while these pools are funded.
+                // settleBasketDividends reseeds it after the fixture's price jump.
                 await sudoSetSubtokenEnabled(api, netuid1, true);
                 log(`Created subnet 1 with netuid: ${netuid1}`);
 
@@ -181,7 +162,7 @@ describeSuite({
                 log(`Waiting for ${blocksToWait} blocks for moving prices to converge and emissions to accumulate...`);
                 await waitForBlocks(api, blocksToWait);
 
-                await settleDividendsBeforeClaim(api, owner1HotkeyAddress, [netuid1, netuid2]);
+                await settleBasketDividends(api, owner1HotkeyAddress, [netuid1, netuid2]);
 
                 // Debug: Check key storage values
                 const subnetTaoRoot = await getSubnetTAO(api, ROOT_NETUID);
@@ -333,7 +314,7 @@ describeSuite({
                 log(`Waiting for ${blocksToWait} blocks for emissions to accumulate...`);
                 await waitForBlocks(api, blocksToWait);
 
-                await settleDividendsBeforeClaim(api, owner1HotkeyAddress, [netuid1, netuid2]);
+                await settleBasketDividends(api, owner1HotkeyAddress, [netuid1, netuid2]);
 
                 // Debug: Check moving prices
                 const movingPrice1 = await getSubnetMovingPrice(api, netuid1);

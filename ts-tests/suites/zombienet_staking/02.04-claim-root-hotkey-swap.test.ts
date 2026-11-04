@@ -11,6 +11,7 @@ import {
     generateKeyringPair,
     getBasketRate,
     getBasketShares,
+    settleBasketDividends,
     startCall,
     sudoSetAdminFreezeWindow,
     sudoSetEmaPriceHalvingPeriod,
@@ -69,9 +70,8 @@ async function setupTwoSubnetsWithBasket(
     log(`Created netuid2: ${netuid2}`);
 
     for (const netuid of [netuid1, netuid2]) {
-        // Prepare stake before starting emissions, so the first fast price EMA sample
-        // reflects the funded pool. The slow EMA settings below do not accelerate the
-        // independent 600-block EMA used by the basket dividend price guard.
+        // The slow EMA settings do not accelerate the independent 600-block fast
+        // EMA. settleBasketDividends reseeds that anchor after pool funding.
         await sudoSetSubtokenEnabled(api, netuid, true);
         await sudoSetTempo(api, netuid, 5);
         await sudoSetEmaPriceHalvingPeriod(api, netuid, 1);
@@ -106,6 +106,7 @@ async function setupTwoSubnetsWithBasket(
 
     log("Waiting 30 blocks for the basket fund to accumulate...");
     await waitForBlocks(api, 30);
+    await settleBasketDividends(api, oldHotkey.address, [netuid1, netuid2]);
 
     return { oldHotkey, oldHotkeyColdkey, newHotkey, netuid1, netuid2 };
 }
