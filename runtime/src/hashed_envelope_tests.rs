@@ -275,6 +275,7 @@ fn account_metadata_uses_scheme_names_and_contiguous_call_indices() {
                         (2, "register_derived"),
                         (3, "register_derived_sponsored"),
                         (4, "check_derived"),
+                        (5, "check_registration_deposit"),
                     ]
                 );
                 let orders = data

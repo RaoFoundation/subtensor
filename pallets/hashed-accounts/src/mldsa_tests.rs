@@ -179,7 +179,7 @@ fn mldsa_ticket_is_read_only_single_use_and_rechecks_both_state_fields() {
             descriptor.into()
         ));
         assert_eq!(MlDsaAccounts::<Test>::get(&account).unwrap().generation, 1);
-        assert_eq!(Balances::reserved_balance(sponsor()), 20);
+        assert_eq!(Balances::reserved_balance(sponsor()), 10);
         MlDsaAccounts::<Test>::mutate(&account, |record| record.as_mut().unwrap().generation = 0);
         assert_noop!(
             HashedAccounts::advance_mldsa(&ticket),
@@ -324,7 +324,7 @@ fn mixed_multisig_requires_a_pq_member_in_every_threshold_and_preserves_address(
             RuntimeOrigin::signed(classical.clone()),
             descriptor
         ));
-        assert_eq!(Balances::reserved_balance(sponsor()), 70);
+        assert_eq!(Balances::reserved_balance(sponsor()), 30);
         let unsafe_group = multisig(vec![first, classical, AccountId32::new([45; 32])], 2);
         assert_noop!(
             HashedAccounts::register_derived(RuntimeOrigin::signed(sponsor()), unsafe_group),
@@ -415,7 +415,7 @@ fn sponsored_derived_registration_requires_owner_and_payer_consent_and_never_dou
         assert_eq!(Balances::free_balance(&owner), 0);
         assert_eq!(
             Balances::reserved_balance(&payer),
-            before.saturating_add(30)
+            before.saturating_add(10)
         );
         crate::tests::RejectSponsorship::set(true);
         assert_ok!(HashedAccounts::register_derived_sponsored(
@@ -425,7 +425,7 @@ fn sponsored_derived_registration_requires_owner_and_payer_consent_and_never_dou
         ));
         assert_eq!(
             Balances::reserved_balance(&payer),
-            before.saturating_add(30)
+            before.saturating_add(10)
         );
     });
 }

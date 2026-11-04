@@ -1201,6 +1201,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_gamma_enabled', {'enabled': enabled})
 
     @staticmethod
+    def sudo_set_hashed_account_registration_deposit(value: 'TaoBalance') -> Call:
+        'Sets the permanent reserve for future classical, PQ, and protected derived account registrations. Existing reserves remain unchanged. Root-only; zero permits registration without a reserve.'
+        return Call('AdminUtils', 'sudo_set_hashed_account_registration_deposit', {'value': value})
+
+    @staticmethod
     def sudo_set_hashed_accounts_enabled(enabled: 'bool') -> Call:
         'Enables or disables registration and signing for all hashed SR/ED and fixed/rotating ML-DSA accounts. Ordinary SR/ED signing is unaffected. Root-only. Defaults off. Disabling pauses existing accounts too; their records, generations, EVM aliases and restrictions on alternate authority remain.'
         return Call('AdminUtils', 'sudo_set_hashed_accounts_enabled', {'enabled': enabled})
@@ -1868,6 +1873,11 @@ class HashedAccounts:
     def check_registered(descriptor: 'RegistrationDescriptor') -> Call:
         "Check a recipient's registration without reserving funds or creating an account. An atomic payment must fail if a reorg removed its setup."
         return Call('HashedAccounts', 'check_registered', {'descriptor': descriptor})
+
+    @staticmethod
+    def check_registration_deposit(max_deposit: 'TaoBalance') -> Call:
+        'Reject an atomic registration batch if its approved reserve is stale. This read-only guard remains available while registration is disabled.'
+        return Call('HashedAccounts', 'check_registration_deposit', {'max_deposit': max_deposit})
 
     @staticmethod
     def register(descriptor: 'RegistrationDescriptor') -> Call:

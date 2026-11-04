@@ -112,8 +112,8 @@ impl OnRegister for RegistrationGuard {
 impl Config for Test {
     type Currency = Balances;
     type RegistrationDeposit = ConstU64<10>;
-    type MlDsaRegistrationDeposit = ConstU64<20>;
-    type DerivedRegistrationDeposit = ConstU64<30>;
+    type MlDsaRegistrationDeposit = ConstU64<10>;
+    type DerivedRegistrationDeposit = ConstU64<10>;
     type Enabled = Enabled;
     type OnRegister = RegistrationGuard;
     type WeightInfo = ();
@@ -138,6 +138,30 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     ));
     ext.execute_with(|| System::set_block_number(1));
     ext
+}
+
+#[test]
+fn registration_deposit_guard_uses_pallet_default_and_requires_signed_origin() {
+    new_test_ext().execute_with(|| {
+        Enabled::set(false);
+        assert_noop!(
+            HashedAccounts::check_registration_deposit(RuntimeOrigin::none(), 10),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            HashedAccounts::check_registration_deposit(RuntimeOrigin::root(), 10),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            HashedAccounts::check_registration_deposit(RuntimeOrigin::signed(sponsor()), 9),
+            Error::<Test>::RegistrationDepositTooHigh
+        );
+        assert_ok!(HashedAccounts::check_registration_deposit(
+            RuntimeOrigin::signed(sponsor()),
+            10
+        ));
+        assert_eq!(Balances::reserved_balance(sponsor()), 0);
+    });
 }
 
 pub(crate) fn sponsor() -> AccountId32 {
@@ -489,7 +513,7 @@ fn unified_registration_preserves_scheme_policy_and_account_identity() {
                 descriptor
             ));
         }
-        assert_eq!(Balances::reserved_balance(sponsor()), 30);
+        assert_eq!(Balances::reserved_balance(sponsor()), 20);
         assert_eq!(
             Accounts::<Test>::get(&classical_account)
                 .unwrap()

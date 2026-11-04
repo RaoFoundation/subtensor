@@ -213,7 +213,7 @@ impl<T: Config> Pallet<T> {
         }
         Self::check_new_kind(&account)?;
         T::OnRegister::on_register_mldsa(&account, sponsor, &descriptor)?;
-        let deposit = T::MlDsaRegistrationDeposit::get();
+        let deposit = HashedAccountRegistrationDeposit::<T>::get();
         T::Currency::reserve(sponsor, deposit)?;
         Self::retain_account_and_alias(&account);
         MlDsaAccounts::<T>::insert(
@@ -386,7 +386,7 @@ impl<T: Config> Pallet<T> {
             T::OnRegister::on_sponsored_deposit(&account, deposit_payer, &descriptor)?;
         }
         T::OnRegister::on_register_derived(&account, owner, &descriptor)?;
-        let deposit = T::DerivedRegistrationDeposit::get();
+        let deposit = HashedAccountRegistrationDeposit::<T>::get();
         T::Currency::reserve(deposit_payer, deposit)?;
         Self::retain_account_and_alias(&account);
         DerivedAuthorities::<T>::insert(

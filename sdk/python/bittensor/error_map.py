@@ -526,6 +526,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "AuthenticationKindConflict": _C.POLICY_VIOLATION,
     "InvalidDerivedAuthority": _C.INVALID_ARGUMENT,
     "DerivedAuthorityTooComplex": _C.LIMIT_EXCEEDED,
+    "RegistrationDepositTooHigh": _C.LIMIT_EXCEEDED,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

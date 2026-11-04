@@ -6,11 +6,12 @@ Registration publishes commitments only. It must precede funding: an unknown
 
 from __future__ import annotations
 
-from dataclasses import fields, replace
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
 from ._generated import calls
+from ._transport.errors import StorageFunctionNotFound
 from .keyfiles import Keyfile, KeyfileError
 from .mldsa import supports_fixed_profile
 from .receiving import (
@@ -47,6 +48,43 @@ async def hashed_accounts_enabled(substrate, *, block_hash=None):
     if await substrate.constant("HashedAccounts", "RegistrationDeposit") is None:
         return None
     return await substrate.query("AdminUtils", "HashedAccountsEnabled", block_hash=block_hash)
+
+
+@dataclass(frozen=True)
+class HashedRegistrationDepositQuote:
+    amount_rao: int
+    configurable: bool
+
+
+async def quote_hashed_registration_deposit(substrate, legacy_constant, *, block_hash=None):
+    """Quote the live shared reserve, including zero, without caching sudo updates.
+
+    Only runtimes whose metadata lacks the storage entry use the old per-kind
+    constants. Read failures must not turn a stale constant into an approved cost.
+    """
+    if block_hash is None:
+        block_hash = await substrate.block_hash()
+        if not block_hash:
+            raise ValueError("could not pin hashed account registration reserve")
+    configurable = True
+    try:
+        value = await substrate.query(
+            "HashedAccounts", "HashedAccountRegistrationDeposit", block_hash=block_hash
+        )
+    except StorageFunctionNotFound:
+        configurable = False
+        value = await substrate.constant("HashedAccounts", legacy_constant, block_hash=block_hash)
+    if value is None:
+        raise ValueError("could not quote hashed account registration reserve")
+    return HashedRegistrationDepositQuote(int(value), configurable)
+
+
+async def hashed_registration_deposit(substrate, legacy_constant, *, block_hash=None):
+    """Return the reserve amount for callers that do not compose registration."""
+    quote = await quote_hashed_registration_deposit(
+        substrate, legacy_constant, block_hash=block_hash
+    )
+    return quote.amount_rao
 
 
 def descriptor_storage(descriptor: bytes) -> str:
@@ -540,7 +578,20 @@ async def with_recipient_registration(
             deposit_name = (
                 "MlDsaRegistrationDeposit" if descriptor[0] == 2 else "RegistrationDeposit"
             )
-            total_deposit += int(await substrate.constant("HashedAccounts", deposit_name))
+            quote = await quote_hashed_registration_deposit(
+                substrate, deposit_name, block_hash=finalized_hash
+            )
+            total_deposit += quote.amount_rao
+            if quote.configurable:
+                registrations.append(
+                    await substrate.compose(
+                        calls.Call(
+                            "HashedAccounts",
+                            "check_registration_deposit",
+                            {"max_deposit": quote.amount_rao},
+                        )
+                    )
+                )
         if finalized_hash is not None:
             continue
         name = "check_registered" if record is not None else "register"

@@ -365,6 +365,7 @@ mod tests {
             .iter()
             .copied()
             .chain([
+                "HashedAccounts::check_registration_deposit",
                 "HashedAccounts::check_registered",
                 "HashedAccounts::check_derived",
                 "Utility::batch_all",

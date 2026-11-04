@@ -13,13 +13,18 @@ and ML-DSA identities and encodings stay unchanged.
 | Wallet | CLI | SDK crypto ID | Wire profile | Registration reserve |
 | --- | --- | --- | --- | --- |
 | Fixed Falcon-512 | `btcli wallet create --crypto-type falcon512` | 9 | 7 | None |
-| Rotating Falcon-512 | `btcli wallet create --crypto-type falcon512 --type hashed` | 10 | 6 | 0.2 TAO |
+| Rotating Falcon-512 | `btcli wallet create --crypto-type falcon512 --type hashed` | 10 | 6 | Chain-configured; default 0.2 TAO |
 | Fixed Falcon-1024 | `btcli wallet create --crypto-type falcon1024` | 11 | 9 | None |
-| Rotating Falcon-1024 | `btcli wallet create --crypto-type falcon1024 --type hashed` | 12 | 8 | 0.2 TAO |
+| Rotating Falcon-1024 | `btcli wallet create --crypto-type falcon1024 --type hashed` | 12 | 8 | Chain-configured; default 0.2 TAO |
 
 Normal transaction fees and operation-specific deposits still apply. Changing
 scheme or account mode creates a different identity; it is not an upgrade of an
 existing address. Restore with the original mnemonic, scheme and account mode.
+
+`HashedAccounts.HashedAccountRegistrationDeposit` sets the shared deposit for future
+classical hashed, rotating post-quantum, and protected derived registrations.
+Sudo can change it with `sudo_set_hashed_account_registration_deposit(value)`
+in rao, including zero. Existing permanently reserved amounts remain unchanged.
 
 ## Addresses and authority
 

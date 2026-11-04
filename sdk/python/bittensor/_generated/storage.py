@@ -497,6 +497,7 @@ class LimitOrders:
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')
 
 class HashedAccounts:
+    HashedAccountRegistrationDeposit = Item('HashedAccounts', 'HashedAccountRegistrationDeposit', 'TaoBalance')
     Accounts = Item('HashedAccounts', 'Accounts', 'AccountRecord')
     EvmAliases = Item('HashedAccounts', 'EvmAliases', 'AccountId32')
     MlDsaAccounts = Item('HashedAccounts', 'MlDsaAccounts', 'MlDsaAccountRecord')

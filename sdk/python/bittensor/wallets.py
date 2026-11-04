@@ -344,7 +344,10 @@ def create(
     hotkey_crypto_type: int | None = None,
     on_mnemonic: Callable[[str, str], None] | None = None,
 ) -> Wallet:
-    """Create a new coldkey and hotkey for ``name``/``hotkey``.
+    """Create a new coldkey and hotkey locally for ``name``/``hotkey``.
+
+    Hashed keys must be registered with ``client.register_wallet`` using an
+    existing funded payer before receiving funds or sharing their addresses.
 
     Both keys use ``coldkey_crypto_type`` unless ``hotkey_crypto_type`` is given.
     ``on_mnemonic`` receives ``("coldkey" | "hotkey", mnemonic)`` for each new
@@ -512,7 +515,11 @@ def new_coldkey(
     account_type: str | None = None,
     on_mnemonic: Callable[[str], None] | None = None,
 ) -> Wallet:
-    """Create a new coldkey only (does not create a hotkey)."""
+    """Create a new coldkey locally (does not create a hotkey).
+
+    Register hashed keys with ``client.register_wallet(..., roles=("coldkey",))``
+    before receiving funds or sharing their addresses.
+    """
     wallet = Wallet(name=name, path=path)
     wallet.create_new_coldkey(
         n_words=n_words,
@@ -535,7 +542,11 @@ def new_hotkey(
     account_type: str | None = None,
     on_mnemonic: Callable[[str], None] | None = None,
 ) -> Wallet:
-    """Create a new hotkey in an existing wallet."""
+    """Create a new hotkey locally in an existing wallet.
+
+    Register hashed keys with ``client.register_wallet(..., roles=("hotkey",))``
+    before receiving funds or sharing their addresses.
+    """
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
     wallet.create_new_hotkey(
         n_words=n_words,

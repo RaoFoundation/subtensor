@@ -98,6 +98,45 @@ fn sign_with_extra(
 }
 
 #[test]
+fn protected_derivative_registration_uses_the_live_deposit_once() {
+    with_profiles(|| {
+        let parent = register(42);
+        let mut reserved = Balances::reserved_balance(&parent);
+        let mut previous_descriptor = None;
+        for (index, value) in [
+            (0, TaoBalance::new(200_000_000)),
+            (1, TaoBalance::new(350_000_000)),
+            (2, TaoBalance::new(0)),
+        ] {
+            assert_ok!(AdminUtils::sudo_set_hashed_account_registration_deposit(
+                RuntimeOrigin::root(),
+                value
+            ));
+            assert_eq!(Balances::reserved_balance(&parent), reserved);
+            if let Some(descriptor) = previous_descriptor.take() {
+                assert_ok!(HashedAccounts::register_derived(
+                    RuntimeOrigin::signed(parent.clone()),
+                    descriptor
+                ));
+                assert_eq!(Balances::reserved_balance(&parent), reserved);
+            }
+            let descriptor = DerivedDescriptor::Derivative {
+                parent: parent.clone(),
+                index,
+            };
+            assert_ok!(HashedAccounts::register_derived(
+                RuntimeOrigin::signed(parent.clone()),
+                descriptor.clone()
+            ));
+            reserved += value;
+            assert_eq!(Balances::reserved_balance(&parent), reserved);
+            assert!(HashedAccounts::is_protected(&descriptor.account_id()));
+            previous_descriptor = Some(descriptor);
+        }
+    });
+}
+
+#[test]
 fn full_payload_v4_roundtrip_executes_and_consumes_only_once() {
     with_profiles(|| {
         let account = register(42);

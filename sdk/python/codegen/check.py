@@ -79,6 +79,7 @@ RAW_ONLY: dict[str, set[str]] = {
     "HashedAccounts": {
         "register",
         "check_registered",
+        "check_registration_deposit",
         # Composite protection is composed by MultisigGroup and derivative
         # helpers, with the exact call approved by its actual authority.
         "register_derived",
@@ -279,6 +280,7 @@ RAW_ONLY: dict[str, set[str]] = {
         # validator basket trading gates and budget — root-only governance toggles
         "sudo_set_basket_trading_enabled",
         "sudo_set_hashed_accounts_enabled",
+        "sudo_set_hashed_account_registration_deposit",
         "sudo_set_basket_trading_frozen",
         "sudo_set_basket_daily_turnover_cap",
         "sudo_set_basket_liquidity_cap",

@@ -211,7 +211,7 @@ btcli wallet create --crypto-type falcon1024 --type hashed`}
                   <td>
                     <code>tao_</code> receiving address
                   </td>
-                  <td>Required; 0.2 TAO permanent reserve</td>
+                  <td>Required; 0.2 TAO permanent reserve by default</td>
                 </tr>
               </tbody>
             </table>
@@ -236,8 +236,10 @@ btcli wallet create --crypto-type falcon1024 --type hashed`}
           <p>
             The <code>tao_</code> receiving address contains the public descriptor needed for
             registration. A transfer can register a rotating recipient atomically, with explicit
-            sponsorship consent for the sender&apos;s <strong>0.2 TAO permanent reserve</strong>,
-            separate from the transfer and transaction fees. Registration defaults to MEV Shield.
+            sponsorship consent for the sender&apos;s{' '}
+            <strong>permanent registration reserve</strong> (default 0.2 TAO), separate from the
+            transfer and transaction fees. Sudo can change this shared deposit for future
+            registrations; existing reserves remain unchanged. Registration defaults to MEV Shield.
             Register and wait for finalization before publicly sharing a new rotating account or
             assigning it roles.
           </p>

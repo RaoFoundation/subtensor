@@ -15,6 +15,14 @@ mod benchmarking;
 pub mod weights;
 pub use weights::WeightInfo;
 
+/// Access to the wallet pallet's shared registration reserve without coupling account types.
+pub trait RegistrationDepositInterface:
+    frame_support::traits::Get<subtensor_runtime_common::TaoBalance>
+{
+    /// Set the reserve charged for future registrations.
+    fn set(value: subtensor_runtime_common::TaoBalance);
+}
+
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -75,6 +83,9 @@ pub mod pallet {
 
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: WeightInfo;
+
+        /// Access to the wallet pallet's registration reserve.
+        type RegistrationDeposit: crate::RegistrationDepositInterface;
     }
 
     #[pallet::event]
@@ -213,6 +224,11 @@ pub mod pallet {
         GammaEnabledSet {
             /// Whether gamma minting is enabled.
             enabled: bool,
+        },
+        /// The permanent reserve required for future account registrations was set.
+        HashedAccountRegistrationDepositSet {
+            /// The new reserve amount, in rao; zero disables the reserve.
+            value: TaoBalance,
         },
     }
 
@@ -2954,6 +2970,21 @@ pub mod pallet {
             pallet_subtensor::GammaEnabled::<T>::put(enabled);
             Self::deposit_event(Event::GammaEnabledSet { enabled });
             log::debug!("GammaEnabledSet( enabled: {enabled:?} )");
+            Ok(())
+        }
+
+        /// Sets the permanent reserve for future classical, PQ, and protected derived
+        /// account registrations. Existing reserves remain unchanged. Root-only; zero
+        /// permits registration without a reserve.
+        #[pallet::call_index(119)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_hashed_account_registration_deposit())]
+        pub fn sudo_set_hashed_account_registration_deposit(
+            origin: OriginFor<T>,
+            value: TaoBalance,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            T::RegistrationDeposit::set(value);
+            Self::deposit_event(Event::HashedAccountRegistrationDepositSet { value });
             Ok(())
         }
     }

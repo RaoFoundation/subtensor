@@ -155,6 +155,11 @@ pub trait WeightInfo {
 	fn sudo_set_basket_min_trade_tao() -> Weight {
 		Self::sudo_set_basket_liquidity_cap()
 	}
+	/// Same root check, single u64 storage write and event as the basket setter.
+	/// CI reference benchmarking replaces this shared envelope with measured weights.
+	fn sudo_set_hashed_account_registration_deposit() -> Weight {
+		Self::sudo_set_basket_min_trade_tao()
+	}
 	fn sudo_set_subnet_emission_weights() -> Weight;
 }
 

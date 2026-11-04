@@ -25,6 +25,33 @@ mod swap_basket_liquidity_cap;
 use mock::*;
 
 #[test]
+fn test_sudo_set_hashed_account_registration_deposit() {
+    new_test_ext().execute_with(|| {
+        let default = TaoBalance::new(200_000_000);
+        let updated = TaoBalance::new(350_000_000);
+        assert!(!sp_io::storage::exists(&MockRegistrationDeposit::key()));
+        assert_eq!(MockRegistrationDeposit::get(), default);
+        for origin in [RuntimeOrigin::signed(U256::from(1)), RuntimeOrigin::none()] {
+            assert_noop!(
+                AdminUtils::sudo_set_hashed_account_registration_deposit(origin, updated),
+                DispatchError::BadOrigin
+            );
+        }
+        assert!(!sp_io::storage::exists(&MockRegistrationDeposit::key()));
+        for value in [updated, TaoBalance::new(0), default] {
+            assert_ok!(AdminUtils::sudo_set_hashed_account_registration_deposit(
+                RuntimeOrigin::root(),
+                value
+            ));
+            assert_eq!(MockRegistrationDeposit::get(), value);
+            frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+                crate::Event::HashedAccountRegistrationDepositSet { value },
+            ));
+        }
+    });
+}
+
+#[test]
 fn test_sudo_set_default_take() {
     new_test_ext().execute_with(|| {
         let to_be_set = PerU16::from_parts(10);

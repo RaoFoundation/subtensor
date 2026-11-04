@@ -158,6 +158,8 @@ fn every_metadata_call_has_explicit_envelope_and_dispatch_coverage() {
     let mut covered = 0usize;
     let mut self_contained = 0usize;
     let mut uninhabited = Vec::new();
+    let mut registration_deposit_setter_covered = false;
+    let mut registration_deposit_guard_covered = false;
     for pallet in &metadata.pallets {
         let Some(calls) = &pallet.calls else { continue };
         let TypeDef::Variant(calls) = &metadata.types.resolve(calls.ty.id).unwrap().type_def else {
@@ -165,6 +167,17 @@ fn every_metadata_call_has_explicit_envelope_and_dispatch_coverage() {
         };
         for variant in &calls.variants {
             let name = format!("{}.{}", pallet.name, variant.name);
+            let is_registration_deposit_setter =
+                name == "AdminUtils.sudo_set_hashed_account_registration_deposit";
+            let is_registration_deposit_guard = name == "HashedAccounts.check_registration_deposit";
+            if is_registration_deposit_guard {
+                assert_eq!((pallet.index, variant.index), (33, 5));
+                registration_deposit_guard_covered = true;
+            }
+            if is_registration_deposit_setter {
+                assert_eq!((pallet.index, variant.index), (19, 119));
+                registration_deposit_setter_covered = true;
+            }
             // Grandpa equivocation reports are intentionally uncallable in this
             // runtime: KeyOwnerProof is Void, an enum with no inhabitants.
             // Assert that metadata proves this instead of silently skipping it.
@@ -289,6 +302,15 @@ fn every_metadata_call_has_explicit_envelope_and_dispatch_coverage() {
                             frame_support::storage::TransactionOutcome::Rollback(result)
                         }
                     });
+                    if is_registration_deposit_setter {
+                        assert_eq!(result, Ok(Err(sp_runtime::DispatchError::BadOrigin)));
+                        assert!(!pallet_hashed_accounts::HashedAccountRegistrationDeposit::<
+                            Runtime,
+                        >::exists());
+                    }
+                    if is_registration_deposit_guard {
+                        assert_eq!(result, Ok(Err(pallet_hashed_accounts::Error::<Runtime>::RegistrationDepositTooHigh.into())));
+                    }
                     if protected {
                         let generation =
                             HashedAccounts::mldsa_accounts(&account).unwrap().generation;
@@ -410,6 +432,8 @@ fn every_metadata_call_has_explicit_envelope_and_dispatch_coverage() {
         "unresolved call fixtures: {unresolved:?}"
     );
     assert!(covered > 300, "unexpectedly incomplete runtime metadata");
+    assert!(registration_deposit_setter_covered);
+    assert!(registration_deposit_guard_covered);
 }
 
 #[test]

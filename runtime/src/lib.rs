@@ -175,13 +175,14 @@ impl pallet_shield::Config for Runtime {
 }
 
 parameter_types! {
-    /// Flat permanent reserve for each new descriptor-based or protected derived
-    /// account: 0.2 TAO. Transaction fees are charged separately.
+    /// Stable metadata default for descriptor-based and protected derived accounts.
+    /// HashedAccounts owns the live reserve; AdminUtils provides its root setter.
     pub const AccountRegistrationDeposit: Balance = TaoBalance::new(200_000_000);
+    pub WalletRegistrationDeposit: Balance =
+        pallet_hashed_accounts::HashedAccountRegistrationDeposit::<Runtime>::get();
 }
 
-// Preserve the existing runtime names and pallet metadata constants while every
-// account registration uses the same configured amount. Existing reserves stay put.
+// Preserve the existing runtime names and stable pallet metadata defaults.
 pub type HashedRegistrationDeposit = AccountRegistrationDeposit;
 pub type MlDsaRegistrationDeposit = AccountRegistrationDeposit;
 pub type DerivedRegistrationDeposit = AccountRegistrationDeposit;
@@ -1211,6 +1212,12 @@ impl pallet_admin_utils::GrandpaInterface<Runtime> for GrandpaInterfaceImpl {
     }
 }
 
+impl pallet_admin_utils::RegistrationDepositInterface for WalletRegistrationDeposit {
+    fn set(value: TaoBalance) {
+        pallet_hashed_accounts::HashedAccountRegistrationDeposit::<Runtime>::put(value);
+    }
+}
+
 impl pallet_admin_utils::Config for Runtime {
     type AuthorityId = AuraId;
     type MaxAuthorities = ConstU32<32>;
@@ -1218,6 +1225,7 @@ impl pallet_admin_utils::Config for Runtime {
     type Grandpa = GrandpaInterfaceImpl;
     type Balance = Balance;
     type WeightInfo = pallet_admin_utils::weights::SubstrateWeight<Runtime>;
+    type RegistrationDeposit = WalletRegistrationDeposit;
 }
 
 /// Define the ChainId
