@@ -196,6 +196,29 @@ def test_mixed_wallet_only_registers_the_rotating_key(creation, extra, roles):
     assert wallets.requires_registration(wallet.hotkeypub) is ("hotkey" in roles)
 
 
+@pytest.mark.parametrize(
+    "hotkey_option,expected_hotkey",
+    [
+        ([], wallets.CRYPTO_HASHED),
+        (["--hotkey-crypto-type", "sr25519", "--hotkey-type", "standard"], wallets.CRYPTO_SR25519),
+    ],
+)
+def test_cli_type_creates_wallet_and_public_descriptors(creation, hotkey_option, expected_hotkey):
+    result = invoke("create", *hotkey_option, global_options=("--yes",))
+    assert result.exit_code == 0, result.output
+    wallet = creation.target
+    assert wallet.coldkeypub.crypto_type == wallets.CRYPTO_HASHED
+    assert wallet.hotkeypub.crypto_type == expected_hotkey
+    assert len(creation.registrations) == 1
+    assert creation.details[-1]["coldkey_registration"] == "registered"
+    assert "tao_" in result.output
+    assert wallet.coldkeypub.ss58_address in result.output
+    assert result.output.index("tao_") < result.output.index(wallet.coldkeypub.ss58_address)
+    assert "Account ID (SS58)" in result.output
+    assert "Use the receiving address for transactions" in result.output
+    assert "explorers display the same account as SS58" in result.output
+
+
 @pytest.mark.parametrize("command", ["create", "new-coldkey", "new-hotkey"])
 @pytest.mark.parametrize("answer", ["n\n", "\n", ""])
 def test_decline_empty_and_eof_preserve_overwrite_targets_before_unlock_or_generation(
