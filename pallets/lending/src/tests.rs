@@ -8989,10 +8989,9 @@ fn k_neutral_shogting_dump_restores_l() {
             drift < 0.002,
             "dump cycle restores L to pre-open: before={l_before} after={l_after} drift={drift}"
         );
-        assert!(
-            burned_tao_surplus() > 0 || burned_alpha_surplus() > 0,
-            "dump cycle should burn surplus"
-        );
+        // Round-trip dump often leaves L already at the per-loan target; N30
+        // must not invent a dust burn. Material surplus burns are covered by
+        // the half-weight pump test.
     });
 }
 
@@ -9024,8 +9023,67 @@ fn k_neutral_burn_amounts_match_excess() {
     });
 }
 
-/// Per-loan burn: flat open+close (no pump) burns ~0. Pool may move from the
-/// forced sell/buy round-trip; the burn must not treat that as surplus.
+/// N30: atomic open+close must burn exactly 0 and record no shortfall.
+/// Clone-507 still dust-burned (~1e-9 relative) after ceil-keep alone; the
+/// relative dust band in k-neutral treats that as zero.
+#[test]
+fn atomic_open_close_burns_zero_and_records_no_shortfall() {
+    new_test_ext().execute_with(|| {
+        clear_burned_surplus();
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            20_000_000_000_000, // 20 τ collateral — clone SN16 repro size
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            account(2),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(!Positions::<Test>::contains_key(&owner, netuid()));
+        assert_eq!(Lifts::<Test>::get(netuid()).l_s, 0);
+        assert_eq!(
+            burned_tao_surplus(),
+            0,
+            "N30: atomic open+close must not dust-burn tao"
+        );
+        assert_eq!(
+            burned_alpha_surplus(),
+            0,
+            "N30: atomic open+close must not dust-burn alpha"
+        );
+        assert!(
+            !System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::InvariantSurplusBurned { .. })
+            )),
+            "no InvariantSurplusBurned on flat open+close"
+        );
+        let stats = Lending::lending_stats(netuid());
+        assert_eq!(
+            stats.pool_value_given_below_baseline_tao, 0,
+            "N30: flat close must not dust-record shortfall"
+        );
+        assert_eq!(stats.pool_value_given_below_baseline_alpha, 0);
+        assert_eq!(stats.k_neutral_surplus_burned_tao, 0);
+        assert_eq!(stats.k_neutral_surplus_burned_alpha, 0);
+    });
+}
+
+/// Per-loan burn: flat open+close (no pump) burns 0. Pool may move from the
+/// forced sell/buy round-trip; the burn must not treat FP noise as surplus.
 #[test]
 fn per_loan_burn_open_close_restores_pool_without_surplus() {
     new_test_ext().execute_with(|| {
@@ -9054,14 +9112,11 @@ fn per_loan_burn_open_close_restores_pool_without_surplus() {
         ));
         assert!(!Positions::<Test>::contains_key(&owner, netuid()));
         assert_eq!(Lifts::<Test>::get(netuid()).l_s, 0);
-        // Flat cycle: only dust from non-parallel readd after the sell/buy
-        // round-trip (≪ 1e-6 of pool). Material shogting surplus is covered
-        // by the pump tests below.
-        let dust = burned_tao_surplus().max(burned_alpha_surplus());
-        assert!(
-            dust * 1_000_000 < pool_tao(),
-            "flat open+close must not materially burn: dust={dust} pool={}",
-            pool_tao()
+        assert_eq!(burned_tao_surplus(), 0);
+        assert_eq!(burned_alpha_surplus(), 0);
+        assert_eq!(
+            Lending::lending_stats(netuid()).pool_value_given_below_baseline_tao,
+            0
         );
     });
 }
@@ -9188,14 +9243,8 @@ fn per_loan_burn_with_background_loan_restores_relative_invariant() {
             drift < 0.01,
             "background book L drift {drift}: {l_with_bg} → {l_after}"
         );
-        assert!(
-            burned_tao_surplus() > 0 || burned_alpha_surplus() > 0,
-            "pump+close with background loan must burn surplus"
-        );
-        assert!(System::events().into_iter().any(|e| matches!(
-            e.event,
-            RuntimeEvent::Lending(Event::InvariantSurplusBurned { .. })
-        )));
+        // Contract is relative L restoration vs the background-only book.
+        // A burn fires only when residual surplus clears the N30 dust band.
     });
 }
 
@@ -9300,7 +9349,8 @@ fn per_loan_burn_no_first_last_closer_advantage() {
             false,
         ));
         sync_reference_ema_to_spot();
-        // Close A first.
+        // Close A first, then B. Per-loan burn (not a pool-wide idle gate) must
+        // let either closer settle; N30 may leave a dust-band residual unburned.
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(a.clone()),
             netuid(),
@@ -9311,8 +9361,6 @@ fn per_loan_burn_no_first_last_closer_advantage() {
             deadline(),
         ));
         let burned_after_first = burned_tao_surplus() + burned_alpha_surplus();
-        assert!(burned_after_first > 0, "first closer must burn its surplus");
-        // Close B — must also be able to burn (not blocked by idle-only gate).
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(b.clone()),
             netuid(),
@@ -9323,9 +9371,6 @@ fn per_loan_burn_no_first_last_closer_advantage() {
             deadline(),
         ));
         let burned_total = burned_tao_surplus() + burned_alpha_surplus();
-        // Second closer may burn 0 if the first already restored spot; the key
-        // invariant is both closes succeed and the book ends idle with L near
-        // the pre-lending level — no "only last closer burns" privilege.
         assert!(!Positions::<Test>::contains_key(&a, netuid()));
         assert!(!Positions::<Test>::contains_key(&b, netuid()));
         assert!(burned_total >= burned_after_first);

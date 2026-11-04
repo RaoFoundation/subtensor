@@ -10,6 +10,10 @@
 //!
 //! Using summed `lift_tao`/`lift_alpha` across increases at different prices
 //! slightly under-burns versus summing each increase's `L` (safe direction).
+//!
+//! N30 (clone-507): ln/exp fixed-point leaves ~1e-9…2.5e-9 relative residual
+//! on clean readds. Treat `|L − L*| / L < 1e-8` as zero — no dust burn and no
+//! dust shortfall counter bump.
 
 use substrate_fixed::{
     transcendental::{exp, ln},
@@ -18,6 +22,30 @@ use substrate_fixed::{
 
 /// Perquintill accuracy — matches Balancer `ACCURACY` / `Perquintill` parts.
 pub const WEIGHT_ACCURACY: u64 = 1_000_000_000_000_000_000;
+
+/// Denominator for the relative `|L−L*| / L` dust band: `1 / 1e8` (N30).
+///
+/// Real under-recovery (forfeit buyback short) is ≫ this; clean open+close
+/// residuals on clone-507 were ≤ 2.5e-9.
+pub const RELATIVE_INVARIANT_TOLERANCE_DENOM: i128 = 100_000_000;
+
+fn relative_invariant_tolerance() -> I64F64 {
+    I64F64::from_num(1)
+        .checked_div(I64F64::from_num(RELATIVE_INVARIANT_TOLERANCE_DENOM))
+        .unwrap_or_else(|| I64F64::from_num(0))
+}
+
+/// `|σ − 1| < 1e-8` — L and L* agree within fixed-point noise.
+fn sigma_within_tolerance_of_unity(sigma: I64F64) -> bool {
+    let one = I64F64::from_num(1);
+    let tol = relative_invariant_tolerance();
+    let delta = if sigma >= one {
+        sigma.saturating_sub(one)
+    } else {
+        one.saturating_sub(sigma)
+    };
+    delta < tol
+}
 
 /// Synthetic baseline reserves whose invariant equals `L(pre) + L(lift)`.
 ///
@@ -94,8 +122,9 @@ pub fn burn_amounts_to_invariant_baseline(
         return (0, 0);
     };
 
-    // Already at or below baseline invariant (σ = L*/L' ≥ 1 ⇒ L' ≤ L*).
-    if sigma >= I64F64::from_num(1) {
+    // Already at or below baseline (σ ≥ 1 ⇒ L' ≤ L*), or within the N30
+    // fixed-point dust band (|σ − 1| < 1e-8) — never dust-burn a clean readd.
+    if sigma >= I64F64::from_num(1) || sigma_within_tolerance_of_unity(sigma) {
         return (0, 0);
     }
 
@@ -194,8 +223,9 @@ pub fn invariant_shortfall_tao(
     else {
         return 0;
     };
-    // L' ≥ L*: invariant restored (or in surplus). Per-reserve dips are not losses.
-    if sigma <= I64F64::from_num(1) {
+    // L' ≥ L*, or within the N30 dust band: no real shortfall. Per-reserve
+    // dips with L restored (or only FP-noise below) are not losses.
+    if sigma <= I64F64::from_num(1) || sigma_within_tolerance_of_unity(sigma) {
         return 0;
     }
     let acc = I64F64::from_num(WEIGHT_ACCURACY as i128);
@@ -332,5 +362,49 @@ mod tests {
         assert!((keep_a as i64 - ba as i64).unsigned_abs() <= 1);
         assert!(burn_t >= 8 && burn_a >= 8, "must clear most of the surplus");
         assert!(burn_t <= 21 && burn_a <= 21);
+    }
+
+    /// N30: |L−L*| / L ≈ 1e-9 (clone-507 residual) must not dust-burn.
+    #[test]
+    fn relative_dust_surplus_does_not_burn() {
+        let w = WEIGHT_ACCURACY / 2;
+        let post = 1_000_000_000_000_000u64;
+        // Equal-weight: ΔL/L ≈ Δr when both reserves scale by (1+r); r = 1e-9.
+        let baseline = post - post / 1_000_000_000;
+        let (bt, ba) = burn_amounts_to_invariant_baseline(
+            post,
+            post,
+            w,
+            baseline,
+            baseline,
+            post / 2,
+            post / 2,
+        );
+        assert_eq!((bt, ba), (0, 0));
+    }
+
+    /// N30: the same relative dust below target must not bump the shortfall counter.
+    #[test]
+    fn relative_dust_deficit_does_not_record_shortfall() {
+        let w = WEIGHT_ACCURACY / 2;
+        let post = 1_000_000_000_000_000u64;
+        let baseline = post + post / 1_000_000_000;
+        assert_eq!(
+            invariant_shortfall_tao(post, post, w, baseline, baseline),
+            0
+        );
+    }
+
+    /// Tolerance must not swallow a real ~1e-6 relative shortfall.
+    #[test]
+    fn real_relative_shortfall_still_recorded() {
+        let w = WEIGHT_ACCURACY / 2;
+        let post = 1_000_000_000_000_000u64;
+        let baseline = post + post / 1_000_000; // ~1e-6 relative
+        let got = invariant_shortfall_tao(post, post, w, baseline, baseline);
+        assert!(
+            got > post / 1_000_000,
+            "real shortfall must clear the dust band, got {got}"
+        );
     }
 }

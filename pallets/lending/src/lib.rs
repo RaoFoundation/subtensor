@@ -4779,7 +4779,9 @@ pub mod pallet {
         /// burns against its own target, so a busy book cannot accumulate
         /// surplus and emission growth between open and close is not burned.
         /// A forfeit must never end below baseline because of the burn itself
-        /// — under-recovery records shortfall instead.
+        /// — under-recovery records shortfall instead. N30: `|L−L*| / L < 1e-8`
+        /// is treated as zero (no dust burn / no dust shortfall) inside the
+        /// k-neutral helpers.
         fn maybe_burn_invariant_surplus(
             netuid: NetUid,
             credited_tao: u64,
