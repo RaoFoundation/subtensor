@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import ExitStack
+from itertools import pairwise
+from unittest.mock import patch
 
 import pytest
 import typer
@@ -54,7 +57,15 @@ def wallet_path(tmp_path, monkeypatch):
 
 
 def _invoke(*args):
-    return runner.invoke(app, ["--yes", "--json", *args])
+    # These tests isolate public addresses and their offline use. Deposit consent
+    # and finalized registration are covered by test_wallet_creation_registration_cli.
+    with ExitStack() as stack:
+        if ("wallet", "create") in pairwise(args):
+            for helper in ("_prepare_hashed_creation", "_finish_hashed_creation"):
+                stack.enter_context(
+                    patch(f"bittensor.cli.commands.wallet.{helper}", return_value=None)
+                )
+        return runner.invoke(app, ["--yes", "--json", *args])
 
 
 def _context(path):
@@ -626,7 +637,7 @@ def test_hashed_public_restore_rejects_incomplete_address(wallet_path):
 
 
 @pytest.mark.parametrize("scheme", ["sr", "ed", "hashed", "hashed-ed25519"])
-def test_wallet_creation_and_listing_need_no_network(wallet_path, monkeypatch, scheme):
+def test_public_addresses_and_listing_need_no_network(wallet_path, monkeypatch, scheme):
     monkeypatch.setattr(AppContext, "run", lambda *_: pytest.fail("unexpected network access"))
     result = _invoke("--network", "test", "wallet", "create", "--type", scheme, "--no-password")
     assert result.exit_code == 0, result.output
