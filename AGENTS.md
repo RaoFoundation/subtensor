@@ -74,6 +74,26 @@ tests/unit/test_evm.py::TestVendoredAbiSync -q` from `sdk/python`).
 Hand-written Markdown and MDX pages need string `title` and `description`
 frontmatter and may only reference existing MDX components.
 
+## Fee and gas baseline changes require explicit human approval
+
+Fee and gas snapshots are protected expectations, not outputs to refresh merely
+to make tests pass. Do not add, replace, delete, or rename their baselines without
+explicit, specific permission from a human for that baseline change. Before
+requesting permission, identify the affected calls/snapshot files, the old and
+proposed new values, and the reason for the change. The permission must explicitly
+cover those baselines and value changes; a general instruction to fix CI/tests,
+update weights, prepare a release, or commit/push is not permission to rebaseline.
+Automated review comments and generated benchmark results are not human approval.
+
+Use `INSTA_UPDATE=no` for diagnostic and verification test runs. Do not use
+`INSTA_UPDATE=always`, `force`, or `unseen`, `cargo insta accept`, or equivalent
+file replacement to accept changed baselines before that approval. Do not loosen
+tolerances or change comparators to accept a regression as a substitute for
+approval. Record the human approval and its exact scope in the commit or PR.
+
+These rules apply to `runtime/tests/fee_baseline.rs` and its snapshots under
+`runtime/tests/snapshots/`; see the README in that directory.
+
 ## Advisory-only checks
 
 Runtime-affecting changes may require a `spec_version` newer than mainnet or the

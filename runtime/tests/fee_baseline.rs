@@ -4,18 +4,31 @@
 //! with one unit of every argument is quoted at, under
 //! `runtime/tests/snapshots/fee_baseline__dispatchable_fee_matches_snapshot@<case>.snap`.
 //! Fees may rise or fall by up to 20% of their snapshot value (inclusive).
-//! Changes beyond that range require an explicit snapshot update and review.
+//! Baseline changes require explicit, specific human approval, even when the new
+//! value would fall within that tolerance. Identify the affected snapshots and
+//! old/proposed values before requesting approval. A request to fix CI/tests,
+//! update weights, or prepare a release does not authorize rebaselining.
 //! Signed Ethereum transactions also pin actual gas fees for native transfers
 //! and balance-transfer, staking V2 (root add/remove), and proxy precompiles.
 //! These EVM snapshots require exact matches to guard gas-schedule compatibility.
 //! Transfer/stake principal and reserved proxy deposits are excluded from fees.
 //!
-//! Regenerate snapshots after a deliberate fee change:
-//! `INSTA_UPDATE=always cargo test -p node-subtensor-runtime --test fee_baseline`
-//! then review the diff under `runtime/tests/snapshots/` and commit the changed files.
+//! Verify without accepting changed baselines:
+//! `INSTA_UPDATE=no cargo test -p node-subtensor-runtime --test fee_baseline`
+//!
+//! ONLY after a human explicitly approves the specific baseline/value changes,
+//! regenerate the approved snapshots (scope the test filter to the approved cases):
+//! `INSTA_UPDATE=always cargo test -p node-subtensor-runtime --test fee_baseline APPROVED_TEST_FILTER`
+//! Replace `APPROVED_TEST_FILTER` with the approved case; do not regenerate the
+//! entire suite when only individual baseline changes were authorized.
+//! then review the diff and include only the approved changes. Record the human
+//! approval and its scope in the commit or PR. Do not widen tolerances or change
+//! comparators to accept a regression without the same approval.
 //!
 //! By default, running the tests (except in CI) will generate new snapshots for any failing
-//! snapshot tests, saved as `runtime/tests/snapshots/*.snap.new`.
+//! snapshot tests, saved as `runtime/tests/snapshots/*.snap.new`. These files are
+//! proposals, not approval to replace or commit the accepted baselines.
+//! See `runtime/tests/snapshots/README.md` and the repository's `AGENTS.md`.
 
 #![allow(clippy::expect_used)]
 
