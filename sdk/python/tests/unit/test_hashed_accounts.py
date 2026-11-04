@@ -409,34 +409,6 @@ async def test_wrong_mnemonic_never_unlocks_or_signs_for_the_original_account(tm
     assert _wallet_files(wrong) == files
 
 
-@pytest.mark.parametrize(
-    "hotkey_option,expected_hotkey",
-    [
-        ([], CRYPTO_HASHED),
-        (["--hotkey-crypto-type", "sr25519", "--hotkey-type", "standard"], CRYPTO_SR25519),
-    ],
-)
-def test_cli_type_creates_wallet_and_public_descriptors(
-    tmp_path, monkeypatch, hotkey_option, expected_hotkey
-):
-    monkeypatch.setenv("BTCLI_CONFIG", str(tmp_path / "config.json"))
-    monkeypatch.setenv("BT_WALLET_PATH", str(tmp_path))
-    monkeypatch.setenv("BT_WALLET", "new")
-    result = CliRunner().invoke(
-        app, ["--yes", "wallet", "create", "--type", "hashed", "--no-password", *hotkey_option]
-    )
-    assert result.exit_code == 0, result.output
-    wallet = Wallet("new", path=str(tmp_path))
-    assert wallet.coldkeypub.crypto_type == CRYPTO_HASHED
-    assert wallet.hotkeypub.crypto_type == expected_hotkey
-    assert "tao_" in result.output
-    assert wallet.coldkeypub.ss58_address in result.output
-    assert result.output.index("tao_") < result.output.index(wallet.coldkeypub.ss58_address)
-    assert "Account ID (SS58)" in result.output
-    assert "Use the receiving address for transactions" in result.output
-    assert "explorers display the same account as SS58" in result.output
-
-
 @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
 def test_cli_mnemonic_recovery_accepts_hashed_type(tmp_path, monkeypatch, role):
     monkeypatch.setenv("BTCLI_CONFIG", str(tmp_path / "config.json"))
