@@ -77,31 +77,53 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
             })
             .count() as u32;
         let global = StatsGlobal::<T>::get();
-        let global_dirty = global.pool_value_given_below_baseline_tao != 0
-            || global.pool_value_given_below_baseline_alpha != 0;
-        Ok((already_run, pending_netuids, global_dirty).encode())
+        // Snapshot global shortfall so an already-stamped no-op can prove it
+        // left live post-migration counters alone (Auditor fid:b4c3af08).
+        Ok((
+            already_run,
+            pending_netuids,
+            global.pool_value_given_below_baseline_tao,
+            global.pool_value_given_below_baseline_alpha,
+        )
+            .encode())
     }
 
     #[cfg(feature = "try-runtime")]
     fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
-        let (_already_run, _pending_before, _global_dirty): (bool, u32, bool) =
-            Decode::decode(&mut &state[..]).map_err(|_| "pre_upgrade state must decode")?;
+        let (already_run, _pending_before, global_tao_before, global_alpha_before): (
+            bool,
+            u32,
+            u128,
+            u128,
+        ) = Decode::decode(&mut &state[..]).map_err(|_| "pre_upgrade state must decode")?;
         ensure!(
             HasMigrationRun::<T>::get(migration_key()),
             "reset-n24-shortfall migration must be stamped"
         );
+        if already_run {
+            // Idempotent no-op: counters may have grown again after the first
+            // run (under-recovery settlements). Require the stamp and that
+            // this upgrade did not rewrite the global shortfall snapshot.
+            let global = StatsGlobal::<T>::get();
+            ensure!(
+                global.pool_value_given_below_baseline_tao == global_tao_before
+                    && global.pool_value_given_below_baseline_alpha == global_alpha_before,
+                "already-run reset must leave global shortfall counters unchanged"
+            );
+            return Ok(());
+        }
         ensure!(
             StatsByNetuid::<T>::iter().all(|(_, s)| {
                 s.pool_value_given_below_baseline_tao == 0
                     && s.pool_value_given_below_baseline_alpha == 0
             }),
-            "per-netuid shortfall counters must be zero after migration"
+            "per-netuid shortfall counters must be zero after first migration run"
         );
         let global = StatsGlobal::<T>::get();
         ensure!(
             global.pool_value_given_below_baseline_tao == 0
                 && global.pool_value_given_below_baseline_alpha == 0,
-            "global shortfall counters must be zero after migration"
+            "global shortfall counters must be zero after first migration run"
         );
         Ok(())
     }

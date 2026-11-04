@@ -3135,6 +3135,180 @@ fn position_terms_version_migration_try_runtime_checks_pass() {
     });
 }
 
+fn clear_baseline_migration_key() -> BoundedVec<u8, ConstU32<128>> {
+    BoundedVec::truncate_from(b"migrate_clear_invariant_baseline_v1".to_vec())
+}
+
+fn reset_n24_migration_key() -> BoundedVec<u8, ConstU32<128>> {
+    BoundedVec::truncate_from(b"migrate_reset_n24_shortfall_counters_v1".to_vec())
+}
+
+/// Auditor fid:e75d1527 / 066129a7 — both cleanup migrations clear legacy
+/// baseline rows and N24 shortfall counters, stamp, preserve unrelated stats,
+/// and stay idempotent on a second run.
+#[test]
+fn cleanup_migrations_clear_legacy_data_and_are_idempotent() {
+    new_test_ext().execute_with(|| {
+        let other: NetUid = 99.into();
+        InvariantBaseline::<Test>::insert(
+            netuid(),
+            InvariantBaselineReserves {
+                tao: 123,
+                alpha: 456,
+            },
+        );
+        InvariantBaseline::<Test>::insert(other, InvariantBaselineReserves { tao: 7, alpha: 8 });
+
+        let dirty = LendingStats {
+            interest_burned_tao: 789,
+            opens_short: 3,
+            pool_value_given_below_baseline_tao: 12,
+            pool_value_given_below_baseline_alpha: 34,
+            ..Default::default()
+        };
+        StatsByNetuid::<Test>::insert(netuid(), dirty);
+        StatsGlobal::<Test>::put(dirty);
+
+        // Clean row: only unrelated counters; shortfall fields already zero.
+        let clean = LendingStats {
+            interest_burned_alpha: 55,
+            closes_long: 2,
+            ..Default::default()
+        };
+        StatsByNetuid::<Test>::insert(other, clean);
+
+        assert!(!HasMigrationRun::<Test>::get(clear_baseline_migration_key()));
+        assert!(!HasMigrationRun::<Test>::get(reset_n24_migration_key()));
+
+        let _ = migrations::migrate_clear_invariant_baseline::<Test>();
+        let _ = migrations::migrate_reset_n24_shortfall_counters::<Test>();
+
+        assert!(HasMigrationRun::<Test>::get(clear_baseline_migration_key()));
+        assert!(HasMigrationRun::<Test>::get(reset_n24_migration_key()));
+        assert!(InvariantBaseline::<Test>::iter().next().is_none());
+
+        let mut expected_dirty = dirty;
+        expected_dirty.pool_value_given_below_baseline_tao = 0;
+        expected_dirty.pool_value_given_below_baseline_alpha = 0;
+        assert_eq!(StatsByNetuid::<Test>::get(netuid()), expected_dirty);
+        assert_eq!(
+            StatsByNetuid::<Test>::get(other),
+            clean,
+            "rows with zero shortfall must keep unrelated counters untouched"
+        );
+        assert_eq!(StatsGlobal::<Test>::get(), expected_dirty);
+
+        // Idempotent: second run is a stamped no-op even if shortfalls grow again.
+        let mut post = expected_dirty;
+        post.pool_value_given_below_baseline_tao = 999;
+        StatsByNetuid::<Test>::insert(netuid(), post);
+        StatsGlobal::<Test>::put(post);
+
+        let _ = migrations::migrate_clear_invariant_baseline::<Test>();
+        let _ = migrations::migrate_reset_n24_shortfall_counters::<Test>();
+        assert!(InvariantBaseline::<Test>::iter().next().is_none());
+        assert_eq!(StatsByNetuid::<Test>::get(netuid()), post);
+        assert_eq!(StatsGlobal::<Test>::get(), post);
+        assert_eq!(StatsByNetuid::<Test>::get(other), clean);
+    });
+}
+
+#[cfg(feature = "try-runtime")]
+#[test]
+fn clear_invariant_baseline_migration_try_runtime_checks_pass() {
+    new_test_ext().execute_with(|| {
+        InvariantBaseline::<Test>::insert(
+            netuid(),
+            InvariantBaselineReserves {
+                tao: 11,
+                alpha: 22,
+            },
+        );
+        let state =
+            <migrations::ClearInvariantBaselineMigration<Test> as OnRuntimeUpgrade>::pre_upgrade()
+                .expect("pre_upgrade must accept populated baseline");
+        let _ = <migrations::ClearInvariantBaselineMigration<Test> as OnRuntimeUpgrade>::on_runtime_upgrade(
+        );
+        assert_ok!(
+            <migrations::ClearInvariantBaselineMigration<Test> as OnRuntimeUpgrade>::post_upgrade(
+                state
+            )
+        );
+        assert!(InvariantBaseline::<Test>::iter().next().is_none());
+        assert!(HasMigrationRun::<Test>::get(clear_baseline_migration_key()));
+    });
+}
+
+/// Auditor fid:b4c3af08 — already-stamped reset must leave live shortfall
+/// counters alone (under-recovery after the first upgrade).
+#[cfg(feature = "try-runtime")]
+#[test]
+fn reset_n24_shortfall_migration_try_runtime_respects_already_run() {
+    new_test_ext().execute_with(|| {
+        // First execution: dirty counters → zero + stamp.
+        let dirty = LendingStats {
+            interest_burned_tao: 1,
+            pool_value_given_below_baseline_tao: 100,
+            pool_value_given_below_baseline_alpha: 200,
+            ..Default::default()
+        };
+        StatsByNetuid::<Test>::insert(netuid(), dirty);
+        StatsGlobal::<Test>::put(dirty);
+
+        let state =
+            <migrations::ResetN24ShortfallCountersMigration<Test> as OnRuntimeUpgrade>::pre_upgrade(
+            )
+            .expect("pre_upgrade must accept dirty shortfalls");
+        let _ = <migrations::ResetN24ShortfallCountersMigration<Test> as OnRuntimeUpgrade>::on_runtime_upgrade(
+        );
+        assert_ok!(
+            <migrations::ResetN24ShortfallCountersMigration<Test> as OnRuntimeUpgrade>::post_upgrade(
+                state
+            )
+        );
+        assert_eq!(
+            StatsByNetuid::<Test>::get(netuid()).pool_value_given_below_baseline_tao,
+            0
+        );
+        assert_eq!(
+            StatsGlobal::<Test>::get().pool_value_given_below_baseline_tao,
+            0
+        );
+
+        // Later upgrade: shortfalls have grown again; migration is stamped so
+        // post_upgrade must accept the non-zero snapshot (no-op).
+        let later = LendingStats {
+            interest_burned_tao: 1,
+            pool_value_given_below_baseline_tao: 5_000_000_000,
+            pool_value_given_below_baseline_alpha: 0,
+            ..Default::default()
+        };
+        StatsByNetuid::<Test>::insert(netuid(), later);
+        StatsGlobal::<Test>::put(later);
+
+        let state =
+            <migrations::ResetN24ShortfallCountersMigration<Test> as OnRuntimeUpgrade>::pre_upgrade(
+            )
+            .expect("pre_upgrade must snapshot live shortfalls");
+        let _ = <migrations::ResetN24ShortfallCountersMigration<Test> as OnRuntimeUpgrade>::on_runtime_upgrade(
+        );
+        assert_ok!(
+            <migrations::ResetN24ShortfallCountersMigration<Test> as OnRuntimeUpgrade>::post_upgrade(
+                state
+            )
+        );
+        assert_eq!(
+            StatsByNetuid::<Test>::get(netuid()).pool_value_given_below_baseline_tao,
+            5_000_000_000,
+            "already-run reset must not wipe post-migration shortfalls"
+        );
+        assert_eq!(
+            StatsGlobal::<Test>::get().pool_value_given_below_baseline_tao,
+            5_000_000_000
+        );
+    });
+}
+
 #[test]
 fn registration_hook_seeds_without_manual_warm_and_open_succeeds_after_gate() {
     cold_lending_ext().execute_with(|| {
