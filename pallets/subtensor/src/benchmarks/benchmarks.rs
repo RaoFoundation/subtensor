@@ -37,7 +37,7 @@ mod helpers;
 
 #[benchmarks(
     where
-        T: pallet_balances::Config + pallet_shield::Config,
+        T: pallet_alpha_assets::Config + pallet_balances::Config + pallet_shield::Config,
         <T as pallet_balances::Config>::ExistentialDeposit: Get<TaoBalance>,
         <T as frame_system::Config>::RuntimeCall:
             Dispatchable<RuntimeOrigin = OriginFor<T>, Info = DispatchInfo, PostInfo = PostDispatchInfo>
@@ -975,6 +975,12 @@ mod pallet_benchmarks {
             MinerCollateral::<T>::get((NetUid::from(1), hotkey, coldkey))
                 .is_some_and(|position| position.earned > AlphaBalance::ZERO)
         );
+        for subnet_index in 1..=128_u16 {
+            let netuid = NetUid::from(subnet_index);
+            assert!(pallet_alpha_assets::AlphaBurned::<T>::get(netuid) > AlphaBalance::ZERO);
+            assert!(pallet_alpha_assets::AlphaRecycled::<T>::get(netuid) > AlphaBalance::ZERO);
+            assert!(SubnetOwnerCutAccrued::<T>::get(netuid) > AlphaBalance::ZERO);
+        }
     }
 
     #[benchmark]

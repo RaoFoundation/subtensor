@@ -384,7 +384,10 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
     const TEMPO: u16 = 360;
     const CURRENT_BLOCK: u64 = 7_000;
     const SUBNET_TAO_RESERVE: u64 = 1_000_000_000_000_000;
-    const SUBNET_ALPHA_RESERVE: u64 = 1_000_000_000_000_000_000;
+    // Keep total alpha issuance below `TotalSupply`, otherwise coinbase returns
+    // zero alpha emission and the burn/recycle/owner branches are not measured.
+    // This still covers the 2,500 × 1 TAO-equivalent positions in a Null epoch.
+    const SUBNET_ALPHA_RESERVE: u64 = 10_000_000_000_000;
     const VALIDATOR_ALPHA_STAKE: u64 = 1_000_000_000;
 
     set_benchmark_block_number::<T>(CURRENT_BLOCK);
