@@ -429,9 +429,11 @@ mod errors {
         /// slots must sum to exactly one (`u64::MAX` parts). Renormalize before resubmitting;
         /// `btcli subnets emission set-value` does this automatically.
         EmissionWeightsDoNotSumToOne,
-        /// `set_subnet_emission_weights`: burn (slot 0) is not yet enabled and must be 0.
+        /// Deprecated: burn may be non-zero; the combined burn+recycle cap is
+        /// [`Error::BurnRecycleEmissionAboveMaximum`]. Kept so SCALE error indices stay stable.
         BurnEmissionMustBeZero,
-        /// `set_subnet_emission_weights`: recycle (slot 1) is not yet enabled and must be 0.
+        /// Deprecated: recycle may be non-zero; the combined burn+recycle cap is
+        /// [`Error::BurnRecycleEmissionAboveMaximum`]. Kept so SCALE error indices stay stable.
         RecycleEmissionMustBeZero,
         /// `set_subnet_emission_weights`: the owner cut (slot 2) may be at most 33% of
         /// emission.
@@ -485,5 +487,8 @@ mod errors {
         InsufficientGammaBalance,
         /// The amount is above what the gamma deposit's daily spend cap allows now.
         GammaDepositDailySpendCapExceeded,
+        /// `set_subnet_emission_weights`: burn (slot 0) and recycle (slot 1) together may be
+        /// at most 33% of emission.
+        BurnRecycleEmissionAboveMaximum,
     }
 }

@@ -52,9 +52,9 @@ pub use extensions::*;
 pub use guards::*;
 pub use subnets::emission_weights::{
     EMISSION_WEIGHT_ONE, EMISSION_WEIGHT_SLOTS, EMISSION_WEIGHTS_VIEW_READS, EmissionIndex,
-    EmissionWeights, EmissionWeightsVec, EmissionWeightsView, MAX_OWNER_EMISSION,
-    MAX_VALIDATOR_EMISSION, MIN_MINER_EMISSION, emission_fraction, emission_share_to_parts,
-    normalize_tao_weight, root_emission_share,
+    EmissionWeights, EmissionWeightsVec, EmissionWeightsView, MAX_BURN_RECYCLE_EMISSION,
+    MAX_OWNER_EMISSION, MAX_VALIDATOR_EMISSION, MIN_MINER_EMISSION, emission_fraction,
+    emission_share_to_parts, normalize_tao_weight, root_emission_share,
 };
 
 /// Prevent an owner relationship from weakening a hotkey's authorization.

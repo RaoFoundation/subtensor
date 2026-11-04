@@ -96,7 +96,6 @@ pub trait WeightInfo {
 	fn commit_timelocked_mechanism_weights_null() -> Weight {
 		Self::commit_timelocked_mechanism_weights().saturating_mul(u64::from(crate::MAX_CRV3_COMMIT_SIZE_BYTES.div_ceil(crate::YUMA_COMMIT_SIZE_BYTES)))
 	}
-
 	fn block_step() -> Weight;
     /// Diagnostic sole-owner benchmark; never used as the hook's charge.
     /// Reference generation supplies its result independently of the envelope.
@@ -190,6 +189,8 @@ pub trait WeightInfo {
 	fn set_reject_staking_hotkey_growth() -> Weight {
 		Self::set_reject_locked_alpha()
 	}
+
+	fn block_step_burn_recycle() -> Weight;
 }
 
 /// Weights for `pallet_subtensor` using the Substrate node and recommended hardware.
@@ -1369,6 +1370,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(18_u64))
 			.saturating_add(T::DbWeight::get().writes(7_u64))
 	}
+
 	/// Storage: `SubtensorModule::NetworksAdded` (r:130 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Burn` (r:129 w:129)
@@ -1580,6 +1582,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `SubtensorModule::SubnetTaoInEmission` (r:0 w:128)
 	/// Proof: `SubtensorModule::SubnetTaoInEmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn block_step() -> Weight {
+		// The figures below are the existing release-487 hook baseline.
+		// block_step_burn_recycle() separately measures the newly enabled nonzero
+		// burn/recycle branches on 128 subnets, including CPU, proof size and DB I/O.
 		// Proof Size summary in bytes:
 		//  Measured:  `35121466`
 		//  Estimated: `37656856`
@@ -1587,6 +1592,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(73_474_016_000, 37656856)
 			.saturating_add(T::DbWeight::get().reads(10986_u64))
 			.saturating_add(T::DbWeight::get().writes(4124_u64))
+			.saturating_add(Self::block_step_burn_recycle())
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -4528,6 +4534,24 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
+
+	/// Storage: `AlphaAssets::AlphaBurned` (r:128 w:128)
+	/// Proof: `AlphaAssets::AlphaBurned` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:128 w:128)
+	/// Proof: `SubtensorModule::SubnetAlphaOut` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `AlphaAssets::AlphaRecycled` (r:128 w:128)
+	/// Proof: `AlphaAssets::AlphaRecycled` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `AlphaAssets::TotalAlphaIssuance` (r:128 w:128)
+	/// Proof: `AlphaAssets::TotalAlphaIssuance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn block_step_burn_recycle() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `4963`
+		//  Estimated: `322753`
+		// Minimum execution time: 963_000_000 picoseconds.
+		Weight::from_parts(1_017_000_000, 322753)
+			.saturating_add(T::DbWeight::get().reads(512_u64))
+			.saturating_add(T::DbWeight::get().writes(512_u64))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -5697,6 +5721,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(18_u64))
 			.saturating_add(RocksDbWeight::get().writes(7_u64))
 	}
+
 	/// Storage: `SubtensorModule::NetworksAdded` (r:130 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Burn` (r:129 w:129)
@@ -5908,6 +5933,9 @@ impl WeightInfo for () {
 	/// Storage: `SubtensorModule::SubnetTaoInEmission` (r:0 w:128)
 	/// Proof: `SubtensorModule::SubnetTaoInEmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn block_step() -> Weight {
+		// The figures below are the existing release-487 hook baseline.
+		// block_step_burn_recycle() separately measures the newly enabled nonzero
+		// burn/recycle branches on 128 subnets, including CPU, proof size and DB I/O.
 		// Proof Size summary in bytes:
 		//  Measured:  `35121466`
 		//  Estimated: `37656856`
@@ -5915,6 +5943,7 @@ impl WeightInfo for () {
 		Weight::from_parts(73_474_016_000, 37656856)
 			.saturating_add(RocksDbWeight::get().reads(10986_u64))
 			.saturating_add(RocksDbWeight::get().writes(4124_u64))
+			.saturating_add(Self::block_step_burn_recycle())
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -8855,5 +8884,23 @@ impl WeightInfo for () {
 		Weight::from_parts(8_000_000, 4027)
 			.saturating_add(RocksDbWeight::get().reads(1_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+
+	/// Storage: `AlphaAssets::AlphaBurned` (r:128 w:128)
+	/// Proof: `AlphaAssets::AlphaBurned` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:128 w:128)
+	/// Proof: `SubtensorModule::SubnetAlphaOut` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `AlphaAssets::AlphaRecycled` (r:128 w:128)
+	/// Proof: `AlphaAssets::AlphaRecycled` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `AlphaAssets::TotalAlphaIssuance` (r:128 w:128)
+	/// Proof: `AlphaAssets::TotalAlphaIssuance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn block_step_burn_recycle() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `4963`
+		//  Estimated: `322753`
+		// Minimum execution time: 963_000_000 picoseconds.
+		Weight::from_parts(1_017_000_000, 322753)
+			.saturating_add(RocksDbWeight::get().reads(512_u64))
+			.saturating_add(RocksDbWeight::get().writes(512_u64))
 	}
 }

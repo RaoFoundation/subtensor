@@ -7,15 +7,15 @@ description: "Set slots of a subnet's emission weight vector (btcli `subnets emi
 
 Dispatches `AdminUtils.sudo_set_subnet_emission_weights` for the named
 slots. The signer must be the subnet's owner coldkey (root may also call
-it). With `renormalize` the untouched owner/validator/miner slots are
-rescaled so the vector still sums to one; without it the merged vector is
-submitted as given. Root stakers are paid their baseline share of emission
-(what they earn with the default validator share and the global TaoWeight)
-off the top of the validator slot every block, whatever the subnet sets —
-the pre-sign plan shows that share and what alpha validators are left
-with, and lists every rule the chain would reject (including a validator
-share at or below the baseline), so a bad vector is caught before signing.
-Owners may change the vector once per week per subnet.
+it). With `renormalize` the untouched slots are rescaled so the vector
+still sums to one; without it the merged vector is submitted as given.
+Root stakers are paid their baseline share of emission (what they earn
+with the default validator share and the global TaoWeight) off the top of
+the validator slot every block, whatever the subnet sets — the pre-sign
+plan shows that share and what alpha validators are left with, and lists
+every rule the chain would reject (including a validator share at or below
+the baseline), so a bad vector is caught before signing. Owners may change
+the vector once per week per subnet.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
@@ -35,9 +35,9 @@ btcli query subnet-emission-weights --netuid <integer> --json
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet to configure; the signer must be its owner. |
-| `slots` | array of ['integer', 'string'] | yes | Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted owner/validator/miner slots keep their current share; omitted burn/recycle are zero. |
-| `values` | array of ['integer', 'number', 'string'] | yes | New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage ("41%"), or raw u64 parts of 2^64-1. Rules: burn = recycle = 0; owner \<= 33% (>= 18% on lease-created subnets); validator \<= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five sum to exactly 1. |
-| `renormalize` | boolean | no | Keep the named slots as given and rescale the other owner/validator/miner slots proportionally so the vector sums to 1 (the miner slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1. |
+| `slots` | array of ['integer', 'string'] | yes | Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted slots keep their current share. |
+| `values` | array of ['integer', 'number', 'string'] | yes | New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage ("41%"), or raw u64 parts of 2^64-1. Rules: burn + recycle \<= 33%; owner \<= 33% (>= 18% on lease-created subnets); validator \<= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five sum to exactly 1. |
+| `renormalize` | boolean | no | Keep the named slots as given and rescale the other slots proportionally so the vector sums to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

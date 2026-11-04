@@ -460,7 +460,10 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
     const TEMPO: u16 = 360;
     const CURRENT_BLOCK: u64 = 7_000;
     const SUBNET_TAO_RESERVE: u64 = 1_000_000_000_000_000;
-    const SUBNET_ALPHA_RESERVE: u64 = 1_000_000_000_000_000_000;
+    // Keep total alpha issuance below `TotalSupply`, otherwise coinbase returns
+    // zero alpha emission and the burn/recycle/owner branches are not measured.
+    // This still covers the 2,500 × 1 TAO-equivalent positions in a Null epoch.
+    const SUBNET_ALPHA_RESERVE: u64 = 10_000_000_000_000;
     const VALIDATOR_ALPHA_STAKE: u64 = 1_000_000_000;
 
     set_benchmark_block_number::<T>(CURRENT_BLOCK);
@@ -551,6 +554,21 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
         Subtensor::<T>::set_max_allowed_validators(netuid, MAINNET_VALIDATORS_PER_SUBNET);
         SubtokenEnabled::<T>::insert(netuid, true);
         SubnetEmissionEnabled::<T>::insert(netuid, true);
+        // Exercise burn, recycle, and owner payout together on every emitting
+        // subnet. Production permits all three shares to be nonzero, so the
+        // block-step envelope must include their combined storage work.
+        let burn = MAX_BURN_RECYCLE_EMISSION / 2;
+        let recycle = MAX_BURN_RECYCLE_EMISSION.saturating_sub(burn);
+        let owner = emission_fraction(1, 100);
+        let miner = MIN_MINER_EMISSION;
+        let validator = EMISSION_WEIGHT_ONE
+            .saturating_sub(MAX_BURN_RECYCLE_EMISSION)
+            .saturating_sub(owner)
+            .saturating_sub(miner);
+        Subtensor::<T>::set_subnet_emission_weights_unchecked(
+            netuid,
+            [burn, recycle, owner, validator, miner],
+        );
         SubnetOwner::<T>::insert(netuid, subnet_owner);
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
         Subtensor::<T>::set_max_allowed_uids(netuid, neuron_count);
