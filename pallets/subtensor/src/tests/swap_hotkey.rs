@@ -775,6 +775,37 @@ fn test_swap_axons() {
     });
 }
 
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_service --exact --nocapture
+#[test]
+fn test_swap_service() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let coldkey = U256::from(3);
+        let netuid = NetUid::from(0u16);
+        let info = ServiceInfo {
+            url: BoundedVec::truncate_from(b"https://example.com".to_vec()),
+            spender: U256::from(9),
+        };
+        let mut weight = Weight::zero();
+
+        add_network(netuid, 1, 1);
+        IsNetworkMember::<Test>::insert(old_hotkey, netuid, true);
+        Services::<Test>::insert(netuid, old_hotkey, info.clone());
+
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
+            &old_hotkey,
+            &new_hotkey,
+            &coldkey,
+            &mut weight,
+            false
+        ));
+
+        assert!(!Services::<Test>::contains_key(netuid, old_hotkey));
+        assert_eq!(Services::<Test>::get(netuid, new_hotkey), Some(info));
+    });
+}
+
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_certificates --exact --nocapture
 #[test]
 fn test_swap_certificates() {

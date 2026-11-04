@@ -1168,3 +1168,112 @@ fn test_set_subnet_identity_dispatch_info_ok() {
         assert_eq!(dispatch_info.pays_fee, Pays::Yes);
     });
 }
+
+#[test]
+fn test_set_service_sets_the_url_and_spender() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1);
+        let coldkey = U256::from(66);
+        let spender = U256::from(2);
+        let netuid = NetUid::from(1);
+        let url: BoundedVec<u8, _> = BoundedVec::truncate_from(b"https://example.com".to_vec());
+        add_network(netuid, 13, 0);
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+        ValidatorPermit::<Test>::insert(netuid, vec![true]);
+
+        let call = SubtensorCall::set_service {
+            netuid,
+            hotkey,
+            url: url.clone(),
+            spender,
+        };
+        assert_eq!(call.get_dispatch_info().pays_fee, Pays::Yes);
+        let set = |url: &BoundedVec<u8, _>| {
+            SubtensorModule::set_service(
+                RuntimeOrigin::signed(coldkey),
+                netuid,
+                hotkey,
+                url.clone(),
+                spender,
+            )
+        };
+        assert_ok!(set(&url));
+        assert_eq!(
+            Services::<Test>::get(netuid, hotkey),
+            Some(ServiceInfo {
+                url: url.clone(),
+                spender
+            })
+        );
+        System::assert_last_event(
+            Event::ServiceSet {
+                netuid,
+                hotkey,
+                url,
+                spender,
+            }
+            .into(),
+        );
+
+        // An empty url removes the service.
+        assert_ok!(set(&BoundedVec::new()));
+        assert!(!Services::<Test>::contains_key(netuid, hotkey));
+        System::assert_last_event(Event::ServiceRemoved { netuid, hotkey }.into());
+    });
+}
+
+// The coldkey of a hotkey with a validator permit on the subnet, or the subnet owner for its owner
+// hotkey, sets its service there, and removes it whatever the hotkey holds.
+#[test]
+fn test_set_service_requires_a_validator_or_the_owner() {
+    new_test_ext(1).execute_with(|| {
+        let (validator, miner, owner) = (U256::from(1), U256::from(2), U256::from(3));
+        let coldkey = U256::from(66);
+        let netuid = NetUid::from(1);
+        let set = |who: U256, hotkey: U256, url: &[u8]| {
+            SubtensorModule::set_service(
+                RuntimeOrigin::signed(who),
+                netuid,
+                hotkey,
+                BoundedVec::truncate_from(url.to_vec()),
+                coldkey,
+            )
+        };
+        let url = b"https://example.com";
+
+        assert_noop!(set(coldkey, validator, url), Error::<Test>::SubnetNotExists);
+        add_network(netuid, 13, 0);
+        add_network(NetUid::from(2), 13, 0);
+        register_ok_neuron(NetUid::from(2), validator, coldkey, 0);
+        assert_noop!(
+            set(coldkey, validator, url),
+            Error::<Test>::HotKeyNotRegisteredInNetwork
+        );
+        register_ok_neuron(netuid, validator, coldkey, 0);
+        register_ok_neuron(netuid, miner, coldkey, 0);
+        register_ok_neuron(netuid, owner, coldkey, 0);
+        ValidatorPermit::<Test>::insert(netuid, vec![true, false, false]);
+        assert_noop!(
+            set(U256::from(67), validator, url),
+            Error::<Test>::NonAssociatedColdKey
+        );
+        assert_noop!(
+            set(coldkey, miner, url),
+            Error::<Test>::NeuronNoValidatorPermit
+        );
+        assert_ok!(set(coldkey, validator, url));
+        // The owner's hotkey publishes only for the subnet owner.
+        SubnetOwnerHotkey::<Test>::insert(netuid, owner);
+        assert_noop!(
+            set(coldkey, owner, url),
+            Error::<Test>::NeuronNoValidatorPermit
+        );
+        SubnetOwner::<Test>::insert(netuid, coldkey);
+        assert_ok!(set(coldkey, owner, url));
+
+        // Removing a service needs only the hotkey's coldkey.
+        ValidatorPermit::<Test>::insert(netuid, vec![false, false, false]);
+        assert_ok!(set(coldkey, validator, b""));
+        assert!(!Services::<Test>::contains_key(netuid, validator));
+    });
+}

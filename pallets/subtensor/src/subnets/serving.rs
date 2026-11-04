@@ -158,6 +158,50 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// The implementation for the extrinsic set_service.
+    pub fn do_set_service(
+        origin: OriginFor<T>,
+        netuid: NetUid,
+        hotkey: T::AccountId,
+        url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
+        spender: T::AccountId,
+    ) -> DispatchResult {
+        let coldkey = ensure_signed(origin)?;
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(
+            Self::coldkey_owns_hotkey(&coldkey, &hotkey),
+            Error::<T>::NonAssociatedColdKey
+        );
+        if url.is_empty() {
+            Services::<T>::remove(netuid, &hotkey);
+            Self::deposit_event(Event::ServiceRemoved { netuid, hotkey });
+            return Ok(());
+        }
+        let uid = Self::get_uid_for_net_and_hotkey(netuid, &hotkey)
+            .map_err(|_| Error::<T>::HotKeyNotRegisteredInNetwork)?;
+        ensure!(
+            (hotkey == SubnetOwnerHotkey::<T>::get(netuid)
+                && coldkey == SubnetOwner::<T>::get(netuid))
+                || Self::get_validator_permit_for_uid(netuid, uid),
+            Error::<T>::NeuronNoValidatorPermit
+        );
+        Services::<T>::insert(
+            netuid,
+            &hotkey,
+            ServiceInfo {
+                url: url.clone(),
+                spender: spender.clone(),
+            },
+        );
+        Self::deposit_event(Event::ServiceSet {
+            netuid,
+            hotkey,
+            url,
+            spender,
+        });
+        Ok(())
+    }
+
     /********************************
      --==[[  Helper functions   ]]==--
     *********************************/

@@ -49,7 +49,7 @@ from ..signing import public_view, resolve_signer
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
-from .output import STYLE_WARNING, Output
+from .output import STYLE_WARNING, Output, record_rows
 from .registration import confirm_registration_sponsorship
 
 T = TypeVar("T")
@@ -61,12 +61,16 @@ def address_cli_name(param: str) -> str:
     return "--" + base.replace("_", "-")
 
 
-def ss58_param_help(param: str) -> str:
-    """Help text for an address-typed CLI option (see AppContext.resolve_address)."""
+def ss58_param_help(param: str, *, wallet_default: bool = True) -> str:
+    """Help text for an address-typed CLI option (see AppContext.resolve_address).
+
+    ``wallet_default=False`` is for an own-key param that must be given rather than
+    falling back to the wallet (a gamma deposit's hotkey).
+    """
     book = "address-book or proxy-book name, "
     if "hotkey" in param:
         text = f"receiving address or ss58, {book}or a local hotkey name (HOTKEY or WALLET/HOTKEY)."
-        if param == "hotkey_ss58":
+        if param == "hotkey_ss58" and wallet_default:
             text += " Defaults to your wallet's hotkey."
     else:
         text = (
@@ -79,7 +83,7 @@ def ss58_param_help(param: str) -> str:
                 f"{book}saved multisig name, or a local wallet name. "
                 "Omit this flag on a terminal to pick from the address book."
             )
-        elif param == "coldkey_ss58":
+        elif param == "coldkey_ss58" and wallet_default:
             text += " Defaults to your wallet's coldkey."
     return text
 
@@ -649,7 +653,9 @@ class AppContext:
         address = self.wallet_address(public)
         return ResolvedAddress(address, f"wallet {value!r}", value)
 
-    def resolve_address(self, param: str, value: Optional[str]) -> Optional[str]:
+    def resolve_address(
+        self, param: str, value: Optional[str], *, flag: Optional[str] = None
+    ) -> Optional[str]:
         """Resolve a CLI account reference while preserving complete receiving information.
 
         Six accepted forms:
@@ -689,7 +695,9 @@ class AppContext:
             except typer.Exit:
                 raise
             except Exception as error:
-                self.output.error(f"cannot resolve {address_cli_name(param)} {value!r}: {error}")
+                self.output.error(
+                    f"cannot resolve {flag or address_cli_name(param)} {value!r}: {error}"
+                )
                 raise typer.Exit(1)
             self.output.name_address(resolved.address, resolved.name)
             self.output.classify_address(resolved.address, kind)
@@ -952,7 +960,10 @@ class AppContext:
                 if value is None:
                     continue
                 label = spec.name.removesuffix("_ss58").replace("_", " ")
-                tx_rows.append((label, self._card_value(spec.name, value)))
+                if value and isinstance(value, list) and all(isinstance(i, dict) for i in value):
+                    tx_rows += record_rows(label, value, self._card_value)
+                else:
+                    tx_rows.append((label, self._card_value(spec.name, value)))
         if note:
             tx_rows.append(("note", note, "dim"))
         stages.append(("Transaction", tx_rows))

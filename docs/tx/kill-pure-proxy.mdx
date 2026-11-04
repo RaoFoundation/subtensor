@@ -13,7 +13,7 @@ account become permanently inaccessible, so empty it first.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.kill_pure`](/code/pallets/proxy/src/lib.rs#L431-L459), [`Proxy.kill_safe_pure`](/code/pallets/proxy/src/lib.rs#L812-L837) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.kill_pure`](/code/pallets/proxy/src/lib.rs#L433-L461), [`Proxy.kill_safe_pure`](/code/pallets/proxy/src/lib.rs#L814-L839) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("kill_pure_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.kill_pure` — [`pallets/proxy/src/lib.rs#L433`](/code/pallets/proxy/src/lib.rs#L431-L459):
+`Proxy.kill_pure` — [`pallets/proxy/src/lib.rs#L435`](/code/pallets/proxy/src/lib.rs#L433-L461):
 
 ```rust
 #[pallet::call_index(5)]
@@ -101,9 +101,9 @@ pub fn kill_pure(
 }
 ```
 
-Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L1085).
+Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L1087).
 
-`Proxy.kill_safe_pure` — [`pallets/proxy/src/lib.rs#L815`](/code/pallets/proxy/src/lib.rs#L812-L837):
+`Proxy.kill_safe_pure` — [`pallets/proxy/src/lib.rs#L817`](/code/pallets/proxy/src/lib.rs#L814-L839):
 
 ```rust
 #[pallet::call_index(14)]
@@ -134,6 +134,6 @@ pub fn kill_safe_pure(
 }
 ```
 
-Delegates to [`safe_pure_account`](/code/pallets/proxy/src/lib.rs#L1112).
+Delegates to [`safe_pure_account`](/code/pallets/proxy/src/lib.rs#L1114).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

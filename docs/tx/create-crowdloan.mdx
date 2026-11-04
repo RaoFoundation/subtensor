@@ -25,9 +25,9 @@ recover the deposit.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `deposit_tao` | number \| `"all"` | yes | Creator's initial deposit, locked when the crowdloan opens. It counts toward the raise and is returned when the crowdloan is dissolved. |
-| `min_contribution_tao` | number \| `"all"` | yes | Smallest contribution the crowdloan will accept from a contributor. |
-| `cap_tao` | number \| `"all"` | yes | Maximum total to raise. Reaching the cap lets the creator finalize. |
+| `deposit_tao` | number | yes | Creator's initial deposit, locked when the crowdloan opens. It counts toward the raise and is returned when the crowdloan is dissolved. |
+| `min_contribution_tao` | number | yes | Smallest contribution the crowdloan will accept from a contributor. |
+| `cap_tao` | number | yes | Maximum total to raise. Reaching the cap lets the creator finalize. |
 | `end` | integer | yes | Block number at which the crowdloan stops accepting contributions. Passing it refunds nothing by itself; refunds happen via explicit refund or withdraw calls. |
 | `target_ss58` | string | no | Account that receives the raised funds on finalize. Provide exactly one of this or call. |
 | `call` | object | no | Inner intent dispatched with the creator's origin on finalize, as a JSON object \{"op": \<name>, ...args}. Provide exactly one of this or target_ss58. |
@@ -42,14 +42,14 @@ submitting), then submit:
 
 ```bash
 btcli tx create-crowdloan \
-  --deposit-tao <amount|all> \
-  --min-contribution-tao <amount|all> \
-  --cap-tao <amount|all> \
+  --deposit-tao <amount> \
+  --min-contribution-tao <amount> \
+  --cap-tao <amount> \
   --end <int> --dry-run
 btcli tx create-crowdloan \
-  --deposit-tao <amount|all> \
-  --min-contribution-tao <amount|all> \
-  --cap-tao <amount|all> \
+  --deposit-tao <amount> \
+  --min-contribution-tao <amount> \
+  --cap-tao <amount> \
   --end <int> -w my_coldkey
 ```
 

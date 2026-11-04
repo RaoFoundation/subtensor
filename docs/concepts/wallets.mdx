@@ -188,7 +188,8 @@ recycles 0.001 TAO and is limited to once per subnet per 7,200 blocks
 (~1 day).
 
 **Coldkey swap** is the response to a leaked coldkey — but only worth it if
-the coldkey has registrations or owns a subnet. A plain holder or staker
+the coldkey has registrations, owns a subnet or holds
+[gamma](/docs/guides/gamma) deposits, which only a swap moves. A plain holder or staker
 should simply transfer their TAO and stake to a fresh coldkey instead. The
 swap is a two-step, delayed process:
 
@@ -201,12 +202,14 @@ swap is a two-step, delayed process:
 2. [`swap-coldkey-announced`](/docs/tx/swap-coldkey-announced) executes after
    the delay, moving the coldkey's Subtensor-managed state — transferable TAO,
    stake, conviction locks (including accrued conviction), hotkeys,
-   registrations, and subnet ownership — to the destination. Proxy grants and
-   reserved balances do not move. Before announcing, remove proxies whose
-   deposits you need to recover and leave enough transferable TAO to recreate
-   the proxies you still need. Use a verified destination that is not a hotkey
-   and has no stake or active locked mass; recreate required proxies after the
-   swap.
+   registrations, subnet ownership, and gamma deposits — to the destination.
+   Proxy grants and reserved balances do not move. Gamma deposits and
+   [services](/docs/guides/services) that name the old coldkey as their spender
+   keep it until their owners re-point them. Before announcing,
+   remove proxies whose deposits you need to recover and leave enough
+   transferable TAO to recreate the proxies you still need. Use a verified
+   destination that is not a hotkey and has no stake or active locked mass;
+   recreate required proxies after the swap.
 
 Check a pending announcement with the
 [`coldkey-swap-announcement`](/docs/query/coldkey-swap-announcement) read. An

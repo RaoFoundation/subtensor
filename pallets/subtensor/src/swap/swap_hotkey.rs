@@ -32,10 +32,11 @@ impl<T: Config> Pallet<T> {
             <<T as crate::pallet::Config>::WeightInfo as crate::weights::WeightInfo>::swap_hotkey()
         } else {
             // +1 read / +4 writes vs the pre-lineage keep_stake path: root lookup,
-            // LastHotkeySwap, successor clear+insert, root insert.
+            // LastHotkeySwap, successor clear+insert, root insert; +1 read / +2 writes for the
+            // service move.
             Weight::from_parts(275_300_000, 0)
-                .saturating_add(T::DbWeight::get().reads(53_u64))
-                .saturating_add(T::DbWeight::get().writes(39_u64))
+                .saturating_add(T::DbWeight::get().reads(54_u64))
+                .saturating_add(T::DbWeight::get().writes(41_u64))
         };
         base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
             .saturating_add(Self::hotkey_owner_policy_weight().saturating_mul(2))
@@ -1044,6 +1045,14 @@ impl<T: Config> Pallet<T> {
             let owner = Owner::<T>::get(new_hotkey);
             Self::swap_miner_collateral(old_hotkey, new_hotkey, &owner, netuid)?;
             weight.saturating_accrue(T::DbWeight::get().reads_writes(5, 4));
+        }
+
+        // 3.10. Swap the service.
+        // Services( netuid, hotkey ) -> service info -- where the hotkey describes its services.
+        if is_network_member && let Ok(old_service) = Services::<T>::try_get(netuid, old_hotkey) {
+            Services::<T>::remove(netuid, old_hotkey);
+            Services::<T>::insert(netuid, new_hotkey, old_service);
+            weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
         }
 
         // 4. Swap ChildKeys.

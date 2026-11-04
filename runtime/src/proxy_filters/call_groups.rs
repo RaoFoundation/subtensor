@@ -520,6 +520,43 @@ call_filter_group!(
     ]
 );
 
+// Spending gamma deposits. Kept apart so a subnet service can be granted this alone via
+// `ProxyType::GammaSpend`.
+call_filter_group!(
+    GammaSpendCalls,
+    [RuntimeCall::SubtensorModule(SubtensorCall::spend_gamma),]
+);
+
+// Crediting gamma to a deposit at any hotkey, which hands its use to that hotkey; granted only
+// to proxies that may transfer.
+call_filter_group!(
+    GammaCreditCalls,
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma),
+        RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma_with_stake),
+        RuntimeCall::SubtensorModule(SubtensorCall::move_gamma),
+    ]
+);
+
+// Changing who may spend a gamma deposit, or weakening/removing the limit on
+// that authority. Kept apart so `NonTransfer` cannot bootstrap gamma spending
+// authority for itself even though it cannot call `spend_gamma` through the
+// proxy directly.
+call_filter_group!(
+    GammaDepositAuthorityCalls,
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::set_gamma_deposit_spender),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_gamma_deposit_daily_spend_cap),
+    ]
+);
+
+// Naming the spender a service's customers name on their deposits; granted to proxies that may
+// transfer, and to a lease's beneficiary for the subnet's own service.
+call_filter_group!(
+    ServiceCalls,
+    [RuntimeCall::SubtensorModule(SubtensorCall::set_service),]
+);
+
 // A subnet's public identity and token symbol.
 call_filter_group!(
     SubnetIdentityCalls,
@@ -548,7 +585,8 @@ call_filter_group!(
 
 // pallet-subtensor calls that spend or destroy the signer's TAO or alpha
 // without being a transfer or a stake-position change: burning stake in,
-// recycling/burning alpha, and paying a network lock cost.
+// recycling/burning alpha, paying a network lock cost, and closing gamma
+// deposits.
 // Granted to the broad value-capable proxies, never to `NonFungible`.
 call_filter_group!(
     SubtensorValueCalls,
@@ -559,6 +597,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::register_network),
         RuntimeCall::SubtensorModule(SubtensorCall::register_network_with_identity),
         RuntimeCall::SubtensorModule(SubtensorCall::register_leased_network),
+        RuntimeCall::SubtensorModule(SubtensorCall::close_gamma_deposit),
     ]
 );
 
@@ -675,6 +714,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_owner_cut_auto_lock_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_collateral_lock_share),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_collateral_drain_ratio),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_gamma_enabled),
     ]
 );
 
@@ -741,6 +781,8 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_liquidity_cap),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_min_trade_tao),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_claim_dust),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tao_usd_price_oracle),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_gamma_enabled),
     ]
 );
 
@@ -750,6 +792,15 @@ call_filter_group!(
     OwnerKeyCalls,
     [RuntimeCall::AdminUtils(
         AdminUtilsCall::sudo_set_sn_owner_hotkey
+    ),]
+);
+
+// The oracle's TAO/USD price feed, which every gamma mint reads. Kept off every
+// restricted proxy grant, as for Sudo (inventory-only, `Any` still reaches it).
+call_filter_group!(
+    TaoUsdPriceFeedCalls,
+    [RuntimeCall::SubtensorModule(
+        SubtensorCall::feed_tao_usd_price
     ),]
 );
 
@@ -855,6 +906,10 @@ type SubtensorSplitCalls = (
     ChildKeyCalls,
     RootClaimCalls,
     BasketTradingCalls,
+    GammaSpendCalls,
+    GammaCreditCalls,
+    GammaDepositAuthorityCalls,
+    ServiceCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     LockCalls,
@@ -862,6 +917,7 @@ type SubtensorSplitCalls = (
     WeightCalls,
     NeuronServingCalls,
     SubtensorCommonCalls,
+    TaoUsdPriceFeedCalls,
 );
 
 // AdminUtils calls and deprecated owner-call shims, split for owner proxies.

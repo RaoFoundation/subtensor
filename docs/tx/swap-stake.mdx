@@ -22,7 +22,7 @@ not its declared weight.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1476-L1509), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1659-L1696) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1477-L1510), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1660-L1697) |
 
 ## Parameters
 
@@ -82,7 +82,7 @@ result = sub.execute_tool("swap_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1485`](/code/pallets/subtensor/src/macros/dispatches.rs#L1476-L1509):
+`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1486`](/code/pallets/subtensor/src/macros/dispatches.rs#L1477-L1510):
 
 ```rust
 #[pallet::call_index(87)]
@@ -121,9 +121,9 @@ pub fn swap_stake(
 }
 ```
 
-Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1671), [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L350), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1611).
+Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1691), [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L350), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1631).
 
-`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1668`](/code/pallets/subtensor/src/macros/dispatches.rs#L1659-L1696):
+`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1669`](/code/pallets/subtensor/src/macros/dispatches.rs#L1660-L1697):
 
 ```rust
 #[pallet::call_index(90)]
@@ -166,6 +166,6 @@ pub fn swap_stake_limit(
 }
 ```
 
-Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1671), [`do_swap_stake_limit`](/code/pallets/subtensor/src/staking/move_stake.rs#L417), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1611).
+Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1691), [`do_swap_stake_limit`](/code/pallets/subtensor/src/staking/move_stake.rs#L417), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1631).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

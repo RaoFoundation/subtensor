@@ -76,8 +76,8 @@ fn decode_call<I: Input>(input: &mut I) -> Result<RuntimeCall, codec::Error> {
     RuntimeCall::decode_with_depth_limit(frame_support::MAX_EXTRINSIC_DEPTH, &mut input)
 }
 
-/// Shared syntactic classification for bounded node admission. This is not
-/// signature verification: malformed carriers of these sizes need the same budget.
+/// Recognized PQ proof sizes for bounded signer decoding. Exact length alone
+/// does not establish a valid profile, carrier, or signature.
 pub const fn is_post_quantum_proof_len(len: usize) -> bool {
     matches!(
         len,

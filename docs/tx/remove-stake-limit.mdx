@@ -20,7 +20,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1596-L1626), [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L594-L615), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2243-L2272), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L345-L399) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1600-L1632), [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L595-L618), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2253-L2282), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L345-L399) |
 
 ## Parameters
 
@@ -82,9 +82,9 @@ result = sub.execute_tool("remove_stake_limit", {...}, wallet)
 
 | Chain call | Source |
 | --- | --- |
-| `SubtensorModule.remove_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1604`](/code/pallets/subtensor/src/macros/dispatches.rs#L1596-L1626) |
-| `SubtensorModule.remove_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L602`](/code/pallets/subtensor/src/macros/dispatches.rs#L594-L615) |
-| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2247`](/code/pallets/subtensor/src/macros/dispatches.rs#L2243-L2272) |
+| `SubtensorModule.remove_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1608`](/code/pallets/subtensor/src/macros/dispatches.rs#L1600-L1632) |
+| `SubtensorModule.remove_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L603`](/code/pallets/subtensor/src/macros/dispatches.rs#L595-L618) |
+| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2257`](/code/pallets/subtensor/src/macros/dispatches.rs#L2253-L2282) |
 | `Utility.batch_all` | [`pallets/utility/src/lib.rs#L351`](/code/pallets/utility/src/lib.rs#L345-L399) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -13,7 +13,7 @@ with `client.mine_pow_registration` and submit it promptly.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.pow_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L858-L869) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.pow_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L861-L872) |
 
 ## Parameters
 
@@ -76,7 +76,7 @@ result = sub.execute_tool("pow_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.pow_register` — [`pallets/subtensor/src/macros/dispatches.rs#L860`](/code/pallets/subtensor/src/macros/dispatches.rs#L858-L869):
+`SubtensorModule.pow_register` — [`pallets/subtensor/src/macros/dispatches.rs#L863`](/code/pallets/subtensor/src/macros/dispatches.rs#L861-L872):
 
 ```rust
 #[pallet::call_index(152)]
