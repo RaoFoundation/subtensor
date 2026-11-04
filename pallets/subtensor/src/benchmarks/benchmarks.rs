@@ -3707,6 +3707,9 @@ mod pallet_benchmarks {
         setup_gamma_subnet::<T>(netuid);
         let coldkey: T::AccountId = account("gamma_cold", 0, 1);
         let hotkey: T::AccountId = account("gamma_new", 0, 1);
+        assert_ok!(Subtensor::<T>::create_account_if_non_existent(
+            &coldkey, &hotkey
+        ));
         let spender = seed_gamma_default_spender::<T>(netuid);
         seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS - 1, 1, None);
         add_balance_to_coldkey_account::<T>(&coldkey, TaoBalance::from(100_000_000_000_u64));
@@ -3735,6 +3738,10 @@ mod pallet_benchmarks {
         let coldkey: T::AccountId = account("gamma_cold", 0, 1);
         let hotkey: T::AccountId = account("gamma_staked", 0, 1);
         let destination: T::AccountId = account("gamma_new", 0, 1);
+        assert_ok!(Subtensor::<T>::create_account_if_non_existent(
+            &coldkey,
+            &destination
+        ));
         let spender = seed_gamma_default_spender::<T>(netuid);
         seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS - 1, 1, None);
         let alpha = AlphaBalance::from(1_000_000_000_u64);
@@ -3768,6 +3775,10 @@ mod pallet_benchmarks {
         Subtensor::<T>::init_new_network(netuid, 1);
         let coldkey: T::AccountId = account("gamma_cold", 0, 1);
         let destination: T::AccountId = account("gamma_new", 0, 1);
+        assert_ok!(Subtensor::<T>::create_account_if_non_existent(
+            &coldkey,
+            &destination
+        ));
         let hotkey = seed_gamma_deposits::<T>(
             netuid,
             &coldkey,

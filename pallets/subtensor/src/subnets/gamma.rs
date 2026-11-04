@@ -42,12 +42,17 @@ impl<T: Config> Pallet<T> {
         Ok(deposit)
     }
 
-    /// Opens a deposit and lists its hotkey under its coldkey.
+    /// Opens a deposit only for the hotkey's associated coldkey, so another
+    /// account cannot reserve a customer's API key by minting first.
     fn insert_gamma_deposit(
         netuid: NetUid,
         hotkey: &T::AccountId,
         deposit: GammaDeposit<T::AccountId>,
     ) -> DispatchResult {
+        ensure!(
+            Owner::<T>::try_get(hotkey).is_ok_and(|owner| owner == deposit.coldkey),
+            Error::<T>::NonAssociatedColdKey
+        );
         ColdkeyGammaHotkeys::<T>::try_mutate(netuid, &deposit.coldkey, |hotkeys| {
             hotkeys
                 .try_push(hotkey.clone())

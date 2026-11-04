@@ -310,6 +310,7 @@ class TestMintPreview:
     @pytest.mark.asyncio
     async def test_quote_facts(self):
         sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "Owner", [BOB_HOT], SIGNER)
         # 1 TAO buys alpha valued at 0.5 TAO, 200 gamma at $400.
         sub.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", {"Ok": (RAO, RAO // 2, 200 * RAO)})
         preview = await build("mint_gamma", MINT).preflight(sub, SIGNER, SIGNER)
@@ -334,18 +335,19 @@ class TestMintPreview:
         assert any("belongs to another coldkey" in block for block in preview.blocks)
 
     @pytest.mark.parametrize(
-        ("owner", "deposit", "warned"),
-        [(ALICE, None, True), (ss58_encode(bytes(32), 42), None, False), (None, None, False),
+        ("owner", "deposit", "blocked"),
+        [(SIGNER, None, False), (ALICE, None, True),
+         (ss58_encode(bytes(32), 42), None, True), (None, None, True),
          (ALICE, _deposit(), False)],
-        ids=["staking-hotkey", "unowned", "unread", "top-up"],
+        ids=["owned", "foreign", "unowned", "unread", "top-up"],
     )  # fmt: skip
     @pytest.mark.asyncio
-    async def test_a_new_deposit_at_a_staking_hotkey_warns(self, owner, deposit, warned):
+    async def test_a_new_deposit_requires_the_hotkey_owner(self, owner, deposit, blocked):
         sub = FakeSubstrate()
         sub.seed("SubtensorModule", "Owner", [BOB_HOT], owner)
         sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], deposit)
         preview = await build("mint_gamma", MINT).preflight(sub, SIGNER, SIGNER)
-        assert any("staking hotkey" in warning for warning in preview.warnings) is warned
+        assert any("associate" in block for block in preview.blocks) is blocked
 
     @pytest.mark.parametrize(
         ("amount", "staked", "warned"),
@@ -488,6 +490,7 @@ class TestDepositPreviews:
         sub = FakeSubstrate()
         sub.seed("SubtensorModule", "GammaDeposits", [1, ALICE_HOT], origin)
         sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], destination)
+        sub.seed("SubtensorModule", "Owner", [BOB_HOT], SIGNER)
         blocks = await build("move_gamma", {**MOVE, "amount_gamma": "all"}).blocks(sub, SIGNER)
         assert [faulty in block for block in blocks] == ([True] if faulty else [])
 
@@ -663,6 +666,7 @@ MINTED = {"hotkey_ss58": BOB_HOT, "spender_ss58": ALICE, "daily_spend_cap_gamma"
 @pytest.mark.asyncio
 async def test_execute_reports_what_a_mint_credited(wallet, events, minted):
     sub = FakeSubstrate()
+    sub.seed("SubtensorModule", "Owner", [BOB_HOT], ALICE)
     sub.queue_result(ExtrinsicResult(success=True, message="", events=events))
     intent = build("mint_gamma", INTENT_SAMPLES["mint_gamma"])
     result = await Client("local", substrate=sub).execute(intent, wallet)

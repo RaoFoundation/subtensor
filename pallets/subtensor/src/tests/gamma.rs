@@ -26,6 +26,12 @@ const HOTKEY: u64 = 4;
 /// Gives `netuid` a pool of `tao` TAO and `alpha` alpha, enables gamma network-wide and on
 /// it, feeds `PRICE`, steps a block and settles its gamma price at spot.
 fn enable_gamma(netuid: NetUid, tao: u64, alpha: u64) {
+    for hotkey in [HOTKEY, HOTKEY + 1, HOTKEY + 2, HOTKEY + 2_000] {
+        assert_ok!(SubtensorModule::set_hotkey_owner(
+            &U256::from(COLDKEY),
+            &U256::from(hotkey),
+        ));
+    }
     setup_reserves(netuid, tao.into(), alpha.into());
     GammaEnabled::<Test>::put(true);
     SubnetGammaEnabled::<Test>::insert(netuid, true);
@@ -66,6 +72,12 @@ fn assert_gamma_invariants(netuid: NetUid) {
 }
 
 fn mint(netuid: NetUid, coldkey: u64, hotkey: u64, tao: u64) -> GammaBalance {
+    if !Owner::<Test>::contains_key(U256::from(hotkey)) {
+        assert_ok!(SubtensorModule::set_hotkey_owner(
+            &U256::from(coldkey),
+            &U256::from(hotkey),
+        ));
+    }
     add_balance_to_coldkey_account(&U256::from(coldkey), (tao + TAO).into());
     let before = GammaDeposits::<Test>::get(netuid, U256::from(hotkey))
         .map_or(GammaBalance::ZERO, |deposit| deposit.balance);
@@ -289,6 +301,71 @@ fn gamma_price_falls_to_spot_and_rises_at_the_fast_rate() {
 // =============================================================================
 // Minting
 // =============================================================================
+
+#[test]
+fn opening_a_gamma_deposit_requires_the_hotkeys_owner() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let attacker = COLDKEY + 100;
+        let attackers_hotkey = HOTKEY + 100;
+        let gamma = mint(netuid, attacker, attackers_hotkey, TAO);
+        let signed = || RuntimeOrigin::signed(U256::from(attacker));
+        add_balance_to_coldkey_account(&U256::from(attacker), (10 * TAO).into());
+        assert_ok!(SubtensorModule::add_stake(
+            signed(),
+            U256::from(OWNER_HOTKEY),
+            netuid,
+            (2 * TAO).into()
+        ));
+
+        // Neither a known customer's key nor an unassociated key may be
+        // reserved by a different coldkey through any deposit-opening path.
+        for hotkey in [HOTKEY, 99_999] {
+            let hotkey = U256::from(hotkey);
+            assert_noop!(
+                SubtensorModule::mint_gamma(
+                    signed(),
+                    hotkey,
+                    netuid,
+                    TAO.into(),
+                    GammaBalance::ZERO,
+                    None,
+                    None,
+                ),
+                Error::<Test>::NonAssociatedColdKey
+            );
+            assert_noop!(
+                SubtensorModule::mint_gamma_with_stake(
+                    signed(),
+                    U256::from(OWNER_HOTKEY),
+                    hotkey,
+                    netuid,
+                    (TAO / 2).into(),
+                    GammaBalance::ZERO,
+                    None,
+                    None,
+                ),
+                Error::<Test>::NonAssociatedColdKey
+            );
+            // Moving the entire balance also verifies that rejecting the
+            // destination rolls back removal of the attacker's own deposit.
+            assert_noop!(
+                SubtensorModule::move_gamma(
+                    signed(),
+                    U256::from(attackers_hotkey),
+                    hotkey,
+                    netuid,
+                    gamma,
+                ),
+                Error::<Test>::NonAssociatedColdKey
+            );
+            assert!(!GammaDeposits::<Test>::contains_key(netuid, hotkey));
+        }
+        mint(netuid, COLDKEY, HOTKEY, TAO);
+        assert_eq!(deposit(netuid, HOTKEY).coldkey, U256::from(COLDKEY));
+        assert_gamma_invariants(netuid);
+    });
+}
 
 #[test]
 fn mint_gamma_values_at_the_lower_of_gamma_price_and_spot() {
@@ -895,7 +972,7 @@ fn mint_gamma_refusals() {
             Error::<Test>::SlippageTooHigh
         );
         assert_noop!(
-            mint_with_stake(HOTKEY, HOTKEY, 0),
+            mint_with_stake(99, HOTKEY, 0),
             Error::<Test>::HotKeyAccountNotExists
         );
         assert_noop!(
@@ -913,7 +990,11 @@ fn mint_gamma_refusals() {
             Error::<Test>::SubnetNotExists
         );
 
-        let foreign = HOTKEY + 1;
+        let foreign = HOTKEY + 100;
+        assert_ok!(SubtensorModule::set_hotkey_owner(
+            &U256::from(OWNER_COLDKEY),
+            &U256::from(foreign),
+        ));
         add_balance_to_coldkey_account(&U256::from(OWNER_COLDKEY), (2 * TAO).into());
         assert_ok!(SubtensorModule::mint_gamma(
             RuntimeOrigin::signed(U256::from(OWNER_COLDKEY)),
@@ -1185,7 +1266,12 @@ fn close_gamma_deposit_releases_the_hotkey() {
             vec![U256::from(HOTKEY + 1)]
         );
 
-        // Another coldkey can now open a deposit at the hotkey.
+        // Closing releases the deposit slot, but opening it for a different
+        // coldkey still requires the hotkey's ownership to change first.
+        assert_ok!(SubtensorModule::set_hotkey_owner(
+            &U256::from(COLDKEY + 100),
+            &hotkey,
+        ));
         mint(netuid, COLDKEY + 100, HOTKEY, TAO);
         assert_eq!(deposit(netuid, HOTKEY).coldkey, U256::from(COLDKEY + 100));
         assert_gamma_invariants(netuid);
@@ -1989,7 +2075,7 @@ fn gamma_runtime_api_reads_deposits() {
         let coldkey = U256::from(COLDKEY);
         mint(netuid, COLDKEY, HOTKEY, TAO);
         mint(other, COLDKEY, HOTKEY + 1, TAO);
-        mint(other, COLDKEY + 100, HOTKEY + 2, TAO);
+        mint(other, COLDKEY + 100, HOTKEY + 100, TAO);
         assert_ok!(SubtensorModule::set_gamma_deposit_daily_spend_cap(
             RuntimeOrigin::signed(coldkey),
             U256::from(HOTKEY),

@@ -1244,6 +1244,13 @@ fn test_gamma_lifecycle() {
 
     // Mint with TAO against the quote; the pool can move by a block's emission.
     let api_key = random_wallet().hotkey.ss58_address();
+    execute(
+        &gamma(
+            "try_associate_hotkey",
+            record([("hotkey", s(api_key.clone()))]),
+        ),
+        &ctx.alice,
+    );
     let amount = amount_tao(10);
     let quote = read("sim_mint_gamma", &[u(netuid), u128v(amount)]);
     let quoted = as_u128(&tuple(field(&quote, "Ok").expect("quote"))[2]).expect("quoted gamma");
@@ -1298,6 +1305,13 @@ fn test_gamma_lifecycle() {
     assert_eq!(balance(netuid, &api_key), minted_gamma - GAMMA);
 
     let moved_key = random_wallet().hotkey.ss58_address();
+    execute(
+        &gamma(
+            "try_associate_hotkey",
+            record([("hotkey", s(moved_key.clone()))]),
+        ),
+        &ctx.alice,
+    );
     let moving = gamma(
         "move_gamma",
         record([
@@ -1345,6 +1359,13 @@ fn test_gamma_lifecycle() {
     );
     feed();
     let staked_key = random_wallet().hotkey.ss58_address();
+    execute(
+        &gamma(
+            "try_associate_hotkey",
+            record([("hotkey", s(staked_key.clone()))]),
+        ),
+        &ctx.alice,
+    );
     let alpha = amount_tao(1);
     assert!(field(
         &read("sim_mint_gamma_with_stake", &[u(netuid), u128v(alpha)]),

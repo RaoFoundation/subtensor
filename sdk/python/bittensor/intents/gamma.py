@@ -174,10 +174,9 @@ async def _mint_preflight(
             )
     else:
         owner = await _staking_owner(substrate, intent.hotkey_ss58)
-        if owner is not None:
-            preview.warnings.append(
-                f"{intent.hotkey_ss58} is a staking hotkey of {owner}; requests signed with a "
-                "deposit's hotkey are paid from the deposit, so use a fresh hotkey"
+        if owner != signer:
+            preview.blocks.append(
+                f"associate {intent.hotkey_ss58} with {signer} before opening a gamma deposit"
             )
     spender = str(deposit["spender"]) if deposit is not None and named is None else named
     if deposit is not None:
@@ -440,6 +439,11 @@ class MoveGamma(Intent):
             blocks.append(f"the gamma deposit at {self.origin_hotkey_ss58} holds no gamma")
         if destination is not None:
             blocks += _own_deposit_blocks(destination, signer_address, self.destination_hotkey_ss58)
+        elif await _staking_owner(substrate, self.destination_hotkey_ss58) != signer_address:
+            blocks.append(
+                f"associate {self.destination_hotkey_ss58} with {signer_address} "
+                "before opening a gamma deposit"
+            )
         return blocks
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
