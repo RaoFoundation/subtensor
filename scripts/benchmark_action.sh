@@ -16,17 +16,6 @@ PATCH_DIR="$ROOT_DIR/.bench_patch"
 THRESHOLD="${THRESHOLD:-75}"
 STEPS="${STEPS:-50}"
 REPEAT="${REPEAT:-20}"
-EXTRINSICS="${EXTRINSICS:-*}"
-# Manual feature-branch reference runs may carry an explicit focus manifest.
-# Scheduled/default-branch and PR-label runs retain the full-suite behavior.
-if [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" &&
-      "${GITHUB_REF_NAME:-}" != "${GITHUB_DEFAULT_BRANCH:-main}" &&
-      -z "${PALLET_DIRS:-}" && "$EXTRINSICS" == "*" &&
-      -f "$ROOT_DIR/.maintain/benchmark-focus.json" ]]; then
-  PALLET_DIRS="${PALLET_DIRS:-$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["pallet_dirs"]))' "$ROOT_DIR/.maintain/benchmark-focus.json")}"
-  EXTRINSICS=$(python3 -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["extrinsics"]))' "$ROOT_DIR/.maintain/benchmark-focus.json")
-  echo "Manual branch reference focus: $PALLET_DIRS / $EXTRINSICS"
-fi
 # Utility batches are low-amplitude microbenchmarks; median-slopes avoids noisy intercept drift.
 UTILITY_OUTPUT_ANALYSIS="${UTILITY_OUTPUT_ANALYSIS:-median-slopes}"
 
@@ -41,34 +30,22 @@ selective_patch_weights_file() {
     python3 "$SCRIPT_DIR/benchmark_action.py" selective-patch "$committed" "$generated" "$@"
 }
 
-# ── Auto-discover pallets ────────────────────────────────────────────────────
-declare -A OUTPUTS=()
-while read -r name path; do
-  OUTPUTS[$name]="$path"
-done < <("$SCRIPT_DIR/discover_pallets.sh")
-
-(( ${#OUTPUTS[@]} > 0 )) || die "no benchmarked pallets found"
-
-# PALLET_DIRS (space-separated directory names under pallets/, set by CI for
-# pallet-only diffs) restricts the run to the changed pallets. Unset/empty
-# means the full suite.
-if [[ -n "${PALLET_DIRS:-}" ]]; then
-  declare -A KEEP=()
-  for dir in $PALLET_DIRS; do
-    for pallet in "${!OUTPUTS[@]}"; do
-      [[ "${OUTPUTS[$pallet]}" == "pallets/$dir/"* ]] && KEEP[$pallet]="${OUTPUTS[$pallet]}"
-    done
-  done
-  if (( ${#KEEP[@]} == 0 )); then
-    die "Selected pallets ($PALLET_DIRS) have no registered benchmarks"
-  fi
-  echo "Restricting to changed pallets: ${!KEEP[*]}"
-  unset OUTPUTS
-  declare -A OUTPUTS=()
-  for pallet in "${!KEEP[@]}"; do OUTPUTS[$pallet]="${KEEP[$pallet]}"; done
+# Validate every selector before building. Empty inputs always mean all;
+# branch-local manifests do not silently change the requested scope.
+[[ $# -eq 0 || ( $# -eq 1 && "$1" == "--check-selection" ) ]] || die "usage: $0 [--check-selection]"
+selection=$("$SCRIPT_DIR/discover_pallets.sh" | python3 "$SCRIPT_DIR/benchmark_action.py" select-pallets)
+if [[ "${1:-}" == "--check-selection" ]]; then
+  printf '%s\n' "$selection"
+  exit 0
 fi
 
-mkdir -p "$PATCH_DIR"
+work_dir=$(mktemp -d)
+trap 'rm -rf "$work_dir"' EXIT
+printf '%s\n' "$selection" > "$work_dir/pallets.tsv"
+
+mkdir -p "$PATCH_DIR/generated"
+rm -f "$PATCH_DIR/benchmark_patch.diff" "$PATCH_DIR/summary.txt" "$PATCH_DIR/selection.tsv"
+rm -f "$PATCH_DIR/generated/"*.rs "$PATCH_DIR/generated/"*.rs.tmp
 
 # Build if needed
 [[ -x "$NODE_BIN" ]] || cargo build --profile production -p node-subtensor --features runtime-benchmarks
@@ -77,16 +54,41 @@ cargo build --profile production -p subtensor-weight-tools --bin weight-compare
 [[ -f "$RUNTIME_WASM" ]] || die "runtime WASM not found"
 [[ -x "$WEIGHT_CMP" ]] || die "weight-compare not found"
 
+# Listing reads the built runtime's benchmark metadata without measuring.
+# Resolve the whole request first: a valid name must not conceal a typo, and
+# a list spanning different pallets must only run each pallet's own methods.
+"$NODE_BIN" benchmark pallet \
+  --runtime="$RUNTIME_WASM" \
+  --genesis-builder=runtime \
+  --genesis-builder-preset=benchmark \
+  --wasm-execution=compiled \
+  --pallet="*" --extrinsic="*" \
+  --list=all --no-csv-header > "$work_dir/available.csv"
+python3 "$SCRIPT_DIR/benchmark_action.py" select-benchmarks \
+  "$work_dir/pallets.tsv" "$work_dir/available.csv" > "$work_dir/selection.tsv"
+cp "$work_dir/selection.tsv" "$PATCH_DIR/selection.tsv"
+
+declare -A OUTPUTS=() BENCHMARKS=()
+PALLETS=()
+while IFS=$'\t' read -r pallet output extrinsics; do
+  PALLETS+=("$pallet")
+  OUTPUTS[$pallet]="$output"
+  BENCHMARKS[$pallet]="$extrinsics"
+done < "$work_dir/selection.tsv"
+(( ${#PALLETS[@]} > 0 )) || die "no matching benchmarks"
+
+echo "Selected benchmark scope:"
+for pallet in "${PALLETS[@]}"; do
+  echo "  $pallet: ${BENCHMARKS[$pallet]}"
+done
+
 PATCHED=()
 SUMMARY=()
 FAILED=0
 
 # Stable ordering keeps the small hashed-account pallet ahead of Subtensor's
 # long-running suite. Save each completed pallet before starting the next one.
-mapfile -t PALLETS < <(printf '%s\n' "${!OUTPUTS[@]}" | LC_ALL=C sort)
 HEAD_SHA=$(git -C "$ROOT_DIR" rev-parse HEAD)
-mkdir -p "$PATCH_DIR/generated"
-rm -f "$PATCH_DIR/generated/"*.rs "$PATCH_DIR/generated/"*.rs.tmp
 
 save_progress() {
   local status="$1"
@@ -107,6 +109,10 @@ save_progress() {
     echo "Head SHA: $HEAD_SHA"
     echo "Status: $status"
     echo "Completed pallets: ${#SUMMARY[@]}/${#PALLETS[@]}"
+    echo "Selected scope (completion covers only this selection):"
+    for selected_pallet in "${PALLETS[@]}"; do
+      echo "  $selected_pallet: ${BENCHMARKS[$selected_pallet]}"
+    done
     printf '%s\n' "${SUMMARY[@]}"
   } > "$PATCH_DIR/summary.txt.tmp"
   mv "$PATCH_DIR/summary.txt.tmp" "$PATCH_DIR/summary.txt"
@@ -116,7 +122,8 @@ save_progress INCOMPLETE
 for pallet in "${PALLETS[@]}"; do
   output="${OUTPUTS[$pallet]}"
   committed="$ROOT_DIR/$output"
-  tmp=$(mktemp)
+  extrinsics="${BENCHMARKS[$pallet]}"
+  tmp="$work_dir/$pallet.rs"
 
   echo ""
   echo "════ $pallet ════"
@@ -134,7 +141,7 @@ for pallet in "${PALLETS[@]}"; do
     --genesis-builder-preset=benchmark \
     --wasm-execution=compiled \
     --pallet="$pallet" \
-    --extrinsic="$EXTRINSICS" \
+    --extrinsic="$extrinsics" \
     --steps="$STEPS" \
     --repeat="$REPEAT" \
     --no-storage-info \
@@ -156,27 +163,22 @@ for pallet in "${PALLETS[@]}"; do
   # A filtered reference run measures only requested methods. Merge those
   # methods into a temporary complete file before comparison so unrelated
   # methods are neither reported as removed nor included in the patch.
-  if [[ "$EXTRINSICS" != "*" && -f "$committed" ]]; then
-    merged=$(mktemp)
+  if [[ "$extrinsics" != "*" ]]; then
+    [[ -f "$committed" ]] || die "filtered benchmarks require an existing complete weight file: $output"
+    merged="$work_dir/merged.rs"
     cp "$committed" "$merged"
-    measured_methods=()
-    while IFS= read -r method; do measured_methods+=("$method"); done < <(
-      python3 - "$tmp" <<'PY_METHODS'
-import re
-import sys
-with open(sys.argv[1], encoding="utf-8") as source:
-    print("\n".join(dict.fromkeys(re.findall(r"(?m)^\s*fn\s+(\w+)\(", source.read()))))
-PY_METHODS
-    )
-    (( ${#measured_methods[@]} > 0 )) || die "filtered benchmark output has no methods"
-    selective_patch_weights_file "$merged" "$tmp" "${measured_methods[@]}"
+    if ! python3 "$SCRIPT_DIR/benchmark_action.py" merge-measured "$merged" "$tmp" "$extrinsics"; then
+      SUMMARY+=("$pallet: INVALID FILTERED OUTPUT"); FAILED=1
+      save_progress INCOMPLETE
+      continue
+    fi
     mv "$merged" "$tmp"
   fi
 
   if [[ ! -f "$committed" ]]; then
     cp "$tmp" "$committed"; PATCHED+=("$output"); SUMMARY+=("$pallet: NEW")
   else
-    compare_log=$(mktemp)
+    compare_log="$work_dir/compare.log"
     if "$WEIGHT_CMP" --old "$committed" --new "$tmp" --threshold "$THRESHOLD" 2>&1 | tee "$compare_log"; then
         rc=0
     else
@@ -218,8 +220,8 @@ if (( FAILED )); then
 fi
 save_progress COMPLETE
 if (( ${#PATCHED[@]} == 0 )); then
-  echo "All weights within tolerance."
+  echo "All selected weights within tolerance."
   exit 0
 fi
-echo "Patch ready at $PATCH_DIR/benchmark_patch.diff — add 'apply-benchmark-patch' label to apply."
+echo "Patch ready at $PATCH_DIR/benchmark_patch.diff (download bench-patch for manual runs; apply-benchmark-patch label for PR-label runs)."
 exit 2

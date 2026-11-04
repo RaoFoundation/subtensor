@@ -21,7 +21,12 @@ on:
   workflow_dispatch:
     inputs:
       pallet_dirs:
-        description: "Pallet directories, space-separated (e.g. hashed-accounts); blank uses the existing default selection"
+        description: "Pallet directories or runtime names, comma/space-separated (e.g. subtensor,hashed-accounts); blank or * = all"
+        type: string
+        required: false
+        default: ""
+      extrinsics:
+        description: "Exact benchmark names, comma/space-separated (e.g. add_stake,remove_stake); blank or * = all in selected pallets"
         type: string
         required: false
         default: ""
@@ -58,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
-            echo "$GITHUB_EVENT_NAME event: full run"
+            echo "$GITHUB_EVENT_NAME event: running (manual inputs select the scope)"
             echo "run=true" >> "$GITHUB_OUTPUT"
           elif jq -e '.pull_request.labels[].name | select(. == "run-benchmarks")' "$GITHUB_EVENT_PATH" > /dev/null; then
             echo "run-benchmarks label present: running"
@@ -72,6 +77,9 @@ jobs:
     needs: [trusted-pr, decide]
     if: needs.decide.outputs.run == 'true'
     runs-on: Benchmarking
+    env:
+      PALLET_DIRS: ${{ inputs.pallet_dirs || '' }}
+      EXTRINSICS: ${{ inputs.extrinsics || '' }}
 
     steps:
       - name: Check out PR branch
@@ -82,6 +90,11 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
           fetch-depth: 0
+
+      - name: Validate benchmark runner and selection
+        run: |
+          python3 -m unittest discover -s scripts/tests -p 'test_benchmark_action.py'
+          bash scripts/benchmark_action.sh --check-selection
 
       - name: Install system dependencies
         run: |
@@ -105,18 +118,25 @@ jobs:
 
       - name: Build node with benchmarks + weight tools
         run: |
-          python3 -m unittest discover -s scripts/tests -p 'test_benchmark_action.py'
           cargo build --profile production -p node-subtensor --features runtime-benchmarks
           cargo build --profile production -p subtensor-weight-tools --bin weight-compare
 
       - name: Run & validate benchmarks
         timeout-minutes: 180
-        env:
-          PALLET_DIRS: ${{ inputs.pallet_dirs || '' }}
         run: |
-          mkdir -p .bench_patch
-          chmod +x scripts/benchmark_action.sh
-          scripts/benchmark_action.sh
+          bash scripts/benchmark_action.sh
+
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          if [ -f .bench_patch/summary.txt ]; then
+            {
+              echo '### Benchmark results'
+              echo '```text'
+              cat .bench_patch/summary.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Archive bench patch
         if: always()
