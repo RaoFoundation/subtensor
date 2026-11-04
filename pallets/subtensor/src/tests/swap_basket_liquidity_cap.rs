@@ -806,16 +806,16 @@ fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
         pin_ema_to_spot(b);
 
         let declared = declared_swap_weight(coldkey, hotkey, a, b, TAO);
-        let (actual, error) =
-            SubtensorModule::do_swap_basket_tracked(coldkey, hotkey, a, b, TAO, 0).unwrap_err();
-        assert_eq!(error, Error::<Test>::BasketDepositPending.into());
+        let actual =
+            SubtensorModule::do_swap_basket_tracked(coldkey, hotkey, a, b, TAO, 0).unwrap();
 
         // Every credit is back on the queue after exactly one batch attempt.
         for netuid in &origins {
-            assert_eq!(
-                PendingBasketDeposits::<Test>::get(hotkey, *netuid).to_u64(),
-                1_000
-            );
+            let pending = PendingBasketDeposits::<Test>::get(hotkey, *netuid).to_u64();
+            assert!(pending > 0 && pending <= 1_000);
+            assert!(crate::DeferredBasketRates::<Test>::contains_key(
+                hotkey, *netuid
+            ));
         }
         // One bounded batch attempt runs and re-queues after the shared mint failure.
         let credits = origins.len() as u64;
@@ -828,10 +828,11 @@ fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
         );
         let bound = SubtensorModule::basket_flush_work_bound();
         assert!(flush_work.quotes <= bound.quotes && flush_work.rows <= bound.rows);
-        assert_eq!(
-            actual,
-            SubtensorModule::swap_basket_precheck_weight()
-                .saturating_add(SubtensorModule::basket_flush_weight(flush_work))
+        assert!(
+            actual.all_gte(
+                SubtensorModule::swap_basket_precheck_weight()
+                    .saturating_add(SubtensorModule::basket_flush_weight(flush_work))
+            )
         );
         assert!(
             actual.all_lt(declared),

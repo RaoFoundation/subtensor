@@ -7,6 +7,8 @@ pub use basket_flush::BasketFlushWork;
 #[cfg(test)]
 pub(crate) use basket_flush::{MAX_BASKET_FLUSH_ROWS, MAX_BASKET_ROWS};
 mod basket_trade;
+mod deferred_dividends;
+pub use deferred_dividends::{DeferredBasketConversion, DeferredBasketDebt, DeferredBasketState};
 mod basket_views;
 pub mod beta_pricing;
 mod claim_root;

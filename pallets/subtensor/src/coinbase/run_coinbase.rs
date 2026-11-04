@@ -932,7 +932,7 @@ impl<T: Config> Pallet<T> {
                 // per-block flush deposits each hotkey's credits from all subnets as
                 // one batch, so epoch blocks no longer pay
                 // validators x holdings quotes.
-                Self::enqueue_basket_deposit(&hotkey, netuid, root_claimable_alpha);
+                Self::enqueue_root_dividend(&hotkey, netuid, root_claimable_alpha);
 
                 RootAlphaDividendsPerSubnet::<T>::insert(netuid, &hotkey, root_claimable_alpha);
             }

@@ -149,7 +149,7 @@ impl<T: Config> Pallet<T> {
         Self::check_swap_basket(&coldkey, &hotkey, origin_netuid, destination_netuid, amount)
             .map_err(|err| (precheck, err.into()))?;
 
-        // Settle pending credits at the clamped dividend mark before changing composition.
+        // Settle at live NAV or snapshot deferred alpha rights before changing composition.
         let (flush_work, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
         let flush_weight = Self::basket_flush_weight(flush_work);
         if !completed {

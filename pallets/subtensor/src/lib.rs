@@ -1906,6 +1906,73 @@ pub mod pallet {
     #[pallet::storage]
     pub type PendingBasketFlushCursor<T: Config> = StorageValue<_, Vec<u8>, OptionQuery>;
 
+    /// Alpha-per-root-stake entitlement for a dividend batch whose valuation is deferred.
+    #[pallet::storage]
+    pub type DeferredBasketRates<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        crate::staking::DeferredBasketState,
+        OptionQuery,
+    >;
+
+    /// Monotone identifier, retained across subnet reuse and pending-batch completion.
+    #[pallet::storage]
+    pub type DeferredBasketGeneration<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
+    /// Stake-change corrections. One bounded row per coldkey, like BasketClaimed.
+    #[pallet::storage]
+    pub type DeferredBasketDebts<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        T::AccountId,
+        frame_support::BoundedBTreeMap<
+            NetUid,
+            crate::staking::DeferredBasketDebt,
+            ConstU32<{ crate::MAX_ROOT_CLAIM_WORK }>,
+        >,
+        ValueQuery,
+    >;
+
+    /// Final share/alpha conversion retained only until all stake-change corrections use it.
+    #[pallet::storage]
+    pub type DeferredBasketConversions<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Identity, NetUid>,
+            NMapKey<Identity, u64>,
+        ),
+        crate::staking::DeferredBasketConversion,
+        OptionQuery,
+    >;
+
+    /// TAO-per-root-stake accumulator for deferred credits sold during subnet dissolution.
+    #[pallet::storage]
+    pub type DeferredBasketCashRate<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, I64F64, ValueQuery>;
+
+    #[pallet::storage]
+    pub type DeferredBasketCashClaimed<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        T::AccountId,
+        i128,
+        ValueQuery,
+    >;
+
+    /// Sold deferred dividends held in the root reserves, outside the basket NAV.
+    #[pallet::storage]
+    pub type DeferredBasketCashReserve<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
     // Coinbase
     /// ITEM ( global_block_emission )
     #[deprecated(note = "Use calculate_block_emission() or the block emission RPC instead.")]

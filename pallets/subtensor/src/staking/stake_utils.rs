@@ -946,6 +946,8 @@ impl<T: Config> Pallet<T> {
         Alpha::<T>::contains_prefix((hotkey, coldkey))
             || AlphaV2::<T>::contains_prefix((hotkey, coldkey))
             || BasketClaimed::<T>::get(hotkey, coldkey) != 0
+            || DeferredBasketDebts::<T>::contains_key(hotkey, coldkey)
+            || DeferredBasketCashClaimed::<T>::get(hotkey, coldkey) != 0
             || AutoStakeDestination::<T>::iter_prefix(coldkey).any(|(_, target)| target == *hotkey)
     }
 
@@ -1255,7 +1257,7 @@ impl<T: Config> Pallet<T> {
         // If this is a root-stake
         if netuid == NetUid::ROOT {
             // Adjust root claimed value for this hotkey and coldkey.
-            Self::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha);
+            Self::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha)?;
 
             // If the coldkey no longer holds any root stake, remove it from the
             // auto-claim staking-coldkey index so dead entries do not accumulate.
@@ -1386,7 +1388,7 @@ impl<T: Config> Pallet<T> {
             Self::touch_root_stake_age(coldkey, hotkey);
             // Adjust root claimed for this hotkey and coldkey.
             let alpha = swap_result.amount_paid_out.into();
-            Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha);
+            Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha)?;
             Self::maybe_add_coldkey_index(coldkey);
         }
 
@@ -1469,7 +1471,7 @@ impl<T: Config> Pallet<T> {
                 origin_hotkey,
                 origin_coldkey,
                 alpha,
-            );
+            )?;
         }
 
         // If the destination coldkey does not own the destination hotkey, make the
@@ -1490,7 +1492,7 @@ impl<T: Config> Pallet<T> {
                 destination_hotkey,
                 destination_coldkey,
                 u64::from(alpha).into(),
-            );
+            )?;
         }
 
         // Calculate TAO equivalent based on current price (it is accurate because

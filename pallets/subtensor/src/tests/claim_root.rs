@@ -1417,7 +1417,11 @@ fn test_root_basket_dissolve_preserves_owed_not_stake() {
             NetUid::ROOT,
             stake.into(),
         );
-        SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(&hotkey, &bob, stake);
+        assert_ok!(
+            SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hotkey, &bob, stake
+            )
+        );
 
         // Equal current root stake, but only Alice is owed the fund.
         assert_eq!(root_stake_of(&hotkey, &alice), root_stake_of(&hotkey, &bob));
@@ -2093,10 +2097,12 @@ fn test_claim2_accrued_basket_unchanged_when_others_stake() {
             NetUid::ROOT,
             5_000_000u64.into(),
         );
-        SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
-            &hotkey,
-            &bob,
-            5_000_000u64,
+        assert_ok!(
+            SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hotkey,
+                &bob,
+                5_000_000u64,
+            )
         );
 
         // Alice's accrued basket is unchanged; Bob has accrued nothing of it.
@@ -2237,7 +2243,11 @@ fn test_claim4_no_dilution_or_skim_on_late_stake() {
             NetUid::ROOT,
             stake.into(),
         );
-        SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(&hotkey, &bob, stake);
+        assert_ok!(
+            SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hotkey, &bob, stake
+            )
+        );
 
         // (4a) Bob cannot claim any of the existing basket; Alice's accrual is untouched.
         assert_eq!(SubtensorModule::get_basket_payout_tao(&hotkey, &bob), 0);
@@ -2763,7 +2773,7 @@ fn test_root_basket_self_referential_origin() {
             NetUid::ROOT,
             stake.into(),
         );
-        SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(&hotkey, &bob, stake);
+        assert_ok!(SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(&hotkey, &bob, stake));
 
         // Second deposit with the fund holding origin-subnet alpha.
         SubtensorModule::distribute_emission(
@@ -2929,10 +2939,12 @@ fn test_root_basket_unstake_preserves_accrued() {
             NetUid::ROOT,
             removed.into(),
         );
-        SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
-            &hotkey,
-            &coldkey,
-            removed.into(),
+        assert_ok!(
+            SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hotkey,
+                &coldkey,
+                removed.into(),
+            )
         );
 
         // Accrued entitlement is unchanged (±1 for fixed-point floor).
@@ -3248,10 +3260,12 @@ fn test_root_basket_coldkey_swap_carries_owed_with_zero_stake() {
             NetUid::ROOT,
             stake.into(),
         );
-        SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
-            &hotkey,
-            &old_coldkey,
-            stake.into(),
+        assert_ok!(
+            SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hotkey,
+                &old_coldkey,
+                stake.into(),
+            )
         );
 
         assert_eq!(root_stake_of(&hotkey, &old_coldkey), 0);

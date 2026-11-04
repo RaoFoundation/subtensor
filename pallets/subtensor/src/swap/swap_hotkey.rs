@@ -73,9 +73,20 @@ impl<T: Config> Pallet<T> {
         let claimed_rows = BasketClaimed::<T>::iter_prefix(old_hotkey).count() as u64;
         let pending_rows = PendingBasketDeposits::<T>::iter_prefix(old_hotkey).count() as u64;
         let used_rows = BasketLiquidityUsed::<T>::iter_prefix(old_hotkey).count() as u64;
+        let deferred_rates = DeferredBasketRates::<T>::iter_prefix(old_hotkey).count() as u64;
+        let deferred_debts = DeferredBasketDebts::<T>::iter_prefix(old_hotkey)
+            .fold(0u64, |rows, (_, debts)| {
+                rows.saturating_add(debts.len() as u64)
+            });
+        let conversions = DeferredBasketConversions::<T>::iter_prefix((old_hotkey,)).count() as u64;
+        let cash_claimed = DeferredBasketCashClaimed::<T>::iter_prefix(old_hotkey).count() as u64;
         claimed_rows
             .saturating_add(pending_rows)
             .saturating_add(used_rows)
+            .saturating_add(deferred_rates)
+            .saturating_add(deferred_debts)
+            .saturating_add(conversions)
+            .saturating_add(cash_claimed)
     }
 
     /// Weight a single-subnet swap refused by [`Self::check_swap_hotkey`] is charged: the
@@ -286,6 +297,12 @@ impl<T: Config> Pallet<T> {
             Self::ensure_beta_basket_seed_idle()?;
             ensure!(
                 !BasketRate::<T>::contains_key(new_hotkey)
+                    && DeferredBasketRates::<T>::iter_prefix(new_hotkey).next().is_none()
+                    && DeferredBasketDebts::<T>::iter_prefix(new_hotkey).next().is_none()
+                    && DeferredBasketConversions::<T>::iter_prefix((new_hotkey,)).next().is_none()
+                    && !DeferredBasketCashRate::<T>::contains_key(new_hotkey)
+                    && !DeferredBasketCashReserve::<T>::contains_key(new_hotkey)
+                    && DeferredBasketCashClaimed::<T>::iter_prefix(new_hotkey).next().is_none()
                     && BasketShares::<T>::get(new_hotkey) == 0
                     && Self::get_stake_for_hotkey_on_subnet(new_hotkey, NetUid::ROOT).is_zero()
                     // Legacy claim state (drained by `migrate_seed_beta_basket`) must also be
@@ -406,6 +423,21 @@ impl<T: Config> Pallet<T> {
         // success path.
         with_transaction(|| {
             let result = (|| -> DispatchResultWithPostInfo {
+                if !keep_stake && netuid.is_none_or(|n| n.is_root()) {
+                    // The destination has no root claimant base (the clean-root
+                    // precheck). Recycle stale unowned dust before moving an
+                    // already-snapshotted alpha ledger onto that key.
+                    let (destination_flush, _, destination_ready) =
+                        Self::flush_basket_deposits_for_hotkey(new_hotkey);
+                    weight.saturating_accrue(Self::basket_flush_weight(destination_flush));
+                    ensure!(destination_ready, Error::<T>::BasketDepositPending);
+                    // Close dissolved origins before moving the fund's scan key;
+                    // otherwise a rename could move behind the cleanup cursor.
+                    let (flush, _, ready) = Self::flush_basket_deposits_for_hotkey(old_hotkey);
+                    weight.saturating_accrue(Self::basket_flush_weight(flush));
+                    ensure!(ready, Error::<T>::BasketDepositPending);
+                    Self::snapshot_deferred_dividends(old_hotkey)?;
+                }
                 // Swap LastTxBlockDelegateTake / ChildKeyTake.
                 let last_tx_block_delegate_take: u64 =
                     Self::get_last_tx_block_delegate_take(old_hotkey);
@@ -1167,12 +1199,26 @@ impl<T: Config> Pallet<T> {
                     // Rebase to zero claimant base before moving the root fund: its
                     // watermark becomes a negative, independently claimable credit.
                     if netuid.is_root() {
+                        let stake = Self::get_stake_for_hotkey_and_coldkey_on_subnet(
+                            old_hotkey,
+                            coldkey,
+                            NetUid::ROOT,
+                        )
+                        .to_u64();
+                        Self::rebase_deferred_dividends(
+                            old_hotkey,
+                            coldkey,
+                            i128::from(stake).saturating_neg(),
+                        )?;
                         let gross = Self::get_basket_claimable_shares(old_hotkey, coldkey)
                             .saturating_to_num::<i128>();
                         BasketClaimed::<T>::mutate(old_hotkey, coldkey, |claimed| {
                             *claimed = claimed.saturating_sub(gross)
                         });
-                        if BasketClaimed::<T>::get(old_hotkey, coldkey) < 0 {
+                        if BasketClaimed::<T>::get(old_hotkey, coldkey) < 0
+                            || DeferredBasketDebts::<T>::contains_key(old_hotkey, coldkey)
+                            || DeferredBasketCashClaimed::<T>::get(old_hotkey, coldkey) < 0
+                        {
                             HotkeySwapBasketCredits::<T>::insert(coldkey, old_hotkey, ());
                         }
                     }

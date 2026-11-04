@@ -115,7 +115,11 @@ impl<T: Config> Pallet<T> {
     /// pre-deposit NAV `nav_before` and `shares_outstanding` (`P`) shares outstanding:
     /// `value * P / N` (deposit-at-NAV, so existing holders are neither diluted nor
     /// gifted). First deposit mints at par.
-    fn basket_shares_for_value(value: u64, nav_before: u64, shares_outstanding: u64) -> u64 {
+    pub(super) fn basket_shares_for_value(
+        value: u64,
+        nav_before: u64,
+        shares_outstanding: u64,
+    ) -> u64 {
         if shares_outstanding == 0 {
             // Genuine first deposit: mint at par (1 share per TAO of value added).
             return value;
@@ -431,8 +435,8 @@ impl<T: Config> Pallet<T> {
         let precheck = Self::stake_into_basket_precheck_weight();
         Self::check_stake_into_basket(&coldkey, &hotkey, tao)
             .map_err(|err| (precheck, err.into()))?;
-        // Settle material credits at the clamped dividend mark before changing fund ownership
-        // or its escrow root stake.
+        // Settle material credits or snapshot their alpha ownership before changing
+        // the fund or its escrow root stake.
         let (flush_work, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
         let flush_weight = Self::basket_flush_weight(flush_work);
         if !completed {
@@ -609,7 +613,10 @@ impl<T: Config> Pallet<T> {
 
         // Subtract the already-claimed watermark (signed: unstake rebasing can push it below
         // zero) to avoid over- or under-claiming.
-        let claimed: I96F32 = I96F32::saturating_from_num(BasketClaimed::<T>::get(hotkey, coldkey));
+        let claimed: I96F32 = I96F32::saturating_from_num(
+            BasketClaimed::<T>::get(hotkey, coldkey)
+                .saturating_add(Self::deferred_claimed_correction(hotkey, coldkey)),
+        );
 
         claimable.saturating_sub(claimed)
     }
@@ -681,10 +688,17 @@ impl<T: Config> Pallet<T> {
         outcome: &mut RootClaimOutcome,
     ) -> DispatchResult {
         // Settle queued dividend credits before redemption against the fund's full, current
-        // state. The clamped valuation makes synchronous settlement safe; its actual work is
+        // state. The price-band guard protects synchronous settlement; its actual work is
         // priced into the outcome.
         let (flush_work, _, flush_completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
         outcome.flush = flush_work;
+        Self::settle_deferred_debts(hotkey, coldkey)?;
+        ensure!(flush_completed, Error::<T>::BasketDepositPending);
+        let (deferred_tao, deferred_rows) =
+            Self::claim_deferred_dividends(hotkey, coldkey, ignore_minimum_condition)?;
+        outcome.tao = deferred_tao;
+        outcome.realized = outcome.realized.saturating_add(deferred_rows);
+        outcome.rows = outcome.rows.saturating_add(deferred_rows);
 
         let owed_shares: u64 = Self::get_basket_owed_shares(hotkey, coldkey);
         if owed_shares == 0 {
@@ -715,7 +729,7 @@ impl<T: Config> Pallet<T> {
         // swap error on one pool) still scanned every row up to it, and the refund on that
         // failure must charge the scan, not report zero rows.
         let holdings = Self::get_basket_holdings(hotkey);
-        outcome.rows = holdings.len() as u32;
+        outcome.rows = outcome.rows.saturating_add(holdings.len() as u32);
         let valued_holdings = Self::plan_basket_claim_rows(holdings, owed_shares, shares_total)?;
 
         let has_terminal_garbage = valued_holdings.iter().any(|row| row.terminal_garbage);
@@ -762,7 +776,7 @@ impl<T: Config> Pallet<T> {
         // Redeemed slots are counted outside the transaction: a rolled-back redemption
         // still executed its swaps, so the work is charged either way.
         let realized = &mut outcome.realized;
-        outcome.tao = with_transaction(|| {
+        let redeemed_tao = with_transaction(|| {
             // TAO credited to the staker's root stake, split by source: the root-slot portion is
             // a stake reassignment (no new TAO on root), while subnet sells realize new TAO that
             // must also be credited to the root reserves.
@@ -919,10 +933,12 @@ impl<T: Config> Pallet<T> {
 
             // The staker's root stake just grew; rebase their claimed watermark so the new stake
             // does not retroactively inflate their claimable.
-            if total_tao > 0 {
-                Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+            if total_tao > 0
+                && let Err(error) = Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
                     hotkey, coldkey, total_tao,
-                );
+                )
+            {
+                return TransactionOutcome::Rollback(Err(error));
             }
 
             // Consume the claimed shares and advance the watermark. The whole entitlement
@@ -963,6 +979,7 @@ impl<T: Config> Pallet<T> {
 
             TransactionOutcome::Commit(Ok::<u64, DispatchError>(total_tao))
         })?;
+        outcome.tao = outcome.tao.saturating_add(redeemed_tao);
 
         Ok(())
     }
@@ -1217,6 +1234,8 @@ impl<T: Config> Pallet<T> {
                 !Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, NetUid::ROOT)
                     .is_zero()
                     || BasketClaimed::<T>::get(hotkey, coldkey) < 0
+                    || DeferredBasketDebts::<T>::contains_key(hotkey, coldkey)
+                    || DeferredBasketCashClaimed::<T>::get(hotkey, coldkey) < 0
             })
             .collect();
         hotkeys.extend(HotkeySwapBasketCredits::<T>::iter_key_prefix(coldkey).take(credit_limit));
@@ -1406,10 +1425,11 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         stake_delta: i128,
-    ) {
+    ) -> DispatchResult {
+        Self::rebase_deferred_dividends(hotkey, coldkey, stake_delta)?;
         let rate = BasketRate::<T>::get(hotkey);
         if rate == I96F32::saturating_from_num(0) {
-            return;
+            return Ok(());
         }
         BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
             *claimed = claimed.saturating_add(
@@ -1417,6 +1437,7 @@ impl<T: Config> Pallet<T> {
                     .saturating_to_num::<i128>(),
             );
         });
+        Ok(())
     }
 
     /// Grant `shares` fund shares to a staker unconditionally by decrementing their signed
@@ -1435,8 +1456,8 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         amount: u64,
-    ) {
-        Self::rebase_basket_claimed_for_stake_delta(hotkey, coldkey, i128::from(amount));
+    ) -> DispatchResult {
+        Self::rebase_basket_claimed_for_stake_delta(hotkey, coldkey, i128::from(amount))
     }
 
     /// Watermark rebase for a root-stake decrease of `amount`.
@@ -1444,12 +1465,12 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         amount: AlphaBalance,
-    ) {
+    ) -> DispatchResult {
         Self::rebase_basket_claimed_for_stake_delta(
             hotkey,
             coldkey,
             i128::from(u64::from(amount)).saturating_neg(),
-        );
+        )
     }
 
     /// Moves a staker's claimed watermark on `hotkey` to a new coldkey (used by coldkey swaps;
@@ -1463,6 +1484,48 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
+        Self::settle_deferred_debts(hotkey, old_coldkey)?;
+        Self::settle_deferred_debts(hotkey, new_coldkey)?;
+        let old_cash = DeferredBasketCashClaimed::<T>::take(hotkey, old_coldkey);
+        if old_cash != 0 {
+            DeferredBasketCashClaimed::<T>::try_mutate(
+                hotkey,
+                new_coldkey,
+                |claimed| -> DispatchResult {
+                    *claimed = claimed
+                        .checked_add(old_cash)
+                        .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+                    Ok(())
+                },
+            )?;
+        }
+        let old_debts = DeferredBasketDebts::<T>::take(hotkey, old_coldkey);
+        if !old_debts.is_empty() {
+            DeferredBasketDebts::<T>::try_mutate(hotkey, new_coldkey, |debts| -> DispatchResult {
+                for (netuid, debt) in old_debts {
+                    if let Some(existing) = debts.get_mut(&netuid) {
+                        ensure!(
+                            existing.generation == debt.generation,
+                            DispatchError::Other("unsettled dividend generation")
+                        );
+                        existing.amount = existing
+                            .amount
+                            .checked_add(debt.amount)
+                            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+                        DeferredBasketRates::<T>::mutate(hotkey, netuid, |state| {
+                            if let Some(state) = state {
+                                state.debt_count = state.debt_count.saturating_sub(1);
+                            }
+                        });
+                    } else {
+                        debts
+                            .try_insert(netuid, debt)
+                            .map_err(|_| Error::<T>::BasketDepositPending)?;
+                    }
+                }
+                Ok(())
+            })?;
+        }
         // Sum the two already-claimed watermarks. When BOTH the source and the destination
         // hold a legitimate watermark — e.g. a coldkey swap onto a hotkey the new coldkey has
         // already staked to — the merged "already claimed" total is old + new. Taking the max
@@ -1526,13 +1589,14 @@ impl<T: Config> Pallet<T> {
         // One row per historical coldkey — may be large; weight is charged by the caller.
         let claimed_entries: Vec<(T::AccountId, i128)> =
             BasketClaimed::<T>::iter_prefix(old_hotkey).collect();
-        let mut moved_rows = claimed_entries.len() as u32;
+        let mut moved_rows = (claimed_entries.len() as u32)
+            .saturating_add(Self::move_deferred_dividends(old_hotkey, new_hotkey));
         for (coldkey, claimed) in claimed_entries {
             BasketClaimed::<T>::remove(old_hotkey, &coldkey);
             BasketClaimed::<T>::mutate(new_hotkey, &coldkey, |c| {
                 *c = c.saturating_add(claimed);
             });
-            if HotkeySwapBasketCredits::<T>::take(&coldkey, old_hotkey).is_some()
+            if (HotkeySwapBasketCredits::<T>::take(&coldkey, old_hotkey).is_some() || claimed < 0)
                 && !StakingHotkeys::<T>::get(&coldkey).contains(new_hotkey)
             {
                 HotkeySwapBasketCredits::<T>::insert(&coldkey, new_hotkey, ());
@@ -1633,6 +1697,16 @@ impl<T: Config> Pallet<T> {
                 return (false, cursor);
             }
             weight_meter.consume(per_key);
+            if DeferredBasketRates::<T>::contains_key(&hotkey, netuid) {
+                if !weight_meter.can_consume(per_key) {
+                    return (false, cursor);
+                }
+                weight_meter.consume(per_key);
+                let alpha = PendingBasketDeposits::<T>::get(&hotkey, netuid);
+                if Self::dissolve_deferred_dividend(&hotkey, netuid, alpha).is_err() {
+                    return (false, cursor);
+                }
+            }
             // Conversion creates escrow root stake, which must not capture a fraction of
             // dividends earned before it existed. Settle first if this call's meter can afford
             // the bounded work; otherwise preserve the cursor for the next cleanup call.
@@ -1756,7 +1830,7 @@ impl<T: Config> Pallet<T> {
     /// Sells basket `alpha` on `netuid` for TAO and lands it in the root subnet account, booking
     /// the protocol outflow. The alpha must already have been removed from the escrow position.
     /// Shared by claim redemption and dissolution conversion; callers stay transactional.
-    fn sell_basket_alpha_for_root_tao(
+    pub(super) fn sell_basket_alpha_for_root_tao(
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {

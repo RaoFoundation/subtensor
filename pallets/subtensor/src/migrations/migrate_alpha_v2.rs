@@ -100,7 +100,11 @@ fn remove_share<T: Config>(hotkey: &T::AccountId, coldkey: &T::AccountId, netuid
 /// sale would return at the state observed while processing the row.
 /// Return the position's alpha to the protocol reserve. The caller settles all
 /// corresponding TAO together, in the same storage transaction.
-fn delete_dust<T: Config>(hotkey: &T::AccountId, coldkey: &T::AccountId, netuid: NetUid) {
+fn delete_dust<T: Config>(
+    hotkey: &T::AccountId,
+    coldkey: &T::AccountId,
+    netuid: NetUid,
+) -> DispatchResult {
     use crate::staking::stake_utils::HotkeyAlphaSharePoolDataOperations;
     let alpha = Pallet::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
     // Debit the whole quoted position and then remove its complete share. Going
@@ -114,7 +118,7 @@ fn delete_dust<T: Config>(hotkey: &T::AccountId, coldkey: &T::AccountId, netuid:
     if netuid.is_root() && !alpha.is_zero() {
         Pallet::<T>::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
             hotkey, coldkey, alpha,
-        );
+        )?;
     }
     remove_share::<T>(hotkey, coldkey, netuid);
     if netuid.is_root() && !Pallet::<T>::coldkey_has_root_stake(coldkey) {
@@ -122,6 +126,7 @@ fn delete_dust<T: Config>(hotkey: &T::AccountId, coldkey: &T::AccountId, netuid:
     }
     Pallet::<T>::cleanup_lock_if_zero(coldkey, netuid);
     Pallet::<T>::queue_childkey_threshold_check(hotkey);
+    Ok(())
 }
 
 /// A cursor is saved only after a row's accounting and deletion commit together.
@@ -377,7 +382,7 @@ pub fn continue_migration<T: Config>(limit: Weight) -> Weight {
             if dust {
                 let burn = executable_value.unwrap_or_default();
                 collect_burn::<T>(netuid, burn)?;
-                delete_dust::<T>(&hotkey, &coldkey, netuid);
+                delete_dust::<T>(&hotkey, &coldkey, netuid)?;
                 Ok((burn, 0, Weight::zero()))
             } else if payout {
                 ensure!(
