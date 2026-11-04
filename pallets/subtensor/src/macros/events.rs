@@ -934,5 +934,123 @@ mod events {
             /// `u64::MAX` parts.
             weights: Vec<u64>,
         },
+        /// The oracle fed the TAO/USD price.
+        TaoUsdPriceFed {
+            /// Gamma units (10^9 per US dollar) per TAO.
+            price: u64,
+        },
+        /// Gamma was minted for burned alpha.
+        GammaMinted {
+            /// Subnet of the alpha and the gamma.
+            netuid: NetUid,
+            /// Coldkey that burned the alpha and owns the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit credited.
+            hotkey: T::AccountId,
+            /// The deposit's spender.
+            spender: T::AccountId,
+            /// The deposit's daily spend cap.
+            daily_spend_cap: Option<GammaBalance>,
+            /// TAO taken from the coldkey's balance; zero when minting with stake.
+            tao: TaoBalance,
+            /// Alpha burned.
+            alpha: AlphaBalance,
+            /// TAO value of the alpha burned.
+            value: TaoBalance,
+            /// Gamma credited.
+            gamma: GammaBalance,
+        },
+        /// Gamma moved between two of a coldkey's deposits.
+        GammaMoved {
+            /// Subnet of the deposits.
+            netuid: NetUid,
+            /// Coldkey owning both deposits.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit debited.
+            origin_hotkey: T::AccountId,
+            /// Hotkey of the deposit credited.
+            destination_hotkey: T::AccountId,
+            /// Gamma moved.
+            amount: GammaBalance,
+        },
+        /// A gamma deposit was closed, releasing its hotkey.
+        GammaDepositClosed {
+            /// Subnet of the deposit.
+            netuid: NetUid,
+            /// Coldkey that owned the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit.
+            hotkey: T::AccountId,
+        },
+        /// A gamma deposit's spender was set.
+        GammaDepositSpenderSet {
+            /// Subnet of the deposit.
+            netuid: NetUid,
+            /// Coldkey owning the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit.
+            hotkey: T::AccountId,
+            /// The new spender.
+            spender: T::AccountId,
+        },
+        /// A gamma deposit's daily spend cap was set.
+        GammaDepositDailySpendCapSet {
+            /// Subnet of the deposit.
+            netuid: NetUid,
+            /// Coldkey owning the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit.
+            hotkey: T::AccountId,
+            /// The new cap; `None` is no cap.
+            daily_spend_cap: Option<GammaBalance>,
+        },
+        /// Gamma was spent from a deposit and burned.
+        GammaSpent {
+            /// Subnet of the deposit.
+            netuid: NetUid,
+            /// Coldkey owning the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit.
+            hotkey: T::AccountId,
+            /// The deposit's spender, which signed the spend.
+            spender: T::AccountId,
+            /// Gamma spent.
+            amount: GammaBalance,
+            /// The spend entry's reference.
+            reference: [u8; 32],
+        },
+        /// A spend entry was skipped, and spent nothing.
+        GammaSpendSkipped {
+            /// Subnet of the spend.
+            netuid: NetUid,
+            /// Hotkey of the entry.
+            hotkey: T::AccountId,
+            /// The spender that signed the spend.
+            spender: T::AccountId,
+            /// The entry's amount.
+            amount: GammaBalance,
+            /// The spend entry's reference.
+            reference: [u8; 32],
+            /// Why the entry was skipped.
+            reason: sp_runtime::DispatchError,
+        },
+        /// A hotkey's service was set on a subnet.
+        ServiceSet {
+            /// Subnet of the service.
+            netuid: NetUid,
+            /// Hotkey of the service.
+            hotkey: T::AccountId,
+            /// The service's url.
+            url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
+            /// The spender customers name for the service.
+            spender: T::AccountId,
+        },
+        /// A hotkey's service was removed from a subnet.
+        ServiceRemoved {
+            /// Subnet of the service.
+            netuid: NetUid,
+            /// Hotkey of the service.
+            hotkey: T::AccountId,
+        },
     }
 }

@@ -712,6 +712,11 @@ impl<T: Config> Pallet<T> {
                 HyperparamValue::U64F64(CollateralDrainRatio::<T>::get(netuid)),
             )
                 .into(),
+            (
+                "gamma_enabled",
+                HyperparamValue::Bool(SubnetGammaEnabled::<T>::get(netuid)),
+            )
+                .into(),
         ])
     }
 }

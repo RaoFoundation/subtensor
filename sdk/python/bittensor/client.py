@@ -39,6 +39,7 @@ from .namespaces import (
     Collateral,
     Delegation,
     Epochs,
+    Gamma,
     Hyperparameters,
     Identity,
     Leasing,
@@ -194,6 +195,7 @@ class Client:
         self.collateral = Collateral(self)
         self.delegation = Delegation(self)
         self.epochs = Epochs(self)
+        self.gamma = Gamma(self)
         self.hyperparameters = Hyperparameters(self)
         self.identity = Identity(self)
         self.leasing = Leasing(self)

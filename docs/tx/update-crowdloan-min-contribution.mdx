@@ -18,7 +18,7 @@ change it, and only while the loan has not been finalized.
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `crowdloan_id` | integer | yes | Identifier of the crowdloan, assigned when it was created. |
-| `new_min_contribution_tao` | number \| `"all"` | yes | New smallest contribution the crowdloan will accept. |
+| `new_min_contribution_tao` | number | yes | New smallest contribution the crowdloan will accept. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -31,10 +31,10 @@ submitting), then submit:
 ```bash
 btcli tx update-crowdloan-min-contribution \
   --crowdloan-id <int> \
-  --new-min-contribution-tao <amount|all> --dry-run
+  --new-min-contribution-tao <amount> --dry-run
 btcli tx update-crowdloan-min-contribution \
   --crowdloan-id <int> \
-  --new-min-contribution-tao <amount|all> -w my_coldkey
+  --new-min-contribution-tao <amount> -w my_coldkey
 ```
 
 ## Python

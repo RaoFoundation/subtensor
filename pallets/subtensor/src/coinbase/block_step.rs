@@ -52,13 +52,17 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         }
     }
     pub fn update_moving_prices() {
+        let netuids = Self::get_all_subnet_netuids();
         // Price anchors protect basket valuation and trading even when a subnet is not
         // currently eligible for emission (for example, registration was disabled). Keep
         // every live dynamic subnet's EMA moving so governance cannot freeze its anchor.
-        for netuid in Self::get_all_subnet_netuids() {
+        for netuid in netuids.iter().copied() {
             if !netuid.is_root() && SubnetMechanism::<T>::get(netuid) == 1 {
                 Self::update_moving_price(netuid);
             }
+        }
+        for netuid in netuids.into_iter().filter(|netuid| !netuid.is_root()) {
+            Self::update_gamma_price(netuid);
         }
     }
 

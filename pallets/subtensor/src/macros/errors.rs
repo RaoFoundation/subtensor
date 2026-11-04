@@ -44,7 +44,7 @@ mod errors {
         /// Unsuccessfully withdraw, balance could be zero (can not make account exist) after
         /// withdrawal.
         ZeroBalanceAfterWithdrawn,
-        /// The caller is attempting to set non-self weights without being a permitted validator.
+        /// The caller is setting non-self weights or a service without being a permitted validator.
         NeuronNoValidatorPermit,
         /// The caller is attempting to set the weight keys and values but these vectors have
         /// different size.
@@ -380,8 +380,8 @@ mod errors {
         /// at its cap. Staking to a hotkey the coldkey already stakes through is still
         /// accepted.
         TooManyStakingHotkeys,
-        /// The coldkey stakes through more hotkeys, or holds more stake positions, than a
-        /// coldkey swap can move in one call. Consolidate (unstake or move stake) first.
+        /// The coldkey stakes through more hotkeys, holds more stake positions, or with the destination
+        /// holds more gamma deposits, than a coldkey swap can move in one call. Consolidate first.
         ColdkeySwapTooHeavy,
         /// A `swap_basket` buy would leave the destination holding above
         /// [`crate::BasketConcentrationCap`] of fund NAV (holdings marked at realizable
@@ -465,5 +465,25 @@ mod errors {
         ColdkeySwapDestinationReservationNotFound,
         /// An ownership change would weaken a protected account's authorization.
         HotkeyOwnerPolicyViolation,
+        /// Minting gamma needs a TAO/USD feed at most 300 blocks old.
+        TaoUsdPriceUnavailable,
+        /// Gamma minting is disabled network-wide or on this subnet.
+        GammaDisabled,
+        /// The coldkey would hold more than 64 gamma deposits on this subnet.
+        TooManyGammaDeposits,
+        /// The hotkey holds no gamma deposit on this subnet.
+        GammaDepositDoesNotExist,
+        /// A gamma deposit with a balance cannot be closed.
+        GammaDepositNotEmpty,
+        /// A mint named a spender other than the one its gamma deposit names.
+        GammaDepositSpenderMismatch,
+        /// A mint named a daily spend cap other than its gamma deposit's.
+        GammaDepositDailySpendCapMismatch,
+        /// The signer is not the gamma deposit's spender.
+        NotGammaDepositSpender,
+        /// The gamma deposit's balance is below the amount.
+        InsufficientGammaBalance,
+        /// The amount is above what the gamma deposit's daily spend cap allows now.
+        GammaDepositDailySpendCapExceeded,
     }
 }

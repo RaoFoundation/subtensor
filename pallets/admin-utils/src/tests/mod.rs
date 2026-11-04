@@ -4522,3 +4522,170 @@ fn test_sudo_set_subnet_emission_weights_respects_freeze_window() {
         );
     });
 }
+
+#[test]
+fn test_sudo_set_tao_usd_price_oracle() {
+    new_test_ext().execute_with(|| {
+        let oracle = U256::from(9);
+        pallet_subtensor::TaoUsdPrice::<Test>::put(pallet_subtensor::TaoUsdPriceState {
+            accepted: 1,
+            feed: 1,
+            fed_at: 0,
+        });
+        assert_noop!(
+            AdminUtils::sudo_set_tao_usd_price_oracle(
+                <<Test as Config>::RuntimeOrigin>::signed(oracle),
+                Some(oracle)
+            ),
+            DispatchError::BadOrigin
+        );
+
+        assert_ok!(AdminUtils::sudo_set_tao_usd_price_oracle(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            Some(oracle)
+        ));
+        assert_eq!(
+            pallet_subtensor::TaoUsdPriceOracle::<Test>::get(),
+            Some(oracle)
+        );
+        assert_eq!(pallet_subtensor::TaoUsdPrice::<Test>::get(), None);
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::TaoUsdPriceOracleSet {
+                oracle: Some(oracle),
+            },
+        ));
+
+        assert_ok!(AdminUtils::sudo_set_tao_usd_price_oracle(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            None
+        ));
+        assert_eq!(pallet_subtensor::TaoUsdPriceOracle::<Test>::get(), None);
+    });
+}
+
+#[test]
+fn test_sudo_set_subnet_gamma_enabled() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(5);
+        add_network(netuid, 10);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_tempo_unchecked(netuid, 1);
+        assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            0
+        ));
+
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(6)),
+                netuid,
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_ok!(AdminUtils::sudo_set_subnet_gamma_enabled(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            true
+        ));
+        assert!(pallet_subtensor::SubnetGammaEnabled::<Test>::get(netuid));
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::SubnetGammaEnabledSet {
+                netuid,
+                enabled: true,
+            },
+        ));
+
+        // The owner is rate limited; root is not.
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                false
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+        assert_ok!(AdminUtils::sudo_set_subnet_gamma_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            false
+        ));
+        assert!(!pallet_subtensor::SubnetGammaEnabled::<Test>::get(netuid));
+
+        // The root subnet and missing subnets are refused, even for root.
+        add_network(NetUid::ROOT, 10);
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                NetUid::ROOT,
+                true
+            ),
+            Error::<Test>::NotPermittedOnRootSubnet
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                NetUid::from(99),
+                true
+            ),
+            Error::<Test>::SubnetDoesNotExist
+        );
+
+        // Both are refused inside the admin freeze window.
+        let windowed = NetUid::from(2);
+        add_network(windowed, 10);
+        SubnetOwner::<Test>::insert(windowed, owner);
+        assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            3
+        ));
+        pallet_subtensor::LastEpochBlock::<Test>::insert(windowed, 0);
+        run_to_block(8);
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                windowed,
+                true
+            ),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                windowed,
+                true
+            ),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+    });
+}
+
+#[test]
+fn test_sudo_set_gamma_enabled() {
+    new_test_ext().execute_with(|| {
+        assert!(!pallet_subtensor::GammaEnabled::<Test>::get());
+        assert_noop!(
+            AdminUtils::sudo_set_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+
+        assert_ok!(AdminUtils::sudo_set_gamma_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            true
+        ));
+        assert!(pallet_subtensor::GammaEnabled::<Test>::get());
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::GammaEnabledSet { enabled: true },
+        ));
+
+        assert_ok!(AdminUtils::sudo_set_gamma_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            false
+        ));
+        assert!(!pallet_subtensor::GammaEnabled::<Test>::get());
+    });
+}

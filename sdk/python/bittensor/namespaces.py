@@ -265,6 +265,12 @@ class Collateral(_ReadNamespace):
     _category = "Mining & collateral"
 
 
+class Gamma(_ReadNamespace):
+    """Gamma deposits, mint quotes, and the TAO/USD price."""
+
+    _category = "Gamma"
+
+
 class Locks(_ReadNamespace):
     """Stake locks and conviction."""
 
@@ -292,6 +298,7 @@ NAMESPACES: dict[str, type[_ReadNamespace]] = {
     "collateral": Collateral,
     "delegation": Delegation,
     "epochs": Epochs,
+    "gamma": Gamma,
     "hyperparameters": Hyperparameters,
     "identity": Identity,
     "leasing": Leasing,

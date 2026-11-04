@@ -537,3 +537,42 @@ async def subnet_registration_cost(view) -> Balance:
     """
     rao = await view.runtime(api.SubnetRegistrationRuntimeApi.get_network_registration_cost, [])
     return Balance.from_rao(int(rao))
+
+
+@read(
+    "services",
+    {"netuid": "integer"},
+    category="Subnets",
+    param_docs={"netuid": "Subnet whose services to list."},
+)
+async def services(view, netuid: int) -> dict[str, dict]:
+    """Every service published on a subnet, by hotkey.
+
+    Each `url` points to its hotkey's own document of its services and the
+    payments they accept; the chain does not check what it says. `spender` is
+    the spender customers name on gamma deposits for the service. `owner`
+    marks the subnet owner's hotkey while the owner owns it, whose spender new
+    deposits name by default. A url that is not printable text is returned as
+    0x-hex.
+    """
+    rows, owner, coldkey = await asyncio.gather(
+        view.query_map(st.SubtensorModule.Services, [netuid]),
+        view.query(st.SubtensorModule.SubnetOwnerHotkey, [netuid]),
+        view.query(st.SubtensorModule.SubnetOwner, [netuid]),
+    )
+    if str(await view.query(st.SubtensorModule.Owner, [owner])) != str(coldkey):
+        owner = None
+    return {
+        str(hotkey): {
+            "url": _url_text(info["url"]),
+            "spender": str(info["spender"]),
+            "owner": str(hotkey) == str(owner),
+        }
+        for hotkey, info in rows
+    }
+
+
+def _url_text(raw: str) -> str:
+    """A url as text, or as hex when it holds control or format characters a terminal would
+    act on."""
+    return raw if raw.isprintable() else "0x" + raw.encode().hex()

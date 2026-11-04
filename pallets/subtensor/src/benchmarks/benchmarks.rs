@@ -29,7 +29,7 @@ use sp_std::collections::vec_deque::VecDeque;
 use sp_std::vec;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{
-    AlphaBalance, AuthorshipInfo, MechId, NetUid, NetUidStorageIndex, TaoBalance,
+    AlphaBalance, AuthorshipInfo, GammaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance,
 };
 use subtensor_swap_interface::SwapHandler;
 
@@ -331,7 +331,9 @@ mod pallet_benchmarks {
     fn root_pending_dividend_check() {
         let hotkey: T::AccountId = account("pending_root_hot", 0, 1);
         Uids::<T>::insert(NetUid::ROOT, &hotkey, 1);
-        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(0));
+        // Keep every credit below the threshold so this measures the full read-only
+        // queue check, without relying on a failed deposit to preserve the queue.
+        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(1_000_001));
         for i in 0..crate::MAX_ROOT_CLAIM_WORK {
             let netuid = NetUid::from(i as u16);
             NetworksAdded::<T>::insert(netuid, true);
@@ -342,8 +344,10 @@ mod pallet_benchmarks {
 
         #[block]
         {
-            let (work, _, completed) = Subtensor::<T>::flush_basket_deposits_for_hotkey(&hotkey);
-            assert!(!completed);
+            let (work, last_key, completed) =
+                Subtensor::<T>::flush_basket_deposits_for_hotkey(&hotkey);
+            assert!(completed);
+            assert!(last_key.is_some());
             assert_eq!(work.quotes, u64::from(crate::MAX_ROOT_CLAIM_WORK));
             assert_eq!(work.rows, 0);
         }
@@ -3628,6 +3632,243 @@ mod pallet_benchmarks {
         assert!(Subtensor::<T>::account_rejects_staking_hotkey_growth(
             &coldkey
         ));
+    }
+
+    #[benchmark]
+    fn feed_tao_usd_price() {
+        let oracle: T::AccountId = whitelisted_caller();
+        TaoUsdPriceOracle::<T>::put(&oracle);
+        set_benchmark_block_number::<T>(2);
+        TaoUsdPrice::<T>::put(TaoUsdPriceState {
+            accepted: 400_000_000_000,
+            feed: 500_000_000_000,
+            fed_at: 1,
+        });
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(oracle), 450_000_000_000u64);
+
+        assert_eq!(
+            TaoUsdPrice::<T>::get().map(|state| state.feed),
+            Some(450_000_000_000)
+        );
+    }
+
+    #[benchmark]
+    fn mint_gamma() {
+        let netuid = NetUid::from(1);
+        setup_gamma_subnet::<T>(netuid);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let hotkey: T::AccountId = account("gamma_new", 0, 1);
+        let spender = seed_gamma_default_spender::<T>(netuid);
+        seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS - 1, 1, None);
+        add_balance_to_coldkey_account::<T>(&coldkey, TaoBalance::from(100_000_000_000_u64));
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            hotkey.clone(),
+            netuid,
+            TaoBalance::from(10_000_000_000_u64),
+            GammaBalance::ZERO,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            GammaDeposits::<T>::get(netuid, &hotkey).map(|deposit| deposit.spender),
+            Some(spender)
+        );
+    }
+
+    #[benchmark]
+    fn mint_gamma_with_stake() {
+        let netuid = NetUid::from(1);
+        setup_gamma_subnet::<T>(netuid);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let hotkey: T::AccountId = account("gamma_staked", 0, 1);
+        let destination: T::AccountId = account("gamma_new", 0, 1);
+        let spender = seed_gamma_default_spender::<T>(netuid);
+        seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS - 1, 1, None);
+        let alpha = AlphaBalance::from(1_000_000_000_u64);
+        let _ = Subtensor::<T>::create_account_if_non_existent(&coldkey, &hotkey);
+        SubnetAlphaOut::<T>::insert(netuid, alpha.saturating_add(alpha));
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &coldkey, netuid, alpha,
+        );
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            hotkey,
+            destination.clone(),
+            netuid,
+            alpha,
+            GammaBalance::ZERO,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            GammaDeposits::<T>::get(netuid, &destination).map(|deposit| deposit.spender),
+            Some(spender)
+        );
+    }
+
+    #[benchmark]
+    fn move_gamma() {
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let destination: T::AccountId = account("gamma_new", 0, 1);
+        let hotkey = seed_gamma_deposits::<T>(
+            netuid,
+            &coldkey,
+            0,
+            MAX_GAMMA_DEPOSITS,
+            1_000_000_000,
+            Some(GammaBalance::from(1_000_000_000_u64)),
+        )
+        .remove(0);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            hotkey.clone(),
+            destination.clone(),
+            netuid,
+            GammaBalance::MAX,
+        );
+
+        assert!(!GammaDeposits::<T>::contains_key(netuid, &hotkey));
+        assert!(GammaDeposits::<T>::contains_key(netuid, &destination));
+    }
+
+    #[benchmark]
+    fn close_gamma_deposit() {
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let hotkey =
+            seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS, 0, None).remove(0);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey.clone()), hotkey.clone(), netuid);
+
+        assert!(!GammaDeposits::<T>::contains_key(netuid, &hotkey));
+    }
+
+    #[benchmark]
+    fn set_gamma_deposit_spender() {
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let hotkey = seed_gamma_deposits::<T>(netuid, &coldkey, 0, 1, 1, None).remove(0);
+        let spender = seed_gamma_default_spender::<T>(netuid);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            hotkey.clone(),
+            netuid,
+            None,
+        );
+
+        assert_eq!(
+            GammaDeposits::<T>::get(netuid, &hotkey).map(|deposit| deposit.spender),
+            Some(spender)
+        );
+    }
+
+    #[benchmark]
+    fn set_gamma_deposit_daily_spend_cap() {
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let cap = GammaBalance::from(1_000_000_000_u64);
+        let hotkey = seed_gamma_deposits::<T>(netuid, &coldkey, 0, 1, 1, Some(cap)).remove(0);
+        let raised = cap.saturating_add(cap);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            hotkey.clone(),
+            netuid,
+            Some(raised),
+        );
+
+        assert_eq!(
+            GammaDeposits::<T>::get(netuid, &hotkey)
+                .and_then(|deposit| Subtensor::<T>::gamma_cap(&deposit)),
+            Some(raised)
+        );
+    }
+
+    #[benchmark]
+    fn spend_gamma(n: Linear<1, { crate::MAX_GAMMA_SPENDS }>) {
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        let owner = SubnetOwner::<T>::get(netuid);
+        let cap = Some(GammaBalance::from(1_000_000_000_u64));
+        let mut hotkeys = Vec::new();
+        for seed in 0..n.div_ceil(MAX_GAMMA_DEPOSITS) {
+            let coldkey: T::AccountId = account("gamma_cold", seed, 1);
+            let count = (n - seed * MAX_GAMMA_DEPOSITS).min(MAX_GAMMA_DEPOSITS);
+            hotkeys.extend(seed_gamma_deposits::<T>(
+                netuid,
+                &coldkey,
+                seed,
+                count,
+                2_000_000_000,
+                cap,
+            ));
+        }
+        let spends: BoundedVec<_, _> = BoundedVec::truncate_from(
+            hotkeys
+                .iter()
+                .map(|hotkey| (hotkey.clone(), GammaBalance::from(500_000_000_u64), [1; 32]))
+                .collect(),
+        );
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, spends);
+
+        assert!(hotkeys.iter().all(|hotkey| {
+            GammaDeposits::<T>::get(netuid, hotkey).map(|deposit| deposit.balance)
+                == Some(GammaBalance::from(1_500_000_000_u64))
+        }));
+    }
+
+    #[benchmark]
+    fn set_service() {
+        let netuid = NetUid::from(1);
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("hotkey", 0, 0);
+        let spender: T::AccountId = account("spender", 0, 0);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        Subtensor::<T>::append_neuron(netuid, &hotkey, 0);
+        Owner::<T>::insert(&hotkey, &coldkey);
+        // A validator on the owner's hotkey, signed for by another coldkey, on a subnet with the
+        // most uids.
+        SubnetOwnerHotkey::<T>::insert(netuid, &hotkey);
+        let uids = usize::from(crate::subnets::mechanism::NULL_UID_BUDGET);
+        ValidatorPermit::<T>::insert(netuid, (0..uids).map(|uid| uid == 0).collect::<Vec<_>>());
+        let url: BoundedVec<_, _> =
+            BoundedVec::truncate_from(vec![b'a'; crate::MAX_SERVICE_URL_LEN as usize]);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey),
+            netuid,
+            hotkey.clone(),
+            url.clone(),
+            spender.clone(),
+        );
+
+        assert_eq!(
+            Services::<T>::get(netuid, &hotkey).map(|info| (info.url, info.spender)),
+            Some((url, spender))
+        );
     }
 
     impl_benchmark_test_suite!(
