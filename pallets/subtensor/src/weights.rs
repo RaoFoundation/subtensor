@@ -1582,8 +1582,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `SubtensorModule::SubnetTaoInEmission` (r:0 w:128)
 	/// Proof: `SubtensorModule::SubnetTaoInEmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn block_step() -> Weight {
-		// Preserve release-487's baseline plus the measured PR-specific increment.
-		// Full reference regeneration replaces this with combined-payout weights.
+		// The figures below are the existing release-487 hook baseline.
+		// block_step_burn_recycle() separately measures the newly enabled nonzero
+		// burn/recycle branches on 128 subnets, including CPU, proof size and DB I/O.
 		// Proof Size summary in bytes:
 		//  Measured:  `35121466`
 		//  Estimated: `37656856`
@@ -5932,8 +5933,9 @@ impl WeightInfo for () {
 	/// Storage: `SubtensorModule::SubnetTaoInEmission` (r:0 w:128)
 	/// Proof: `SubtensorModule::SubnetTaoInEmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn block_step() -> Weight {
-		// Preserve release-487's baseline plus the measured PR-specific increment.
-		// Full reference regeneration replaces this with combined-payout weights.
+		// The figures below are the existing release-487 hook baseline.
+		// block_step_burn_recycle() separately measures the newly enabled nonzero
+		// burn/recycle branches on 128 subnets, including CPU, proof size and DB I/O.
 		// Proof Size summary in bytes:
 		//  Measured:  `35121466`
 		//  Estimated: `37656856`
