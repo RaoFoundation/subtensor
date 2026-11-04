@@ -965,6 +965,47 @@ mod pallet_benchmarks {
         );
     }
 
+    /// Incremental storage work enabled by nonzero burn/recycle shares. The
+    /// legacy hook already prices share calculation and owner payout; measure
+    /// only the two previously unreachable nonzero branches on all 128 subnets.
+    #[benchmark]
+    fn block_step_burn_recycle() {
+        let subnets = (1..=128_u16).map(NetUid::from).collect::<Vec<_>>();
+        let amount = AlphaBalance::from(1_000_000_000_u64);
+        let burn = AlphaBalance::from(160_000_000_u64);
+        let recycle = AlphaBalance::from(170_000_000_u64);
+        for netuid in &subnets {
+            // Benchmark genesis may already populate the first subnet.
+            pallet_alpha_assets::Pallet::<T>::clear_alpha_counters(*netuid);
+            SubnetAlphaOut::<T>::insert(netuid, AlphaBalance::ZERO);
+            Subtensor::<T>::resolve_to_alpha_out(Subtensor::<T>::mint_alpha(*netuid, amount));
+        }
+
+        #[block]
+        {
+            for netuid in &subnets {
+                Subtensor::<T>::burn_subnet_alpha(*netuid, burn);
+                Subtensor::<T>::recycle_subnet_alpha(*netuid, recycle);
+            }
+        }
+
+        for netuid in subnets {
+            assert_eq!(pallet_alpha_assets::AlphaBurned::<T>::get(netuid), burn);
+            assert_eq!(
+                pallet_alpha_assets::AlphaRecycled::<T>::get(netuid),
+                recycle
+            );
+            assert_eq!(
+                SubnetAlphaOut::<T>::get(netuid),
+                amount.saturating_sub(recycle)
+            );
+            assert_eq!(
+                pallet_alpha_assets::TotalAlphaIssuance::<T>::get(netuid),
+                amount.saturating_sub(recycle)
+            );
+        }
+    }
+
     #[benchmark]
     fn block_step() {
         setup_block_step_benchmark::<T>(true);
