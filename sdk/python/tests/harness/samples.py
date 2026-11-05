@@ -140,6 +140,18 @@ INTENT_SAMPLES: dict[str, dict] = {
     "remove_proxies": {},
     "create_pure_proxy": {},
     "kill_pure_proxy": {"spawner_ss58": BOB},
+    "announce_proxy_call": {
+        "real_ss58": ALICE,
+        "call_hash": "0x" + "ab" * 32,
+    },
+    "remove_proxy_announcement": {
+        "real_ss58": ALICE,
+        "call_hash": "0x" + "ab" * 32,
+    },
+    "reject_proxy_announcement": {
+        "delegate_ss58": BOB,
+        "call_hash": "0x" + "ab" * 32,
+    },
     "execute_proxy_announced": {
         "delegate_ss58": BOB,
         "real_ss58": ALICE,

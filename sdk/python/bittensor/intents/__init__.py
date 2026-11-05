@@ -66,11 +66,14 @@ from .plan import Plan, Policy
 from .proxy import (
     PROXY_TYPES,
     AddProxy,
+    AnnounceProxyCall,
     CreatePureProxy,
     ExecuteProxyAnnounced,
     KillPureProxy,
+    RejectProxyAnnouncement,
     RemoveProxies,
     RemoveProxy,
+    RemoveProxyAnnouncement,
 )
 from .registration import (
     BurnedRegister,
@@ -116,6 +119,7 @@ __all__ = [
     "AddStake",
     "AddStakeLimit",
     "AnnounceColdkeySwap",
+    "AnnounceProxyCall",
     "AssociateEvmKey",
     "AssociateHotkey",
     "AuthorizeOrder",
@@ -162,8 +166,10 @@ __all__ = [
     "RefundCrowdloan",
     "RegisterLeasedNetwork",
     "RegisterSubnet",
+    "RejectProxyAnnouncement",
     "RemoveProxies",
     "RemoveProxy",
+    "RemoveProxyAnnouncement",
     "RemoveStake",
     "RemoveStakeLimit",
     "ResetAxon",

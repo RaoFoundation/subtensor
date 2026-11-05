@@ -10,7 +10,8 @@ the call's hash, waits out the delay (during which the real account can
 veto), then anyone may dispatch the announced call with this intent. The
 inner call is given as an intent op name plus its arguments and must hash
 to exactly what was announced. Fails if the delay has not elapsed or no
-matching announcement exists.
+matching announcement exists. Fee payer can be any funded account — it
+need not be the multisig that announced.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |

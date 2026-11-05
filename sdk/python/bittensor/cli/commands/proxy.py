@@ -23,12 +23,20 @@ from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..helpers import list_coldkeys
 from ..prompt import PromptSpec, fill_missing, interactive
+from ..protected import (
+    run_cancel,
+    run_execute_protected,
+    run_protect,
+    run_rotate,
+    run_rotate_finalize,
+    run_show,
+)
 from ..stake_picker import dest_account_spec
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="On-chain proxy management and the local proxy book."
-    f"\n\nGuide: {guide_docs_url('proxies')}",
+    help="On-chain proxy management, protected accounts, and the local proxy book."
+    f"\n\nGuides: {guide_docs_url('proxies')}, {guide_docs_url('protected-accounts')}",
 )
 
 book_app = typer.Typer(
@@ -368,38 +376,169 @@ def list_proxies(
     out.columns(title, ["delegate", "type", "delay"], rows, records, footer=footer)
 
 
+@app.command("protect")
+@with_tx_globals
+def protect_account(
+    ctx: typer.Context,
+    delay: str = typer.Option(
+        "36h",
+        "--delay",
+        help="Announcement delay for the controller proxy. Duration (36h, 2d) or "
+        "blocks (10800). Must be greater than zero.",
+    ),
+    allow: Optional[list[str]] = typer.Option(
+        None,
+        "--allow",
+        help="Zero-delay restricted proxy to grant (repeatable). Known items: "
+        "stake/unstake, childkeys, basket/basket-swaps, registration, lock, gamma, "
+        "root-claim, validate, weights, owner, swap-hotkey, subnet-lease. "
+        "Refuses transfer/proxy/swap-capable types. No presets — omit for none.",
+    ),
+    disallow: Optional[list[str]] = typer.Option(
+        None,
+        "--disallow",
+        help="On an already-protected wallet: queue removal of a zero-delay allow "
+        "(same tokens as --allow).",
+    ),
+    allow_key: Optional[str] = typer.Option(
+        None,
+        "--allow-key",
+        help="Wallet/ss58 that holds the zero-delay --allow proxies "
+        "(default: the controller wallet).",
+    ),
+):
+    """Create (or update) a coercion-resistant protected account.
+
+    Spawns a keyless pure proxy controlled by this wallet with a mandatory
+    announcement delay, optionally grants zero-delay restricted allows, and
+    announces a coldkey swap that moves stake/subnets/identity onto the
+    protected account. Re-running with new --delay/--allow/--disallow queues
+    the changes as delayed announcements.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    run_protect(
+        app_ctx,
+        delay_raw=delay,
+        allow=list(allow or []),
+        disallow=list(disallow or []),
+        allow_key=allow_key,
+    )
+
+
+@app.command("show")
+@with_globals
+def show_protected(
+    ctx: typer.Context,
+    index: Optional[int] = typer.Option(
+        None, "--index", help="Show full detail for one local announcement."
+    ),
+):
+    """List pending protected-account announcements (or one in detail)."""
+    app_ctx: AppContext = ctx_of(ctx)
+    run_show(app_ctx, index=index)
+
+
+@app.command("cancel")
+@with_tx_globals
+def cancel_announcement(
+    ctx: typer.Context,
+    index: Optional[int] = typer.Option(
+        None, "--index", help="Cancel one announcement by local index."
+    ),
+):
+    """Cancel pending protected-account announcement(s).
+
+    Without --index, cancels all pending items after a confirm prompt
+    (skipped with --yes / -y).
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    run_cancel(app_ctx, index=index, yes=bool(app_ctx.assume_yes))
+
+
 @app.command("execute")
 @with_tx_globals
 def execute_announced(
     ctx: typer.Context,
-    delegate_ss58: str = typer.Option(
-        ..., address_cli_name("delegate_ss58"), help=ss58_param_help("delegate_ss58")
+    index: Optional[int] = typer.Option(
+        None, "--index", help="Execute one local protected-account announcement."
     ),
-    real_ss58: str = typer.Option(
-        ..., address_cli_name("real_ss58"), help=ss58_param_help("real_ss58")
+    delegate_ss58: Optional[str] = typer.Option(
+        None, address_cli_name("delegate_ss58"), help=ss58_param_help("delegate_ss58")
     ),
-    inner_op: str = typer.Option(..., "--inner-op", help="Intent op name for the inner call."),
+    real_ss58: Optional[str] = typer.Option(
+        None, address_cli_name("real_ss58"), help=ss58_param_help("real_ss58")
+    ),
+    inner_op: Optional[str] = typer.Option(
+        None, "--inner-op", help="Intent op name for the inner call (low-level form)."
+    ),
     inner_args: str = typer.Option("{}", "--inner-args", help="JSON object of inner intent args."),
     force_proxy_type: Optional[ProxyTypeChoice] = typer.Option(None, "--force-proxy-type"),
 ):
-    """Execute a previously announced proxy call."""
+    """Execute announced proxy call(s) after the delay.
+
+    Protected-account form (requires -w): ``btcli proxy execute --index N`` or
+    ``btcli proxy execute`` to run every READY item (not-ready items are listed
+    with a countdown and skipped — not an error). Fee payer can be any single
+    signer; multisig is not required to execute.
+
+    Low-level form: pass --delegate, --real, and --inner-op explicitly.
+    """
     app_ctx: AppContext = ctx_of(ctx)
-    delegate = app_ctx.resolve_address("coldkey_ss58", delegate_ss58)
-    real = app_ctx.resolve_address("coldkey_ss58", real_ss58)
-    try:
-        args = json.loads(inner_args)
-    except json.JSONDecodeError as error:
-        app_ctx.output.error(f"invalid --inner-args JSON: {error}")
-        raise typer.Exit(1)
-    app_ctx.submit(
-        ExecuteProxyAnnounced(
-            delegate_ss58=delegate,
-            real_ss58=real,
-            inner_op=inner_op,
-            inner_args=args,
-            force_proxy_type=force_proxy_type.value if force_proxy_type else None,
+    low_level = any(v is not None for v in (delegate_ss58, real_ss58, inner_op))
+    if low_level:
+        if not (delegate_ss58 and real_ss58 and inner_op):
+            app_ctx.output.error(
+                "low-level execute requires --delegate, --real, and --inner-op together"
+            )
+            raise typer.Exit(2)
+        delegate = app_ctx.resolve_address("coldkey_ss58", delegate_ss58)
+        real = app_ctx.resolve_address("coldkey_ss58", real_ss58)
+        try:
+            args = json.loads(inner_args)
+        except json.JSONDecodeError as error:
+            app_ctx.output.error(f"invalid --inner-args JSON: {error}")
+            raise typer.Exit(1)
+        app_ctx.submit(
+            ExecuteProxyAnnounced(
+                delegate_ss58=delegate,
+                real_ss58=real,
+                inner_op=inner_op,
+                inner_args=args,
+                force_proxy_type=force_proxy_type.value if force_proxy_type else None,
+            ),
+            proxy_for="self",
         )
-    )
+        return
+    run_execute_protected(app_ctx, index=index)
+
+
+@app.command("rotate")
+@with_tx_globals
+def rotate_controller(
+    ctx: typer.Context,
+    to_wallet: str = typer.Option(
+        ...,
+        "--to",
+        help="New controller wallet (or ss58) to add as the delayed Any proxy.",
+    ),
+    finalize: bool = typer.Option(
+        False,
+        "--finalize",
+        help="After the rotate announcement has executed: move the local "
+        "protected-account record to --to.",
+    ),
+):
+    """Rotate the delayed controller of a protected account.
+
+    Announces a batch that adds --to as the delayed Any controller and removes
+    the current wallet. No coldkey swap. After execution, local config is
+    rebound automatically; pass --finalize to rebind manually if needed.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    if finalize:
+        run_rotate_finalize(app_ctx, to_wallet=to_wallet)
+        return
+    run_rotate(app_ctx, to_wallet=to_wallet)
 
 
 @book_app.command("add")

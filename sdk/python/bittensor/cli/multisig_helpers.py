@@ -375,6 +375,17 @@ _MULTISIG_OPS = frozenset(
     }
 )
 
+# Delayed-proxy reveal / cancel only need one funded signer to pay fees. The
+# on-chain delegate is already recorded on the announcement (often a multisig
+# address); wrapping these in Multisig.* would wrongly demand threshold
+# approvals for a fee payment.
+_PROXY_ANNOUNCEMENT_FEE_PAYER_OPS = frozenset(
+    {
+        "execute_proxy_announced",
+        "remove_proxy_announcement",
+    }
+)
+
 
 def _address_book_signer(ref: str) -> Optional[str]:
     """The stored signing backend for an address-book name or ss58, if tagged."""
@@ -760,6 +771,27 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
         return intent
     preset = app_ctx.wallet_name
     if not preset or cfg.get_multisig(preset) is None:
+        return intent
+
+    if getattr(intent, "op", None) in _PROXY_ANNOUNCEMENT_FEE_PAYER_OPS:
+        # -w names the protected controller (possibly a multisig). Use a local
+        # member only as the extrinsic fee payer; do not Multisig-wrap.
+        _threshold, signatories, _refs = resolve_multisig_preset(app_ctx, preset)
+        infer_external_signer_from_signatory(app_ctx, signatories)
+        external = external_signer_member(app_ctx, preset=preset, signatories=signatories)
+        if external:
+            member_name, _signer_ss58 = external
+        else:
+            member_name, _signer_ss58 = pick_local_signatory(
+                app_ctx, preset=preset, signatories=signatories
+            )
+            app_ctx.wallet_name = member_name
+        app_ctx.wallet_given = True
+        app_ctx.output.message(
+            f"[dim]paying announcement fees as member {member_name} "
+            "(no multisig wrap — proxy_announced / remove_announcement "
+            "only need one signer)[/dim]"
+        )
         return intent
 
     threshold, signatories, _refs = resolve_multisig_preset(app_ctx, preset)

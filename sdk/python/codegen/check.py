@@ -211,11 +211,8 @@ RAW_ONLY: dict[str, set[str]] = {
         # the dispatch wrapper itself — used by the executor's proxy signing
         # mode (proxy_for=...), not expressed as a standalone intent
         "proxy",
-        # announced-proxy flow (non-zero delay): proxy_announced is wrapped;
-        # announce/reject/remove remain raw
-        "announce",
-        "reject_announcement",
-        "remove_announcement",
+        # announced-proxy flow (non-zero delay): announce / reject / remove /
+        # proxy_announced are wrapped by intents (protected-account UX)
         # pure (keyless) proxies are wrapped (create_pure/kill_pure); deposit
         # maintenance stays raw — niche
         "poke_deposit",

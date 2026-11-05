@@ -1045,7 +1045,42 @@ class AppContext:
             force_proxy_type = self.force_proxy_type
         if force_proxy_type is not None:
             force_proxy_type = str(getattr(force_proxy_type, "value", force_proxy_type))
+        # Track whether the caller / --proxy-for flag chose a dispatch target
+        # before falling back to config, so protected-account auto-announce
+        # does not override an explicit choice (including the `self` sentinel).
+        user_set_proxy = proxy_for is not None or self.proxy_for is not None
         proxy_for = self.resolve_dispatch_proxy(proxy_for)
+        if not user_set_proxy and proxy_for is None:
+            # Inline import: cli.protected imports AppContext from this module.
+            from .. import protected_account as pa
+            from .protected import PROTECTED_BYPASS_OPS, maybe_route_protected
+
+            if self.dry_run:
+                # Preview instant allows against the protected origin. Delayed
+                # calls only print what would be announced — never Proxy.proxy
+                # wrap them (delay > 0 would fail as Unannounced).
+                record = pa.get_by_controller(self.wallet_name) if self.wallet_name else None
+                if record is not None and intent.op not in PROTECTED_BYPASS_OPS:
+                    instant = pa.instant_proxy_type_for(intent.op, record)
+                    if instant is not None:
+                        proxy_for = record["protected_ss58"]
+                        if force_proxy_type is None:
+                            force_proxy_type = instant
+                    else:
+                        self.output.message(
+                            f"[dim]protected account {record.get('name')} "
+                            f"({record['protected_ss58']}): this call would be "
+                            f"announced (delay {record.get('delay_blocks')} blocks), "
+                            "not executed immediately[/dim]"
+                        )
+            else:
+                proxy_for, instant_type, announced = maybe_route_protected(
+                    self, intent, proxy_for=proxy_for, user_set_proxy=user_set_proxy
+                )
+                if announced:
+                    return None
+                if instant_type is not None and force_proxy_type is None:
+                    force_proxy_type = instant_type
         if force_proxy_type is not None and proxy_for is None:
             self.output.error(
                 "--force-proxy-type requires --proxy-for",
