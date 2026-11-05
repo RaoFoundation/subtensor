@@ -339,20 +339,19 @@ def _validate_reusable_pure(
         )
         raise typer.Exit(2)
 
-    # Any other account with a transfer/proxy-capable grant (even delayed) can
-    # spend after its own delay; the owner cannot cancel those announcements.
-    others = [
-        d
-        for d in delegations
-        if d["delegate"] != controller_ss58 and d["proxy_type"] in pa.DEFEATING_ZERO_DELAY_TYPES
-    ]
+    # Any foreign proxy grant is incompatible with a sole-controller protected
+    # account. Spending types can drain after their delay; types like
+    # NonFungible can immediately ``reject_announcement`` and veto the owner's
+    # delayed withdrawals / grant removals. Refuse all of them.
+    others = [d for d in delegations if d["delegate"] != controller_ss58]
     if others:
         detail = ", ".join(
             f"{d['delegate']} ({d['proxy_type']}, delay {d['delay']})" for d in others
         )
         app_ctx.output.error(
-            f"{pure} has other transfer/proxy-capable grants: {detail}. "
-            "Refuse to move funds onto an account with a competing spending path."
+            f"{pure} has other proxy grants besides the controller: {detail}. "
+            "Refuse to move funds onto an account with a competing delegate "
+            "(spending path or announcement-veto capability)."
         )
         raise typer.Exit(2)
 
