@@ -4,17 +4,31 @@
 //! with one unit of every argument is quoted at, under
 //! `runtime/tests/snapshots/fee_baseline__dispatchable_fee_matches_snapshot@<case>.snap`.
 //! Fees may rise or fall by up to 20% of their snapshot value (inclusive).
-//! Changes beyond that range require an explicit snapshot update and review.
+//! Baseline changes require explicit, specific human approval, even when the new
+//! value would fall within that tolerance. Identify the affected snapshots and
+//! old/proposed values before requesting approval. A request to fix CI/tests,
+//! update weights, or prepare a release does not authorize rebaselining.
 //! Signed Ethereum transactions also pin actual gas fees for native transfers
 //! and balance-transfer, staking V2 (root add/remove), and proxy precompiles.
+//! These EVM snapshots require exact matches to guard gas-schedule compatibility.
 //! Transfer/stake principal and reserved proxy deposits are excluded from fees.
 //!
-//! Regenerate snapshots after a deliberate fee change:
-//! `INSTA_UPDATE=always cargo test -p node-subtensor-runtime --test fee_baseline`
-//! then review the diff under `runtime/tests/snapshots/` and commit the changed files.
+//! Verify without accepting changed baselines:
+//! `INSTA_UPDATE=no cargo test -p node-subtensor-runtime --test fee_baseline`
+//!
+//! ONLY after a human explicitly approves the specific baseline/value changes,
+//! regenerate the approved snapshots (scope the test filter to the approved cases):
+//! `INSTA_UPDATE=always cargo test -p node-subtensor-runtime --test fee_baseline APPROVED_TEST_FILTER`
+//! Replace `APPROVED_TEST_FILTER` with the approved case; do not regenerate the
+//! entire suite when only individual baseline changes were authorized.
+//! then review the diff and include only the approved changes. Record the human
+//! approval and its scope in the commit or PR. Do not widen tolerances or change
+//! comparators to accept a regression without the same approval.
 //!
 //! By default, running the tests (except in CI) will generate new snapshots for any failing
-//! snapshot tests, saved as `runtime/tests/snapshots/*.snap.new`.
+//! snapshot tests, saved as `runtime/tests/snapshots/*.snap.new`. These files are
+//! proposals, not approval to replace or commit the accepted baselines.
+//! See `runtime/tests/snapshots/README.md` and the repository's `AGENTS.md`.
 
 #![allow(clippy::expect_used)]
 
@@ -426,8 +440,8 @@ fn legacy_position_id() -> pallet_subtensor_swap::PositionId {
 #[case::mev_shield_set_on_initialize_weight(RuntimeCall::MevShield(pallet_shield::Call::set_on_initialize_weight { value: 1 }))]
 #[case::mev_shield_set_stored_extrinsic_lifetime(RuntimeCall::MevShield(pallet_shield::Call::set_stored_extrinsic_lifetime { value: 1 }))]
 #[case::mev_shield_set_max_extrinsic_weight(RuntimeCall::MevShield(pallet_shield::Call::set_max_extrinsic_weight { value: 1 }))]
-#[case::limit_orders_execute_orders(RuntimeCall::LimitOrders(pallet_limit_orders::Call::execute_orders { orders: (vec![pallet_limit_orders::SignedOrder { order: pallet_limit_orders::VersionedOrder::V1(pallet_limit_orders::Order { signer: [1u8; 32].into(), hotkey: [1u8; 32].into(), netuid: NetUid::from(1u16), order_type: pallet_limit_orders::OrderType::LimitBuy, amount: 1, limit_price: 1, expiry: 1, fee_rate: sp_runtime::Perbill::from_parts(1), fee_recipient: [1u8; 32].into(), relayer: None, max_slippage: None, chain_id: 1, partial_fills_enabled: false }), signature: sp_runtime::MultiSignature::Ed25519([1u8; 64].into()), partial_fill: None }]).try_into().expect("bounded"), should_fail: false }))]
-#[case::limit_orders_execute_batched_orders(RuntimeCall::LimitOrders(pallet_limit_orders::Call::execute_batched_orders { netuid: NetUid::from(1u16), orders: (vec![pallet_limit_orders::SignedOrder { order: pallet_limit_orders::VersionedOrder::V1(pallet_limit_orders::Order { signer: [1u8; 32].into(), hotkey: [1u8; 32].into(), netuid: NetUid::from(1u16), order_type: pallet_limit_orders::OrderType::LimitBuy, amount: 1, limit_price: 1, expiry: 1, fee_rate: sp_runtime::Perbill::from_parts(1), fee_recipient: [1u8; 32].into(), relayer: None, max_slippage: None, chain_id: 1, partial_fills_enabled: false }), signature: sp_runtime::MultiSignature::Ed25519([1u8; 64].into()), partial_fill: None }]).try_into().expect("bounded") }))]
+#[case::limit_orders_execute_orders(RuntimeCall::LimitOrders(pallet_limit_orders::Call::execute_orders { orders: (vec![pallet_limit_orders::SignedOrder { order: pallet_limit_orders::VersionedOrder::V1(pallet_limit_orders::Order { signer: [1u8; 32].into(), hotkey: [1u8; 32].into(), netuid: NetUid::from(1u16), order_type: pallet_limit_orders::OrderType::LimitBuy, amount: 1, limit_price: 1, expiry: 1, fee_rate: sp_runtime::Perbill::from_parts(1), fee_recipient: [1u8; 32].into(), relayer: None, max_slippage: None, chain_id: 1, partial_fills_enabled: false }), signature: sp_runtime::MultiSignature::Ed25519([1u8; 64].into()).into(), partial_fill: None }]).try_into().expect("bounded"), should_fail: false }))]
+#[case::limit_orders_execute_batched_orders(RuntimeCall::LimitOrders(pallet_limit_orders::Call::execute_batched_orders { netuid: NetUid::from(1u16), orders: (vec![pallet_limit_orders::SignedOrder { order: pallet_limit_orders::VersionedOrder::V1(pallet_limit_orders::Order { signer: [1u8; 32].into(), hotkey: [1u8; 32].into(), netuid: NetUid::from(1u16), order_type: pallet_limit_orders::OrderType::LimitBuy, amount: 1, limit_price: 1, expiry: 1, fee_rate: sp_runtime::Perbill::from_parts(1), fee_recipient: [1u8; 32].into(), relayer: None, max_slippage: None, chain_id: 1, partial_fills_enabled: false }), signature: sp_runtime::MultiSignature::Ed25519([1u8; 64].into()).into(), partial_fill: None }]).try_into().expect("bounded") }))]
 #[case::limit_orders_cancel_order(RuntimeCall::LimitOrders(pallet_limit_orders::Call::cancel_order { order: pallet_limit_orders::VersionedOrder::V1(pallet_limit_orders::Order { signer: [1u8; 32].into(), hotkey: [1u8; 32].into(), netuid: NetUid::from(1u16), order_type: pallet_limit_orders::OrderType::LimitBuy, amount: 1, limit_price: 1, expiry: 1, fee_rate: sp_runtime::Perbill::from_parts(1), fee_recipient: [1u8; 32].into(), relayer: None, max_slippage: None, chain_id: 1, partial_fills_enabled: false }) }))]
 #[case::limit_orders_set_pallet_status(RuntimeCall::LimitOrders(pallet_limit_orders::Call::set_pallet_status { enabled: false }))]
 #[case::limit_orders_prune_linked_output(RuntimeCall::LimitOrders(pallet_limit_orders::Call::prune_linked_output { order_id: [1u8; 32].into() }))]
@@ -461,6 +475,8 @@ enum EvmFeeCase {
     AddProxy,
 }
 
+// Plain transfers retain the standard 21,000 gas limit. Precompile snapshots
+// also cover dispatch costs and the protected-account policy work in proxy dispatch.
 #[rstest]
 #[case::no_tip(EvmFeeCase::BalanceTransfer, 0)]
 #[case::priority_tip(EvmFeeCase::BalanceTransfer, 2_000_000_000)]
@@ -476,7 +492,7 @@ fn evm_transaction_fee_matches_snapshot(
 ) {
     use frame_support::traits::Get;
     use node_subtensor_runtime::{Balances, Executive, RuntimeOrigin, UncheckedExtrinsic};
-    use pallet_evm::{AddressMapping, FeeCalculator};
+    use pallet_evm::{AddressMapping, FeeCalculator, GasWeightMapping};
     use precompile_utils::solidity::encode_with_selector;
     use sp_core::{H160, H256, Pair, U256, ecdsa};
     use subtensor_precompiles::{
@@ -519,8 +535,18 @@ fn evm_transaction_fee_matches_snapshot(
             EvmFeeCase::RemoveStake => (H160::from_low_u64_be(StakingPrecompileV2::<Runtime>::INDEX), encode_with_selector(selector("removeStake(bytes32,uint256,uint256)"), (hotkey, U256::from(amount), U256::zero())), 0, i128::from(amount).checked_neg().expect("unstaking proceeds fit")),
             EvmFeeCase::AddProxy => (H160::from_low_u64_be(ProxyPrecompile::<Runtime>::INDEX), encode_with_selector(selector("addProxy(bytes32,uint8,uint32)"), (destination, 0u8, 0u32)), 0, 0),
         };
-        // Larger than the expected consumption so the check exercises gas refunds.
-        let gas_limit = U256::from(5_000_000);
+        // Preserve the standard limit for plain sends and the precompile refund
+        // headroom, adding the pending-dividend guard only for root stake calls.
+        let execution_gas = if matches!(case, EvmFeeCase::BalanceTransfer) {
+            21_000u64
+        } else {
+            5_000_000
+        };
+        let root_guard = pallet_subtensor::Pallet::<Runtime>::root_pending_dividend_weight(
+            matches!(case, EvmFeeCase::AddStake | EvmFeeCase::RemoveStake),
+        );
+        let root_guard_gas = <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(root_guard);
+        let gas_limit = U256::from(execution_gas.checked_add(root_guard_gas).expect("gas limit fits"));
         let decimals = U256::from(1_000_000_000);
         let (base_fee, _) = <Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price();
         // Subtensor's vendored EVM runner currently overrides the requested
@@ -581,7 +607,12 @@ fn evm_transaction_fee_matches_snapshot(
         }
         .expect("expected EIP-1559 receipt");
         assert_eq!(receipt.status_code, 1, "EVM transaction succeeds");
-        assert!(receipt.used_gas > U256::zero() && receipt.used_gas < gas_limit);
+        if matches!(case, EvmFeeCase::BalanceTransfer) {
+            assert_eq!(receipt.used_gas, U256::from(21_000));
+        } else {
+            assert!(receipt.used_gas > U256::zero() && receipt.used_gas < gas_limit);
+        }
+        assert_eq!(pallet_evm::Pallet::<Runtime>::account_basic(&sender).0.nonce, U256::one());
         match case {
             EvmFeeCase::BalanceTransfer => assert_eq!(Balances::free_balance(&receiver_account).to_u64().checked_sub(receiver_before), Some(amount)),
             EvmFeeCase::BalancePrecompile => assert_eq!(Balances::free_balance(&destination_account).to_u64().checked_sub(destination_before), Some(amount)),
@@ -619,7 +650,6 @@ fn evm_transaction_fee_matches_snapshot(
         fee_rao
     });
     with_settings!({
-        comparator => Box::new(FeeToleranceComparator),
         description => ctx.description.unwrap_or_default(),
         snapshot_suffix => ctx.description.unwrap_or_default(),
     }, {

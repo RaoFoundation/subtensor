@@ -26,8 +26,8 @@ use crate::tests::claim_root::{escrow_alpha, register_on_root};
 use crate::tests::mock::*;
 use crate::{
     BasketDailyTurnoverCap, BasketShares, BasketTradeBucket, BasketTradingEnabled, Error,
-    FirstEmissionBlockNumber, NetworksAdded, Owner, SubnetAlphaIn, SubnetAlphaOut,
-    SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO, TotalStake,
+    FirstEmissionBlockNumber, NetworkRegistrationAllowed, NetworksAdded, Owner, SubnetAlphaIn,
+    SubnetAlphaOut, SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO, TotalStake,
 };
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::{assert_noop, assert_ok};
@@ -587,6 +587,23 @@ fn test_fast_moving_price_bootstraps_and_halves_distance_per_half_life() {
             "hook advanced to {after_hook}"
         );
         assert!(SubnetMovingPrice::<Test>::get(x).to_num::<f64>() <= 1.0);
+    });
+}
+
+#[test]
+fn test_fast_moving_price_updates_when_registration_is_disabled() {
+    new_test_ext(1).execute_with(|| {
+        let x = make_pool(101, 1_000_000 * TAO, 1_000_000 * TAO, 1.0, 1.0);
+        SubnetFastMovingPrice::<Test>::insert(x, U64F64::from_num(1));
+        NetworkRegistrationAllowed::<Test>::insert(x, false);
+        SubnetTAO::<Test>::insert(x, TaoBalance::from(2_000_000 * TAO));
+
+        SubtensorModule::update_moving_prices();
+
+        assert!(
+            SubnetFastMovingPrice::<Test>::get(x).unwrap() > U64F64::from_num(1),
+            "registration-disabled subnet left the fast EMA stale"
+        );
     });
 }
 

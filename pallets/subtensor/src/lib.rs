@@ -20,7 +20,7 @@ use frame_support::{
 };
 use scale_info::TypeInfo;
 use sp_core::Get;
-use sp_runtime::{DispatchError, PerU16};
+use sp_runtime::{DispatchError, PerU16, Perbill};
 use sp_std::marker::PhantomData;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token, TokenReserve};
 
@@ -52,10 +52,31 @@ pub use extensions::*;
 pub use guards::*;
 pub use subnets::emission_weights::{
     EMISSION_WEIGHT_ONE, EMISSION_WEIGHT_SLOTS, EMISSION_WEIGHTS_VIEW_READS, EmissionIndex,
-    EmissionWeights, EmissionWeightsVec, EmissionWeightsView, MAX_OWNER_EMISSION,
-    MAX_VALIDATOR_EMISSION, MIN_MINER_EMISSION, emission_fraction, emission_share_to_parts,
-    normalize_tao_weight, root_emission_share,
+    EmissionWeights, EmissionWeightsVec, EmissionWeightsView, MAX_BURN_RECYCLE_EMISSION,
+    MAX_OWNER_EMISSION, MAX_VALIDATOR_EMISSION, MIN_MINER_EMISSION, emission_fraction,
+    emission_share_to_parts, normalize_tao_weight, root_emission_share,
 };
+
+/// Prevent an owner relationship from weakening a hotkey's authorization.
+/// `allows_coldkey_swap` must preserve the invariant established by
+/// `allows_owner`: swapping a coldkey must not weaken any of its hotkeys.
+pub trait HotkeyOwnerPolicy<AccountId> {
+    fn allows_owner(coldkey: &AccountId, hotkey: &AccountId) -> bool;
+    fn allows_coldkey_swap(old: &AccountId, new: &AccountId) -> bool;
+    fn weight() -> Weight;
+}
+
+impl<AccountId> HotkeyOwnerPolicy<AccountId> for () {
+    fn allows_owner(_: &AccountId, _: &AccountId) -> bool {
+        true
+    }
+    fn allows_coldkey_swap(_: &AccountId, _: &AccountId) -> bool {
+        true
+    }
+    fn weight() -> Weight {
+        Weight::zero()
+    }
+}
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -236,6 +257,30 @@ pub const MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS: u32 = 32;
 /// `StakingHotkeys` / `OwnedHotkeys` association vectors.
 pub const MAX_COLDKEY_COLLATERAL_HOTKEYS: u32 = 32;
 
+/// Maximum number of gamma deposits one coldkey holds on a single subnet.
+pub const MAX_GAMMA_DEPOSITS: u32 = 64;
+
+/// Maximum number of entries in one `spend_gamma` call.
+pub const MAX_GAMMA_SPENDS: u32 = 512;
+
+/// Maximum number of gamma deposits one coldkey swap admits, counting both coldkeys.
+pub const MAX_COLDKEY_SWAP_GAMMA_DEPOSITS: u32 = 128;
+
+/// Blocks over which a daily spend cap refills in full: one day.
+pub const GAMMA_REFILL_BLOCKS: u64 = 7200;
+
+/// Smallest gamma a mint credits: 0.1 gamma.
+pub const MIN_GAMMA_AMOUNT: u64 = 100_000_000;
+
+/// Oldest TAO/USD feed, in blocks, a mint accepts: one hour.
+pub const TAO_USD_PRICE_MAX_AGE: u64 = 300;
+
+/// Largest rise per block of the accepted TAO/USD price toward the feed: about 2% per hour.
+pub const TAO_USD_PRICE_MAX_STEP: Perbill = Perbill::from_parts(66_000);
+
+/// Longest service url, in bytes.
+pub const MAX_SERVICE_URL_LEN: u32 = 256;
+
 /// Account flag bit that opts into receiving locked alpha transfers.
 pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 /// Refuse staking-list growth initiated by another coldkey.
@@ -260,7 +305,8 @@ pub mod pallet {
     use crate::subnets::subnet::NetworkRegistrationInfo;
     use crate::weights::WeightInfo;
     use crate::{
-        MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, MAX_COLDKEY_COLLATERAL_HOTKEYS, RateLimitKey,
+        MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, MAX_COLDKEY_COLLATERAL_HOTKEYS, MAX_GAMMA_DEPOSITS,
+        MAX_SERVICE_URL_LEN, RateLimitKey,
     };
     use frame_support::Twox64Concat;
     use frame_support::{
@@ -288,7 +334,7 @@ pub mod pallet {
     use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
     use subtensor_macros::freeze_struct;
     use subtensor_runtime_common::{
-        AlphaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance, Token,
+        AlphaBalance, GammaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance, Token,
     };
 
     /// Origin for the pallet
@@ -425,6 +471,16 @@ pub mod pallet {
         pub port: u16,
         /// Prometheus ip type, 4 for ipv4 and 6 for ipv6.
         pub ip_type: u8,
+    }
+
+    /// Data structure for a hotkey's service.
+    #[crate::freeze_struct("c935eafd53bad00")]
+    #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug)]
+    pub struct ServiceInfo<AccountId> {
+        /// Url of the document describing the hotkey's services.
+        pub url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
+        /// The spender customers name for the service.
+        pub spender: AccountId,
     }
 
     ///  Struct for ChainIdentities. (DEPRECATED for V2)
@@ -617,6 +673,44 @@ pub mod pallet {
         /// risk. Scoped to the entry — it disappears with the entry once the
         /// lock fully drains with no floor set.
         pub earned: AlphaBalance,
+    }
+
+    /// A coldkey's gamma on one subnet, held at a hotkey.
+    #[crate::freeze_struct("add2766284b67826")]
+    #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
+    pub struct GammaDeposit<AccountId> {
+        /// The coldkey that owns the deposit.
+        pub coldkey: AccountId,
+        /// The account that spends the deposit.
+        pub spender: AccountId,
+        /// The gamma held.
+        pub balance: GammaBalance,
+        /// The deposit's daily spend cap; `None` is no cap.
+        pub daily_spend_cap: Option<GammaDailySpendCap>,
+    }
+
+    /// The gamma a deposit's spender may spend per day, and what it allows as of a block.
+    #[crate::freeze_struct("b0a2e67c2cd32b3")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct GammaDailySpendCap {
+        /// The gamma the spender may spend per day.
+        pub cap: GammaBalance,
+        /// What the cap allows, and its block.
+        pub bucket: (GammaBalance, u64),
+    }
+
+    /// The TAO/USD price, in gamma units per TAO.
+    #[crate::freeze_struct("f3a5e8bdbc1b7763")]
+    #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
+    pub struct TaoUsdPriceState {
+        /// The accepted price at `fed_at`.
+        pub accepted: u64,
+        /// The oracle's latest feed.
+        pub feed: u64,
+        /// The block of the latest feed.
+        pub fed_at: u64,
     }
 
     /// A beta-basket fund's frozen display baseline, stamped once at the fund's first
@@ -1811,6 +1905,73 @@ pub mod pallet {
     /// deferred dust that stays in the map after its hotkey's visit.
     #[pallet::storage]
     pub type PendingBasketFlushCursor<T: Config> = StorageValue<_, Vec<u8>, OptionQuery>;
+
+    /// Alpha-per-root-stake entitlement for a dividend batch whose valuation is deferred.
+    #[pallet::storage]
+    pub type DeferredBasketRates<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        crate::staking::DeferredBasketState,
+        OptionQuery,
+    >;
+
+    /// Monotone identifier, retained across subnet reuse and pending-batch completion.
+    #[pallet::storage]
+    pub type DeferredBasketGeneration<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
+    /// Stake-change corrections. One bounded row per coldkey, like BasketClaimed.
+    #[pallet::storage]
+    pub type DeferredBasketDebts<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        T::AccountId,
+        frame_support::BoundedBTreeMap<
+            NetUid,
+            crate::staking::DeferredBasketDebt,
+            ConstU32<{ crate::MAX_ROOT_CLAIM_WORK }>,
+        >,
+        ValueQuery,
+    >;
+
+    /// Final share/alpha conversion retained only until all stake-change corrections use it.
+    #[pallet::storage]
+    pub type DeferredBasketConversions<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Identity, NetUid>,
+            NMapKey<Identity, u64>,
+        ),
+        crate::staking::DeferredBasketConversion,
+        OptionQuery,
+    >;
+
+    /// TAO-per-root-stake accumulator for deferred credits sold during subnet dissolution.
+    #[pallet::storage]
+    pub type DeferredBasketCashRate<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, I64F64, ValueQuery>;
+
+    #[pallet::storage]
+    pub type DeferredBasketCashClaimed<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        T::AccountId,
+        i128,
+        ValueQuery,
+    >;
+
+    /// Sold deferred dividends held in the root reserves, outside the basket NAV.
+    #[pallet::storage]
+    pub type DeferredBasketCashReserve<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
 
     // Coinbase
     /// ITEM ( global_block_emission )
@@ -3111,6 +3272,18 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// MAP ( netuid, hotkey ) --> service_info
+    #[pallet::storage]
+    pub type Services<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        ServiceInfo<T::AccountId>,
+        OptionQuery,
+    >;
+
     /// MAP ( coldkey ) --> identity
     #[pallet::storage]
     pub type IdentitiesV2<T: Config> =
@@ -3809,6 +3982,54 @@ pub mod pallet {
         BoundedVec<T::AccountId, ConstU32<MAX_COLDKEY_COLLATERAL_HOTKEYS>>,
         ValueQuery,
     >;
+
+    /// ITEM ( enabled ) | Whether gamma can be minted at all; a subnet also needs
+    /// [`SubnetGammaEnabled`].
+    #[pallet::storage]
+    pub type GammaEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
+    /// MAP ( netuid ) --> enabled | Whether gamma can be minted on the subnet.
+    #[pallet::storage]
+    pub type SubnetGammaEnabled<T: Config> = StorageMap<_, Identity, NetUid, bool, ValueQuery>;
+
+    /// DMAP ( netuid, hotkey ) --> deposit | The gamma held at a hotkey on the subnet.
+    #[pallet::storage]
+    pub type GammaDeposits<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        GammaDeposit<T::AccountId>,
+        OptionQuery,
+    >;
+
+    /// DMAP ( netuid, coldkey ) --> hotkeys | The hotkeys holding the coldkey's gamma
+    /// deposits on the subnet.
+    #[pallet::storage]
+    pub type ColdkeyGammaHotkeys<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<T::AccountId, ConstU32<MAX_GAMMA_DEPOSITS>>,
+        ValueQuery,
+    >;
+
+    /// MAP ( netuid ) --> gamma_price | The highest price a subnet's alpha mints gamma at: set to the
+    /// median subnet alpha price at registration, each block it falls to the spot price at once
+    /// and rises toward it by [`SubnetFastMovingPrice`]'s weight of the gap, at most of itself.
+    #[pallet::storage]
+    pub type SubnetGammaPrice<T: Config> = StorageMap<_, Identity, NetUid, U64F64, ValueQuery>;
+
+    /// ITEM ( oracle ) | The account that feeds the TAO/USD price.
+    #[pallet::storage]
+    pub type TaoUsdPriceOracle<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
+
+    /// ITEM ( state ) | The TAO/USD price, once fed.
+    #[pallet::storage]
+    pub type TaoUsdPrice<T: Config> = StorageValue<_, TaoUsdPriceState, OptionQuery>;
 
     /// MAP ( hotkey ) --> parent_delegation_enabled
     ///

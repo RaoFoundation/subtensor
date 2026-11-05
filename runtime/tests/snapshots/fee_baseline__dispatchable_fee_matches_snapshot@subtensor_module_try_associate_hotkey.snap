@@ -3,4 +3,4 @@ source: runtime/tests/fee_baseline.rs
 description: subtensor_module_try_associate_hotkey
 expression: fee
 ---
-139089
+176589

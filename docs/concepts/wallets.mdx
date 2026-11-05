@@ -16,9 +16,18 @@ A Bittensor wallet is a pair of keys stored on disk (default
 
 ## Key material
 
-Coldkeys and hotkeys are **sr25519** keypairs, addressed with SS58 network
-prefix 42. Each key is generated from a mnemonic (12 words by default), and
-that mnemonic is the only recovery path: the wallet password merely decrypts
+Coldkeys and hotkeys default to **Sr25519**. You can also select **Ed25519**,
+**ML-DSA-65** (`ms`), **Falcon-512** (`falcon512`), or **Falcon-1024**
+(`falcon1024`). Each supports a fixed signing key (`--type standard`) or rotating
+signing keys (`--type hashed`). See [wallet crypto types](/docs/guides/wallet-crypto-types)
+for the scheme comparison, creation commands, and registration requirements.
+
+Standard wallets use SS58 addresses with prefix 42. Hashed wallets expose both
+an SS58 account address and a `tao_` receiving descriptor for the same permanent
+account. Standard ML-DSA and Falcon wallets require no account registration;
+hashed wallets do. Each key is generated from a mnemonic: 12 words by default
+for Sr25519/Ed25519, and 24 words for ML-DSA/Falcon. Preserve the scheme and account
+mode alongside the mnemonic to recover the same identity. The mnemonic is the recovery path: the wallet password merely decrypts
 the keyfile on one machine — it cannot regenerate a lost key, and no password
 is needed to regenerate the key from the mnemonic. Whoever holds the mnemonic
 owns the funds.
@@ -179,7 +188,8 @@ recycles 0.001 TAO and is limited to once per subnet per 7,200 blocks
 (~1 day).
 
 **Coldkey swap** is the response to a leaked coldkey — but only worth it if
-the coldkey has registrations or owns a subnet. A plain holder or staker
+the coldkey has registrations, owns a subnet or holds
+[gamma](/docs/guides/gamma) deposits, which only a swap moves. A plain holder or staker
 should simply transfer their TAO and stake to a fresh coldkey instead. The
 swap is a two-step, delayed process:
 
@@ -192,12 +202,14 @@ swap is a two-step, delayed process:
 2. [`swap-coldkey-announced`](/docs/tx/swap-coldkey-announced) executes after
    the delay, moving the coldkey's Subtensor-managed state — transferable TAO,
    stake, conviction locks (including accrued conviction), hotkeys,
-   registrations, and subnet ownership — to the destination. Proxy grants and
-   reserved balances do not move. Before announcing, remove proxies whose
-   deposits you need to recover and leave enough transferable TAO to recreate
-   the proxies you still need. Use a verified destination that is not a hotkey
-   and has no stake or active locked mass; recreate required proxies after the
-   swap.
+   registrations, subnet ownership, and gamma deposits — to the destination.
+   Proxy grants and reserved balances do not move. Gamma deposits and
+   [services](/docs/guides/services) that name the old coldkey as their spender
+   keep it until their owners re-point them. Before announcing,
+   remove proxies whose deposits you need to recover and leave enough
+   transferable TAO to recreate the proxies you still need. Use a verified
+   destination that is not a hotkey and has no stake or active locked mass;
+   recreate required proxies after the swap.
 
 Check a pending announcement with the
 [`coldkey-swap-announcement`](/docs/query/coldkey-swap-announcement) read. An

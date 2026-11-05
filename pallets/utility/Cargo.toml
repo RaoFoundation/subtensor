@@ -23,6 +23,7 @@ sp-core.workspace = true
 sp-io.workspace = true
 sp-runtime.workspace = true
 subtensor-macros.workspace = true
+subtensor-hashed.workspace = true
 
 [dev-dependencies]
 pallet-balances = { workspace = true, default-features = true }
@@ -41,6 +42,7 @@ std = [
 	"sp-core/std",
 	"sp-io/std",
 	"sp-runtime/std",
+	"subtensor-hashed/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

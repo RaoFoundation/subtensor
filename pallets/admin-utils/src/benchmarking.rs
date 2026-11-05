@@ -1238,6 +1238,22 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_hashed_accounts_enabled() {
+        HashedAccountsEnabled::<T>::put(false);
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
+        assert!(HashedAccountsEnabled::<T>::get());
+    }
+
+    #[benchmark]
+    fn sudo_set_hashed_account_registration_deposit() {
+        let value = subtensor_runtime_common::TaoBalance::new(300_000_000);
+        #[extrinsic_call]
+        _(RawOrigin::Root, value);
+        assert_eq!(T::RegistrationDeposit::get(), value);
+    }
+
+    #[benchmark]
     fn sudo_set_basket_trading_enabled() {
         #[extrinsic_call]
         _(RawOrigin::Root, true);
@@ -1316,6 +1332,35 @@ mod benchmarks {
             100_000u64,
             10_000_000u64,
         );
+    }
+
+    #[benchmark]
+    fn sudo_set_tao_usd_price_oracle() {
+        let oracle: T::AccountId = account("oracle", 0, 1);
+        pallet_subtensor::TaoUsdPriceOracle::<T>::put(oracle.clone());
+        pallet_subtensor::TaoUsdPrice::<T>::put(pallet_subtensor::TaoUsdPriceState {
+            accepted: 1,
+            feed: 1,
+            fed_at: 0,
+        });
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, Some(oracle));
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_gamma_enabled() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, true);
+    }
+
+    #[benchmark]
+    fn sudo_set_gamma_enabled() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
     }
 
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);

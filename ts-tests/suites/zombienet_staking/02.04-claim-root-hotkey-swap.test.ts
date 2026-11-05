@@ -11,6 +11,7 @@ import {
     generateKeyringPair,
     getBasketRate,
     getBasketShares,
+    settleBasketDividends,
     startCall,
     sudoSetAdminFreezeWindow,
     sudoSetEmaPriceHalvingPeriod,
@@ -63,14 +64,15 @@ async function setupTwoSubnetsWithBasket(
     await sudoSetSubtokenEnabled(api, ROOT_NETUID, true);
 
     const netuid1 = await addNewSubnetwork(api, owner1Hotkey, owner1Coldkey);
-    await startCall(api, netuid1, owner1Coldkey);
     log(`Created netuid1: ${netuid1}`);
 
     const netuid2 = await addNewSubnetwork(api, owner2Hotkey, owner2Coldkey);
-    await startCall(api, netuid2, owner2Coldkey);
     log(`Created netuid2: ${netuid2}`);
 
     for (const netuid of [netuid1, netuid2]) {
+        // The slow EMA settings do not accelerate the independent 600-block fast
+        // EMA. settleBasketDividends reseeds that anchor after pool funding.
+        await sudoSetSubtokenEnabled(api, netuid, true);
         await sudoSetTempo(api, netuid, 5);
         await sudoSetEmaPriceHalvingPeriod(api, netuid, 1);
     }
@@ -99,8 +101,12 @@ async function setupTwoSubnetsWithBasket(
     await rootRegister(api, oldHotkeyColdkey, oldHotkey.address);
     log("oldHotkey registered on root");
 
+    await startCall(api, netuid1, owner1Coldkey);
+    await startCall(api, netuid2, owner2Coldkey);
+
     log("Waiting 30 blocks for the basket fund to accumulate...");
     await waitForBlocks(api, 30);
+    await settleBasketDividends(api, oldHotkey.address, [netuid1, netuid2]);
 
     return { oldHotkey, oldHotkeyColdkey, newHotkey, netuid1, netuid2 };
 }

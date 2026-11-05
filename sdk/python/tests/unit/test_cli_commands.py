@@ -15,6 +15,7 @@ Layers:
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 
 import pytest
 from typer._click.core import Context
@@ -29,7 +30,7 @@ from bittensor.client import Client
 from bittensor.intents import REGISTRY as INTENT_REGISTRY
 from bittensor.reads import REGISTRY as READ_REGISTRY
 from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import EMISSION_WEIGHTS_INFO, INTENT_SAMPLES, READ_SAMPLES
+from tests.harness.samples import EMISSION_WEIGHTS_INFO, INTENT_SAMPLES, READ_SAMPLES, seed_gamma
 from tests.unit.test_reads_table import seeded_substrate
 
 runner = CliRunner()
@@ -136,9 +137,12 @@ def _seed_tx_preview(substrate: FakeSubstrate) -> None:
 
 
 @pytest.fixture()
-def fake(isolated_cli, monkeypatch) -> FakeSubstrate:
+def fake(isolated_cli, monkeypatch, wallet_dir) -> FakeSubstrate:
     substrate = FakeSubstrate()
     _seed_tx_preview(substrate)
+    seed_gamma(
+        substrate, wallets.open_wallet(_WALLET_NAME, path=wallet_dir).coldkeypub.ss58_address
+    )
 
     def make_client(network, **kwargs):
         return Client(network, substrate=substrate)
@@ -183,13 +187,21 @@ def test_help_exits_zero(path: tuple[str, ...]):
 
 
 @pytest.mark.parametrize("op", sorted(INTENT_REGISTRY))
-def test_tx_dry_run_from_sample(op: str, fake: FakeSubstrate):
+def test_tx_dry_run_from_sample(op: str, fake: FakeSubstrate, wallet_dir):
+    sample = deepcopy(INTENT_SAMPLES[op])
+    if op in ("multisig_approve", "multisig_execute"):
+        address = wallets.open_wallet(name=_WALLET_NAME, path=wallet_dir).coldkeypub.ss58_address
+        fake.seed("System", "Account", [address], {"data": {"free": 10**9}})
+    if op in ("authorize_order", "cancel_order"):
+        sample["order"]["V1"]["signer"] = wallets.open_wallet(
+            name=_WALLET_NAME, path=wallet_dir
+        ).coldkeypub.ss58_address
     result = invoke(
         "--json",
         "--dry-run",
         "tx",
         op.replace("_", "-"),
-        *argv_from_sample(INTENT_SAMPLES[op], lists="json"),
+        *argv_from_sample(sample, lists="json"),
     )
     assert result.exit_code == 0, result.output
     plan = json.loads(result.output)

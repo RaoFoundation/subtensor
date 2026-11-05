@@ -19,7 +19,7 @@ effect afterwards with the `root_claim_threshold` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | root (chain sudo) | SubtensorModule | [`SubtensorModule.sudo_set_root_claim_threshold`](/code/pallets/subtensor/src/macros/dispatches.rs#L2365-L2386), `Sudo.sudo` |
+| `coldkey` | root (chain sudo) | SubtensorModule | [`SubtensorModule.sudo_set_root_claim_threshold`](/code/pallets/subtensor/src/macros/dispatches.rs#L2426-L2447), `Sudo.sudo` |
 
 ## Verify
 
@@ -34,7 +34,7 @@ btcli query root-claim-threshold --json
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `threshold` | number \| `"all"` | yes | Minimum claim payout in TAO; per-validator redemptions estimated below it are skipped and keep accruing. At most 0.01 TAO. |
+| `threshold` | number | yes | Minimum claim payout in TAO; per-validator redemptions estimated below it are skipped and keep accruing. At most 0.01 TAO. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -46,9 +46,9 @@ submitting), then submit:
 
 ```bash
 btcli tx set-root-claim-threshold \
-  --threshold <amount|all> --dry-run
+  --threshold <amount> --dry-run
 btcli tx set-root-claim-threshold \
-  --threshold <amount|all> -w my_coldkey
+  --threshold <amount> -w my_coldkey
 ```
 
 ## Python
@@ -77,7 +77,7 @@ result = sub.execute_tool("set_root_claim_threshold", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.sudo_set_root_claim_threshold` — [`pallets/subtensor/src/macros/dispatches.rs#L2367`](/code/pallets/subtensor/src/macros/dispatches.rs#L2365-L2386):
+`SubtensorModule.sudo_set_root_claim_threshold` — [`pallets/subtensor/src/macros/dispatches.rs#L2428`](/code/pallets/subtensor/src/macros/dispatches.rs#L2426-L2447):
 
 ```rust
 #[pallet::call_index(124)]

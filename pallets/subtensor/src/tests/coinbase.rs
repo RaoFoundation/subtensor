@@ -579,6 +579,74 @@ fn test_coinbase_moving_prices() {
     });
 }
 
+#[test]
+fn unstarted_subnet_keeps_slow_price_zero_and_starts_with_a_fresh_ramp() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(8001);
+        let hotkey = U256::from(8002);
+        let netuid = add_dynamic_network_without_emission_block(&hotkey, &owner);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000));
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(0));
+        SubnetMovingAlpha::<Test>::set(I96F32::from_num(0.5));
+        EMAPriceHalvingBlocks::<Test>::insert(netuid, 10_000);
+        assert!(FirstEmissionBlockNumber::<Test>::get(netuid).is_none());
+
+        // A high mainnet-style block number is not the age of this subnet's emissions.
+        System::set_block_number(9_400_000);
+        SubtensorModule::update_moving_prices();
+        assert_eq!(SubnetMovingPrice::<Test>::get(netuid), I96F32::from_num(0));
+        assert_eq!(
+            SubnetFastMovingPrice::<Test>::get(netuid),
+            Some(U64F64::from_num(1))
+        );
+
+        // The fast basket anchor must keep following price changes while the
+        // unstarted subnet's slow price remains zero.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(2_000_000));
+        for block in 9_400_001..=9_400_032 {
+            System::set_block_number(block);
+            SubtensorModule::update_moving_prices();
+        }
+        assert_eq!(SubnetMovingPrice::<Test>::get(netuid), I96F32::from_num(0));
+        let fast = SubnetFastMovingPrice::<Test>::get(netuid).unwrap();
+        assert!(fast > U64F64::from_num(1) && fast < U64F64::from_num(2));
+
+        assert_ok!(SubtensorModule::do_start_call(
+            RuntimeOrigin::signed(owner),
+            netuid
+        ));
+        System::set_block_number(FirstEmissionBlockNumber::<Test>::get(netuid).unwrap());
+        SubtensorModule::update_moving_prices();
+        let slow = SubnetMovingPrice::<Test>::get(netuid);
+        assert!(slow > I96F32::from_num(0) && slow < I96F32::from_num(0.001));
+        assert!(SubnetFastMovingPrice::<Test>::get(netuid).unwrap() >= fast);
+    });
+}
+
+#[test]
+fn unstarted_subnet_cannot_preheat_its_price_to_avoid_pruning() {
+    new_test_ext(0).execute_with(|| {
+        let started = add_dynamic_network(&U256::from(8101), &U256::from(8102));
+        let idle = add_dynamic_network_without_emission_block(&U256::from(8103), &U256::from(8104));
+        for (netuid, tao) in [(started, 10_000), (idle, 1_000_000)] {
+            SubnetTAO::<Test>::insert(netuid, TaoBalance::from(tao));
+            SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000));
+        }
+        SubnetMovingPrice::<Test>::insert(started, I96F32::from_num(0.01));
+        SubnetMovingPrice::<Test>::insert(idle, I96F32::from_num(0));
+        SubnetMovingAlpha::<Test>::set(I96F32::from_num(0.5));
+
+        for block in 9_400_000..9_400_032 {
+            System::set_block_number(block);
+            SubtensorModule::update_moving_prices();
+        }
+        assert!(SubnetMovingPrice::<Test>::get(started) > I96F32::from_num(0));
+        assert_eq!(SubnetMovingPrice::<Test>::get(idle), I96F32::from_num(0));
+        assert_eq!(SubtensorModule::get_network_to_prune(), Some(idle));
+    });
+}
+
 // Test moving price updates slow down at the beginning.
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::coinbase::test_update_moving_price_initial --exact --show-output --nocapture
 #[test]

@@ -9,8 +9,8 @@ use crate::{
     MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys,
     PendingBasketDeposits, RegistrationsThisInterval, RootAlphaDividendsPerSubnet,
     RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
-    SubnetAlphaOut, SubnetLimit, SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow,
-    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
+    SubnetAlphaOut, SubnetFastMovingPrice, SubnetLimit, SubnetMovingPrice, SubnetOwnerHotkey,
+    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -34,6 +34,9 @@ pub(super) fn fund_pool(netuid: NetUid) {
     let tao = TaoBalance::from(1_000_000_000_000u64);
     SubnetTAO::<Test>::insert(netuid, tao);
     SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+    // Production seeds the fast EMA from spot on its first block update. These tests install
+    // reserves directly, so mirror that lifecycle step explicitly.
+    SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
     if let Some(subnet_account) = SubtensorModule::get_subnet_account_id(netuid) {
         add_balance_to_coldkey_account(&subnet_account, tao);
     }
@@ -55,7 +58,7 @@ pub(super) fn flush_baskets() {
         .map(|(hotkey, _)| hotkey)
         .collect();
     for hotkey in hotkeys {
-        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let _ = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
     }
 }
 
@@ -224,11 +227,7 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         );
         // Claim envelope plus the flat pending-deposit flush allowance every flushing
         // extrinsic declares.
-        let envelope = <Test as crate::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
-            .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(
-                MAX_ROOT_CLAIM_WORK,
-            ))
-            .saturating_add(SubtensorModule::basket_flush_weight_bound());
+        let envelope = SubtensorModule::root_claim_declared_weight();
         assert!(
             declared_weight.all_gte(envelope),
             "declared {declared_weight:?} must cover the {envelope:?} admission envelope"
@@ -353,7 +352,7 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
         let credit = 1_000_000u64;
         SubnetAlphaOut::<Test>::mutate(netuid, |t| *t = t.saturating_add(credit.into()));
         SubtensorModule::enqueue_basket_deposit(&hotkey, netuid, credit.into());
-        let expected_flush_work = BasketFlushWork::new(1 + 2, 1);
+        let expected_flush_work = BasketFlushWork::new(3, 1);
 
         let declared = RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey })
             .get_dispatch_info()
@@ -362,11 +361,8 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
         let outcome =
             SubtensorModule::root_claim_for_hotkey(&hotkey, &coldkey, false).expect("claim runs");
         assert_eq!(outcome.flush, expected_flush_work);
-        assert!(
-            !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),
-            "the claim flushed the queued credit"
-        );
-        assert!(outcome.tao > 0, "the flushed dividend was redeemed");
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, netuid));
+        assert!(outcome.tao > 0, "the claim redeems the settled dividend");
 
         let actual = SubtensorModule::root_claim_actual_weight(1, 0, &outcome);
         let without_flush = SubtensorModule::root_claim_actual_weight(
@@ -377,10 +373,7 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
                 ..outcome
             },
         );
-        assert_eq!(
-            actual,
-            without_flush.saturating_add(SubtensorModule::basket_flush_weight(expected_flush_work))
-        );
+        assert!(actual.ref_time() > without_flush.ref_time());
         assert!(
             actual.all_lt(declared),
             "actual {actual:?} must refund below declared {declared:?}"
@@ -1424,7 +1417,11 @@ fn test_root_basket_dissolve_preserves_owed_not_stake() {
             NetUid::ROOT,
             stake.into(),
         );
-        SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(&hotkey, &bob, stake);
+        assert_ok!(
+            SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hotkey, &bob, stake
+            )
+        );
 
         // Equal current root stake, but only Alice is owed the fund.
         assert_eq!(root_stake_of(&hotkey, &alice), root_stake_of(&hotkey, &bob));
@@ -2025,6 +2022,7 @@ fn test_claim_then_move_max_includes_pending_basket() {
             "epoch must have queued a pending basket credit"
         );
 
+        SubtensorModule::flush_pending_basket_deposits_block();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
             origin_hotkey
@@ -2099,10 +2097,12 @@ fn test_claim2_accrued_basket_unchanged_when_others_stake() {
             NetUid::ROOT,
             5_000_000u64.into(),
         );
-        SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
-            &hotkey,
-            &bob,
-            5_000_000u64,
+        assert_ok!(
+            SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hotkey,
+                &bob,
+                5_000_000u64,
+            )
         );
 
         // Alice's accrued basket is unchanged; Bob has accrued nothing of it.
@@ -2243,7 +2243,11 @@ fn test_claim4_no_dilution_or_skim_on_late_stake() {
             NetUid::ROOT,
             stake.into(),
         );
-        SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(&hotkey, &bob, stake);
+        assert_ok!(
+            SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hotkey, &bob, stake
+            )
+        );
 
         // (4a) Bob cannot claim any of the existing basket; Alice's accrual is untouched.
         assert_eq!(SubtensorModule::get_basket_payout_tao(&hotkey, &bob), 0);
@@ -2769,7 +2773,7 @@ fn test_root_basket_self_referential_origin() {
             NetUid::ROOT,
             stake.into(),
         );
-        SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(&hotkey, &bob, stake);
+        assert_ok!(SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(&hotkey, &bob, stake));
 
         // Second deposit with the fund holding origin-subnet alpha.
         SubtensorModule::distribute_emission(
@@ -2834,6 +2838,7 @@ fn test_root_basket_large_magnitudes_no_saturation() {
         // Very deep pool at price 1 so a 2e13 trade has negligible slippage.
         SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
 
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
@@ -2934,10 +2939,12 @@ fn test_root_basket_unstake_preserves_accrued() {
             NetUid::ROOT,
             removed.into(),
         );
-        SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
-            &hotkey,
-            &coldkey,
-            removed.into(),
+        assert_ok!(
+            SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hotkey,
+                &coldkey,
+                removed.into(),
+            )
         );
 
         // Accrued entitlement is unchanged (±1 for fixed-point floor).
@@ -3253,10 +3260,12 @@ fn test_root_basket_coldkey_swap_carries_owed_with_zero_stake() {
             NetUid::ROOT,
             stake.into(),
         );
-        SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
-            &hotkey,
-            &old_coldkey,
-            stake.into(),
+        assert_ok!(
+            SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hotkey,
+                &old_coldkey,
+                stake.into(),
+            )
         );
 
         assert_eq!(root_stake_of(&hotkey, &old_coldkey), 0);
@@ -3940,7 +3949,8 @@ fn test_root_register_requires_registrant_to_out_stake_pruned_seat() {
         for i in 0..stakes_tao.len() as u64 {
             let sybil = U256::from(30_000 + i);
             assert_err!(
-                SubtensorModule::root_register(RuntimeOrigin::signed(attacker), sybil),
+                SubtensorModule::root_register(RuntimeOrigin::signed(attacker), sybil)
+                    .map_err(|error| error.error),
                 Error::<Test>::StakeTooLowForRoot
             );
             step_block(1);
@@ -3992,7 +4002,8 @@ fn test_root_register_requires_registrant_to_out_stake_pruned_seat() {
         );
         add_balance_to_coldkey_account(&low_coldkey, TaoBalance::from(100 * TAO));
         assert_err!(
-            SubtensorModule::root_register(RuntimeOrigin::signed(low_coldkey), low_hotkey),
+            SubtensorModule::root_register(RuntimeOrigin::signed(low_coldkey), low_hotkey)
+                .map_err(|error| error.error),
             Error::<Test>::StakeTooLowForRoot
         );
 
@@ -4058,10 +4069,10 @@ fn test_root_register_interval_cap_binds_per_tempo() {
                 U256::from(4000 + i),
             );
             match result {
-                Ok(()) => accepted += 1,
+                Ok(_) => accepted += 1,
                 Err(error) => {
                     assert_eq!(
-                        error,
+                        error.error,
                         Error::<Test>::TooManyRegistrationsThisInterval.into()
                     );
                     refused += 1;

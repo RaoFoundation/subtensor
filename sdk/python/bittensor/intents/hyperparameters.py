@@ -58,6 +58,7 @@ OWNER_HYPERPARAMETERS: dict[str, tuple[str, bool]] = {
     "liquid_alpha_enabled": ("sudo_set_liquid_alpha_enabled", True),
     "registration_allowed": ("sudo_set_network_registration_allowed", True),
     "network_pow_registration_allowed": ("sudo_set_network_pow_registration_allowed", True),
+    "gamma_enabled": ("sudo_set_subnet_gamma_enabled", True),
     "yuma3_enabled": ("sudo_set_yuma3_enabled", True),
     "bonds_reset_enabled": ("sudo_set_bonds_reset_enabled", True),
     "transfers_enabled": ("sudo_set_toggle_transfer", True),

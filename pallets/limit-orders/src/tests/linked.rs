@@ -6,7 +6,7 @@ use codec::{Decode, Encode};
 use frame_support::{BoundedVec, assert_noop, assert_ok};
 use sp_core::{H256, Pair};
 use sp_keyring::Sr25519Keyring as AccountKeyring;
-use sp_runtime::{MultiSignature, Perbill, traits::AccountIdConversion};
+use sp_runtime::{Perbill, traits::AccountIdConversion};
 use subtensor_runtime_common::NetUid;
 
 use crate::{
@@ -41,7 +41,7 @@ fn sign_v2(keyring: AccountKeyring, order: OrderV2<AccountId>) -> crate::SignedO
     let sig = keyring.pair().sign(&order_signing_payload(&versioned));
     crate::SignedOrder {
         order: versioned,
-        signature: MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     }
 }
@@ -1524,7 +1524,7 @@ fn readable_signed_linked_order_executes() {
             .sign(&readable_signed_bytes(&versioned));
         let consumer = crate::SignedOrder {
             order: versioned,
-            signature: MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
 

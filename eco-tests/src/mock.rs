@@ -256,6 +256,7 @@ parameter_types! {
 }
 
 impl pallet_subtensor::Config for Test {
+    type HotkeyOwnerPolicy = ();
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -403,8 +404,10 @@ impl pallet_scheduler::Config for Test {
 }
 
 impl pallet_utility::Config for Test {
+    type SafeDerivationWeight = ();
     type RuntimeCall = RuntimeCall;
     type PalletsOrigin = OriginCaller;
+    type DerivedAccountPolicy = ();
     type WeightInfo = pallet_utility::weights::SubstrateWeight<Test>;
 }
 
@@ -492,6 +495,8 @@ parameter_types! {
 }
 
 impl pallet_proxy::Config for Test {
+    type SafeDerivationWeight = ();
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = subtensor_runtime_common::ProxyType;

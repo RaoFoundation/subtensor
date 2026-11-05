@@ -35,6 +35,7 @@ class Snapshot:
         self.collateral = namespaces.Collateral(self)
         self.delegation = namespaces.Delegation(self)
         self.epochs = namespaces.Epochs(self)
+        self.gamma = namespaces.Gamma(self)
         self.hyperparameters = namespaces.Hyperparameters(self)
         self.identity = namespaces.Identity(self)
         self.leasing = namespaces.Leasing(self)

@@ -24,11 +24,13 @@ BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
 ConsensusMode = Any
+DerivedDescriptor = Any
 Determinism = Any
 EpochConsensus = Any
 EquivocationProof = Any
 FixedI128 = Any
 FixedU128 = Any
+GammaBalance = Any
 H160 = Any
 H256 = Any
 MechId = Any
@@ -43,6 +45,7 @@ PrecompileEnum = Any
 ProxyType = Any
 PulsesPayload = Any
 RecycleOrBurnEnum = Any
+RegistrationDescriptor = Any
 RuntimeCall = Any
 TaoBalance = Any
 TickIndex = Any
@@ -276,6 +279,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'clear_coldkey_swap_announcement', {})
 
     @staticmethod
+    def close_gamma_deposit(hotkey: 'AccountId32', netuid: 'NetUid') -> Call:
+        "Closes the signer's empty gamma deposit at `hotkey`, releasing the hotkey."
+        return Call('SubtensorModule', 'close_gamma_deposit', {'hotkey': hotkey, 'netuid': netuid})
+
+    @staticmethod
     def commit_crv3_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', commit: 'BoundedVec', reveal_round: 'u64') -> Call:
         'Used to commit encrypted commit-reveal v3 weight values to later be revealed for mechanisms.  # Arguments * `origin`: The committing hotkey.  * `netuid`: The u16 network identifier.  * `mecid`: The u8 mechanism identifier.  * `commit`: The encrypted compressed commit. The steps for this are: 1. Instantiate [`WeightsTlockPayload`] 2. Serialize it using the `parity_scale_codec::Encode` trait 3. Encrypt it following the steps (here)[https://github.com/ideal-lab5/tle/blob/f8e6019f0fb02c380ebfa6b30efb61786dede07b/timelock/src/tlock.rs#L283-L336] to produce a [`TLECiphertext<TinyBLS381>`] type. 4. Serialize and compress using the `ark-serialize` `CanonicalSerialize` trait.  * `reveal_round`: The drand reveal round which will be avaliable during epoch `n+1` from the current epoch.  # Errors * `CommitRevealV3Disabled`: Attempting to commit when the commit-reveal mechanism is disabled.  * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.'
         return Call('SubtensorModule', 'commit_crv3_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'commit': commit, 'reveal_round': reveal_round})
@@ -326,6 +334,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'enable_voting_power_tracking', {'netuid': netuid})
 
     @staticmethod
+    def feed_tao_usd_price(price: 'u64') -> Call:
+        'Feeds the TAO/USD price in gamma units (10^9 per US dollar) per TAO, at most once per block. Signed by the oracle, which pays no fee when the feed succeeds.'
+        return Call('SubtensorModule', 'feed_tao_usd_price', {'price': price})
+
+    @staticmethod
     def increase_take(hotkey: 'AccountId32', take: 'PerU16') -> Call:
         "Allows delegates to increase its take value. This call is rate-limited.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The hotkey we are delegating (must be owned by the coldkey).  * `take`: The new stake proportion that this hotkey takes from delegations. The new value can be between 0 and 11_796 parts and should be strictly greater than the previous value. T is the new value (rational number), the the parameter is calculated as [65535 * T]. For example, 1% would be [0.01 * 65535] = [655.35] = 655  # Events * `TakeIncreased`: On successfully setting a increased take for this hotkey.  # Errors * `NotRegistered`: The hotkey we are delegating is not registered on the network.  * `NonAssociatedColdKey`: The hotkey we are delegating is not owned by the calling coldkey.  * `DelegateTakeTooHigh`: The delegate is setting a take which is not greater than the previous."
         return Call('SubtensorModule', 'increase_take', {'hotkey': hotkey, 'take': take})
@@ -334,6 +347,21 @@ class SubtensorModule:
     def lock_stake(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'AlphaBalance') -> Call:
         "Locks stake on a subnet to a specific hotkey, building conviction over time.  If no lock exists for (coldkey, subnet), a new one is created. If a lock exists, the destination hotkey must match the existing lock's hotkey. Top-up adds to the locked amount after rolling the lock state forward.  # Arguments * `origin`: Must be signed by the coldkey. * `hotkey`: The hotkey to lock stake to. * `netuid`: The subnet on which to lock. * `amount`: The alpha amount to lock."
         return Call('SubtensorModule', 'lock_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
+
+    @staticmethod
+    def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance', spender: 'Any', daily_spend_cap: 'Any') -> Call:
+        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or opens with them, `None` being the default spender and no cap. Fails below `min_amount_out` gamma."
+        return Call('SubtensorModule', 'mint_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'min_amount_out': min_amount_out, 'spender': spender, 'daily_spend_cap': daily_spend_cap})
+
+    @staticmethod
+    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance', spender: 'Any', daily_spend_cap: 'Any') -> Call:
+        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or opens with them, `None` being the default spender and no cap. Fails below `min_amount_out` gamma."
+        return Call('SubtensorModule', 'mint_gamma_with_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'alpha_amount': alpha_amount, 'min_amount_out': min_amount_out, 'spender': spender, 'daily_spend_cap': daily_spend_cap})
+
+    @staticmethod
+    def move_gamma(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Moves up to `amount` gamma from the signer's deposit at `origin_hotkey` to `destination_hotkey`. A move that empties the origin closes it."
+        return Call('SubtensorModule', 'move_gamma', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'amount': amount})
 
     @staticmethod
     def move_lock(destination_hotkey: 'AccountId32', netuid: 'NetUid') -> Call:
@@ -432,7 +460,7 @@ class SubtensorModule:
 
     @staticmethod
     def root_register(hotkey: 'AccountId32') -> Call:
-        "Register the hotkey to root network.  Admission is burn-based: the coldkey pays the root burn price (demand-priced like subnet registration), recycled out of issuance. No prior stake is required. When the network is full, the lowest-staked non-immune member is pruned to make room.  After a successful registration, the hotkey is auto-childkeyed to every existing subnet owner unless the validator opted out of auto parent delegation. Pruning a seat clears that validator's protocol auto-parent edges.  Declared weight is `WeightInfo::root_register` plus a `TotalNetworks`-scaled `DbWeight` term for the per-subnet persist (and prune cleanup). Re-benchmark on reference hardware so the base measurement includes that work."
+        "Register the hotkey to root network.  Admission is burn-based: the coldkey pays the root burn price (demand-priced like subnet registration), recycled out of issuance. No prior stake is required. When the network is full, the lowest-staked non-immune member is pruned to make room.  After a successful registration, the hotkey is auto-childkeyed to every existing subnet owner unless the validator opted out of auto parent delegation. Pruning a seat clears that validator's protocol auto-parent edges.  Declared weight is `WeightInfo::root_register` plus the evicted hotkey's two possible pending-dividend flushes and a `TotalNetworks`-scaled `DbWeight` term for the per-subnet persist (and prune cleanup). Re-benchmark on reference hardware so the base measurement includes that work."
         return Call('SubtensorModule', 'root_register', {'hotkey': hotkey})
 
     @staticmethod
@@ -481,6 +509,16 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_coldkey_auto_stake_hotkey', {'netuid': netuid, 'hotkey': hotkey})
 
     @staticmethod
+    def set_gamma_deposit_daily_spend_cap(hotkey: 'AccountId32', netuid: 'NetUid', daily_spend_cap: 'Any') -> Call:
+        "Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it. A changed cap keeps what the deposit can spend now, up to the new cap."
+        return Call('SubtensorModule', 'set_gamma_deposit_daily_spend_cap', {'hotkey': hotkey, 'netuid': netuid, 'daily_spend_cap': daily_spend_cap})
+
+    @staticmethod
+    def set_gamma_deposit_spender(hotkey: 'AccountId32', netuid: 'NetUid', spender: 'Any') -> Call:
+        "Sets the spender of the signer's gamma deposit at `hotkey`; `None` names the default spender: the spender of the subnet owner hotkey's service while the owner owns that hotkey, otherwise the subnet owner, or its lease's beneficiary while the lease owns the subnet."
+        return Call('SubtensorModule', 'set_gamma_deposit_spender', {'hotkey': hotkey, 'netuid': netuid, 'spender': spender})
+
+    @staticmethod
     def set_identity(name: 'Any', url: 'Any', github_repo: 'Any', image: 'Any', discord: 'Any', description: 'Any', additional: 'Any') -> Call:
         'Set prometheus information for the neuron. # Arguments * `origin`: The signature of the calling hotkey.  * `netuid`: The u16 network identifier.  * `version`: The bittensor version identifier.  * `ip`: The prometheus ip information as a u128 encoded integer.  * `port`: The prometheus port information as a u16 encoded integer.  * `ip_type`: The ip type v4 or v6.'
         return Call('SubtensorModule', 'set_identity', {'name': name, 'url': url, 'github_repo': github_repo, 'image': image, 'discord': discord, 'description': description, 'additional': additional})
@@ -516,6 +554,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_reject_staking_hotkey_growth', {'enabled': enabled})
 
     @staticmethod
+    def set_service(netuid: 'NetUid', hotkey: 'AccountId32', url: 'BoundedVec', spender: 'AccountId32') -> Call:
+        "Sets the service of the coldkey's hotkey on the subnet: the url where it describes its services and the spender customers name for them. The hotkey must be registered on the subnet with a validator permit, or be the subnet owner's hotkey signed for by the subnet owner. An empty url removes the service."
+        return Call('SubtensorModule', 'set_service', {'netuid': netuid, 'hotkey': hotkey, 'url': url, 'spender': spender})
+
+    @staticmethod
     def set_subnet_identity(netuid: 'NetUid', subnet_name: 'Any', github_repo: 'Any', subnet_contact: 'Any', subnet_url: 'Any', discord: 'Any', description: 'Any', logo_url: 'Any', additional: 'Any') -> Call:
         'Set the identity information for a subnet. # Arguments * `origin`: The signature of the calling coldkey, which must be the owner of the subnet.  * `netuid`: The unique network identifier of the subnet.  * `subnet_name`: The name of the subnet.  * `github_repo`: The GitHub repository associated with the subnet identity.  * `subnet_contact`: The contact information for the subnet.'
         return Call('SubtensorModule', 'set_subnet_identity', {'netuid': netuid, 'subnet_name': subnet_name, 'github_repo': github_repo, 'subnet_contact': subnet_contact, 'subnet_url': subnet_url, 'discord': discord, 'description': description, 'logo_url': logo_url, 'additional': additional})
@@ -529,6 +572,11 @@ class SubtensorModule:
     def set_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
         'Sets the caller weights for the incentive mechanism. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored weights are u16s max-upscaled by the pallet, so the largest non-zero supplied weight is stored as `u16::MAX`. The weights determine how inflation propagates outward from this peer.  # Note Input weights are relative. They do not need to sum to a particular value before submission.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: Relative u16-encoded weights, max-upscaled by the pallet before storage.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
         return Call('SubtensorModule', 'set_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
+
+    @staticmethod
+    def spend_gamma(netuid: 'NetUid', spends: 'BoundedVec') -> Call:
+        "Spends, in order, each entry's amount from the gamma deposit at its hotkey. Entries whose hotkey has no deposit, whose deposit names another spender, or whose amount is zero or above the deposit's balance or what its daily spend cap allows, are skipped. Each entry's reference is repeated in its `GammaSpent` event, or in its `GammaSpendSkipped` event with the reason, and not otherwise read. A skipped entry is charged as a spent one, less its write."
+        return Call('SubtensorModule', 'spend_gamma', {'netuid': netuid, 'spends': spends})
 
     @staticmethod
     def stake_into_basket(hotkey: 'AccountId32', amount_staked: 'TaoBalance') -> Call:
@@ -655,6 +703,16 @@ class Utility:
         return Call('Utility', 'as_derivative', {'index': index, 'call': call})
 
     @staticmethod
+    def as_protected_derivative(index: 'u16', call: 'RuntimeCall') -> Call:
+        'Dispatch from the ordinary derivative address after establishing its permanent protection. A failed inner call rolls back fresh registration and child state, while any previously registered protection remains.'
+        return Call('Utility', 'as_protected_derivative', {'index': index, 'call': call})
+
+    @staticmethod
+    def as_safe_derivative(index: 'u16', call: 'RuntimeCall') -> Call:
+        "Dispatch from a full-width off-curve derivative account.  This uses a separate address domain and preserves the incoming origin's call filters. It requires no registration or protection deposit; the parent's authorization and explicit delegations remain authoritative."
+        return Call('Utility', 'as_safe_derivative', {'index': index, 'call': call})
+
+    @staticmethod
     def batch(calls: 'Any') -> Call:
         'Send a batch of dispatch calls.  May be called from any origin except `None`.  - `calls`: The calls to be dispatched from the same origin. The number of call must not exceed the constant: `batched_calls_limit` (available in constant metadata).  If origin is root then the calls are dispatched without checking origin filter. (This includes bypassing `frame_system::Config::BaseCallFilter`).  ## Complexity - O(C) where C is the number of calls to be batched.  This will return `Ok` in all circumstances. To determine the success of the batch, an event is deposited. If a call failed and the batch was interrupted, then the `BatchInterrupted` event is deposited, along with the number of successful calls made and the error of the failed call. If all were successful, then the `BatchCompleted` event is deposited.'
         return Call('Utility', 'batch', {'calls': calls})
@@ -728,9 +786,19 @@ class Multisig:
         return Call('Multisig', 'approve_as_multi', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call_hash': call_hash, 'max_weight': max_weight})
 
     @staticmethod
+    def approve_as_multi_safe(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Any', call_hash: 'Any', max_weight: 'Weight') -> Call:
+        'Approve a call hash for the same off-curve composite used by `as_multi_safe`.'
+        return Call('Multisig', 'approve_as_multi_safe', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call_hash': call_hash, 'max_weight': max_weight})
+
+    @staticmethod
     def as_multi(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Any', call: 'RuntimeCall', max_weight: 'Weight') -> Call:
         'Register approval for a dispatch to be made from a deterministic composite account if approved by a total of `threshold - 1` of `other_signatories`.  If there are enough, then dispatch the call.  Payment: `DepositBase` will be reserved if this is the first approval, plus `threshold` times `DepositFactor`. It is returned once this dispatch happens or is cancelled.  The dispatch origin for this call must be _Signed_.  - `threshold`: The total number of approvals for this dispatch before it is executed. - `other_signatories`: The accounts (other than the sender) who can approve this dispatch. May not be empty. - `maybe_timepoint`: If this is the first approval, then this must be `None`. If it is not the first approval, then it must be `Some`, with the timepoint (block number and transaction index) of the first approval transaction. - `call`: The call to be executed.  NOTE: Unless this is the final approval, you will generally want to use `approve_as_multi` instead, since it only requires a hash of the call.  Result is equivalent to the dispatched result if `threshold` is exactly `1`. Otherwise on success, result is `Ok` and the result from the interior call, if it was executed, may be found in the deposited `MultisigExecuted` event.  ## Complexity - `O(S + Z + Call)`. - Up to one balance-reserve or unreserve operation. - One passthrough operation, one insert, both `O(S)` where `S` is the number of signatories. `S` is capped by `MaxSignatories`, with weight being proportional. - One call encode & hash, both of complexity `O(Z)` where `Z` is tx-len. - One encode & hash, both of complexity `O(S)`. - Up to one binary search and insert (`O(logS + S)`). - I/O: 1 read `O(S)`, up to 1 mutate `O(S)`. Up to one remove. - One event. - The weight of the `call`. - Storage: inserts one item, value size bounded by `MaxSignatories`, with a deposit taken for its lifetime of `DepositBase + threshold * DepositFactor`.'
         return Call('Multisig', 'as_multi', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call': call, 'max_weight': max_weight})
+
+    @staticmethod
+    def as_multi_safe(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Any', call: 'RuntimeCall', max_weight: 'Weight') -> Call:
+        'Approve or execute a call using the registration-free off-curve derivation.'
+        return Call('Multisig', 'as_multi_safe', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call': call, 'max_weight': max_weight})
 
     @staticmethod
     def as_multi_threshold_1(other_signatories: 'Any', call: 'RuntimeCall') -> Call:
@@ -738,14 +806,29 @@ class Multisig:
         return Call('Multisig', 'as_multi_threshold_1', {'other_signatories': other_signatories, 'call': call})
 
     @staticmethod
+    def as_multi_threshold_1_safe(other_signatories: 'Any', call: 'RuntimeCall') -> Call:
+        'Dispatch from a full-width off-curve composite. Delegation remains ordinary.'
+        return Call('Multisig', 'as_multi_threshold_1_safe', {'other_signatories': other_signatories, 'call': call})
+
+    @staticmethod
     def cancel_as_multi(threshold: 'u16', other_signatories: 'Any', timepoint: 'Timepoint', call_hash: 'Any') -> Call:
         'Cancel a pre-existing, on-going multisig transaction. Any deposit reserved previously for this operation will be unreserved on success.  The dispatch origin for this call must be _Signed_.  - `threshold`: The total number of approvals for this dispatch before it is executed. - `other_signatories`: The accounts (other than the sender) who can approve this dispatch. May not be empty. - `timepoint`: The timepoint (block number and transaction index) of the first approval transaction for this dispatch. - `call_hash`: The hash of the call to be executed.  ## Complexity - `O(S)`. - Up to one balance-reserve or unreserve operation. - One passthrough operation, one insert, both `O(S)` where `S` is the number of signatories. `S` is capped by `MaxSignatories`, with weight being proportional. - One encode & hash, both of complexity `O(S)`. - One event. - I/O: 1 read `O(S)`, one remove. - Storage: removes one item.'
         return Call('Multisig', 'cancel_as_multi', {'threshold': threshold, 'other_signatories': other_signatories, 'timepoint': timepoint, 'call_hash': call_hash})
 
     @staticmethod
+    def cancel_as_multi_safe(threshold: 'u16', other_signatories: 'Any', timepoint: 'Timepoint', call_hash: 'Any') -> Call:
+        'Cancel only an operation created with the off-curve derivation.'
+        return Call('Multisig', 'cancel_as_multi_safe', {'threshold': threshold, 'other_signatories': other_signatories, 'timepoint': timepoint, 'call_hash': call_hash})
+
+    @staticmethod
     def poke_deposit(threshold: 'u16', other_signatories: 'Any', call_hash: 'Any') -> Call:
         'Poke the deposit reserved for an existing multisig operation.  The dispatch origin for this call must be _Signed_ and must be the original depositor of the multisig operation.  The transaction fee is waived if the deposit amount has changed.  - `threshold`: The total number of approvals needed for this multisig. - `other_signatories`: The accounts (other than the sender) who are part of the multisig. - `call_hash`: The hash of the call this deposit is reserved for.  Emits `DepositPoked` if successful.'
         return Call('Multisig', 'poke_deposit', {'threshold': threshold, 'other_signatories': other_signatories, 'call_hash': call_hash})
+
+    @staticmethod
+    def poke_deposit_safe(threshold: 'u16', other_signatories: 'Any', call_hash: 'Any') -> Call:
+        "Adjust an existing off-curve operation's ordinary multisig deposit."
+        return Call('Multisig', 'poke_deposit_safe', {'threshold': threshold, 'other_signatories': other_signatories, 'call_hash': call_hash})
 
 
 class Preimage:
@@ -845,14 +928,29 @@ class Proxy:
         return Call('Proxy', 'announce', {'real': real, 'call_hash': call_hash})
 
     @staticmethod
+    def create_protected_pure(proxy_type: 'ProxyType', delay: 'u32', index: 'u16') -> Call:
+        'Create a pure proxy and its permanent protection in one transaction. Its address derivation is identical to `create_pure`.'
+        return Call('Proxy', 'create_protected_pure', {'proxy_type': proxy_type, 'delay': delay, 'index': index})
+
+    @staticmethod
     def create_pure(proxy_type: 'ProxyType', delay: 'u32', index: 'u16') -> Call:
         "Spawn a fresh new account that is guaranteed to be otherwise inaccessible, and initialize it with a proxy of `proxy_type` for `origin` sender.  Requires a `Signed` origin.  - `proxy_type`: The type of the proxy that the sender will be registered as over the new account. This will almost always be the most permissive `ProxyType` possible to allow for maximum flexibility. - `index`: A disambiguation index, in case this is called multiple times in the same transaction (e.g. with `utility::batch`). Unless you're using `batch` you probably just want to use `0`. - `delay`: The announcement period required of the initial proxy. Will generally be zero.  Fails with `Duplicate` if this has already been called in this transaction, from the same sender, with the same parameters.  Fails if there are insufficient funds to pay for deposit."
         return Call('Proxy', 'create_pure', {'proxy_type': proxy_type, 'delay': delay, 'index': index})
 
     @staticmethod
+    def create_safe_pure(proxy_type: 'ProxyType', delay: 'u32', index: 'u16') -> Call:
+        'Create a pure proxy with a full-width off-curve account identifier.  The ordinary proxy deposit applies. No account registration or protection deposit is created, and normal proxy permissions apply.'
+        return Call('Proxy', 'create_safe_pure', {'proxy_type': proxy_type, 'delay': delay, 'index': index})
+
+    @staticmethod
     def kill_pure(spawner: 'MultiAddress', proxy_type: 'ProxyType', index: 'u16', height: 'Any', ext_index: 'Any') -> Call:
         'Removes a previously spawned pure proxy.  WARNING: **All access to this account will be lost.** Any funds held in it will be inaccessible.  Requires a `Signed` origin, and the sender account must have been created by a call to `create_pure` with corresponding parameters.  - `spawner`: The account that originally called `create_pure` to create this account. - `index`: The disambiguation index originally passed to `create_pure`. Probably `0`. - `proxy_type`: The proxy type originally passed to `create_pure`. - `height`: The height of the chain when the call to `create_pure` was processed. - `ext_index`: The extrinsic index in which the call to `create_pure` was processed.  Fails with `NoPermission` in case the caller is not a previously created pure account whose `create_pure` call has corresponding parameters.'
         return Call('Proxy', 'kill_pure', {'spawner': spawner, 'proxy_type': proxy_type, 'index': index, 'height': height, 'ext_index': ext_index})
+
+    @staticmethod
+    def kill_safe_pure(spawner: 'MultiAddress', proxy_type: 'ProxyType', index: 'u16', height: 'Any', ext_index: 'Any') -> Call:
+        'Remove a safe pure proxy and refund its ordinary proxy deposit.  The supplied creation parameters must reconstruct the signed account. As with `kill_pure`, remaining funds become inaccessible after removal.'
+        return Call('Proxy', 'kill_safe_pure', {'spawner': spawner, 'proxy_type': proxy_type, 'index': index, 'height': height, 'ext_index': ext_index})
 
     @staticmethod
     def poke_deposit() -> Call:
@@ -1098,6 +1196,21 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_evm_chain_id', {'chain_id': chain_id})
 
     @staticmethod
+    def sudo_set_gamma_enabled(enabled: 'bool') -> Call:
+        'Enables or disables gamma minting network-wide; a subnet also needs its own flag. Root-only.'
+        return Call('AdminUtils', 'sudo_set_gamma_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def sudo_set_hashed_account_registration_deposit(value: 'TaoBalance') -> Call:
+        'Sets the permanent reserve for future classical, PQ, and protected derived account registrations. Existing reserves remain unchanged. Root-only; zero permits registration without a reserve.'
+        return Call('AdminUtils', 'sudo_set_hashed_account_registration_deposit', {'value': value})
+
+    @staticmethod
+    def sudo_set_hashed_accounts_enabled(enabled: 'bool') -> Call:
+        'Enables or disables registration and signing for all hashed SR/ED and fixed/rotating ML-DSA accounts. Ordinary SR/ED signing is unaffected. Root-only. Defaults off. Disabling pauses existing accounts too; their records, generations, EVM aliases and restrictions on alternate authority remain.'
+        return Call('AdminUtils', 'sudo_set_hashed_accounts_enabled', {'enabled': enabled})
+
+    @staticmethod
     def sudo_set_immunity_period(netuid: 'NetUid', immunity_period: 'u16') -> Call:
         'The extrinsic sets the immunity period for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the immunity period.'
         return Call('AdminUtils', 'sudo_set_immunity_period', {'netuid': netuid, 'immunity_period': immunity_period})
@@ -1303,6 +1416,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_subnet_emission_weights', {'netuid': netuid, 'uids': uids, 'values': values})
 
     @staticmethod
+    def sudo_set_subnet_gamma_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
+        'Enables or disables gamma minting on a subnet. Callable by the subnet owner or root; the root subnet is refused.'
+        return Call('AdminUtils', 'sudo_set_subnet_gamma_enabled', {'netuid': netuid, 'enabled': enabled})
+
+    @staticmethod
     def sudo_set_subnet_limit(max_subnets: 'u16') -> Call:
         'The extrinsic sets the subnet limit for the network. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the subnet limit.'
         return Call('AdminUtils', 'sudo_set_subnet_limit', {'max_subnets': max_subnets})
@@ -1336,6 +1454,11 @@ class AdminUtils:
     def sudo_set_tao_flow_smoothing_factor(smoothing_factor: 'u64') -> Call:
         'Sets TAO flow smoothing factor (alpha)'
         return Call('AdminUtils', 'sudo_set_tao_flow_smoothing_factor', {'smoothing_factor': smoothing_factor})
+
+    @staticmethod
+    def sudo_set_tao_usd_price_oracle(oracle: 'Any') -> Call:
+        'Sets the account that feeds the TAO/USD price; `None` removes it. The stored price is cleared, so the next feed is accepted as it is. Root-only.'
+        return Call('AdminUtils', 'sudo_set_tao_usd_price_oracle', {'oracle': oracle})
 
     @staticmethod
     def sudo_set_target_registrations_per_interval(netuid: 'NetUid', target_registrations_per_interval: 'u16') -> Call:
@@ -1461,7 +1584,7 @@ class EVM:
 
     @staticmethod
     def call(source: 'H160', target: 'H160', input: 'Any', value: 'U256', gas_limit: 'u64', max_fee_per_gas: 'U256', max_priority_fee_per_gas: 'Any', nonce: 'Any', access_list: 'Any', authorization_list: 'Any') -> Call:
-        'Issue an EVM call operation. This is similar to a message call transaction in Ethereum.'
+        'Issue an EVM call operation. This is similar to a message call transaction in Ethereum. The native origin lookup precedes gas admission, so charge it independently of gas on call/create/create2, including every error and weight refund.'
         return Call('EVM', 'call', {'source': source, 'target': target, 'input': input, 'value': value, 'gas_limit': gas_limit, 'max_fee_per_gas': max_fee_per_gas, 'max_priority_fee_per_gas': max_priority_fee_per_gas, 'nonce': nonce, 'access_list': access_list, 'authorization_list': authorization_list})
 
     @staticmethod
@@ -1473,6 +1596,11 @@ class EVM:
     def create2(source: 'H160', init: 'Any', salt: 'H256', value: 'U256', gas_limit: 'u64', max_fee_per_gas: 'U256', max_priority_fee_per_gas: 'Any', nonce: 'Any', access_list: 'Any', authorization_list: 'Any') -> Call:
         'Issue an EVM create2 operation.'
         return Call('EVM', 'create2', {'source': source, 'init': init, 'salt': salt, 'value': value, 'gas_limit': gas_limit, 'max_fee_per_gas': max_fee_per_gas, 'max_priority_fee_per_gas': max_priority_fee_per_gas, 'nonce': nonce, 'access_list': access_list, 'authorization_list': authorization_list})
+
+    @staticmethod
+    def deposit(address: 'H160', value: 'Any') -> Call:
+        'Transfer native currency to an EVM address using its mapping at execution. A missing value transfers all spendable currency while keeping the account alive. Resolving the address here avoids funding an obsolete backing account if a protected alias is established after transaction construction.'
+        return Call('EVM', 'deposit', {'address': address, 'value': value})
 
     @staticmethod
     def disable_whitelist(disabled: 'bool') -> Call:
@@ -1704,18 +1832,23 @@ class LimitOrders:
     """Call builders for the LimitOrders pallet."""
 
     @staticmethod
+    def authorize_order(order: 'VersionedOrder') -> Call:
+        "Approve every economic term through the owner's normal origin. The owner must have a live System account and may hold eight live approvals. New nonces must increase. Terminal/expired slots are reclaimed here; account reaping removes all approvals without retaining any balance. The explicit Authorized order includes its replay-protection nonce."
+        return Call('LimitOrders', 'authorize_order', {'order': order})
+
+    @staticmethod
     def cancel_order(order: 'VersionedOrder') -> Call:
         "Register a cancellation intent for an order.  Must be called by the order's signer. The full `Order` payload is provided so the pallet can derive the `OrderId`. Once marked Cancelled, the order can never be executed."
         return Call('LimitOrders', 'cancel_order', {'order': order})
 
     @staticmethod
     def execute_batched_orders(netuid: 'NetUid', orders: 'BoundedVec') -> Call:
-        'Execute a batch of signed limit orders for a single subnet using aggregated (netted) pool interaction.  Unlike `execute_orders`, which hits the pool once per order, this extrinsic:  1. Validates all orders (bad signature / expired / already processed / price-not-met orders are skipped and emit `OrderSkipped`). 2. Fetches the current price once. 3. Aggregates all valid buy inputs (TAO) and sell inputs (alpha). 4. Nets the two sides: only the residual amount touches the pool in a single swap, minimising price impact. 5. Distributes outputs pro-rata: - Dominant-side orders split the pool output proportionally to their individual net amounts. - Offset-side orders are filled internally at the current price (no pool interaction for them). 6. Collects protocol fees (TAO for buy orders, alpha → TAO for sell orders) and routes them to `FeeCollector`.  All orders in the batch must target `netuid`. Orders for a different subnet are skipped.'
+        "Execute a batch of signed limit orders for a single subnet using aggregated (netted) pool interaction.  Unlike `execute_orders`, which hits the pool once per order, this extrinsic:  1. Validates every order's authorization, expiry, status and price; any failure aborts the entire batch. 2. Fetches the current price once. 3. Aggregates all valid buy inputs (TAO) and sell inputs (alpha). 4. Nets the two sides: only the residual amount touches the pool in a single swap, minimising price impact. 5. Distributes outputs pro-rata: - Dominant-side orders split the pool output proportionally to their individual net amounts. - Offset-side orders are filled internally at the current price (no pool interaction for them). 6. Collects protocol fees (TAO for buy orders, alpha → TAO for sell orders) and routes them to `FeeCollector`.  All orders must target `netuid`; a mismatch aborts the batch. Classical and account-approved entries may be mixed, with at most eight entries using account approval."
         return Call('LimitOrders', 'execute_batched_orders', {'netuid': netuid, 'orders': orders})
 
     @staticmethod
     def execute_orders(orders: 'BoundedVec', should_fail: 'bool') -> Call:
-        'Execute a batch of signed limit orders. Admin-gated.  The `should_fail` flag controls how individual order failures are handled:  - When `false` (best-effort): orders whose price condition is not yet met are silently skipped so that a single stale order cannot block the rest of the batch. Orders that fail for any other reason (expired, bad signature, etc.) are also skipped; the admin is expected to filter these off-chain. - When `true` (all-or-nothing): the first order failure aborts the whole batch by returning the underlying error, reverting any orders already executed in this call.'
+        'Execute classical and account-approved orders in one batch. Each order independently authenticates its owner and permitted relayer; at most eight entries may use account approval.  The `should_fail` flag controls how individual order failures are handled:  - When `false` (best-effort): orders whose price condition is not yet met are silently skipped so that a single stale order cannot block the rest of the batch. Orders that fail for any other reason (expired, bad signature, etc.) are also skipped; the admin is expected to filter these off-chain. - When `true` (all-or-nothing): the first order failure aborts the whole batch by returning the underlying error, reverting any orders already executed in this call.'
         return Call('LimitOrders', 'execute_orders', {'orders': orders, 'should_fail': should_fail})
 
     @staticmethod
@@ -1727,3 +1860,35 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
+
+
+class HashedAccounts:
+    """Call builders for the HashedAccounts pallet."""
+
+    @staticmethod
+    def check_derived(descriptor: 'DerivedDescriptor') -> Call:
+        return Call('HashedAccounts', 'check_derived', {'descriptor': descriptor})
+
+    @staticmethod
+    def check_registered(descriptor: 'RegistrationDescriptor') -> Call:
+        "Check a recipient's registration without reserving funds or creating an account. An atomic payment must fail if a reorg removed its setup."
+        return Call('HashedAccounts', 'check_registered', {'descriptor': descriptor})
+
+    @staticmethod
+    def check_registration_deposit(max_deposit: 'TaoBalance') -> Call:
+        'Reject an atomic registration batch if its approved reserve is stale. This read-only guard remains available while registration is disabled.'
+        return Call('HashedAccounts', 'check_registration_deposit', {'max_deposit': max_deposit})
+
+    @staticmethod
+    def register(descriptor: 'RegistrationDescriptor') -> Call:
+        'Bind an account to its hidden initial key for the selected scheme. Anyone may sponsor the permanent deposit without gaining authority. Idempotent registration never changes an existing authorization.'
+        return Call('HashedAccounts', 'register', {'descriptor': descriptor})
+
+    @staticmethod
+    def register_derived(descriptor: 'DerivedDescriptor') -> Call:
+        return Call('HashedAccounts', 'register_derived', {'descriptor': descriptor})
+
+    @staticmethod
+    def register_derived_sponsored(descriptor: 'DerivedDescriptor', deposit_payer: 'AccountId32') -> Call:
+        "Register through the derived account's own authority while an explicitly consenting outer signer pays the permanent deposit."
+        return Call('HashedAccounts', 'register_derived_sponsored', {'descriptor': descriptor, 'deposit_payer': deposit_payer})

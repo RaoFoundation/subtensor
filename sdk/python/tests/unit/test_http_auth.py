@@ -14,7 +14,16 @@ import pytest
 
 from bittensor import http_auth
 from bittensor.result import BittensorError
-from bittensor.sp_core import CRYPTO_ED25519, CRYPTO_SR25519, Keypair
+from bittensor.sp_core import (
+    CLASSICAL_HASHED_CRYPTO_TYPES,
+    CRYPTO_ED25519,
+    CRYPTO_HASHED,
+    CRYPTO_HASHED_ED25519,
+    CRYPTO_SR25519,
+    PQ_CRYPTO_TYPES,
+    Keypair,
+)
+from tests.unit.test_hashed_accounts import MNEMONIC
 
 FIXED_NONCE = 1_752_076_800_000_000_000  # 2025-07-09T16:00:00Z in ns
 BODY = b'{"prompt": "hello"}'
@@ -51,6 +60,11 @@ def bob() -> Keypair:
     return Keypair.create_from_uri("//Bob", CRYPTO_SR25519)
 
 
+@pytest.fixture(scope="module")
+def charlie() -> Keypair:
+    return Keypair.create_from_uri("//Charlie", CRYPTO_SR25519)
+
+
 def make_headers(sender: Keypair, bob: Keypair, **overrides) -> dict[str, str]:
     kwargs = dict(
         method=METHOD,
@@ -68,11 +82,43 @@ def check(headers, bob: Keypair, *, body: bytes = BODY, **overrides) -> http_aut
         method=METHOD,
         path=PATH,
         self_hotkey_ss58=bob.ss58_address,
+        expected_crypto_type=CRYPTO_SR25519,
         nonce_store=http_auth.InMemoryNonceStore(),
         now_ns=FIXED_NONCE + 1_000_000,
     )
     kwargs.update(overrides)
     return http_auth.verify(headers, body, **kwargs)
+
+
+def legacy_check(headers, receiver: Keypair, **overrides) -> http_auth.Caller:
+    """Exercise existing callers that omit the expected_crypto_type keyword."""
+    kwargs = dict(
+        method=METHOD,
+        path=PATH,
+        self_hotkey_ss58=receiver.ss58_address,
+        nonce_store=http_auth.InMemoryNonceStore(),
+        now_ns=FIXED_NONCE + 1_000_000,
+    )
+    kwargs.update(overrides)
+    return http_auth.verify(headers, BODY, **kwargs)
+
+
+@pytest.fixture
+def verifier_config(bob: Keypair, charlie: Keypair):
+    receivers = {bob.ss58_address, charlie.ss58_address}
+    for receiver in receivers:
+        http_auth.clear_verifier(receiver)
+
+    def configure(receiver: Keypair, schemes: dict[str, int]) -> None:
+        address = receiver.ss58_address
+        if address not in receivers:
+            http_auth.clear_verifier(address)
+            receivers.add(address)
+        http_auth.configure_verifier(address, trusted_sender_schemes=schemes)
+
+    yield configure
+    for receiver in receivers:
+        http_auth.clear_verifier(receiver)
 
 
 # --- golden vectors (cross-language conformance) ---
@@ -110,7 +156,7 @@ def test_golden_addresses(alice_sr: Keypair, bob: Keypair) -> None:
 @pytest.mark.parametrize("crypto_type", [CRYPTO_SR25519, CRYPTO_ED25519])
 def test_round_trip(crypto_type: int, bob: Keypair) -> None:
     sender = Keypair.create_from_uri("//Alice", crypto_type)
-    caller = check(make_headers(sender, bob), bob)
+    caller = check(make_headers(sender, bob), bob, expected_crypto_type=crypto_type)
     assert caller == http_auth.Caller(sender.ss58_address, FIXED_NONCE, crypto_type)
 
 
@@ -122,6 +168,7 @@ def test_round_trip_live_nonce_get_empty_body(alice_sr: Keypair, bob: Keypair) -
         method="GET",
         path="/health",
         self_hotkey_ss58=bob.ss58_address,
+        expected_crypto_type=CRYPTO_SR25519,
         nonce_store=http_auth.InMemoryNonceStore(),
     )
     assert caller.hotkey_ss58 == alice_sr.ss58_address
@@ -140,6 +187,155 @@ def test_headers_survive_lowercasing(alice_sr: Keypair, bob: Keypair) -> None:
 def test_non_canonical_scheme_spellings(alice_sr: Keypair, bob: Keypair, spelling: str) -> None:
     headers = dict(make_headers(alice_sr, bob), **{"X-Bittensor-Crypto": spelling})
     assert check(headers, bob).hotkey_ss58 == alice_sr.ss58_address
+
+
+# --- trusted configuration for the legacy verify call signature ---
+
+
+@pytest.mark.parametrize(
+    "crypto_type",
+    [CRYPTO_SR25519, CRYPTO_ED25519, CRYPTO_HASHED, CRYPTO_HASHED_ED25519],
+)
+def test_legacy_verify_uses_configured_scheme(crypto_type: int, bob: Keypair, verifier_config):
+    sender = Keypair.create_from_mnemonic(MNEMONIC, crypto_type)
+    if crypto_type in CLASSICAL_HASHED_CRYPTO_TYPES:
+        # Model the retired generation used by the existing hashed HTTP fixtures.
+        sender = sender.at_generation(1)
+    verifier_config(bob, {sender.ss58_address: crypto_type})
+
+    assert legacy_check(make_headers(sender, bob), bob) == http_auth.Caller(
+        sender.ss58_address, FIXED_NONCE, crypto_type
+    )
+
+
+@pytest.mark.parametrize("configured", [False, True], ids=["missing", "unknown-sender"])
+def test_legacy_verify_fails_closed_without_consuming_nonce(
+    configured: bool, alice_sr: Keypair, bob: Keypair, verifier_config
+):
+    if configured:
+        verifier_config(bob, {bob.ss58_address: CRYPTO_SR25519})
+    headers = make_headers(alice_sr, bob)
+    store = http_auth.InMemoryNonceStore()
+    with pytest.raises(http_auth.BadSignature, match="no trusted signature scheme configured"):
+        legacy_check(headers, bob, nonce_store=store)
+
+    verifier_config(bob, {alice_sr.ss58_address: CRYPTO_SR25519})
+    assert legacy_check(headers, bob, nonce_store=store).hotkey_ss58 == alice_sr.ss58_address
+    with pytest.raises(http_auth.ReplayedRequest):
+        legacy_check(headers, bob, nonce_store=store)
+
+
+def test_explicit_scheme_overrides_configuration(alice_sr: Keypair, bob: Keypair, verifier_config):
+    verifier_config(bob, {alice_sr.ss58_address: CRYPTO_ED25519})
+    assert check(make_headers(alice_sr, bob), bob).crypto_type == CRYPTO_SR25519
+
+
+def test_explicit_mismatch_does_not_fall_back(alice_sr: Keypair, bob: Keypair, verifier_config):
+    verifier_config(bob, {alice_sr.ss58_address: CRYPTO_SR25519})
+    with pytest.raises(http_auth.BadSignature, match="trusted sender scheme"):
+        check(make_headers(alice_sr, bob), bob, expected_crypto_type=CRYPTO_ED25519)
+
+
+@pytest.mark.parametrize("crypto_type", [CRYPTO_HASHED, CRYPTO_HASHED_ED25519])
+def test_configured_hashed_identity_rejects_classical_scheme_before_verification(
+    crypto_type: int, bob: Keypair, verifier_config, monkeypatch
+):
+    sender = Keypair.create_from_mnemonic(MNEMONIC, crypto_type).at_generation(1)
+    verifier_config(bob, {sender.ss58_address: crypto_type})
+    headers = make_headers(sender, bob)
+    headers[http_auth.HEADER_CRYPTO] = "sr25519"
+
+    def unexpected_verification(*args):
+        pytest.fail("a mismatched scheme must be rejected before signature verification")
+
+    monkeypatch.setattr(http_auth, "_sp_core_verify", unexpected_verification)
+    with pytest.raises(http_auth.BadSignature, match="trusted sender scheme"):
+        legacy_check(headers, bob)
+
+
+def test_verifier_configuration_is_scoped_to_receiver(
+    alice_sr: Keypair, bob: Keypair, charlie: Keypair, verifier_config
+):
+    verifier_config(bob, {alice_sr.ss58_address: CRYPTO_SR25519})
+    with pytest.raises(http_auth.BadSignature, match="no trusted signature scheme configured"):
+        legacy_check(make_headers(alice_sr, charlie), charlie)
+
+    verifier_config(charlie, {alice_sr.ss58_address: CRYPTO_ED25519})
+    assert legacy_check(make_headers(alice_sr, bob), bob).crypto_type == CRYPTO_SR25519
+    with pytest.raises(http_auth.BadSignature, match="trusted sender scheme"):
+        legacy_check(make_headers(alice_sr, charlie), charlie)
+
+
+def test_verifier_configuration_copies_input(alice_sr: Keypair, bob: Keypair, verifier_config):
+    schemes = {alice_sr.ss58_address: CRYPTO_SR25519}
+    verifier_config(bob, schemes)
+    schemes[alice_sr.ss58_address] = CRYPTO_ED25519
+    schemes[bob.ss58_address] = CRYPTO_SR25519
+
+    assert legacy_check(make_headers(alice_sr, bob), bob).crypto_type == CRYPTO_SR25519
+    with pytest.raises(http_auth.BadSignature, match="no trusted signature scheme configured"):
+        legacy_check(make_headers(bob, bob), bob)
+
+
+def test_verifier_refresh_replaces_prior_senders(alice_sr: Keypair, bob: Keypair, verifier_config):
+    verifier_config(bob, {alice_sr.ss58_address: CRYPTO_SR25519})
+    verifier_config(bob, {bob.ss58_address: CRYPTO_SR25519})
+    with pytest.raises(http_auth.BadSignature, match="no trusted signature scheme configured"):
+        legacy_check(make_headers(alice_sr, bob), bob)
+    assert legacy_check(make_headers(bob, bob), bob).hotkey_ss58 == bob.ss58_address
+
+
+@pytest.mark.parametrize("invalid_scheme", [True, 1.0, None, -1, 99, *PQ_CRYPTO_TYPES])
+def test_invalid_refresh_preserves_configuration(
+    invalid_scheme, alice_sr: Keypair, bob: Keypair, verifier_config
+):
+    verifier_config(bob, {alice_sr.ss58_address: CRYPTO_SR25519})
+    with pytest.raises(ValueError):
+        http_auth.configure_verifier(
+            bob.ss58_address,
+            trusted_sender_schemes={
+                alice_sr.ss58_address: CRYPTO_ED25519,
+                bob.ss58_address: invalid_scheme,
+            },
+        )
+    assert legacy_check(make_headers(alice_sr, bob), bob).crypto_type == CRYPTO_SR25519
+    with pytest.raises(http_auth.BadSignature, match="no trusted signature scheme configured"):
+        legacy_check(make_headers(bob, bob), bob)
+
+
+@pytest.mark.parametrize("invalid_identity", ["", None, 123])
+def test_invalid_verifier_identities_rejected(
+    invalid_identity, alice_sr: Keypair, bob: Keypair, verifier_config
+):
+    verifier_config(bob, {alice_sr.ss58_address: CRYPTO_SR25519})
+    with pytest.raises(ValueError):
+        http_auth.configure_verifier(
+            invalid_identity, trusted_sender_schemes={alice_sr.ss58_address: CRYPTO_SR25519}
+        )
+    with pytest.raises(ValueError):
+        http_auth.configure_verifier(
+            bob.ss58_address, trusted_sender_schemes={invalid_identity: CRYPTO_SR25519}
+        )
+    assert legacy_check(make_headers(alice_sr, bob), bob).crypto_type == CRYPTO_SR25519
+
+
+def test_clear_verifier_removes_only_selected_receiver(
+    alice_sr: Keypair, bob: Keypair, charlie: Keypair, verifier_config
+):
+    verifier_config(bob, {alice_sr.ss58_address: CRYPTO_SR25519})
+    verifier_config(charlie, {alice_sr.ss58_address: CRYPTO_SR25519})
+    http_auth.clear_verifier(bob.ss58_address)
+    http_auth.clear_verifier(bob.ss58_address)
+
+    with pytest.raises(http_auth.BadSignature, match="no trusted signature scheme configured"):
+        legacy_check(make_headers(alice_sr, bob), bob)
+    assert legacy_check(make_headers(alice_sr, charlie), charlie).crypto_type == CRYPTO_SR25519
+
+
+@pytest.mark.parametrize("crypto_type", PQ_CRYPTO_TYPES)
+def test_explicit_post_quantum_scheme_remains_unsupported(crypto_type: int, bob: Keypair):
+    with pytest.raises(ValueError, match="post-quantum HTTP authentication is not supported"):
+        check({}, bob, expected_crypto_type=crypto_type)
 
 
 # --- freshness and replay ---

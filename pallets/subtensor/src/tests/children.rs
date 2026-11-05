@@ -4854,7 +4854,8 @@ fn test_root_register_requires_hotkey_ownership() {
         // Check all storage stays unchanged, including balances, registration
         // counters, delegate state, and both sides of auto-parent relationships.
         assert_noop!(
-            SubtensorModule::root_register(RuntimeOrigin::signed(other_cold), val_hot),
+            SubtensorModule::root_register(RuntimeOrigin::signed(other_cold), val_hot)
+                .map_err(|error| error.error),
             Error::<Test>::NonAssociatedColdKey
         );
 

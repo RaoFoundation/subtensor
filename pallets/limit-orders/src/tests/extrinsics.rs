@@ -2242,7 +2242,7 @@ fn make_signed_order_with_slippage(
     let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
-        signature: sp_runtime::MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     }
 }
@@ -2382,7 +2382,7 @@ fn execute_batched_orders_buy_dominant_uses_min_ceiling() {
         // price=1.0, scaled=1_000_000_000 <= 1_000_000_000 ✓ for all LimitBuy orders.
         MockTime::set(1_000_000);
         MockSwap::set_price(1.0);
-        MockSwap::set_buy_alpha_return(500);
+        MockSwap::set_buy_alpha_return(1_000);
         MockSwap::set_tao_balance(alice(), 600);
         MockSwap::set_tao_balance(bob(), 200);
         MockSwap::set_tao_balance(dave(), 200);
@@ -2447,7 +2447,7 @@ fn execute_batched_orders_sell_dominant_uses_max_floor() {
         // price=2000.0, scaled=2_000_000_000_000 >= 1_000_000_000 ✓.
         MockTime::set(1_000_000);
         MockSwap::set_price(2_000.0);
-        MockSwap::set_sell_tao_return(500);
+        MockSwap::set_sell_tao_return(1_000);
         MockSwap::set_alpha_balance(alice(), dave(), netuid(), 600);
         MockSwap::set_alpha_balance(bob(), dave(), netuid(), 200);
         MockSwap::set_alpha_balance(dave(), dave(), netuid(), 200);
@@ -2549,7 +2549,7 @@ fn execute_batched_orders_takeprofit_and_stoploss_coexist_sell_dominant() {
         // StopLoss triggers when scaled_price <= limit_price (2T <= 5_000_000_000_000 ✓).
         MockTime::set(1_000_000);
         MockSwap::set_price(2_000.0);
-        MockSwap::set_sell_tao_return(500);
+        MockSwap::set_sell_tao_return(1_000);
 
         // Alice TakeProfit: limit=1_000_000_000 (1.0), 3% → floor=970_000_000.
         // Bob TakeProfit:   limit=1_000_000_000 (1.0), 1% → floor=990_000_000.  ← tightest
@@ -2696,9 +2696,8 @@ fn execute_batched_orders_limitbuy_and_stoploss_offset_coexist_buy_dominant() {
 /// StopLoss with a narrow slippage sets an effective floor above the current market price,
 /// making the pool swap impossible and failing the entire batch.
 ///
-/// This demonstrates Issue 1 from the design: relayers should not apply max_slippage to
-/// StopLoss orders. StopLoss triggers when price has already fallen; a floor derived from
-/// the (higher) trigger threshold will almost always exceed the actual market price.
+/// A trigger permits execution but does not waive the signer's price floor.
+/// A market gap below that floor must leave the order unfilled.
 #[test]
 fn execute_batched_orders_stoploss_narrow_slippage_breaks_batch() {
     new_test_ext().execute_with(|| {
@@ -2729,7 +2728,7 @@ fn execute_batched_orders_stoploss_narrow_slippage_breaks_batch() {
                 netuid(),
                 bounded(vec![stoploss]),
             ),
-            DispatchError::Other("price limit exceeded")
+            Error::<Test>::PriceConditionNotMet
         );
     });
 }
@@ -3045,7 +3044,7 @@ fn execute_orders_partial_fill_without_relayer_skipped() {
             .sign(&order_signing_payload(&versioned));
         let signed = crate::SignedOrder {
             order: versioned,
-            signature: sp_runtime::MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: Some(400),
         };
         let id = order_id(&signed.order);

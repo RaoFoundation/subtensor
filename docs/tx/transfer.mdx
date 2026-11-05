@@ -25,6 +25,7 @@ intentionally emptying the account.
 | `dest_ss58` | string | yes | Destination account that receives the TAO (a coldkey, not a hotkey). |
 | `amount_tao` | number \| `"all"` | yes | How much to send. |
 | `keep_alive` | boolean | no | Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it. |
+| `hashed_descriptor` | string | no | Public descriptor hex for initial registration of a remote hashed wallet. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

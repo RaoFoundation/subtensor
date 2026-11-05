@@ -16,6 +16,9 @@ workspace = true
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
+pallet-hashed-accounts = { path = "../pallets/hashed-accounts", default-features = false }
+subtensor-hashed = { path = "../primitives/hashed", default-features = false }
+serde = { workspace = true, features = ["alloc"] }
 subtensor-macros.workspace = true
 subtensor-custom-rpc-runtime-api.workspace = true
 smallvec.workspace = true
@@ -159,6 +162,8 @@ stp-shield.workspace = true
 ethereum.workspace = true
 
 [dev-dependencies]
+evm = "0.43.4"
+sp-keystore = { workspace = true, features = ["std"] }
 frame-metadata.workspace = true
 sp-tracing.workspace = true
 sp-keyring.workspace = true
@@ -177,6 +182,9 @@ fast-runtime = [
 	"subtensor-runtime-common/fast-runtime",
 ]
 std = [
+	"pallet-hashed-accounts/std",
+	"subtensor-hashed/std",
+	"serde/std",
 	"frame-try-runtime?/std",
 	"frame-system-benchmarking?/std",
 	"frame-benchmarking/std",
@@ -223,6 +231,7 @@ std = [
 	"serde_json/std",
 	"sp-io/std",
 	"sp-keyring/std",
+	"sp-keystore/std",
 	"sp-tracing/std",
 	"log/std",
 	"safe-math/std",
@@ -288,6 +297,7 @@ std = [
 	"sp-weights/std",
 ]
 runtime-benchmarks = [
+	"pallet-hashed-accounts/runtime-benchmarks",
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system-benchmarking/runtime-benchmarks",
@@ -338,6 +348,7 @@ runtime-benchmarks = [
 	"subtensor-swap-interface/runtime-benchmarks",
 ]
 try-runtime = [
+	"pallet-hashed-accounts/try-runtime",
 	"frame-try-runtime/try-runtime",
 	"frame-executive/try-runtime",
 	"frame-system/try-runtime",

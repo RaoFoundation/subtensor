@@ -18,6 +18,7 @@ from .addresses import (
     is_h160,
     normalize_h160,
     pubkey_to_ss58,
+    resolve_evm_recipient,
     ss58_to_h160_truncated,
     ss58_to_pubkey,
 )
@@ -86,6 +87,7 @@ __all__ = [
     "normalize_h160",
     "prepare_transaction",
     "pubkey_to_ss58",
+    "resolve_evm_recipient",
     "send_transaction",
     "ss58_to_h160_truncated",
     "ss58_to_pubkey",

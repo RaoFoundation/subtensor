@@ -8,7 +8,7 @@ use node_subtensor_runtime::{Balances, BuildStorage, Runtime, RuntimeGenesisConf
 use pallet_evm::{AccountProvider, AddressMapping, FeeCalculator, GasWeightMapping, Runner};
 use precompile_utils::solidity::encode_with_selector;
 use sp_core::{H160, H256, Pair, U256, ecdsa};
-use subtensor_runtime_common::TaoBalance;
+use subtensor_runtime_common::{TaoBalance, Token};
 
 fn new_test_ext() -> sp_io::TestExternalities {
     let mut ext: sp_io::TestExternalities = RuntimeGenesisConfig::default()
@@ -249,48 +249,58 @@ fn ethereum_rejects_oversized_authorizations_before_signature_validation() {
 
 #[test]
 fn valid_authorization_is_applied_after_validation() {
-    new_test_ext().execute_with(|| {
-        let source = H160::from_low_u64_be(0x8100);
-        fund(source);
-        let mut authorization = authorization();
-        let pair = ecdsa::Pair::from_seed(&[0x41; 32]);
-        let signature = pair.sign_prehashed(&authorization.authorization_message_hash().0);
-        authorization.signature = MalleableTransactionSignature {
-            odd_y_parity: signature.0[64] != 0,
-            r: H256::from_slice(&signature.0[..32]),
-            s: H256::from_slice(&signature.0[32..64]),
-        };
-        let authority = authorization.authorizing_address().unwrap();
-        let destination = authorization.address;
-        let result = <Runtime as pallet_evm::Config>::Runner::call(
-            source,
-            H160::from_low_u64_be(0x8200),
-            vec![],
-            U256::zero(),
-            100_000,
-            Some(<Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price().0),
-            None,
-            None,
-            vec![],
-            vec![authorization],
-            true,
-            true,
-            None,
-            None,
-            <Runtime as pallet_evm::Config>::config(),
-        )
-        .unwrap();
-        assert!(result.exit_reason.is_succeed());
-        let mut code = vec![0xef, 0x01, 0x00];
-        code.extend_from_slice(destination.as_bytes());
-        assert_eq!(pallet_evm::AccountCodes::<Runtime>::get(authority), code);
-        assert_eq!(
-            pallet_evm::Pallet::<Runtime>::account_basic(&authority)
-                .0
-                .nonce,
-            U256::one()
-        );
-    });
+    for funded_authority in [false, true] {
+        new_test_ext().execute_with(|| {
+            let source = H160::from_low_u64_be(0x8100);
+            fund(source);
+            let mut authorization = authorization();
+            let pair = ecdsa::Pair::from_seed(&[0x41; 32]);
+            let signature = pair.sign_prehashed(&authorization.authorization_message_hash().0);
+            authorization.signature = MalleableTransactionSignature {
+                odd_y_parity: signature.0[64] != 0,
+                r: H256::from_slice(&signature.0[..32]),
+                s: H256::from_slice(&signature.0[32..64]),
+            };
+            let authority = authorization.authorizing_address().unwrap();
+            if funded_authority {
+                fund(authority);
+            }
+            let destination = authorization.address;
+            let result = <Runtime as pallet_evm::Config>::Runner::call(
+                source,
+                H160::from_low_u64_be(0x8200),
+                vec![],
+                U256::zero(),
+                46_000,
+                Some(<Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price().0),
+                None,
+                None,
+                vec![],
+                vec![authorization],
+                true,
+                true,
+                None,
+                None,
+                <Runtime as pallet_evm::Config>::config(),
+            )
+            .unwrap();
+            assert!(result.exit_reason.is_succeed());
+            // A nonempty authority refunds 12,500 gas, capped at one fifth of
+            // the 46,000 spent. Empty authorities retain the full intrinsic cost.
+            let expected_gas = U256::from(if funded_authority { 36_800 } else { 46_000 });
+            assert_eq!(result.used_gas.standard, expected_gas);
+            assert_eq!(result.used_gas.effective, expected_gas);
+            let mut code = vec![0xef, 0x01, 0x00];
+            code.extend_from_slice(destination.as_bytes());
+            assert_eq!(pallet_evm::AccountCodes::<Runtime>::get(authority), code);
+            assert_eq!(
+                pallet_evm::Pallet::<Runtime>::account_basic(&authority)
+                    .0
+                    .nonce,
+                U256::one()
+            );
+        });
+    }
 }
 
 #[test]
@@ -306,7 +316,7 @@ fn maximum_authorization_count_is_accepted_and_charged() {
             H160::from_low_u64_be(0x8200),
             vec![],
             U256::zero(),
-            8_000_000,
+            21_000 + 255 * 25_000,
             Some(<Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price().0),
             None,
             None,
@@ -320,7 +330,8 @@ fn maximum_authorization_count_is_accepted_and_charged() {
         )
         .unwrap();
         assert!(result.exit_reason.is_succeed());
-        assert!(result.used_gas.standard >= U256::from(21_000 + 255 * 25_000));
+        assert_eq!(result.used_gas.standard, U256::from(21_000 + 255 * 25_000));
+        assert_eq!(result.used_gas.effective, U256::from(21_000 + 255 * 25_000));
     });
 }
 
@@ -423,12 +434,160 @@ fn retained_nonce_does_not_wrap_at_the_native_nonce_limit() {
 }
 
 #[test]
-fn ordinary_transfer_still_fits_21000_gas_with_external_weight_metering() {
+fn ordinary_transfer_uses_21000_gas_with_external_weight_metering() {
+    for gas_limit in [21_000, 100_000] {
+        new_test_ext().execute_with(|| {
+            let source = H160::from_low_u64_be(0x8100);
+            let destination = H160::from_low_u64_be(0x8200);
+            fund(source);
+            fund(destination);
+            let source_account =
+                <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(source);
+            let destination_account =
+                <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(destination);
+            let source_before = Balances::free_balance(&source_account).to_u64();
+            let destination_before = Balances::free_balance(&destination_account).to_u64();
+            let price = <Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price().0;
+            let result = <Runtime as pallet_evm::Config>::Runner::call(
+                source,
+                destination,
+                vec![],
+                U256::from(1_000_000_000u64),
+                gas_limit,
+                Some(price),
+                None,
+                None,
+                vec![],
+                vec![],
+                true,
+                true,
+                Some(
+                    <Runtime as pallet_evm::Config>::GasWeightMapping::gas_to_weight(
+                        gas_limit, true,
+                    ),
+                ),
+                Some(0),
+                <Runtime as pallet_evm::Config>::config(),
+            )
+            .unwrap();
+            assert!(result.exit_reason.is_succeed(), "{:?}", result.exit_reason);
+            assert_eq!(result.used_gas.standard, U256::from(21_000));
+            assert_eq!(result.used_gas.effective, U256::from(21_000));
+            let fee = U256::from(21_000)
+                .checked_mul(price)
+                .unwrap()
+                .checked_div(U256::from(1_000_000_000))
+                .unwrap()
+                .as_u64();
+            assert_eq!(
+                Balances::free_balance(&source_account).to_u64(),
+                source_before
+                    .checked_sub(fee)
+                    .unwrap()
+                    .checked_sub(1)
+                    .unwrap()
+            );
+            assert_eq!(
+                Balances::free_balance(&destination_account).to_u64(),
+                destination_before.checked_add(1).unwrap()
+            );
+            let weight = result.weight_info.unwrap();
+            assert!(weight.ref_time_usage.unwrap() > 0);
+            assert!(weight.proof_size_usage.unwrap() > 0);
+            assert_eq!(
+                pallet_evm::Pallet::<Runtime>::account_basic(&source)
+                    .0
+                    .nonce,
+                U256::one()
+            );
+            assert_eq!(
+                pallet_evm::AccountNonces::<Runtime>::get(&source_account),
+                1
+            );
+        });
+    }
+}
+
+#[test]
+fn ordinary_transfer_preserves_intrinsic_boundary_and_rpc_weight_fallback() {
     new_test_ext().execute_with(|| {
         let source = H160::from_low_u64_be(0x8100);
         let destination = H160::from_low_u64_be(0x8200);
         fund(source);
         fund(destination);
+        let source_account =
+            <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(source);
+        let balance_before = Balances::free_balance(&source_account);
+        let price = <Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price().0;
+        let call = |gas_limit, is_transactional| {
+            <Runtime as pallet_evm::Config>::Runner::call(
+                source,
+                destination,
+                vec![],
+                U256::zero(),
+                gas_limit,
+                Some(price),
+                None,
+                None,
+                vec![],
+                vec![],
+                is_transactional,
+                true,
+                None,
+                None,
+                <Runtime as pallet_evm::Config>::config(),
+            )
+        };
+        let error = call(20_999, true).unwrap_err();
+        assert!(matches!(
+            error.error,
+            pallet_evm::Error::<Runtime>::GasLimitTooLow
+        ));
+        assert_eq!(Balances::free_balance(&source_account), balance_before);
+        assert_eq!(
+            pallet_evm::Pallet::<Runtime>::account_basic(&source)
+                .0
+                .nonce,
+            U256::zero()
+        );
+
+        // RPC calls omit an explicit external weight limit; the runner must
+        // still meter alias lookups while retaining the standard gas schedule.
+        let result = call(21_000, false).unwrap();
+        assert!(result.exit_reason.is_succeed(), "{:?}", result.exit_reason);
+        assert_eq!(result.used_gas.standard, U256::from(21_000));
+        assert_eq!(result.used_gas.effective, U256::from(21_000));
+        assert!(result.weight_info.unwrap().ref_time_usage.unwrap() > 0);
+        assert_eq!(Balances::free_balance(&source_account), balance_before);
+        assert_eq!(
+            pallet_evm::Pallet::<Runtime>::account_basic(&source)
+                .0
+                .nonce,
+            U256::one()
+        );
+    });
+}
+
+#[test]
+fn ordinary_21000_gas_transfer_credits_registered_alias_owner() {
+    new_test_ext().execute_with(|| {
+        let source = H160::from_low_u64_be(0x8100);
+        let destination = H160::repeat_byte(0x82);
+        let mut owner_bytes = [42; 32];
+        owner_bytes[..20].copy_from_slice(destination.as_bytes());
+        let owner = sp_runtime::AccountId32::new(owner_bytes);
+        let legacy_destination =
+            pallet_evm::HashedAddressMapping::<sp_runtime::traits::BlakeTwo256>::into_account_id(
+                destination,
+            );
+        // Model a permanent binding established before the transfer. The
+        // recipient's full native account must receive the EVM value.
+        pallet_hashed_accounts::EvmAliases::<Runtime>::insert(destination.0, &owner);
+        fund(source);
+        fund(destination);
+        let owner_before = Balances::free_balance(&owner).to_u64();
+        let owner_nonce = System::account_nonce(&owner);
+        let legacy_before = Balances::free_balance(&legacy_destination);
         let result = <Runtime as pallet_evm::Config>::Runner::call(
             source,
             destination,
@@ -442,14 +601,20 @@ fn ordinary_transfer_still_fits_21000_gas_with_external_weight_metering() {
             vec![],
             true,
             true,
-            Some(<Runtime as pallet_evm::Config>::GasWeightMapping::gas_to_weight(21_000, true)),
-            Some(0),
+            None,
+            None,
             <Runtime as pallet_evm::Config>::config(),
         )
         .unwrap();
         assert!(result.exit_reason.is_succeed(), "{:?}", result.exit_reason);
         assert_eq!(result.used_gas.standard, U256::from(21_000));
-        assert!(result.used_gas.effective <= U256::from(21_000));
+        assert_eq!(result.used_gas.effective, U256::from(21_000));
+        assert_eq!(
+            Balances::free_balance(&owner).to_u64(),
+            owner_before.checked_add(1).unwrap()
+        );
+        assert_eq!(Balances::free_balance(&legacy_destination), legacy_before);
+        assert_eq!(System::account_nonce(&owner), owner_nonce);
         assert_eq!(
             pallet_evm::Pallet::<Runtime>::account_basic(&source)
                 .0
@@ -457,4 +622,78 @@ fn ordinary_transfer_still_fits_21000_gas_with_external_weight_metering() {
             U256::one()
         );
     });
+}
+
+#[test]
+fn empty_create_and_create2_preserve_53000_intrinsic_gas() {
+    for create2 in [false, true] {
+        for is_transactional in [false, true] {
+            new_test_ext().execute_with(|| {
+                let source = H160::from_low_u64_be(0x8100);
+                fund(source);
+                let price = <Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price().0;
+                let config = <Runtime as pallet_evm::Config>::config();
+                // The whitelist is disabled explicitly for this deployment
+                // fixture. Empty init code has no execution or calldata cost.
+                let result = if create2 {
+                    <Runtime as pallet_evm::Config>::Runner::create2(
+                        source,
+                        vec![],
+                        H256::zero(),
+                        U256::zero(),
+                        53_000,
+                        Some(price),
+                        None,
+                        None,
+                        vec![],
+                        vec![],
+                        true,
+                        vec![],
+                        is_transactional,
+                        true,
+                        None,
+                        None,
+                        config,
+                    )
+                } else {
+                    <Runtime as pallet_evm::Config>::Runner::create(
+                        source,
+                        vec![],
+                        U256::zero(),
+                        53_000,
+                        Some(price),
+                        None,
+                        None,
+                        vec![],
+                        vec![],
+                        true,
+                        vec![],
+                        is_transactional,
+                        true,
+                        None,
+                        None,
+                        config,
+                    )
+                }
+                .unwrap();
+                assert!(result.exit_reason.is_succeed(), "{:?}", result.exit_reason);
+                assert_eq!(result.used_gas.standard, U256::from(53_000));
+                assert_eq!(result.used_gas.effective, U256::from(53_000));
+                assert!(result.weight_info.unwrap().ref_time_usage.unwrap() > 0);
+                assert_eq!(
+                    pallet_evm::Pallet::<Runtime>::account_basic(&source)
+                        .0
+                        .nonce,
+                    U256::one()
+                );
+                assert_eq!(
+                    pallet_evm::Pallet::<Runtime>::account_basic(&result.value)
+                        .0
+                        .nonce,
+                    U256::one()
+                );
+                assert!(pallet_evm::AccountCodes::<Runtime>::get(result.value).is_empty());
+            });
+        }
+    }
 }

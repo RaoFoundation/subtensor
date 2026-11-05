@@ -1162,3 +1162,50 @@ mod encrypted_extrinsics_tests {
         });
     }
 }
+
+/// Enlarging the original carrier changes its accepted bound, not its SCALE
+/// representation, dispatch index, event identity, or legacy fee tier.
+#[test]
+fn unified_carrier_preserves_legacy_wire_and_selects_bounded_weight() {
+    use crate::weights::WeightInfo;
+    use codec::Decode;
+    use frame_support::dispatch::GetDispatchInfo;
+
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        for size in [0, 64, 8192, 8193, 32768] {
+            let payload = vec![0x42; size];
+            let call = crate::Call::<Test>::submit_encrypted {
+                ciphertext: payload.clone().try_into().unwrap(),
+            };
+            let mut expected = vec![1];
+            payload.encode_to(&mut expected);
+            assert_eq!(call.encode(), expected);
+            assert_eq!(
+                crate::Call::<Test>::decode(&mut &expected[..]).unwrap(),
+                call
+            );
+            let weight = if size <= 8192 {
+                <() as WeightInfo>::submit_encrypted()
+            } else {
+                <() as WeightInfo>::submit_encrypted_large()
+            };
+            assert_ne!(weight, frame_support::weights::Weight::MAX);
+            assert_eq!(call.get_dispatch_info().call_weight, weight);
+            assert_eq!(
+                MevShield::carrier_ciphertext(&call),
+                Some(payload.as_slice())
+            );
+            assert_ok!(MevShield::submit_encrypted(
+                RuntimeOrigin::signed(1),
+                payload.try_into().unwrap()
+            ));
+        }
+        let mut oversized = vec![1];
+        vec![0u8; 32769].encode_to(&mut oversized);
+        assert!(crate::Call::<Test>::decode(&mut &oversized[..]).is_err());
+        let mut removed_index = vec![7];
+        vec![0u8; 64].encode_to(&mut removed_index);
+        assert!(crate::Call::<Test>::decode(&mut &removed_index[..]).is_err());
+    });
+}

@@ -39,7 +39,9 @@ def associate(
     info = _key_info(app_ctx, key)
     # The proof must name the hotkey the call dispatches as.
     real = app_ctx.resolve_dispatch_proxy()
-    hotkey = real or app_ctx.resolve_address("hotkey_ss58", None)
+    hotkey = (
+        app_ctx.identity_address(real) if real else app_ctx.resolve_account("hotkey_ss58", None)
+    )
     assert hotkey is not None
     summary = f"associate EVM key {info.address} with the hotkey on netuid {netuid}"
 

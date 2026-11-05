@@ -29,6 +29,7 @@ from tests.harness.samples import (
     EMISSION_WEIGHTS_INFO,
     INTENT_SAMPLES,
     dev_wallet,
+    seed_gamma,
 )
 
 
@@ -105,24 +106,32 @@ def test_rejects_unknown_argument(op: str):
 async def test_composes_and_plans_offline(
     op: str, client: Client, substrate: FakeSubstrate, wallet
 ):
-    if op in ("claim_root", "claim_root_with_hotkey"):
+    if op in ("claim_root", "claim_root_with_hotkey", "multisig_approve", "multisig_execute"):
         substrate.seed(
             "System",
             "Account",
             [wallet.coldkey.ss58_address],
             {"data": {"free": 10**9}},
         )
+    if "gamma" in op:
+        seed_gamma(substrate, wallet.coldkey.ss58_address)
     plan = await client.plan(build(op, INTENT_SAMPLES[op]), wallet)
     assert plan.op == op
     assert plan.summary
     assert plan.signer in ("coldkey", "hotkey")
-    assert plan.fee == Balance.from_rao(124_414)
+    # Required Shield routes pay for both signed transactions.
+    required_shield = build(op, INTENT_SAMPLES[op]).semantic_intent().mev_shield_required
+    assert plan.fee == Balance.from_rao(248_828 if required_shield else 124_414)
     assert plan.ok, plan.violations
 
 
 @pytest.mark.parametrize("op", sorted(REGISTRY))
 @pytest.mark.asyncio
 async def test_build_returns_composed_call(op: str, substrate: FakeSubstrate, wallet):
+    if op in ("multisig_approve", "multisig_execute"):
+        substrate.seed(
+            "System", "Account", [wallet.coldkey.ss58_address], {"data": {"free": 10**9}}
+        )
     built = await build(op, INTENT_SAMPLES[op]).build(substrate, wallet)
     call = built.call if isinstance(built, BuiltCall) else built
     module, function, params = call

@@ -23,6 +23,18 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v487',
+    date: 'Upcoming',
+    title: 'Gamma Service Credits + Quantum-Resistant Wallets',
+    summary:
+      'Gamma adds dollar-valued service credits minted by burning subnet alpha, with ' +
+      'published service endpoints, designated spenders, and daily spending caps. Wallets ' +
+      'support Sr25519, Ed25519, ML-DSA-65, Falcon-512, and Falcon-1024, with optional key ' +
+      'rotation. The release also adds burn and recycle emission slots, proxy permissions, ' +
+      'basket dividend settlement fixes, and SDK and CLI support.',
+    href: '/releases/v487-upgrade',
+  },
+  {
     tag: 'v481',
     date: 'October 2026',
     title: 'Etao',
@@ -182,7 +194,7 @@ const page = () => {
         <section className={styles.section} style={{width: '100%'}}>
           <div className={styles.release_list}>
             {releases.map((release) => (
-              <Link key={release.tag} href={release.href} className={styles.release_item}>
+              <Link key={release.href} href={release.href} className={styles.release_item}>
                 <span className={styles.release_meta}>
                   <span className={styles.release_tag}>{release.tag}</span>
                   <span className={styles.release_date}>{release.date}</span>

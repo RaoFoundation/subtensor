@@ -107,6 +107,13 @@ class SubtensorModule:
     RootAlphaDividendsPerSubnet = Item('SubtensorModule', 'RootAlphaDividendsPerSubnet', 'AlphaBalance')
     PendingBasketDeposits = Item('SubtensorModule', 'PendingBasketDeposits', 'AlphaBalance')
     PendingBasketFlushCursor = Item('SubtensorModule', 'PendingBasketFlushCursor', 'Vec<u8>')
+    DeferredBasketRates = Item('SubtensorModule', 'DeferredBasketRates', 'DeferredBasketState')
+    DeferredBasketGeneration = Item('SubtensorModule', 'DeferredBasketGeneration', 'u64')
+    DeferredBasketDebts = Item('SubtensorModule', 'DeferredBasketDebts', 'BoundedBTreeMap')
+    DeferredBasketConversions = Item('SubtensorModule', 'DeferredBasketConversions', 'DeferredBasketConversion')
+    DeferredBasketCashRate = Item('SubtensorModule', 'DeferredBasketCashRate', 'FixedI128')
+    DeferredBasketCashClaimed = Item('SubtensorModule', 'DeferredBasketCashClaimed', 'i128')
+    DeferredBasketCashReserve = Item('SubtensorModule', 'DeferredBasketCashReserve', 'u64')
     BlockEmission = Item('SubtensorModule', 'BlockEmission', 'u64')
     LastHotkeyEmissionOnNetuid = Item('SubtensorModule', 'LastHotkeyEmissionOnNetuid', 'AlphaBalance')
     SubnetLimit = Item('SubtensorModule', 'SubnetLimit', 'u16')
@@ -292,6 +299,7 @@ class SubtensorModule:
     Axons = Item('SubtensorModule', 'Axons', 'AxonInfo')
     NeuronCertificates = Item('SubtensorModule', 'NeuronCertificates', 'NeuronCertificate')
     Prometheus = Item('SubtensorModule', 'Prometheus', 'PrometheusInfo')
+    Services = Item('SubtensorModule', 'Services', 'ServiceInfo')
     IdentitiesV2 = Item('SubtensorModule', 'IdentitiesV2', 'ChainIdentityV2')
     SubnetIdentitiesV3 = Item('SubtensorModule', 'SubnetIdentitiesV3', 'SubnetIdentityV3')
     TransactionKeyLastBlock = Item('SubtensorModule', 'TransactionKeyLastBlock', 'u64')
@@ -356,6 +364,13 @@ class SubtensorModule:
     MinerCollateral = Item('SubtensorModule', 'MinerCollateral', 'MinerCollateralState')
     ColdkeyMinerCollateral = Item('SubtensorModule', 'ColdkeyMinerCollateral', 'AlphaBalance')
     ColdkeyCollateralHotkeys = Item('SubtensorModule', 'ColdkeyCollateralHotkeys', 'BoundedVec')
+    GammaEnabled = Item('SubtensorModule', 'GammaEnabled', 'bool')
+    SubnetGammaEnabled = Item('SubtensorModule', 'SubnetGammaEnabled', 'bool')
+    GammaDeposits = Item('SubtensorModule', 'GammaDeposits', 'GammaDeposit')
+    ColdkeyGammaHotkeys = Item('SubtensorModule', 'ColdkeyGammaHotkeys', 'BoundedVec')
+    SubnetGammaPrice = Item('SubtensorModule', 'SubnetGammaPrice', 'FixedU128')
+    TaoUsdPriceOracle = Item('SubtensorModule', 'TaoUsdPriceOracle', 'AccountId32')
+    TaoUsdPrice = Item('SubtensorModule', 'TaoUsdPrice', 'TaoUsdPriceState')
     AutoParentDelegationEnabled = Item('SubtensorModule', 'AutoParentDelegationEnabled', 'bool')
     HasMigrationRun = Item('SubtensorModule', 'HasMigrationRun', 'bool')
     PendingChildKeyCooldown = Item('SubtensorModule', 'PendingChildKeyCooldown', 'u64')
@@ -381,6 +396,7 @@ class Scheduler:
 class Proxy:
     Proxies = Item('Proxy', 'Proxies', '(BoundedVec, TaoBalance)')
     Announcements = Item('Proxy', 'Announcements', '(BoundedVec, TaoBalance)')
+    AnnouncementValidFrom = Item('Proxy', 'AnnouncementValidFrom', 'u32')
     LastCallResult = Item('Proxy', 'LastCallResult', 'Result')
     RealPaysFeeConsentV1 = Item('Proxy', 'RealPaysFeeConsentV1', '()')
 
@@ -395,6 +411,7 @@ class Commitments:
     MaxSpace = Item('Commitments', 'MaxSpace', 'u32')
 
 class AdminUtils:
+    HashedAccountsEnabled = Item('AdminUtils', 'HashedAccountsEnabled', 'bool')
     PrecompileEnable = Item('AdminUtils', 'PrecompileEnable', 'bool')
 
 class SafeMode:
@@ -481,6 +498,14 @@ class AlphaAssets:
 
 class LimitOrders:
     Orders = Item('LimitOrders', 'Orders', 'OrderStatus')
+    ApprovedOrders = Item('LimitOrders', 'ApprovedOrders', 'AccountOrderApprovals')
     LimitOrdersEnabled = Item('LimitOrders', 'LimitOrdersEnabled', 'bool')
     LinkedOutputs = Item('LimitOrders', 'LinkedOutputs', 'LinkedOutput')
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')
+
+class HashedAccounts:
+    HashedAccountRegistrationDeposit = Item('HashedAccounts', 'HashedAccountRegistrationDeposit', 'TaoBalance')
+    Accounts = Item('HashedAccounts', 'Accounts', 'AccountRecord')
+    EvmAliases = Item('HashedAccounts', 'EvmAliases', 'AccountId32')
+    MlDsaAccounts = Item('HashedAccounts', 'MlDsaAccounts', 'MlDsaAccountRecord')
+    DerivedAuthorities = Item('HashedAccounts', 'DerivedAuthorities', 'DerivedAuthorityRecord')

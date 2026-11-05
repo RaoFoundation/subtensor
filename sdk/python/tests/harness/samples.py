@@ -130,6 +130,7 @@ INTENT_SAMPLES: dict[str, dict] = {
         "certificate": "0x" + "ab" * 32,
     },
     "serve_prometheus": {"netuid": 1, "ip": "203.0.113.5", "port": 9090},
+    "set_service": {"netuid": 1, "url": "https://example.com/services.json"},
     "reset_axon": {"netuid": 1},
     "set_weights": {"netuid": 1, "uids": [0], "weights": [1.0]},
     "commit_weights": {"netuid": 1, "uids": [0], "weights": [1.0]},
@@ -190,6 +191,30 @@ INTENT_SAMPLES: dict[str, dict] = {
     },
     "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
     "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
+    "mint_gamma": {"netuid": 1, "hotkey_ss58": BOB_HOT, "amount_tao": 1.0},
+    "mint_gamma_with_stake": {
+        "netuid": 1,
+        "hotkey_ss58": BOB_HOT,
+        "origin_hotkey_ss58": ALICE_HOT,
+        "amount_alpha": 1.0,
+    },
+    "move_gamma": {
+        "netuid": 1,
+        "origin_hotkey_ss58": ALICE_HOT,
+        "destination_hotkey_ss58": BOB_HOT,
+        "amount_gamma": "all",
+    },
+    "close_gamma_deposit": {"netuid": 1, "hotkey_ss58": BOB_HOT},
+    "set_gamma_deposit_spender": {"netuid": 1, "hotkey_ss58": BOB_HOT, "spender_ss58": BOB},
+    "set_gamma_deposit_daily_spend_cap": {
+        "netuid": 1,
+        "hotkey_ss58": BOB_HOT,
+        "daily_spend_cap_gamma": 10,
+    },
+    "spend_gamma": {
+        "netuid": 1,
+        "spends": [{"hotkey_ss58": BOB_HOT, "amount_gamma": 0.5, "reference": "0x" + "ab" * 32}],
+    },
     "create_crowdloan": {
         "deposit_tao": 100,
         "min_contribution_tao": 1,
@@ -262,6 +287,12 @@ READ_SAMPLES: dict[str, dict] = {
     "collateral_policy": {"netuid": 1},
     "miner_collateral": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
     "subnet_collateral": {"netuid": 1},
+    "gamma_deposit": {"netuid": 1, "hotkey_ss58": BOB_HOT},
+    "gamma_deposits": {"coldkey_ss58": ALICE},
+    "quote_mint_gamma": {"netuid": 1, "amount_tao": 1.0},
+    "quote_mint_gamma_with_stake": {"netuid": 1, "amount_alpha": 1.0},
+    "tao_usd_price": {},
+    "services": {"netuid": 1},
     "coldkey_swap_announcement": {"coldkey_ss58": ALICE},
     "commit_reveal_enabled": {"netuid": 1},
     "commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
@@ -346,3 +377,49 @@ READ_SAMPLES: dict[str, dict] = {
     "weights": {"netuid": 1},
     "weights_rate_limit": {"netuid": 1},
 }
+
+
+# Account-aware order authorization preserves the complete economic schema.
+_ORDER_SAMPLE = {
+    "V1": {
+        "signer": ALICE,
+        "hotkey": ALICE_HOT,
+        "netuid": 1,
+        "order_type": "LimitBuy",
+        "amount": 1000000,
+        "limit_price": 1000000000,
+        "expiry": 2000000000000,
+        "fee_rate": 0,
+        "fee_recipient": BOB,
+        "relayer": None,
+        "max_slippage": None,
+        "chain_id": 42,
+        "partial_fills_enabled": False,
+    }
+}
+INTENT_SAMPLES.update(
+    {
+        "authorize_order": {"nonce": 1, "order": _ORDER_SAMPLE},
+        "cancel_order": {"nonce": 1, "order": _ORDER_SAMPLE},
+        "execute_orders": {
+            "orders": [
+                {
+                    "order": {"Authorized": {"nonce": 1, "terms": _ORDER_SAMPLE}},
+                    "signature": "AccountApproved",
+                    "partial_fill": None,
+                }
+            ]
+        },
+    }
+)
+
+INTENT_SAMPLES["execute_batched_orders"] = {**INTENT_SAMPLES["execute_orders"], "netuid": 1}
+
+
+def seed_gamma(substrate, owner: str) -> None:
+    """Gamma deposits at the samples' hotkeys, owned and spent by ``owner`` (the one at
+    ``BOB_HOT`` empty, so it can close)."""
+    for hotkey, balance in ((ALICE_HOT, 10**9), (BOB_HOT, 0)):
+        deposit = {"coldkey": owner, "spender": owner, "balance": balance,
+                   "daily_spend_cap": None}  # fmt: skip
+        substrate.seed("SubtensorModule", "GammaDeposits", [1, hotkey], deposit)

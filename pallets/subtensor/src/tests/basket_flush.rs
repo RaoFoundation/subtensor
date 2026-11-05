@@ -14,7 +14,7 @@ use crate::tests::claim_root::{
 use crate::tests::mock::*;
 use crate::{
     AlphaV2, BasketShares, IsNetworkMember, Keys, PendingBasketDeposits, PendingBasketFlushCursor,
-    RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetTAO, Uids,
+    RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetTAO, TotalNetworks, Uids,
 };
 use frame_support::assert_ok;
 use sp_core::U256;
@@ -60,6 +60,317 @@ fn setup_root_validator(hotkey: U256, coldkey: U256, uid: u16) -> NetUid {
         2_000_000u64.into(),
     );
     netuid
+}
+
+fn setup_deferred_credit() -> (U256, U256, NetUid) {
+    SubtensorModule::set_tao_weight(u64::MAX);
+    zero_claim_threshold();
+    let hot = U256::from(7101);
+    let cold = U256::from(7102);
+    let origin = setup_root_validator(hot, cold, 1);
+    queue_credit(&hot, origin, 1_000_000);
+    SubnetTAO::<Test>::mutate(origin, |tao| *tao = tao.saturating_div(2u64.into()));
+    let (_, _, ready) = SubtensorModule::flush_basket_deposits_for_hotkey(&hot);
+    assert!(ready, "a price deferral must not freeze root principal");
+    assert!(crate::DeferredBasketRates::<Test>::contains_key(
+        hot, origin
+    ));
+    (hot, cold, origin)
+}
+
+fn leave_root(hot: &U256, cold: &U256) {
+    let stake =
+        SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(hot, cold, NetUid::ROOT);
+    let removed = SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+        hot,
+        cold,
+        NetUid::ROOT,
+        stake,
+    );
+    assert_ok!(
+        SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+            hot, cold, removed
+        )
+    );
+    SubtensorModule::maybe_remove_staking_hotkey(hot, cold);
+}
+
+#[test]
+fn deferred_dividend_can_be_claimed_after_full_exit_without_an_ema_window() {
+    new_test_ext(1).execute_with(|| {
+        let (hot, cold, origin) = setup_deferred_credit();
+        leave_root(&hot, &cold);
+        assert!(crate::StakingHotkeys::<Test>::get(cold).contains(&hot));
+        let before = fund_shares(&hot);
+        let paid = SubtensorModule::root_claim_for_hotkey(&hot, &cold, true)
+            .unwrap()
+            .tao;
+        assert!((499_990..=500_000).contains(&paid), "paid {paid}");
+        assert_eq!(
+            fund_shares(&hot),
+            before,
+            "direct alpha redemption must not mint basket shares"
+        );
+        assert_eq!(pending_credit(&hot, origin), 0);
+        assert_eq!(
+            SubtensorModule::root_claim_for_hotkey(&hot, &cold, true)
+                .unwrap()
+                .tao,
+            0
+        );
+    });
+}
+
+#[test]
+fn deferred_dividends_from_multiple_unstable_origins_are_not_stranded_or_paid_twice() {
+    new_test_ext(1).execute_with(|| {
+        let (hot, cold, first) = setup_deferred_credit();
+        let second = add_dynamic_network(&U256::from(7201), &U256::from(7202));
+        remove_owner_registration_stake(second);
+        fund_pool(second);
+        SubnetTAO::<Test>::mutate(second, |tao| *tao = tao.saturating_mul(2u64.into()));
+        SubnetAlphaOut::<Test>::mutate(second, |alpha| {
+            *alpha = alpha.saturating_add(1_000_000u64.into())
+        });
+        SubtensorModule::enqueue_root_dividend(&hot, second, 1_000_000u64.into());
+        let paid = SubtensorModule::root_claim_for_hotkey(&hot, &cold, true)
+            .unwrap()
+            .tao;
+        assert!((2_499_970..=2_500_000).contains(&paid), "paid {paid}");
+        assert_eq!(pending_credit(&hot, first), 0);
+        assert_eq!(pending_credit(&hot, second), 0);
+        assert_eq!(
+            SubtensorModule::root_claim_for_hotkey(&hot, &cold, true)
+                .unwrap()
+                .tao,
+            0
+        );
+    });
+}
+
+#[test]
+fn deferred_epochs_follow_the_stake_that_earned_each_credit() {
+    new_test_ext(1).execute_with(|| {
+        let (hot, old, origin) = setup_deferred_credit();
+        let new = U256::from(7301);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &new,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        assert_ok!(
+            SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hot, &new, 2_000_000
+            )
+        );
+        leave_root(&hot, &old);
+        SubnetAlphaOut::<Test>::mutate(origin, |alpha| {
+            *alpha = alpha.saturating_add(2_000_000u64.into())
+        });
+        SubtensorModule::enqueue_root_dividend(&hot, origin, 2_000_000u64.into());
+        fund_pool(origin);
+        let (_, _, complete) = SubtensorModule::settle_basket_deposits_for_test(&hot);
+        assert!(complete);
+        let old_shares = SubtensorModule::get_basket_owed_shares(&hot, &old);
+        let new_shares = SubtensorModule::get_basket_owed_shares(&hot, &new);
+        assert!(old_shares.abs_diff(1_000_000) <= 10, "old {old_shares}");
+        assert!(new_shares.abs_diff(2_000_000) <= 15, "new {new_shares}");
+        assert!(old_shares.saturating_add(new_shares) <= fund_shares(&hot));
+        assert!(fund_shares(&hot).saturating_sub(old_shares + new_shares) <= 2);
+    });
+}
+
+#[test]
+fn deferred_rights_survive_coldkey_and_hotkey_renames_after_full_exit() {
+    new_test_ext(1).execute_with(|| {
+        let (hot, old, origin) = setup_deferred_credit();
+        leave_root(&hot, &old);
+        let new_cold = U256::from(7401);
+        let new_hot = U256::from(7402);
+        assert_ok!(SubtensorModule::transfer_basket_claimed_for_new_coldkey(
+            &hot, &old, &new_cold
+        ));
+        SubtensorModule::transfer_basket_for_new_hotkey(&hot, &new_hot);
+        assert!(SubtensorModule::root_claim_hotkeys(&new_cold, vec![]).contains(&new_hot));
+        fund_pool(origin);
+        let (_, _, complete) = SubtensorModule::settle_basket_deposits_for_test(&new_hot);
+        assert!(complete);
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&hot, &old), 0);
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&new_hot, &old), 0);
+        assert!(SubtensorModule::get_basket_owed_shares(&new_hot, &new_cold) > 999_990);
+        assert!(
+            crate::DeferredBasketRates::<Test>::iter_prefix(hot)
+                .next()
+                .is_none()
+        );
+    });
+}
+
+#[test]
+fn dissolving_origin_preserves_deferred_cash_and_allows_netuid_reuse() {
+    new_test_ext(1).execute_with(|| {
+        let (hot, cold, origin) = setup_deferred_credit();
+        leave_root(&hot, &cold);
+        let alpha = crate::PendingBasketDeposits::<Test>::get(hot, origin);
+        assert_ok!(SubtensorModule::dissolve_deferred_dividend(
+            &hot, origin, alpha
+        ));
+        assert!(!crate::DeferredBasketRates::<Test>::contains_key(
+            hot, origin
+        ));
+        let cash = crate::DeferredBasketCashReserve::<Test>::get(hot);
+        assert!(cash > 499_990);
+        // A fresh generation on the same numerical netuid cannot overwrite the
+        // old alpha-debt conversion while its departed owner has not claimed it.
+        let new = U256::from(7501);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &new,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        assert_ok!(
+            SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hot, &new, 2_000_000
+            )
+        );
+        queue_credit(&hot, origin, 1_000_000);
+        assert_ok!(SubtensorModule::snapshot_deferred_dividends(&hot));
+        let paid_old = SubtensorModule::root_claim_for_hotkey(&hot, &cold, true)
+            .unwrap()
+            .tao;
+        assert!(
+            paid_old.abs_diff(cash) <= 1,
+            "old {paid_old}, reserved {cash}"
+        );
+        assert!(crate::DeferredBasketCashReserve::<Test>::get(hot) <= 1);
+        assert_eq!(
+            SubtensorModule::root_claim_for_hotkey(&hot, &cold, true)
+                .unwrap()
+                .tao,
+            0
+        );
+        assert!(
+            SubtensorModule::root_claim_for_hotkey(&hot, &new, true)
+                .unwrap()
+                .tao
+                > 499_990
+        );
+    });
+}
+
+#[test]
+fn dissolution_cashes_out_deferred_only_fund_before_generic_stake_teardown() {
+    new_test_ext(1).execute_with(|| {
+        let (hot, cold, origin) = setup_deferred_credit();
+        leave_root(&hot, &cold);
+        assert_eq!(fund_shares(&hot), 0);
+        assert_ok!(SubtensorModule::do_dissolve_network(origin));
+        let total_before = crate::TotalStake::<Test>::get();
+        let mut meter = frame_support::weights::WeightMeter::new();
+        let (done, _) =
+            SubtensorModule::convert_subnet_basket_holdings_to_root(origin, &mut meter, None);
+        assert!(done);
+        assert_eq!(pending_credit(&hot, origin), 0);
+        let cash = crate::DeferredBasketCashReserve::<Test>::get(hot);
+        assert!(cash > 499_990);
+        assert_eq!(
+            crate::TotalStake::<Test>::get(),
+            total_before.saturating_add(cash.into())
+        );
+        let total_before_claim = crate::TotalStake::<Test>::get();
+        assert!(
+            SubtensorModule::root_claim_for_hotkey(&hot, &cold, true)
+                .unwrap()
+                .tao
+                > 499_990
+        );
+        assert_eq!(
+            crate::TotalStake::<Test>::get(),
+            total_before_claim,
+            "cash redemption must not mint root reserves twice"
+        );
+    });
+}
+
+#[test]
+fn snapshot_credits_the_funds_own_yield_before_its_shareholders_leave() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        let hot = U256::from(7601);
+        let cold = U256::from(7602);
+        let origin = setup_root_validator(hot, cold, 1);
+        let holder = U256::from(7603);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &escrow,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        BasketShares::<Test>::insert(hot, 2_000_000);
+        crate::BasketClaimed::<Test>::insert(hot, holder, -2_000_000i128);
+        queue_credit(&hot, origin, 1_000_000);
+        SubnetTAO::<Test>::mutate(origin, |tao| *tao = tao.saturating_div(2u64.into()));
+        let (_, _, ready) = SubtensorModule::flush_basket_deposits_for_hotkey(&hot);
+        assert!(ready);
+        assert_eq!(escrow_alpha(&hot, origin), 500_000);
+        assert_eq!(pending_credit(&hot, origin), 500_000);
+        assert_eq!(fund_shares(&hot), 2_000_000);
+        let holder_value = SubtensorModule::get_basket_payout_tao(&hot, &holder);
+        assert!(holder_value >= 2_249_990, "fund yield {holder_value}");
+        let root_paid = SubtensorModule::root_claim_for_hotkey(&hot, &cold, true)
+            .unwrap()
+            .tao;
+        assert!((249_990..=250_000).contains(&root_paid));
+        assert_eq!(
+            fund_shares(&hot),
+            2_000_000,
+            "the real staker must not capture the fund's half"
+        );
+    });
+}
+
+#[test]
+fn retained_root_stake_keeps_deferred_credit_when_the_fund_hotkey_moves() {
+    new_test_ext(1).execute_with(|| {
+        let (old, cold, origin) = setup_deferred_credit();
+        let new = U256::from(7701);
+        crate::Owner::<Test>::insert(old, U256::from(7702));
+        // Keeping an origin position forces a split in the staking-hotkey
+        // list. Opting out of that growth leaves root principal on the old key.
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(&old, &cold, origin, 100u64.into());
+        assert_ok!(SubtensorModule::set_reject_staking_hotkey_growth(
+            RuntimeOrigin::signed(cold),
+            true
+        ));
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_one_subnet(
+            &old,
+            &new,
+            &mut frame_support::weights::Weight::zero(),
+            NetUid::ROOT,
+            false
+        ));
+        assert!(crate::HotkeySwapBasketCredits::<Test>::contains_key(
+            cold, new
+        ));
+        assert!(
+            SubtensorModule::root_claim_hotkeys(&cold, crate::StakingHotkeys::<Test>::get(cold))
+                .contains(&new)
+        );
+        let payout = SubtensorModule::root_claim_for_hotkey(&new, &cold, true)
+            .unwrap()
+            .tao;
+        assert!((499_990..=500_000).contains(&payout), "paid {payout}");
+        assert_eq!(
+            SubtensorModule::root_claim_for_hotkey(&new, &cold, true)
+                .unwrap()
+                .tao,
+            0
+        );
+    });
 }
 
 /// The per-block drain flushes exactly one hotkey and advances the cursor past it.
@@ -240,7 +551,12 @@ fn test_flush_root_eviction_deposits_pending_credits() {
         queue_credit(&hot, netuid, credit);
         let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
 
-        SubtensorModule::replace_neuron(NetUid::ROOT, uid, &replacement, 1);
+        assert!(SubtensorModule::replace_neuron(
+            NetUid::ROOT,
+            uid,
+            &replacement,
+            1
+        ));
 
         assert!(
             !PendingBasketDeposits::<Test>::contains_key(hot, netuid),
@@ -314,6 +630,69 @@ fn test_flush_root_eviction_recycles_dust_after_membership_drop() {
     });
 }
 
+/// A root neuron with an out-of-band dividend settles it at the clamped mark before replacement,
+/// without waiting for the manipulated price to recover.
+#[test]
+fn test_flush_root_eviction_preserves_out_of_band_dividend() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(500_000));
+
+        let cold = U256::from(2201);
+        let hot = U256::from(3201);
+        let replacement = U256::from(3202);
+        let owner = U256::from(9201);
+        let owner_hot = U256::from(9301);
+        let netuid = add_dynamic_network(&owner_hot, &owner);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+
+        let uid = 1u16;
+        Uids::<Test>::insert(NetUid::ROOT, hot, uid);
+        Keys::<Test>::insert(NetUid::ROOT, uid, hot);
+        IsNetworkMember::<Test>::insert(hot, NetUid::ROOT, true);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &cold,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        let credit = 750_000u64;
+        queue_credit(&hot, netuid, credit);
+        let tao_before = SubnetTAO::<Test>::get(netuid);
+        SubnetTAO::<Test>::insert(netuid, tao_before.saturating_div(4u64.into()));
+
+        let mut work = BasketFlushWork::default();
+        assert!(SubtensorModule::replace_neuron_with_flush_work(
+            NetUid::ROOT,
+            uid,
+            &replacement,
+            1,
+            &mut work,
+        ));
+        // The first attempt snapshots rights; the second still retries the retained
+        // out-of-band credit after membership is removed. Both attempts cost work.
+        assert_eq!(work, BasketFlushWork::new(6, 2));
+        assert_eq!(Keys::<Test>::get(NetUid::ROOT, uid), replacement);
+        assert!(!Uids::<Test>::contains_key(NetUid::ROOT, hot));
+        assert_eq!(
+            PendingBasketDeposits::<Test>::get(hot, netuid),
+            credit.into()
+        );
+        assert_eq!(fund_shares(&hot), 0);
+
+        SubnetTAO::<Test>::insert(netuid, tao_before);
+        let (_, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hot);
+        assert!(completed);
+        assert_eq!(Keys::<Test>::get(NetUid::ROOT, uid), replacement);
+        assert!(!Uids::<Test>::contains_key(NetUid::ROOT, hot));
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hot, netuid));
+        assert!(fund_shares(&hot) > 0);
+        assert!(escrow_alpha(&hot, netuid) > 0);
+    });
+}
+
 /// Happy path: a multi-origin flush credits each dividend in place on its origin subnet in
 /// one batch — no swaps at all — and the work counters match the deposit formula
 /// (`H + 2C` quotes on top of the scan, one in-place row per credit).
@@ -355,7 +734,7 @@ fn test_flush_happy_path_accumulates_in_place_with_bounded_ops() {
             .collect();
 
         reset_basket_op_counters();
-        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (work, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(completed);
         assert!(fund_shares(&hotkey) > 0);
@@ -440,7 +819,7 @@ fn test_flush_shared_failure_requeues_batch_without_retry() {
             .collect();
 
         reset_basket_op_counters();
-        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (work, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(!completed);
         assert_eq!(BasketShares::<Test>::get(hotkey), 0);
@@ -523,7 +902,7 @@ fn test_flush_isolates_terminal_credit_and_deposits_the_rest() {
         let b_alpha_out_before = SubnetAlphaOut::<Test>::get(origin_b);
 
         reset_basket_op_counters();
-        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (work, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(
             completed,
@@ -602,7 +981,7 @@ fn test_flush_work_stays_within_declared_bound_for_failing_wide_batch() {
         let holdings = SubtensorModule::get_basket_holdings(&hotkey).len() as u64;
         assert_eq!(holdings, count);
 
-        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (work, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(!completed);
         assert_eq!(BasketShares::<Test>::get(hotkey), 0);
@@ -673,10 +1052,151 @@ fn test_basket_flush_fits_declared_budget_bounds_queued_rows() {
         ]));
 
         // The claim admission check folds the flush axis in.
-        assert!(SubtensorModule::root_claim_fits_declared_budget(&[hot_a]));
+        assert!(!SubtensorModule::root_claim_fits_declared_budget(&[hot_a]));
         assert!(!SubtensorModule::root_claim_fits_declared_budget(&[
             hot_a, hot_b, hot_c
         ]));
+    });
+}
+
+#[test]
+fn test_root_register_without_eviction_does_not_reserve_dividend_settlement() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 1);
+        TotalNetworks::<Test>::put(0);
+        let (base, pending) = SubtensorModule::root_register_weight_parts();
+        assert_eq!(pending, frame_support::weights::Weight::zero());
+        assert_eq!(SubtensorModule::root_register_dispatch_weight(), base);
+        // A different validator's queued credits cannot make this registration expensive.
+        PendingBasketDeposits::<Test>::insert(
+            U256::from(123),
+            NetUid::from(1),
+            AlphaBalance::from(1),
+        );
+        assert_eq!(SubtensorModule::root_register_dispatch_weight(), base);
+    });
+}
+
+fn root_replacement_fixture() -> (U256, U256, U256) {
+    add_network(NetUid::ROOT, 1, 0);
+    SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 1);
+    SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
+    SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+    SubtensorModule::set_immunity_period(NetUid::ROOT, 0);
+    SubtensorModule::set_min_burn(NetUid::ROOT, TaoBalance::ZERO);
+    SubtensorModule::set_burn(NetUid::ROOT, TaoBalance::ZERO);
+    let old = U256::from(6101);
+    root_register_ok(old, U256::from(6102));
+    let coldkey = U256::from(6103);
+    let hotkey = U256::from(6104);
+    (old, coldkey, hotkey)
+}
+
+#[test]
+fn test_root_register_empty_eviction_queue_has_no_flush_charge() {
+    new_test_ext(1).execute_with(|| {
+        let (old, coldkey, hotkey) = root_replacement_fixture();
+        PendingBasketDeposits::<Test>::insert(
+            U256::from(9999),
+            NetUid::from(1),
+            AlphaBalance::from(1),
+        );
+        let (base, pending) = SubtensorModule::root_register_weight_parts();
+        assert_eq!(pending, frame_support::weights::Weight::zero());
+        let post = SubtensorModule::root_register(RuntimeOrigin::signed(coldkey), hotkey).unwrap();
+        assert_eq!(post.actual_weight, Some(base));
+        assert!(!Uids::<Test>::contains_key(NetUid::ROOT, old));
+    });
+}
+
+#[test]
+fn test_root_register_refunds_flush_reserve_but_charges_both_dust_scans() {
+    new_test_ext(1).execute_with(|| {
+        let (old, coldkey, hotkey) = root_replacement_fixture();
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(1_000_001));
+        for i in 1..=2_u16 {
+            let netuid = NetUid::from(i);
+            crate::NetworksAdded::<Test>::insert(netuid, true);
+            crate::SubnetMechanism::<Test>::insert(netuid, 1);
+            crate::SubnetFastMovingPrice::<Test>::insert(
+                netuid,
+                substrate_fixed::types::U64F64::from_num(1),
+            );
+            queue_credit(&old, netuid, 1_000_000);
+        }
+        let (base, pending) = SubtensorModule::root_register_weight_parts();
+        assert_eq!(
+            pending,
+            SubtensorModule::root_pending_dividend_weight_for(&old, true).saturating_mul(2)
+        );
+        let declared = SubtensorModule::root_register_dispatch_weight();
+        let post = SubtensorModule::root_register(RuntimeOrigin::signed(coldkey), hotkey).unwrap();
+        // First scan retains two dust credits; the post-eviction scan recycles both.
+        let actual = base.saturating_add(SubtensorModule::basket_flush_weight(
+            BasketFlushWork::new(4, 2),
+        ));
+        assert_eq!(post.actual_weight, Some(actual));
+        assert!(actual.all_lte(declared) && actual != declared);
+        assert_eq!(PendingBasketDeposits::<Test>::iter_prefix(old).count(), 0);
+    });
+}
+
+#[test]
+fn test_root_register_failed_flush_refunds_unused_work_without_losing_credits() {
+    new_test_ext(1).execute_with(|| {
+        let (old, coldkey, hotkey) = root_replacement_fixture();
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(u64::MAX));
+        for i in 1..=MAX_BASKET_ROWS.saturating_add(1) {
+            let netuid = NetUid::from(i as u16);
+            crate::NetworksAdded::<Test>::insert(netuid, true);
+            crate::SubnetMechanism::<Test>::insert(netuid, 1);
+            crate::SubnetFastMovingPrice::<Test>::insert(
+                netuid,
+                substrate_fixed::types::U64F64::from_num(1),
+            );
+            queue_credit(&old, netuid, 1);
+        }
+        let (base, _) = SubtensorModule::root_register_weight_parts();
+        let declared = SubtensorModule::root_register_dispatch_weight();
+        let error =
+            SubtensorModule::root_register(RuntimeOrigin::signed(coldkey), hotkey).unwrap_err();
+        assert_eq!(
+            error.error,
+            crate::Error::<Test>::BasketDepositPending.into()
+        );
+        let actual = base.saturating_add(SubtensorModule::basket_flush_weight(
+            BasketFlushWork::new(MAX_BASKET_ROWS + 1, 0),
+        ));
+        assert_eq!(error.post_info.actual_weight, Some(actual));
+        assert!(actual.all_lte(declared) && actual != declared);
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, old));
+        assert!(!Uids::<Test>::contains_key(NetUid::ROOT, hotkey));
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_prefix(old).count(),
+            (MAX_BASKET_ROWS + 1) as usize
+        );
+    });
+}
+
+#[test]
+fn test_dispatch_pending_check_refuses_oversized_dust_queue_with_bounded_work() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(3991);
+        register_on_root(&hotkey, 1);
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(u64::MAX));
+        for i in 1..=MAX_BASKET_ROWS.saturating_mul(2) {
+            let netuid = NetUid::from(i as u16);
+            crate::NetworksAdded::<Test>::insert(netuid, true);
+            PendingBasketDeposits::<Test>::insert(hotkey, netuid, AlphaBalance::from(1u64));
+        }
+        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        assert!(!completed);
+        assert_eq!(work.quotes, MAX_BASKET_ROWS + 1);
+        assert_eq!(work.rows, 0);
+        assert!(
+            SubtensorModule::basket_flush_weight(work)
+                .all_lte(SubtensorModule::root_pending_dividend_weight(true))
+        );
     });
 }
 
@@ -701,7 +1221,7 @@ fn test_flush_terminal_origin_recycles_credit_without_pinning_queue() {
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000u64));
         queue_credit(&hotkey, netuid, 1_000u64);
 
-        let (_, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (_, _, completed) = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(completed);
         assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, netuid));
@@ -803,7 +1323,7 @@ fn test_escrow_only_fund_keeps_its_own_dividend() {
         let credit = 500_000_000u64;
         queue_credit(&hotkey, netuid, credit);
 
-        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let _ = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         let nav_after = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
         assert!(
@@ -855,7 +1375,7 @@ fn test_shareless_escrow_only_credit_is_recycled() {
         let credit = 500_000_000u64;
         queue_credit(&hotkey, netuid, credit);
 
-        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let _ = SubtensorModule::settle_basket_deposits_for_test(&hotkey);
 
         assert!(
             !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),
