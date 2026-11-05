@@ -259,6 +259,36 @@ def test_announcement_store_indexes_and_status(protected_paths):
     assert ann.get_by_index("main", 1)["status"] == "cancelled"
 
 
+def test_clear_pending_allow_after_cancel_helper(protected_paths):
+    from bittensor.cli import protected as protected_cli
+
+    pa.upsert_protected(
+        {
+            "controller_wallet": "main",
+            "controller_ss58": "5Main",
+            "protected_ss58": "5Pure",
+            "name": "main-protected",
+            "delay_blocks": 10,
+            "allows": [],
+            "pending_allows": ["Lock", "Staking"],
+        }
+    )
+    row = ann.add_announcement(
+        controller_wallet="main",
+        delegate_ss58="5Main",
+        real_ss58="5Pure",
+        call_hash="0x" + "11" * 32,
+        inner_op="add_proxy",
+        inner_args={"delegate_ss58": "5Allow", "proxy_type": "Lock", "delay": 0},
+        category="allow:Lock",
+        delay_blocks=10,
+        announced_at_block=1,
+    )
+    ann.mark_status("main", int(row["index"]), "cancelled")
+    protected_cli._clear_pending_allow_after_cancel({**row, "status": "cancelled"})
+    assert pa.get_by_controller("main")["pending_allows"] == ["Staking"]
+
+
 def test_announcement_store_atomic_write(protected_paths):
     path = Path(protected_paths[1])
     ann.add_announcement(

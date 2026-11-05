@@ -125,6 +125,29 @@ def _controller_ss58(app_ctx: AppContext) -> str:
     return app_ctx.resolve_address("coldkey_ss58", None)
 
 
+@contextlib.contextmanager
+def _preserve_controller_context(app_ctx: AppContext, record: dict[str, Any]):
+    """Restore wallet routing after a multisig member submit mutates ``wallet_name``.
+
+    ``wrap_intent_for_multisig_wallet`` may switch ``app_ctx.wallet_name`` to a
+    local signatory for the duration of ``submit``. Announcement bookkeeping and
+    follow-up protects must keep addressing the controller, not the member.
+    """
+    saved = (
+        app_ctx.wallet_name,
+        getattr(app_ctx, "multisig_wallet_name", None),
+        getattr(app_ctx, "signatory_wallet", None),
+    )
+    controller_ss58 = record.get("controller_ss58") or _controller_ss58(app_ctx)
+    try:
+        yield controller_ss58
+    finally:
+        app_ctx.wallet_name = record.get("controller_wallet") or saved[0]
+        app_ctx.multisig_wallet_name = saved[1]
+        if hasattr(app_ctx, "signatory_wallet"):
+            app_ctx.signatory_wallet = saved[2]
+
+
 def _call_data_hex(call: Any) -> Optional[str]:
     """0x-hex of composed call SCALE bytes, if available."""
     raw = getattr(call, "data", None)
@@ -181,11 +204,12 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
     composed, call_hash, block, encoded = app_ctx.run(_prepare)
     inner_args = {k: v for k, v in encoded.items() if k != "op"}
     call_data = _call_data_hex(composed)
-    result = app_ctx.submit(
-        AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
-        proxy_for="self",
-        summary=f"announce {intent.op} for protected account",
-    )
+    with _preserve_controller_context(app_ctx, record) as controller_ss58:
+        result = app_ctx.submit(
+            AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
+            proxy_for="self",
+            summary=f"announce {intent.op} for protected account",
+        )
     if result is None or not result.success:
         raise typer.Exit(1)
     # Prefer the inclusion block when available.
@@ -195,7 +219,7 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
             announced_at = int(str(result.extrinsic_id).split("-")[0])
     row = ann.add_announcement(
         controller_wallet=record["controller_wallet"],
-        delegate_ss58=_controller_ss58(app_ctx),
+        delegate_ss58=controller_ss58,
         real_ss58=real,
         call_hash=call_hash,
         inner_op=intent.op,
@@ -889,11 +913,12 @@ def _announce_as_protected(
         return composed, call_hash, block
 
     composed, call_hash, block = app_ctx.run(_prepare)
-    result = app_ctx.submit(
-        AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
-        proxy_for="self",
-        summary=f"announce {category}",
-    )
+    with _preserve_controller_context(app_ctx, record) as controller_ss58:
+        result = app_ctx.submit(
+            AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
+            proxy_for="self",
+            summary=f"announce {category}",
+        )
     if result is None:
         return None
     if not result.success:
@@ -906,7 +931,7 @@ def _announce_as_protected(
     inner_args = {k: v for k, v in encoded.items() if k != "op"}
     row = ann.add_announcement(
         controller_wallet=record["controller_wallet"],
-        delegate_ss58=record.get("controller_ss58") or _controller_ss58(app_ctx),
+        delegate_ss58=controller_ss58,
         real_ss58=real,
         call_hash=call_hash,
         inner_op=intent.op,
@@ -1107,11 +1132,16 @@ def _cancel_one(app_ctx: AppContext, row: dict[str, Any]) -> bool:
         )
         return False
 
-    result = app_ctx.submit(
-        RemoveProxyAnnouncement(real_ss58=row["real_ss58"], call_hash=row["call_hash"]),
-        proxy_for="self",
-        summary=f"cancel announcement #{row['index']}",
-    )
+    record = pa.get_by_controller(row["controller_wallet"]) or {
+        "controller_wallet": row["controller_wallet"],
+        "controller_ss58": row.get("delegate_ss58"),
+    }
+    with _preserve_controller_context(app_ctx, record):
+        result = app_ctx.submit(
+            RemoveProxyAnnouncement(real_ss58=row["real_ss58"], call_hash=row["call_hash"]),
+            proxy_for="self",
+            summary=f"cancel announcement #{row['index']}",
+        )
     if result is None or not result.success:
         return False
     still = _announcement_still_on_chain(app_ctx, row)
@@ -1129,8 +1159,30 @@ def _cancel_one(app_ctx: AppContext, row: dict[str, Any]) -> bool:
         return False
     if not row.get("plaintext_missing"):
         ann.mark_status(row["controller_wallet"], int(row["index"]), "cancelled")
+    _clear_pending_allow_after_cancel(row)
     app_ctx.output.message(f"cancelled #{row['index']}")
     return True
+
+
+def _clear_pending_allow_after_cancel(row: dict[str, Any]) -> None:
+    """Drop a cancelled allow type from ``pending_allows`` when no siblings remain."""
+    category = str(row.get("category") or "")
+    if not category.startswith("allow:"):
+        return
+    proxy_type = category.split(":", 1)[1]
+    record = pa.get_by_controller(row["controller_wallet"])
+    if record is None:
+        return
+    still_queued = any(
+        f"allow:{proxy_type} →" in label
+        for label in pa.pending_allow_grant_labels(ann.list_for_wallet(row["controller_wallet"]))
+    )
+    if still_queued:
+        return
+    pending = [t for t in (record.get("pending_allows") or []) if t != proxy_type]
+    if pending == list(record.get("pending_allows") or []):
+        return
+    pa.upsert_protected({**record, "pending_allows": pending})
 
 
 def run_execute_protected(app_ctx: AppContext, *, index: Optional[int]) -> None:
@@ -1216,18 +1268,25 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
             f"#{row['index']} not ready — {_eta_for_block(executable_at, current_block)}"
         )
         return
-    result = app_ctx.submit(
-        ExecuteProxyAnnounced(
-            delegate_ss58=row["delegate_ss58"],
-            real_ss58=row["real_ss58"],
-            inner_op=row["inner_op"],
-            inner_args=row.get("inner_args") or {},
-            force_proxy_type=row.get("force_proxy_type") or "Any",
-            announced_call_data=row.get("call_data"),
-        ),
-        proxy_for="self",
-        summary=f"execute announcement #{row['index']}: {row.get('summary') or row['inner_op']}",
-    )
+    record = pa.get_by_controller(row["controller_wallet"]) or {
+        "controller_wallet": row["controller_wallet"],
+        "controller_ss58": row.get("delegate_ss58"),
+    }
+    with _preserve_controller_context(app_ctx, record):
+        result = app_ctx.submit(
+            ExecuteProxyAnnounced(
+                delegate_ss58=row["delegate_ss58"],
+                real_ss58=row["real_ss58"],
+                inner_op=row["inner_op"],
+                inner_args=row.get("inner_args") or {},
+                force_proxy_type=row.get("force_proxy_type") or "Any",
+                announced_call_data=row.get("call_data"),
+            ),
+            proxy_for="self",
+            summary=(
+                f"execute announcement #{row['index']}: {row.get('summary') or row['inner_op']}"
+            ),
+        )
     if result is not None and result.success:
         ann.mark_status(row["controller_wallet"], int(row["index"]), "executed")
         app_ctx.output.message(f"executed #{row['index']}")
