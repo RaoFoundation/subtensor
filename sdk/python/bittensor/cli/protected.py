@@ -133,6 +133,26 @@ def _call_data_hex(call: Any) -> Optional[str]:
     return "0x" + bytes(raw).hex()
 
 
+def _mark_announcement_from_submit(
+    app_ctx: AppContext, row: dict[str, Any], result: Any
+) -> Optional[dict[str, Any]]:
+    """Tag a saved row as awaiting multisig approval when announce has not landed yet."""
+    from . import multisig_helpers as ms_helpers
+
+    if not ms_helpers.multisig_approval_only(getattr(result, "events", None) or []):
+        return row
+    updated = ann.update_announcement(
+        row["controller_wallet"],
+        int(row["index"]),
+        {"status": "awaiting_approval"},
+    )
+    app_ctx.output.message(
+        f"#{row['index']}: announcement approved but awaiting further multisig "
+        "signatures before it lands on chain — plaintext kept locally"
+    )
+    return updated or {**row, "status": "awaiting_approval"}
+
+
 def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str, Any]) -> None:
     from .prompt import confirm_wallet
 
@@ -187,6 +207,7 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
         summary=intent.summary(),
         call_data=call_data,
     )
+    row = _mark_announcement_from_submit(app_ctx, row, result) or row
     print_queued(app_ctx, record=record, row=row, current_block=announced_at)
 
 
@@ -439,15 +460,24 @@ def _reconcile_pending(app_ctx: AppContext, record: dict[str, Any]) -> list[dict
         key = str(row.get("call_hash") or "").lower()
         if key in by_hash:
             chain = by_hash[key]
+            # Multisig announce that finally landed: promote awaiting → pending.
+            if row.get("status") == "awaiting_approval":
+                promoted = ann.mark_status(wallet_name, int(row["index"]), "pending")
+                if promoted is not None:
+                    row = promoted
             merged.append(
                 {
                     **row,
                     "announced_at_block": chain["announced_at_block"],
                     "executable_at_block": chain["executable_at_block"],
                     "on_chain": True,
+                    "status": "pending",
                 }
             )
             seen_hashes.add(key)
+        elif row.get("status") == "awaiting_approval":
+            # Partial multisig approval: keep plaintext until announce lands.
+            merged.append({**row, "on_chain": False})
         elif row.get("status") == "pending":
             # Gone from chain (executed, cancelled elsewhere, or never landed).
             ann.mark_status(wallet_name, int(row["index"]), "gone")
@@ -593,8 +623,9 @@ def _protect_create(
         "name": name,
         "delay_blocks": delay_blocks,
         # Confirmed zero-delay grants only — pending announcements go here until execute.
+        # Populated after each successful allow announce so a mid-loop failure can retry.
         "allows": [],
-        "pending_allows": list(allow_types),
+        "pending_allows": [],
         "allow_key_ss58": allow_key_ss58,
         "spawner": create_meta.get("spawner") or controller_ss58,
         "account_mode": create_meta.get("account_mode", "legacy"),
@@ -608,13 +639,19 @@ def _protect_create(
 
     # Queue zero-delay allow grants (announced via delayed Any controller).
     delegate = allow_key_ss58 or controller_ss58
+    pending_allows: list[str] = []
     for proxy_type in allow_types:
-        _announce_as_protected(
+        row = _announce_as_protected(
             app_ctx,
             record,
             AddProxy(delegate_ss58=delegate, proxy_type=proxy_type, delay=0),
             category=f"allow:{proxy_type}",
         )
+        if row is None:
+            raise typer.Exit(1)
+        pending_allows.append(proxy_type)
+        record = {**record, "pending_allows": list(pending_allows)}
+        pa.upsert_protected(record)
 
     # Schedule coldkey swap: moves stake / subnets / identity onto the pure.
     swap_result = app_ctx.submit(
@@ -744,16 +781,28 @@ def _protect_update(
         existing = {**existing, "pending_delay_blocks": delay_blocks}
         pa.upsert_protected(existing)
 
+    outstanding_labels = pa.pending_allow_grant_labels(
+        ann.list_for_wallet(existing["controller_wallet"])
+    )
     for proxy_type in allow_types:
-        if proxy_type in current_allows or proxy_type in pending_allows:
+        if proxy_type in current_allows:
             continue
-        _announce_as_protected(
+        already_queued = any(f"allow:{proxy_type} →" in label for label in outstanding_labels)
+        if already_queued:
+            if proxy_type not in pending_allows:
+                pending_allows.append(proxy_type)
+            continue
+        # Stale pending_allows (announce never submitted) must be re-queued.
+        row = _announce_as_protected(
             app_ctx,
             existing,
             AddProxy(delegate_ss58=delegate, proxy_type=proxy_type, delay=0),
             category=f"allow:{proxy_type}",
         )
-        pending_allows.append(proxy_type)
+        if row is None:
+            raise typer.Exit(1)
+        if proxy_type not in pending_allows:
+            pending_allows.append(proxy_type)
 
     for proxy_type in disallow_types:
         # Pending AddProxy commits remain executable until cancelled. Queuing
@@ -869,6 +918,7 @@ def _announce_as_protected(
         summary=intent.summary(),
         call_data=_call_data_hex(composed),
     )
+    row = _mark_announcement_from_submit(app_ctx, row, result) or row
     if row_extra:
         updated = ann.update_announcement(record["controller_wallet"], int(row["index"]), row_extra)
         if updated is not None:
@@ -1049,6 +1099,14 @@ def _cancel_one(app_ctx: AppContext, row: dict[str, Any]) -> bool:
     # fee-payer-only exception). Single coldkeys submit as themselves.
     from . import multisig_helpers as ms_helpers
 
+    if row.get("status") == "awaiting_approval":
+        app_ctx.output.error(
+            f"#{row['index']} is still awaiting multisig approval to land on chain; "
+            "complete those approvals (or abandon the multisig operation) before "
+            "cancelling with remove_announcement"
+        )
+        return False
+
     result = app_ctx.submit(
         RemoveProxyAnnouncement(real_ss58=row["real_ss58"], call_hash=row["call_hash"]),
         proxy_for="self",
@@ -1099,13 +1157,28 @@ def run_execute_protected(app_ctx: AppContext, *, index: Optional[int]) -> None:
         _execute_one(app_ctx, row, current)
         return
 
+    awaiting = [
+        r for r in pending if r.get("status") == "awaiting_approval" or not r.get("on_chain", True)
+    ]
+    awaiting_idxs = {int(r["index"]) for r in awaiting}
     ready = [
         r
         for r in pending
-        if current >= int(r["executable_at_block"]) and not r.get("plaintext_missing")
+        if current >= int(r["executable_at_block"])
+        and not r.get("plaintext_missing")
+        and int(r["index"]) not in awaiting_idxs
     ]
-    waiting = [r for r in pending if current < int(r["executable_at_block"])]
+    waiting = [
+        r
+        for r in pending
+        if current < int(r["executable_at_block"]) and int(r["index"]) not in awaiting_idxs
+    ]
     unknown = [r for r in pending if r.get("plaintext_missing")]
+    for row in awaiting:
+        app_ctx.output.message(
+            f"skipping #{row['index']} ({row.get('category')}): awaiting multisig "
+            "approval before Proxy.announce lands on chain"
+        )
     for row in waiting:
         app_ctx.output.message(
             f"skipping #{row['index']} ({row.get('category')}): not ready — "
@@ -1129,6 +1202,12 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
         app_ctx.output.error(
             f"#{row['index']} has no local plaintext — cannot execute; cancel instead "
             "or re-announce the call from this device"
+        )
+        return
+    if row.get("status") == "awaiting_approval" or not row.get("on_chain", True):
+        app_ctx.output.error(
+            f"#{row['index']} has not landed on chain yet "
+            "(still awaiting multisig approval for Proxy.announce)"
         )
         return
     executable_at = int(row["executable_at_block"])

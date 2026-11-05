@@ -251,6 +251,9 @@ def test_announcement_store_indexes_and_status(protected_paths):
     assert row["executable_at_block"] == 110
     assert ann.get_by_index("main", 1)["call_hash"] == row["call_hash"]
     assert len(ann.list_for_wallet("main")) == 1
+    ann.mark_status("main", 1, "awaiting_approval")
+    assert len(ann.list_for_wallet("main")) == 1
+    assert ann.list_for_wallet("main")[0]["status"] == "awaiting_approval"
     ann.mark_status("main", 1, "cancelled")
     assert ann.list_for_wallet("main") == []
     assert ann.get_by_index("main", 1)["status"] == "cancelled"

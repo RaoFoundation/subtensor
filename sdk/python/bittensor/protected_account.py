@@ -431,7 +431,7 @@ def pending_allow_grant_labels(
         category = str(row.get("category") or "")
         if not category.startswith("allow:"):
             continue
-        if row.get("status") not in (None, "pending"):
+        if row.get("status") not in (None, "pending", "awaiting_approval"):
             continue
         target = (row.get("inner_args") or {}).get("delegate_ss58")
         if allow_key_ss58 and target and str(target) != str(allow_key_ss58):

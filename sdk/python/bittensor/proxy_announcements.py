@@ -106,12 +106,15 @@ def add_announcement(
     return row
 
 
+ACTIVE_ANNOUNCEMENT_STATUSES = frozenset({"pending", "awaiting_approval"})
+
+
 def list_for_wallet(wallet_name: str, *, include_done: bool = False) -> list[dict[str, Any]]:
     rows = [
         r
         for r in load_announcements()
         if r.get("controller_wallet") == wallet_name
-        and (include_done or r.get("status") == "pending")
+        and (include_done or r.get("status") in ACTIVE_ANNOUNCEMENT_STATUSES)
     ]
     return sorted(rows, key=lambda r: int(r.get("index") or 0))
 
@@ -164,7 +167,10 @@ def move_wallet_announcements(from_wallet: str, to_wallet: str) -> int:
     rows = load_announcements()
     moved = 0
     for i, row in enumerate(rows):
-        if row.get("controller_wallet") == from_wallet and row.get("status") == "pending":
+        if (
+            row.get("controller_wallet") == from_wallet
+            and row.get("status") in ACTIVE_ANNOUNCEMENT_STATUSES
+        ):
             rows[i] = {**row, "controller_wallet": to_wallet}
             moved += 1
     if moved:
