@@ -33,6 +33,23 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         stake_to_be_added: TaoBalance,
     ) -> Result<AlphaBalance, DispatchError> {
+        Self::do_add_stake_with_flush_work(
+            origin,
+            hotkey,
+            netuid,
+            stake_to_be_added,
+            &mut BasketFlushWork::default(),
+        )
+    }
+
+    /// [`Self::do_add_stake`], adding the root pending-dividend flush it runs to `flush_work`.
+    pub(crate) fn do_add_stake_with_flush_work(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+        netuid: NetUid,
+        stake_to_be_added: TaoBalance,
+        flush_work: &mut BasketFlushWork,
+    ) -> Result<AlphaBalance, DispatchError> {
         // 1. We check that the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
         log::debug!(
@@ -53,13 +70,14 @@ impl<T: Config> Pallet<T> {
 
         // 3. Swap the stake into alpha on the subnet and increase counters.
         // Emit the staking event.
-        Self::stake_into_subnet(
+        Self::stake_into_subnet_with_flush_work(
             &hotkey,
             &coldkey,
             netuid,
             stake_to_be_added,
             T::SwapInterface::max_price(),
             false,
+            flush_work,
         )
     }
 
@@ -100,6 +118,27 @@ impl<T: Config> Pallet<T> {
         limit_price: TaoBalance,
         allow_partial: bool,
     ) -> Result<AlphaBalance, DispatchError> {
+        Self::do_add_stake_limit_with_flush_work(
+            origin,
+            hotkey,
+            netuid,
+            stake_to_be_added,
+            limit_price,
+            allow_partial,
+            &mut BasketFlushWork::default(),
+        )
+    }
+
+    /// [`Self::do_add_stake_limit`], adding the root pending-dividend flush it runs to `flush_work`.
+    pub(crate) fn do_add_stake_limit_with_flush_work(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+        netuid: NetUid,
+        stake_to_be_added: TaoBalance,
+        limit_price: TaoBalance,
+        allow_partial: bool,
+        flush_work: &mut BasketFlushWork,
+    ) -> Result<AlphaBalance, DispatchError> {
         // 1. We check that the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
         log::debug!(
@@ -132,13 +171,14 @@ impl<T: Config> Pallet<T> {
 
         // 5. Swap the stake into alpha on the subnet and increase counters.
         // Emit the staking event.
-        Self::stake_into_subnet(
+        Self::stake_into_subnet_with_flush_work(
             &hotkey,
             &coldkey,
             netuid,
             possible_stake,
             limit_price,
             false,
+            flush_work,
         )
     }
 

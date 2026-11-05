@@ -116,7 +116,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }
@@ -433,7 +433,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }

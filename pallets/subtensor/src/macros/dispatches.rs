@@ -565,8 +565,22 @@ mod dispatches {
             hotkey: T::AccountId,
             netuid: NetUid,
             amount_staked: TaoBalance,
-        ) -> DispatchResult {
-            Self::do_add_stake(origin, hotkey, netuid, amount_staked).map(|_| ())
+        ) -> DispatchResultWithPostInfo {
+            let mut flush_work = crate::staking::BasketFlushWork::default();
+            Self::do_add_stake_with_flush_work(
+                origin,
+                hotkey,
+                netuid,
+                amount_staked,
+                &mut flush_work,
+            )?;
+            // Without a flush the declared weight stands, keeping the dispatch-extension weight it includes.
+            Ok((flush_work != Default::default())
+                .then(|| {
+                    <T as crate::pallet::Config>::WeightInfo::add_stake()
+                        .saturating_add(Self::basket_flush_weight(flush_work))
+                })
+                .into())
         }
 
         /// Remove stake from the staking account. The call must be made
@@ -1559,16 +1573,24 @@ mod dispatches {
             amount_staked: TaoBalance,
             limit_price: TaoBalance,
             allow_partial: bool,
-        ) -> DispatchResult {
-            Self::do_add_stake_limit(
+        ) -> DispatchResultWithPostInfo {
+            let mut flush_work = crate::staking::BasketFlushWork::default();
+            Self::do_add_stake_limit_with_flush_work(
                 origin,
                 hotkey,
                 netuid,
                 amount_staked,
                 limit_price,
                 allow_partial,
-            )
-            .map(|_| ())
+                &mut flush_work,
+            )?;
+            // Without a flush the declared weight stands, keeping the dispatch-extension weight it includes.
+            Ok((flush_work != Default::default())
+                .then(|| {
+                    <T as crate::pallet::Config>::WeightInfo::add_stake_limit()
+                        .saturating_add(Self::basket_flush_weight(flush_work))
+                })
+                .into())
         }
 
         /// Removes stake from a hotkey on a subnet with a price limit.

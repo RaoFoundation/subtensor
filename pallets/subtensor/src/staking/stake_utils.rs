@@ -1320,11 +1320,33 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<AlphaBalance, DispatchError> {
+        Self::stake_into_subnet_with_flush_work(
+            hotkey,
+            coldkey,
+            netuid,
+            tao,
+            price_limit,
+            drop_fees,
+            &mut crate::staking::basket_flush::BasketFlushWork::default(),
+        )
+    }
+
+    /// [`Self::stake_into_subnet`], adding the root pending-dividend flush it runs to `flush_work`.
+    pub(crate) fn stake_into_subnet_with_flush_work(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+        tao: TaoBalance,
+        price_limit: TaoBalance,
+        drop_fees: bool,
+        flush_work: &mut crate::staking::basket_flush::BasketFlushWork,
+    ) -> Result<AlphaBalance, DispatchError> {
         // Root stake is the claimant base for queued basket deposits: flush the hotkey's
         // pending dividend credits before the new stake lands, so it can't capture
         // flushable dividends earned before it arrived.
         if netuid.is_root() {
-            let (_, _, completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+            let (work, _, completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+            *flush_work = flush_work.saturating_add(work);
             ensure!(completed, Error::<T>::BasketDepositPending);
         }
 

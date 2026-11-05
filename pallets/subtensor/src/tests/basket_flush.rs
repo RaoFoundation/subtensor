@@ -12,12 +12,15 @@ use crate::tests::claim_root::{
     escrow_alpha, fund_pool, fund_shares, register_on_root, zero_claim_threshold,
 };
 use crate::tests::mock::*;
+use crate::weights::WeightInfo;
 use crate::{
     AlphaV2, BasketShares, IsNetworkMember, Keys, PendingBasketDeposits, PendingBasketFlushCursor,
     RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetTAO, TotalNetworks, Uids,
 };
 use frame_support::assert_ok;
+use frame_support::storage::with_transaction;
 use sp_core::U256;
+use sp_runtime::{DispatchError, TransactionOutcome};
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
@@ -1387,5 +1390,88 @@ fn test_shareless_escrow_only_credit_is_recycled() {
             "credit must recycle back into issuance"
         );
         assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+    });
+}
+
+fn enable_root_staking() {
+    add_network(NetUid::ROOT, 10, 0);
+    SubnetAlphaIn::<Test>::insert(NetUid::ROOT, AlphaBalance::from(10_000_000_000u64));
+}
+
+fn root_stake_one_tao(hotkey: U256, coldkey: U256) -> frame_support::dispatch::PostDispatchInfo {
+    add_balance_to_coldkey_account(&coldkey, TaoBalance::from(10_000_000_000u64));
+    SubtensorModule::add_stake(
+        RuntimeOrigin::signed(coldkey),
+        hotkey,
+        NetUid::ROOT,
+        TaoBalance::from(1_000_000_000u64),
+    )
+    .expect("root add_stake")
+}
+
+/// Dust left queued by the flush is charged as a quote, not as a settled row.
+#[test]
+fn test_root_add_stake_charges_dust_as_quotes_only() {
+    new_test_ext(1).execute_with(|| {
+        enable_root_staking();
+        SubtensorModule::set_tao_weight(u64::MAX);
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(1_000_000_000u64));
+        let hot = U256::from(7401);
+        let cold = U256::from(7402);
+        let origin = setup_root_validator(hot, cold, 1);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(&cold, &hot));
+        queue_credit(&hot, origin, 1_000);
+        let base = <Test as crate::Config>::WeightInfo::add_stake();
+        let declared = base.saturating_add(SubtensorModule::root_pending_dividend_weight_for(
+            &hot, true,
+        ));
+
+        let actual = root_stake_one_tao(hot, cold)
+            .actual_weight
+            .expect("actual weight");
+
+        assert_eq!(
+            actual,
+            base.saturating_add(SubtensorModule::basket_flush_weight(BasketFlushWork::new(
+                1, 0
+            )))
+        );
+        assert!(actual.ref_time() < declared.ref_time());
+        assert!(pending_credit(&hot, origin) > 0, "dust must stay queued");
+    });
+}
+
+#[test]
+fn test_root_add_stake_charges_the_settlement_it_runs() {
+    new_test_ext(1).execute_with(|| {
+        enable_root_staking();
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        let hot = U256::from(7411);
+        let cold = U256::from(7412);
+        let origin = setup_root_validator(hot, cold, 1);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(&cold, &hot));
+        queue_credit(&hot, origin, 1_000_000);
+        let base = <Test as crate::Config>::WeightInfo::add_stake();
+        let declared = base.saturating_add(SubtensorModule::root_pending_dividend_weight_for(
+            &hot, true,
+        ));
+        let work = with_transaction(|| {
+            let (work, _, _) = SubtensorModule::flush_basket_deposits_for_hotkey(&hot);
+            TransactionOutcome::Rollback(Ok::<_, DispatchError>(work))
+        })
+        .expect("flush probe");
+        assert!(work.rows > 0, "the credit must clear the threshold");
+
+        let actual = root_stake_one_tao(hot, cold)
+            .actual_weight
+            .expect("actual weight");
+
+        assert_eq!(
+            actual,
+            base.saturating_add(SubtensorModule::basket_flush_weight(work))
+        );
+        assert!(actual.ref_time() <= declared.ref_time());
+        assert_eq!(pending_credit(&hot, origin), 0, "the credit must settle");
     });
 }
