@@ -1401,6 +1401,7 @@ fn test_withdraw_fails_if_no_contribution_exists() {
         });
 }
 
+// PROTECTED_REGRESSION: finalize requires full settlement and preserves unsolicited deposits; changes require explicit human approval.
 #[test]
 fn test_finalize_requires_full_settlement_and_preserves_unsolicited_deposits() {
     for amount in [0u64, 50, 99, 100] {
@@ -1462,6 +1463,7 @@ fn test_finalize_requires_full_settlement_and_preserves_unsolicited_deposits() {
     }
 }
 
+// PROTECTED_REGRESSION: finalize preserves inherited call filters; changes require explicit human approval.
 #[test]
 fn test_finalize_preserves_inherited_call_filters() {
     use frame_support::traits::OriginTrait;
@@ -2072,6 +2074,7 @@ fn test_finalize_fails_if_another_finalize_is_in_progress() {
 
 // The finalize `call` cannot re-enter `withdraw` on the same crowdloan: it is rejected and
 // the extrinsic reverts, so no funds move and `raised` stays consistent with the real balance.
+// PROTECTED_REGRESSION: finalize blocks reentrant withdraw; changes require explicit human approval.
 #[test]
 fn test_finalize_blocks_reentrant_withdraw() {
     TestState::default()
@@ -2146,6 +2149,7 @@ fn test_finalize_blocks_reentrant_withdraw() {
 }
 
 // A re-entrant `refund` embedded as the finalize call is likewise rejected before moving funds.
+// PROTECTED_REGRESSION: finalize blocks reentrant refund; changes require explicit human approval.
 #[test]
 fn test_finalize_blocks_reentrant_refund() {
     TestState::default()

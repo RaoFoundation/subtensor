@@ -319,6 +319,7 @@ mod mapping_precharge_tests {
         }
     }
 
+    // PROTECTED_REGRESSION: value transfer with only the 2300 gas stipend still succeeds; changes require explicit human approval.
     #[test]
     fn value_transfer_with_only_the_2300_gas_stipend_still_succeeds() {
         sp_io::TestExternalities::default().execute_with(|| {
@@ -508,6 +509,7 @@ mod external_oog_atomicity_tests {
         code.extend_from_slice(&[0x60, 0, 0xf1, 0x50]);
     }
 
+    // PROTECTED_REGRESSION: caught external oog cannot commit parent storage; changes require explicit human approval.
     #[test]
     fn caught_external_oog_cannot_commit_parent_storage() {
         sp_io::TestExternalities::default().execute_with(|| {
@@ -551,6 +553,7 @@ mod external_oog_atomicity_tests {
         });
     }
 
+    // PROTECTED_REGRESSION: global exhaustion reverts call create and create2 effects; changes require explicit human approval.
     #[test]
     fn global_exhaustion_reverts_call_create_and_create2_effects() {
         for operation in [Operation::Call, Operation::Create, Operation::Create2] {
@@ -681,6 +684,7 @@ mod external_oog_atomicity_tests {
         }
     }
 
+    // PROTECTED_REGRESSION: create cleanup cannot install code after a rejected commit; changes require explicit human approval.
     #[test]
     fn create_cleanup_cannot_install_code_after_a_rejected_commit() {
         use evm::executor::stack::{StackExecutor, StackSubstateMetadata};

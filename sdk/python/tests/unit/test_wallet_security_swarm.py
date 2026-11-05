@@ -159,6 +159,8 @@ def test_pq_generic_message_interface_refuses_spending_key_reuse(crypto):
         key.sign(b"arbitrary website message")
 
 
+# Regression invariant: mismatched public companion must not switch spending account.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("crypto", FIXED_PQ_CRYPTO_TYPES)
 @pytest.mark.parametrize("encrypted", [False, True])
 async def test_mismatched_public_companion_must_not_switch_spending_account(
@@ -181,6 +183,8 @@ async def test_mismatched_public_companion_must_not_switch_spending_account(
     assert signer.ss58_address == displayed.ss58_address
 
 
+# Regression invariant: wallet unlock rejects mismatched companion for every scheme.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("crypto", [0, 1, *NEW_TYPES])
 @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
 def test_wallet_unlock_rejects_mismatched_companion_for_every_scheme(tmp_path, crypto, role):
@@ -228,6 +232,8 @@ def signer_view(key):
     )
 
 
+# Regression invariant: fixed generation hook cannot replace any identity field.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("crypto", FIXED_PQ_CRYPTO_TYPES)
 @pytest.mark.parametrize("in_place", [False, True])
 @pytest.mark.parametrize(
@@ -254,6 +260,8 @@ async def test_fixed_generation_hook_cannot_replace_any_identity_field(crypto, i
     assert not hasattr(codec, "proof")
 
 
+# Regression invariant: rotating generation hook cannot switch account even for shield inner.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("crypto", [4, 6, 7, 10, 12])
 @pytest.mark.parametrize("offset", [0, 1])
 async def test_rotating_generation_hook_cannot_switch_account_even_for_shield_inner(crypto, offset):
@@ -324,6 +332,8 @@ def test_eagerly_unlocked_wallet_keeps_the_reviewed_public_identity(crypto, role
             resolve_signer(wallet, role)
 
 
+# Regression invariant: plan execute rejects eager unlock identity change before submission.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("crypto", FIXED_PQ_CRYPTO_TYPES)
 async def test_plan_execute_rejects_eager_unlock_identity_change_before_submission(crypto):
     from bittensor.executor import Executor
@@ -346,6 +356,8 @@ async def test_plan_execute_rejects_eager_unlock_identity_change_before_submissi
     assert substrate.submissions == []
 
 
+# Regression invariant: plan cannot change signer after quote.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("crypto", [8, 9, 11])
 async def test_plan_cannot_change_signer_after_quote(crypto):
     from bittensor.executor import Executor
@@ -375,6 +387,8 @@ async def test_plan_cannot_change_signer_after_quote(crypto):
     assert substrate.submissions == []
 
 
+# Regression invariant: wallet signer pins public companion during unlock.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("crypto", [8, 9, 11])
 def test_wallet_signer_pins_public_companion_during_unlock(tmp_path, crypto):
     private = Keypair.create_from_seed(MASTER, crypto)
@@ -390,6 +404,8 @@ def test_wallet_signer_pins_public_companion_during_unlock(tmp_path, crypto):
     assert signer._keypair is None
 
 
+# Regression invariant: shield quote cannot change the fee payer before signing.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("crypto", [8, 9, 11])
 async def test_shield_quote_cannot_change_the_fee_payer_before_signing(crypto):
     from bittensor.executor import Executor

@@ -220,6 +220,8 @@ def test_cli_rejects_long_rotating_private_key_before_writing(wallet_path, schem
     assert not wallet_path.exists()
 
 
+# Regression invariant: cli ed recovery preserves legacy 64 byte backups.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
 def test_cli_ed_recovery_preserves_legacy_64_byte_backups(wallet_path, role):
     original = Keypair.create_from_seed(bytes([32]) * 32, CRYPTO_ED25519)
@@ -447,6 +449,8 @@ def test_mldsa_short_mnemonic_rejected_before_wallet_write(wallet_path):
     assert not wallet_path.exists()
 
 
+# Regression invariant: mixed wallet json creation preserves existing keys on invalid words.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("coldkey_type", [CRYPTO_ED25519, CRYPTO_SR25519])
 @pytest.mark.parametrize("hotkey_type", PQ_CRYPTO_TYPES)
 def test_mixed_wallet_json_creation_preserves_existing_keys_on_invalid_words(
@@ -478,6 +482,8 @@ def test_mixed_wallet_json_creation_preserves_existing_keys_on_invalid_words(
     assert after == before
 
 
+# Regression invariant: wallet create validates both schemes before generating keys.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize(
     "hotkey_options",
     [

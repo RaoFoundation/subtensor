@@ -12,7 +12,6 @@ use crate::transaction_payment_wrapper::{FeeWeightDiscount, fee_dispatch_info};
 use crate::{Balance, Runtime, RuntimeCall, TransactionPayment, Weight};
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo};
 use pallet_subtensor::Call as SubtensorCall;
-use pallet_subtensor::staking::BasketFlushWork;
 use pallet_subtensor_proxy::Call as ProxyCall;
 use pallet_subtensor_utility::Call as UtilityCall;
 use pallet_transaction_payment::{FeeDetails, RuntimeDispatchInfo};
@@ -33,10 +32,11 @@ pub const ROOT_CLAIM_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
 /// `basket_flush_work_bound`).
 pub fn root_claim_fee_weight(units: u32) -> Weight {
     let rows = u64::from(units);
-    pallet_subtensor::Pallet::<Runtime>::root_claim_weight_for_work(
-        units,
-        BasketFlushWork::new(rows.saturating_mul(6), rows),
-    )
+    // Monetary allowance uses the pre-487 model. The execution declaration
+    // independently includes the new stability checks and the full pending work.
+    <<Runtime as pallet_subtensor::Config>::WeightInfo as pallet_subtensor::weights::WeightInfo>::claim_root(units.saturating_mul(2))
+        .saturating_add(<<Runtime as pallet_subtensor::Config>::WeightInfo as pallet_subtensor::weights::WeightInfo>::claim_root_scan(units))
+        .saturating_add(pallet_subtensor::Pallet::<Runtime>::basket_nav_sweep_weight(rows.saturating_mul(6)))
 }
 
 fn root_claim_discount(limit: u32) -> Weight {
@@ -55,10 +55,10 @@ pub const BASKET_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
 /// prices.
 fn basket_fee_flush_weight(rows: u32) -> Weight {
     let rows = u64::from(rows);
-    pallet_subtensor::Pallet::<Runtime>::basket_flush_weight(BasketFlushWork::new(
-        rows.saturating_mul(6),
-        rows,
-    ))
+    // Keep the pre-487 monetary allowance; execution still declares the full
+    // settlement model, including the new stability-check reads.
+    pallet_subtensor::Pallet::<Runtime>::basket_nav_sweep_weight(rows.saturating_mul(6))
+        .saturating_add(<<Runtime as pallet_subtensor::Config>::WeightInfo as pallet_subtensor::weights::WeightInfo>::claim_root(rows as u32))
 }
 
 /// Weight a `swap_basket` is charged for: one trade over [`BASKET_FEE_ALLOWANCE`] rows
@@ -198,15 +198,45 @@ pub fn leaf_fee_weight(call: &RuntimeCall, declared: Weight) -> Weight {
     let fee_weight = declared
         .saturating_sub(staking_scan_discount(call))
         .saturating_sub(claim_discount(call))
-        .saturating_sub(basket_discount(call));
+        .saturating_sub(basket_discount(call))
+        // Fee-only legacy compatibility credits. Dispatch and Frontier's full
+        // address-mapping resource meter (including atomic OOG) are unchanged.
+        .saturating_sub(match call {
+            RuntimeCall::EVM(pallet_evm::Call::withdraw { .. }) => {
+                pallet_evm::account_cost::weight::<Runtime>(2)
+            }
+            RuntimeCall::EVM(
+                pallet_evm::Call::call { .. }
+                | pallet_evm::Call::create { .. }
+                | pallet_evm::Call::create2 { .. },
+            ) => pallet_evm::account_cost::weight::<Runtime>(1),
+            RuntimeCall::Proxy(ProxyCall::proxy_announced { .. }) => {
+                <Runtime as frame_system::Config>::DbWeight::get().reads(1)
+            }
+            RuntimeCall::SubtensorModule(SubtensorCall::root_register { .. }) => {
+                <Runtime as frame_system::Config>::DbWeight::get().reads(2)
+            }
+            RuntimeCall::SubtensorModule(
+                SubtensorCall::register_network { .. }
+                | SubtensorCall::register_network_with_identity { .. },
+            ) => {
+                // Their historical snapshots are 25,000 rao below the unchanged
+                // benchmark/guard model. Credit one DB-write-priced unit to honor
+                // the owner's requested baseline, without changing that model.
+                // This is a monetary subsidy, not an estimate of storage writes.
+                <Runtime as frame_system::Config>::DbWeight::get().writes(1)
+            }
+            _ => Weight::zero(),
+        });
     match fee_weight_cap_459(call) {
         Some(cap) => fee_weight.min(cap),
         None => fee_weight,
     }
 }
 
-/// Fee-bearing leaves of `call`. Only descend through wrappers whose declared weight
-/// includes their inner calls' weights; in particular, never descend into `with_weight`.
+/// Fee-bearing leaves and announcement wrappers with a compatibility discount.
+/// Only descend through wrappers whose declared weight includes the inner calls;
+/// in particular, never descend into `with_weight`.
 fn leaves(call: &RuntimeCall) -> Vec<&RuntimeCall> {
     let mut pending = vec![call];
     let mut out = Vec::new();
@@ -228,9 +258,11 @@ fn leaves(call: &RuntimeCall) -> Vec<&RuntimeCall> {
                 | UtilityCall::dispatch_as { call, .. }
                 | UtilityCall::dispatch_as_fallible { call, .. },
             )
-            | RuntimeCall::Proxy(
-                ProxyCall::proxy { call, .. } | ProxyCall::proxy_announced { call, .. },
-            ) => pending.push(call),
+            | RuntimeCall::Proxy(ProxyCall::proxy { call, .. }) => pending.push(call),
+            RuntimeCall::Proxy(ProxyCall::proxy_announced { call: inner, .. }) => {
+                out.push(call);
+                pending.push(inner);
+            }
             _ => out.push(call),
         }
     }
@@ -265,6 +297,21 @@ impl FeeWeightDiscount<RuntimeCall> for Runtime {
         } else {
             Weight::zero()
         }
+    }
+
+    fn fee_refund_discount(call: &RuntimeCall) -> Weight {
+        // The announcement-validity read is included in the proxy's actual
+        // weight too. Keep its legacy fee credit when the inner call refunds.
+        leaves(call)
+            .into_iter()
+            .fold(Weight::zero(), |credit, leaf| {
+                if matches!(leaf, RuntimeCall::Proxy(ProxyCall::proxy_announced { .. })) {
+                    credit
+                        .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads(1))
+                } else {
+                    credit
+                }
+            })
     }
 }
 
@@ -401,6 +448,116 @@ mod tests {
                 ),
             ),
         ]
+    }
+
+    #[test]
+    fn announced_proxy_refunds_preserve_the_legacy_validity_read_credit() {
+        use sp_runtime::traits::{Dispatchable, Hash};
+        use subtensor_runtime_common::ProxyType;
+
+        for batched in [false, true] {
+            new_test_ext().execute_with(|| {
+                let real = AccountId::from([3_u8; 32]);
+                // The real account can reserve its proxy deposit but cannot pay
+                // this transfer. Batch stops before the expensive second call.
+                assert_ok!(Balances::force_set_balance(
+                    RuntimeOrigin::root(),
+                    real.clone().into(),
+                    Balance::new(1_000_000_000),
+                ));
+                let inner = RuntimeCall::Utility(UtilityCall::batch {
+                    calls: vec![
+                        RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+                            dest: signer().into(),
+                            value: Balance::new(1_000_000_000_000),
+                        }),
+                        RuntimeCall::System(frame_system::Call::remark {
+                            remark: vec![0; 1024],
+                        }),
+                    ],
+                });
+                assert_ok!(crate::Proxy::add_proxy(
+                    RuntimeOrigin::signed(real.clone()),
+                    signer().into(),
+                    ProxyType::Any,
+                    1,
+                ));
+                let hash = <Runtime as frame_system::Config>::Hashing::hash_of(&inner);
+                assert_ok!(crate::Proxy::announce(
+                    RuntimeOrigin::signed(signer()),
+                    real.clone().into(),
+                    hash
+                ));
+                System::set_block_number(2);
+                let announced = RuntimeCall::Proxy(ProxyCall::proxy_announced {
+                    delegate: signer().into(),
+                    real: real.into(),
+                    force_proxy_type: None,
+                    call: Box::new(inner),
+                });
+                let call = if batched {
+                    RuntimeCall::Utility(UtilityCall::batch_all {
+                        calls: vec![announced],
+                    })
+                } else {
+                    announced
+                };
+                let payment = ChargeTransactionPaymentWrapper::<Runtime>::new(Balance::new(123));
+                let info = DispatchInfo {
+                    extension_weight: payment.weight(&call),
+                    ..call.get_dispatch_info()
+                };
+                let credit = <Runtime as frame_system::Config>::DbWeight::get().reads(1);
+                assert_eq!(Runtime::fee_refund_discount(&call), credit);
+                let fee_info = fee_dispatch_info(&info, discount(&call));
+                // Executing an announcement releases its reserved deposit;
+                // count it as owned balance on both sides of the fee debit.
+                let before = Balances::free_balance(signer())
+                    .saturating_add(Balances::reserved_balance(signer()));
+                let post = payment
+                    .test_run(
+                        RuntimeOrigin::signed(signer()),
+                        &call,
+                        &info,
+                        100,
+                        0,
+                        |_| call.clone().dispatch(RuntimeOrigin::signed(signer())),
+                    )
+                    .unwrap()
+                    .unwrap();
+                let actual = post.calc_actual_weight(&info);
+                assert!(
+                    actual.ref_time() < fee_info.total_weight().ref_time(),
+                    "exercise a real inner refund below the fee cap"
+                );
+                let expected_post = PostDispatchInfo {
+                    actual_weight: Some(actual.saturating_sub(credit)),
+                    pays_fee: Pays::Yes,
+                };
+                let expected = TransactionPayment::compute_actual_fee(
+                    100,
+                    &fee_info,
+                    &expected_post,
+                    Balance::new(123),
+                );
+                let after = Balances::free_balance(signer())
+                    .saturating_add(Balances::reserved_balance(signer()));
+                let charged = before.saturating_sub(after);
+                assert_eq!(
+                    charged, expected,
+                    "the validity read must remain subsidized after refunds"
+                );
+                assert!(
+                    charged
+                        < TransactionPayment::compute_actual_fee(
+                            100,
+                            &fee_info,
+                            &post,
+                            Balance::new(123)
+                        )
+                );
+            });
+        }
     }
 
     #[test]

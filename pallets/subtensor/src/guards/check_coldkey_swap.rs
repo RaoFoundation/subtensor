@@ -295,6 +295,7 @@ mod tests {
         });
     }
 
+    // PROTECTED_REGRESSION: reset keeps recovery locked through reannouncement and redispute; changes require explicit human approval.
     #[test]
     fn reset_keeps_recovery_locked_through_reannouncement_and_redispute() {
         new_test_ext(1).execute_with(|| {
@@ -413,6 +414,7 @@ mod tests {
         });
     }
 
+    // PROTECTED_REGRESSION: reset lock cannot be cleared by swapping to self; changes require explicit human approval.
     #[test]
     fn reset_lock_cannot_be_cleared_by_swapping_to_self() {
         new_test_ext(1).execute_with(|| {
@@ -542,6 +544,7 @@ mod tests {
         });
     }
 
+    // PROTECTED_REGRESSION: original reset still fully unlocks a recovery locked key; changes require explicit human approval.
     #[test]
     fn original_reset_still_fully_unlocks_a_recovery_locked_key() {
         new_test_ext(1).execute_with(|| {

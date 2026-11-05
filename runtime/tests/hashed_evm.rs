@@ -584,6 +584,7 @@ fn metered_call_with_limit(
     .unwrap()
 }
 
+// PROTECTED_REGRESSION: mapping charges preserve the recipient call stipend; changes require explicit human approval.
 #[test]
 fn mapping_charges_preserve_the_recipient_call_stipend() {
     // CALL with value forwards zero gas plus the 2,300 stipend; a zero-value
@@ -662,6 +663,7 @@ fn warm_balance_reads_preserve_opcode_gas_and_charge_mapping_weight() {
     }
 }
 
+// PROTECTED_REGRESSION: mapping external weight exhaustion reverts contract storage; changes require explicit human approval.
 #[test]
 fn mapping_external_weight_exhaustion_reverts_contract_storage() {
     let mut code = vec![0x60, 1, 0x60, 0, 0x55]; // SSTORE(0, 1)
@@ -695,6 +697,7 @@ fn mapping_external_weight_exhaustion_reverts_contract_storage() {
     });
 }
 
+// PROTECTED_REGRESSION: create gas limit failure precedes commit for create and create2; changes require explicit human approval.
 #[test]
 fn create_gas_limit_failure_precedes_commit_for_create_and_create2() {
     for create2 in [false, true] {
@@ -856,6 +859,7 @@ fn unchanged_mapping_precompile_returns_registered_owner_and_charges_its_lookup(
     });
 }
 
+// PROTECTED_REGRESSION: unchanged transfer precompile spends from owner and reverts on dispatch oog; changes require explicit human approval.
 #[test]
 fn unchanged_transfer_precompile_spends_from_owner_and_reverts_on_dispatch_oog() {
     let source = H160::repeat_byte(75);

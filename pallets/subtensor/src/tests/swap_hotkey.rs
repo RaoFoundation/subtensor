@@ -48,6 +48,7 @@ fn subnet_swaps_rename_a_delegators_only_staking_hotkey() {
     });
 }
 
+// PROTECTED_REGRESSION: gifted stake and repeated subnet swaps cannot grow the victims list; changes require explicit human approval.
 #[test]
 fn gifted_stake_and_repeated_subnet_swaps_cannot_grow_the_victims_list() {
     new_test_ext(1).execute_with(|| {
@@ -330,6 +331,7 @@ fn root_swap_retained_stake_keeps_earned_basket_credit_without_list_growth() {
     });
 }
 
+// PROTECTED_REGRESSION: auto stake target and hotkey creation cannot grow a full list; changes require explicit human approval.
 #[test]
 fn auto_stake_target_and_hotkey_creation_cannot_grow_a_full_list() {
     new_test_ext(1).execute_with(|| {
@@ -561,6 +563,7 @@ fn test_swap_total_hotkey_stake() {
     });
 }
 
+// PROTECTED_REGRESSION: all subnets keep stake preserves ownership and withdrawal; changes require explicit human approval.
 #[test]
 fn test_all_subnets_keep_stake_preserves_ownership_and_withdrawal() {
     for destination_exists in [false, true] {
@@ -2370,6 +2373,7 @@ fn ghsa_2026_011_subnet_swap_interval_bypassed_by_all_subnets_path() {
     });
 }
 
+// PROTECTED_REGRESSION: delegated alpha destination has recovery window after deregistration; changes require explicit human approval.
 #[test]
 fn delegated_alpha_destination_has_recovery_window_after_deregistration() {
     new_test_ext(1).execute_with(|| {
@@ -2586,6 +2590,7 @@ fn ghsa_2026_011_all_subnets_swap_covers_parent_key_subnets_not_child_side() {
 // Fails on the vulnerable code; passes with the fix in this PR.
 // ============================================================
 
+// PROTECTED_REGRESSION: ghsa 2026 014 childkey take not migrated on hotkey swap; changes require explicit human approval.
 #[test]
 fn ghsa_2026_014_childkey_take_not_migrated_on_hotkey_swap() {
     new_test_ext(1).execute_with(|| {

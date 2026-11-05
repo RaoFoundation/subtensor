@@ -77,6 +77,7 @@ fn set_sn_owner_hotkey_c67() -> RuntimeCall {
 /// GHSA-2026-001 — NonTransfer and NonFungible proxies (the two "cannot move my funds"
 /// types) ALLOW the new coldkey-swap lifecycle, so a restricted delegate can take over
 /// the whole coldkey. Reproduced by asserting the calls are NOT filtered.
+// PROTECTED_REGRESSION: ghsa 2026 001 restricted proxies allow coldkey swap lifecycle; changes require explicit human approval.
 #[test]
 fn ghsa_2026_001_restricted_proxies_allow_coldkey_swap_lifecycle() {
     let announce = announce_coldkey_swap();
@@ -119,6 +120,7 @@ fn ghsa_2026_001_noncritical_is_not_a_fund_protection_type() {
 
 /// GHSA-2026-002 — NonFungible denies the deprecated swap_hotkey (call 70) but ALLOWS the
 /// live swap_hotkey_v2 (call 72); and the SwapHotkey allow-list permits only call 70.
+// PROTECTED_REGRESSION: ghsa 2026 002 nonfungible allows swap hotkey v2 gap; changes require explicit human approval.
 #[test]
 fn ghsa_2026_002_nonfungible_allows_swap_hotkey_v2_gap() {
     // The denylist blocks the old call but not the live superset.
@@ -153,6 +155,7 @@ fn ghsa_2026_003_owner_proxy_set_owner_hotkey_alias_bypass() {
 
 /// Registration collateral must remain payable when composed with the real
 /// runtime's refundable preimage deposit and a subsequent balance drain.
+// PROTECTED_REGRESSION: subnet registration preimage hold cannot short fund settlement; changes require explicit human approval.
 #[test]
 fn subnet_registration_preimage_hold_cannot_short_fund_settlement() {
     use frame_support::{

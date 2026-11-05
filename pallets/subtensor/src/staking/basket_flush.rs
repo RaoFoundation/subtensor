@@ -92,7 +92,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Worst-case allowance for a single hotkey's bounded pending-dividend settlement.
-    /// Call-specific stake weights use [`Self::root_pending_dividend_weight_for`] instead.
+    /// Stake dispatchables intentionally omit this surcharge for release fee compatibility.
     pub fn root_pending_dividend_weight(on_root: bool) -> Weight {
         if on_root {
             Self::basket_flush_weight(BasketFlushWork::new(
@@ -106,8 +106,8 @@ impl<T: Config> Pallet<T> {
 
     /// Allowance sized to the pending rows and current holdings of `hotkey`. The settlement
     /// does at most `Q + H + 2Q + H + Q = 4Q + 2H` quotes and `Q` credit rows. This keeps
-    /// ordinary root stake calls cheap while preserving the full bounded envelope for a
-    /// hotkey that really has 256 queued credits and 256 holdings.
+    /// other settlement callers proportional to the queue while retaining the full bounded
+    /// envelope for a hotkey with 256 queued credits and 256 holdings.
     pub fn root_pending_dividend_weight_for(hotkey: &T::AccountId, on_root: bool) -> Weight {
         if !on_root {
             return Weight::zero();
@@ -171,7 +171,6 @@ impl<T: Config> Pallet<T> {
     /// allowance: the queued credit rows summed over the hotkeys are at most
     /// [`MAX_BASKET_FLUSH_ROWS`]. Stops as soon as the budget is exceeded, so the check
     /// itself is bounded work.
-    #[cfg(test)]
     pub(crate) fn basket_flush_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
         let mut rows: u64 = 0;
         for hotkey in hotkeys {

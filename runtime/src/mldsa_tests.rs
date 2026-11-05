@@ -653,6 +653,7 @@ fn pq_delegates_preserve_identity_and_classical_delegates_are_rejected() {
     });
 }
 
+// PROTECTED_REGRESSION: derived protection cannot elevate restricted proxies through evm; changes require explicit human approval.
 #[test]
 fn derived_protection_cannot_elevate_restricted_proxies_through_evm() {
     use pallet_evm::{AddressMapping, FeeCalculator};

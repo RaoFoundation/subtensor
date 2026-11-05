@@ -35,6 +35,7 @@ mod neuron_info;
 mod null_consensus;
 mod recycle_alpha;
 mod registration;
+mod regression;
 mod remove_data_tests;
 mod serving;
 mod stake_into_basket;

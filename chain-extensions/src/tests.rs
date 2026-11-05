@@ -2105,6 +2105,7 @@ fn caller_endpoints_reject_before_input_decoding() {
     });
 }
 
+// PROTECTED_REGRESSION: legacy wasm cannot spend caller assets or grant proxy authority; changes require explicit human approval.
 #[test]
 fn legacy_wasm_cannot_spend_caller_assets_or_grant_proxy_authority() {
     use pallet_contracts::{Code, CollectEvents, DebugInfo, Determinism};

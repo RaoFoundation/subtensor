@@ -1406,6 +1406,7 @@ fn second_batched_linked_order_finds_nothing() {
 /// Consume happens after distribute. A batch that fails there (`ZeroShareInBatch`)
 /// must leave the provider record in place without relying on FRAME rollback of
 /// an earlier `take`.
+// PROTECTED_REGRESSION: batched zero share does not consume record; changes require explicit human approval.
 #[test]
 fn batched_zero_share_does_not_consume_record() {
     new_test_ext().execute_with(|| {

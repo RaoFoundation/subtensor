@@ -355,6 +355,7 @@ fn test_add_stake_total_issuance_no_change() {
 // Regression: a divergent share pool (S/D > 1) must not let a coldkey withdraw more alpha
 // than the hotkey pool really holds.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_remove_stake_cannot_exceed_real_pool_value --exact
+// PROTECTED_REGRESSION: Unstaking must not extract more alpha than the pool holds; changes require explicit human approval.
 #[test]
 fn test_remove_stake_cannot_exceed_real_pool_value() {
     new_test_ext(1).execute_with(|| {
@@ -437,6 +438,7 @@ fn test_remove_stake_cannot_exceed_real_pool_value() {
 // Regression for the two-member PoC: even when every member's raw quote exceeds the pool,
 // the total that can leave the hotkey pool is bounded by what the pool really holds.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_two_inflated_members_cannot_extract_more_than_pool --exact
+// PROTECTED_REGRESSION: Inflated member shares must not drain unbacked TAO; changes require explicit human approval.
 #[test]
 fn test_two_inflated_members_cannot_extract_more_than_pool() {
     new_test_ext(1).execute_with(|| {
@@ -610,6 +612,7 @@ fn raw_share_ratio(hotkey: &U256, coldkey: &U256, netuid: NetUid) -> f64 {
 // on the whole pool. With the denominator-derived share update the raw ratio never exceeds
 // 1 and the members are never quoted more than the pool holds.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_share_pool_grind_keeps_member_share_within_denominator --exact
+// PROTECTED_REGRESSION: Runtime share-pool accounting must prevent unbacked alpha; changes require explicit human approval.
 #[test]
 fn test_share_pool_grind_keeps_member_share_within_denominator() {
     new_test_ext(1).execute_with(|| {
@@ -720,6 +723,7 @@ fn test_share_pool_grind_keeps_member_share_within_denominator() {
 // so the other inflated share is retired: an innocent later depositor owns the whole pool,
 // the stale share is quoted zero and cannot withdraw, and the depositor recovers its stake.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_later_depositor_recovers_stake_after_pool_drained_through_cap --exact
+// PROTECTED_REGRESSION: Stale shares must not steal a later depositor stake; changes require explicit human approval.
 #[test]
 fn test_later_depositor_recovers_stake_after_pool_drained_through_cap() {
     new_test_ext(1).execute_with(|| {
@@ -880,6 +884,7 @@ fn test_later_depositor_recovers_stake_after_pool_drained_through_cap() {
 // A pool with recorded shares but no value cannot price a deposit. Instead of handing the
 // depositor nothing (and the dormant shares everything), the deposit re-opens the pool.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_deposit_into_valueless_pool_with_dormant_shares --exact
+// PROTECTED_REGRESSION: deposit into valueless pool with dormant shares; changes require explicit human approval.
 #[test]
 fn test_deposit_into_valueless_pool_with_dormant_shares() {
     new_test_ext(1).execute_with(|| {
@@ -940,6 +945,7 @@ fn test_deposit_into_valueless_pool_with_dormant_shares() {
 // Pre-upgrade state: a pool drained through the cap under the old code left inflated rows
 // behind with no denominator and no epoch stamps. Re-opening it must retire those rows.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_legacy_leftover_rows_cannot_claim_reopened_pool --exact
+// PROTECTED_REGRESSION: legacy leftover rows cannot claim reopened pool; changes require explicit human approval.
 #[test]
 fn test_legacy_leftover_rows_cannot_claim_reopened_pool() {
     new_test_ext(1).execute_with(|| {
@@ -6215,6 +6221,7 @@ fn test_maybe_remove_staking_hotkey_only_removes_empty_relationships() {
     });
 }
 
+// PROTECTED_REGRESSION: maybe remove staking hotkey preserves basket claimant; changes require explicit human approval.
 #[test]
 fn test_maybe_remove_staking_hotkey_preserves_basket_claimant() {
     new_test_ext(1).execute_with(|| {

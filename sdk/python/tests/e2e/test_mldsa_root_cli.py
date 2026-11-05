@@ -30,6 +30,8 @@ pytestmark = [
 ]
 
 
+# Regression invariant: root cli moves selected ms wallet without touching configured wallet.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("code,selector", [(7, "local"), (8, "receiving")])
 async def test_root_cli_moves_selected_ms_wallet_without_touching_configured_wallet(
     tmp_path, code, selector

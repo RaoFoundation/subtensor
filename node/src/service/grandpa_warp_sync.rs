@@ -306,6 +306,7 @@ mod tests {
         assert!(justification.verify(2, &checkpoint.authorities).is_err());
     }
 
+    // PROTECTED_REGRESSION: finney initial set id is applied only at warp sync start; changes require explicit human approval.
     #[test]
     fn finney_initial_set_id_is_applied_only_at_warp_sync_start() {
         let provider = InitialSetIdProvider::new(RecordingProvider::default(), 3);

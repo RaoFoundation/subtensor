@@ -95,6 +95,7 @@ fn leave_root(hot: &U256, cold: &U256) {
     SubtensorModule::maybe_remove_staking_hotkey(hot, cold);
 }
 
+// PROTECTED_REGRESSION: deferred dividend can be claimed after full exit without an ema window; changes require explicit human approval.
 #[test]
 fn deferred_dividend_can_be_claimed_after_full_exit_without_an_ema_window() {
     new_test_ext(1).execute_with(|| {
@@ -121,6 +122,7 @@ fn deferred_dividend_can_be_claimed_after_full_exit_without_an_ema_window() {
     });
 }
 
+// PROTECTED_REGRESSION: deferred dividends from multiple unstable origins are not stranded or paid twice; changes require explicit human approval.
 #[test]
 fn deferred_dividends_from_multiple_unstable_origins_are_not_stranded_or_paid_twice() {
     new_test_ext(1).execute_with(|| {
@@ -148,6 +150,7 @@ fn deferred_dividends_from_multiple_unstable_origins_are_not_stranded_or_paid_tw
     });
 }
 
+// PROTECTED_REGRESSION: deferred epochs follow the stake that earned each credit; changes require explicit human approval.
 #[test]
 fn deferred_epochs_follow_the_stake_that_earned_each_credit() {
     new_test_ext(1).execute_with(|| {
@@ -181,6 +184,7 @@ fn deferred_epochs_follow_the_stake_that_earned_each_credit() {
     });
 }
 
+// PROTECTED_REGRESSION: deferred rights survive coldkey and hotkey renames after full exit; changes require explicit human approval.
 #[test]
 fn deferred_rights_survive_coldkey_and_hotkey_renames_after_full_exit() {
     new_test_ext(1).execute_with(|| {
@@ -207,6 +211,7 @@ fn deferred_rights_survive_coldkey_and_hotkey_renames_after_full_exit() {
     });
 }
 
+// PROTECTED_REGRESSION: dissolving origin preserves deferred cash and allows netuid reuse; changes require explicit human approval.
 #[test]
 fn dissolving_origin_preserves_deferred_cash_and_allows_netuid_reuse() {
     new_test_ext(1).execute_with(|| {
@@ -260,6 +265,7 @@ fn dissolving_origin_preserves_deferred_cash_and_allows_netuid_reuse() {
     });
 }
 
+// PROTECTED_REGRESSION: dissolution cashes out deferred only fund before generic stake teardown; changes require explicit human approval.
 #[test]
 fn dissolution_cashes_out_deferred_only_fund_before_generic_stake_teardown() {
     new_test_ext(1).execute_with(|| {
@@ -294,6 +300,7 @@ fn dissolution_cashes_out_deferred_only_fund_before_generic_stake_teardown() {
     });
 }
 
+// PROTECTED_REGRESSION: snapshot credits the funds own yield before its shareholders leave; changes require explicit human approval.
 #[test]
 fn snapshot_credits_the_funds_own_yield_before_its_shareholders_leave() {
     new_test_ext(1).execute_with(|| {
@@ -333,6 +340,7 @@ fn snapshot_credits_the_funds_own_yield_before_its_shareholders_leave() {
     });
 }
 
+// PROTECTED_REGRESSION: retained root stake keeps deferred credit when the fund hotkey moves; changes require explicit human approval.
 #[test]
 fn retained_root_stake_keeps_deferred_credit_when_the_fund_hotkey_moves() {
     new_test_ext(1).execute_with(|| {
@@ -632,6 +640,7 @@ fn test_flush_root_eviction_recycles_dust_after_membership_drop() {
 
 /// A root neuron with an out-of-band dividend settles it at the clamped mark before replacement,
 /// without waiting for the manipulated price to recover.
+// PROTECTED_REGRESSION: flush root eviction preserves out of band dividend; changes require explicit human approval.
 #[test]
 fn test_flush_root_eviction_preserves_out_of_band_dividend() {
     new_test_ext(1).execute_with(|| {
@@ -1052,7 +1061,7 @@ fn test_basket_flush_fits_declared_budget_bounds_queued_rows() {
         ]));
 
         // The claim admission check folds the flush axis in.
-        assert!(!SubtensorModule::root_claim_fits_declared_budget(&[hot_a]));
+        assert!(SubtensorModule::root_claim_fits_declared_budget(&[hot_a]));
         assert!(!SubtensorModule::root_claim_fits_declared_budget(&[
             hot_a, hot_b, hot_c
         ]));

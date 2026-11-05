@@ -97,6 +97,7 @@ fn sell_back_to_ema(netuid: NetUid) {
 /// liquidity cap this runs until the turnover budget is spent and loses ~90% of what it
 /// spends; with the cap it stops once the fund holds 10% of the pool's alpha reserve, and
 /// the fund's realizable NAV loss is bounded to a sliver of the pool's TAO reserve.
+// PROTECTED_REGRESSION: liquidity cap stops thin pool drain; changes require explicit human approval.
 #[test]
 fn test_liquidity_cap_stops_thin_pool_drain() {
     new_test_ext(1).execute_with(|| {
@@ -905,6 +906,7 @@ fn test_turnover_bucket_clamps_to_current_budget_and_carries_conservatively() {
 
 /// Destination flow survives unwind, decays over the refill window, rolls back
 /// with a failed trade, and follows a hotkey swap after the holding is zero.
+// PROTECTED_REGRESSION: destination flow survives unwind and follows hotkey; changes require explicit human approval.
 #[test]
 fn test_destination_flow_survives_unwind_and_follows_hotkey() {
     new_test_ext(1).execute_with(|| {

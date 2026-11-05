@@ -5,6 +5,7 @@ use pallet_limit_orders::{AuthorizedOrder, Order, OrderAuthorization, OrderType,
 use sp_runtime::{Perbill, traits::AccountIdConversion};
 use subtensor_runtime_common::AlphaBalance;
 
+// PROTECTED_REGRESSION: batch price failure reverts real assets approvals and nonces; changes require explicit human approval.
 #[test]
 fn batch_price_failure_reverts_real_assets_approvals_and_nonces() {
     // Two buyers split an odd alpha amount. Their one-unit rounding loss must
@@ -428,6 +429,7 @@ fn balance_reaping_removes_approvals_without_locking_an_existential_balance() {
     });
 }
 
+// PROTECTED_REGRESSION: derived protection requires cancelling classical proxy orders; changes require explicit human approval.
 #[test]
 fn derived_protection_requires_cancelling_classical_proxy_orders() {
     mldsa::with_profiles(|| {

@@ -301,6 +301,7 @@ fn validate_and_prepare_nonce(
 /// An alpha-only coldkey signs one cross-subnet `transfer_stake` to another coldkey. The
 /// signer's system account and nonce must survive the dispatch, so the identical signed
 /// extrinsic is rejected as stale instead of being applied again.
+// PROTECTED_REGRESSION: alpha only coldkey cross subnet transfer is not replayable; changes require explicit human approval.
 #[test]
 fn alpha_only_coldkey_cross_subnet_transfer_is_not_replayable() {
     new_test_ext().execute_with(|| {

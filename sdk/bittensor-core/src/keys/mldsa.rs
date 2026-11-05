@@ -390,6 +390,7 @@ mod tests {
         CRYPTO_SR25519,
     };
 
+    // PROTECTED_REGRESSION: hkdf sha512 transaction vectors preserve recovery; changes require explicit human approval.
     #[test]
     fn hkdf_sha512_transaction_vectors_preserve_recovery() {
         // Independently computed with Python hashlib/hmac, not this KDF.
@@ -864,6 +865,7 @@ mod tests {
     }
 
     #[cfg(feature = "host")]
+    // PROTECTED_REGRESSION: unsafe pre release fixed descriptor cannot be reinterpreted during recovery; changes require explicit human approval.
     #[test]
     fn unsafe_pre_release_fixed_descriptor_cannot_be_reinterpreted_during_recovery() {
         use crate::keyfiles::{
