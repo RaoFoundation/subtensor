@@ -1089,16 +1089,17 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
             to_name = row.get("rotate_to_wallet") or pending.get("to_wallet")
             to_ss58 = row.get("rotate_to_ss58") or pending.get("to_ss58")
             if to_name and to_ss58:
+                old_ss58 = row.get("delegate_ss58") or record.get("controller_ss58")
                 if not _rotation_complete_on_chain(
                     app_ctx,
                     record,
                     new_controller_ss58=to_ss58,
-                    old_controller_ss58=row.get("delegate_ss58") or record.get("controller_ss58"),
+                    old_controller_ss58=old_ss58,
                 ):
                     app_ctx.output.error(
                         f"rotate announcement #{row['index']} executed but on-chain "
-                        f"grants do not show {to_ss58} as the sole delayed Any "
-                        "controller; leaving local binding unchanged"
+                        f"grants do not show {to_ss58} as delayed Any with the old "
+                        "controller fully revoked; leaving local binding unchanged"
                     )
                 else:
                     moved = pa.move_protected_controller(
@@ -1114,6 +1115,9 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
                             or pending_now.get("to_wallet") == to_name
                         ):
                             moved.pop("pending_rotate", None)
+                        allow_key = moved.get("allow_key_ss58")
+                        if allow_key and old_ss58 and str(allow_key) == str(old_ss58):
+                            moved["allow_key_ss58"] = to_ss58
                         pa.upsert_protected(moved)
                         ann.move_wallet_announcements(row["controller_wallet"], to_name)
                         app_ctx.output.message(
@@ -1129,24 +1133,61 @@ def _rotation_complete_on_chain(
     new_controller_ss58: str,
     old_controller_ss58: Optional[str],
 ) -> bool:
-    """True when the protected pure's delayed Any controller is the new address."""
+    """True when new holds delayed Any and the old controller has zero grants left."""
     data = app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=record["protected_ss58"]))
-    new_ok = any(
-        d["delegate"] == new_controller_ss58
-        and d["proxy_type"] == "Any"
-        and int(d["delay"] or 0) > 0
-        for d in data["proxies"]
+    return pa.rotation_complete(
+        data["proxies"],
+        new_controller_ss58=new_controller_ss58,
+        old_controller_ss58=old_controller_ss58,
+        delay_blocks=int(record.get("delay_blocks") or 0),
     )
-    if not new_ok:
-        return False
-    if old_controller_ss58 and old_controller_ss58 != new_controller_ss58:
-        old_still = any(
-            d["delegate"] == old_controller_ss58 and d["proxy_type"] == "Any"
-            for d in data["proxies"]
+
+
+def _rotation_batch_children(
+    app_ctx: AppContext,
+    record: dict[str, Any],
+    *,
+    controller_ss58: str,
+    new_ss58: str,
+    delay: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Build the atomic rotate batch and the allow types migrated to ``new_ss58``.
+
+    Removes every on-chain grant held by the old controller (delayed Any and any
+    restricted allows), adds delayed Any on the new controller, and re-grants
+    confirmed allows the old controller owned. Separate ``--allow-key`` grants
+    are left untouched.
+    """
+    data = app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=record["protected_ss58"]))
+    old_grants = [d for d in data["proxies"] if d.get("delegate") == controller_ss58]
+    migrate = pa.controller_owned_allow_types(record, controller_ss58)
+    children: list[dict[str, Any]] = [
+        AddProxy(delegate_ss58=new_ss58, proxy_type="Any", delay=delay).to_dict(),
+    ]
+    removed: set[tuple[str, int]] = set()
+    for grant in old_grants:
+        proxy_type = str(grant.get("proxy_type") or "Any")
+        grant_delay = int(grant.get("delay") or 0)
+        children.append(
+            RemoveProxy(
+                delegate_ss58=controller_ss58,
+                proxy_type=proxy_type,
+                delay=grant_delay,
+            ).to_dict()
         )
-        if old_still:
-            return False
-    return True
+        removed.add((proxy_type, grant_delay))
+    # Local book can be ahead of the chain read — always revoke expected grants.
+    if ("Any", delay) not in removed:
+        children.append(
+            RemoveProxy(delegate_ss58=controller_ss58, proxy_type="Any", delay=delay).to_dict()
+        )
+    for proxy_type in migrate:
+        if (proxy_type, 0) not in removed:
+            children.append(
+                RemoveProxy(delegate_ss58=controller_ss58, proxy_type=proxy_type, delay=0).to_dict()
+            )
+        children.append(AddProxy(delegate_ss58=new_ss58, proxy_type=proxy_type, delay=0).to_dict())
+    return children, migrate
 
 
 def run_rotate(app_ctx: AppContext, *, to_wallet: str) -> None:
@@ -1167,25 +1208,47 @@ def run_rotate(app_ctx: AppContext, *, to_wallet: str) -> None:
 
     delay = int(record.get("delay_blocks") or 0)
     controller_ss58 = record.get("controller_ss58") or _controller_ss58(app_ctx)
-    children = [
-        AddProxy(delegate_ss58=new_ss58, proxy_type="Any", delay=delay).to_dict(),
-        RemoveProxy(delegate_ss58=controller_ss58, proxy_type="Any", delay=delay).to_dict(),
-    ]
+    if pa.controller_holds_allows(record, controller_ss58) and (record.get("pending_allows") or []):
+        app_ctx.output.error(
+            "cannot rotate while allow grants are still pending for this controller",
+            help="run `btcli proxy execute` or `btcli proxy cancel` for pending "
+            "allow:/disallow: announcements first, then rotate — otherwise a later "
+            "execute would re-grant the old controller",
+        )
+        raise typer.Exit(2)
+
+    children, migrated = _rotation_batch_children(
+        app_ctx,
+        record,
+        controller_ss58=controller_ss58,
+        new_ss58=new_ss58,
+        delay=delay,
+    )
     _announce_as_protected(
         app_ctx,
         record,
         Batch(intents=children),
         category="rotate-controller",
-        row_extra={"rotate_to_wallet": to_name, "rotate_to_ss58": new_ss58},
+        row_extra={
+            "rotate_to_wallet": to_name,
+            "rotate_to_ss58": new_ss58,
+            "rotate_migrated_allows": migrated,
+        },
     )
     # Stash the intended rebind; applied after the matching announcement executes.
     record = {
         **record,
-        "pending_rotate": {"to_wallet": to_name, "to_ss58": new_ss58},
+        "pending_rotate": {
+            "to_wallet": to_name,
+            "to_ss58": new_ss58,
+            "migrated_allows": migrated,
+        },
     }
     pa.upsert_protected(record)
+    migrate_note = f" Migrating allows {migrated} to the new controller." if migrated else ""
     app_ctx.output.message(
-        f"Controller rotate queued: add {to_name} ({new_ss58}), remove {wallet_name}.\n"
+        f"Controller rotate queued: add {to_name} ({new_ss58}), remove {wallet_name}."
+        f"{migrate_note}\n"
         f"After `btcli proxy execute --wallet {wallet_name}`, rebind local config with:\n"
         f"  btcli proxy rotate --wallet {wallet_name} --to {to_name} --finalize\n"
         "Or re-run rotate with --finalize once the announcement has executed."
@@ -1210,7 +1273,7 @@ def run_rotate_finalize(app_ctx: AppContext, *, to_wallet: str) -> None:
     ):
         app_ctx.output.error(
             f"on-chain rotation to {to_ss58} is not complete yet "
-            "(new delayed Any missing, or old controller grant still present); "
+            "(new delayed Any missing, or old controller still has proxy grants); "
             "execute the rotate announcement first, then --finalize"
         )
         raise typer.Exit(2)
@@ -1218,6 +1281,9 @@ def run_rotate_finalize(app_ctx: AppContext, *, to_wallet: str) -> None:
     if moved is None:
         raise typer.Exit(1)
     moved.pop("pending_rotate", None)
+    allow_key = moved.get("allow_key_ss58")
+    if allow_key and old_ss58 and str(allow_key) == str(old_ss58):
+        moved["allow_key_ss58"] = to_ss58
     pa.upsert_protected(moved)
     ann.move_wallet_announcements(wallet_name, to_name)
     app_ctx.output.message(

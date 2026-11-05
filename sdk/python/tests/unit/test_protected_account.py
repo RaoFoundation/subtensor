@@ -83,6 +83,54 @@ def test_defeating_zero_delay_detection():
     assert pa.defeating_zero_delay_proxies(delegations, controller) == ["Any"]
 
 
+def test_controller_owned_allows_and_rotation_complete():
+    controller = "5Controller"
+    new = "5New"
+    record = {"allows": ["Lock", "Staking"], "allow_key_ss58": None}
+    assert pa.controller_holds_allows(record, controller)
+    assert pa.controller_owned_allow_types(record, controller) == ["Lock", "Staking"]
+
+    other_key = {**record, "allow_key_ss58": "5AllowKey"}
+    assert not pa.controller_holds_allows(other_key, controller)
+    assert pa.controller_owned_allow_types(other_key, controller) == []
+
+    same_key = {**record, "allow_key_ss58": controller}
+    assert pa.controller_owned_allow_types(same_key, controller) == ["Lock", "Staking"]
+
+    mid_rotate = [
+        {"delegate": controller, "proxy_type": "Any", "delay": 10800},
+        {"delegate": controller, "proxy_type": "Lock", "delay": 0},
+        {"delegate": new, "proxy_type": "Any", "delay": 10800},
+    ]
+    assert not pa.rotation_complete(
+        mid_rotate,
+        new_controller_ss58=new,
+        old_controller_ss58=controller,
+        delay_blocks=10800,
+    )
+    # Old Any removed but Lock left behind — still incomplete.
+    leftover_lock = [
+        {"delegate": new, "proxy_type": "Any", "delay": 10800},
+        {"delegate": controller, "proxy_type": "Lock", "delay": 0},
+    ]
+    assert not pa.rotation_complete(
+        leftover_lock,
+        new_controller_ss58=new,
+        old_controller_ss58=controller,
+        delay_blocks=10800,
+    )
+    done = [
+        {"delegate": new, "proxy_type": "Any", "delay": 10800},
+        {"delegate": new, "proxy_type": "Lock", "delay": 0},
+    ]
+    assert pa.rotation_complete(
+        done,
+        new_controller_ss58=new,
+        old_controller_ss58=controller,
+        delay_blocks=10800,
+    )
+
+
 def test_protected_config_roundtrip(protected_paths):
     entry = {
         "controller_wallet": "main",

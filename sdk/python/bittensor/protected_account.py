@@ -372,6 +372,66 @@ def defeating_zero_delay_proxies(
     return hits
 
 
+def controller_holds_allows(record: dict[str, Any], controller_ss58: str) -> bool:
+    """True when confirmed/pending allows are granted to the controller itself.
+
+    A distinct ``allow_key_ss58`` keeps restricted grants off the controller, so
+    rotation must not move or revoke them. When unset or equal to the controller,
+    zero-delay allows live on the controller and must migrate with it.
+    """
+    allow_key = record.get("allow_key_ss58")
+    if not allow_key:
+        return True
+    return str(allow_key) == str(controller_ss58)
+
+
+def controller_owned_allow_types(record: dict[str, Any], controller_ss58: str) -> list[str]:
+    """Confirmed allow ProxyTypes held by ``controller_ss58`` (stable order)."""
+    if not controller_holds_allows(record, controller_ss58):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for proxy_type in record.get("allows") or []:
+        name = str(proxy_type)
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+def rotation_complete(
+    delegations: list[dict[str, Any]],
+    *,
+    new_controller_ss58: str,
+    old_controller_ss58: Optional[str],
+    delay_blocks: int,
+) -> bool:
+    """True when ``new`` holds the delayed Any and ``old`` has no grants left."""
+    delay = int(delay_blocks or 0)
+    new_ok = any(
+        d.get("delegate") == new_controller_ss58
+        and d.get("proxy_type") == "Any"
+        and int(d.get("delay") or 0) == delay
+        for d in delegations
+    )
+    if not new_ok:
+        # Accept any positive delay match when local delay drifted.
+        new_ok = any(
+            d.get("delegate") == new_controller_ss58
+            and d.get("proxy_type") == "Any"
+            and int(d.get("delay") or 0) > 0
+            for d in delegations
+        )
+    if not new_ok:
+        return False
+    old_cleared = (
+        not old_controller_ss58
+        or old_controller_ss58 == new_controller_ss58
+        or not any(d.get("delegate") == old_controller_ss58 for d in delegations)
+    )
+    return old_cleared
+
+
 def default_protected_name(wallet_name: str) -> str:
     return f"{wallet_name}-protected"
 
