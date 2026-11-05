@@ -241,17 +241,17 @@ impl<T: Config> Pallet<T> {
     fn unstake_all_weight(base: Weight, work: UnstakeAllWork, walk: Weight) -> Weight {
         let cheap = u64::from(work.scanned.saturating_sub(work.validated));
         let expensive_skips = u64::from(work.validated.saturating_sub(work.legs));
-        // At most one visited subnet is root, including a failed pending-dividend check.
-        base.saturating_add(Self::basket_flush_weight(work.flush))
-            .saturating_add(
-                <T as crate::pallet::Config>::WeightInfo::remove_stake()
-                    .saturating_add(walk)
-                    .saturating_mul(u64::from(work.legs)),
-            )
-            .saturating_add(walk.saturating_mul(expensive_skips))
-            .saturating_add(
-                T::DbWeight::get().reads(UNSTAKE_ALL_SKIPPED_SUBNET_READS.saturating_mul(cheap)),
-            )
+        // Pending settlement is intentionally excluded from stake-call pricing,
+        // as in the pre-487 schedule. The work still runs synchronously.
+        base.saturating_add(
+            <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                .saturating_add(walk)
+                .saturating_mul(u64::from(work.legs)),
+        )
+        .saturating_add(walk.saturating_mul(expensive_skips))
+        .saturating_add(
+            T::DbWeight::get().reads(UNSTAKE_ALL_SKIPPED_SUBNET_READS.saturating_mul(cheap)),
+        )
     }
 
     /// Worst case one call will admit: a full unstake on every envelope slot,
@@ -292,15 +292,8 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    pub fn unstake_all_declared_weight_for(hotkey: &T::AccountId) -> Weight {
-        let mut work = Self::unstake_all_worst_case_work();
-        work.flush = Default::default();
-        Self::unstake_all_weight(
-            <T as crate::pallet::Config>::WeightInfo::unstake_all(),
-            work,
-            Self::staking_hotkeys_walk_bound(),
-        )
-        .saturating_add(Self::root_pending_dividend_weight_for(hotkey, true))
+    pub fn unstake_all_declared_weight_for(_hotkey: &T::AccountId) -> Weight {
+        Self::unstake_all_declared_weight()
     }
 
     /// Post-dispatch weight of `unstake_all` for the work it really did.
@@ -322,15 +315,8 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    pub fn unstake_all_alpha_declared_weight_for(hotkey: &T::AccountId) -> Weight {
-        let mut work = Self::unstake_all_worst_case_work();
-        work.flush = Default::default();
-        Self::unstake_all_weight(
-            <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
-            work,
-            Self::staking_hotkeys_walk_bound(),
-        )
-        .saturating_add(Self::root_pending_dividend_weight_for(hotkey, true))
+    pub fn unstake_all_alpha_declared_weight_for(_hotkey: &T::AccountId) -> Weight {
+        Self::unstake_all_alpha_declared_weight()
     }
 
     /// Post-dispatch weight of `unstake_all_alpha` for the work it really did.

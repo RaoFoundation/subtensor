@@ -24,15 +24,16 @@ use sp_runtime::{
     transaction_validity::{InvalidTransaction, TransactionValidityError},
 };
 
-/// Native EVM balance moves include their Balances transfer cost. Frontier
-/// separately charges the address-mapping reads at the dispatchable call site.
+/// Preserve legacy withdrawal execution pricing while retaining the additional
+/// Balances-transfer proof envelope. Frontier separately meters alias lookups;
+/// native withdrawal receives a fee-only compatibility discount for those reads.
 pub struct EvmWeights;
 
 impl pallet_evm::weights::WeightInfo for EvmWeights {
     fn withdraw() -> Weight {
         <pallet_evm::weights::SubstrateWeight<crate::Runtime> as pallet_evm::weights::WeightInfo>::withdraw()
-            .saturating_add(<<crate::Runtime as pallet_balances::Config>::WeightInfo as pallet_balances::WeightInfo>::transfer_allow_death()
-                .max(<<crate::Runtime as pallet_balances::Config>::WeightInfo as pallet_balances::WeightInfo>::transfer_all()))
+            .saturating_add(pallet_subtensor::staking::legacy_priced_additional_work(<<crate::Runtime as pallet_balances::Config>::WeightInfo as pallet_balances::WeightInfo>::transfer_allow_death()
+                .max(<<crate::Runtime as pallet_balances::Config>::WeightInfo as pallet_balances::WeightInfo>::transfer_all())))
     }
 
     fn deposit() -> Weight {

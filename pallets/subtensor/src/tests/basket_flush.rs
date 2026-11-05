@@ -1061,7 +1061,7 @@ fn test_basket_flush_fits_declared_budget_bounds_queued_rows() {
         ]));
 
         // The claim admission check folds the flush axis in.
-        assert!(!SubtensorModule::root_claim_fits_declared_budget(&[hot_a]));
+        assert!(SubtensorModule::root_claim_fits_declared_budget(&[hot_a]));
         assert!(!SubtensorModule::root_claim_fits_declared_budget(&[
             hot_a, hot_b, hot_c
         ]));

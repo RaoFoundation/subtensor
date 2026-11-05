@@ -593,7 +593,7 @@ impl<T: Config> Pallet<T> {
 
     /// Weight of one realizable-NAV sweep over `num_holdings` escrow rows: one sim-swap
     /// valuation plus reads per row. Shared by every basket path that values the fund.
-    pub(crate) fn basket_nav_sweep_weight(num_holdings: u64) -> Weight {
+    pub fn basket_nav_sweep_weight(num_holdings: u64) -> Weight {
         Weight::from_parts(10_000_000, 1000)
             .saturating_add(T::DbWeight::get().reads(4_u64))
             .saturating_mul(num_holdings.max(1))
@@ -1198,22 +1198,18 @@ impl<T: Config> Pallet<T> {
         )))
     }
 
-    /// Pre-dispatch weight for the shared claim budget. Holding/hotkey rows and pending
-    /// credit rows consume the same admission limit; four quote units per limit unit cover
-    /// the synchronous settlement sweep.
+    /// Holdings and pending credits have independent bounded allowances. A full
+    /// 129-row basket must remain claimable even while dividends are queued.
     pub fn root_claim_declared_weight_for(limit: u32) -> Weight {
-        Self::root_claim_weight_for_work(
-            limit,
-            BasketFlushWork::new(u64::from(limit).saturating_mul(4), 0),
-        )
+        Self::root_claim_weight_for_work(limit, Self::basket_pending_work_bound())
     }
 
-    /// Coldkey-wide declared weight for the 256-unit combined claim/settlement envelope.
+    /// Coldkey-wide declared weight for the 256-unit holdings envelope plus pending settlement.
     pub(crate) fn root_claim_declared_weight() -> Weight {
         Self::root_claim_declared_weight_for(Self::root_claim_declared_work())
     }
 
-    /// Single-hotkey declared weight for the 130-unit combined claim/settlement envelope.
+    /// Single-hotkey declared weight for the 130-unit holdings envelope plus pending settlement.
     pub(crate) fn root_claim_hotkey_declared_weight() -> Weight {
         Self::root_claim_declared_weight_for(Self::root_claim_hotkey_declared_work())
     }
@@ -1242,9 +1238,10 @@ impl<T: Config> Pallet<T> {
         hotkeys.into_iter().collect()
     }
 
-    /// True when hotkeys, basket storage rows, and pending credits fit the fixed shared
-    /// admission envelope. Count raw Alpha/AlphaV2 rows so legacy duplicates and malformed
-    /// zero rows are charged conservatively, and stop as soon as the bound is exceeded.
+    /// True when hotkeys and basket storage rows fit the holdings envelope and
+    /// queued credits fit their separate flush allowance. Count raw Alpha/AlphaV2 rows
+    /// so legacy duplicates and malformed zero rows are charged conservatively, and
+    /// stop as soon as the bound is exceeded.
     pub(crate) fn root_claim_fits_budget(hotkeys: &[T::AccountId], budget: u32) -> bool {
         let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
         if work > budget {
@@ -1265,14 +1262,8 @@ impl<T: Config> Pallet<T> {
                     return false;
                 }
             }
-            for _ in PendingBasketDeposits::<T>::iter_key_prefix(hotkey) {
-                work = work.saturating_add(1);
-                if work > budget {
-                    return false;
-                }
-            }
         }
-        true
+        Self::basket_flush_fits_declared_budget(hotkeys)
     }
 
     pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {

@@ -3,4 +3,4 @@ source: runtime/tests/fee_baseline.rs
 description: subtensor_module_swap_basket
 expression: fee
 ---
-6991709
+5766709

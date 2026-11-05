@@ -240,8 +240,8 @@ fn a_capped_list_still_needs_the_full_walk_allowance() {
 }
 
 /// `unstakeAll` and `unstakeAllAlpha` declare a walk at the cap on each of their 16 envelope
-/// slots (~37M gas); sized to the caller's list they fit a few million, plus the
-/// separately reserved pending-root-dividend guard.
+/// slots (~37M gas); sized to the caller's list they fit the pre-487 three-million
+/// gas limit, independently of pending-root-dividend work.
 #[test]
 fn unstake_all_reserves_every_slot_walk_for_the_callers_list() {
     const UNSTAKE_ALL_GAS_LIMIT: u64 = 3_000_000;
@@ -262,9 +262,8 @@ fn unstake_all_reserves_every_slot_walk_for_the_callers_list() {
             } else {
                 Subtensor::unstake_all_declared_weight()
             };
-            let root_guard_gas = gas(Subtensor::root_pending_dividend_weight(true));
-            let gas_limit = UNSTAKE_ALL_GAS_LIMIT + root_guard_gas;
-            assert!(gas(declared) > 10 * UNSTAKE_ALL_GAS_LIMIT + root_guard_gas);
+            let gas_limit = UNSTAKE_ALL_GAS_LIMIT;
+            assert!(gas(declared) > 10 * UNSTAKE_ALL_GAS_LIMIT);
             let input = || encode_with_selector(selector(signature), (h256(&hotkey),));
 
             // At the cap every slot still needs its full walk.

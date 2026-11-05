@@ -22,7 +22,7 @@ not its declared weight.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1477-L1510), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1660-L1697) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1463-L1489), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1634-L1664) |
 
 ## Parameters
 
@@ -82,14 +82,12 @@ result = sub.execute_tool("swap_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1486`](/code/pallets/subtensor/src/macros/dispatches.rs#L1477-L1510):
+`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1470`](/code/pallets/subtensor/src/macros/dispatches.rs#L1463-L1489):
 
 ```rust
 #[pallet::call_index(87)]
 #[pallet::weight((
     <T as crate::pallet::Config>::WeightInfo::swap_stake()
-        .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, origin_netuid.is_root()))
-        .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, destination_netuid.is_root()))
         .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
     DispatchClass::Normal,
     Pays::Yes
@@ -102,10 +100,6 @@ pub fn swap_stake(
     alpha_amount: AlphaBalance,
 ) -> DispatchResultWithPostInfo {
     let coldkey = ensure_signed(origin.clone())?;
-    let pending_weight = Pallet::<T>::root_pending_dividend_weight_for(
-        &hotkey,
-        origin_netuid.is_root() || destination_netuid.is_root(),
-    );
     Self::with_actual_weight(
         Self::do_swap_stake(
             origin,
@@ -115,22 +109,19 @@ pub fn swap_stake(
             alpha_amount,
         ),
         <T as crate::pallet::Config>::WeightInfo::swap_stake()
-            .saturating_add(pending_weight)
             .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
     )
 }
 ```
 
-Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1691), [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L350), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1631).
+Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1696), [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L350), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1636).
 
-`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1669`](/code/pallets/subtensor/src/macros/dispatches.rs#L1660-L1697):
+`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1641`](/code/pallets/subtensor/src/macros/dispatches.rs#L1634-L1664):
 
 ```rust
 #[pallet::call_index(90)]
 #[pallet::weight((
     <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
-        .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, origin_netuid.is_root()))
-        .saturating_add(Pallet::<T>::root_pending_dividend_weight_for(&hotkey, destination_netuid.is_root()))
         .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
     DispatchClass::Normal,
     Pays::Yes
@@ -145,10 +136,6 @@ pub fn swap_stake_limit(
     allow_partial: bool,
 ) -> DispatchResultWithPostInfo {
     let coldkey = ensure_signed(origin.clone())?;
-    let pending_weight = Pallet::<T>::root_pending_dividend_weight_for(
-        &hotkey,
-        origin_netuid.is_root() || destination_netuid.is_root(),
-    );
     Self::with_actual_weight(
         Self::do_swap_stake_limit(
             origin,
@@ -160,12 +147,11 @@ pub fn swap_stake_limit(
             allow_partial,
         ),
         <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
-            .saturating_add(pending_weight)
             .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
     )
 }
 ```
 
-Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1691), [`do_swap_stake_limit`](/code/pallets/subtensor/src/staking/move_stake.rs#L417), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1631).
+Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1696), [`do_swap_stake_limit`](/code/pallets/subtensor/src/staking/move_stake.rs#L417), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1636).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

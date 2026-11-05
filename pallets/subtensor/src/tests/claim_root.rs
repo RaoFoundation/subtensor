@@ -295,6 +295,14 @@ fn test_claim_root_hotkey_work_covers_subnet_limit_plus_root_and_hotkey() {
             SubtensorModule::root_claim_hotkey_fits_declared_budget(&hotkey),
             "{AGENT_GUARD_DO_NOT_DELETE_OR_WEAKEN}: a full SubnetLimit-plus-root basket must be admitted",
         );
+
+        // Pending dust is independent of the holdings budget. It can persist
+        // through background drain turns, so waiting is not a workaround.
+        for raw_netuid in 1..=subnet_limit {
+            PendingBasketDeposits::<Test>::insert(hotkey, NetUid::from(raw_netuid), AlphaBalance::from(1u64));
+        }
+        assert!(SubtensorModule::root_claim_hotkey_fits_declared_budget(&hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(U256::from(1001)), hotkey));
     });
 }
 
@@ -628,6 +636,7 @@ fn test_root_basket_accumulates_in_place_without_weights() {
     });
 }
 
+// PROTECTED_REGRESSION: subnet owner root validator dividend is basketed and claimable; changes require explicit human approval.
 #[test]
 fn test_subnet_owner_root_validator_dividend_is_basketed_and_claimable() {
     new_test_ext(1).execute_with(|| {
@@ -636,7 +645,6 @@ fn test_subnet_owner_root_validator_dividend_is_basketed_and_claimable() {
         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
         remove_owner_registration_stake(netuid);
         fund_pool(netuid);
-// PROTECTED_REGRESSION: subnet owner root validator dividend is basketed and claimable; changes require explicit human approval.
         zero_claim_threshold();
 
         // Model the reported identity collision explicitly: this single hotkey owns the
@@ -2724,6 +2732,7 @@ fn test_root_basket_claim_idempotent() {
 /// taken after the sell, so: (a) the existing staker is not diluted, and (b) a late equal
 /// staker's entire entitlement equals only the new deposit's increment — the mid-flight price
 /// move cannot be used to skim the existing holder's value.
+// PROTECTED_REGRESSION: root basket self referential origin; changes require explicit human approval.
 #[test]
 fn test_root_basket_self_referential_origin() {
     new_test_ext(1).execute_with(|| {
@@ -2732,7 +2741,6 @@ fn test_root_basket_self_referential_origin() {
         let alice = U256::from(1003);
         let bob = U256::from(1004);
         let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
-// PROTECTED_REGRESSION: root basket self referential origin; changes require explicit human approval.
         remove_owner_registration_stake(netuid);
         fund_pool(netuid);
 
@@ -2814,6 +2822,7 @@ fn test_root_basket_self_referential_origin() {
 /// 2e16 rao — the full TAO supply), the mint and payout math must be exact. The previous
 /// `U96F32` formulation saturated at ~7.9e28 in the intermediate product, silently underpaying
 /// by orders of magnitude.
+// PROTECTED_REGRESSION: root basket large magnitudes no saturation; changes require explicit human approval.
 #[test]
 fn test_root_basket_large_magnitudes_no_saturation() {
     // Unit check: owed * nav overflows 96 fixed-point integer bits (4e32 > 2^96) but must
@@ -2822,7 +2831,6 @@ fn test_root_basket_large_magnitudes_no_saturation() {
     assert_eq!(
         SubtensorModule::basket_payout_from(supply, supply, supply),
         supply
-// PROTECTED_REGRESSION: root basket large magnitudes no saturation; changes require explicit human approval.
     );
     // Half the shares of a supply-sized fund pay exactly half the NAV.
     assert_eq!(

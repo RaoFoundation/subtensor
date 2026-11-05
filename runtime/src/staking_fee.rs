@@ -12,7 +12,6 @@ use crate::transaction_payment_wrapper::{FeeWeightDiscount, fee_dispatch_info};
 use crate::{Balance, Runtime, RuntimeCall, TransactionPayment, Weight};
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo};
 use pallet_subtensor::Call as SubtensorCall;
-use pallet_subtensor::staking::BasketFlushWork;
 use pallet_subtensor_proxy::Call as ProxyCall;
 use pallet_subtensor_utility::Call as UtilityCall;
 use pallet_transaction_payment::{FeeDetails, RuntimeDispatchInfo};
@@ -33,10 +32,11 @@ pub const ROOT_CLAIM_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
 /// `basket_flush_work_bound`).
 pub fn root_claim_fee_weight(units: u32) -> Weight {
     let rows = u64::from(units);
-    pallet_subtensor::Pallet::<Runtime>::root_claim_weight_for_work(
-        units,
-        BasketFlushWork::new(rows.saturating_mul(6), rows),
-    )
+    // Monetary allowance uses the pre-487 model. The execution declaration
+    // independently includes the new stability checks and the full pending work.
+    <<Runtime as pallet_subtensor::Config>::WeightInfo as pallet_subtensor::weights::WeightInfo>::claim_root(units.saturating_mul(2))
+        .saturating_add(<<Runtime as pallet_subtensor::Config>::WeightInfo as pallet_subtensor::weights::WeightInfo>::claim_root_scan(units))
+        .saturating_add(pallet_subtensor::Pallet::<Runtime>::basket_nav_sweep_weight(rows.saturating_mul(6)))
 }
 
 fn root_claim_discount(limit: u32) -> Weight {
@@ -55,10 +55,10 @@ pub const BASKET_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
 /// prices.
 fn basket_fee_flush_weight(rows: u32) -> Weight {
     let rows = u64::from(rows);
-    pallet_subtensor::Pallet::<Runtime>::basket_flush_weight(BasketFlushWork::new(
-        rows.saturating_mul(6),
-        rows,
-    ))
+    // Keep the pre-487 monetary allowance; execution still declares the full
+    // settlement model, including the new stability-check reads.
+    pallet_subtensor::Pallet::<Runtime>::basket_nav_sweep_weight(rows.saturating_mul(6))
+        .saturating_add(<<Runtime as pallet_subtensor::Config>::WeightInfo as pallet_subtensor::weights::WeightInfo>::claim_root(rows as u32))
 }
 
 /// Weight a `swap_basket` is charged for: one trade over [`BASKET_FEE_ALLOWANCE`] rows
@@ -198,15 +198,45 @@ pub fn leaf_fee_weight(call: &RuntimeCall, declared: Weight) -> Weight {
     let fee_weight = declared
         .saturating_sub(staking_scan_discount(call))
         .saturating_sub(claim_discount(call))
-        .saturating_sub(basket_discount(call));
+        .saturating_sub(basket_discount(call))
+        // Fee-only legacy compatibility credits. Dispatch and Frontier's full
+        // address-mapping resource meter (including atomic OOG) are unchanged.
+        .saturating_sub(match call {
+            RuntimeCall::EVM(pallet_evm::Call::withdraw { .. }) => {
+                pallet_evm::account_cost::weight::<Runtime>(2)
+            }
+            RuntimeCall::EVM(
+                pallet_evm::Call::call { .. }
+                | pallet_evm::Call::create { .. }
+                | pallet_evm::Call::create2 { .. },
+            ) => pallet_evm::account_cost::weight::<Runtime>(1),
+            RuntimeCall::Proxy(ProxyCall::proxy_announced { .. }) => {
+                <Runtime as frame_system::Config>::DbWeight::get().reads(1)
+            }
+            RuntimeCall::SubtensorModule(SubtensorCall::root_register { .. }) => {
+                <Runtime as frame_system::Config>::DbWeight::get().reads(2)
+            }
+            RuntimeCall::SubtensorModule(
+                SubtensorCall::register_network { .. }
+                | SubtensorCall::register_network_with_identity { .. },
+            ) => {
+                // Their historical snapshots are 25,000 rao below the unchanged
+                // benchmark/guard model. Credit one DB-write-priced unit to honor
+                // the owner's requested baseline, without changing that model.
+                // This is a monetary subsidy, not an estimate of storage writes.
+                <Runtime as frame_system::Config>::DbWeight::get().writes(1)
+            }
+            _ => Weight::zero(),
+        });
     match fee_weight_cap_459(call) {
         Some(cap) => fee_weight.min(cap),
         None => fee_weight,
     }
 }
 
-/// Fee-bearing leaves of `call`. Only descend through wrappers whose declared weight
-/// includes their inner calls' weights; in particular, never descend into `with_weight`.
+/// Fee-bearing leaves and announcement wrappers with a compatibility discount.
+/// Only descend through wrappers whose declared weight includes the inner calls;
+/// in particular, never descend into `with_weight`.
 fn leaves(call: &RuntimeCall) -> Vec<&RuntimeCall> {
     let mut pending = vec![call];
     let mut out = Vec::new();
@@ -228,9 +258,11 @@ fn leaves(call: &RuntimeCall) -> Vec<&RuntimeCall> {
                 | UtilityCall::dispatch_as { call, .. }
                 | UtilityCall::dispatch_as_fallible { call, .. },
             )
-            | RuntimeCall::Proxy(
-                ProxyCall::proxy { call, .. } | ProxyCall::proxy_announced { call, .. },
-            ) => pending.push(call),
+            | RuntimeCall::Proxy(ProxyCall::proxy { call, .. }) => pending.push(call),
+            RuntimeCall::Proxy(ProxyCall::proxy_announced { call: inner, .. }) => {
+                out.push(call);
+                pending.push(inner);
+            }
             _ => out.push(call),
         }
     }

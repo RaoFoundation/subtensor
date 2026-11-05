@@ -6,7 +6,6 @@ use node_subtensor_runtime::{
     check_mortality, check_nonce, check_nonzero_sender, sudo_wrapper,
     transaction_payment_wrapper::ChargeTransactionPaymentWrapper,
 };
-use pallet_subtensor::staking::BasketFlushWork;
 use pallet_subtensor::weights::WeightInfo;
 use sp_runtime::{generic::Era, traits::TransactionExtension};
 use sp_std::collections::btree_set::BTreeSet;
@@ -24,7 +23,7 @@ fn new_test_ext() -> sp_io::TestExternalities {
 fn expected_root_claim_weight(limit: u32) -> frame_support::weights::Weight {
     pallet_subtensor::Pallet::<Runtime>::root_claim_weight_for_work(
         limit,
-        BasketFlushWork::new(u64::from(limit).saturating_mul(4), 0),
+        pallet_subtensor::Pallet::<Runtime>::basket_pending_work_bound(),
     )
     // FRAME folds the runtime's dispatch-extension weight into `call_weight`.
     .saturating_add(
@@ -65,8 +64,8 @@ fn assert_call_fits_normal_limit(call: RuntimeCall) {
         dispatch_info.total_weight()
     );
 }
-// PROTECTED_REGRESSION: legacy hotkey swap with extensions fits normal extrinsic limit; changes require explicit human approval.
 
+// PROTECTED_REGRESSION: legacy hotkey swap with extensions fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 #[allow(deprecated)]
 fn legacy_hotkey_swap_with_extensions_fits_normal_extrinsic_limit() {
@@ -81,8 +80,8 @@ fn legacy_hotkey_swap_with_extensions_fits_normal_extrinsic_limit() {
         }
     });
 }
-// PROTECTED_REGRESSION: hotkey swap v2 with extensions fits normal extrinsic limit; changes require explicit human approval.
 
+// PROTECTED_REGRESSION: hotkey swap v2 with extensions fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 fn hotkey_swap_v2_with_extensions_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
@@ -99,8 +98,8 @@ fn hotkey_swap_v2_with_extensions_fits_normal_extrinsic_limit() {
         }
     });
 }
-// PROTECTED_REGRESSION: claim root with extensions fits normal extrinsic limit; changes require explicit human approval.
 
+// PROTECTED_REGRESSION: claim root with extensions fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
@@ -114,8 +113,8 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
         assert_call_fits_normal_limit(call);
     });
 }
-// PROTECTED_REGRESSION: claim root with hotkey with extensions fits normal extrinsic limit; changes require explicit human approval.
 
+// PROTECTED_REGRESSION: claim root with hotkey with extensions fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
@@ -129,8 +128,8 @@ fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
         assert_call_fits_normal_limit(call);
     });
 }
-// PROTECTED_REGRESSION: testnet claim root with hotkey with extensions fits normal extrinsic limit; changes require explicit human approval.
 
+// PROTECTED_REGRESSION: testnet claim root with hotkey with extensions fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 fn testnet_claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
@@ -154,8 +153,8 @@ fn testnet_claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() 
         assert_call_fits_normal_limit(call);
     });
 }
-// PROTECTED_REGRESSION: swap basket many at leg cap fits normal extrinsic limit; changes require explicit human approval.
 
+// PROTECTED_REGRESSION: swap basket many at leg cap fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 fn swap_basket_many_at_leg_cap_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
