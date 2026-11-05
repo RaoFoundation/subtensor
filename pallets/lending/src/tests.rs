@@ -5345,6 +5345,83 @@ fn insolvent_long_expiry_forfeits_no_retry() {
     });
 }
 
+/// Auditor fid:178e1fb3 — long close / repay quotes must use fee-bearing sells
+/// so they do not report `shortfall == 0` (and an inflated refund) when
+/// fee-free proceeds cover `P` but net proceeds do not.
+#[test]
+fn long_quote_close_and_repay_include_sell_fees() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.annual_interest = 0;
+                p.interest_remainder = 0;
+            }
+        });
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let sell_all = position.escrow_alpha.saturating_add(position.collateral);
+        let p = position.principal;
+        let x = pool_alpha();
+        let y_min = ((u128::from(p).saturating_mul(u128::from(x.saturating_add(sell_all)))
+            / u128::from(sell_all.max(1)))
+        .saturating_add(1)) as u64;
+        write(&key(b"test/pool_tao", netuid()), y_min);
+        let fee_free = MockPool::quote_sell(netuid(), sell_all.into())
+            .expect("fee-free quote")
+            .to_u64();
+        assert!(
+            fee_free >= p,
+            "precondition: fee-free liquidation covers P ({fee_free} vs {p})"
+        );
+        set_sell_fee_bps(2_500); // 25%
+        let fee_aware = MockPool::quote_sell(netuid(), sell_all.into())
+            .expect("fee-aware quote")
+            .to_u64();
+        assert!(
+            fee_aware < p,
+            "precondition: fee-aware liquidation misses P ({fee_aware} >= {p})"
+        );
+
+        let close_q =
+            Lending::quote_close(&owner, netuid(), Some(&hotkey), false).expect("quote_close");
+        assert!(
+            close_q.shortfall > 0,
+            "fee-aware quote_close must report shortfall, got {close_q:?}"
+        );
+        assert_eq!(close_q.payment, p);
+
+        let half = p / 2;
+        assert!(half > 0);
+        let repay_q = Lending::quote_repay(&owner, netuid(), Some(&hotkey), half, false)
+            .expect("quote_repay");
+        assert!(
+            repay_q.shortfall > 0,
+            "fee-aware quote_repay must report shortfall on the fee boundary, got {repay_q:?}"
+        );
+        assert_eq!(repay_q.payment, half);
+
+        // Quotes must not mutate the live book (rolled-back simulation).
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(after.principal, position.principal);
+        assert_eq!(after.escrow_alpha, position.escrow_alpha);
+        assert_eq!(after.collateral, position.collateral);
+        assert_eq!(pool_tao(), y_min);
+    });
+}
+
 /// Auditor fid:8a7b4914 — fee-free solvency probes must not keep a long open
 /// when fee-bearing settlement cannot raise `P`.
 #[test]
