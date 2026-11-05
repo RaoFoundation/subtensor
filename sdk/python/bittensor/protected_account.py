@@ -11,10 +11,12 @@ from __future__ import annotations
 import json
 import os
 import re
+from hashlib import blake2b
 from pathlib import Path
 from typing import Any, Optional
 
-from .settings import BLOCKTIME
+from ._transport.codec import ss58_decode, ss58_encode
+from .settings import BLOCKTIME, SS58_FORMAT
 
 DEFAULT_PROTECTED_PATH = Path.home() / ".bittensor" / "btcli_protected.json"
 
@@ -184,14 +186,70 @@ def remove_protected(wallet_name: str) -> bool:
     return existed
 
 
-def move_protected_controller(from_wallet: str, to_wallet: str) -> Optional[dict[str, Any]]:
-    """Rebind the local record after a successful controller rotate."""
+def move_protected_controller(
+    from_wallet: str,
+    to_wallet: str,
+    *,
+    controller_ss58: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Rebind the local record after a successful controller rotate.
+
+    ``controller_ss58`` must be the new controller's on-chain address when known:
+    announcement reconcile keys off that address, so leaving the old ss58 would
+    hide the new controller's pending calls.
+    """
     entry = get_by_controller(from_wallet)
     if entry is None:
         return None
     remove_protected(from_wallet)
     updated = {**entry, "controller_wallet": to_wallet}
+    if controller_ss58:
+        updated["controller_ss58"] = controller_ss58
     return upsert_protected(updated)
+
+
+# SCALE index of ``ProxyType::Any`` in ``common/src/proxy.rs`` (first variant).
+_PROXY_TYPE_ANY_SCALE = 0
+_LEGACY_PURE_PREFIX = b"modlpy/proxy____"  # [u8; 16], no length prefix when encoded
+
+
+def derive_legacy_pure_account_id(
+    spawner_public_key: bytes,
+    *,
+    height: int,
+    ext_index: int,
+    proxy_type_scale: int = _PROXY_TYPE_ANY_SCALE,
+    index: int = 0,
+) -> bytes:
+    """Recompute a legacy ``Proxy::create_pure`` AccountId (blake2_256 of SCALE fields)."""
+    if len(spawner_public_key) != 32:
+        raise ValueError("spawner public key must be 32 bytes")
+    payload = (
+        _LEGACY_PURE_PREFIX
+        + spawner_public_key
+        + int(height).to_bytes(4, "little")
+        + int(ext_index).to_bytes(4, "little")
+        + bytes([int(proxy_type_scale) & 0xFF])
+        + int(index).to_bytes(2, "little")
+    )
+    return blake2b(payload, digest_size=32).digest()
+
+
+def derive_legacy_pure_ss58(
+    spawner_ss58: str,
+    *,
+    height: int,
+    ext_index: int,
+    proxy_type: str = "Any",
+    index: int = 0,
+    ss58_format: Optional[int] = None,
+) -> str:
+    """SS58 form of :func:`derive_legacy_pure_account_id` for ``ProxyType::Any`` only."""
+    if proxy_type != "Any":
+        raise ValueError(f"local pure recompute only supports ProxyType::Any (got {proxy_type!r})")
+    public = bytes.fromhex(ss58_decode(spawner_ss58))
+    account = derive_legacy_pure_account_id(public, height=height, ext_index=ext_index, index=index)
+    return ss58_encode(account, ss58_format if ss58_format is not None else SS58_FORMAT)
 
 
 def parse_delay_to_blocks(raw: str | int, *, blocktime: float = BLOCKTIME) -> int:

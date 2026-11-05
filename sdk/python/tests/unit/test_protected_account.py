@@ -78,10 +78,21 @@ def test_protected_config_roundtrip(protected_paths):
     }
     pa.upsert_protected(entry)
     assert pa.get_by_controller("main")["protected_ss58"] == "5Pure"
-    moved = pa.move_protected_controller("main", "new")
+    moved = pa.move_protected_controller("main", "new", controller_ss58="5New")
     assert moved["controller_wallet"] == "new"
+    assert moved["controller_ss58"] == "5New"
     assert pa.get_by_controller("main") is None
     assert pa.get_by_controller("new")["protected_ss58"] == "5Pure"
+    assert pa.get_by_controller("new")["controller_ss58"] == "5New"
+
+
+def test_legacy_pure_derivation_matches_hashed_accounts_vector():
+    # Mirrors pallets/hashed-accounts/src/mldsa_tests.rs::pure_proxy_derivation_...
+    who = bytes([12] * 32)
+    account = pa.derive_legacy_pure_account_id(
+        who, height=17, ext_index=2, proxy_type_scale=3, index=9
+    )
+    assert account.hex() == ("b5cc23966887d8f2b052ab1cdd660d081b97d7cb8768d8e1f02b73cdfa5724dd")
 
 
 def test_announcement_store_indexes_and_status(protected_paths):

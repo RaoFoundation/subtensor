@@ -10,6 +10,7 @@ import typer
 
 from .. import protected_account as pa
 from .. import proxy_announcements as ann
+from ..executor import _event_parts
 from ..intents import (
     AddProxy,
     AnnounceColdkeySwap,
@@ -192,6 +193,75 @@ def warn_defeating_proxies(app_ctx: AppContext, record: dict[str, Any]) -> None:
         )
 
 
+def _verify_pure_created_provenance(app_ctx: AppContext, book: dict[str, Any]) -> None:
+    """Prove ``book['address']`` was spawned by the claimed create_pure coordinates.
+
+    Field presence alone is not enough: a keyed account could hold a delayed Any
+    grant with arbitrary book metadata. Recompute the legacy pure address when
+    applicable, and always require a matching ``Proxy.PureCreated`` event at the
+    claimed height / extrinsic index.
+    """
+    pure = str(book["address"])
+    spawner = str(book["spawner"])
+    height = int(book["height"])
+    ext_index = int(book["ext_index"])
+    index = int(book.get("index") or 0)
+    account_mode = str(book.get("account_mode") or "legacy")
+
+    if account_mode == "legacy":
+        try:
+            expected = pa.derive_legacy_pure_ss58(
+                spawner,
+                height=height,
+                ext_index=ext_index,
+                proxy_type=str(book.get("proxy_type") or "Any"),
+                index=index,
+            )
+        except ValueError as error:
+            app_ctx.output.error(f"cannot recompute pure address: {error}")
+            raise typer.Exit(2) from error
+        if expected != pure:
+            app_ctx.output.error(
+                f"proxy-book address {pure} does not match legacy pure derivation "
+                f"from spawner/height/ext-index ({expected}); refusing reuse — "
+                "the entry is not a keyless pure with those coordinates"
+            )
+            raise typer.Exit(2)
+
+    async def _check_event(client):
+        block_hash = await client._substrate.block_hash(height)
+        if not block_hash:
+            return "missing-block"
+        events = await client._substrate.events(block_hash)
+        for entry in events:
+            module_id, event_id, attributes, extrinsic_idx = _event_parts(entry)
+            if module_id != "Proxy" or event_id != "PureCreated":
+                continue
+            if extrinsic_idx is not None and int(extrinsic_idx) != ext_index:
+                continue
+            if not isinstance(attributes, dict):
+                continue
+            event_pure = str(attributes.get("pure") or "")
+            event_who = str(attributes.get("who") or "")
+            if event_pure == pure and event_who == spawner:
+                return "ok"
+        return "missing-event"
+
+    outcome = app_ctx.run(_check_event)
+    if outcome == "missing-block":
+        app_ctx.output.error(
+            f"cannot read block {height} to verify PureCreated — need an archive "
+            "endpoint (or create a fresh pure with `btcli proxy protect`)"
+        )
+        raise typer.Exit(2)
+    if outcome != "ok":
+        app_ctx.output.error(
+            f"no Proxy.PureCreated for {pure} by {spawner} at block {height} "
+            f"extrinsic {ext_index}; refusing to reuse a non-pure (or mismatched) address"
+        )
+        raise typer.Exit(2)
+
+
 def _validate_reusable_pure(
     app_ctx: AppContext,
     *,
@@ -202,8 +272,9 @@ def _validate_reusable_pure(
     """Reject a proxy-book resume target that is not a delayed-controller pure.
 
     A book entry alone does not prove the address is keyless or that this
-    wallet is its sole delayed Any controller. Validate provenance fields and
-    live on-chain proxy grants before announcing a coldkey swap into it.
+    wallet is its sole delayed Any controller. Validate provenance fields,
+    recompute/verify pure creation, and live on-chain proxy grants before
+    announcing a coldkey swap into it.
     """
     missing = [
         key
@@ -224,6 +295,8 @@ def _validate_reusable_pure(
             "protected accounts require an Any controller relationship",
         )
         raise typer.Exit(2)
+
+    _verify_pure_created_provenance(app_ctx, book)
 
     pure = str(book["address"])
     data = app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=pure))
@@ -311,6 +384,26 @@ def _on_chain_announcements(
     return rows
 
 
+def _live_controller_delay(app_ctx: AppContext, record: dict[str, Any]) -> int:
+    """Active on-chain Any delay for the controller, falling back to the local record.
+
+    Pending delay-change announcements must not advertise a longer window than
+    the live grant still permits.
+    """
+    controller = record.get("controller_ss58") or _controller_ss58(app_ctx)
+    pure = record["protected_ss58"]
+    data = app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=pure))
+    delays = [
+        int(d["delay"])
+        for d in data["proxies"]
+        if d["delegate"] == controller and d["proxy_type"] == "Any" and int(d["delay"] or 0) > 0
+    ]
+    if delays:
+        # Prefer the shortest live delay — that is the soonest execution window.
+        return min(delays)
+    return int(record.get("delay_blocks") or 0)
+
+
 def _reconcile_pending(app_ctx: AppContext, record: dict[str, Any]) -> list[dict[str, Any]]:
     """Merge local plaintext rows with live on-chain announcements.
 
@@ -320,7 +413,7 @@ def _reconcile_pending(app_ctx: AppContext, record: dict[str, Any]) -> list[dict
     """
     wallet_name = record["controller_wallet"]
     controller = record.get("controller_ss58") or _controller_ss58(app_ctx)
-    delay = int(record.get("delay_blocks") or 0)
+    delay = _live_controller_delay(app_ctx, record)
     on_chain = _on_chain_announcements(
         app_ctx,
         controller_ss58=controller,
@@ -578,6 +671,9 @@ def _protect_update(
 
     if delay_blocks != current_delay:
         # Rotate the delayed Any controller grant via announced batch.
+        # Keep ``delay_blocks`` as the live value until the announcement
+        # executes — otherwise show/cancel advertise a longer window than
+        # the chain still enforces (and a cancelled update would stick).
         children = [
             RemoveProxy(
                 delegate_ss58=controller_ss58, proxy_type="Any", delay=current_delay
@@ -590,7 +686,7 @@ def _protect_update(
             Batch(intents=children),
             category="delay-change",
         )
-        existing = {**existing, "delay_blocks": delay_blocks}
+        existing = {**existing, "pending_delay_blocks": delay_blocks}
         pa.upsert_protected(existing)
 
     for proxy_type in allow_types:
@@ -925,12 +1021,36 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
     if result is not None and result.success:
         ann.mark_status(row["controller_wallet"], int(row["index"]), "executed")
         app_ctx.output.message(f"executed #{row['index']}")
-        if row.get("category") == "rotate-controller":
-            record = pa.get_by_controller(row["controller_wallet"])
-            pending = (record or {}).get("pending_rotate") or {}
+        record = pa.get_by_controller(row["controller_wallet"])
+        if record is not None and row.get("category") == "delay-change":
+            pending_delay = record.get("pending_delay_blocks")
+            if pending_delay is not None:
+                live = _live_controller_delay(app_ctx, record)
+                if int(live) == int(pending_delay):
+                    record = {
+                        **record,
+                        "delay_blocks": int(pending_delay),
+                    }
+                    record.pop("pending_delay_blocks", None)
+                    pa.upsert_protected(record)
+                    app_ctx.output.message(
+                        f"active delay updated to {pending_delay} blocks (on-chain confirmed)"
+                    )
+                else:
+                    app_ctx.output.message(
+                        f"[dim]delay-change executed but on-chain Any delay is {live}, "
+                        f"not pending {pending_delay}; leaving local delay unchanged[/dim]"
+                    )
+        if record is not None and row.get("category") == "rotate-controller":
+            pending = record.get("pending_rotate") or {}
             to_name = pending.get("to_wallet")
-            if record is not None and to_name:
-                moved = pa.move_protected_controller(row["controller_wallet"], to_name)
+            to_ss58 = pending.get("to_ss58")
+            if to_name:
+                moved = pa.move_protected_controller(
+                    row["controller_wallet"],
+                    to_name,
+                    controller_ss58=to_ss58,
+                )
                 if moved is not None:
                     moved.pop("pending_rotate", None)
                     pa.upsert_protected(moved)
@@ -938,6 +1058,7 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
                     app_ctx.output.message(
                         f"local protected-account record moved: "
                         f"{row['controller_wallet']} → {to_name}"
+                        + (f" ({to_ss58})" if to_ss58 else "")
                     )
 
 
