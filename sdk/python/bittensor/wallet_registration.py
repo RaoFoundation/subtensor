@@ -45,7 +45,7 @@ WalletRegistrationCallback = Callable[[WalletRegistrationQuote], bool | Awaitabl
 
 @dataclass(frozen=True)
 class WalletRegistrationResult:
-    """Finalized wallet identities, receipt, and the quoted new registration reserve."""
+    """Finalized identities, last receipt, and the quoted new registration reserve."""
 
     roles: dict[str, str]
     accounts: tuple[str, ...]
@@ -155,6 +155,8 @@ async def register_wallet(
     the complete quote; if both are supplied, both must approve. No public
     submission fallback is permitted. Errors preserve the wallet and any receipt
     so callers can inspect finalized state and retry without generating new keys.
+    Classical registrations require separate transactions; each is verified in
+    finalized state before the next is submitted. Retries skip completed keys.
     """
     result = None
     quote = None
@@ -193,53 +195,65 @@ async def register_wallet(
         head = await substrate.block_hash()
         if not head:
             raise ValueError("could not pin wallet registration reserve")
+        # The classical runtime hook accepts one registration, optionally guarded,
+        # but does not accept another registration as its batch follow-up.
+        groups = (
+            [{account: descriptor} for account, descriptor in missing.items()]
+            if any(descriptor_storage(descriptor) == "Accounts" for descriptor in missing.values())
+            else [missing]
+        )
         total = 0
-        registrations = []
-        guard_ceiling = None
-        for descriptor in missing.values():
-            deposit_quote = await quote_hashed_registration_deposit(
-                substrate,
-                "MlDsaRegistrationDeposit" if descriptor[0] == 2 else "RegistrationDeposit",
-                block_hash=head,
-            )
-            reserve = deposit_quote.amount_rao
-            if reserve < 0:
-                raise ValueError("wallet registration reserve cannot be negative")
-            total += reserve
-            if deposit_quote.configurable:
-                guard_ceiling = reserve if guard_ceiling is None else min(guard_ceiling, reserve)
-            registrations.append(
-                await substrate.compose(
-                    calls.HashedAccounts.register(
-                        descriptor=registration_descriptor_value(descriptor)
+        fee = Balance.from_rao(0)
+        transactions = []
+        for group in groups:
+            registrations = []
+            guard_ceiling = None
+            for descriptor in group.values():
+                deposit_quote = await quote_hashed_registration_deposit(
+                    substrate,
+                    "MlDsaRegistrationDeposit" if descriptor[0] == 2 else "RegistrationDeposit",
+                    block_hash=head,
+                )
+                reserve = deposit_quote.amount_rao
+                if reserve < 0:
+                    raise ValueError("wallet registration reserve cannot be negative")
+                total += reserve
+                if deposit_quote.configurable:
+                    guard_ceiling = (
+                        reserve if guard_ceiling is None else min(guard_ceiling, reserve)
+                    )
+                registrations.append(
+                    await substrate.compose(
+                        calls.HashedAccounts.register(
+                            descriptor=registration_descriptor_value(descriptor)
+                        )
                     )
                 )
+            if guard_ceiling is not None:
+                # Each transaction binds the approved per-account reserve, even
+                # if sudo raises the price between the sequential registrations.
+                registrations.insert(
+                    0,
+                    await substrate.compose(
+                        calls.Call(
+                            "HashedAccounts",
+                            "check_registration_deposit",
+                            {"max_deposit": guard_ceiling},
+                        )
+                    ),
+                )
+            composed = (
+                registrations[0]
+                if len(registrations) == 1
+                else await substrate.compose(calls.Utility.batch_all(calls=registrations))
             )
-        if guard_ceiling is not None:
-            # Bind the approved per-account reserve inside the same atomic batch:
-            # a sudo price increase before dispatch must not exceed consent.
-            registrations.insert(
-                0,
-                await substrate.compose(
-                    calls.Call(
-                        "HashedAccounts",
-                        "check_registration_deposit",
-                        {"max_deposit": guard_ceiling},
-                    )
-                ),
+            fee += await substrate.estimate_fee(
+                composed, payer_public, period=MEV_SHIELD_ERA_PERIOD
             )
-        composed = (
-            registrations[0]
-            if len(registrations) == 1
-            else await substrate.compose(calls.Utility.batch_all(calls=registrations))
-        )
-        inner_fee = await substrate.estimate_fee(
-            composed, payer_public, period=MEV_SHIELD_ERA_PERIOD
-        )
-        carrier_fee = await substrate.estimate_shielded_carrier_fee(
-            composed, payer_public, period=MEV_SHIELD_ERA_PERIOD
-        )
-        fee = inner_fee + carrier_fee
+            fee += await substrate.estimate_shielded_carrier_fee(
+                composed, payer_public, period=MEV_SHIELD_ERA_PERIOD
+            )
+            transactions.append((composed, group))
         quote = WalletRegistrationQuote(
             payer_account,
             tuple(missing),
@@ -270,15 +284,20 @@ async def register_wallet(
             if approved is not True:
                 raise ValueError("wallet registration sponsorship was declined")
 
-        result = await client.submit_call(
-            composed,
-            payer,
-            shielded=True,
-            wait_for_inclusion=True,
-            wait_for_finalization=True,
-        )
-        result.raise_for_failure()
-        finalized = await _finalized_hash(substrate)
+        for composed, group in transactions:
+            result = None
+            result = await client.submit_call(
+                composed,
+                payer,
+                shielded=True,
+                wait_for_inclusion=True,
+                wait_for_finalization=True,
+            )
+            result.raise_for_failure()
+            finalized = await _finalized_hash(substrate)
+            for account, descriptor in group.items():
+                if not await _registered(substrate, account, descriptor, finalized):
+                    raise ValueError("wallet registration is not present in finalized state")
         for account, descriptor in descriptors.items():
             if not await _registered(substrate, account, descriptor, finalized):
                 raise ValueError("wallet registration is not present in finalized state")

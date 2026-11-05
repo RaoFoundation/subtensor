@@ -9,8 +9,15 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from bittensor import Balance, Client, SyncClient
-from bittensor.hashed import descriptor_bytes, descriptor_storage, descriptor_value
+from bittensor._generated import calls
+from bittensor.hashed import (
+    descriptor_bytes,
+    descriptor_storage,
+    descriptor_value,
+    registration_descriptor_value,
+)
 from bittensor.sp_core import (
+    CLASSICAL_HASHED_CRYPTO_TYPES,
     CRYPTO_ED25519,
     CRYPTO_HASHED,
     CRYPTO_MLDSA65,
@@ -56,6 +63,7 @@ class RegistrationChain(FakeSubstrate):
         self.registration_submissions = []
         self.submission_error = None
         self.submission_result = success_result(self.finalized + 1)
+        self.submission_results = []
         self.publish_records = True
         self.post_descriptor = None
 
@@ -76,9 +84,24 @@ class RegistrationChain(FakeSubstrate):
         self.registration_submissions.append((call, payer, kwargs))
         if self.submission_error is not None:
             raise self.submission_error
-        if self.submission_result.success:
+        result = (
+            self.submission_results.pop(0) if self.submission_results else self.submission_result
+        )
+        leaves = call_leaves(call)
+        registrations = [leaf for leaf in leaves if leaf.function == "register"]
+        if any("Classical" in leaf.params["descriptor"] for leaf in registrations):
+            # Mirror the runtime's context restriction for standalone wallet setup:
+            # a classical registration cannot follow another registration.
+            guarded = leaves[0].function == "check_registration_deposit"
+            if len(registrations) != 1 or len(leaves) != 1 + guarded:
+                return replace(result, success=False, message="InvalidHashedRegistrationContext")
+        for leaf in leaves:
+            if leaf.function == "check_registration_deposit":
+                deposit = await self.query("HashedAccounts", "HashedAccountRegistrationDeposit")
+                if deposit > leaf.params["max_deposit"]:
+                    return replace(result, success=False, message="RegistrationDepositExceedsLimit")
+        if result.success:
             records = dict(self.records[self.finalized])
-            leaves = call.params["calls"] if call.module == "Utility" else [call]
             for leaf in leaves:
                 if (leaf.module, leaf.function) == ("HashedAccounts", "check_registration_deposit"):
                     continue
@@ -93,7 +116,7 @@ class RegistrationChain(FakeSubstrate):
             self.finalized += 1
             self.block = self.finalized
             self.records[self.finalized] = records
-        return self.submission_result
+        return result
 
 
 def setup_client(*, deposit=DEPOSIT):
@@ -103,14 +126,21 @@ def setup_client(*, deposit=DEPOSIT):
     return chain, client
 
 
+def call_leaves(call):
+    return call.params["calls"] if call.module == "Utility" else [call]
+
+
 def registration_leaves(client):
-    call = client.submit_call.await_args.args[0]
-    leaves = call.params["calls"] if call.module == "Utility" else [call]
-    return [leaf for leaf in leaves if leaf.function == "register"]
+    return [
+        leaf
+        for submitted in client.submit_call.await_args_list
+        for leaf in call_leaves(submitted.args[0])
+        if leaf.function == "register"
+    ]
 
 
 @pytest.mark.parametrize("crypto", HASHED_CRYPTO_TYPES)
-async def test_registers_both_rotating_keys_in_one_shielded_finalized_batch(crypto):
+async def test_registers_both_rotating_keys_with_supported_shielded_finalized_calls(crypto):
     chain, client = setup_client()
     wallet = make_wallet(crypto)
     payer = dev_wallet()
@@ -118,18 +148,21 @@ async def test_registers_both_rotating_keys_in_one_shielded_finalized_batch(cryp
         wallet, payer=payer, max_registration_deposit=Balance.from_rao(2 * DEPOSIT)
     )
 
-    client.submit_call.assert_awaited_once()
-    call, submitted_payer = client.submit_call.await_args.args
-    assert submitted_payer is payer
-    assert (call.module, call.function) == ("Utility", "batch_all")
-    guard = call.params["calls"][0]
-    assert (guard.module, guard.function) == ("HashedAccounts", "check_registration_deposit")
-    assert guard.params == {"max_deposit": DEPOSIT}
+    split = crypto in CLASSICAL_HASHED_CRYPTO_TYPES
+    assert client.submit_call.await_count == (2 if split else 1)
+    for submitted in client.submit_call.await_args_list:
+        call, submitted_payer = submitted.args
+        assert submitted_payer is payer
+        assert (call.module, call.function) == ("Utility", "batch_all")
+        guard = call.params["calls"][0]
+        assert (guard.module, guard.function) == ("HashedAccounts", "check_registration_deposit")
+        assert guard.params == {"max_deposit": DEPOSIT}
+        assert len(call.params["calls"]) == (2 if split else 3)
+        options = submitted.kwargs
+        assert options["shielded"] is True
+        assert options["wait_for_inclusion"] is True
+        assert options["wait_for_finalization"] is True
     assert len(registration_leaves(client)) == 2
-    options = client.submit_call.await_args.kwargs
-    assert options["shielded"] is True
-    assert options["wait_for_inclusion"] is True
-    assert options["wait_for_finalization"] is True
     assert outcome.roles == {
         "coldkey": wallet.coldkeypub.ss58_address,
         "hotkey": wallet.hotkeypub.ss58_address,
@@ -138,13 +171,186 @@ async def test_registers_both_rotating_keys_in_one_shielded_finalized_batch(cryp
     assert outcome.deposit == Balance.from_rao(2 * DEPOSIT)
     assert outcome.result is chain.submission_result
     assert outcome.finalized_block_hash == await chain.block_hash(chain.finalized)
-    registry_reads = [entry for entry in chain.reads if entry[0] == "HashedAccounts"]
+    registry_reads = [
+        entry
+        for entry in chain.reads
+        if entry[0] == "HashedAccounts" and entry[1] in ("Accounts", "MlDsaAccounts")
+    ]
     assert all(entry[3] is not None for entry in registry_reads)
     for account in outcome.accounts:
         assert any(
             params == [account] and block == outcome.finalized_block_hash
             for _, _, params, block in registry_reads
         )
+
+
+@pytest.mark.parametrize("crypto", CLASSICAL_HASHED_CRYPTO_TYPES)
+async def test_chain_rejects_the_previous_two_classical_registration_batch(crypto):
+    chain, _ = setup_client()
+    wallet = make_wallet(crypto)
+    registrations = [
+        await chain.compose(
+            calls.HashedAccounts.register(
+                descriptor=registration_descriptor_value(bytes(key.hashed_descriptor))
+            )
+        )
+        for key in (wallet.coldkey, wallet.hotkey)
+    ]
+    guard = await chain.compose(
+        calls.Call("HashedAccounts", "check_registration_deposit", {"max_deposit": DEPOSIT})
+    )
+    call = await chain.compose(calls.Utility.batch_all(calls=[guard, *registrations]))
+    result = await chain.submit_registration(call, dev_wallet())
+    assert not result.success
+    assert result.message == "InvalidHashedRegistrationContext"
+    assert not chain.records[chain.finalized]
+
+
+@pytest.mark.parametrize("crypto", CLASSICAL_HASHED_CRYPTO_TYPES)
+@pytest.mark.parametrize("classical_first", [False, True])
+async def test_mixed_classical_and_pq_registrations_are_split_in_either_order(
+    crypto, classical_first
+):
+    chain, client = setup_client()
+    kinds = (crypto, CRYPTO_MLDSA65) if classical_first else (CRYPTO_MLDSA65, crypto)
+    wallet = make_wallet(*kinds)
+    outcome = await client.register_wallet(
+        wallet, payer=dev_wallet(), max_registration_deposit=Balance.from_rao(2 * DEPOSIT)
+    )
+    assert client.submit_call.await_count == 2
+    assert list(outcome.accounts) == [wallet.coldkey.ss58_address, wallet.hotkey.ss58_address]
+    for submitted, key in zip(client.submit_call.await_args_list, (wallet.coldkey, wallet.hotkey)):
+        guard, registration = call_leaves(submitted.args[0])
+        assert guard.params == {"max_deposit": DEPOSIT}
+        assert registration.params["descriptor"] == registration_descriptor_value(
+            bytes(key.hashed_descriptor)
+        )
+    assert len(chain.records[chain.finalized]) == 2
+
+
+@pytest.mark.parametrize("crypto", CLASSICAL_HASHED_CRYPTO_TYPES)
+async def test_legacy_classical_registration_splits_without_unavailable_guard(crypto):
+    chain, client = setup_client()
+    del chain._storage[("HashedAccounts", "HashedAccountRegistrationDeposit")]
+    outcome = await client.register_wallet(
+        make_wallet(crypto), payer=dev_wallet(), max_registration_deposit=Balance.from_rao(2)
+    )
+    assert outcome.deposit.rao == 2
+    assert client.submit_call.await_count == 2
+    for submitted in client.submit_call.await_args_list:
+        call = submitted.args[0]
+        assert (call.module, call.function) == ("HashedAccounts", "register")
+
+
+async def test_split_quote_sums_all_inner_and_carrier_fees_before_one_consent():
+    chain, client = setup_client()
+    chain.estimate_fee = AsyncMock(side_effect=[Balance.from_rao(11), Balance.from_rao(13)])
+    chain.estimate_shielded_carrier_fee = AsyncMock(
+        side_effect=[Balance.from_rao(17), Balance.from_rao(19)]
+    )
+
+    def approve(quote):
+        client.submit_call.assert_not_awaited()
+        assert chain.estimate_fee.await_count == 2
+        assert chain.estimate_shielded_carrier_fee.await_count == 2
+        assert quote.deposit.rao == 2 * DEPOSIT
+        assert quote.fee.rao == 60
+        return True
+
+    consent = Mock(side_effect=approve)
+    await client.register_wallet(
+        make_wallet(), payer=dev_wallet(), on_registration_sponsorship=consent
+    )
+    consent.assert_called_once()
+    for index, submitted in enumerate(client.submit_call.await_args_list):
+        assert chain.estimate_fee.await_args_list[index].args[0] == submitted.args[0]
+        assert (
+            chain.estimate_shielded_carrier_fee.await_args_list[index].args[0] == submitted.args[0]
+        )
+
+
+async def test_balance_check_includes_both_transactions_and_both_carrier_fees():
+    chain, client = setup_client()
+    chain.estimate_fee = AsyncMock(return_value=Balance.from_rao(10))
+    chain.estimate_shielded_carrier_fee = AsyncMock(return_value=Balance.from_rao(20))
+    minimum = await chain.constant("Balances", "ExistentialDeposit")
+    chain.seed(
+        "System", "Account", [ALICE], {"data": {"free": 2 * DEPOSIT + minimum + 59, "frozen": 0}}
+    )
+    approve = Mock(return_value=True)
+    with pytest.raises(WalletRegistrationError, match="insufficient spendable balance"):
+        await client.register_wallet(
+            make_wallet(), payer=dev_wallet(), on_registration_sponsorship=approve
+        )
+    approve.assert_not_called()
+    client.submit_call.assert_not_awaited()
+
+
+@pytest.mark.parametrize("failure", ["dispatch", "transport"])
+async def test_retry_after_second_failure_skips_first_finalized_registration(failure):
+    chain, client = setup_client()
+    wallet = make_wallet()
+    first_receipt = chain.submission_result
+    rejected = replace(first_receipt, success=False, message="Rejected second registration")
+    chain.submission_results = [first_receipt, rejected]
+
+    async def submit(call, payer, **kwargs):
+        if client.submit_call.await_count == 2:
+            coldkey_read = (
+                "HashedAccounts",
+                "Accounts",
+                [wallet.coldkey.ss58_address],
+                await chain.block_hash(chain.finalized),
+            )
+            assert coldkey_read in chain.reads
+            if failure == "transport":
+                raise ConnectionError("lost second registration")
+        return await chain.submit_registration(call, payer, **kwargs)
+
+    client.submit_call.side_effect = submit
+    with pytest.raises(WalletRegistrationError) as caught:
+        await client.register_wallet(
+            wallet, payer=dev_wallet(), max_registration_deposit=Balance.from_rao(2 * DEPOSIT)
+        )
+    assert caught.value.result is (rejected if failure == "dispatch" else None)
+    assert caught.value.wallet is wallet
+    assert len(chain.records[chain.finalized]) == 1
+    assert ("Accounts", wallet.coldkey.ss58_address) in chain.records[chain.finalized]
+
+    client.submit_call.reset_mock()
+    client.submit_call.side_effect = chain.submit_registration
+    chain.submission_results.clear()
+    approve = Mock(return_value=True)
+    outcome = await client.register_wallet(
+        wallet, payer=dev_wallet(), on_registration_sponsorship=approve
+    )
+    client.submit_call.assert_awaited_once()
+    quote = approve.call_args.args[0]
+    assert quote.accounts == (wallet.hotkey.ss58_address,)
+    assert quote.deposit.rao == DEPOSIT
+    assert outcome.result is chain.submission_result
+    assert len(chain.records[chain.finalized]) == 2
+
+
+async def test_sudo_increase_between_split_transactions_is_rejected_by_second_guard():
+    chain, client = setup_client()
+    wallet = make_wallet()
+
+    async def submit(call, payer, **kwargs):
+        result = await chain.submit_registration(call, payer, **kwargs)
+        if len(chain.registration_submissions) == 1:
+            chain.seed("HashedAccounts", "HashedAccountRegistrationDeposit", [], DEPOSIT + 1)
+        return result
+
+    client.submit_call.side_effect = submit
+    with pytest.raises(WalletRegistrationError, match="RegistrationDepositExceedsLimit") as caught:
+        await client.register_wallet(
+            wallet, payer=dev_wallet(), max_registration_deposit=Balance.from_rao(2 * DEPOSIT)
+        )
+    assert caught.value.quote.deposit.rao == 2 * DEPOSIT
+    assert client.submit_call.await_count == 2
+    assert len(chain.records[chain.finalized]) == 1
+    assert ("Accounts", wallet.coldkey.ss58_address) in chain.records[chain.finalized]
 
 
 @pytest.mark.parametrize("crypto", [CRYPTO_SR25519, CRYPTO_ED25519, *FIXED_PQ_CRYPTO_TYPES])
@@ -371,7 +577,7 @@ async def test_success_receipt_is_insufficient_without_matching_finalized_record
     chain, client = setup_client()
     wallet = make_wallet()
     if mismatch:
-        chain.post_descriptor = bytes(make_wallet(same_key=True).hotkey.hashed_descriptor)
+        chain.post_descriptor = bytes(wallet.hotkey.hashed_descriptor)
     else:
         chain.publish_records = False
     with pytest.raises(WalletRegistrationError, match=r"finaliz|descriptor|match") as caught:
@@ -380,6 +586,7 @@ async def test_success_receipt_is_insufficient_without_matching_finalized_record
         )
     assert caught.value.wallet is wallet
     assert caught.value.result is chain.submission_result
+    client.submit_call.assert_awaited_once()
 
 
 async def test_unregistered_rotating_payer_is_rejected_before_submission():
