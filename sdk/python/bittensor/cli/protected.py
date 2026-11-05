@@ -1037,7 +1037,7 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
             inner_op=row["inner_op"],
             inner_args=row.get("inner_args") or {},
             force_proxy_type=row.get("force_proxy_type") or "Any",
-            inner_call_data=row.get("call_data"),
+            announced_call_data=row.get("call_data"),
         ),
         proxy_for="self",
         summary=f"execute announcement #{row['index']}: {row.get('summary') or row['inner_op']}",

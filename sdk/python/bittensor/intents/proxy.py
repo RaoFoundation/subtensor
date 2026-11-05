@@ -523,7 +523,10 @@ class ExecuteProxyAnnounced(Intent):
             "accepting any type that covers the call."
         },
     )
-    inner_call_data: Optional[str] = field(
+    # Distinct from MultisigIntentAdapter.inner_call_data: the executor treats
+    # that attribute as a multisig pin and skips ``build()``. Announced payload
+    # bytes must not share the name or saved withdrawals compose to ``None``.
+    announced_call_data: Optional[str] = field(
         default=None,
         repr=False,
         metadata={
@@ -534,7 +537,7 @@ class ExecuteProxyAnnounced(Intent):
     )
 
     def requires_build_for_policy(self) -> bool:
-        if self.inner_call_data:
+        if self.announced_call_data:
             return False
         return build_intent(self.inner_op, self.inner_args).requires_build_for_policy()
 
@@ -544,8 +547,8 @@ class ExecuteProxyAnnounced(Intent):
         from ..receiving import account_for_read
 
         extras: dict = {}
-        if self.inner_call_data:
-            data = bytes.fromhex(self.inner_call_data.removeprefix("0x"))
+        if self.announced_call_data:
+            data = bytes.fromhex(self.announced_call_data.removeprefix("0x"))
             spec = await substrate.spec_version()
             inner_call = CallBytes(data=data, spec_version=spec)
             # Verify the stored bytes still match the announced commitment.
@@ -553,7 +556,7 @@ class ExecuteProxyAnnounced(Intent):
             # Hash check happens at dispatch time via the pallet; we still
             # refuse early if the local row is obviously corrupt.
             if not data:
-                raise ValueError("inner_call_data is empty")
+                raise ValueError("announced_call_data is empty")
             _ = actual
         else:
             origin = _OriginView(await account_for_read(substrate, self.real_ss58))

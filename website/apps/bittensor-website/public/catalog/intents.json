@@ -1440,7 +1440,7 @@
           "type": "string",
           "description": "Require the delegation to be exactly this proxy type instead of accepting any type that covers the call."
         },
-        "inner_call_data": {
+        "announced_call_data": {
           "type": "string",
           "description": "Exact SCALE bytes (0x-hex) of the announced call. Prefer this over rebuilding from inner_op/inner_args so the hash still matches after pool prices or balances move."
         }
