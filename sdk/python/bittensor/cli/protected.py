@@ -111,7 +111,8 @@ def maybe_route_protected(
     if intent.op in PROTECTED_BYPASS_OPS:
         return proxy_for, None, False
 
-    instant = pa.instant_proxy_type_for(intent.op, record)
+    dispatcher = record.get("controller_ss58") or _controller_ss58(app_ctx)
+    instant = pa.instant_proxy_type_for(intent.op, record, dispatcher_ss58=dispatcher)
     if instant is not None:
         return record["protected_ss58"], instant, False
 
@@ -122,6 +123,14 @@ def maybe_route_protected(
 
 def _controller_ss58(app_ctx: AppContext) -> str:
     return app_ctx.resolve_address("coldkey_ss58", None)
+
+
+def _call_data_hex(call: Any) -> Optional[str]:
+    """0x-hex of composed call SCALE bytes, if available."""
+    raw = getattr(call, "data", None)
+    if raw is None:
+        return None
+    return "0x" + bytes(raw).hex()
 
 
 def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str, Any]) -> None:
@@ -143,14 +152,15 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
         raise typer.Exit(2)
 
     async def _prepare(client):
-        _call, call_hash, _extras = await compose_announceable_call(
+        composed, call_hash, _extras = await compose_announceable_call(
             client._substrate, intent, real, wallet
         )
         block = await client.block()
-        return call_hash, block, intent.to_dict()
+        return composed, call_hash, block, intent.to_dict()
 
-    call_hash, block, encoded = app_ctx.run(_prepare)
+    composed, call_hash, block, encoded = app_ctx.run(_prepare)
     inner_args = {k: v for k, v in encoded.items() if k != "op"}
+    call_data = _call_data_hex(composed)
     result = app_ctx.submit(
         AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
         proxy_for="self",
@@ -175,6 +185,7 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
         announced_at_block=announced_at,
         force_proxy_type="Any",
         summary=intent.summary(),
+        call_data=call_data,
     )
     print_queued(app_ctx, record=record, row=row, current_block=announced_at)
 
@@ -581,7 +592,9 @@ def _protect_create(
         "protected_ss58": pure_ss58,
         "name": name,
         "delay_blocks": delay_blocks,
-        "allows": list(allow_types),
+        # Confirmed zero-delay grants only — pending announcements go here until execute.
+        "allows": [],
+        "pending_allows": list(allow_types),
         "allow_key_ss58": allow_key_ss58,
         "spawner": create_meta.get("spawner") or controller_ss58,
         "account_mode": create_meta.get("account_mode", "legacy"),
@@ -666,6 +679,7 @@ def _protect_update(
     controller_ss58 = existing.get("controller_ss58") or _controller_ss58(app_ctx)
     current_delay = int(existing.get("delay_blocks") or 0)
     current_allows = list(existing.get("allows") or [])
+    pending_allows = list(existing.get("pending_allows") or [])
     delegate = allow_key_ss58 or existing.get("allow_key_ss58") or controller_ss58
 
     if delay_blocks != current_delay:
@@ -689,7 +703,7 @@ def _protect_update(
         pa.upsert_protected(existing)
 
     for proxy_type in allow_types:
-        if proxy_type in current_allows:
+        if proxy_type in current_allows or proxy_type in pending_allows:
             continue
         _announce_as_protected(
             app_ctx,
@@ -697,23 +711,22 @@ def _protect_update(
             AddProxy(delegate_ss58=delegate, proxy_type=proxy_type, delay=0),
             category=f"allow:{proxy_type}",
         )
-        current_allows.append(proxy_type)
+        pending_allows.append(proxy_type)
 
     for proxy_type in disallow_types:
-        if proxy_type not in current_allows and proxy_type not in (existing.get("allows") or []):
-            # Still try remove in case on-chain state differs from local.
-            pass
         _announce_as_protected(
             app_ctx,
             existing,
             RemoveProxy(delegate_ss58=delegate, proxy_type=proxy_type, delay=0),
             category=f"disallow:{proxy_type}",
         )
-        current_allows = [t for t in current_allows if t != proxy_type]
+        # Keep local confirmed allows until the remove executes; mark pending removal.
+        pending_allows = [t for t in pending_allows if t != proxy_type]
 
     existing = {
         **existing,
         "allows": current_allows,
+        "pending_allows": pending_allows,
         "allow_key_ss58": allow_key_ss58 or existing.get("allow_key_ss58"),
         "controller_ss58": controller_ss58,
     }
@@ -747,13 +760,13 @@ def _announce_as_protected(
     delay = int(record.get("delay_blocks") or 0)
 
     async def _prepare(client):
-        _call, call_hash, _extras = await compose_announceable_call(
+        composed, call_hash, _extras = await compose_announceable_call(
             client._substrate, intent, real, wallet
         )
         block = await client.block()
-        return call_hash, block
+        return composed, call_hash, block
 
-    call_hash, block = app_ctx.run(_prepare)
+    composed, call_hash, block = app_ctx.run(_prepare)
     result = app_ctx.submit(
         AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
         proxy_for="self",
@@ -781,6 +794,7 @@ def _announce_as_protected(
         announced_at_block=announced_at,
         force_proxy_type="Any",
         summary=intent.summary(),
+        call_data=_call_data_hex(composed),
     )
     if row_extra:
         updated = ann.update_announcement(record["controller_wallet"], int(row["index"]), row_extra)
@@ -1021,8 +1035,9 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
             delegate_ss58=row["delegate_ss58"],
             real_ss58=row["real_ss58"],
             inner_op=row["inner_op"],
-            inner_args=row["inner_args"],
+            inner_args=row.get("inner_args") or {},
             force_proxy_type=row.get("force_proxy_type") or "Any",
+            inner_call_data=row.get("call_data"),
         ),
         proxy_for="self",
         summary=f"execute announcement #{row['index']}: {row.get('summary') or row['inner_op']}",
@@ -1031,6 +1046,22 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
         ann.mark_status(row["controller_wallet"], int(row["index"]), "executed")
         app_ctx.output.message(f"executed #{row['index']}")
         record = pa.get_by_controller(row["controller_wallet"])
+        category = str(row.get("category") or "")
+        if record is not None and category.startswith("allow:"):
+            proxy_type = category.split(":", 1)[1]
+            allows = list(record.get("allows") or [])
+            pending = list(record.get("pending_allows") or [])
+            if proxy_type not in allows:
+                allows.append(proxy_type)
+            pending = [t for t in pending if t != proxy_type]
+            record = {**record, "allows": allows, "pending_allows": pending}
+            pa.upsert_protected(record)
+        if record is not None and category.startswith("disallow:"):
+            proxy_type = category.split(":", 1)[1]
+            allows = [t for t in (record.get("allows") or []) if t != proxy_type]
+            pending = [t for t in (record.get("pending_allows") or []) if t != proxy_type]
+            record = {**record, "allows": allows, "pending_allows": pending}
+            pa.upsert_protected(record)
         if record is not None and row.get("category") == "delay-change":
             pending_delay = record.get("pending_delay_blocks")
             if pending_delay is not None:

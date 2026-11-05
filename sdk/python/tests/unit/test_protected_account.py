@@ -54,6 +54,23 @@ def test_instant_proxy_type_for_ops():
     assert pa.instant_proxy_type_for("set_children", record) == "ChildKeys"
     assert pa.instant_proxy_type_for("transfer", record) is None
     assert pa.instant_proxy_type_for("add_proxy", record) is None
+    # Pending allows are not active for routing.
+    pending_only = {"allows": [], "pending_allows": ["Staking"]}
+    assert pa.instant_proxy_type_for("remove_stake", pending_only) is None
+    # Instant path only when the dispatcher holds the allow-key grant.
+    other_key = {
+        "allows": ["Staking"],
+        "allow_key_ss58": "5AllowKey",
+        "controller_ss58": "5Controller",
+    }
+    assert (
+        pa.instant_proxy_type_for("remove_stake", other_key, dispatcher_ss58="5Controller")
+        is None
+    )
+    assert (
+        pa.instant_proxy_type_for("remove_stake", other_key, dispatcher_ss58="5AllowKey")
+        == "Staking"
+    )
 
 
 def test_defeating_zero_delay_detection():

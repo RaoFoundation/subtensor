@@ -1061,7 +1061,10 @@ class AppContext:
                 # wrap them (delay > 0 would fail as Unannounced).
                 record = pa.get_by_controller(self.wallet_name) if self.wallet_name else None
                 if record is not None and intent.op not in PROTECTED_BYPASS_OPS:
-                    instant = pa.instant_proxy_type_for(intent.op, record)
+                    dispatcher = record.get("controller_ss58")
+                    instant = pa.instant_proxy_type_for(
+                        intent.op, record, dispatcher_ss58=dispatcher
+                    )
                     if instant is not None:
                         proxy_for = record["protected_ss58"]
                         if force_proxy_type is None:

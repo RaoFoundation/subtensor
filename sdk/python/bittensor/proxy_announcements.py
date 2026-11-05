@@ -72,8 +72,14 @@ def add_announcement(
     announced_at_block: int,
     force_proxy_type: Optional[str] = None,
     summary: str = "",
+    call_data: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Append a pending announcement and return the stored row."""
+    """Append a pending announcement and return the stored row.
+
+    ``call_data`` is the exact SCALE call bytes (0x-hex) whose Blake2-256 is
+    ``call_hash``. Execute must replay those bytes — rebuilding from
+    ``inner_op``/``inner_args`` can diverge after prices or balances move.
+    """
     rows = load_announcements()
     index = next_index(rows)
     row = {
@@ -93,6 +99,8 @@ def add_announcement(
         "status": "pending",
         "created_at": int(time.time()),
     }
+    if call_data:
+        row["call_data"] = call_data
     rows.append(row)
     save_announcements(rows)
     return row

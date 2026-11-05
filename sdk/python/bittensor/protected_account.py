@@ -333,8 +333,21 @@ def resolve_allow_items(items: list[str]) -> list[str]:
     return out
 
 
-def instant_proxy_type_for(intent_op: str, record: dict[str, Any]) -> Optional[str]:
-    """Return the zero-delay allow ProxyType covering ``intent_op``, if configured."""
+def instant_proxy_type_for(
+    intent_op: str,
+    record: dict[str, Any],
+    *,
+    dispatcher_ss58: Optional[str] = None,
+) -> Optional[str]:
+    """Return the zero-delay allow ProxyType covering ``intent_op``, if usable now.
+
+    Only confirmed ``allows`` (not ``pending_allows``) are considered. When
+    ``--allow-key`` points at a different address than the dispatcher, the
+    controller cannot use the instant path — the grant lives on the allow-key.
+    """
+    allow_key = record.get("allow_key_ss58")
+    if allow_key and dispatcher_ss58 and str(allow_key) != str(dispatcher_ss58):
+        return None
     allows = record.get("allows") or []
     for proxy_type in allows:
         ops = PROXY_TYPE_INTENT_OPS.get(proxy_type, frozenset())

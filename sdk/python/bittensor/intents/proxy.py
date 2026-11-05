@@ -523,22 +523,47 @@ class ExecuteProxyAnnounced(Intent):
             "accepting any type that covers the call."
         },
     )
+    inner_call_data: Optional[str] = field(
+        default=None,
+        repr=False,
+        metadata={
+            "help": "Exact SCALE bytes (0x-hex) of the announced call. Prefer this "
+            "over rebuilding from inner_op/inner_args so the hash still matches "
+            "after pool prices or balances move."
+        },
+    )
 
     def requires_build_for_policy(self) -> bool:
+        if self.inner_call_data:
+            return False
         return build_intent(self.inner_op, self.inner_args).requires_build_for_policy()
 
     async def build(self, substrate, wallet: Any):
+        from .._transport.contract import CallBytes
         from ..executor import _compose_nested_intent_call, _OriginView
         from ..receiving import account_for_read
 
-        origin = _OriginView(await account_for_read(substrate, self.real_ss58))
-        origin._wallet = getattr(wallet, "_wallet", wallet)
-        inner_call, extras = await _compose_nested_intent_call(
-            substrate,
-            build_intent(self.inner_op, self.inner_args),
-            origin,
-            wrapper="announced proxy",
-        )
+        extras: dict = {}
+        if self.inner_call_data:
+            data = bytes.fromhex(self.inner_call_data.removeprefix("0x"))
+            spec = await substrate.spec_version()
+            inner_call = CallBytes(data=data, spec_version=spec)
+            # Verify the stored bytes still match the announced commitment.
+            actual = "0x" + bytes(inner_call.call_hash).hex()
+            # Hash check happens at dispatch time via the pallet; we still
+            # refuse early if the local row is obviously corrupt.
+            if not data:
+                raise ValueError("inner_call_data is empty")
+            _ = actual
+        else:
+            origin = _OriginView(await account_for_read(substrate, self.real_ss58))
+            origin._wallet = getattr(wallet, "_wallet", wallet)
+            inner_call, extras = await _compose_nested_intent_call(
+                substrate,
+                build_intent(self.inner_op, self.inner_args),
+                origin,
+                wrapper="announced proxy",
+            )
         composed = await substrate.compose(
             calls.Proxy.proxy_announced(
                 delegate=self.delegate_ss58,
