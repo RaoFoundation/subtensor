@@ -40,6 +40,12 @@ pub trait ColdkeyFeeCallFilter<Call> {
 pub trait FeeWeightDiscount<Call> {
     /// Weight to subtract from `info.call_weight` before pricing the fee.
     fn fee_weight_discount(call: &Call, info: &DispatchInfo) -> Weight;
+    /// Fixed compatibility credits also deducted after dispatch refunds. Unlike
+    /// allowance caps, these compensate work added to both declared and actual weight.
+    fn fee_refund_discount(call: &Call) -> Weight {
+        let _ = call;
+        Weight::zero()
+    }
     fn fee_discount_overhead(call: &Call) -> Weight;
 }
 
@@ -228,7 +234,7 @@ where
     const IDENTIFIER: &'static str = "ChargeTransactionPaymentWrapper";
     type Implicit = ();
     type Val = Val<T>;
-    type Pre = (Pre<T>, Weight, Option<Weight>);
+    type Pre = (Pre<T>, Weight, Weight, Option<Weight>);
 
     fn weight(&self, call: &RuntimeCallOf<T>) -> Weight {
         // Three proxy consent reads (including a final batch lookup), plus margin.
@@ -306,7 +312,7 @@ where
         // EVM gas covers execution, not native account authorization.
         let retained = (AUTHORIZED && T::gas_paid_execution(call)).then_some(info.extension_weight);
         let pre = self.inner.prepare(val, origin, call, &fee_info, len)?;
-        Ok((pre, discount, retained))
+        Ok((pre, discount, T::fee_refund_discount(call), retained))
     }
 
     fn metadata() -> Vec<TransactionExtensionMetadata> {
@@ -320,15 +326,20 @@ where
         len: usize,
         result: &DispatchResult,
     ) -> Result<Weight, TransactionValidityError> {
-        let (pre, discount, retained) = pre;
+        let (pre, discount, refund_discount, retained) = pre;
         let mut fee_info = fee_dispatch_info(info, discount);
         // Cap the fee at its discounted declaration, retaining normal refunds when
         // actual work costs less. Do not modify the execution post-info: CheckWeight
         // must still see the full scan, including work beyond four hotkeys.
+        let actual_weight = post_info.calc_actual_weight(info);
+        // A fixed compatibility credit must survive inner refunds. Never apply
+        // it to extension charges or turn an allowance cap into a flat subsidy.
+        let actual_discount =
+            refund_discount.min(actual_weight.saturating_sub(info.extension_weight));
         let mut fee_post_info = PostDispatchInfo {
             actual_weight: Some(
-                post_info
-                    .calc_actual_weight(info)
+                actual_weight
+                    .saturating_sub(actual_discount)
                     .min(fee_info.total_weight()),
             ),
             pays_fee: post_info.pays_fee,

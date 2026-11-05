@@ -298,6 +298,21 @@ impl FeeWeightDiscount<RuntimeCall> for Runtime {
             Weight::zero()
         }
     }
+
+    fn fee_refund_discount(call: &RuntimeCall) -> Weight {
+        // The announcement-validity read is included in the proxy's actual
+        // weight too. Keep its legacy fee credit when the inner call refunds.
+        leaves(call)
+            .into_iter()
+            .fold(Weight::zero(), |credit, leaf| {
+                if matches!(leaf, RuntimeCall::Proxy(ProxyCall::proxy_announced { .. })) {
+                    credit
+                        .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads(1))
+                } else {
+                    credit
+                }
+            })
+    }
 }
 
 pub fn query_fee_details(
@@ -433,6 +448,116 @@ mod tests {
                 ),
             ),
         ]
+    }
+
+    #[test]
+    fn announced_proxy_refunds_preserve_the_legacy_validity_read_credit() {
+        use sp_runtime::traits::{Dispatchable, Hash};
+        use subtensor_runtime_common::ProxyType;
+
+        for batched in [false, true] {
+            new_test_ext().execute_with(|| {
+                let real = AccountId::from([3_u8; 32]);
+                // The real account can reserve its proxy deposit but cannot pay
+                // this transfer. Batch stops before the expensive second call.
+                assert_ok!(Balances::force_set_balance(
+                    RuntimeOrigin::root(),
+                    real.clone().into(),
+                    Balance::new(1_000_000_000),
+                ));
+                let inner = RuntimeCall::Utility(UtilityCall::batch {
+                    calls: vec![
+                        RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+                            dest: signer().into(),
+                            value: Balance::new(1_000_000_000_000),
+                        }),
+                        RuntimeCall::System(frame_system::Call::remark {
+                            remark: vec![0; 1024],
+                        }),
+                    ],
+                });
+                assert_ok!(crate::Proxy::add_proxy(
+                    RuntimeOrigin::signed(real.clone()),
+                    signer().into(),
+                    ProxyType::Any,
+                    1,
+                ));
+                let hash = <Runtime as frame_system::Config>::Hashing::hash_of(&inner);
+                assert_ok!(crate::Proxy::announce(
+                    RuntimeOrigin::signed(signer()),
+                    real.clone().into(),
+                    hash
+                ));
+                System::set_block_number(2);
+                let announced = RuntimeCall::Proxy(ProxyCall::proxy_announced {
+                    delegate: signer().into(),
+                    real: real.into(),
+                    force_proxy_type: None,
+                    call: Box::new(inner),
+                });
+                let call = if batched {
+                    RuntimeCall::Utility(UtilityCall::batch_all {
+                        calls: vec![announced],
+                    })
+                } else {
+                    announced
+                };
+                let payment = ChargeTransactionPaymentWrapper::<Runtime>::new(Balance::new(123));
+                let info = DispatchInfo {
+                    extension_weight: payment.weight(&call),
+                    ..call.get_dispatch_info()
+                };
+                let credit = <Runtime as frame_system::Config>::DbWeight::get().reads(1);
+                assert_eq!(Runtime::fee_refund_discount(&call), credit);
+                let fee_info = fee_dispatch_info(&info, discount(&call));
+                // Executing an announcement releases its reserved deposit;
+                // count it as owned balance on both sides of the fee debit.
+                let before = Balances::free_balance(signer())
+                    .saturating_add(Balances::reserved_balance(signer()));
+                let post = payment
+                    .test_run(
+                        RuntimeOrigin::signed(signer()),
+                        &call,
+                        &info,
+                        100,
+                        0,
+                        |_| call.clone().dispatch(RuntimeOrigin::signed(signer())),
+                    )
+                    .unwrap()
+                    .unwrap();
+                let actual = post.calc_actual_weight(&info);
+                assert!(
+                    actual.ref_time() < fee_info.total_weight().ref_time(),
+                    "exercise a real inner refund below the fee cap"
+                );
+                let expected_post = PostDispatchInfo {
+                    actual_weight: Some(actual.saturating_sub(credit)),
+                    pays_fee: Pays::Yes,
+                };
+                let expected = TransactionPayment::compute_actual_fee(
+                    100,
+                    &fee_info,
+                    &expected_post,
+                    Balance::new(123),
+                );
+                let after = Balances::free_balance(signer())
+                    .saturating_add(Balances::reserved_balance(signer()));
+                let charged = before.saturating_sub(after);
+                assert_eq!(
+                    charged, expected,
+                    "the validity read must remain subsidized after refunds"
+                );
+                assert!(
+                    charged
+                        < TransactionPayment::compute_actual_fee(
+                            100,
+                            &fee_info,
+                            &post,
+                            Balance::new(123)
+                        )
+                );
+            });
+        }
     }
 
     #[test]

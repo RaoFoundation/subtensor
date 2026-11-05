@@ -1094,13 +1094,13 @@ impl crate::pallet_proxy::ProxyAccountPolicy<AccountId> for HashedProxyPolicy {
         setup_pq_benchmark_graph(account)
     }
     fn weight() -> Weight {
-        pallet_subtensor::staking::legacy_priced_additional_work(
+        pallet_subtensor::staking::fee_preserving_additional_work(
             <Runtime as frame_system::Config>::DbWeight::get().reads(6),
         )
     }
     fn grant_weight() -> Weight {
         use crate::pallet_proxy::WeightInfo;
-        pallet_subtensor::staking::legacy_priced_additional_work(
+        pallet_subtensor::staking::fee_preserving_additional_work(
             <Runtime as frame_system::Config>::DbWeight::get()
                 .reads(7)
                 .saturating_add(
@@ -1128,7 +1128,7 @@ impl crate::pallet_utility::DerivedAccountPolicy<AccountId> for HashedDerivedPol
         )
     }
     fn weight() -> Weight {
-        pallet_subtensor::staking::legacy_priced_additional_work(
+        pallet_subtensor::staking::fee_preserving_additional_work(
             crate::HashedAccounts::protected_query_weight(),
         )
     }

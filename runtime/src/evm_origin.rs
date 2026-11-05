@@ -32,7 +32,7 @@ pub struct EvmWeights;
 impl pallet_evm::weights::WeightInfo for EvmWeights {
     fn withdraw() -> Weight {
         <pallet_evm::weights::SubstrateWeight<crate::Runtime> as pallet_evm::weights::WeightInfo>::withdraw()
-            .saturating_add(pallet_subtensor::staking::legacy_priced_additional_work(<<crate::Runtime as pallet_balances::Config>::WeightInfo as pallet_balances::WeightInfo>::transfer_allow_death()
+            .saturating_add(pallet_subtensor::staking::fee_preserving_additional_work(<<crate::Runtime as pallet_balances::Config>::WeightInfo as pallet_balances::WeightInfo>::transfer_allow_death()
                 .max(<<crate::Runtime as pallet_balances::Config>::WeightInfo as pallet_balances::WeightInfo>::transfer_all())))
     }
 

@@ -532,7 +532,7 @@ fn evm_transaction_fee_matches_snapshot(
     #[case] priority_fee_per_gas: u64,
     mut new_test_ext: sp_io::TestExternalities,
 ) {
-    let fee_rao = evm_transaction_fee(case, priority_fee_per_gas, 0, &mut new_test_ext);
+    let fee_rao = evm_transaction_fee(case, priority_fee_per_gas, 0, 1, &mut new_test_ext);
     with_settings!({
         description => ctx.description.unwrap_or_default(),
         snapshot_suffix => ctx.description.unwrap_or_default(),
@@ -545,6 +545,7 @@ fn evm_transaction_fee(
     case: EvmFeeCase,
     priority_fee_per_gas: u64,
     pending_rows: u16,
+    pending_alpha: u64,
     new_test_ext: &mut sp_io::TestExternalities,
 ) -> u64 {
     use frame_support::traits::Get;
@@ -577,18 +578,28 @@ fn evm_transaction_fee(
             pallet_subtensor::SubtokenEnabled::<Runtime>::insert(netuid, true);
             pallet_subtensor::Pallet::<Runtime>::create_account_if_non_existent(&sender_account, &hotkey_account)
                 .expect("set up staking hotkey");
-            if matches!(case, EvmFeeCase::RemoveStake) {
-                pallet_subtensor::Pallet::<Runtime>::add_stake(RuntimeOrigin::signed(sender_account.clone()), hotkey_account.clone(), netuid, TaoBalance::new(2_000_000_000))
-                    .expect("seed root stake for removal");
-            }
+            pallet_subtensor::Pallet::<Runtime>::append_neuron(netuid, &hotkey_account, 0);
+            pallet_subtensor::Pallet::<Runtime>::add_stake(RuntimeOrigin::signed(sender_account.clone()), hotkey_account.clone(), netuid, TaoBalance::new(2_000_000_000))
+                .expect("seed the dividend-earning root position");
         }
+        // Use live, priced dynamic subnets. Unknown origins or a hotkey absent
+        // from root would recycle the credit instead of exercising a busy validator.
+        pallet_subtensor::RootClaimableThreshold::<Runtime>::insert(
+            NetUid::ROOT, substrate_fixed::types::I96F32::from_num(500_000),
+        );
         for raw in 1..=pending_rows {
-            // Dust remains queued; its count must not make admission expensive.
-            pallet_subtensor::PendingBasketDeposits::<Runtime>::insert(&hotkey_account, NetUid::from(raw), AlphaBalance::from(1u64));
-            if raw <= 129 {
-                let escrow = pallet_subtensor::Pallet::<Runtime>::get_beta_escrow_account_id();
-                pallet_subtensor::AlphaV2::<Runtime>::mutate((&hotkey_account, &escrow, NetUid::from(raw.saturating_sub(1))), |shares| *shares = 1u64.into());
-            }
+            let origin = NetUid::from(raw);
+            pallet_subtensor::Pallet::<Runtime>::init_new_network(origin, 360);
+            pallet_subtensor::SubtokenEnabled::<Runtime>::insert(origin, true);
+            pallet_subtensor::FirstEmissionBlockNumber::<Runtime>::insert(origin, 0);
+            pallet_subtensor::SubnetMechanism::<Runtime>::insert(origin, 1);
+            pallet_subtensor::SubnetTAO::<Runtime>::insert(origin, TaoBalance::new(1_000_000_000_000));
+            pallet_subtensor::SubnetAlphaIn::<Runtime>::insert(origin, AlphaBalance::new(1_000_000_000_000));
+            pallet_subtensor::SubnetFastMovingPrice::<Runtime>::insert(origin, substrate_fixed::types::U64F64::from_num(1));
+            // Emissions have already minted the queued alpha, but have not yet
+            // assigned it to the fund's escrow stake.
+            pallet_subtensor::SubnetAlphaOut::<Runtime>::insert(origin, AlphaBalance::new(pending_alpha));
+            pallet_subtensor::Pallet::<Runtime>::enqueue_basket_deposit(&hotkey_account, origin, AlphaBalance::new(pending_alpha));
         }
         let stake_before = pallet_subtensor::Pallet::<Runtime>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey_account, &sender_account, netuid).to_u64();
         let destination_before = Balances::free_balance(&destination_account).to_u64();
@@ -690,6 +701,22 @@ fn evm_transaction_fee(
                 assert_eq!(Balances::reserved_balance(&sender_account), deposit);
             }
         }
+        if pending_rows > 0 {
+            assert!(pallet_subtensor::Uids::<Runtime>::contains_key(NetUid::ROOT, &hotkey_account));
+            let escrow = pallet_subtensor::Pallet::<Runtime>::get_beta_escrow_account_id();
+            for raw in 1..=pending_rows {
+                let origin = NetUid::from(raw);
+                assert!(pallet_subtensor::Pallet::<Runtime>::if_subnet_exist(origin));
+                if pending_alpha < 500_000 {
+                    assert_eq!(pallet_subtensor::PendingBasketDeposits::<Runtime>::get(&hotkey_account, origin), AlphaBalance::new(pending_alpha), "live dust must persist after the stake operation");
+                    assert_eq!(pallet_subtensor::Pallet::<Runtime>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey_account, &escrow, origin), AlphaBalance::ZERO);
+                } else {
+                    assert!(!pallet_subtensor::PendingBasketDeposits::<Runtime>::contains_key(&hotkey_account, origin), "claimable live credit must actually settle");
+                    assert_eq!(pallet_subtensor::Pallet::<Runtime>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey_account, &escrow, origin), AlphaBalance::new(pending_alpha));
+                    assert!(pallet_subtensor::BasketShares::<Runtime>::get(&hotkey_account) > 0, "settlement must issue actual dividend shares");
+                }
+            }
+        }
         // Count reserved proxy deposits as owned balance; exclude stake and transfer
         // principal (or unstaking proceeds) from the actual transaction fee.
         let sender_after = Balances::free_balance(&sender_account).to_u64()
@@ -716,14 +743,27 @@ fn evm_transaction_fee(
 #[test]
 fn busy_root_validators_keep_pre_release_gas_limits_and_fees() {
     for case in [EvmFeeCase::AddStake, EvmFeeCase::RemoveStake] {
-        let baseline = evm_transaction_fee(case, 0, 0, &mut new_test_ext());
+        let baseline = evm_transaction_fee(case, 0, 0, 1, &mut new_test_ext());
         for rows in [1, 112, 256] {
-            let busy = evm_transaction_fee(case, 0, rows, &mut new_test_ext());
+            let busy = evm_transaction_fee(case, 0, rows, 1, &mut new_test_ext());
             assert_eq!(
                 busy, baseline,
                 "{rows} pending rows must not change EVM fees"
             );
         }
+    }
+}
+
+// PROTECTED_REGRESSION: root staking must retain existing gas limits while settling live dividends; changes require explicit human approval.
+#[test]
+fn busy_root_validators_settle_live_dividends_with_pre_release_gas_limits() {
+    for case in [EvmFeeCase::AddStake, EvmFeeCase::RemoveStake] {
+        let baseline = evm_transaction_fee(case, 0, 0, 1, &mut new_test_ext());
+        let settled = evm_transaction_fee(case, 0, 1, 1_000_000_000, &mut new_test_ext());
+        assert_eq!(
+            settled, baseline,
+            "live settlement must not change EVM fees"
+        );
     }
 }
 

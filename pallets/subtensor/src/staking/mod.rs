@@ -25,11 +25,11 @@ pub mod remove_stake;
 pub mod set_children;
 pub mod stake_utils;
 
-/// Release-owner-authorized compatibility policy for additional authorization
-/// work: retain proof accounting without increasing legacy execution prices.
-/// The work still executes. This permits more actual work per block; it is a
-/// capacity decision, not a benchmark or an execution-time bound.
-pub fn legacy_priced_additional_work(
+/// Permanent fee-preservation policy for additional authorization and transfer work.
+/// Keep its proof-size allowance while excluding its execution time from declared
+/// weight, preserving existing fees and gas pricing. The work still executes;
+/// this policy permits more actual work per block and is not a measured bound.
+pub fn fee_preserving_additional_work(
     weight: frame_support::weights::Weight,
 ) -> frame_support::weights::Weight {
     frame_support::weights::Weight::from_parts(0, weight.proof_size())

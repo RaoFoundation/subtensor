@@ -16,7 +16,7 @@ impl pallet_subtensor::HotkeyOwnerPolicy<AccountId> for HashedHotkeyOwnerPolicy 
     }
 
     fn weight() -> Weight {
-        pallet_subtensor::staking::legacy_priced_additional_work(
+        pallet_subtensor::staking::fee_preserving_additional_work(
             <Runtime as frame_system::Config>::DbWeight::get().reads(6),
         )
     }
