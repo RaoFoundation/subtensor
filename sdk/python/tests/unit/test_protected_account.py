@@ -122,6 +122,40 @@ def test_allow_key_change_blockers():
         )
         == []
     )
+    # Queuing disallow must not hide an outstanding allow announcement.
+    labels = pa.pending_allow_grant_labels(
+        [
+            {
+                "index": 3,
+                "category": "allow:Lock",
+                "status": "pending",
+                "inner_args": {"delegate_ss58": old, "proxy_type": "Lock", "delay": 0},
+            },
+            {
+                "index": 4,
+                "category": "disallow:Lock",
+                "status": "pending",
+                "inner_args": {"delegate_ss58": old, "proxy_type": "Lock", "delay": 0},
+            },
+            {
+                "index": 5,
+                "category": "allow:Staking",
+                "status": "pending",
+                "inner_args": {"delegate_ss58": new, "proxy_type": "Staking", "delay": 0},
+            },
+        ],
+        allow_key_ss58=old,
+    )
+    assert labels == ["#3 allow:Lock → 5AllowA"]
+    blocked = pa.allow_key_change_blockers(
+        old_allow_key_ss58=old,
+        new_allow_key_ss58=new,
+        allows=[],
+        pending_allows=[],
+        delegations=[],
+        pending_allow_announcements=labels,
+    )
+    assert any("outstanding allow announcements" in b for b in blocked)
 
 
 def test_controller_owned_allows_and_rotation_complete():

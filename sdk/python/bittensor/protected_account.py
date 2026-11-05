@@ -415,6 +415,33 @@ def allow_key_grants(
     return out
 
 
+def pending_allow_grant_labels(
+    announcements: list[dict[str, Any]],
+    *,
+    allow_key_ss58: Optional[str] = None,
+) -> list[str]:
+    """Labels for outstanding ``allow:`` announcements that still grant authority.
+
+    ``disallow:`` rows do not clear these — the original AddProxy commit remains
+    executable until cancelled or consumed. Optionally filter to grants whose
+    inner ``delegate_ss58`` is ``allow_key_ss58``.
+    """
+    labels: list[str] = []
+    for row in announcements:
+        category = str(row.get("category") or "")
+        if not category.startswith("allow:"):
+            continue
+        if row.get("status") not in (None, "pending"):
+            continue
+        target = (row.get("inner_args") or {}).get("delegate_ss58")
+        if allow_key_ss58 and target and str(target) != str(allow_key_ss58):
+            continue
+        index = row.get("index")
+        who = target or "unknown-delegate"
+        labels.append(f"#{index} {category} → {who}")
+    return labels
+
+
 def allow_key_change_blockers(
     *,
     old_allow_key_ss58: str,
@@ -422,6 +449,7 @@ def allow_key_change_blockers(
     allows: list[str],
     pending_allows: list[str],
     delegations: list[dict[str, Any]],
+    pending_allow_announcements: Optional[list[str]] = None,
 ) -> list[str]:
     """Human-readable reasons an ``--allow-key`` retarget must be refused."""
     if old_allow_key_ss58 == new_allow_key_ss58:
@@ -431,6 +459,8 @@ def allow_key_change_blockers(
         blockers.append(f"confirmed allows on old key: {allows}")
     if pending_allows:
         blockers.append(f"pending allows on old key: {pending_allows}")
+    if pending_allow_announcements:
+        blockers.append(f"outstanding allow announcements: {pending_allow_announcements}")
     on_chain = [
         f"{row.get('proxy_type')}@0" for row in allow_key_grants(delegations, old_allow_key_ss58)
     ]

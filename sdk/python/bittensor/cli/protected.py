@@ -686,21 +686,34 @@ def _protect_update(
     # --disallow / rotation would miss the live authority.
     if allow_key_ss58 is not None and allow_key_ss58 != old_allow_key:
         data = app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=existing["protected_ss58"]))
+        pending_rows = _reconcile_pending(app_ctx, existing)
+        outstanding = pa.pending_allow_grant_labels(
+            pending_rows,
+            allow_key_ss58=old_allow_key,
+        )
+        unknown = [f"#{row.get('index')}" for row in pending_rows if row.get("plaintext_missing")]
+        if unknown:
+            outstanding = [
+                *outstanding,
+                f"plaintext-missing on-chain announcement(s) {unknown}",
+            ]
         blockers = pa.allow_key_change_blockers(
             old_allow_key_ss58=old_allow_key,
             new_allow_key_ss58=allow_key_ss58,
             allows=current_allows,
             pending_allows=pending_allows,
             delegations=data["proxies"],
+            pending_allow_announcements=outstanding,
         )
         if blockers:
             app_ctx.output.error(
                 f"cannot change --allow-key from {old_allow_key} to {allow_key_ss58} "
                 "while the old key still holds (or is pending) zero-delay grants: "
                 + "; ".join(blockers),
-                help="run `btcli proxy protect --disallow …` for each grant without "
-                "changing --allow-key, execute those removals, then re-run with the "
-                "new --allow-key and --allow …",
+                help="cancel outstanding allow announcements (`btcli proxy cancel`) "
+                "and/or `btcli proxy protect --disallow …` without changing "
+                "--allow-key, execute those removals, then re-run with the new "
+                "--allow-key and --allow …",
             )
             raise typer.Exit(2)
         existing = {**existing, "allow_key_ss58": allow_key_ss58}
@@ -743,14 +756,28 @@ def _protect_update(
         pending_allows.append(proxy_type)
 
     for proxy_type in disallow_types:
+        # Pending AddProxy commits remain executable until cancelled. Queuing
+        # RemoveProxy alone must not drop them from pending_allows / open an
+        # allow-key retarget window.
+        if proxy_type in pending_allows and proxy_type not in current_allows:
+            cancelled = _cancel_pending_allow_grants(app_ctx, existing, proxy_type)
+            if not cancelled:
+                app_ctx.output.error(
+                    f"could not cancel pending allow:{proxy_type} announcement(s); "
+                    "refusing to clear the pending grant or retarget --allow-key",
+                    help="run `btcli proxy show` then `btcli proxy cancel --index …`",
+                )
+                raise typer.Exit(2)
+            pending_allows = [t for t in pending_allows if t != proxy_type]
+            continue
         _announce_as_protected(
             app_ctx,
             existing,
             RemoveProxy(delegate_ss58=delegate, proxy_type=proxy_type, delay=0),
             category=f"disallow:{proxy_type}",
         )
-        # Keep local confirmed allows until the remove executes; mark pending removal.
-        pending_allows = [t for t in pending_allows if t != proxy_type]
+        # Confirmed allows stay in ``allows`` until the disallow announcement
+        # executes; do not drop pending grant tracking here.
 
     existing = {
         **existing,
@@ -768,6 +795,26 @@ def _protect_update(
         f"({existing['protected_ss58']}). "
         f"Run `btcli proxy execute --wallet {existing['controller_wallet']}` after the delay."
     )
+
+
+def _cancel_pending_allow_grants(
+    app_ctx: AppContext, record: dict[str, Any], proxy_type: str
+) -> bool:
+    """Cancel outstanding ``allow:{proxy_type}`` announcements. True if all cleared."""
+    category = f"allow:{proxy_type}"
+    rows = [
+        row
+        for row in ann.list_for_wallet(record["controller_wallet"])
+        if str(row.get("category") or "") == category
+    ]
+    if not rows:
+        return True
+    for row in rows:
+        _cancel_one(app_ctx, row)
+        still = ann.get_by_index(record["controller_wallet"], int(row["index"]))
+        if still is not None and still.get("status") == "pending":
+            return False
+    return True
 
 
 def _announce_as_protected(
