@@ -1608,6 +1608,7 @@ fn test_coinbase_accrues_owner_cut_history() {
     });
 }
 
+// PROTECTED_REGRESSION: dissolve refund deducts accrued owner cut not current share; changes require explicit human approval.
 #[test]
 fn test_dissolve_refund_deducts_accrued_owner_cut_not_current_share() {
     new_test_ext(1).execute_with(|| {
@@ -1729,6 +1730,7 @@ fn test_owner_cut_alpha_for_lock_refund_falls_back_to_legacy_formula() {
     });
 }
 
+// PROTECTED_REGRESSION: dissolve refund without accrued entry still deducts legacy owner cut; changes require explicit human approval.
 #[test]
 fn test_dissolve_refund_without_accrued_entry_still_deducts_legacy_owner_cut() {
     new_test_ext(1).execute_with(|| {
@@ -1822,6 +1824,7 @@ fn test_migration_seeds_accrued_owner_cut_for_subnets_mid_dissolution() {
     });
 }
 
+// PROTECTED_REGRESSION: subnet dissolving at upgrade gets reduced refund after migration; changes require explicit human approval.
 #[test]
 fn test_subnet_dissolving_at_upgrade_gets_reduced_refund_after_migration() {
     new_test_ext(1).execute_with(|| {

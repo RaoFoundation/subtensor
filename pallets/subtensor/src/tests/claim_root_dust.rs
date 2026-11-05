@@ -427,6 +427,7 @@ fn zero_floors_redeem_every_row() {
 /// (a) The skipped slice stays with the remaining holders: the other holder's entitlement
 /// grows by exactly that slice (to rounding), the claimant is paid the rest, and the sum is
 /// what they were owed. No share is minted or left owed.
+// PROTECTED_REGRESSION: skipped slice stays with the remaining holders; changes require explicit human approval.
 #[test]
 fn skipped_slice_stays_with_the_remaining_holders() {
     new_test_ext(1).execute_with(|| {
@@ -564,6 +565,7 @@ fn young_subnet_row_is_priced_at_the_fast_anchor_not_the_slow_ema() {
 /// decision reads the anchored mark, the burn is the whole entitlement either way, and the
 /// row's alpha stays in the fund untouched. After the pump unwinds every holder is exactly
 /// where they would be without it.
+// PROTECTED_REGRESSION: pumping a skipped row changes nothing for anyone; changes require explicit human approval.
 #[test]
 fn pumping_a_skipped_row_changes_nothing_for_anyone() {
     new_test_ext(1).execute_with(|| {
@@ -668,6 +670,7 @@ fn zero_cap_sells_a_slice_whose_anchored_value_rounds_to_zero() {
 /// (4) A small finney claimant (P10 ≈ 0.015 TAO) against a fund spread over 125 rows whose
 /// values tail off: the claim sells only the rows whose slice clears 0.0001 TAO, and payout
 /// plus the reported forfeit add up to the entitlement (less pool slippage).
+// PROTECTED_REGRESSION: small claimant on a wide fund sells only the rows that carry value; changes require explicit human approval.
 #[test]
 fn small_claimant_on_a_wide_fund_sells_only_the_rows_that_carry_value() {
     new_test_ext(1).execute_with(|| {

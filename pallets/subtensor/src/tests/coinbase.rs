@@ -579,6 +579,7 @@ fn test_coinbase_moving_prices() {
     });
 }
 
+// PROTECTED_REGRESSION: unstarted subnet keeps slow price zero and starts with a fresh ramp; changes require explicit human approval.
 #[test]
 fn unstarted_subnet_keeps_slow_price_zero_and_starts_with_a_fresh_ramp() {
     new_test_ext(1).execute_with(|| {
@@ -624,6 +625,7 @@ fn unstarted_subnet_keeps_slow_price_zero_and_starts_with_a_fresh_ramp() {
     });
 }
 
+// PROTECTED_REGRESSION: unstarted subnet cannot preheat its price to avoid pruning; changes require explicit human approval.
 #[test]
 fn unstarted_subnet_cannot_preheat_its_price_to_avoid_pruning() {
     new_test_ext(0).execute_with(|| {
@@ -5080,6 +5082,7 @@ fn test_alpha_dividends_floor_capture_only_from_take() {
 
 // Nominator dividends paid to a hotkey whose share pool has no members must not be left
 // unowned in `TotalHotkeyAlpha`, where the next depositor would be quoted all of them.
+// PROTECTED_REGRESSION: nominator dividends to memberless pool go to owner; changes require explicit human approval.
 #[test]
 fn test_nominator_dividends_to_memberless_pool_go_to_owner() {
     new_test_ext(1).execute_with(|| {

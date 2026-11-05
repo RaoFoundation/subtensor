@@ -30,6 +30,8 @@ def _regenerate(wallet: Wallet, role: str, crypto: int, seed: int, overwrite: bo
     )
 
 
+# Regression invariant: declining second overwrite preserves both keyfiles.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
 @pytest.mark.parametrize("crypto", [CRYPTO_SR25519, CRYPTO_MLDSA65_FIXED])
 def test_declining_second_overwrite_preserves_both_keyfiles(tmp_path, monkeypatch, role, crypto):
@@ -49,6 +51,8 @@ def test_declining_second_overwrite_preserves_both_keyfiles(tmp_path, monkeypatc
     assert not list(Path(private.path).parent.glob(".wallet-backup.*"))
 
 
+# Regression invariant: second publication sync failure restores both keyfiles.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
 @pytest.mark.parametrize("crypto", [CRYPTO_SR25519, CRYPTO_MLDSA65_FIXED])
 def test_second_publication_sync_failure_restores_both_keyfiles(
@@ -79,6 +83,8 @@ def test_second_publication_sync_failure_restores_both_keyfiles(
     assert not list(Path(private.path).parent.glob(".wallet-backup.*"))
 
 
+# Regression invariant: new private file race rolls back public without clobbering racer.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_new_private_file_race_rolls_back_public_without_clobbering_racer(tmp_path, monkeypatch):
     wallet = Wallet("pair", path=str(tmp_path))
     private, public = _files(wallet, "coldkey")
@@ -98,6 +104,8 @@ def test_new_private_file_race_rolls_back_public_without_clobbering_racer(tmp_pa
     assert not list(private_path.parent.glob(".wallet-backup.*"))
 
 
+# Regression invariant: password env failure restores both keyfiles.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_password_env_failure_restores_both_keyfiles(tmp_path, monkeypatch):
     wallet = Wallet("pair", path=str(tmp_path))
     _regenerate(wallet, "coldkey", CRYPTO_SR25519, 31, overwrite=True)
@@ -145,6 +153,8 @@ def test_backup_cleanup_failure_does_not_report_keypair_failure(tmp_path, monkey
     )
 
 
+# Regression invariant: paired write refuses existing keyfile symlink.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_paired_write_refuses_existing_keyfile_symlink(tmp_path):
     wallet = Wallet("pair", path=str(tmp_path))
     private, public = _files(wallet, "coldkey")
@@ -192,6 +202,8 @@ def test_high_level_create_writes_fresh_cold_and_hot_pairs(tmp_path):
     )
 
 
+# Regression invariant: high level create refuses existing files before any overwrite.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_high_level_create_refuses_existing_files_before_any_overwrite(tmp_path, monkeypatch):
     wallet = Wallet("pair", path=str(tmp_path))
     _regenerate(wallet, "coldkey", CRYPTO_SR25519, 31, overwrite=True)
@@ -240,6 +252,8 @@ def test_high_level_create_preapproves_four_interactive_overwrites(tmp_path, mon
     )
 
 
+# Regression invariant: concurrent overwrites publish complete pairs.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_concurrent_overwrites_publish_complete_pairs(tmp_path, monkeypatch):
     first = Wallet("pair", path=str(tmp_path))
     second = Wallet("pair", path=str(tmp_path))
@@ -285,6 +299,8 @@ def test_concurrent_overwrites_publish_complete_pairs(tmp_path, monkeypatch):
     assert published_second.is_set()
 
 
+# Regression invariant: high level create hot write failure restores all four keyfiles.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_high_level_create_hot_write_failure_restores_all_four_keyfiles(tmp_path, monkeypatch):
     wallet = Wallet("pair", path=str(tmp_path))
     _regenerate(wallet, "coldkey", CRYPTO_SR25519, 31, overwrite=True)
@@ -312,6 +328,8 @@ def test_high_level_create_hot_write_failure_restores_all_four_keyfiles(tmp_path
     assert not list(Path(wallet.coldkey_file.path).parent.glob(".wallet-create-backup.*"))
 
 
+# Regression invariant: high level create hot failure removes new cold pair.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_high_level_create_hot_failure_removes_new_cold_pair(tmp_path, monkeypatch):
     wallet = Wallet("pair", path=str(tmp_path))
     publish = Keyfile._publish_staged

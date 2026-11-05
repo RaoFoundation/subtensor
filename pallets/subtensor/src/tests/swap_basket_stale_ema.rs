@@ -374,6 +374,7 @@ fn best_stale_low_sell_attack(netuid: NetUid, holding: u64, anchor: FastAnchor) 
 /// Anchored to the fast EMA the fund fills at most one in-band leg at the pre-lift price
 /// and the attacker cannot profit; the control with the fast anchor neutralized reproduces
 /// the old extraction, well above the accepted ceiling.
+// PROTECTED_REGRESSION: e8 stale high ema buy extraction closed by fast anchor; changes require explicit human approval.
 #[test]
 fn test_e8_stale_high_ema_buy_extraction_closed_by_fast_anchor() {
     new_test_ext(1).execute_with(|| {
@@ -440,6 +441,7 @@ fn test_e8_stale_high_ema_buy_extraction_closed_by_fast_anchor() {
 /// bought the alpha back below fair (1.05% / 3.05% / 4.71% of NAV). Anchored to the fast
 /// EMA the fund sells nothing below the pre-dump price; the neutralized control reproduces
 /// the leak.
+// PROTECTED_REGRESSION: e8 stale low ema sell extraction closed by fast anchor; changes require explicit human approval.
 #[test]
 fn test_e8_stale_low_ema_sell_extraction_closed_by_fast_anchor() {
     new_test_ext(1).execute_with(|| {
@@ -617,6 +619,7 @@ fn test_fast_moving_price_updates_when_registration_is_disabled() {
 /// became admitted at 13.85% of real NAV; a 9,500 TAO buy refused by the budget became
 /// admitted at 87.7% of NAV into one pool). Both stay refused now, and the fund's reported
 /// budget does not move with the pump.
+// PROTECTED_REGRESSION: bk15 pumped thin holding cannot admit oversize buy; changes require explicit human approval.
 #[test]
 fn test_bk15_pumped_thin_holding_cannot_admit_oversize_buy() {
     new_test_ext(1).execute_with(|| {

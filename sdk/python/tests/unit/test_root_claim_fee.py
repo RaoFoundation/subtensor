@@ -56,6 +56,8 @@ def test_reserved_fallback_charges_the_fee_allowance_not_the_envelope():
     ) == fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
 
 
+# Regression invariant: single hotkey admission covers full subnet limit plus root basket.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_single_hotkey_admission_covers_full_subnet_limit_plus_root_basket():
     admission = fees.RootClaimAdmission(
         hotkeys=(ALICE_HOT,),
@@ -570,6 +572,8 @@ async def test_coldkey_wide_admission_ignores_non_root_hotkeys():
     assert not any("admission limit" in block for block in plan.violations)
 
 
+# Regression invariant: coldkey wide admission keeps unstaked basket claimant.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.asyncio
 async def test_coldkey_wide_admission_keeps_unstaked_basket_claimant():
     substrate = FakeSubstrate()

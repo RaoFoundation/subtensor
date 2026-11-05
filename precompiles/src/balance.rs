@@ -132,6 +132,7 @@ mod tests {
         )
     }
 
+    // PROTECTED_REGRESSION: balance precompile does not expose unsynchronized native burn; changes require explicit human approval.
     #[test]
     fn balance_precompile_does_not_expose_unsynchronized_native_burn() {
         assert!(

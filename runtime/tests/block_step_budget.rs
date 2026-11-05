@@ -7,6 +7,7 @@ use frame_support::{
 use node_subtensor_runtime::{BuildStorage, Runtime, RuntimeCall, RuntimeGenesisConfig, System};
 use subtensor_runtime_common::{AccountId, TaoBalance};
 
+// PROTECTED_REGRESSION: initialized block admits shield key and staking test setup calls; changes require explicit human approval.
 #[test]
 fn initialized_block_admits_shield_key_and_staking_test_setup_calls() {
     let mut ext: sp_io::TestExternalities = RuntimeGenesisConfig::default()

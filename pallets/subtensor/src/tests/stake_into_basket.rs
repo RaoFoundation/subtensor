@@ -317,6 +317,7 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
 /// proportional alpha slice. Shares are minted against full-liquidation NAV, so the claim
 /// pays that same NAV-priced fraction and retains any larger raw sale proceeds as fund cash.
 /// The remaining holder therefore keeps their pre-claim marked value.
+// PROTECTED_REGRESSION: stake into basket claim retains concavity surplus for existing holders; changes require explicit human approval.
 #[test]
 fn test_stake_into_basket_claim_retains_concavity_surplus_for_existing_holders() {
     new_test_ext(1).execute_with(|| {
@@ -387,6 +388,7 @@ fn test_stake_into_basket_claim_retains_concavity_surplus_for_existing_holders()
 /// surplus becomes root cash, the first claimant's newly received root stake earns only a
 /// subsequent dividend, and both the old and newly accrued shares can then drain the fund
 /// without stranding cash or changing TotalStake.
+// PROTECTED_REGRESSION: retained concavity cash balances with new root entitlement; changes require explicit human approval.
 #[test]
 fn test_retained_concavity_cash_balances_with_new_root_entitlement() {
     new_test_ext(1).execute_with(|| {
@@ -603,6 +605,7 @@ fn test_stake_into_basket_rejections() {
 
 /// Regression: depressing a stale holding, depositing at the lower NAV, claiming, and restoring
 /// the attacker's alpha inventory must not create TAO profit or transfer value from the basket.
+// PROTECTED_REGRESSION: stake into basket sell deposit claim buyback cannot profit; changes require explicit human approval.
 #[test]
 fn test_stake_into_basket_sell_deposit_claim_buyback_cannot_profit() {
     new_test_ext(1).execute_with(|| {
@@ -1258,6 +1261,7 @@ fn test_root_slot_yield_accrues_to_share_holders() {
 
 /// New dividend shares cannot claim any of the escrow cash yield, even when a deferred
 /// batch is large relative to NAV. Exercise the production block drain and redemption.
+// PROTECTED_REGRESSION: dividend mint preserves all escrow yield for existing shares; changes require explicit human approval.
 #[test]
 fn test_dividend_mint_preserves_all_escrow_yield_for_existing_shares() {
     for (real_root, cash, credit) in [
@@ -1325,6 +1329,7 @@ fn test_dividend_mint_preserves_all_escrow_yield_for_existing_shares() {
 
 /// At the supply limit a deposit must remain pending, not credit an entitlement whose
 /// shares were silently discarded by saturation of BasketShares.
+// PROTECTED_REGRESSION: dividend share supply overflow requeues without changing entitlement; changes require explicit human approval.
 #[test]
 fn test_dividend_share_supply_overflow_requeues_without_changing_entitlement() {
     new_test_ext(1).execute_with(|| {
@@ -1443,6 +1448,7 @@ fn test_stake_into_basket_cannot_skim_compounding() {
 
 /// A same-block pump of the origin pool must not turn a small queued dividend into a large
 /// share mint. The credit waits until its origin returns to the fast-price band.
+// PROTECTED_REGRESSION: pumped origin cannot overmint dividend shares; changes require explicit human approval.
 #[test]
 fn test_pumped_origin_cannot_overmint_dividend_shares() {
     new_test_ext(1).execute_with(|| {
@@ -1512,6 +1518,7 @@ fn test_pumped_origin_cannot_overmint_dividend_shares() {
 /// Dividend shares are redeemed against live NAV, so their mint price must use that same NAV.
 /// Anchoring an unrelated existing holding below its live value would underprice the new shares
 /// and let them claim value which belonged to the passive holders before the dividend arrived.
+// PROTECTED_REGRESSION: above anchor holding does not underprice dividend shares; changes require explicit human approval.
 #[test]
 fn test_above_anchor_holding_does_not_underprice_dividend_shares() {
     for anchor_ratio in [0.99, 0.5, 2.0] {
@@ -1599,6 +1606,7 @@ fn test_above_anchor_holding_does_not_underprice_dividend_shares() {
 
 /// Dumping an unrelated holding cannot make the pre-deposit NAV arbitrarily cheap: settlement
 /// waits without changing either group's entitlement until the dump unwinds.
+// PROTECTED_REGRESSION: dumped holding cannot inflate dividend shares; changes require explicit human approval.
 #[test]
 fn test_dumped_holding_cannot_inflate_dividend_shares() {
     new_test_ext(1).execute_with(|| {
@@ -1667,6 +1675,7 @@ fn test_dumped_holding_cannot_inflate_dividend_shares() {
 
 /// A genuine rally defers settlement until the fast anchor catches up, then both
 /// the existing holding and dividend use live NAV.
+// PROTECTED_REGRESSION: origin rally preserves dividend value for root stakers; changes require explicit human approval.
 #[test]
 fn test_origin_rally_preserves_dividend_value_for_root_stakers() {
     new_test_ext(1).execute_with(|| {
@@ -1723,6 +1732,7 @@ fn test_origin_rally_preserves_dividend_value_for_root_stakers() {
 }
 
 /// Out-of-band credits preserve their original owner without freezing root stake.
+// PROTECTED_REGRESSION: out of band dividend preserves claimants until settlement; changes require explicit human approval.
 #[test]
 fn test_out_of_band_dividend_preserves_claimants_until_settlement() {
     new_test_ext(1).execute_with(|| {
@@ -1804,6 +1814,7 @@ fn test_out_of_band_dividend_preserves_claimants_until_settlement() {
 
 /// The original report's signed pump / deposit / unwind sequence cannot choose the
 /// dividend's valuation point. No reserve edits are used during the attack.
+// PROTECTED_REGRESSION: signed pump cannot force dividend settlement; changes require explicit human approval.
 #[test]
 fn test_signed_pump_cannot_force_dividend_settlement() {
     new_test_ext(1).execute_with(|| {
@@ -1891,6 +1902,7 @@ fn test_signed_pump_cannot_force_dividend_settlement() {
     });
 }
 
+// PROTECTED_REGRESSION: dissolution root cash cannot capture pending dividend; changes require explicit human approval.
 #[test]
 fn test_dissolution_root_cash_cannot_capture_pending_dividend() {
     new_test_ext(1).execute_with(|| {
