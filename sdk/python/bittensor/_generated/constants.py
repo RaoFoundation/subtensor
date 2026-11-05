@@ -146,6 +146,9 @@ class SafeMode:
     ExtendDepositAmount = Item('SafeMode', 'ExtendDepositAmount')
     ReleaseDelay = Item('SafeMode', 'ReleaseDelay')
 
+class EVM:
+    NativeDepositSupported = Item('EVM', 'NativeDepositSupported')
+
 class Drand:
     UnsignedPriority = Item('Drand', 'UnsignedPriority')
     HttpFetchTimeout = Item('Drand', 'HttpFetchTimeout')
@@ -186,14 +189,9 @@ class LimitOrders:
     PalletHotkey = Item('LimitOrders', 'PalletHotkey')
     LinkedOutputTtl = Item('LimitOrders', 'LinkedOutputTtl')
 
-class Lending:
-    PalletId = Item('Lending', 'PalletId')
-    MinimumLoanValue = Item('Lending', 'MinimumLoanValue')
-    InterestPeriod = Item('Lending', 'InterestPeriod')
-    BlocksPerYear = Item('Lending', 'BlocksPerYear')
-    ReferenceWarmup = Item('Lending', 'ReferenceWarmup')
-    MaxPositionsPerSubnet = Item('Lending', 'MaxPositionsPerSubnet')
-    MaxTotalPositions = Item('Lending', 'MaxTotalPositions')
-    ExpiryRetryDelay = Item('Lending', 'ExpiryRetryDelay')
-    InterestRetryDelay = Item('Lending', 'InterestRetryDelay')
-    MaxSettlementDeferral = Item('Lending', 'MaxSettlementDeferral')
+class HashedAccounts:
+    RegistrationDeposit = Item('HashedAccounts', 'RegistrationDeposit')
+    MlDsaRegistrationDeposit = Item('HashedAccounts', 'MlDsaRegistrationDeposit')
+    DerivedRegistrationDeposit = Item('HashedAccounts', 'DerivedRegistrationDeposit')
+    MldsaAccountProfiles = Item('HashedAccounts', 'MldsaAccountProfiles')
+    FalconAccountProfiles = Item('HashedAccounts', 'FalconAccountProfiles')

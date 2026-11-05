@@ -183,7 +183,7 @@ where
         handle: &mut impl PrecompileHandle,
         netuid: u16,
     ) -> EvmResult<()> {
-        let caller = handle.caller_account_id::<R>();
+        let caller = handle.caller_account_id::<R>()?;
         let call = pallet_subtensor::Call::<R>::enable_voting_power_tracking {
             netuid: NetUid::from(netuid),
         };
@@ -195,7 +195,7 @@ where
         handle: &mut impl PrecompileHandle,
         netuid: u16,
     ) -> EvmResult<()> {
-        let caller = handle.caller_account_id::<R>();
+        let caller = handle.caller_account_id::<R>()?;
         let call = pallet_subtensor::Call::<R>::disable_voting_power_tracking {
             netuid: NetUid::from(netuid),
         };

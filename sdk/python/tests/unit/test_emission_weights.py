@@ -32,12 +32,14 @@ DEFAULT = ew.default_weights()
 
 def test_constants_match_chain():
     assert ew.MAX_OWNER == (ONE * 33) // 100
+    assert ew.MAX_BURN_RECYCLE == (ONE * 33) // 100
     assert ew.MAX_VALIDATOR == (ONE * 50) // 100
     assert ew.MIN_MINER == (ONE * 33) // 100
     assert ew.DEFAULT_OWNER == (11796 * ONE) // 65535
     assert sum(DEFAULT) == ONE
     assert DEFAULT[ew.BURN] == DEFAULT[ew.RECYCLE] == 0
     assert DEFAULT[ew.VALIDATOR] == (ONE - ew.DEFAULT_OWNER) // 2
+    assert ew.ADJUSTABLE_SLOTS == (ew.BURN, ew.RECYCLE, ew.OWNER, ew.VALIDATOR, ew.MINER)
 
 
 @pytest.mark.parametrize(
@@ -129,11 +131,11 @@ def test_format_share():
     assert ew.format_share(0) == "0.00%"
 
 
-def test_merge_zeroes_reserved_slots_and_keeps_the_rest():
+def test_merge_keeps_omitted_slots_including_burn_and_recycle():
     current = [7, 9, 10, 20, 30]
     merged = ew.merge(current, {"owner": 11})
-    assert merged == [0, 0, 11, 20, 30]
-    assert ew.merge(current, {3: 1, "miner": 2}) == [0, 0, 10, 1, 2]
+    assert merged == [7, 9, 11, 20, 30]
+    assert ew.merge(current, {3: 1, "miner": 2}) == [7, 9, 10, 1, 2]
 
 
 def test_renormalize_scales_untouched_slots_proportionally():
@@ -141,6 +143,7 @@ def test_renormalize_scales_untouched_slots_proportionally():
     out = ew.renormalize(DEFAULT, {"owner": owner})
     assert sum(out) == ONE
     assert out[ew.OWNER] == owner
+    assert out[ew.BURN] == out[ew.RECYCLE] == 0
     # Validator and miner were (within a part) equal and stay so; miner absorbs rounding.
     assert abs(out[ew.VALIDATOR] - out[ew.MINER]) <= 4
     assert out[ew.VALIDATOR] > DEFAULT[ew.VALIDATOR]
@@ -151,19 +154,37 @@ def test_renormalize_keeps_two_pinned_and_fills_the_third():
     assert out == [0, 0, ONE // 10, ONE // 2, ONE - ONE // 10 - ONE // 2]
 
 
-def test_renormalize_rejects_overflow_and_nonzero_reserved():
+def test_renormalize_rejects_overflow_and_incomplete_pin():
     with pytest.raises(ValueError, match="exceed 100%"):
         ew.renormalize(DEFAULT, {"owner": ONE, "validator": 1})
-    with pytest.raises(ValueError, match="must stay 0"):
-        ew.renormalize(DEFAULT, {"burn": 1})
     with pytest.raises(ValueError, match="not 100%"):
-        ew.renormalize(DEFAULT, {"owner": 1, "validator": 1, "miner": 1})
+        ew.renormalize(
+            DEFAULT,
+            {
+                "burn": 0,
+                "recycle": 0,
+                "owner": 1,
+                "validator": 1,
+                "miner": 1,
+            },
+        )
+
+
+def test_renormalize_accepts_nonzero_burn_and_rescales_the_rest():
+    burn = ew.parse_share("10%")
+    out = ew.renormalize(DEFAULT, {"burn": burn})
+    assert sum(out) == ONE
+    assert out[ew.BURN] == burn
+    assert out[ew.RECYCLE] == 0
+    assert ew.validate(out) == []
 
 
 def test_renormalize_splits_evenly_when_free_slots_are_zero():
     out = ew.renormalize([0, 0, ONE, 0, 0], {"owner": ONE // 2})
     assert sum(out) == ONE
-    assert abs(out[ew.VALIDATOR] - out[ew.MINER]) <= 1
+    # Burn, recycle, validator and miner were all zero: remaining is split evenly.
+    free = [out[ew.BURN], out[ew.RECYCLE], out[ew.VALIDATOR], out[ew.MINER]]
+    assert max(free) - min(free) <= 1
 
 
 def test_validate_accepts_default_and_names_each_rule():
@@ -173,11 +194,31 @@ def test_validate_accepts_default_and_names_each_rule():
     def errors(weights, rules=rules):
         return [violation.error for violation in ew.validate(weights, rules)]
 
-    assert errors([1, 0, *DEFAULT[2:]]) == [
-        "BurnEmissionMustBeZero",
-        "EmissionWeightsDoNotSumToOne",
+    assert errors([1, 0, *DEFAULT[2:]]) == ["EmissionWeightsDoNotSumToOne"]
+    over_cap = [
+        ew.MAX_BURN_RECYCLE + 1,
+        0,
+        0,
+        ew.parse_share("34%"),
+        ONE - (ew.MAX_BURN_RECYCLE + 1) - ew.parse_share("34%"),
     ]
-    assert "RecycleEmissionMustBeZero" in errors([0, 1, *DEFAULT[2:]])
+    assert "BurnRecycleEmissionAboveMaximum" in errors(over_cap)
+    split_over = [
+        ew.parse_share("20%"),
+        ew.parse_share("14%"),
+        0,
+        ew.parse_share("33%"),
+        ONE - ew.parse_share("20%") - ew.parse_share("14%") - ew.parse_share("33%"),
+    ]
+    assert "BurnRecycleEmissionAboveMaximum" in errors(split_over)
+    at_cap = [
+        ew.parse_share("20%"),
+        ew.parse_share("13%"),
+        0,
+        ew.parse_share("34%"),
+        ONE - ew.parse_share("20%") - ew.parse_share("13%") - ew.parse_share("34%"),
+    ]
+    assert ew.validate(at_cap, rules) == []
     assert "OwnerEmissionAboveMaximum" in errors(
         ew.renormalize(DEFAULT, {"owner": ew.parse_share("34%")})
     )
@@ -324,11 +365,13 @@ def test_rules_limits_and_table_cover_every_slot():
     assert limits["validator"]["max_parts"] == ew.MAX_VALIDATOR
     assert limits["miner"]["max_parts"] == ONE
     rows = {name: rule for name, rule, _ in rules.table()}
-    assert rows["burn"] == "= 0%" and rows["recycle"] == "= 0%"
+    assert rows["burn"] == "0.00% to 33.00%" and rows["recycle"] == "0.00% to 33.00%"
+    assert rows["burn+recycle"] == "<= 33.00%"
     assert rows["owner"] == "18.00% to 33.00%"
     assert rows["validator"] == "2.2000% to 50.0000%"
     assert rows["miner"] == ">= 33.00%"
     assert rows["sum"] == "= 100%"
+    assert limits["burn"]["max_parts"] == ew.MAX_BURN_RECYCLE
     # No floor: validator is only capped, owner starts at 0.
     rows = {name: rule for name, rule, _ in ew.Rules().table()}
     assert rows["validator"] == "<= 50.0000%" and rows["owner"] == "0.00% to 33.00%"
@@ -388,13 +431,19 @@ def test_intent_normalises_slots_and_shares():
         ({"slots": ["owner"], "values": []}, "pair up"),
         ({"slots": [], "values": []}, "at least one"),
         ({"slots": ["owner", 2], "values": [1, 2]}, "at most once"),
-        ({"slots": ["burn"], "values": [1]}, "must be 0"),
         ({"slots": ["gamma"], "values": [1]}, "slots are"),
     ],
 )
 def test_intent_rejects_malformed_input(kwargs, match):
     with pytest.raises(ValueError, match=match):
         SetSubnetEmissionWeights(netuid=1, **kwargs)
+
+
+def test_intent_accepts_nonzero_burn():
+    intent = SetSubnetEmissionWeights(netuid=1, slots=["burn"], values=["10%"], renormalize=True)
+    assert intent.slots == [0]
+    assert intent.values == [ew.parse_share("10%")]
+    assert "burn=10.00%" in intent.summary()
 
 
 def test_intent_plan_renormalizes_and_reports_root_baseline():
@@ -607,10 +656,11 @@ def test_cli_show_human_output(emission_cli):
     out = human.output
     for needle in (
         "Vector",
+        "burn  0.00%",
+        "recycle  0.00%",
         "owner  18.00%",
         "validator  41.00%",
         "miner  41.00%",
-        "reserved, pinned to 0",
         "Root",
         "root share of emission  1.7",
         "paid off the top of the validator slot",
@@ -625,6 +675,7 @@ def test_cli_show_human_output(emission_cli):
         "Allowed",
         f"validator  {MIN_VALIDATOR_TEXT} to 50.0000%",
         "miner  >= 33.00%",
+        "burn+recycle  <= 33.00%",
         "sum  = 100%",
         "set-value --netuid 1",
     ):
@@ -835,11 +886,37 @@ def test_cli_explains_rule_violations_before_submitting(emission_cli):
         == "`btcli subnets emission show --netuid 1` prints the vector and every allowed range"
     )
 
-    pinned = invoke(
-        "subnets", "emission", "set-value", "--netuid", "1", "--slot", "burn", "--value", "1%"
+    over_burn = invoke(
+        "subnets",
+        "emission",
+        "set-value",
+        "--netuid",
+        "1",
+        "--slot",
+        "burn",
+        "--value",
+        "40%",
     )
-    assert pinned.exit_code == 2, pinned.output
-    assert "pinned to 0" in pinned.output
+    assert over_burn.exit_code == 2, over_burn.output
+    assert "BurnRecycleEmissionAboveMaximum" in over_burn.output
+
+    burn_ok = invoke(
+        "--json",
+        "--dry-run",
+        "subnets",
+        "emission",
+        "set-value",
+        "--netuid",
+        "1",
+        "--slot",
+        "burn",
+        "--value",
+        "10%",
+    )
+    assert burn_ok.exit_code == 0, burn_ok.output
+    burn_plan = json.loads(burn_ok.output)
+    assert burn_plan["ok"], burn_plan
+    assert burn_plan["preview"]["after"]["weights"][ew.BURN] == ew.parse_share("10%")
 
     bad_share = invoke(
         "subnets", "emission", "set-value", "--netuid", "1", "--slot", "owner", "--value", "lots"

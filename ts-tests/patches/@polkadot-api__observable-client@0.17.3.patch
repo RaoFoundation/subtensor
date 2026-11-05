@@ -1,0 +1,28 @@
+diff --git a/dist/esm/chainHead/streams/pinned-blocks.mjs b/dist/esm/chainHead/streams/pinned-blocks.mjs
+index b870f770c84b5c6b41c626ad8a78b0f4ab32feaf..dcd3145c0db5797456dc29a0af4a3d69341ee632 100644
+--- a/dist/esm/chainHead/streams/pinned-blocks.mjs
++++ b/dist/esm/chainHead/streams/pinned-blocks.mjs
+@@ -191,7 +191,8 @@ const getPinnedBlocks$ = (follow$, call$, getCachedMetadata$, setCachedMetadata,
+           }
+           acc.finalized = finalized;
+           const { blocks } = acc;
+-          if (blocks.get(acc.best).number < blocks.get(acc.finalized).number)
++          // Finalization can precede the initial best-block notification.
++          if (!blocks.has(acc.best) || blocks.get(acc.best).number < blocks.get(acc.finalized).number)
+             acc.best = acc.finalized;
+           acc.finalizedRuntime = acc.runtimes[blocks.get(acc.finalized).runtime];
+           event.prunedBlockHashes.forEach((hash) => {
+diff --git a/dist/index.js b/dist/index.js
+index baac1cb78fa7e4054372f42aa2ca392b305476c7..9f017cc7c36043137e95802739431ba6bebccd51 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -963,7 +963,8 @@ const getPinnedBlocks$ = (follow$, call$, getCachedMetadata$, setCachedMetadata,
+           }
+           acc.finalized = finalized;
+           const { blocks } = acc;
+-          if (blocks.get(acc.best).number < blocks.get(acc.finalized).number)
++          // Finalization can precede the initial best-block notification.
++          if (!blocks.has(acc.best) || blocks.get(acc.best).number < blocks.get(acc.finalized).number)
+             acc.best = acc.finalized;
+           acc.finalizedRuntime = acc.runtimes[blocks.get(acc.finalized).runtime];
+           event.prunedBlockHashes.forEach((hash) => {

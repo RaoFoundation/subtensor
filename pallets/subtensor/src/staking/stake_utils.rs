@@ -91,12 +91,15 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn update_moving_price(netuid: NetUid) {
+        let Some(first_emission_block) = FirstEmissionBlockNumber::<T>::get(netuid) else {
+            // Basket price protection needs a live fast anchor even before start_call.
+            // The slow emission/pruning EMA must not accumulate a pre-start history.
+            Self::update_fast_moving_price(netuid);
+            return;
+        };
         let blocks_since_start_call = U64F64::saturating_from_num({
-            // We expect FirstEmissionBlockNumber to be set earlier, and we take the block when
-            // `start_call` was called (first block before FirstEmissionBlockNumber).
-            let start_call_block = FirstEmissionBlockNumber::<T>::get(netuid)
-                .unwrap_or_default()
-                .saturating_sub(1);
+            // start_call records the following block as the first emission block.
+            let start_call_block = first_emission_block.saturating_sub(1);
 
             Self::get_current_block_as_u64().saturating_sub(start_call_block)
         });
@@ -140,10 +143,7 @@ impl<T: Config> Pallet<T> {
         let next = match SubnetFastMovingPrice::<T>::get(netuid) {
             None => spot,
             Some(fast) => {
-                // ln 2 / H: the per-block weight that halves the distance to spot every H blocks.
-                let alpha: U64F64 = U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(
-                    U64F64::saturating_from_num(crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1)),
-                );
+                let alpha = Self::fast_moving_price_weight();
                 if spot >= fast {
                     fast.saturating_add(spot.saturating_sub(fast).saturating_mul(alpha))
                 } else {
@@ -152,6 +152,29 @@ impl<T: Config> Pallet<T> {
             }
         };
         SubnetFastMovingPrice::<T>::insert(netuid, next);
+    }
+
+    /// ln 2 / H: the per-block weight that halves the distance to spot every H blocks.
+    fn fast_moving_price_weight() -> U64F64 {
+        U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(U64F64::saturating_from_num(
+            crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1),
+        ))
+    }
+
+    /// Steps [`SubnetGammaPrice`]: down to spot at once, up toward it by
+    /// [`SubnetFastMovingPrice`]'s weight of the gap, at most of itself. An unset price starts
+    /// at spot.
+    pub fn update_gamma_price(netuid: NetUid) {
+        let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
+        let alpha = Self::fast_moving_price_weight();
+        SubnetGammaPrice::<T>::mutate(netuid, |price| {
+            let rise = spot.saturating_sub(*price).min(*price);
+            *price = if *price == U64F64::from_num(0) {
+                spot
+            } else {
+                price.saturating_add(rise.saturating_mul(alpha)).min(spot)
+            };
+        });
     }
 
     /// Gets the Median Subnet Alpha Price
@@ -974,6 +997,8 @@ impl<T: Config> Pallet<T> {
         Alpha::<T>::contains_prefix((hotkey, coldkey))
             || AlphaV2::<T>::contains_prefix((hotkey, coldkey))
             || BasketClaimed::<T>::get(hotkey, coldkey) != 0
+            || DeferredBasketDebts::<T>::contains_key(hotkey, coldkey)
+            || DeferredBasketCashClaimed::<T>::get(hotkey, coldkey) != 0
             || AutoStakeDestination::<T>::iter_prefix(coldkey).any(|(_, target)| target == *hotkey)
     }
 
@@ -1243,7 +1268,9 @@ impl<T: Config> Pallet<T> {
             if enforce_root_hold {
                 Self::ensure_root_stake_unlocked(coldkey, hotkey)?;
             }
-            (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
+            let completed;
+            (flush_work, _, completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+            ensure!(completed, Error::<T>::BasketDepositPending);
         }
 
         // Refuse to strip conviction-locked or collateral-bonded alpha even when
@@ -1281,7 +1308,7 @@ impl<T: Config> Pallet<T> {
         // If this is a root-stake
         if netuid == NetUid::ROOT {
             // Adjust root claimed value for this hotkey and coldkey.
-            Self::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha);
+            Self::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha)?;
 
             // If the coldkey no longer holds any root stake, remove it from the
             // auto-claim staking-coldkey index so dead entries do not accumulate.
@@ -1349,7 +1376,8 @@ impl<T: Config> Pallet<T> {
         // pending dividend credits before the new stake lands, so it can't capture
         // flushable dividends earned before it arrived.
         if netuid.is_root() {
-            Self::flush_basket_deposits_for_hotkey(hotkey);
+            let (_, _, completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+            ensure!(completed, Error::<T>::BasketDepositPending);
         }
 
         // Transfer TAO from coldkey to the subnet account.
@@ -1418,7 +1446,7 @@ impl<T: Config> Pallet<T> {
             Self::touch_root_stake_age(coldkey, hotkey);
             // Adjust root claimed for this hotkey and coldkey.
             let alpha = swap_result.amount_paid_out.into();
-            Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha);
+            Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha)?;
             Self::maybe_add_coldkey_index(coldkey);
         }
 
@@ -1465,9 +1493,12 @@ impl<T: Config> Pallet<T> {
         // Root stake moves claimant base on both hotkeys: settle queued basket deposits
         // on each side first (see `stake_into_subnet` / `unstake_from_subnet`).
         if netuid.is_root() {
-            Self::flush_basket_deposits_for_hotkey(origin_hotkey);
+            let (_, _, origin_completed) = Self::flush_basket_deposits_for_hotkey(origin_hotkey);
+            ensure!(origin_completed, Error::<T>::BasketDepositPending);
             if destination_hotkey != origin_hotkey {
-                Self::flush_basket_deposits_for_hotkey(destination_hotkey);
+                let (_, _, destination_completed) =
+                    Self::flush_basket_deposits_for_hotkey(destination_hotkey);
+                ensure!(destination_completed, Error::<T>::BasketDepositPending);
             }
         }
 
@@ -1498,7 +1529,7 @@ impl<T: Config> Pallet<T> {
                 origin_hotkey,
                 origin_coldkey,
                 alpha,
-            );
+            )?;
         }
 
         // If the destination coldkey does not own the destination hotkey, make the
@@ -1519,7 +1550,7 @@ impl<T: Config> Pallet<T> {
                 destination_hotkey,
                 destination_coldkey,
                 u64::from(alpha).into(),
-            );
+            )?;
         }
 
         // Calculate TAO equivalent based on current price (it is accurate because

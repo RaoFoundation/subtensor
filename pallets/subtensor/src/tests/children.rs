@@ -4854,7 +4854,8 @@ fn test_root_register_requires_hotkey_ownership() {
         // Check all storage stays unchanged, including balances, registration
         // counters, delegate state, and both sides of auto-parent relationships.
         assert_noop!(
-            SubtensorModule::root_register(RuntimeOrigin::signed(other_cold), val_hot),
+            SubtensorModule::root_register(RuntimeOrigin::signed(other_cold), val_hot)
+                .map_err(|error| error.error),
             Error::<Test>::NonAssociatedColdKey
         );
 
@@ -5106,6 +5107,7 @@ fn childkey_threshold_fixture() -> ChildkeyThresholdFixture {
 // the cooldown (the P -> Q move-and-cash-out). The pending entry is refused at maturation and
 // re-staking below the threshold does not arm the child.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_pending_children_do_not_mature_after_parent_moves_stake_away --exact
+// PROTECTED_REGRESSION: Pending child relations must recheck the parent stake at activation; changes require explicit human approval.
 #[test]
 fn test_pending_children_do_not_mature_after_parent_moves_stake_away() {
     new_test_ext(1).execute_with(|| {

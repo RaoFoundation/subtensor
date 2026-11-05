@@ -20,6 +20,8 @@ export const docs = defineDocs({
     },
   },
   meta: {
+    // Validation evidence also contains JSON; only navigation metadata belongs here.
+    files: ['**/meta.json'],
     schema: metaSchema,
   },
 });

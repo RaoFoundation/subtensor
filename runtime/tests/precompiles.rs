@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use subtensor_precompiles::{
     BalanceTransferPrecompile, PrecompileExt, Precompiles, ProxyPrecompile,
 };
-use subtensor_runtime_common::{ProxyType, TaoBalance};
+use subtensor_runtime_common::{ProxyType, TaoBalance, Token};
 
 type AccountId = <Runtime as frame_system::Config>::AccountId;
 
@@ -102,6 +102,55 @@ fn eip2537_is_registered_in_the_production_runtime() {
             assert_eq!(handle.gas_used, gas);
         }
     });
+}
+
+// PROTECTED_REGRESSION: root register with no pending dividends fits existing evm gas limit; changes require explicit human approval.
+#[test]
+fn root_register_with_no_pending_dividends_fits_existing_evm_gas_limit() {
+    // Exercise both admission paths with the deployment's subnet count. Reserving a
+    // whole coldkey's basket flush here used to reject an otherwise sufficient gas limit.
+    for validators in [0_u16, 64] {
+        new_test_ext().execute_with(|| {
+            type Subtensor = pallet_subtensor::Pallet<Runtime>;
+            let root = subtensor_runtime_common::NetUid::ROOT;
+            Subtensor::init_new_network(root, 1);
+            Subtensor::set_max_allowed_uids(root, 64);
+            Subtensor::set_immunity_period(root, 0);
+            Subtensor::set_max_registrations_per_block(root, 100);
+            Subtensor::set_target_registrations_per_interval(root, 100);
+            Subtensor::set_min_burn(root, TaoBalance::ZERO);
+            Subtensor::set_burn(root, TaoBalance::ZERO);
+            pallet_subtensor::TotalNetworks::<Runtime>::put(128);
+            for uid in 0..validators {
+                let old: AccountId = H256::repeat_byte(uid.saturating_add(1) as u8).0.into();
+                Subtensor::append_neuron(root, &old, 0);
+            }
+            let caller = addr_from_index(0xcafe);
+            let coldkey = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
+            add_balance_to_coldkey_account(&coldkey, TaoBalance::new(1_000_000_000));
+            let hotkey = H256::repeat_byte(200);
+            let address =
+                addr_from_index(subtensor_precompiles::NeuronPrecompile::<Runtime>::INDEX);
+            let mut handle = MockHandle::new(
+                address,
+                Context {
+                    address,
+                    caller,
+                    apparent_value: U256::zero(),
+                },
+            );
+            handle.input = encode_with_selector(selector_u32("rootRegister(bytes32)"), (hotkey,));
+            handle.gas_limit = 5_000_000;
+            Precompiles::<Runtime>::new()
+                .execute(&mut handle)
+                .unwrap()
+                .unwrap();
+            assert!(pallet_subtensor::Uids::<Runtime>::contains_key(
+                root,
+                AccountId::from(hotkey.0)
+            ));
+        });
+    }
 }
 
 #[test]

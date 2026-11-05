@@ -17,6 +17,7 @@ from dataclasses import MISSING, asdict, dataclass, field, fields
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional
 
 from ..balance import Balance
+from ..registration_sponsorship import RegistrationSponsorship
 from ..result import BittensorError
 from ._money import Spend
 
@@ -135,6 +136,11 @@ class IntentPreflight:
     # Structured, JSON-native counterpart of ``effects`` (``Plan.preview``)
     # for intents whose preview has a fixed shape. Optional.
     preview: dict[str, Any] = field(default_factory=dict)
+    # Explicit approval is required if execution adds recipient registration.
+    # Planning itself never prompts or authorizes a future composition.
+    registration_sponsorship: RegistrationSponsorship | None = None
+    # The composed call establishes a protected account, including derived accounts.
+    account_registration: bool = False
 
 
 @dataclass
@@ -322,6 +328,10 @@ class Intent(ABC):
 
     def affects_all_subnets(self) -> bool:
         """True if the intent acts across every subnet (so any allowlist must fail it)."""
+        return False
+
+    def requires_build_for_policy(self) -> bool:
+        """Whether pinned approvals must rebuild dynamic spending metadata."""
         return False
 
     def semantic_intent(self) -> "Intent":

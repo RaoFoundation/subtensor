@@ -26,8 +26,8 @@ use crate::tests::claim_root::{escrow_alpha, register_on_root};
 use crate::tests::mock::*;
 use crate::{
     BasketDailyTurnoverCap, BasketShares, BasketTradeBucket, BasketTradingEnabled, Error,
-    FirstEmissionBlockNumber, NetworksAdded, Owner, SubnetAlphaIn, SubnetAlphaOut,
-    SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO, TotalStake,
+    FirstEmissionBlockNumber, NetworkRegistrationAllowed, NetworksAdded, Owner, SubnetAlphaIn,
+    SubnetAlphaOut, SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO, TotalStake,
 };
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::{assert_noop, assert_ok};
@@ -374,6 +374,7 @@ fn best_stale_low_sell_attack(netuid: NetUid, holding: u64, anchor: FastAnchor) 
 /// Anchored to the fast EMA the fund fills at most one in-band leg at the pre-lift price
 /// and the attacker cannot profit; the control with the fast anchor neutralized reproduces
 /// the old extraction, well above the accepted ceiling.
+// PROTECTED_REGRESSION: e8 stale high ema buy extraction closed by fast anchor; changes require explicit human approval.
 #[test]
 fn test_e8_stale_high_ema_buy_extraction_closed_by_fast_anchor() {
     new_test_ext(1).execute_with(|| {
@@ -440,6 +441,7 @@ fn test_e8_stale_high_ema_buy_extraction_closed_by_fast_anchor() {
 /// bought the alpha back below fair (1.05% / 3.05% / 4.71% of NAV). Anchored to the fast
 /// EMA the fund sells nothing below the pre-dump price; the neutralized control reproduces
 /// the leak.
+// PROTECTED_REGRESSION: e8 stale low ema sell extraction closed by fast anchor; changes require explicit human approval.
 #[test]
 fn test_e8_stale_low_ema_sell_extraction_closed_by_fast_anchor() {
     new_test_ext(1).execute_with(|| {
@@ -590,6 +592,23 @@ fn test_fast_moving_price_bootstraps_and_halves_distance_per_half_life() {
     });
 }
 
+#[test]
+fn test_fast_moving_price_updates_when_registration_is_disabled() {
+    new_test_ext(1).execute_with(|| {
+        let x = make_pool(101, 1_000_000 * TAO, 1_000_000 * TAO, 1.0, 1.0);
+        SubnetFastMovingPrice::<Test>::insert(x, U64F64::from_num(1));
+        NetworkRegistrationAllowed::<Test>::insert(x, false);
+        SubnetTAO::<Test>::insert(x, TaoBalance::from(2_000_000 * TAO));
+
+        SubtensorModule::update_moving_prices();
+
+        assert!(
+            SubnetFastMovingPrice::<Test>::get(x).unwrap() > U64F64::from_num(1),
+            "registration-disabled subnet left the fast EMA stale"
+        );
+    });
+}
+
 // =============================================================================
 // BK-15 F2 / BK-03 F3: the guarded NAV cannot be pumped
 // =============================================================================
@@ -600,6 +619,7 @@ fn test_fast_moving_price_bootstraps_and_halves_distance_per_half_life() {
 /// became admitted at 13.85% of real NAV; a 9,500 TAO buy refused by the budget became
 /// admitted at 87.7% of NAV into one pool). Both stay refused now, and the fund's reported
 /// budget does not move with the pump.
+// PROTECTED_REGRESSION: bk15 pumped thin holding cannot admit oversize buy; changes require explicit human approval.
 #[test]
 fn test_bk15_pumped_thin_holding_cannot_admit_oversize_buy() {
     new_test_ext(1).execute_with(|| {

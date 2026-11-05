@@ -16,7 +16,7 @@ use frame_support::{
 use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
 use sp_core::{H256, Pair};
 use sp_keyring::Sr25519Keyring as AccountKeyring;
-use sp_runtime::{MultiSignature, Perbill};
+use sp_runtime::Perbill;
 use subtensor_runtime_common::NetUid;
 use subtensor_swap_interface::OrderSwapInterface;
 
@@ -92,7 +92,7 @@ fn make_readable_signed_order(
     let sig = keyring.pair().sign(&readable_signed_bytes(&versioned));
     crate::SignedOrder {
         order: versioned,
-        signature: MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     }
 }
@@ -395,7 +395,7 @@ fn is_order_valid_accepts_readable_ed25519_signature() {
         let ed_sig = ed_pair.sign(&readable_signed_bytes(&versioned));
         let signed = crate::SignedOrder {
             order: versioned,
-            signature: MultiSignature::Ed25519(ed_sig),
+            signature: crate::OrderSignature::Ed25519(ed_sig),
             partial_fill: None,
         };
         let id = LimitOrders::<Test>::derive_order_id(&signed.order);
@@ -614,7 +614,7 @@ fn readable_ecdsa_signature_rejected() {
         let ecdsa_sig = ecdsa_pair.sign(&readable_signed_bytes(&versioned));
         let signed = crate::SignedOrder {
             order: versioned,
-            signature: MultiSignature::Ecdsa(ecdsa_sig),
+            signature: crate::OrderSignature::Ecdsa(ecdsa_sig),
             partial_fill: None,
         };
         let id = LimitOrders::<Test>::derive_order_id(&signed.order);

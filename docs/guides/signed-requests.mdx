@@ -7,8 +7,8 @@ Validators and miners talk to each other over plain HTTP; the chain only
 stores where to find each other (see [Mining](/docs/guides/mining)). What
 those requests need is **identity**: proof that a request came from a specific
 hotkey, was addressed to yours, covers exactly the bytes received, and is
-recent. `bittensor.http_auth` provides that as two pure functions — `sign`
-produces headers, `verify` checks them — with no HTTP server or client
+recent. `bittensor.http_auth` provides that through `sign`, which produces
+headers, and `verify`, which checks them, with no HTTP server or client
 attached. Bring your own framework; recipes for FastAPI and httpx are below.
 
 ```python
@@ -24,6 +24,7 @@ headers = bt.http_auth.sign(
 caller = bt.http_auth.verify(
     request_headers, body_bytes,
     method="POST", path="/generate", self_hotkey_ss58=my_hotkey,
+    expected_crypto_type=trusted_sender_crypto_type,
 )
 caller.hotkey_ss58    # the authenticated sender — score it, rate-limit it, gate it
 ```
@@ -31,6 +32,71 @@ caller.hotkey_ss58    # the authenticated sender — score it, rate-limit it, ga
 `verify` raises an `AuthError` subclass on failure — `MalformedAuth`,
 `WrongReceiver`, `StaleRequest`, `ReplayedRequest`, or `BadSignature` — with
 messages safe to return to the unauthenticated caller.
+
+Resolve `trusted_sender_crypto_type` from server-owned configuration or the
+account registry for the claimed sender. Never copy `X-Bittensor-Crypto` into
+`expected_crypto_type`: the header is attacker-controlled, and a bare SS58
+address does not encode its scheme. Verification rejects a conflicting header
+before checking the signature. A trusted scheme is required for every sender,
+including hashed accounts; the wire format and existing signature bytes are
+unchanged.
+
+## Keep existing verification calls
+
+Existing calls that omit `expected_crypto_type` can remain unchanged after
+configuring trusted sender schemes once at server startup:
+
+```python
+bt.http_auth.configure_verifier(
+    my_hotkey,
+    trusted_sender_schemes={validator_hotkey: bt.CRYPTO_SR25519},
+)
+
+caller = bt.http_auth.verify(
+    request_headers, body_bytes,
+    method="POST", path="/generate", self_hotkey_ss58=my_hotkey,
+)
+```
+
+Load this mapping from trusted configuration or a synchronized account registry,
+never from request headers. It supports ordinary and hashed Sr25519/Ed25519;
+ML-DSA and Falcon HTTP authentication remain unsupported. A missing configuration
+or unknown sender raises `BadSignature`, rather than guessing a scheme. Sender
+lookup uses the exact SS58 string supplied in the request.
+
+Configuration is process-local and scoped to the receiving hotkey. Configure
+every server worker; applications sharing a process and receiver share its
+configuration. `configure_verifier` copies the mapping, so call it again with
+an updated snapshot to refresh registry data. `clear_verifier(my_hotkey)` removes
+that receiver's configuration. An explicit `expected_crypto_type` still takes
+precedence over the configured mapping.
+
+## Hashed SR/ED hotkeys
+
+Before a hashed hotkey can sign HTTP requests, its first on-chain transaction
+must finalize, retiring generation zero. HTTP signatures use that retired
+identity key, never the active rotating spending key. Registration alone does
+not retire it.
+
+Keyfiles reload at generation zero rather than trusting saved chain state.
+Prepare the signer once against the connected chain, then use it for requests:
+
+```python
+async with bt.Client(network="finney") as client:
+    http_signer = await bt.http_auth.prepare_signer(wallet, client=client)
+
+headers = bt.http_auth.sign(
+    http_signer, method="POST", path="/generate", body=body_bytes,
+    receiver_ss58=miner_hotkey,
+)
+```
+
+Preparation verifies the actual hotkey's descriptor and retired generation at
+one finalized block. It fails if registration or retirement is not finalized;
+do not bypass it by manually selecting a generation. The prepared signer can
+be reused across requests and later spending-key rotations. Ordinary SR/ED
+hotkeys need no preparation. ML-DSA and Falcon hotkeys do not support HTTP
+authentication or arbitrary message signing.
 
 ## The wire format (btauth/1)
 
@@ -46,7 +112,7 @@ exact):
 | `X-Bittensor-Hotkey` | sender hotkey, ss58 |
 | `X-Bittensor-Receiver` | receiver hotkey, ss58 (optional — see below) |
 | `X-Bittensor-Nonce` | unix time in **nanoseconds**, decimal string |
-| `X-Bittensor-Crypto` | `ed25519` — omitted entirely for sr25519 |
+| `X-Bittensor-Crypto` | `ed25519`, `hashed`, or `hashed-ed25519` — omitted entirely for sr25519 |
 | `X-Bittensor-Signature` | `0x` + lowercase hex signature |
 
 The signature is over the UTF-8 bytes of exactly eight lines joined by `\n`
@@ -54,7 +120,7 @@ The signature is over the UTF-8 bytes of exactly eight lines joined by `\n`
 
 ```
 btauth/1
-<scheme: "sr25519" or "ed25519">
+<scheme: "sr25519", "ed25519", "hashed", or "hashed-ed25519">
 <HTTP method, uppercase>
 <request target: path plus ?query, exactly as sent>
 <sha256 of the raw body bytes, lowercase hex>
@@ -74,11 +140,14 @@ malicious miner cannot proxy a validator's request to another miner. sr25519
 signatures use the substrate signing context (`b"substrate"` in schnorrkel) —
 the same as chain extrinsics; ed25519 is plain RFC 8032. Signatures must be
 over the exact payload bytes, never a wrapped or re-encoded form.
+Hashed keys sign those payload bytes using their domain-separated
+message envelopes; see [wallet crypto types](/docs/guides/wallet-crypto-types).
 
 Verification, in order:
 
 1. **Shape** — all required headers present and parseable, version is `1`,
-   the scheme (if present) is known.
+   the scheme (if present) is known and matches the server's trusted scheme
+   for the claimed sender.
 2. **Receiver** — the `X-Bittensor-Receiver` value must equal the server's
    hotkey. Servers reject unbound requests by default
    (`require_receiver=False` opts out).
@@ -86,11 +155,10 @@ Verification, in order:
    (default 10) and `allowed_skew` seconds in the future (default 2).
 4. **Signature** — rebuild the payload from the *received* method, path, and
    body (always recompute the body hash), decode the sender's ss58, and
-   verify under the declared scheme **only**. Never fall back to trying the
-   other scheme: sr25519 and ed25519 public keys are both 32-byte
-   curve25519-family points, and try-both verification opens an
-   algorithm-confusion surface. The scheme inside the signed payload closes
-   it.
+   verify under the trusted scheme **only**. Never fall back to another scheme.
+   Binding the scheme inside the signed payload prevents substitution of an
+   existing signature; pinning it independently also prevents classical
+   forgeries from impersonating a registered hashed account.
 5. **Replay** — the `(hotkey, nonce)` pair must not have been accepted before
    within the window. The store is consulted only after the signature
    verifies, so unauthenticated traffic cannot poison it. The default is an
@@ -113,6 +181,11 @@ import bittensor as bt
 from fastapi import Depends, FastAPI, HTTPException, Request
 
 MY_HOTKEY = bt.Wallet(name="my_coldkey", hotkey="my_hotkey").hotkey.ss58_address
+# Populate this from trusted configuration or a synchronized account registry.
+TRUSTED_SENDER_SCHEMES: dict[str, int] = {}
+bt.http_auth.configure_verifier(
+    MY_HOTKEY, trusted_sender_schemes=TRUSTED_SENDER_SCHEMES,
+)
 
 app = FastAPI()
 

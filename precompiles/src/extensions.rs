@@ -3,6 +3,7 @@ extern crate alloc;
 use alloc::format;
 
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
+use frame_support::traits::Get;
 use frame_system::RawOrigin;
 use pallet_admin_utils::{PrecompileEnable, PrecompileEnum};
 use pallet_evm::{
@@ -17,12 +18,22 @@ use sp_std::vec::Vec;
 use subtensor_runtime_common::with_evm_context;
 
 pub(crate) trait PrecompileHandleExt: PrecompileHandle {
-    fn caller_account_id<R>(&self) -> R::AccountId
+    fn caller_account_id<R>(&mut self) -> EvmResult<R::AccountId>
     where
         R: frame_system::Config + pallet_evm::Config,
         <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
     {
-        <R as pallet_evm::Config>::AddressMapping::into_account_id(self.context().caller)
+        self.mapped_account_id::<R>(self.context().caller)
+    }
+
+    /// Reserve external weight before the infallible mapping reads storage.
+    fn mapped_account_id<R>(&mut self, address: H160) -> EvmResult<R::AccountId>
+    where
+        R: pallet_evm::Config,
+        R::AddressMapping: AddressMapping<R::AccountId>,
+    {
+        pallet_evm::account_cost::record_precompile_mapping_cost::<R>(self)?;
+        Ok(<R::AddressMapping as AddressMapping<R::AccountId>>::into_account_id(address))
     }
 
     fn record_db_reads<R>(&mut self, reads: u64) -> EvmResult<()>
@@ -108,7 +119,10 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         let mut info = GetDispatchInfo::get_dispatch_info(&call);
 
         if walks > 0 {
-            self.record_db_reads::<R>(1)?;
+            // Account for the immediate list-length read in the external resource
+            // meter without adding an opcode gas surcharge to legacy stake exits.
+            let read = <R as frame_system::Config>::DbWeight::get().reads(1);
+            self.record_external_cost(Some(read.ref_time()), Some(read.proof_size()), None)?;
             info.call_weight = info.call_weight.saturating_sub(
                 pallet_subtensor::Pallet::<R>::staking_hotkeys_walk_unused(&coldkey, walks),
             );

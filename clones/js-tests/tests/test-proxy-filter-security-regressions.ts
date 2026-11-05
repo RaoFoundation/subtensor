@@ -25,6 +25,7 @@ logger.captureConsole();
 
 let api;
 
+// PROTECTED_REGRESSION: proxy-filter-security-regressions; changes require explicit human approval.
 async function main() {
   await logger.start();
   api = await connectApi(WS_ENDPOINT, { log: console.log });
@@ -260,6 +261,9 @@ async function signedBatch(signer, calls, label) {
 }
 
 async function submitAndWait(signer, tx, label) {
+  // Pool rejections do not consume a nonce, while included proxy failures do.
+  // Query the node each time instead of reusing a lagging account subscription.
+  const nonce = await api.rpc.system.accountNextIndex(signer.address);
   return new Promise<any>((resolve, reject) => {
     let unsubscribe;
     let settled = false;
@@ -271,7 +275,7 @@ async function submitAndWait(signer, tx, label) {
       fn(value);
     };
 
-    tx.signAndSend(signer, ({ status, events, dispatchError }) => {
+    tx.signAndSend(signer, { nonce }, ({ status, events, dispatchError }) => {
       if (dispatchError) {
         finish(reject, new Error(`${label} failed: ${formatDispatchError(dispatchError)}`));
         return;

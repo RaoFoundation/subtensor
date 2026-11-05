@@ -3,10 +3,10 @@
 Each subnet carries a five-slot vector ``[burn, recycle, owner, validator,
 miner]`` of ``u64 / u64::MAX`` shares. The subnet owner (or root) changes it with
 ``AdminUtils.sudo_set_subnet_emission_weights``, a sparse update: name the slots
-you are changing and their new shares; untouched owner/validator/miner slots
-keep their value. The chain enforces the rules spelled out in
-:mod:`bittensor.emission_weights` and rate-limits owners to one change per week
-per subnet (root is exempt; the first change on a subnet is always allowed).
+you are changing and their new shares; omitted slots keep their current value.
+The chain enforces the rules spelled out in :mod:`bittensor.emission_weights`
+and rate-limits owners to one change per week per subnet (root is exempt; the
+first change on a subnet is always allowed).
 
 Read the current vector and its bounds with the ``subnet_emission_weights``
 read.
@@ -28,36 +28,28 @@ from .registry import register
 
 SLOTS_HELP = (
     "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. "
-    "Omitted owner/validator/miner slots keep their current share; omitted burn/recycle "
-    "are zero."
+    "Omitted slots keep their current share."
 )
 VALUES_HELP = (
     "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage "
-    '("41%"), or raw u64 parts of 2^64-1. Rules: burn = recycle = 0; owner <= 33% '
+    '("41%"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% '
     "(>= 18% on lease-created subnets); validator <= 50% and above root's baseline "
     "share of emission, which is paid off the top of the validator slot (see `btcli "
     "subnets emission show`); miner >= 33%; all five sum to exactly 1."
 )
 RENORMALIZE_HELP = (
-    "Keep the named slots as given and rescale the other owner/validator/miner slots "
-    "proportionally so the vector sums to 1 (the miner slot absorbs rounding). Without "
-    "it, the update is applied verbatim and must already sum to 1."
+    "Keep the named slots as given and rescale the other slots proportionally so the "
+    "vector sums to 1 (the last free slot absorbs rounding). Without it, the update is "
+    "applied verbatim and must already sum to 1."
 )
 
 
-def _slot_label(slot: int) -> str:
-    return f"{ew.SLOT_NAMES[slot]} (slot {slot})"
-
-
 def _vector_text(weights: list[int]) -> str:
-    """``owner 18.00% / validator 41.00% / miner 41.00%`` (reserved slots only if set)."""
+    """``burn 5.00% / owner 18.00% / ...`` (zero burn/recycle omitted for brevity)."""
     parts = [
-        f"{ew.SLOT_NAMES[slot]} {ew.format_share(weights[slot])}" for slot in ew.ADJUSTABLE_SLOTS
-    ]
-    parts += [
         f"{ew.SLOT_NAMES[slot]} {ew.format_share(weights[slot])}"
-        for slot in (ew.BURN, ew.RECYCLE)
-        if weights[slot]
+        for slot in ew.ADJUSTABLE_SLOTS
+        if slot not in (ew.BURN, ew.RECYCLE) or weights[slot]
     ]
     return " / ".join(parts)
 
@@ -95,15 +87,15 @@ class SetSubnetEmissionWeights(Intent):
 
     Dispatches ``AdminUtils.sudo_set_subnet_emission_weights`` for the named
     slots. The signer must be the subnet's owner coldkey (root may also call
-    it). With ``renormalize`` the untouched owner/validator/miner slots are
-    rescaled so the vector still sums to one; without it the merged vector is
-    submitted as given. Root stakers are paid their baseline share of emission
-    (what they earn with the default validator share and the global TaoWeight)
-    off the top of the validator slot every block, whatever the subnet sets —
-    the pre-sign plan shows that share and what alpha validators are left
-    with, and lists every rule the chain would reject (including a validator
-    share at or below the baseline), so a bad vector is caught before signing.
-    Owners may change the vector once per week per subnet.
+    it). With ``renormalize`` the untouched slots are rescaled so the vector
+    still sums to one; without it the merged vector is submitted as given.
+    Root stakers are paid their baseline share of emission (what they earn
+    with the default validator share and the global TaoWeight) off the top of
+    the validator slot every block, whatever the subnet sets — the pre-sign
+    plan shows that share and what alpha validators are left with, and lists
+    every rule the chain would reject (including a validator share at or below
+    the baseline), so a bad vector is caught before signing. Owners may change
+    the vector once per week per subnet.
     """
 
     op = "set_subnet_emission_weights"
@@ -129,12 +121,6 @@ class SetSubnetEmissionWeights(Intent):
         if len(set(self.slots)) != len(self.slots):
             raise ValueError("each slot may appear at most once")
         self.values = [ew.parse_share(value) for value in self.values]
-        for slot, value in self.updates().items():
-            if slot in (ew.BURN, ew.RECYCLE) and value != 0:
-                raise ValueError(
-                    f"{_slot_label(slot)} must be 0 in this runtime; it is reserved for a "
-                    "later upgrade"
-                )
 
     def updates(self) -> dict[int, int]:
         return {int(slot): int(value) for slot, value in zip(self.slots, self.values)}

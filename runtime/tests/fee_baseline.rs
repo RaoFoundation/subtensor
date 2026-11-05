@@ -4,17 +4,31 @@
 //! with one unit of every argument is quoted at, under
 //! `runtime/tests/snapshots/fee_baseline__dispatchable_fee_matches_snapshot@<case>.snap`.
 //! Fees may rise or fall by up to 20% of their snapshot value (inclusive).
-//! Changes beyond that range require an explicit snapshot update and review.
+//! Baseline changes require explicit, specific human approval, even when the new
+//! value would fall within that tolerance. Identify the affected snapshots and
+//! old/proposed values before requesting approval. A request to fix CI/tests,
+//! update weights, or prepare a release does not authorize rebaselining.
 //! Signed Ethereum transactions also pin actual gas fees for native transfers
 //! and balance-transfer, staking V2 (root add/remove), and proxy precompiles.
+//! These EVM snapshots require exact matches to guard gas-schedule compatibility.
 //! Transfer/stake principal and reserved proxy deposits are excluded from fees.
 //!
-//! Regenerate snapshots after a deliberate fee change:
-//! `INSTA_UPDATE=always cargo test -p node-subtensor-runtime --test fee_baseline`
-//! then review the diff under `runtime/tests/snapshots/` and commit the changed files.
+//! Verify without accepting changed baselines:
+//! `INSTA_UPDATE=no cargo test -p node-subtensor-runtime --test fee_baseline`
+//!
+//! ONLY after a human explicitly approves the specific baseline/value changes,
+//! regenerate the approved snapshots (scope the test filter to the approved cases):
+//! `INSTA_UPDATE=always cargo test -p node-subtensor-runtime --test fee_baseline APPROVED_TEST_FILTER`
+//! Replace `APPROVED_TEST_FILTER` with the approved case; do not regenerate the
+//! entire suite when only individual baseline changes were authorized.
+//! then review the diff and include only the approved changes. Record the human
+//! approval and its scope in the commit or PR. Do not widen tolerances or change
+//! comparators to accept a regression without the same approval.
 //!
 //! By default, running the tests (except in CI) will generate new snapshots for any failing
-//! snapshot tests, saved as `runtime/tests/snapshots/*.snap.new`.
+//! snapshot tests, saved as `runtime/tests/snapshots/*.snap.new`. These files are
+//! proposals, not approval to replace or commit the accepted baselines.
+//! See `runtime/tests/snapshots/README.md` and the repository's `AGENTS.md`.
 
 #![allow(clippy::expect_used)]
 
@@ -426,8 +440,8 @@ fn legacy_position_id() -> pallet_subtensor_swap::PositionId {
 #[case::mev_shield_set_on_initialize_weight(RuntimeCall::MevShield(pallet_shield::Call::set_on_initialize_weight { value: 1 }))]
 #[case::mev_shield_set_stored_extrinsic_lifetime(RuntimeCall::MevShield(pallet_shield::Call::set_stored_extrinsic_lifetime { value: 1 }))]
 #[case::mev_shield_set_max_extrinsic_weight(RuntimeCall::MevShield(pallet_shield::Call::set_max_extrinsic_weight { value: 1 }))]
-#[case::limit_orders_execute_orders(RuntimeCall::LimitOrders(pallet_limit_orders::Call::execute_orders { orders: (vec![pallet_limit_orders::SignedOrder { order: pallet_limit_orders::VersionedOrder::V1(pallet_limit_orders::Order { signer: [1u8; 32].into(), hotkey: [1u8; 32].into(), netuid: NetUid::from(1u16), order_type: pallet_limit_orders::OrderType::LimitBuy, amount: 1, limit_price: 1, expiry: 1, fee_rate: sp_runtime::Perbill::from_parts(1), fee_recipient: [1u8; 32].into(), relayer: None, max_slippage: None, chain_id: 1, partial_fills_enabled: false }), signature: sp_runtime::MultiSignature::Ed25519([1u8; 64].into()), partial_fill: None }]).try_into().expect("bounded"), should_fail: false }))]
-#[case::limit_orders_execute_batched_orders(RuntimeCall::LimitOrders(pallet_limit_orders::Call::execute_batched_orders { netuid: NetUid::from(1u16), orders: (vec![pallet_limit_orders::SignedOrder { order: pallet_limit_orders::VersionedOrder::V1(pallet_limit_orders::Order { signer: [1u8; 32].into(), hotkey: [1u8; 32].into(), netuid: NetUid::from(1u16), order_type: pallet_limit_orders::OrderType::LimitBuy, amount: 1, limit_price: 1, expiry: 1, fee_rate: sp_runtime::Perbill::from_parts(1), fee_recipient: [1u8; 32].into(), relayer: None, max_slippage: None, chain_id: 1, partial_fills_enabled: false }), signature: sp_runtime::MultiSignature::Ed25519([1u8; 64].into()), partial_fill: None }]).try_into().expect("bounded") }))]
+#[case::limit_orders_execute_orders(RuntimeCall::LimitOrders(pallet_limit_orders::Call::execute_orders { orders: (vec![pallet_limit_orders::SignedOrder { order: pallet_limit_orders::VersionedOrder::V1(pallet_limit_orders::Order { signer: [1u8; 32].into(), hotkey: [1u8; 32].into(), netuid: NetUid::from(1u16), order_type: pallet_limit_orders::OrderType::LimitBuy, amount: 1, limit_price: 1, expiry: 1, fee_rate: sp_runtime::Perbill::from_parts(1), fee_recipient: [1u8; 32].into(), relayer: None, max_slippage: None, chain_id: 1, partial_fills_enabled: false }), signature: sp_runtime::MultiSignature::Ed25519([1u8; 64].into()).into(), partial_fill: None }]).try_into().expect("bounded"), should_fail: false }))]
+#[case::limit_orders_execute_batched_orders(RuntimeCall::LimitOrders(pallet_limit_orders::Call::execute_batched_orders { netuid: NetUid::from(1u16), orders: (vec![pallet_limit_orders::SignedOrder { order: pallet_limit_orders::VersionedOrder::V1(pallet_limit_orders::Order { signer: [1u8; 32].into(), hotkey: [1u8; 32].into(), netuid: NetUid::from(1u16), order_type: pallet_limit_orders::OrderType::LimitBuy, amount: 1, limit_price: 1, expiry: 1, fee_rate: sp_runtime::Perbill::from_parts(1), fee_recipient: [1u8; 32].into(), relayer: None, max_slippage: None, chain_id: 1, partial_fills_enabled: false }), signature: sp_runtime::MultiSignature::Ed25519([1u8; 64].into()).into(), partial_fill: None }]).try_into().expect("bounded") }))]
 #[case::limit_orders_cancel_order(RuntimeCall::LimitOrders(pallet_limit_orders::Call::cancel_order { order: pallet_limit_orders::VersionedOrder::V1(pallet_limit_orders::Order { signer: [1u8; 32].into(), hotkey: [1u8; 32].into(), netuid: NetUid::from(1u16), order_type: pallet_limit_orders::OrderType::LimitBuy, amount: 1, limit_price: 1, expiry: 1, fee_rate: sp_runtime::Perbill::from_parts(1), fee_recipient: [1u8; 32].into(), relayer: None, max_slippage: None, chain_id: 1, partial_fills_enabled: false }) }))]
 #[case::limit_orders_set_pallet_status(RuntimeCall::LimitOrders(pallet_limit_orders::Call::set_pallet_status { enabled: false }))]
 #[case::limit_orders_prune_linked_output(RuntimeCall::LimitOrders(pallet_limit_orders::Call::prune_linked_output { order_id: [1u8; 32].into() }))]
@@ -439,6 +453,48 @@ fn dispatchable_fee_matches_snapshot(
 ) {
     new_test_ext.execute_with(|| {
         let fee = quoted_fee_rao(&call);
+        // These existing baselines were explicitly restored by the release owner.
+        // In addition to the inherited tolerance, prevent any upward drift in
+        // the calls whose pricing this patch restores.
+        let name = ctx.description.unwrap_or_default();
+        if matches!(
+            name,
+            "evm_call"
+                | "evm_create"
+                | "evm_create2"
+                | "evm_withdraw"
+                | "proxy_add_proxy"
+                | "proxy_create_pure"
+                | "proxy_proxy"
+                | "proxy_proxy_announced"
+                | "proxy_set_real_pays_fee"
+                | "subtensor_module_register_leased_network"
+                | "subtensor_module_register_network"
+                | "subtensor_module_register_network_with_identity"
+                | "subtensor_module_root_register"
+                | "subtensor_module_stake_into_basket"
+                | "subtensor_module_swap_basket"
+                | "subtensor_module_try_associate_hotkey"
+                | "utility_as_derivative"
+                | "subtensor_module_claim_root"
+                | "subtensor_module_claim_root_with_hotkey"
+        ) {
+            let path = format!(
+                "{}/tests/snapshots/fee_baseline__dispatchable_fee_matches_snapshot@{name}.snap",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let baseline = std::fs::read_to_string(path).expect("committed baseline exists");
+            let baseline: u64 = baseline
+                .lines()
+                .next_back()
+                .expect("fee line")
+                .parse()
+                .expect("numeric fee");
+            assert!(
+                fee <= baseline,
+                "{name}: {fee} exceeds pre-PR fee {baseline}"
+            );
+        }
         with_settings!(
             {
                 comparator => Box::new(FeeToleranceComparator),
@@ -461,6 +517,8 @@ enum EvmFeeCase {
     AddProxy,
 }
 
+// Plain transfers retain the standard 21,000 gas limit. Precompile snapshots
+// also cover dispatch costs and the protected-account policy work in proxy dispatch.
 #[rstest]
 #[case::no_tip(EvmFeeCase::BalanceTransfer, 0)]
 #[case::priority_tip(EvmFeeCase::BalanceTransfer, 2_000_000_000)]
@@ -474,6 +532,22 @@ fn evm_transaction_fee_matches_snapshot(
     #[case] priority_fee_per_gas: u64,
     mut new_test_ext: sp_io::TestExternalities,
 ) {
+    let fee_rao = evm_transaction_fee(case, priority_fee_per_gas, 0, 1, &mut new_test_ext);
+    with_settings!({
+        description => ctx.description.unwrap_or_default(),
+        snapshot_suffix => ctx.description.unwrap_or_default(),
+    }, {
+        assert_snapshot!(fee_rao);
+    });
+}
+
+fn evm_transaction_fee(
+    case: EvmFeeCase,
+    priority_fee_per_gas: u64,
+    pending_rows: u16,
+    pending_alpha: u64,
+    new_test_ext: &mut sp_io::TestExternalities,
+) -> u64 {
     use frame_support::traits::Get;
     use node_subtensor_runtime::{Balances, Executive, RuntimeOrigin, UncheckedExtrinsic};
     use pallet_evm::{AddressMapping, FeeCalculator};
@@ -484,7 +558,7 @@ fn evm_transaction_fee_matches_snapshot(
     };
     use subtensor_runtime_common::ProxyType;
 
-    let fee_rao = new_test_ext.execute_with(|| {
+    new_test_ext.execute_with(|| {
         let pair = ecdsa::Pair::from_seed(&[7u8; 32]);
         let seed_signature = pair.sign_prehashed(&[0u8; 32]);
         let public = sp_io::crypto::secp256k1_ecdsa_recover(&seed_signature.0, &[0u8; 32])
@@ -504,10 +578,28 @@ fn evm_transaction_fee_matches_snapshot(
             pallet_subtensor::SubtokenEnabled::<Runtime>::insert(netuid, true);
             pallet_subtensor::Pallet::<Runtime>::create_account_if_non_existent(&sender_account, &hotkey_account)
                 .expect("set up staking hotkey");
-            if matches!(case, EvmFeeCase::RemoveStake) {
-                pallet_subtensor::Pallet::<Runtime>::add_stake(RuntimeOrigin::signed(sender_account.clone()), hotkey_account.clone(), netuid, TaoBalance::new(2_000_000_000))
-                    .expect("seed root stake for removal");
-            }
+            pallet_subtensor::Pallet::<Runtime>::append_neuron(netuid, &hotkey_account, 0);
+            pallet_subtensor::Pallet::<Runtime>::add_stake(RuntimeOrigin::signed(sender_account.clone()), hotkey_account.clone(), netuid, TaoBalance::new(2_000_000_000))
+                .expect("seed the dividend-earning root position");
+        }
+        // Use live, priced dynamic subnets. Unknown origins or a hotkey absent
+        // from root would recycle the credit instead of exercising a busy validator.
+        pallet_subtensor::RootClaimableThreshold::<Runtime>::insert(
+            NetUid::ROOT, substrate_fixed::types::I96F32::from_num(500_000),
+        );
+        for raw in 1..=pending_rows {
+            let origin = NetUid::from(raw);
+            pallet_subtensor::Pallet::<Runtime>::init_new_network(origin, 360);
+            pallet_subtensor::SubtokenEnabled::<Runtime>::insert(origin, true);
+            pallet_subtensor::FirstEmissionBlockNumber::<Runtime>::insert(origin, 0);
+            pallet_subtensor::SubnetMechanism::<Runtime>::insert(origin, 1);
+            pallet_subtensor::SubnetTAO::<Runtime>::insert(origin, TaoBalance::new(1_000_000_000_000));
+            pallet_subtensor::SubnetAlphaIn::<Runtime>::insert(origin, AlphaBalance::new(1_000_000_000_000));
+            pallet_subtensor::SubnetFastMovingPrice::<Runtime>::insert(origin, substrate_fixed::types::U64F64::from_num(1));
+            // Emissions have already minted the queued alpha, but have not yet
+            // assigned it to the fund's escrow stake.
+            pallet_subtensor::SubnetAlphaOut::<Runtime>::insert(origin, AlphaBalance::new(pending_alpha));
+            pallet_subtensor::Pallet::<Runtime>::enqueue_basket_deposit(&hotkey_account, origin, AlphaBalance::new(pending_alpha));
         }
         let stake_before = pallet_subtensor::Pallet::<Runtime>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey_account, &sender_account, netuid).to_u64();
         let destination_before = Balances::free_balance(&destination_account).to_u64();
@@ -519,8 +611,14 @@ fn evm_transaction_fee_matches_snapshot(
             EvmFeeCase::RemoveStake => (H160::from_low_u64_be(StakingPrecompileV2::<Runtime>::INDEX), encode_with_selector(selector("removeStake(bytes32,uint256,uint256)"), (hotkey, U256::from(amount), U256::zero())), 0, i128::from(amount).checked_neg().expect("unstaking proceeds fit")),
             EvmFeeCase::AddProxy => (H160::from_low_u64_be(ProxyPrecompile::<Runtime>::INDEX), encode_with_selector(selector("addProxy(bytes32,uint8,uint32)"), (destination, 0u8, 0u32)), 0, 0),
         };
-        // Larger than the expected consumption so the check exercises gas refunds.
-        let gas_limit = U256::from(5_000_000);
+        // Preserve the pre-release-487 gas limits; a larger runtime allowance must
+        // not silently relax this compatibility regression.
+        let execution_gas = if matches!(case, EvmFeeCase::BalanceTransfer) {
+            21_000u64
+        } else {
+            5_000_000
+        };
+        let gas_limit = U256::from(execution_gas);
         let decimals = U256::from(1_000_000_000);
         let (base_fee, _) = <Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price();
         // Subtensor's vendored EVM runner currently overrides the requested
@@ -581,7 +679,12 @@ fn evm_transaction_fee_matches_snapshot(
         }
         .expect("expected EIP-1559 receipt");
         assert_eq!(receipt.status_code, 1, "EVM transaction succeeds");
-        assert!(receipt.used_gas > U256::zero() && receipt.used_gas < gas_limit);
+        if matches!(case, EvmFeeCase::BalanceTransfer) {
+            assert_eq!(receipt.used_gas, U256::from(21_000));
+        } else {
+            assert!(receipt.used_gas > U256::zero() && receipt.used_gas < gas_limit);
+        }
+        assert_eq!(pallet_evm::Pallet::<Runtime>::account_basic(&sender).0.nonce, U256::one());
         match case {
             EvmFeeCase::BalanceTransfer => assert_eq!(Balances::free_balance(&receiver_account).to_u64().checked_sub(receiver_before), Some(amount)),
             EvmFeeCase::BalancePrecompile => assert_eq!(Balances::free_balance(&destination_account).to_u64().checked_sub(destination_before), Some(amount)),
@@ -596,6 +699,22 @@ fn evm_transaction_fee_matches_snapshot(
                 assert_eq!(proxy.delay, 0);
                 assert!(deposit.to_u64() > 0);
                 assert_eq!(Balances::reserved_balance(&sender_account), deposit);
+            }
+        }
+        if pending_rows > 0 {
+            assert!(pallet_subtensor::Uids::<Runtime>::contains_key(NetUid::ROOT, &hotkey_account));
+            let escrow = pallet_subtensor::Pallet::<Runtime>::get_beta_escrow_account_id();
+            for raw in 1..=pending_rows {
+                let origin = NetUid::from(raw);
+                assert!(pallet_subtensor::Pallet::<Runtime>::if_subnet_exist(origin));
+                if pending_alpha < 500_000 {
+                    assert_eq!(pallet_subtensor::PendingBasketDeposits::<Runtime>::get(&hotkey_account, origin), AlphaBalance::new(pending_alpha), "live dust must persist after the stake operation");
+                    assert_eq!(pallet_subtensor::Pallet::<Runtime>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey_account, &escrow, origin), AlphaBalance::ZERO);
+                } else {
+                    assert!(!pallet_subtensor::PendingBasketDeposits::<Runtime>::contains_key(&hotkey_account, origin), "claimable live credit must actually settle");
+                    assert_eq!(pallet_subtensor::Pallet::<Runtime>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey_account, &escrow, origin), AlphaBalance::new(pending_alpha));
+                    assert!(pallet_subtensor::BasketShares::<Runtime>::get(&hotkey_account) > 0, "settlement must issue actual dividend shares");
+                }
             }
         }
         // Count reserved proxy deposits as owned balance; exclude stake and transfer
@@ -617,12 +736,90 @@ fn evm_transaction_fee_matches_snapshot(
             "charge actual gas and refund unused gas"
         );
         fee_rao
-    });
-    with_settings!({
-        comparator => Box::new(FeeToleranceComparator),
-        description => ctx.description.unwrap_or_default(),
-        snapshot_suffix => ctx.description.unwrap_or_default(),
-    }, {
-        assert_snapshot!(fee_rao);
+    })
+}
+
+// PROTECTED_REGRESSION: busy root validators keep pre release gas limits and fees; changes require explicit human approval.
+#[test]
+fn busy_root_validators_keep_pre_release_gas_limits_and_fees() {
+    for case in [EvmFeeCase::AddStake, EvmFeeCase::RemoveStake] {
+        let baseline = evm_transaction_fee(case, 0, 0, 1, &mut new_test_ext());
+        for rows in [1, 112, 256] {
+            let busy = evm_transaction_fee(case, 0, rows, 1, &mut new_test_ext());
+            assert_eq!(
+                busy, baseline,
+                "{rows} pending rows must not change EVM fees"
+            );
+        }
+    }
+}
+
+// PROTECTED_REGRESSION: root staking must retain existing gas limits while settling live dividends; changes require explicit human approval.
+#[test]
+fn busy_root_validators_settle_live_dividends_with_pre_release_gas_limits() {
+    for case in [EvmFeeCase::AddStake, EvmFeeCase::RemoveStake] {
+        let baseline = evm_transaction_fee(case, 0, 0, 1, &mut new_test_ext());
+        let settled = evm_transaction_fee(case, 0, 1, 1_000_000_000, &mut new_test_ext());
+        assert_eq!(
+            settled, baseline,
+            "live settlement must not change EVM fees"
+        );
+    }
+}
+
+#[test]
+fn busy_root_native_fees_equal_empty_queue_fees() {
+    new_test_ext().execute_with(|| {
+        let hotkey: subtensor_runtime_common::AccountId = [0x44; 32].into();
+        let calls = [
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake {
+                hotkey: hotkey.clone(),
+                netuid: NetUid::ROOT,
+                amount_staked: TaoBalance::from(1_000_000_000u64),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake {
+                hotkey: hotkey.clone(),
+                netuid: NetUid::ROOT,
+                amount_unstaked: AlphaBalance::from(1_000_000_000u64),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake {
+                origin_hotkey: hotkey.clone(),
+                destination_hotkey: [0x55; 32].into(),
+                origin_netuid: NetUid::ROOT,
+                destination_netuid: NetUid::ROOT,
+                alpha_amount: AlphaBalance::from(1_000_000_000u64),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::transfer_stake {
+                destination_coldkey: [0x66; 32].into(),
+                hotkey: hotkey.clone(),
+                origin_netuid: NetUid::ROOT,
+                destination_netuid: NetUid::ROOT,
+                alpha_amount: AlphaBalance::from(1_000_000_000u64),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake {
+                hotkey: hotkey.clone(),
+                origin_netuid: NetUid::ROOT,
+                destination_netuid: NetUid::from(1u16),
+                alpha_amount: AlphaBalance::from(1_000_000_000u64),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::unstake_all {
+                hotkey: hotkey.clone(),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::unstake_all_alpha {
+                hotkey: hotkey.clone(),
+            }),
+        ];
+        let fees: Vec<_> = calls.iter().map(quoted_fee_rao).collect();
+        for raw in 1..=256u16 {
+            pallet_subtensor::PendingBasketDeposits::<Runtime>::insert(
+                &hotkey,
+                NetUid::from(raw),
+                AlphaBalance::from(1u64),
+            );
+        }
+        for (call, baseline) in calls.iter().zip(fees) {
+            let busy = quoted_fee_rao(call);
+            assert_eq!(busy, baseline, "queue length must not change native fees");
+        }
     });
 }

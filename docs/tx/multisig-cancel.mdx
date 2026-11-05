@@ -13,7 +13,7 @@ deposit) may cancel it. The threshold, signatory set, call, and opening
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Multisig | `Multisig.cancel_as_multi` |
+| `coldkey` | signed account (pallet role may apply) | Multisig | `Multisig.cancel_as_multi`, `Multisig.cancel_as_multi_safe` |
 
 ## Parameters
 
@@ -22,6 +22,7 @@ deposit) may cancel it. The threshold, signatory set, call, and opening
 | `threshold` | integer | yes | Number of approvals required to execute, counting the signer. Together with the full signatory set it identifies the multisig account, so it must match on every approval. |
 | `other_signatories` | array | yes | The other members of the multisig (every signatory except the signer), as a JSON list of addresses. The same set must be given on every approval; order does not matter (sorted automatically). |
 | `call` | object | yes | The inner call to dispatch from the multisig account, as a JSON object \{"op": \<intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet. |
+| `account_mode` | string | no | Account derivation mode: legacy or safe; must match every approval. |
 | `timepoint` | object | yes | Block height and extrinsic index of the approval that opened the operation, as a JSON object \{"height": ..., "index": ...}. Required — it identifies which pending operation to cancel. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
@@ -72,5 +73,7 @@ result = sub.execute_tool("multisig_cancel", {...}, wallet)
 ## On-chain implementation
 
 `Multisig.cancel_as_multi` is implemented by Substrate's `pallet_multisig`, outside this repository's pallets.
+
+`Multisig.cancel_as_multi_safe` is implemented by Substrate's `pallet_multisig`, outside this repository's pallets.
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

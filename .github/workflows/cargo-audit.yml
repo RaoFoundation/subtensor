@@ -9,16 +9,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  trusted-pr:
-    name: Trusted PR source (non-fork)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
-
   cargo-audit:
     name: cargo audit
-    needs: trusted-pr
     runs-on: [self-hosted, fireactions-turbo-8]
     # PR HEAD executes here; never attach sccache-writer or pass R2 write keys.
     environment:
@@ -49,6 +41,11 @@ jobs:
           else
             cargo install --force --locked cargo-audit --version 0.22.2
           fi
+
+      - name: Verify feature-dependent advisory exclusions
+        run: |
+          python3 .github/scripts/test_audit_feature_exclusions.py
+          python3 .github/scripts/check-audit-feature-exclusions.py
 
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping

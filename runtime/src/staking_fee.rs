@@ -12,7 +12,6 @@ use crate::transaction_payment_wrapper::{FeeWeightDiscount, fee_dispatch_info};
 use crate::{Balance, Runtime, RuntimeCall, TransactionPayment, Weight};
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo};
 use pallet_subtensor::Call as SubtensorCall;
-use pallet_subtensor::staking::BasketFlushWork;
 use pallet_subtensor_proxy::Call as ProxyCall;
 use pallet_subtensor_utility::Call as UtilityCall;
 use pallet_transaction_payment::{FeeDetails, RuntimeDispatchInfo};
@@ -33,10 +32,11 @@ pub const ROOT_CLAIM_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
 /// `basket_flush_work_bound`).
 pub fn root_claim_fee_weight(units: u32) -> Weight {
     let rows = u64::from(units);
-    pallet_subtensor::Pallet::<Runtime>::root_claim_weight_for_work(
-        units,
-        BasketFlushWork::new(rows.saturating_mul(6), rows),
-    )
+    // Monetary allowance uses the pre-487 model. The execution declaration
+    // independently includes the new stability checks and the full pending work.
+    <<Runtime as pallet_subtensor::Config>::WeightInfo as pallet_subtensor::weights::WeightInfo>::claim_root(units.saturating_mul(2))
+        .saturating_add(<<Runtime as pallet_subtensor::Config>::WeightInfo as pallet_subtensor::weights::WeightInfo>::claim_root_scan(units))
+        .saturating_add(pallet_subtensor::Pallet::<Runtime>::basket_nav_sweep_weight(rows.saturating_mul(6)))
 }
 
 fn root_claim_discount(limit: u32) -> Weight {
@@ -45,7 +45,7 @@ fn root_claim_discount(limit: u32) -> Weight {
 }
 
 /// Fee allowance for `stake_into_basket` and `swap_basket`, in fund rows. Both declare a
-/// `MAX_BASKET_ROWS` (256) envelope plus the flat flush allowance for admission and
+/// `MAX_BASKET_ROWS` (256) envelope plus the hotkey's flush envelope for admission and
 /// refund to the rows they touched; the fee is capped as if the fund had this many rows
 /// (and as many queued credits to flush), the same figure the claim allowance uses.
 pub const BASKET_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
@@ -55,10 +55,10 @@ pub const BASKET_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
 /// prices.
 fn basket_fee_flush_weight(rows: u32) -> Weight {
     let rows = u64::from(rows);
-    pallet_subtensor::Pallet::<Runtime>::basket_flush_weight(BasketFlushWork::new(
-        rows.saturating_mul(6),
-        rows,
-    ))
+    // Keep the pre-487 monetary allowance; execution still declares the full
+    // settlement model, including the new stability-check reads.
+    pallet_subtensor::Pallet::<Runtime>::basket_nav_sweep_weight(rows.saturating_mul(6))
+        .saturating_add(<<Runtime as pallet_subtensor::Config>::WeightInfo as pallet_subtensor::weights::WeightInfo>::claim_root(rows as u32))
 }
 
 /// Weight a `swap_basket` is charged for: one trade over [`BASKET_FEE_ALLOWANCE`] rows
@@ -79,12 +79,12 @@ pub fn stake_into_basket_fee_weight() -> Weight {
 
 fn basket_discount(call: &RuntimeCall) -> Weight {
     match call {
-        RuntimeCall::SubtensorModule(SubtensorCall::swap_basket { .. }) => {
-            pallet_subtensor::Pallet::<Runtime>::swap_basket_declared_weight()
+        RuntimeCall::SubtensorModule(SubtensorCall::swap_basket { hotkey, .. }) => {
+            pallet_subtensor::Pallet::<Runtime>::swap_basket_declared_weight_for(hotkey)
                 .saturating_sub(swap_basket_fee_weight())
         }
-        RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket { .. }) => {
-            pallet_subtensor::Pallet::<Runtime>::stake_into_basket_declared_weight()
+        RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket { hotkey, .. }) => {
+            pallet_subtensor::Pallet::<Runtime>::stake_into_basket_declared_weight_for(hotkey)
                 .saturating_sub(stake_into_basket_fee_weight())
         }
         _ => Weight::zero(),
@@ -198,15 +198,45 @@ pub fn leaf_fee_weight(call: &RuntimeCall, declared: Weight) -> Weight {
     let fee_weight = declared
         .saturating_sub(staking_scan_discount(call))
         .saturating_sub(claim_discount(call))
-        .saturating_sub(basket_discount(call));
+        .saturating_sub(basket_discount(call))
+        // Fee-only legacy compatibility credits. Dispatch and Frontier's full
+        // address-mapping resource meter (including atomic OOG) are unchanged.
+        .saturating_sub(match call {
+            RuntimeCall::EVM(pallet_evm::Call::withdraw { .. }) => {
+                pallet_evm::account_cost::weight::<Runtime>(2)
+            }
+            RuntimeCall::EVM(
+                pallet_evm::Call::call { .. }
+                | pallet_evm::Call::create { .. }
+                | pallet_evm::Call::create2 { .. },
+            ) => pallet_evm::account_cost::weight::<Runtime>(1),
+            RuntimeCall::Proxy(ProxyCall::proxy_announced { .. }) => {
+                <Runtime as frame_system::Config>::DbWeight::get().reads(1)
+            }
+            RuntimeCall::SubtensorModule(SubtensorCall::root_register { .. }) => {
+                <Runtime as frame_system::Config>::DbWeight::get().reads(2)
+            }
+            RuntimeCall::SubtensorModule(
+                SubtensorCall::register_network { .. }
+                | SubtensorCall::register_network_with_identity { .. },
+            ) => {
+                // Their historical snapshots are 25,000 rao below the unchanged
+                // benchmark/guard model. Credit one DB-write-priced unit to honor
+                // the owner's requested baseline, without changing that model.
+                // This is a monetary subsidy, not an estimate of storage writes.
+                <Runtime as frame_system::Config>::DbWeight::get().writes(1)
+            }
+            _ => Weight::zero(),
+        });
     match fee_weight_cap_459(call) {
         Some(cap) => fee_weight.min(cap),
         None => fee_weight,
     }
 }
 
-/// Fee-bearing leaves of `call`. Only descend through wrappers whose declared weight
-/// includes their inner calls' weights; in particular, never descend into `with_weight`.
+/// Fee-bearing leaves and announcement wrappers with a compatibility discount.
+/// Only descend through wrappers whose declared weight includes the inner calls;
+/// in particular, never descend into `with_weight`.
 fn leaves(call: &RuntimeCall) -> Vec<&RuntimeCall> {
     let mut pending = vec![call];
     let mut out = Vec::new();
@@ -223,12 +253,16 @@ fn leaves(call: &RuntimeCall) -> Vec<&RuntimeCall> {
             }
             RuntimeCall::Utility(
                 UtilityCall::as_derivative { call, .. }
+                | UtilityCall::as_safe_derivative { call, .. }
+                | UtilityCall::as_protected_derivative { call, .. }
                 | UtilityCall::dispatch_as { call, .. }
                 | UtilityCall::dispatch_as_fallible { call, .. },
             )
-            | RuntimeCall::Proxy(
-                ProxyCall::proxy { call, .. } | ProxyCall::proxy_announced { call, .. },
-            ) => pending.push(call),
+            | RuntimeCall::Proxy(ProxyCall::proxy { call, .. }) => pending.push(call),
+            RuntimeCall::Proxy(ProxyCall::proxy_announced { call: inner, .. }) => {
+                out.push(call);
+                pending.push(inner);
+            }
             _ => out.push(call),
         }
     }
@@ -263,6 +297,21 @@ impl FeeWeightDiscount<RuntimeCall> for Runtime {
         } else {
             Weight::zero()
         }
+    }
+
+    fn fee_refund_discount(call: &RuntimeCall) -> Weight {
+        // The announcement-validity read is included in the proxy's actual
+        // weight too. Keep its legacy fee credit when the inner call refunds.
+        leaves(call)
+            .into_iter()
+            .fold(Weight::zero(), |credit, leaf| {
+                if matches!(leaf, RuntimeCall::Proxy(ProxyCall::proxy_announced { .. })) {
+                    credit
+                        .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads(1))
+                } else {
+                    credit
+                }
+            })
     }
 }
 
@@ -399,6 +448,116 @@ mod tests {
                 ),
             ),
         ]
+    }
+
+    #[test]
+    fn announced_proxy_refunds_preserve_the_legacy_validity_read_credit() {
+        use sp_runtime::traits::{Dispatchable, Hash};
+        use subtensor_runtime_common::ProxyType;
+
+        for batched in [false, true] {
+            new_test_ext().execute_with(|| {
+                let real = AccountId::from([3_u8; 32]);
+                // The real account can reserve its proxy deposit but cannot pay
+                // this transfer. Batch stops before the expensive second call.
+                assert_ok!(Balances::force_set_balance(
+                    RuntimeOrigin::root(),
+                    real.clone().into(),
+                    Balance::new(1_000_000_000),
+                ));
+                let inner = RuntimeCall::Utility(UtilityCall::batch {
+                    calls: vec![
+                        RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+                            dest: signer().into(),
+                            value: Balance::new(1_000_000_000_000),
+                        }),
+                        RuntimeCall::System(frame_system::Call::remark {
+                            remark: vec![0; 1024],
+                        }),
+                    ],
+                });
+                assert_ok!(crate::Proxy::add_proxy(
+                    RuntimeOrigin::signed(real.clone()),
+                    signer().into(),
+                    ProxyType::Any,
+                    1,
+                ));
+                let hash = <Runtime as frame_system::Config>::Hashing::hash_of(&inner);
+                assert_ok!(crate::Proxy::announce(
+                    RuntimeOrigin::signed(signer()),
+                    real.clone().into(),
+                    hash
+                ));
+                System::set_block_number(2);
+                let announced = RuntimeCall::Proxy(ProxyCall::proxy_announced {
+                    delegate: signer().into(),
+                    real: real.into(),
+                    force_proxy_type: None,
+                    call: Box::new(inner),
+                });
+                let call = if batched {
+                    RuntimeCall::Utility(UtilityCall::batch_all {
+                        calls: vec![announced],
+                    })
+                } else {
+                    announced
+                };
+                let payment = ChargeTransactionPaymentWrapper::<Runtime>::new(Balance::new(123));
+                let info = DispatchInfo {
+                    extension_weight: payment.weight(&call),
+                    ..call.get_dispatch_info()
+                };
+                let credit = <Runtime as frame_system::Config>::DbWeight::get().reads(1);
+                assert_eq!(Runtime::fee_refund_discount(&call), credit);
+                let fee_info = fee_dispatch_info(&info, discount(&call));
+                // Executing an announcement releases its reserved deposit;
+                // count it as owned balance on both sides of the fee debit.
+                let before = Balances::free_balance(signer())
+                    .saturating_add(Balances::reserved_balance(signer()));
+                let post = payment
+                    .test_run(
+                        RuntimeOrigin::signed(signer()),
+                        &call,
+                        &info,
+                        100,
+                        0,
+                        |_| call.clone().dispatch(RuntimeOrigin::signed(signer())),
+                    )
+                    .unwrap()
+                    .unwrap();
+                let actual = post.calc_actual_weight(&info);
+                assert!(
+                    actual.ref_time() < fee_info.total_weight().ref_time(),
+                    "exercise a real inner refund below the fee cap"
+                );
+                let expected_post = PostDispatchInfo {
+                    actual_weight: Some(actual.saturating_sub(credit)),
+                    pays_fee: Pays::Yes,
+                };
+                let expected = TransactionPayment::compute_actual_fee(
+                    100,
+                    &fee_info,
+                    &expected_post,
+                    Balance::new(123),
+                );
+                let after = Balances::free_balance(signer())
+                    .saturating_add(Balances::reserved_balance(signer()));
+                let charged = before.saturating_sub(after);
+                assert_eq!(
+                    charged, expected,
+                    "the validity read must remain subsidized after refunds"
+                );
+                assert!(
+                    charged
+                        < TransactionPayment::compute_actual_fee(
+                            100,
+                            &fee_info,
+                            &post,
+                            Balance::new(123)
+                        )
+                );
+            });
+        }
     }
 
     #[test]
@@ -545,15 +704,16 @@ mod tests {
 
     /// Each basket call with the envelope its dispatch declares and the weight it is billed.
     fn basket_cases() -> [(RuntimeCall, Weight, Weight); 2] {
+        let hotkey = AccountId::from([2_u8; 32]);
         [
             (
                 swap_basket(),
-                SubtensorModule::swap_basket_declared_weight(),
+                SubtensorModule::swap_basket_declared_weight_for(&hotkey),
                 swap_basket_fee_weight(),
             ),
             (
                 stake_into_basket(),
-                SubtensorModule::stake_into_basket_declared_weight(),
+                SubtensorModule::stake_into_basket_declared_weight_for(&hotkey),
                 stake_into_basket_fee_weight(),
             ),
         ]
@@ -561,33 +721,51 @@ mod tests {
 
     #[test]
     fn basket_fee_estimate_prices_the_allowance_and_reports_full_execution_weight() {
-        new_test_ext().execute_with(|| {
-            assert_eq!(BASKET_FEE_ALLOWANCE, 4);
-            for (call, declared, fee_weight) in basket_cases() {
-                assert!(fee_weight.all_lt(declared));
-                let info = call.get_dispatch_info();
-                assert_eq!(info.call_weight, declared.saturating_add(extension()));
+        for queued in [0_u16, 1, 4, 256, 257] {
+            new_test_ext().execute_with(|| {
+                // Admission depends on this hotkey's queue, not another hotkey's credits.
+                for row in 0..257_u16 {
+                    pallet_subtensor::PendingBasketDeposits::<Runtime>::insert(
+                        AccountId::from([3_u8; 32]),
+                        NetUid::from(row),
+                        AlphaBalance::new(1),
+                    );
+                }
+                for row in 0..queued {
+                    pallet_subtensor::PendingBasketDeposits::<Runtime>::insert(
+                        AccountId::from([2_u8; 32]),
+                        NetUid::from(row),
+                        AlphaBalance::new(1),
+                    );
+                }
+                assert_eq!(BASKET_FEE_ALLOWANCE, 4);
+                for (call, declared, fee_weight) in basket_cases() {
+                    assert!(fee_weight.all_lt(declared));
+                    let info = call.get_dispatch_info();
+                    assert_eq!(info.call_weight, declared.saturating_add(extension()));
 
-                let discount = discount(&call);
-                assert_eq!(discount, declared.saturating_sub(fee_weight));
-                assert!(discount.all_lt(info.call_weight));
-                assert_eq!(Runtime::fee_discount_overhead(&call), Weight::zero());
+                    let discount = discount(&call);
+                    assert_eq!(discount, declared.saturating_sub(fee_weight));
+                    assert!(discount.all_lt(info.call_weight));
+                    assert_eq!(Runtime::fee_discount_overhead(&call), Weight::zero());
 
-                let expected_info = DispatchInfo {
-                    call_weight: capped(&call, fee_weight.saturating_add(extension())),
-                    ..info
-                };
-                let quote = query_info(&call, &info, 100, false);
-                assert_eq!(quote.weight, info.total_weight());
-                assert_eq!(
-                    quote.partial_fee,
-                    TransactionPayment::compute_fee(100, &expected_info, Balance::ZERO)
-                );
-                assert!(
-                    quote.partial_fee < TransactionPayment::compute_fee(100, &info, Balance::ZERO)
-                );
-            }
-        });
+                    let expected_info = DispatchInfo {
+                        call_weight: capped(&call, fee_weight.saturating_add(extension())),
+                        ..info
+                    };
+                    let quote = query_info(&call, &info, 100, false);
+                    assert_eq!(quote.weight, info.total_weight());
+                    assert_eq!(
+                        quote.partial_fee,
+                        TransactionPayment::compute_fee(100, &expected_info, Balance::ZERO)
+                    );
+                    assert!(
+                        quote.partial_fee
+                            < TransactionPayment::compute_fee(100, &info, Balance::ZERO)
+                    );
+                }
+            });
+        }
     }
 
     /// A basket call that fails after reporting its actual weight is charged that weight
@@ -595,7 +773,8 @@ mod tests {
     #[test]
     fn failed_basket_calls_pay_their_reported_work_capped_at_the_allowance() {
         let light = SubtensorModule::swap_basket_precheck_weight();
-        for (call, declared, fee_weight) in basket_cases() {
+        let cases = new_test_ext().execute_with(basket_cases);
+        for (call, declared, fee_weight) in cases {
             for execution_weight in [light, fee_weight, declared] {
                 new_test_ext().execute_with(|| {
                     let tip = Balance::new(1_000_000);
@@ -812,7 +991,7 @@ mod tests {
                 assert!(fee_weight.ref_time() <= 225_000_000, "unstake_all bills at most its 459 weight");
                 assert_eq!(
                     call.get_dispatch_info().call_weight,
-                    SubtensorModule::unstake_all_declared_weight().saturating_add(
+                    SubtensorModule::unstake_all_declared_weight_for(&signer()).saturating_add(
                         <Runtime as pallet_subtensor::Config>::WeightInfo::check_coldkey_swap_extension(),
                     )
                 );
@@ -911,6 +1090,57 @@ mod tests {
             let batch_discount = Runtime::fee_weight_discount(&batch, &info);
             assert_eq!(batch_discount, expected);
             assert!(batch_discount.all_lt(info.call_weight));
+        });
+    }
+
+    #[test]
+    fn safe_and_protected_derivatives_preserve_leaf_fee_discounts() {
+        new_test_ext().execute_with(|| {
+            let inner = remove_stake();
+            let expected = discount(&inner);
+            assert!(expected.ref_time() > 0);
+            for wrapped in [
+                RuntimeCall::Utility(UtilityCall::as_safe_derivative {
+                    index: 1,
+                    call: alloc::boxed::Box::new(inner.clone()),
+                }),
+                RuntimeCall::Utility(UtilityCall::as_protected_derivative {
+                    index: 1,
+                    call: alloc::boxed::Box::new(inner),
+                }),
+            ] {
+                assert_eq!(discount(&wrapped), expected);
+                let nested = RuntimeCall::Utility(UtilityCall::batch_all {
+                    calls: vec![wrapped],
+                });
+                assert_eq!(discount(&nested), expected);
+            }
+        });
+    }
+
+    #[test]
+    fn safe_derivative_validation_charges_each_additional_account_derivation() {
+        new_test_ext().execute_with(|| {
+            let old = crate::hashed_auth::TestVerificationWeight::get();
+            let derivation = Weight::from_parts(10_000_000, 128);
+            crate::hashed_auth::TestVerificationWeight::set(derivation);
+            let extension = pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new();
+            let inner = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+            let base = extension.weight(&inner);
+            let once = RuntimeCall::Utility(UtilityCall::as_safe_derivative {
+                index: 1,
+                call: alloc::boxed::Box::new(inner),
+            });
+            let twice = RuntimeCall::Utility(UtilityCall::as_safe_derivative {
+                index: 2,
+                call: alloc::boxed::Box::new(once.clone()),
+            });
+            assert_eq!(extension.weight(&once), base.saturating_add(derivation));
+            assert_eq!(
+                extension.weight(&twice),
+                base.saturating_add(derivation.saturating_mul(2))
+            );
+            crate::hashed_auth::TestVerificationWeight::set(old);
         });
     }
 

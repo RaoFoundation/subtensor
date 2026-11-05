@@ -230,6 +230,45 @@ class Epochs(_ReadNamespace):
         whose tempo changed or whose owner triggered an epoch.
         """
 
+class Gamma(_ReadNamespace):
+    """Gamma deposits, mint quotes, and the TAO/USD price."""
+
+    async def gamma_deposit(self, netuid: int, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[dict]:
+        """The gamma deposit at a hotkey on a subnet, or None.
+
+        Its `netuid`, `hotkey`, `coldkey`, `spender`, and `balance_gamma`,
+        `daily_spend_cap_gamma` and `spendable_gamma` as exact decimal strings of
+        gamma. A `daily_spend_cap_gamma` of None is no cap, and "0" pauses the
+        deposit. `spendable_gamma` is the balance within what its daily spend cap
+        allows now.
+        """
+
+    async def gamma_deposits(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """Every gamma deposit of a coldkey, on every subnet."""
+
+    async def quote_mint_gamma(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> dict:
+        """The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.
+
+        Raises the chain error that stops the mint, such as `TaoUsdPriceUnavailable`
+        when the TAO/USD price is missing or stale, or `AmountTooLow` below 0.1 gamma.
+        """
+
+    async def quote_mint_gamma_with_stake(self, netuid: int, amount_alpha: float, *, block: Optional[int] = None) -> dict:
+        """The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.
+
+        Raises the chain error that stops the mint, such as `TaoUsdPriceUnavailable`
+        when the TAO/USD price is missing or stale, or `AmountTooLow` below 0.1 gamma.
+        """
+
+    async def tao_usd_price(self, *, block: Optional[int] = None) -> dict:
+        """The TAO/USD price oracle, its last feed, and the accepted price at this block.
+
+        The accepted price falls to the feed at once and rises toward it by at most
+        0.0066% (66 ppm) of itself per block, and mints value TAO at it. Minting needs a
+        feed at most 300 blocks old, so no new mint succeeds once `blocks_since_last_feed`
+        exceeds 300.
+        """
+
 class Hyperparameters(_ReadNamespace):
     """Per-subnet hyperparameter scalars (difficulty, immunity period, ...)."""
 
@@ -751,6 +790,17 @@ class Subnets(_ReadNamespace):
 
         Returns the raw on-chain per-mechanism share values, in mechanism order; an
         empty list means no explicit split is set.
+        """
+
+    async def services(self, netuid: int, *, block: Optional[int] = None) -> dict[str, dict]:
+        """Every service published on a subnet, by hotkey.
+
+        Each `url` points to its hotkey's own document of its services and the
+        payments they accept; the chain does not check what it says. `spender` is
+        the spender customers name on gamma deposits for the service. `owner`
+        marks the subnet owner's hotkey while the owner owns it, whose spender new
+        deposits name by default. A url that is not printable text is returned as
+        0x-hex.
         """
 
     async def subnet(self, netuid: int, *, block: Optional[int] = None) -> SubnetInfo:

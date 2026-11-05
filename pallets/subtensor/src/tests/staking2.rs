@@ -81,6 +81,7 @@ fn test_stake_base_case() {
 // swapped, the unswapped TAO must be refunded to the staker and TotalStake must
 // reflect only the consumed portion. Without the fix the remainder is stranded on
 // the subnet PalletId account and TotalStake over-counts by the refunded amount.
+// PROTECTED_REGRESSION: stake into subnet refunds unswapped tao at price limit; changes require explicit human approval.
 #[test]
 fn test_stake_into_subnet_refunds_unswapped_tao_at_price_limit() {
     new_test_ext(1).execute_with(|| {

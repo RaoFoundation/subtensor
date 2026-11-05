@@ -309,6 +309,9 @@ def add_multisig(entry: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("multisig entry requires threshold >= 1")
     if not isinstance(signatories, list) or not signatories:
         raise ValueError("multisig entry requires a non-empty signatories list")
+    from .account_mode import validate_account_mode
+
+    validate_account_mode(entry.get("account_mode", "legacy"))
     entries = [e for e in load_multisigs() if e.get("name") != name]
     entries.append(entry)
     save_multisigs(entries)

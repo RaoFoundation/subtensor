@@ -21,17 +21,14 @@ fn new_test_ext() -> sp_io::TestExternalities {
 }
 
 fn expected_root_claim_weight(limit: u32) -> frame_support::weights::Weight {
-    pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root(limit)
-        .saturating_add(
-            pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root_scan(limit),
-        )
-        // Flat allowance for flushing the validator's queued dividend credits first; shared
-        // by every basket extrinsic that flushes.
-        .saturating_add(pallet_subtensor::Pallet::<Runtime>::basket_flush_weight_bound())
-        // FRAME folds the runtime's dispatch-extension weight into `call_weight`.
-        .saturating_add(
-            pallet_subtensor::weights::SubstrateWeight::<Runtime>::check_coldkey_swap_extension(),
-        )
+    pallet_subtensor::Pallet::<Runtime>::root_claim_weight_for_work(
+        limit,
+        pallet_subtensor::Pallet::<Runtime>::basket_pending_work_bound(),
+    )
+    // FRAME folds the runtime's dispatch-extension weight into `call_weight`.
+    .saturating_add(
+        pallet_subtensor::weights::SubstrateWeight::<Runtime>::check_coldkey_swap_extension(),
+    )
 }
 
 fn assert_call_fits_normal_limit(call: RuntimeCall) {
@@ -68,6 +65,7 @@ fn assert_call_fits_normal_limit(call: RuntimeCall) {
     );
 }
 
+// PROTECTED_REGRESSION: legacy hotkey swap with extensions fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 #[allow(deprecated)]
 fn legacy_hotkey_swap_with_extensions_fits_normal_extrinsic_limit() {
@@ -83,6 +81,7 @@ fn legacy_hotkey_swap_with_extensions_fits_normal_extrinsic_limit() {
     });
 }
 
+// PROTECTED_REGRESSION: hotkey swap v2 with extensions fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 fn hotkey_swap_v2_with_extensions_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
@@ -100,6 +99,7 @@ fn hotkey_swap_v2_with_extensions_fits_normal_extrinsic_limit() {
     });
 }
 
+// PROTECTED_REGRESSION: claim root with extensions fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
@@ -114,6 +114,7 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
     });
 }
 
+// PROTECTED_REGRESSION: claim root with hotkey with extensions fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
@@ -128,6 +129,7 @@ fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
     });
 }
 
+// PROTECTED_REGRESSION: testnet claim root with hotkey with extensions fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 fn testnet_claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
@@ -152,10 +154,18 @@ fn testnet_claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() 
     });
 }
 
+// PROTECTED_REGRESSION: swap basket many at leg cap fits normal extrinsic limit; changes require explicit human approval.
 #[test]
 fn swap_basket_many_at_leg_cap_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
         let hotkey = AccountId::new([1u8; 32]);
+        let expected = pallet_subtensor::Pallet::<Runtime>::swap_basket_many_declared_weight_for(
+            &hotkey,
+            pallet_subtensor::MAX_BASKET_SWAP_LEGS,
+        )
+        .saturating_add(
+            pallet_subtensor::weights::SubstrateWeight::<Runtime>::check_coldkey_swap_extension(),
+        );
         let leg = (
             NetUid::from(1),
             NetUid::from(2),
@@ -168,16 +178,7 @@ fn swap_basket_many_at_leg_cap_fits_normal_extrinsic_limit() {
                 .try_into()
                 .expect("leg cap is bounded"),
         });
-        assert_eq!(
-            call.get_dispatch_info().call_weight,
-            pallet_subtensor::Pallet::<Runtime>::swap_basket_many_declared_weight(
-                pallet_subtensor::MAX_BASKET_SWAP_LEGS
-            )
-            .saturating_add(
-                pallet_subtensor::weights::SubstrateWeight::<Runtime>::check_coldkey_swap_extension(
-                )
-            )
-        );
+        assert_eq!(call.get_dispatch_info().call_weight, expected);
         assert_call_fits_normal_limit(call);
     });
 }

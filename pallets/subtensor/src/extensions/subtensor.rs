@@ -357,8 +357,19 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
                     }));
                     continue;
                 }
-                Some(pallet_utility::Call::as_derivative { index, call }) => {
+                Some(pallet_utility::Call::as_derivative { index, call })
+                | Some(pallet_utility::Call::as_protected_derivative { index, call }) => {
                     let derivative = pallet_utility::Pallet::<T>::derivative_account_id(
+                        effective_signer,
+                        *index,
+                    )
+                    .map_err(|_| Error::<T>::NonAssociatedColdKey)?;
+                    let inner: &CallOf<T> = call.as_ref().into_ref();
+                    pending.push((derivative, inner));
+                    continue;
+                }
+                Some(pallet_utility::Call::as_safe_derivative { index, call }) => {
+                    let derivative = pallet_utility::Pallet::<T>::safe_derivative_account_id(
                         effective_signer,
                         *index,
                     )
@@ -450,7 +461,16 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
                     pending.extend(calls.iter().map(|inner| inner.into_ref()));
                     continue;
                 }
-                Some(pallet_utility::Call::as_derivative { call, .. }) => {
+                Some(pallet_utility::Call::as_derivative { call, .. })
+                | Some(pallet_utility::Call::as_protected_derivative { call, .. }) => {
+                    pending.push(call.as_ref().into_ref());
+                    continue;
+                }
+                Some(pallet_utility::Call::as_safe_derivative { call, .. }) => {
+                    // Validation resolves this effective signer independently of
+                    // the later dispatch; charge that bounded derivation too.
+                    weight = weight
+                        .saturating_add(<T as pallet_utility::Config>::SafeDerivationWeight::get());
                     pending.push(call.as_ref().into_ref());
                     continue;
                 }
@@ -718,6 +738,53 @@ mod tests {
             .saturating_add(SubtensorTransactionExtension::<Test>::commitment_weight(
                 call,
             ))
+    }
+
+    #[test]
+    fn basket_validation_uses_safe_and_protected_derivative_signers() {
+        new_test_ext(1).execute_with(|| {
+            crate::BasketTradingEnabled::<Test>::put(true);
+            let parent = U256::from(1);
+            let hotkey = U256::from(2);
+            let basket = RuntimeCall::SubtensorModule(crate::Call::swap_basket {
+                hotkey,
+                origin_netuid: NetUid::from(0),
+                destination_netuid: NetUid::from(1),
+                amount: 1_000_000_000u64.into(),
+                min_amount_out: 0,
+            });
+            for safe in [false, true] {
+                let child = if safe {
+                    pallet_subtensor_utility::Pallet::<Test>::safe_derivative_account_id(parent, 7)
+                } else {
+                    pallet_subtensor_utility::Pallet::<Test>::derivative_account_id(parent, 7)
+                }
+                .unwrap();
+                crate::Owner::<Test>::insert(hotkey, child);
+                let wrapped = RuntimeCall::Utility(if safe {
+                    pallet_subtensor_utility::Call::as_safe_derivative {
+                        index: 7,
+                        call: Box::new(basket.clone()),
+                    }
+                } else {
+                    pallet_subtensor_utility::Call::as_protected_derivative {
+                        index: 7,
+                        call: Box::new(basket.clone()),
+                    }
+                });
+                // Correct effective ownership reaches the following root-UID
+                // check. Using the outer parent would fail ownership instead.
+                assert_eq!(
+                    validate_signed(parent, &wrapped).unwrap_err(),
+                    CustomTransactionError::UidNotFound.into(),
+                );
+                crate::Owner::<Test>::insert(hotkey, parent);
+                assert_eq!(
+                    validate_signed(parent, &wrapped).unwrap_err(),
+                    CustomTransactionError::NonAssociatedColdKey.into(),
+                );
+            }
+        });
     }
 
     #[test]

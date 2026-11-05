@@ -30,6 +30,7 @@ const CLONE_REGRESSIONS = [
   // scenario, so it owns the pristine phase before forceSetBalance-based tests
   // mutate the clone.
   { name: "test-total-issuance-trackers.ts", phase: "pristine" },
+  { name: "test-issuance-snapshot.ts", phase: "remaining" },
   { name: "test-balancer-operation.ts", phase: "remaining" },
   { name: "test-balancer-edge-emission-issuance.ts", phase: "remaining" },
   { name: "test-locks-conviction.ts", phase: "remaining" },

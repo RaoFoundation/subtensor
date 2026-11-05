@@ -10,11 +10,13 @@ themselves) and dissolves the loan. Amounts are TAO.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, ClassVar, Optional
 
 from .._generated import calls
+from .._pinned import compose_pinned_call
 from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
-from .base import BuiltCall, Intent
+from .base import Intent
 from .registry import build as build_intent
 from .registry import register
 from .staking import _stakeable_rao
@@ -93,8 +95,22 @@ class CreateCrowdloan(Intent):
             op = args.pop("op", None)
             if not op:
                 raise ValueError("crowdloan 'call' needs an 'op' key")
-            built = await build_intent(op, args).build(substrate, wallet)
-            inner = built.call if isinstance(built, BuiltCall) else built
+            from ..executor import _compose_nested_intent_call, _OriginView
+            from ..receiving import account_for_read
+            from ..signing import public_view
+
+            origin = _OriginView(
+                await account_for_read(substrate, self.coldkey_address(wallet)), wallet=wallet
+            )
+            # Finalization dispatches as this same creator. Preserve its public
+            # scheme and derivation mode when selecting nested composite calls.
+            origin.crypto_type = getattr(public_view(wallet, "coldkey"), "crypto_type", None)
+            origin.account_mode = getattr(wallet, "account_mode", None)
+            # Creation stores this call; it does not dispatch it under the
+            # current origin's batch filter. Its guards execute on finalization.
+            inner, _ = await _compose_nested_intent_call(
+                substrate, build_intent(op, args), origin, wrapper="crowdloan"
+            )
         return await substrate.compose(
             calls.Crowdloan.create(
                 deposit=self.deposit_tao.rao,
@@ -146,12 +162,14 @@ class ContributeCrowdloan(Intent):
         self.amount_tao = tao_amount(self.amount_tao, allow_all=True)
 
     async def build(self, substrate, wallet: Any):
+        params = {"crowdloan_id": self.crowdloan_id}
+        derived = {}
         if self.amount_tao == ALL:
-            rao = await _stakeable_rao(substrate, wallet)
+            derived["amount"] = partial(_stakeable_rao, substrate, wallet)
         else:
-            rao = self.amount_tao.rao
-        return await substrate.compose(
-            calls.Crowdloan.contribute(crowdloan_id=self.crowdloan_id, amount=rao)
+            params["amount"] = self.amount_tao.rao
+        return await compose_pinned_call(
+            substrate, "Crowdloan", "contribute", params, derived=derived
         )
 
     def summary(self) -> str:

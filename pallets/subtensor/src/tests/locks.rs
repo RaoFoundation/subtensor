@@ -12,7 +12,7 @@ use frame_support::{assert_noop, assert_ok};
 use safe_math::FixedExt;
 use sp_core::U256;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, ProxyType, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
 use super::mock::*;
@@ -423,6 +423,129 @@ fn test_set_perpetual_lock_toggles_owner_lock_decay() {
         ));
         step_block(100);
         assert!(SubtensorModule::get_current_locked(&owner_coldkey, netuid) < lock_amount);
+    });
+}
+
+#[test]
+fn lock_proxy_executes_the_complete_lock_lifecycle_and_nothing_else() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let delegate = U256::from(2);
+        let origin_hotkey = U256::from(3);
+        let destination_hotkey = U256::from(4);
+        let netuid = setup_subnet_with_stake(coldkey, origin_hotkey, 100_000_000_000);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey,
+            &destination_hotkey,
+        ));
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000u64.into());
+
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(coldkey),
+            delegate,
+            ProxyType::Lock,
+            0,
+        ));
+
+        let proxy_lock_call = |call| {
+            assert_ok!(Proxy::proxy(
+                RuntimeOrigin::signed(delegate),
+                coldkey,
+                Some(ProxyType::Lock),
+                Box::new(call),
+            ));
+            assert_eq!(
+                pallet_subtensor_proxy::LastCallResult::<Test>::get(coldkey),
+                Some(Ok(())),
+            );
+        };
+
+        let initial_lock: AlphaBalance = 5_000u64.into();
+        let top_up: AlphaBalance = 2_000u64.into();
+        proxy_lock_call(RuntimeCall::SubtensorModule(crate::Call::lock_stake {
+            hotkey: origin_hotkey,
+            netuid,
+            amount: initial_lock,
+        }));
+        proxy_lock_call(RuntimeCall::SubtensorModule(crate::Call::lock_stake {
+            hotkey: origin_hotkey,
+            netuid,
+            amount: top_up,
+        }));
+        let locked = initial_lock.saturating_add(top_up);
+        assert_eq!(
+            SubtensorModule::get_current_locked(&coldkey, netuid),
+            locked,
+        );
+
+        proxy_lock_call(RuntimeCall::SubtensorModule(
+            crate::Call::set_perpetual_lock {
+                netuid,
+                enabled: true,
+            },
+        ));
+        step_block(100);
+        assert_eq!(
+            SubtensorModule::get_current_locked(&coldkey, netuid),
+            locked,
+            "perpetual lock must not decay",
+        );
+
+        proxy_lock_call(RuntimeCall::SubtensorModule(crate::Call::move_lock {
+            destination_hotkey,
+            netuid,
+        }));
+        assert!(Lock::<Test>::get((coldkey, netuid, origin_hotkey)).is_none());
+        assert!(Lock::<Test>::get((coldkey, netuid, destination_hotkey)).is_some());
+
+        proxy_lock_call(RuntimeCall::SubtensorModule(
+            crate::Call::set_perpetual_lock {
+                netuid,
+                enabled: false,
+            },
+        ));
+        step_block(100);
+        assert!(
+            SubtensorModule::get_current_locked(&coldkey, netuid) < locked,
+            "clearing perpetual mode must resume decay",
+        );
+
+        let stake_before = get_alpha(&origin_hotkey, &coldkey, netuid);
+        assert_ok!(Proxy::proxy(
+            RuntimeOrigin::signed(delegate),
+            coldkey,
+            Some(ProxyType::Lock),
+            Box::new(RuntimeCall::SubtensorModule(crate::Call::remove_stake {
+                hotkey: origin_hotkey,
+                netuid,
+                amount_unstaked: 1u64.into(),
+            })),
+        ));
+        assert_eq!(
+            pallet_subtensor_proxy::LastCallResult::<Test>::get(coldkey),
+            Some(Err(frame_system::Error::<Test>::CallFiltered.into())),
+        );
+        assert_eq!(get_alpha(&origin_hotkey, &coldkey, netuid), stake_before);
+
+        assert_ok!(Proxy::remove_proxy(
+            RuntimeOrigin::signed(coldkey),
+            delegate,
+            ProxyType::Lock,
+            0,
+        ));
+        assert_noop!(
+            Proxy::proxy(
+                RuntimeOrigin::signed(delegate),
+                coldkey,
+                Some(ProxyType::Lock),
+                Box::new(RuntimeCall::SubtensorModule(crate::Call::lock_stake {
+                    hotkey: destination_hotkey,
+                    netuid,
+                    amount: 1u64.into(),
+                })),
+            ),
+            pallet_subtensor_proxy::Error::<Test>::NotProxy,
+        );
     });
 }
 

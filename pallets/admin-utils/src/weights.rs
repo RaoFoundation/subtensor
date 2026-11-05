@@ -98,7 +98,16 @@ pub trait WeightInfo {
 	fn sudo_set_owner_hparam_rate_limit() -> Weight;
 	fn sudo_set_owner_immune_neuron_limit() -> Weight;
 	fn sudo_trim_to_max_allowed_uids() -> Weight;
-    // Dedicated reference benchmark replaces this pre-release fallback before promotion.
+    // Dedicated reference benchmarks replace these pre-release fallbacks before promotion.
+    fn sudo_set_tao_usd_price_oracle() -> Weight {
+        Self::sudo_set_basket_trading_enabled()
+    }
+    fn sudo_set_subnet_gamma_enabled() -> Weight {
+        Self::sudo_set_yuma3_enabled()
+    }
+    fn sudo_set_gamma_enabled() -> Weight {
+        Self::sudo_set_basket_trading_enabled()
+    }
     fn sudo_trim_null_uids_batch() -> Weight {
         Self::sudo_trim_to_max_allowed_uids()
     }
@@ -137,6 +146,7 @@ pub trait WeightInfo {
 	fn sudo_set_collateral_drain_ratio() -> Weight;
 	fn sudo_set_basket_concentration_cap() -> Weight;
 	fn sudo_set_basket_trading_enabled() -> Weight;
+	fn sudo_set_hashed_accounts_enabled() -> Weight;
 	fn sudo_set_basket_trading_frozen() -> Weight;
 	fn sudo_set_basket_daily_turnover_cap() -> Weight;
 	fn sudo_set_basket_liquidity_cap() -> Weight;
@@ -145,12 +155,23 @@ pub trait WeightInfo {
 	fn sudo_set_basket_min_trade_tao() -> Weight {
 		Self::sudo_set_basket_liquidity_cap()
 	}
+	/// Same root check, single u64 storage write and event as the basket setter.
+	/// CI reference benchmarking replaces this shared envelope with measured weights.
+	fn sudo_set_hashed_account_registration_deposit() -> Weight {
+		Self::sudo_set_basket_min_trade_tao()
+	}
 	fn sudo_set_subnet_emission_weights() -> Weight;
 }
 
 /// Weights for `pallet_admin_utils` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
+	/// Reference CI run 38318619464, 50 steps / 20 repeats: r 0, w 1.
+	/// Storage: `AdminUtils::HashedAccountsEnabled` (r:0 w:1).
+	fn sudo_set_hashed_accounts_enabled() -> Weight {
+		Weight::from_parts(11_141_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
 	/// Storage: `Aura::Authorities` (r:0 w:1)
 	/// Proof: `Aura::Authorities` (`max_values`: Some(1), `max_size`: Some(1025), added: 1520, mode: `MaxEncodedLen`)
 	/// The range of component `a` is `[0, 32]`.
@@ -1611,6 +1632,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
+	/// Reference CI run 38318619464, 50 steps / 20 repeats: r 0, w 1.
+	/// Storage: `AdminUtils::HashedAccountsEnabled` (r:0 w:1).
+	fn sudo_set_hashed_accounts_enabled() -> Weight {
+		Weight::from_parts(11_141_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
 	/// Storage: `Aura::Authorities` (r:0 w:1)
 	/// Proof: `Aura::Authorities` (`max_values`: Some(1), `max_size`: Some(1025), added: 1520, mode: `MaxEncodedLen`)
 	/// The range of component `a` is `[0, 32]`.

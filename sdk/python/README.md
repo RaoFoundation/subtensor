@@ -1,3 +1,8 @@
+---
+title: "Bittensor Python SDK and CLI"
+description: "Install and use the Bittensor SDK and command line for wallets, transactions, and chain data."
+---
+
 # bittensor
 
 A lean Python SDK and CLI for the Bittensor chain. One install gives you both a
@@ -293,9 +298,16 @@ These compose with any intent:
   carrier.
 
   The CLI shields stake-trading commands (`stake add/remove/move/swap/transfer`,
-  `unstake-all`, and the limit variants) by default. Opt out per command with
-  `--no-mev-shield`, persistently with `btcli config set mev_shield false`, or
-  opt any other mutation in with `--mev-shield`.
+  `unstake-all`, and the limit variants) and account registrations by default.
+  This includes registration added automatically to a transfer. Opt out per
+  command with `--no-mev-shield`, persistently with
+  `btcli config set mev_shield false`, or require shielding with `--mev-shield`.
+  The SDK's `execute` and `submit_call` also default to Shield when their composed
+  call registers an account; pass `shielded=False` to opt out or `shielded=True`
+  to require it. Registration sponsorship still requires separate deposit consent.
+  Defaults can fall back with a warning when Shield is unavailable; the CLI can
+  also fall back when the carrier fee is unaffordable. Explicitly requiring
+  Shield prevents public fallback.
 
 ## EVM
 

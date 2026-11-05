@@ -91,6 +91,7 @@ fn static_dispatch_rejects_before_transfer_but_normal_dispatch_works() {
     });
 }
 
+// PROTECTED_REGRESSION: real contract staticcall cannot dispatch native transfer; changes require explicit human approval.
 #[test]
 fn real_contract_staticcall_cannot_dispatch_native_transfer() {
     new_test_ext().execute_with(|| {

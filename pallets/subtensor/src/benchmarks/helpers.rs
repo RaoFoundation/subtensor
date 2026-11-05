@@ -78,6 +78,82 @@ pub(super) fn add_balance_to_coldkey_account<T: Config>(coldkey: &T::AccountId, 
     let _ = Subtensor::<T>::spend_tao(coldkey, credit, tao).unwrap();
 }
 
+/// A subnet that can mint gamma this block: a pool, its subtoken and gamma enabled, the gamma
+/// price at spot, and a fresh TAO/USD feed of 400 dollars per TAO.
+pub(super) fn setup_gamma_subnet<T: Config>(netuid: NetUid) {
+    Subtensor::<T>::init_new_network(netuid, 1);
+    SubtokenEnabled::<T>::insert(netuid, true);
+    seed_swap_reserves::<T>(netuid);
+    GammaEnabled::<T>::put(true);
+    SubnetGammaEnabled::<T>::insert(netuid, true);
+    SubnetGammaPrice::<T>::insert(netuid, T::SwapInterface::current_alpha_price(netuid));
+    let now = Subtensor::<T>::get_current_block_as_u64();
+    TaoUsdPrice::<T>::put(TaoUsdPriceState {
+        accepted: 400_000_000_000,
+        feed: 400_000_000_000,
+        fed_at: now,
+    });
+}
+
+/// The default spender's longest lookup on `netuid`: the owner's hotkey, which the owner owns,
+/// has no service, and a lease owns the subnet, whose beneficiary is returned.
+pub(super) fn seed_gamma_default_spender<T: Config>(netuid: NetUid) -> T::AccountId {
+    let beneficiary: T::AccountId = account("gamma_beneficiary", 0, 0);
+    Owner::<T>::insert(
+        SubnetOwnerHotkey::<T>::get(netuid),
+        SubnetOwner::<T>::get(netuid),
+    );
+    SubnetUidToLeaseId::<T>::insert(netuid, 0);
+    SubnetLeases::<T>::insert(
+        0,
+        crate::subnets::leasing::SubnetLease {
+            beneficiary: beneficiary.clone(),
+            coldkey: SubnetOwner::<T>::get(netuid),
+            hotkey: SubnetOwnerHotkey::<T>::get(netuid),
+            emissions_share: Percent::zero(),
+            end_block: None,
+            netuid,
+            cost: TaoBalance::ZERO,
+        },
+    );
+    beneficiary
+}
+
+/// Opens `count` gamma deposits of `coldkey` on `netuid`, each holding `balance` under
+/// `daily_spend_cap` with a full bucket, and returns their hotkeys.
+pub(super) fn seed_gamma_deposits<T: Config>(
+    netuid: NetUid,
+    coldkey: &T::AccountId,
+    seed: u32,
+    count: u32,
+    balance: u64,
+    daily_spend_cap: Option<GammaBalance>,
+) -> Vec<T::AccountId> {
+    let now = Subtensor::<T>::get_current_block_as_u64();
+    (0..count)
+        .map(|index| {
+            let hotkey: T::AccountId = account("gamma_hot", seed, index);
+            GammaDeposits::<T>::insert(
+                netuid,
+                &hotkey,
+                GammaDeposit {
+                    coldkey: coldkey.clone(),
+                    spender: Subtensor::<T>::gamma_default_spender(netuid),
+                    balance: balance.into(),
+                    daily_spend_cap: daily_spend_cap.map(|cap| GammaDailySpendCap {
+                        cap,
+                        bucket: (cap, now),
+                    }),
+                },
+            );
+            ColdkeyGammaHotkeys::<T>::mutate(netuid, coldkey, |hotkeys| {
+                hotkeys.try_push(hotkey.clone()).unwrap()
+            });
+            hotkey
+        })
+        .collect()
+}
+
 /// Seed a standing collateral row and keep the coldkey index in sync.
 pub(super) fn seed_miner_collateral_position<T: Config>(
     netuid: NetUid,
@@ -384,7 +460,10 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
     const TEMPO: u16 = 360;
     const CURRENT_BLOCK: u64 = 7_000;
     const SUBNET_TAO_RESERVE: u64 = 1_000_000_000_000_000;
-    const SUBNET_ALPHA_RESERVE: u64 = 1_000_000_000_000_000_000;
+    // Keep total alpha issuance below `TotalSupply`, otherwise coinbase returns
+    // zero alpha emission and the burn/recycle/owner branches are not measured.
+    // This still covers the 2,500 × 1 TAO-equivalent positions in a Null epoch.
+    const SUBNET_ALPHA_RESERVE: u64 = 10_000_000_000_000;
     const VALIDATOR_ALPHA_STAKE: u64 = 1_000_000_000;
 
     set_benchmark_block_number::<T>(CURRENT_BLOCK);
@@ -475,6 +554,21 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
         Subtensor::<T>::set_max_allowed_validators(netuid, MAINNET_VALIDATORS_PER_SUBNET);
         SubtokenEnabled::<T>::insert(netuid, true);
         SubnetEmissionEnabled::<T>::insert(netuid, true);
+        // Exercise burn, recycle, and owner payout together on every emitting
+        // subnet. Production permits all three shares to be nonzero, so the
+        // block-step envelope must include their combined storage work.
+        let burn = MAX_BURN_RECYCLE_EMISSION / 2;
+        let recycle = MAX_BURN_RECYCLE_EMISSION.saturating_sub(burn);
+        let owner = emission_fraction(1, 100);
+        let miner = MIN_MINER_EMISSION;
+        let validator = EMISSION_WEIGHT_ONE
+            .saturating_sub(MAX_BURN_RECYCLE_EMISSION)
+            .saturating_sub(owner)
+            .saturating_sub(miner);
+        Subtensor::<T>::set_subnet_emission_weights_unchecked(
+            netuid,
+            [burn, recycle, owner, validator, miner],
+        );
         SubnetOwner::<T>::insert(netuid, subnet_owner);
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
         Subtensor::<T>::set_max_allowed_uids(netuid, neuron_count);

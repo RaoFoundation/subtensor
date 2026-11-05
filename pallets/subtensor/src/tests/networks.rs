@@ -10,7 +10,7 @@ use sp_core::U256;
 use sp_runtime::PerU16;
 use sp_std::collections::{btree_map::BTreeMap, vec_deque::VecDeque};
 use substrate_fixed::types::{I96F32, U64F64, U96F32};
-use subtensor_runtime_common::{MechId, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{GammaBalance, MechId, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 
 #[test]
@@ -128,6 +128,7 @@ fn registration_legacy_hold_neutralization_is_cancelled_without_a_phantom() {
     });
 }
 
+// PROTECTED_REGRESSION: registration escrow is additive and survives registrant hold and drain; changes require explicit human approval.
 #[test]
 fn registration_escrow_is_additive_and_survives_registrant_hold_and_drain() {
     use frame_support::traits::{
@@ -183,6 +184,7 @@ fn registration_escrow_is_additive_and_survives_registrant_hold_and_drain() {
     });
 }
 
+// PROTECTED_REGRESSION: registration late failure refunds escrow and does not block next entry; changes require explicit human approval.
 #[test]
 fn registration_late_failure_refunds_escrow_and_does_not_block_next_entry() {
     new_test_ext(0).execute_with(|| {
@@ -237,6 +239,7 @@ fn registration_late_failure_refunds_escrow_and_does_not_block_next_entry() {
     });
 }
 
+// PROTECTED_REGRESSION: registration does not invent reserves when minimum changes while queued; changes require explicit human approval.
 #[test]
 fn registration_does_not_invent_reserves_when_minimum_changes_while_queued() {
     new_test_ext(0).execute_with(|| {
@@ -783,6 +786,33 @@ fn dissolve_clears_all_per_subnet_storages() {
         // (Optional) subnet -> lease link
         SubnetUidToLeaseId::<Test>::insert(net, 42u32);
 
+        // Gamma and service urls
+        SubnetGammaEnabled::<Test>::insert(net, true);
+        SubnetGammaPrice::<Test>::insert(net, U64F64::from_num(1));
+        GammaDeposits::<Test>::insert(
+            net,
+            owner_hot,
+            GammaDeposit {
+                coldkey: owner_cold,
+                spender: owner_cold,
+                balance: GammaBalance::from(1),
+                daily_spend_cap: None,
+            },
+        );
+        ColdkeyGammaHotkeys::<Test>::insert(
+            net,
+            owner_cold,
+            BoundedVec::truncate_from(vec![owner_hot]),
+        );
+        Services::<Test>::insert(
+            net,
+            owner_hot,
+            ServiceInfo {
+                url: BoundedVec::truncate_from(b"u".to_vec()),
+                spender: owner_cold,
+            },
+        );
+
         // ------------------------------------------------------------------
         // Dissolve
         // ------------------------------------------------------------------
@@ -954,6 +984,13 @@ fn dissolve_clears_all_per_subnet_storages() {
 
         // Subnet -> lease link
         assert!(!SubnetUidToLeaseId::<Test>::contains_key(net));
+
+        // Gamma and service urls
+        assert!(!SubnetGammaEnabled::<Test>::contains_key(net));
+        assert!(!SubnetGammaPrice::<Test>::contains_key(net));
+        assert!(!GammaDeposits::<Test>::contains_key(net, owner_hot));
+        assert!(!ColdkeyGammaHotkeys::<Test>::contains_key(net, owner_cold));
+        assert!(!Services::<Test>::contains_key(net, owner_hot));
 
         // ------------------------------------------------------------------
         // Final subnet removal confirmation
@@ -4110,6 +4147,7 @@ fn set_new_network_state_uses_provided_median_price_for_pool_alpha() {
     });
 }
 
+// PROTECTED_REGRESSION: set new network state never books an unpaid min lock floor; changes require explicit human approval.
 #[test]
 fn set_new_network_state_never_books_an_unpaid_min_lock_floor() {
     new_test_ext(1).execute_with(|| {

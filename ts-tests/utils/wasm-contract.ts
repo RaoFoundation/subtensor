@@ -1,4 +1,4 @@
-import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
+import { MultiAddress, type subtensor } from "@polkadot-api/descriptors";
 import type { KeyringPair } from "@polkadot/keyring/types";
 import type { TypedApi } from "polkadot-api";
 import { Binary } from "polkadot-api";

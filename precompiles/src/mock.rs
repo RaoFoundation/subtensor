@@ -388,6 +388,16 @@ mod test_crypto {
 
 impl pallet_evm_chain_id::Config for Runtime {}
 
+parameter_types! {
+    pub storage MockRegistrationDeposit: TaoBalance = TaoBalance::new(200_000_000);
+}
+
+impl pallet_admin_utils::RegistrationDepositInterface for MockRegistrationDeposit {
+    fn set(value: TaoBalance) {
+        MockRegistrationDeposit::set(&value);
+    }
+}
+
 impl pallet_admin_utils::Config for Runtime {
     type Aura = ();
     type Grandpa = ();
@@ -395,6 +405,7 @@ impl pallet_admin_utils::Config for Runtime {
     type MaxAuthorities = MaxAuthorities;
     type Balance = TaoBalance;
     type WeightInfo = ();
+    type RegistrationDeposit = MockRegistrationDeposit;
 }
 
 impl pallet_drand::Config for Runtime {
@@ -447,6 +458,7 @@ impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
 }
 
 impl pallet_subtensor::Config for Runtime {
+    type HotkeyOwnerPolicy = ();
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -548,6 +560,8 @@ impl frame_support::traits::InstanceFilter<RuntimeCall> for ProxyType {
 }
 
 impl pallet_subtensor_proxy::Config for Runtime {
+    type SafeDerivationWeight = ();
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = ProxyType;

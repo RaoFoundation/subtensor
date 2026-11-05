@@ -21,6 +21,7 @@ from .drand import DESCRIPTIONS as _DRAND
 from .ethereum import DESCRIPTIONS as _ETHEREUM
 from .evm import DESCRIPTIONS as _EVM
 from .grandpa import DESCRIPTIONS as _GRANDPA
+from .hashed_accounts import DESCRIPTIONS as _HASHED_ACCOUNTS
 from .lending import DESCRIPTIONS as _LENDING
 from .limit_orders import DESCRIPTIONS as _LIMIT_ORDERS
 from .mev_shield import DESCRIPTIONS as _MEV_SHIELD
@@ -46,6 +47,7 @@ for _part in (
     _EVM,
     _ETHEREUM,
     _GRANDPA,
+    _HASHED_ACCOUNTS,
     _LENDING,
     _LIMIT_ORDERS,
     _MEV_SHIELD,

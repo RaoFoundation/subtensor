@@ -1,0 +1,66 @@
+---
+title: Subnet services
+description: Services that validators and subnet owners publish on their subnet, with a url to a document of their services and the spender their customers name on gamma deposits.
+---
+
+A validator (a hotkey with a validator permit on a subnet) or the subnet owner,
+for its owner hotkey, can publish a service with [`set-service`](/docs/tx/set-service), so that
+apps and agents can find what the subnet serves and how it is paid for. A
+service is a url to a document of its services and the spender its customers
+name on [gamma](/docs/guides/gamma) deposits. The coldkey that owns the hotkey
+signs it, names the spender, and pays a normal fee. Publishing an empty url removes the
+service.
+
+```bash
+btcli tx set-service --netuid 51 --url https://example.com/services.json -w my_coldkey -H my_hotkey
+btcli query services --netuid 51
+```
+
+```python
+await client.execute(bt.SetService(netuid=51, url="https://example.com/services.json"), wallet)
+services = await client.subnets.services(netuid=51)  # {hotkey: {url, spender, owner}}
+```
+
+The permit is checked when the service is published. A service follows a hotkey
+swap and is removed when its neuron is deregistered. A coldkey swap leaves its
+spender, and changing the spender leaves deposits that name the old one until
+their coldkeys re-point them. `owner` marks the service of the subnet owner's
+hotkey while the owner owns it, whose spender new deposits name by default. A leased subnet's
+beneficiary publishes it through its `SubnetLeaseBeneficiary` proxy. Customers
+name a service's spender by minting with `--service-hotkey` (see
+[Gamma](/docs/guides/gamma#minting)).
+
+## The document
+
+The chain stores the url and the spender. The document says what the services
+are, how to reach them, and how they are paid for:
+
+```json
+{
+  "version": 1,
+  "services": [
+    { "type": "openapi", "endpoint": "https://…", "spec": "https://…/openapi.json" },
+    { "type": "mcp", "endpoint": "https://…/mcp" }
+  ],
+  "payments": [
+    { "type": "gamma" },
+    { "type": "x402" }
+  ]
+}
+```
+
+- A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma), from
+  deposits that name the service's spender.
+- An [`x402`](https://www.x402.org) payment states its price and payee in each
+  HTTP 402 response.
+- Readers skip service and payment types they do not know.
+
+A service can name any spender, and that spender can spend the deposits that
+name it without serving, so prefer the service marked `owner`.
+
+While a spender's coldkey swap is announced, it cannot spend. A service that
+must never pause names a spender that never needs a swap, such as a multisig of
+several keys, and spends through a separate `GammaSpend` key, which the spender
+itself replaces by changing the proxy. A pure proxy is not such a spender, as
+the coldkey that controls it keeps that control through its own coldkey swap,
+so a leaked coldkey would keep spending.

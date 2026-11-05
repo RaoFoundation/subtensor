@@ -1,3 +1,4 @@
+import type { AccountInfo } from "@polkadot/types/interfaces";
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
 import type { ApiPromise } from "@polkadot/api";
 import type { KeyringPair } from "@moonwall/util";
@@ -60,7 +61,7 @@ describeSuite({
             title: "fee recipient receives TAO for a buy order with 1% fee",
             test: async () => {
                 const recipientBefore = (
-                    await polkadotJs.query.system.account(feeRecipient.address)
+                    await polkadotJs.query.system.account<AccountInfo>(feeRecipient.address)
                 ).data.free.toBigInt();
 
                 const orderAmount = tao(100);
@@ -84,7 +85,7 @@ describeSuite({
                 expect(filterEvents(events, "OrderExecuted").length).toBe(1);
 
                 const recipientAfter = (
-                    await polkadotJs.query.system.account(feeRecipient.address)
+                    await polkadotJs.query.system.account<AccountInfo>(feeRecipient.address)
                 ).data.free.toBigInt();
 
                 expect(recipientAfter - recipientBefore).toBe(expectedFee);
@@ -96,7 +97,7 @@ describeSuite({
             title: "zero fee rate — fee recipient balance unchanged",
             test: async () => {
                 const recipientBefore = (
-                    await polkadotJs.query.system.account(feeRecipient.address)
+                    await polkadotJs.query.system.account<AccountInfo>(feeRecipient.address)
                 ).data.free.toBigInt();
 
                 const signed = buildSignedOrder(polkadotJs, {
@@ -114,7 +115,7 @@ describeSuite({
                 await devExecuteOrders(polkadotJs, context, alice, [signed]);
 
                 const recipientAfter = (
-                    await polkadotJs.query.system.account(feeRecipient.address)
+                    await polkadotJs.query.system.account<AccountInfo>(feeRecipient.address)
                 ).data.free.toBigInt();
 
                 expect(recipientAfter).toBe(recipientBefore);

@@ -20,7 +20,7 @@ from typing import Any, Optional
 
 import typer
 
-from ... import calls
+from ...account_mode import multisig_call, validate_account_mode
 from .. import multisig_helpers as ms_helpers
 from .. import upgrade_helpers as uh
 from ..context import AppContext, ctx_of
@@ -281,6 +281,7 @@ def _resolve_sudo_signer_set(
     signatories: Optional[str],
     other_signatories: Optional[str],
     manifest: Optional[dict],
+    account_mode: Optional[str] = None,
 ) -> tuple[int, list[str]]:
     """The sudo multisig's (threshold, resolved signatories) for signing.
 
@@ -296,6 +297,7 @@ def _resolve_sudo_signer_set(
         other_signatories=other_signatories,
         signer="coldkey",
         wallet_default=None,
+        account_mode=account_mode,
     )
     if threshold is not None:
         return threshold, sigs
@@ -303,6 +305,9 @@ def _resolve_sudo_signer_set(
     manifest_sigs = [str(s) for s in sudo.get("signatories") or []]
     manifest_threshold = sudo.get("threshold")
     if manifest_sigs and manifest_threshold:
+        app_ctx.multisig_account_mode = validate_account_mode(
+            account_mode or sudo.get("account_mode", "legacy")
+        )
         return int(manifest_threshold), list(dict.fromkeys(manifest_sigs))
     raise ValueError(
         "cannot determine the sudo multisig signer set: the release manifest has "
@@ -339,6 +344,9 @@ def upgrade_sign(
     ),
     multisig: Optional[str] = typer.Option(
         None, "--multisig", help="Saved sudo-multisig name (see `btcli multisig list`)."
+    ),
+    multisig_account_mode: Optional[str] = typer.Option(
+        None, "--multisig-account-mode", help="Sudo group derivation: legacy or safe."
     ),
     multisig_threshold: Optional[int] = typer.Option(
         None, "--multisig-threshold", help="Sudo multisig threshold (with --signatories)."
@@ -378,11 +386,13 @@ def upgrade_sign(
             signatories=signatories,
             other_signatories=other_signatories,
             manifest=bundle.manifest,
+            account_mode=multisig_account_mode,
         )
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
 
+    sudo_account_mode = getattr(app_ctx, "multisig_account_mode", "legacy")
     signer_address = app_ctx.wallet().coldkeypub.ss58_address
     if signer_address not in sudo_signatories:
         app_ctx.output.error(
@@ -397,7 +407,9 @@ def upgrade_sign(
         outcome = await uh.run_proposal_checks(client, bundle)
         plan: dict[str, Any] = {}
         if outcome.ok:
-            derived = await client.multisig(sudo_signatories, sudo_threshold)
+            derived = await client.multisig(
+                sudo_signatories, sudo_threshold, account_mode=sudo_account_mode
+            )
             plan["multisig_address"] = derived.address
             plan["matches_sudo"] = derived.address == outcome.data["sudo_key"]
             if plan["matches_sudo"]:
@@ -528,7 +540,9 @@ def upgrade_sign(
         # signers; this outer argument is free to be estimated per submission.
         max_weight = await uh.finalizing_max_weight(client, finalizing, signer_address)
         if sudo_layer is None:
-            call = calls.Multisig.approve_as_multi(
+            call = multisig_call(
+                "approve_as_multi",
+                account_mode=sudo_account_mode,
                 threshold=sudo_threshold,
                 other_signatories=others,
                 maybe_timepoint=None,
@@ -536,7 +550,9 @@ def upgrade_sign(
                 max_weight=max_weight,
             )
         elif len(approvals) < sudo_threshold - 1:
-            call = calls.Multisig.approve_as_multi(
+            call = multisig_call(
+                "approve_as_multi",
+                account_mode=sudo_account_mode,
                 threshold=sudo_threshold,
                 other_signatories=others,
                 maybe_timepoint=sudo_layer["timepoint"],
@@ -544,7 +560,9 @@ def upgrade_sign(
                 max_weight=max_weight,
             )
         else:
-            call = calls.Multisig.as_multi(
+            call = multisig_call(
+                "as_multi",
+                account_mode=sudo_account_mode,
                 threshold=sudo_threshold,
                 other_signatories=others,
                 maybe_timepoint=sudo_layer["timepoint"],

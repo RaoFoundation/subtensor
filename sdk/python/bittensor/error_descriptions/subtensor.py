@@ -10,6 +10,11 @@ DESCRIPTIONS: dict[str, str] = {
         "can check getRejectStakingHotkeyGrowth before transferring to avoid a refused "
         "precompile call."
     ),
+    "HotkeyOwnerPolicyViolation": (
+        "This ownership change would weaken a protected hotkey's authorization. "
+        "Use a coldkey account with a compatible authorization policy before registering, "
+        "associating or moving ownership of the hotkey."
+    ),
     "AccountRejectsLockedAlpha": (
         "Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the "
         "accept-locked-alpha bit set, e.g. during a lock transfer or coldkey swap of locks. "
@@ -61,7 +66,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "AmountTooLow": (
         "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the "
-        "minimum stake threshold after fees and slippage. Compare the amount against the "
+        "minimum stake threshold after fees and slippage, a gamma mint came to less than "
+        "0.1 gamma, or a gamma move found its origin deposit empty. Compare the amount against the "
         "`DefaultMinStake` storage item and the subnet's alpha price before retrying with a "
         "larger amount."
     ),
@@ -83,9 +89,10 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "BasketDepositPending": (
         "A queued root-dividend deposit on this validator could not be settled yet, so an "
-        "operation that changes the hotkey's root claimant base was refused. No current "
-        "dispatch raises it; if it appears, wait for the pending deposit to flush (the next "
-        "claim or basket operation on the hotkey settles it) and retry."
+        "operation that changes the claimant base or basket was refused. Wait for the "
+        "block queue processor to settle the dividend, then retry. Settlement also requires "
+        "the affected basket prices to be within their fast-EMA band; user calls cannot "
+        "force a dividend mint between pool swaps."
     ),
     "BasketHasNoWeights": (
         "Retired on current runtimes: a basket deposit into a fund with no holdings is held "
@@ -372,10 +379,10 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "HotKeyNotRegisteredInNetwork": (
         "The hotkey is not registered on the relevant subnet, raised by "
-        "`serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring "
-        "registration on any subnet. Verify registration with `btcli wallet registrations` "
-        "(or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register "
-        "via `btcli subnets register` first."
+        "`serve_axon`/`serve_prometheus`/`set_service` for the serving netuid or by "
+        "identity calls requiring registration on any subnet. Verify registration with "
+        "`btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query "
+        "netuids-for-hotkey`) and register via `btcli subnets register` first."
     ),
     "HotKeyNotRegisteredInSubNet": (
         "The hotkey holds no UID on the given netuid, so weight setting, commits, or UID "
@@ -497,7 +504,8 @@ DESCRIPTIONS: dict[str, str] = {
         "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, "
         "emission splits summing away from 65535, max UIDs or take bounds. Check the specific "
         "argument against the min/max storage items the extrinsic validates (e.g. "
-        "`MinAllowedUids`, `MaxMechanismCount`)."
+        "`MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the "
+        "same hotkey, or an empty `spend_gamma`."
     ),
     "InvalidVotingPowerEmaAlpha": (
         "The alpha passed to set the voting power EMA exceeds 10^18, which represents 1.0. "
@@ -588,9 +596,10 @@ DESCRIPTIONS: dict[str, str] = {
         "remaining blocks."
     ),
     "NeuronNoValidatorPermit": (
-        "The hotkey tried to set weights on other neurons without holding a validator permit on "
-        "that subnet. Check `ValidatorPermit` for the neuron's uid (e.g. via the metagraph or "
-        "`btcli subnets metagraph`) and whether its stake ranks it as a validator."
+        "The hotkey tried to set weights on other neurons, or to publish a service other than "
+        "the subnet owner's, without holding a validator permit on that subnet. Check "
+        "`ValidatorPermit` for the neuron's uid (e.g. via the metagraph or `btcli subnets "
+        "metagraph`) and whether its stake ranks it as a validator."
     ),
     "NewColdKeyIsHotkey": (
         "The proposed new coldkey in a coldkey swap is already an existing hotkey account, "
@@ -624,8 +633,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "NonAssociatedColdKey": (
         "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, "
-        "serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. "
-        "via `btcli wallet registrations`, and sign with the coldkey that registered it."
+        "serve, children or take changes), or the gamma deposit at the hotkey belongs to "
+        "another coldkey. Check the hotkey's `Owner` (`btcli wallet registrations`) or the "
+        "gamma deposit's coldkey (`btcli gamma show`), and sign with the coldkey that owns it."
     ),
     "NotEnoughAlphaOutToRecycle": (
         "A recycle or burn of alpha requested more than the subnet's outstanding alpha supply. "
@@ -644,8 +654,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "NotEnoughBalanceToStake": (
         "The coldkey's free balance is less than the TAO required, either the stake amount in "
-        "add_stake or the burn cost of a registration. Check `btcli wallet balance` against the "
-        "amount or the current registration burn (`Burn` storage for the netuid)."
+        "add_stake, the TAO of a gamma mint, or the burn cost of a registration. Check "
+        "`btcli wallet balance` against the amount or the current registration burn (`Burn` "
+        "storage for the netuid)."
     ),
     "NotEnoughStake": (
         "The caller's hotkey holds less stake than the action requires; a generic "
@@ -763,7 +774,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "SlippageTooHigh": (
         "A stake, unstake, or move would move the price past the slippage-protection limit "
-        "(default 5% tolerance). Retry, raise `--rate-tolerance`, or disable protection with "
+        "(default 5% tolerance), or a gamma mint would credit less than its minimum. Retry, "
+        "raise `--rate-tolerance`, or, for stake, disable protection with "
         "`--no-slippage-protection`; check the current price with `btcli subnets price`."
     ),
     "StakeTooLowForRoot": (
@@ -826,18 +838,22 @@ DESCRIPTIONS: dict[str, str] = {
         "shares do not sum to exactly `u64::MAX` (1.0). Omitted slots keep their current value, "
         "so raising one slot requires lowering another in the same call. `btcli subnets "
         "emission set-value/increase/decrease` renormalise the other slots for you; with the "
-        "raw call, pass a full `[0, 0, owner, validator, miner]` vector whose parts total "
-        "18446744073709551615."
+        "raw call, pass a full `[burn, recycle, owner, validator, miner]` vector whose parts "
+        "total 18446744073709551615."
     ),
     "BurnEmissionMustBeZero": (
-        "Slot 0 (burn) of the emission weight vector was set to a non-zero share. Burning "
-        "alpha emission is reserved for a future runtime; in v1 the burn share must be 0 "
-        "(or simply omitted)."
+        "Deprecated. Slot 0 (burn) may now be non-zero; burn and recycle together may be at "
+        "most 33% (`BurnRecycleEmissionAboveMaximum`)."
     ),
     "RecycleEmissionMustBeZero": (
-        "Slot 1 (recycle) of the emission weight vector was set to a non-zero share. Recycling "
-        "alpha emission is reserved for a future runtime; in v1 the recycle share must be 0 "
-        "(or simply omitted)."
+        "Deprecated. Slot 1 (recycle) may now be non-zero; burn and recycle together may be "
+        "at most 33% (`BurnRecycleEmissionAboveMaximum`)."
+    ),
+    "BurnRecycleEmissionAboveMaximum": (
+        "Slots 0 (burn) and 1 (recycle) of the emission weight vector together exceed the 33% "
+        "ceiling. Burn destroys alpha but still counts toward issuance; recycle removes alpha "
+        "from `SubnetAlphaOut` and `TotalAlphaIssuance`. Lower burn and/or recycle so their "
+        "sum is at most 0.33."
     ),
     "OwnerEmissionAboveMaximum": (
         "Slot 2 (owner) of the emission weight vector exceeds the 33% ceiling. The subnet "
@@ -945,8 +961,8 @@ DESCRIPTIONS: dict[str, str] = {
     "TxRateLimitExceeded": (
         "An owner or admin transaction (e.g. `set_children`, tempo or hyperparameter updates, "
         "setting the owner hotkey) was repeated within its rate-limit window for that key and "
-        "subnet. Check when the same transaction type last succeeded and wait for the limit to "
-        "pass."
+        "subnet, or the oracle fed the TAO/USD price twice in one block. Check when the same "
+        "transaction type last succeeded and wait for the limit to pass."
     ),
     "UidMapCouldNotBeCleared": (
         "During a UID reshuffle or trim, clearing the subnet's `Uids` map left residual entries "
@@ -1010,8 +1026,56 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "ColdkeySwapTooHeavy": (
         "The coldkey stakes through more hotkeys, or holds more stake positions, than one "
-        "coldkey swap can move. Unstake from or move stake off unused hotkeys and subnets "
-        "to consolidate, then retry the swap."
+        "coldkey swap can move, or the two coldkeys together hold more than 128 gamma deposits. "
+        "Unstake from or move stake off unused hotkeys and subnets, or move gamma into fewer "
+        "deposits and close empty ones, to consolidate, then retry the swap."
+    ),
+    "TaoUsdPriceUnavailable": (
+        "Gamma cannot be minted because the TAO/USD price is unusable: there is no feed, or "
+        "the last feed is more than 300 blocks old. Check `tao_usd_price` and retry once the "
+        "oracle has fed."
+    ),
+    "GammaDisabled": (
+        "Gamma minting is switched off network-wide (`GammaEnabled`) or on this subnet (the "
+        "`gamma_enabled` hyperparameter). Root enables it network-wide; the subnet owner or "
+        "root enables the subnet."
+    ),
+    "TooManyGammaDeposits": (
+        "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or "
+        "by a coldkey swap into it. Move gamma into an existing deposit, or close an empty one "
+        "with `close_gamma_deposit`, then retry."
+    ),
+    "GammaDepositDoesNotExist": (
+        "The hotkey holds no gamma deposit on this subnet. List the coldkey's deposits with "
+        "the `gamma_deposits` read."
+    ),
+    "GammaDepositNotEmpty": (
+        "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` "
+        "closes it; once its spender has spent it to zero, close it."
+    ),
+    "GammaDepositSpenderMismatch": (
+        "A mint named a spender, but the gamma deposit it credits already names another. A "
+        "named spender opens a new deposit and must match an existing one. Mint without naming "
+        "one, or change the deposit's spender with `set_gamma_deposit_spender` first."
+    ),
+    "GammaDepositDailySpendCapMismatch": (
+        "A mint named a daily spend cap, but the gamma deposit it credits has another. A named "
+        "cap opens a new deposit and must match an existing one's. Mint without naming one, or "
+        "change the deposit's cap with `set_gamma_deposit_daily_spend_cap` first."
+    ),
+    "NotGammaDepositSpender": (
+        "A spend entry was skipped because its gamma deposit names another spender. Only the "
+        "deposit's spender, or its `GammaSpend` proxy, spends it."
+    ),
+    "InsufficientGammaBalance": (
+        "A spend entry was skipped because its amount is above the gamma deposit's balance. An "
+        "entry spends its whole amount or nothing. The `gamma_deposit` read gives "
+        "`spendable_gamma`, what an entry can spend now."
+    ),
+    "GammaDepositDailySpendCapExceeded": (
+        "A spend entry was skipped because its amount is above what the gamma deposit's daily "
+        "spend cap allows now. The cap refills over a day. The `gamma_deposit` read gives "
+        "`spendable_gamma`, what an entry can spend now."
     ),
     "ColdkeySwapDestinationReserved": (
         "This account is reserved as the destination of an in-flight coldkey-swap "
