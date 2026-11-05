@@ -8,6 +8,11 @@ BACKEND = "bittensor_core"
 
 CRYPTO_ED25519 = _backend.CRYPTO_ED25519
 CRYPTO_SR25519 = _backend.CRYPTO_SR25519
+CRYPTO_ECDSA = _backend.CRYPTO_ECDSA
+ECDSA_PUBLIC_KEY_LEN = _backend.ECDSA_PUBLIC_KEY_LEN
+ED25519_SIGNATURE_LEN = _backend.ED25519_SIGNATURE_LEN
+SR25519_SIGNATURE_LEN = _backend.SR25519_SIGNATURE_LEN
+ECDSA_SIGNATURE_LEN = _backend.ECDSA_SIGNATURE_LEN
 CRYPTO_HASHED = _backend.CRYPTO_HASHED
 try:
     CRYPTO_HASHED_ED25519 = _backend.CRYPTO_HASHED_ED25519
@@ -119,6 +124,8 @@ WrongPasswordError = _backend.WrongPasswordError
 verify = _backend.verify
 ss58_decode = _backend.ss58_decode
 ss58_encode = _backend.ss58_encode
+ecdsa_account_id = _backend.ecdsa_account_id
+ecdsa_ss58_encode = _backend.ecdsa_ss58_encode
 decode_hashed_receiving_address = _backend.decode_hashed_receiving_address
 decode_mldsa_receiving_address = _backend.decode_mldsa_receiving_address
 encode_mldsa_receiving_address = _backend.encode_mldsa_receiving_address

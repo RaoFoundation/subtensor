@@ -411,6 +411,21 @@ fn ss58_decode<'py>(py: Python<'py>, ss58_address: &str) -> PyResult<Bound<'py, 
     Ok(PyBytes::new(py, &public_key))
 }
 
+/// Encode a compressed 33-byte secp256k1 public key as an SS58 address
+/// (the account id is `blake2_256(compressed_pubkey)`).
+#[pyfunction]
+#[pyo3(signature = (public_key, ss58_format=DEFAULT_SS58_FORMAT))]
+fn ecdsa_ss58_encode(public_key: &[u8], ss58_format: u16) -> PyResult<String> {
+    keys::ss58_from_ecdsa_public(public_key, ss58_format).map_err(to_py_err)
+}
+
+/// Account id (32 bytes) of a compressed 33-byte secp256k1 public key.
+#[pyfunction]
+fn ecdsa_account_id<'py>(py: Python<'py>, public_key: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
+    let account = keys::account_id_from_ecdsa_public(public_key).map_err(to_py_err)?;
+    Ok(PyBytes::new(py, &account))
+}
+
 /// Encode a raw 32-byte public key as an SS58 address.
 #[pyfunction]
 #[pyo3(signature = (public_key, ss58_format=DEFAULT_SS58_FORMAT))]
@@ -565,6 +580,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode_mldsa_receiving_address, m)?)?;
     m.add_function(wrap_pyfunction!(verify_hashed_authorization, m)?)?;
     m.add_function(wrap_pyfunction!(verify_mldsa_authorization, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdsa_ss58_encode, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdsa_account_id, m)?)?;
     // Backwards-compatible aliases for pre-migration bittensor.sp_core names.
     m.add("verify_signature", m.getattr("verify")?)?;
     m.add("decode_ss58", m.getattr("ss58_decode")?)?;
@@ -582,6 +599,11 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save_password_to_environment, m)?)?;
     m.add("CRYPTO_ED25519", keys::CRYPTO_ED25519)?;
     m.add("CRYPTO_SR25519", keys::CRYPTO_SR25519)?;
+    m.add("CRYPTO_ECDSA", keys::CRYPTO_ECDSA)?;
+    m.add("ECDSA_PUBLIC_KEY_LEN", keys::ECDSA_PUBLIC_KEY_LEN)?;
+    m.add("ED25519_SIGNATURE_LEN", keys::ED25519_SIGNATURE_LEN)?;
+    m.add("SR25519_SIGNATURE_LEN", keys::SR25519_SIGNATURE_LEN)?;
+    m.add("ECDSA_SIGNATURE_LEN", keys::ECDSA_SIGNATURE_LEN)?;
     m.add("CRYPTO_HASHED", keys::CRYPTO_HASHED)?;
     m.add("CRYPTO_HASHED_ED25519", keys::CRYPTO_HASHED_ED25519)?;
     m.add("CRYPTO_MLDSA65", keys::CRYPTO_MLDSA65)?;
