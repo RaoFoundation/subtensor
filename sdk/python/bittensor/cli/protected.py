@@ -363,26 +363,31 @@ def _validate_reusable_pure(
         )
         raise typer.Exit(2)
 
-    controller_any = [
-        d for d in delegations if d["delegate"] == controller_ss58 and d["proxy_type"] == "Any"
-    ]
-    if not controller_any:
+    any_delays = pa.controller_any_delays(delegations, controller_ss58)
+    if not any_delays:
         app_ctx.output.error(
             f"{controller_ss58} is not an Any proxy of {pure}; refusing to reuse it"
         )
         raise typer.Exit(2)
-    delayed = [d for d in controller_any if int(d["delay"]) > 0]
-    if not delayed:
+    # find_proxy picks the first matching grant; a shorter sibling Any wins even
+    # when a longer delay also exists. Every controller Any must be exactly the
+    # requested delay, and no controller grant may execute earlier.
+    if any(delay != delay_blocks for delay in any_delays):
+        have = ", ".join(str(delay) for delay in any_delays)
         app_ctx.output.error(
-            f"controller's Any proxy on {pure} has delay 0 — that defeats protected-account "
-            "delay. Remove the zero-delay grant and re-run protect with a positive --delay."
+            f"controller Any delays on {pure} are [{have}]; every Any grant must "
+            f"be exactly --delay {delay_blocks} (shorter siblings defeat the window)"
         )
         raise typer.Exit(2)
-    if not any(int(d["delay"]) == delay_blocks for d in delayed):
-        have = ", ".join(str(d["delay"]) for d in delayed)
+
+    earlier = pa.controller_grants_before_delay(
+        delegations, controller_ss58, delay_blocks=delay_blocks
+    )
+    if earlier:
+        detail = ", ".join(f"{d.get('proxy_type')}@{d.get('delay')}" for d in earlier)
         app_ctx.output.error(
-            f"on-chain Any delay ({have}) does not match requested --delay "
-            f"{delay_blocks}; refusing to announce a coldkey swap into a mismatched pure"
+            f"controller holds grants that execute earlier than --delay {delay_blocks} "
+            f"on {pure}: {detail}. Remove them before protect can resume."
         )
         raise typer.Exit(2)
 

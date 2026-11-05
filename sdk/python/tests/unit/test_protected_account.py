@@ -81,6 +81,18 @@ def test_defeating_zero_delay_detection():
         {"delegate": "5Other", "proxy_type": "Transfer", "delay": 0},
     ]
     assert pa.defeating_zero_delay_proxies(delegations, controller) == ["Any"]
+    assert pa.controller_any_delays(delegations, controller) == [10800, 0]
+    earlier = pa.controller_grants_before_delay(delegations, controller, delay_blocks=10800)
+    assert {(d["proxy_type"], d["delay"]) for d in earlier} == {("Any", 0), ("Staking", 0)}
+    # Sibling short Any must not pass a long requested delay.
+    short_and_long = [
+        {"delegate": controller, "proxy_type": "Any", "delay": 1},
+        {"delegate": controller, "proxy_type": "Any", "delay": 10800},
+    ]
+    assert pa.controller_any_delays(short_and_long, controller) == [1, 10800]
+    assert pa.controller_grants_before_delay(short_and_long, controller, delay_blocks=10800) == [
+        {"delegate": controller, "proxy_type": "Any", "delay": 1}
+    ]
 
 
 def test_allow_key_change_blockers():

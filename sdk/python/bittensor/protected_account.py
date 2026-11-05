@@ -372,6 +372,34 @@ def defeating_zero_delay_proxies(
     return hits
 
 
+def controller_grants_before_delay(
+    delegations: list[dict[str, Any]],
+    controller_ss58: str,
+    *,
+    delay_blocks: int,
+) -> list[dict[str, Any]]:
+    """Controller grants whose delay is strictly shorter than ``delay_blocks``.
+
+    ``Proxy.find_proxy`` can select a shorter matching ``Any`` grant even when a
+    longer one also exists, so protect must refuse reuse whenever the controller
+    retains any earlier execution path.
+    """
+    return [
+        row
+        for row in delegations
+        if row.get("delegate") == controller_ss58 and int(row.get("delay") or 0) < int(delay_blocks)
+    ]
+
+
+def controller_any_delays(delegations: list[dict[str, Any]], controller_ss58: str) -> list[int]:
+    """Delays of every ``Any`` grant held by ``controller_ss58`` (stable order)."""
+    return [
+        int(row.get("delay") or 0)
+        for row in delegations
+        if row.get("delegate") == controller_ss58 and row.get("proxy_type") == "Any"
+    ]
+
+
 def controller_holds_allows(record: dict[str, Any], controller_ss58: str) -> bool:
     """True when confirmed/pending allows are granted to the controller itself.
 
