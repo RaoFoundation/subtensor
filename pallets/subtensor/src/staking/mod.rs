@@ -24,3 +24,13 @@ pub mod recycle_alpha;
 pub mod remove_stake;
 pub mod set_children;
 pub mod stake_utils;
+
+/// Release-owner-authorized compatibility policy for additional authorization
+/// work: retain proof accounting without increasing legacy execution prices.
+/// The work still executes. This permits more actual work per block; it is a
+/// capacity decision, not a benchmark or an execution-time bound.
+pub fn legacy_priced_additional_work(
+    weight: frame_support::weights::Weight,
+) -> frame_support::weights::Weight {
+    frame_support::weights::Weight::from_parts(0, weight.proof_size())
+}

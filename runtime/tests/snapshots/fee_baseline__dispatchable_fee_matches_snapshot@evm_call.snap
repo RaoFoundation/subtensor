@@ -3,4 +3,4 @@ source: runtime/tests/fee_baseline.rs
 description: evm_call
 expression: fee
 ---
-48339
+42089

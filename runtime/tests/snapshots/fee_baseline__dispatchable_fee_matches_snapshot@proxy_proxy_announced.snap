@@ -3,4 +3,4 @@ source: runtime/tests/fee_baseline.rs
 description: proxy_proxy_announced
 expression: fee
 ---
-250711
+213211
