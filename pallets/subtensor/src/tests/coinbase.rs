@@ -629,6 +629,152 @@ fn test_update_moving_price_after_time() {
     });
 }
 
+/// No open loans ⇒ `emission_alpha_price` is exactly live AMM spot (byte-identical).
+#[test]
+fn test_emission_price_identical_with_no_loans() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 1, 0);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(2_000_000));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000));
+        SubnetMechanism::<Test>::insert(netuid, 1);
+
+        let spot = <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into());
+        let emission = SubtensorModule::emission_alpha_price(netuid);
+        assert_eq!(emission, spot);
+        // Fast moving price still tracks live spot (unchanged path).
+        SubtensorModule::update_fast_moving_price(netuid);
+        assert_eq!(SubnetFastMovingPrice::<Test>::get(netuid).unwrap(), spot);
+    });
+}
+
+/// Simulated long offsets (held+escrow alpha) undo a live-spot pump for the
+/// emission EMA input; trading/fast EMA still see the pumped spot.
+#[test]
+fn test_emission_price_excludes_long_offsets() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 1, 0);
+        // Pre-loan reserves at price 1.0; after a long the pool is short alpha.
+        let y0 = 1_000_000u64;
+        let x0 = 1_000_000u64;
+        let held_alpha = 50_000u64;
+        let escrow_alpha = 40_000u64;
+        let x_live = x0.saturating_sub(held_alpha).saturating_sub(escrow_alpha);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(y0));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(x_live));
+        SubnetMechanism::<Test>::insert(netuid, 1);
+        set_mock_emission_offsets(netuid, 0, held_alpha, 0, escrow_alpha);
+
+        let spot = <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into());
+        let emission = SubtensorModule::emission_alpha_price(netuid);
+        assert!(
+            spot > emission,
+            "live spot must be pumped vs emission counterfactual ({spot} > {emission})"
+        );
+        // Counterfactual restores x0 ⇒ price ≈ 1.0 under equal weights.
+        assert!((emission.to_num::<f64>() - 1.0).abs() < 1e-6);
+
+        // Moving price EMA tracks emission (not live spot); fast EMA tracks spot.
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(0));
+        SubnetMovingAlpha::<Test>::set(I96F32::from_num(1.0));
+        System::set_block_number(7_200_000);
+        FirstEmissionBlockNumber::<Test>::insert(netuid, 1);
+        SubtensorModule::update_moving_price(netuid);
+        let moving = SubtensorModule::get_moving_alpha_price(netuid).to_num::<f64>();
+        assert!(
+            (moving - 1.0).abs() < 0.05,
+            "moving price must follow emission counterfactual (~1.0), got {moving}"
+        );
+        let fast = SubnetFastMovingPrice::<Test>::get(netuid)
+            .unwrap()
+            .to_num::<f64>();
+        assert!(
+            (fast - spot.to_num::<f64>()).abs() < 1e-9,
+            "fast EMA must still seed at live spot"
+        );
+    });
+}
+
+/// Short TAO offsets are intentionally ignored — emission tracks the dumped live spot.
+#[test]
+fn test_emission_price_includes_short_offsets() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 1, 0);
+        let y0 = 1_000_000u64;
+        let x0 = 1_000_000u64;
+        let held_tao = 50_000u64;
+        let escrow_tao = 40_000u64;
+        let y_live = y0.saturating_sub(held_tao).saturating_sub(escrow_tao);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(y_live));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(x0));
+        SubnetMechanism::<Test>::insert(netuid, 1);
+        // Shorts-only book: alpha offsets zero, TAO offsets non-zero.
+        set_mock_emission_offsets(netuid, held_tao, 0, escrow_tao, 0);
+
+        let spot = <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into());
+        let emission = SubtensorModule::emission_alpha_price(netuid);
+        assert_eq!(
+            emission, spot,
+            "shorts-only book must keep emission == live spot"
+        );
+        assert!(
+            emission.to_num::<f64>() < 1.0,
+            "short must depress emission below the pre-short 1.0"
+        );
+    });
+}
+
+/// Long forced trades set [`LendingSkipTaoFlow`] so dormant flow ignores them;
+/// ordinary stake still records.
+#[test]
+fn test_lending_skip_tao_flow_flag() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        add_network(netuid, 1, 0);
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetMechanism::<Test>::insert(netuid, 1);
+        SubtokenEnabled::<Test>::insert(netuid, true);
+
+        SubnetTaoFlow::<Test>::insert(netuid, 0i64);
+        add_balance_to_coldkey_account(&coldkey, 10_000_000_000u64.into());
+
+        LendingSkipTaoFlow::<Test>::set(true);
+        assert_ok!(SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            1_000_000_000u64.into(),
+            u64::MAX.into(),
+            false,
+        ));
+        assert_eq!(
+            SubnetTaoFlow::<Test>::get(netuid),
+            0,
+            "skip flag must suppress inflow"
+        );
+        LendingSkipTaoFlow::<Test>::kill();
+
+        assert_ok!(SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            1_000_000_000u64.into(),
+            u64::MAX.into(),
+            false,
+        ));
+        assert!(
+            SubnetTaoFlow::<Test>::get(netuid) > 0,
+            "cleared flag must record inflow"
+        );
+    });
+}
+
 // Test basic alpha issuance in coinbase mechanism.
 // This test verifies that:
 // - Alpha issuance is initialized to 0 for new subnets

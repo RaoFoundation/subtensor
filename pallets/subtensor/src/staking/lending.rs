@@ -343,14 +343,19 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         netuid: NetUid,
         tao: TaoBalance,
     ) -> Result<AlphaBalance, DispatchError> {
-        <Self as subtensor_swap_interface::OrderSwapInterface<T::AccountId>>::buy_alpha(
-            custody_cold,
-            custody_hot,
-            netuid,
-            tao,
-            u64::MAX.into(),
-            false,
-        )
+        // Long-only path: exclude from dormant SubnetTaoFlow.
+        LendingSkipTaoFlow::<T>::set(true);
+        let result =
+            <Self as subtensor_swap_interface::OrderSwapInterface<T::AccountId>>::buy_alpha(
+                custody_cold,
+                custody_hot,
+                netuid,
+                tao,
+                u64::MAX.into(),
+                false,
+            );
+        LendingSkipTaoFlow::<T>::kill();
+        result
     }
 
     #[transactional]
@@ -361,21 +366,32 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
         min_tao_out: TaoBalance,
+        exclude_emission_flow: bool,
     ) -> Result<TaoBalance, DispatchError> {
-        // Sell from custody into the pool, then move free TAO onto the escrow coldkey.
-        let tao = <Self as subtensor_swap_interface::OrderSwapInterface<T::AccountId>>::sell_alpha(
-            custody_cold,
-            custody_hot,
-            netuid,
-            alpha,
-            TaoBalance::ZERO,
-            false,
-        )?;
-        ensure!(tao >= min_tao_out, Error::<T>::SlippageTooHigh);
-        if *custody_cold != *escrow_cold && !tao.is_zero() {
-            Self::transfer_tao(custody_cold, escrow_cold, tao)?;
+        if exclude_emission_flow {
+            LendingSkipTaoFlow::<T>::set(true);
         }
-        Ok(tao)
+        // Sell from custody into the pool, then move free TAO onto the escrow coldkey.
+        let result = (|| {
+            let tao =
+                <Self as subtensor_swap_interface::OrderSwapInterface<T::AccountId>>::sell_alpha(
+                    custody_cold,
+                    custody_hot,
+                    netuid,
+                    alpha,
+                    TaoBalance::ZERO,
+                    false,
+                )?;
+            ensure!(tao >= min_tao_out, Error::<T>::SlippageTooHigh);
+            if *custody_cold != *escrow_cold && !tao.is_zero() {
+                Self::transfer_tao(custody_cold, escrow_cold, tao)?;
+            }
+            Ok(tao)
+        })();
+        if exclude_emission_flow {
+            LendingSkipTaoFlow::<T>::kill();
+        }
+        result
     }
 
     fn unlocked_stake(

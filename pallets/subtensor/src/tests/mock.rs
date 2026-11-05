@@ -556,6 +556,13 @@ thread_local! {
     /// (fid:9c45c69e). Cleared in `new_test_ext`.
     static MOCK_LENDING_POSITIONS: RefCell<sp_std::collections::btree_map::BTreeMap<U256, u32>> =
         const { RefCell::new(sp_std::collections::btree_map::BTreeMap::new()) };
+    /// Injected `Lifts` reserve offsets for emission-price tests:
+    /// `(held_tao, held_alpha, escrow_tao, escrow_alpha)`. Cleared in `new_test_ext`.
+    static MOCK_EMISSION_OFFSETS: RefCell<
+        sp_std::collections::btree_map::BTreeMap<NetUid, (u64, u64, u64, u64)>,
+    > = const { RefCell::new(sp_std::collections::btree_map::BTreeMap::new()) };
+    /// Optional hotkey treated as the lending custody hotkey (flow-exclusion tests).
+    static MOCK_CUSTODY_HOTKEY: Cell<Option<U256>> = const { Cell::new(None) };
 }
 
 /// Set how many lending positions `coldkey` reports to coldkey-swap admission.
@@ -567,6 +574,29 @@ pub fn set_mock_lending_positions(coldkey: U256, count: u32) {
 
 pub fn clear_mock_lending_positions() {
     MOCK_LENDING_POSITIONS.with(|m| m.borrow_mut().clear());
+}
+
+/// Inject lending reserve offsets for `emission_alpha_price` / moving-price tests.
+pub fn set_mock_emission_offsets(
+    netuid: NetUid,
+    held_tao: u64,
+    held_alpha: u64,
+    escrow_tao: u64,
+    escrow_alpha: u64,
+) {
+    MOCK_EMISSION_OFFSETS.with(|m| {
+        m.borrow_mut()
+            .insert(netuid, (held_tao, held_alpha, escrow_tao, escrow_alpha));
+    });
+}
+
+pub fn clear_mock_emission_offsets() {
+    MOCK_EMISSION_OFFSETS.with(|m| m.borrow_mut().clear());
+}
+
+/// Mark `hotkey` as the lending custody hotkey (skips `record_tao_inflow/outflow`).
+pub fn set_mock_custody_hotkey(hotkey: Option<U256>) {
+    MOCK_CUSTODY_HOTKEY.with(|c| c.set(hotkey));
 }
 
 /// Test double for `LendingInterface`: injectable position counts, no-op swaps.
@@ -607,8 +637,11 @@ impl pallet_lending::LendingInterface<U256> for MockLending {
     fn is_lending_custody(_: &U256, _: &U256, _: NetUid) -> bool {
         false
     }
-    fn is_custody_hotkey(_: &U256) -> bool {
-        false
+    fn is_custody_hotkey(hotkey: &U256) -> bool {
+        MOCK_CUSTODY_HOTKEY.with(|c| c.get() == Some(*hotkey))
+    }
+    fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64) {
+        MOCK_EMISSION_OFFSETS.with(|m| m.borrow().get(&netuid).copied().unwrap_or((0, 0, 0, 0)))
     }
 }
 
@@ -839,6 +872,8 @@ pub fn init_logs_for_tests() {
 pub fn new_test_ext(block_number: BlockNumber) -> sp_io::TestExternalities {
     init_logs_for_tests();
     clear_mock_lending_positions();
+    clear_mock_emission_offsets();
+    set_mock_custody_hotkey(None);
     let t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();

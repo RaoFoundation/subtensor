@@ -587,6 +587,7 @@ impl LendingPoolInterface<Account> for MockPool {
         netuid: NetUid,
         alpha_in: AlphaBalance,
         min_tao_out: TaoBalance,
+        _exclude_emission_flow: bool,
     ) -> Result<TaoBalance, DispatchError> {
         let t = Self::sell_alpha(
             custody_cold,
@@ -9515,5 +9516,321 @@ fn lending_stats_match_open_and_close_events() {
         assert_eq!(after.closes_short, closed);
         assert_eq!(after.opens_short, opened_count);
         assert_eq!(Lending::lending_stats_global().closes_short, closed);
+    });
+}
+
+/// No-long emission price: live TAO + long alpha restore (Jacob asymmetry).
+fn emission_counterfactual_price() -> U64F64 {
+    let (_held_tao, held_alpha, _escrow_tao, escrow_alpha) =
+        <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
+    // Shorts count fully: do not add held_tao / escrow_tao back.
+    let y = pool_tao();
+    let x = pool_alpha()
+        .saturating_add(held_alpha)
+        .saturating_add(escrow_alpha);
+    let w2 = quote_weight_parts() as u128;
+    let w1 = WEIGHT_ACCURACY.saturating_sub(w2);
+    if x == 0 || w2 == 0 {
+        U64F64::from_num(0)
+    } else {
+        let w1_fixed = U64F64::saturating_from_num(w1);
+        let w2_fixed = U64F64::saturating_from_num(w2);
+        let y_fixed = U64F64::saturating_from_num(y);
+        let x_fixed = U64F64::saturating_from_num(x);
+        w1_fixed
+            .checked_div(w2_fixed)
+            .unwrap_or_else(|| U64F64::from_num(0))
+            .saturating_mul(
+                y_fixed
+                    .checked_div(x_fixed)
+                    .unwrap_or_else(|| U64F64::from_num(0)),
+            )
+    }
+}
+
+fn assert_prices_close(a: U64F64, b: U64F64, label: &str) {
+    let af = a.to_num::<f64>();
+    let bf = b.to_num::<f64>();
+    let denom = af.abs().max(bf.abs()).max(1e-12);
+    let rel = (af - bf).abs() / denom;
+    assert!(
+        rel < 1e-9,
+        "{label}: emission counterfactual {af} vs expected {bf} (rel={rel})"
+    );
+}
+
+#[test]
+fn emission_offsets_zero_with_no_loans() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(
+            <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid()),
+            (0, 0, 0, 0)
+        );
+        // No loans ⇒ emission input == live spot (byte-identical).
+        assert_eq!(emission_counterfactual_price(), MockPool::price());
+    });
+}
+
+#[test]
+fn long_open_held_does_not_change_emission_price() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 1);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        let price_before = MockPool::price();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let spot_after = MockPool::price();
+        assert!(
+            spot_after > price_before,
+            "forced long buy must raise live spot ({spot_after} vs {price_before})"
+        );
+        let (_ht, ha, et, ea) =
+            <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
+        assert!(ha > 0 || ea > 0, "long must leave held and/or escrow alpha");
+        assert_eq!(et, 0, "long has no TAO escrow");
+        assert_prices_close(
+            emission_counterfactual_price(),
+            price_before,
+            "long open emission price",
+        );
+        assert!(Positions::<Test>::contains_key(&owner, netuid()));
+        assert_prices_close(
+            emission_counterfactual_price(),
+            price_before,
+            "long held emission price",
+        );
+    });
+}
+
+#[test]
+fn short_open_held_moves_emission_like_spot() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        let price_before = MockPool::price();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let spot_after = MockPool::price();
+        assert!(
+            spot_after < price_before,
+            "forced short sell must depress live spot ({spot_after} vs {price_before})"
+        );
+        let (ht, ha, et, ea) = <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
+        assert!(ht > 0 || et > 0, "short must leave held and/or escrow TAO");
+        assert_eq!(ea, 0, "short has no alpha escrow");
+        // Asymmetry: no long alpha to restore ⇒ emission tracks live spot,
+        // so the short moves emission exactly like the live trade does.
+        assert_eq!(
+            ha, 0,
+            "short leaves no held alpha (else emission would diverge from spot)"
+        );
+        assert_eq!(emission_counterfactual_price(), spot_after);
+        assert!(emission_counterfactual_price() < price_before);
+        assert!(Positions::<Test>::contains_key(&owner, netuid()));
+    });
+}
+
+#[test]
+fn mixed_long_short_only_long_excluded_from_emission() {
+    new_test_ext().execute_with(|| {
+        let long_owner = account(1);
+        let short_owner = account(3);
+        let hotkey = account(2);
+        mint_tao(&long_owner, 1);
+        mint_tao(&short_owner, 50_000_000_000_000);
+        mint_alpha(&long_owner, &hotkey, netuid(), 80_000_000_000_000);
+        let price_before = MockPool::price();
+
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(long_owner.clone()),
+            netuid(),
+            Side::Long,
+            5_000_000_000_000,
+            Some(hotkey),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let after_long_spot = MockPool::price();
+        let after_long_emis = emission_counterfactual_price();
+        assert!(after_long_spot > price_before);
+        assert_prices_close(after_long_emis, price_before, "long-only emission");
+
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(short_owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let after_both_spot = MockPool::price();
+        let after_both_emis = emission_counterfactual_price();
+        // Short depresses live spot; emission follows that dump on the TAO
+        // side while still restoring the long's alpha — so emission drops
+        // below the no-loan control even though the long is open.
+        assert!(after_both_spot < after_long_spot);
+        assert!(after_both_emis < after_long_emis);
+        assert!(after_both_emis < price_before);
+        // Restoring long alpha lowers the emission price below live spot
+        // (live still has the long's alpha missing from the pool).
+        assert!(after_both_emis < after_both_spot);
+        let (_ht, ha, _et, ea) =
+            <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
+        assert!(ha > 0 || ea > 0, "long legs still in the book");
+    });
+}
+
+#[test]
+fn open_close_round_trip_restores_emission_state() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 1);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        let price_before = MockPool::price();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            5_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let (_ht, ha, _et, ea) =
+            <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
+        assert!(ha > 0 || ea > 0);
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey,
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        assert_eq!(
+            <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid()),
+            (0, 0, 0, 0),
+            "close must clear lift/escrow aggregates"
+        );
+        assert_eq!(emission_counterfactual_price(), MockPool::price());
+        let _ = price_before;
+    });
+}
+
+#[test]
+fn multi_loan_and_forfeit_emission_offsets() {
+    new_test_ext().execute_with(|| {
+        let a = account(1);
+        let b = account(3);
+        let hotkey = account(2);
+        mint_tao(&a, 1);
+        mint_tao(&b, 50_000_000_000_000);
+        mint_alpha(&a, &hotkey, netuid(), 80_000_000_000_000);
+        let price_before = MockPool::price();
+
+        // Long + short on the same pool.
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(a.clone()),
+            netuid(),
+            Side::Long,
+            4_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(b.clone()),
+            netuid(),
+            Side::Short,
+            4_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        assert_eq!(PositionCount::<Test>::get(netuid()), 2);
+        let emis_both = emission_counterfactual_price();
+        // Short still moves emission below the no-loan control; long is stripped.
+        assert!(emis_both < price_before);
+        assert!(emis_both < MockPool::price());
+
+        // Close the short: emission should return to the long-only counterfactual
+        // (≈ price_before), not to live spot.
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(b.clone()),
+            netuid(),
+            account(4),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&b, netuid()).is_none());
+        assert!(Positions::<Test>::contains_key(&a, netuid()));
+        assert_prices_close(
+            emission_counterfactual_price(),
+            price_before,
+            "after short close, long-only emission",
+        );
+        assert!(
+            MockPool::price() > price_before,
+            "live spot still pumped by long"
+        );
+
+        // Forfeit the long via underwater expiry → offsets clear.
+        let position = Positions::<Test>::get(&a, netuid()).unwrap();
+        // Crash the pool so A+C cannot cover P at spot.
+        write(&key(b"test/pool_tao", netuid()), pool_tao() / 20);
+        sync_reference_ema_to_spot();
+        Positions::<Test>::mutate(&a, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = position.expires_at;
+            }
+        });
+        System::set_block_number(position.expires_at);
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter);
+        assert!(
+            !Positions::<Test>::contains_key(&a, netuid()),
+            "long must be cleared by forfeit/expiry"
+        );
+        let (_ht, ha, _et, ea) =
+            <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
+        assert_eq!(ha, 0);
+        assert_eq!(ea, 0);
+        assert_eq!(emission_counterfactual_price(), MockPool::price());
     });
 }

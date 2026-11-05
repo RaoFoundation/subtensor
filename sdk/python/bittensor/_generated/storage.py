@@ -157,6 +157,7 @@ class SubtensorModule:
     AlphaV2MapLastKey = Item('SubtensorModule', 'AlphaV2MapLastKey', 'Option<Vec<u8>>')
     TokenSymbol = Item('SubtensorModule', 'TokenSymbol', 'Vec<u8>')
     SubnetTaoFlow = Item('SubtensorModule', 'SubnetTaoFlow', 'i64')
+    LendingSkipTaoFlow = Item('SubtensorModule', 'LendingSkipTaoFlow', 'bool')
     SubnetEmaTaoFlow = Item('SubtensorModule', 'SubnetEmaTaoFlow', '(u64, FixedI128)')
     NetTaoFlowEnabled = Item('SubtensorModule', 'NetTaoFlowEnabled', 'bool')
     SubnetProtocolFlow = Item('SubtensorModule', 'SubnetProtocolFlow', 'i64')

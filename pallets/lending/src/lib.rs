@@ -243,6 +243,9 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     ) -> DispatchResult;
 
     /// Forced buy: spend custody TAO into the pool, credit alpha to custody stake.
+    ///
+    /// Always excludes the trade from dormant `SubnetTaoFlow` accounting — this
+    /// path is long-only (short buybacks use [`Self::buy_alpha`] and do record).
     fn forced_buy_into_custody(
         custody_cold: &AccountId,
         custody_hot: &AccountId,
@@ -252,6 +255,10 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
 
     /// Forced sell of custody alpha into escrow TAO on `escrow_cold`.
     /// Fails if the realised TAO is below `min_tao_out` (pass zero to disable).
+    ///
+    /// `exclude_emission_flow`: when true (long close / interest / forfeit),
+    /// skip `SubnetTaoFlow` updates; when false (short open), record like a
+    /// normal trade so shorts still move dormant flow-based shares.
     fn forced_sell_into_escrow(
         custody_cold: &AccountId,
         custody_hot: &AccountId,
@@ -259,6 +266,7 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         netuid: NetUid,
         alpha: AlphaBalance,
         min_tao_out: TaoBalance,
+        exclude_emission_flow: bool,
     ) -> Result<TaoBalance, DispatchError>;
 
     /// Unlocked stake available for collateral / raise sale (excludes locks).
@@ -388,6 +396,17 @@ pub trait LendingInterface<AccountId> {
     /// registration-time price was zero).
     fn on_subtoken_enabled(netuid: NetUid) {
         let _ = netuid;
+    }
+    /// O(1) `Lifts` book legs for emission's **no-long** counterfactual price.
+    ///
+    /// Returns `(held_tao, held_alpha, escrow_tao, escrow_alpha)`. Callers that
+    /// build the emission price must use **only** the alpha legs
+    /// (`held_alpha + escrow_alpha` added to `SubnetAlphaIn`) and leave TAO at
+    /// the live reserve so shorts still move emission (Jacob). When both alpha
+    /// legs are zero the emission input is byte-identical to live spot.
+    fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64) {
+        let _ = netuid;
+        (0, 0, 0, 0)
     }
 }
 
@@ -2927,6 +2946,7 @@ pub mod pallet {
                         netuid,
                         sell.into(),
                         0u64.into(),
+                        false,
                     )?;
                     ensure!(e_s.to_u64() >= min_proceeds, Error::<T>::SlippageExceeded);
                     // Hold remaining lift TAO; alpha principal was sold (lift_alpha may exceed
@@ -3342,6 +3362,7 @@ pub mod pallet {
                                 netuid,
                                 position.escrow_alpha.into(),
                                 0u64.into(),
+                                true,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                         }
@@ -3361,6 +3382,7 @@ pub mod pallet {
                                 netuid,
                                 sell.into(),
                                 floor.into(),
+                                true,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             coll_left = coll_left.saturating_sub(sell);
@@ -3709,6 +3731,7 @@ pub mod pallet {
                                 netuid,
                                 slice_a.into(),
                                 0u64.into(),
+                                true,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                         }
@@ -3726,6 +3749,7 @@ pub mod pallet {
                                 netuid,
                                 sell.into(),
                                 floor.into(),
+                                true,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             coll_left = coll_left.saturating_sub(sell);
@@ -4629,6 +4653,7 @@ pub mod pallet {
                                 netuid,
                                 position.escrow_alpha.into(),
                                 0u64.into(),
+                                true,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             sold_alpha = Self::add(sold_alpha, position.escrow_alpha)?;
@@ -4648,6 +4673,7 @@ pub mod pallet {
                                     netuid,
                                     sell.into(),
                                     0u64.into(),
+                                    true,
                                 ) {
                                     Ok(out) => {
                                         raised = Self::add(raised, out.to_u64())?;
@@ -5845,6 +5871,7 @@ pub mod pallet {
                     netuid,
                     slice.into(),
                     min_out.into(),
+                    true,
                 ) {
                     Ok(t) => t,
                     Err(_) => {
@@ -6323,6 +6350,7 @@ pub mod pallet {
                                     netuid,
                                     position.escrow_alpha.into(),
                                     0u64.into(),
+                                    true,
                                 )?;
                                 raised = Self::add(raised, out.to_u64())?;
                             }
@@ -6341,6 +6369,7 @@ pub mod pallet {
                                         netuid,
                                         sell.into(),
                                         0u64.into(),
+                                        true,
                                     )?;
                                     raised = Self::add(raised, out.to_u64())?;
                                     coll_left = coll_left.saturating_sub(sell);
@@ -6470,6 +6499,7 @@ pub mod pallet {
                             netuid,
                             position.escrow_alpha.into(),
                             0u64.into(),
+                            true,
                         )?;
                         raised = Self::add(raised, out.to_u64())?;
                     }
@@ -6486,6 +6516,7 @@ pub mod pallet {
                             netuid,
                             sell.into(),
                             0u64.into(),
+                            true,
                         )?;
                         raised = Self::add(raised, out.to_u64())?;
                         coll_left = coll_left.saturating_sub(sell);
@@ -6547,6 +6578,7 @@ pub mod pallet {
                     netuid,
                     leftover_collateral.into(),
                     0u64.into(),
+                    true,
                 ) {
                     Ok(out) => {
                         refund = refund.saturating_add(out.to_u64());
@@ -7434,6 +7466,15 @@ pub mod pallet {
         }
         fn on_subtoken_enabled(netuid: NetUid) {
             let _ = Self::try_seed_reference(netuid);
+        }
+        fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64) {
+            let book = Lifts::<T>::get(netuid);
+            (
+                book.held_tao,
+                book.held_alpha,
+                book.escrow_tao,
+                book.escrow_alpha,
+            )
         }
     }
 }

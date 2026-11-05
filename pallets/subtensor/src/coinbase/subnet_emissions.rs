@@ -74,12 +74,19 @@ impl<T: Config> Pallet<T> {
             })
             .collect::<BTreeMap<NetUid, U96F32>>()
     }
+    /// Record user TAO inflow for the dormant flow-based share path
+    /// ([`Self::get_shares_flow`]). Long-side lending forced buys set
+    /// [`crate::LendingSkipTaoFlow`] so `stake_into_subnet` skips this; short
+    /// buybacks leave the flag clear and still count.
     pub fn record_tao_inflow(netuid: NetUid, tao: TaoBalance) {
         SubnetTaoFlow::<T>::mutate(netuid, |flow| {
             *flow = flow.saturating_add(u64::from(tao) as i64);
         });
     }
 
+    /// Record user TAO outflow for the dormant flow-based share path.
+    /// Long-side lending sells set [`crate::LendingSkipTaoFlow`]; short opens
+    /// record like normal trades.
     pub fn record_tao_outflow(netuid: NetUid, tao: TaoBalance) {
         SubnetTaoFlow::<T>::mutate(netuid, |flow| {
             *flow = flow.saturating_sub(u64::from(tao) as i64)

@@ -12,7 +12,7 @@ use sp_core::Get;
 use sp_std::{collections::btree_map::BTreeMap, ops::Neg};
 use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance, Token};
-use subtensor_swap_interface::{Order, SwapHandler, SwapResult};
+use subtensor_swap_interface::{K_NEUTRAL_WEIGHT_ACCURACY, Order, SwapHandler, SwapResult};
 
 impl<T: Config> Pallet<T> {
     /// Retrieves the total alpha issuance for a given subnet.
@@ -44,6 +44,52 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Spot price used for subnet emission's moving EMA ([`SubnetMovingPrice`]).
+    ///
+    /// **Asymmetric (Jacob):** only open *longs* are stripped from the emission
+    /// input. Shorts keep moving it — that sell pressure protects the emission
+    /// vector. Uses live TAO (`y* = SubnetTAO`) so short lift + escrow TAO still
+    /// depress price, and restores long alpha only:
+    /// `x* = SubnetAlphaIn + held_alpha + escrow_alpha`.
+    ///
+    /// When there are no longs (`held_alpha == escrow_alpha == 0`) this is
+    /// byte-identical to live AMM spot — covering no-loan subnets and
+    /// shorts-only books. Trading spot and [`SubnetFastMovingPrice`] stay on
+    /// the live AMM either way. Including `held_alpha` (the long lift leg) with
+    /// `escrow_alpha` is required: adding only escrow would leave a residual
+    /// pump from parked lift alpha.
+    pub fn emission_alpha_price(netuid: NetUid) -> U64F64 {
+        let spot = T::SwapInterface::current_alpha_price(netuid.into());
+        let (_held_tao, held_alpha, _escrow_tao, escrow_alpha) =
+            T::Lending::emission_reserve_offsets(netuid);
+        // Long-only fast path: shorts leave alpha offsets at zero, so a
+        // shorts-only book returns live spot unchanged (shorts count fully).
+        if held_alpha == 0 && escrow_alpha == 0 {
+            return spot;
+        }
+
+        let y = u64::from(SubnetTAO::<T>::get(netuid));
+        let x = u64::from(SubnetAlphaIn::<T>::get(netuid));
+        // Do NOT add held_tao / escrow_tao: that would undo shorts.
+        let y_star = y;
+        let x_star = x.saturating_add(held_alpha).saturating_add(escrow_alpha);
+        if x_star == 0 {
+            return U64F64::saturating_from_num(0);
+        }
+
+        // Same formula as Balancer::calculate_price: p = (w_base/w_quote)·(y/x).
+        let w_quote = T::SwapInterface::balancer_quote_weight(netuid.into());
+        let w_base = K_NEUTRAL_WEIGHT_ACCURACY.saturating_sub(w_quote);
+        if w_quote == 0 {
+            return U64F64::saturating_from_num(0);
+        }
+        let w1 = U64F64::saturating_from_num(w_base);
+        let w2 = U64F64::saturating_from_num(w_quote);
+        let y_fixed = U64F64::saturating_from_num(y_star);
+        let x_fixed = U64F64::saturating_from_num(x_star);
+        w1.safe_div(w2).saturating_mul(y_fixed.safe_div(x_fixed))
+    }
+
     pub fn update_moving_price(netuid: NetUid) {
         let blocks_since_start_call = U64F64::saturating_from_num({
             // We expect FirstEmissionBlockNumber to be set earlier, and we take the block when
@@ -67,9 +113,10 @@ impl<T: Config> Pallet<T> {
         // Because alpha = b / (b + h), where b and h > 0, alpha < 1, so 1 - alpha > 0.
         // We can use unsigned type here: U96F32
         let one_minus_alpha: U64F64 = U64F64::saturating_from_num(1.0).saturating_sub(alpha);
+        // Emission EMA tracks the no-long counterfactual (see `emission_alpha_price`):
+        // longs cannot pump emission share; shorts still can dump it.
         let current_price: U64F64 = alpha.saturating_mul(U64F64::saturating_from_num(
-            T::SwapInterface::current_alpha_price(netuid.into())
-                .min(U64F64::saturating_from_num(1.0)),
+            Self::emission_alpha_price(netuid).min(U64F64::saturating_from_num(1.0)),
         ));
         let current_moving: U64F64 = one_minus_alpha.saturating_mul(U64F64::saturating_from_num(
             Self::get_moving_alpha_price(netuid),
@@ -1245,13 +1292,17 @@ impl<T: Config> Pallet<T> {
 
         Self::maybe_remove_staking_hotkey(hotkey, coldkey);
 
-        // Record TAO outflow
-        Self::record_tao_outflow(
-            netuid,
-            swap_result
-                .amount_paid_out
-                .saturating_add(fee_outflow.into()),
-        );
+        // Record TAO outflow for flow-based shares (dormant today). Long-side
+        // lending sells set [`LendingSkipTaoFlow`] so they stay excluded; short
+        // opens / buybacks leave the flag clear and count like normal trades.
+        if !LendingSkipTaoFlow::<T>::get() {
+            Self::record_tao_outflow(
+                netuid,
+                swap_result
+                    .amount_paid_out
+                    .saturating_add(fee_outflow.into()),
+            );
+        }
 
         // Cleanup locks if needed
         Self::cleanup_lock_if_zero(coldkey, netuid);
@@ -1353,8 +1404,11 @@ impl<T: Config> Pallet<T> {
             Self::transfer_tao_from_subnet(netuid, coldkey, refund_tao)?;
         }
 
-        // Record TAO inflow
-        Self::record_tao_inflow(netuid, swap_result.amount_paid_in.into());
+        // Record TAO inflow for flow-based shares (dormant today). Long opens
+        // set [`LendingSkipTaoFlow`]; short buybacks leave it clear.
+        if !LendingSkipTaoFlow::<T>::get() {
+            Self::record_tao_inflow(netuid, swap_result.amount_paid_in.into());
+        }
 
         // Cleanup locks if needed
         Self::cleanup_lock_if_zero(coldkey, netuid);
