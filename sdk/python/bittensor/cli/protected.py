@@ -339,20 +339,20 @@ def _validate_reusable_pure(
         )
         raise typer.Exit(2)
 
-    # Any other account with a zero-delay transfer-capable grant can drain
-    # immediately after the coldkey swap lands.
+    # Any other account with a transfer/proxy-capable grant (even delayed) can
+    # spend after its own delay; the owner cannot cancel those announcements.
     others = [
         d
         for d in delegations
-        if d["delegate"] != controller_ss58
-        and int(d["delay"] or 0) == 0
-        and d["proxy_type"] in pa.DEFEATING_ZERO_DELAY_TYPES
+        if d["delegate"] != controller_ss58 and d["proxy_type"] in pa.DEFEATING_ZERO_DELAY_TYPES
     ]
     if others:
-        detail = ", ".join(f"{d['delegate']} ({d['proxy_type']})" for d in others)
+        detail = ", ".join(
+            f"{d['delegate']} ({d['proxy_type']}, delay {d['delay']})" for d in others
+        )
         app_ctx.output.error(
-            f"{pure} has other zero-delay transfer/proxy-capable grants: {detail}. "
-            "Refuse to move funds onto an account with an immediate spending path."
+            f"{pure} has other transfer/proxy-capable grants: {detail}. "
+            "Refuse to move funds onto an account with a competing spending path."
         )
         raise typer.Exit(2)
 
@@ -728,8 +728,13 @@ def _protect_update(
 
 
 def _announce_as_protected(
-    app_ctx: AppContext, record: dict[str, Any], intent, *, category: str
-) -> None:
+    app_ctx: AppContext,
+    record: dict[str, Any],
+    intent,
+    *,
+    category: str,
+    row_extra: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Any]]:
     """Announce ``intent`` to run as the protected account (delayed Any path)."""
     from .prompt import confirm_wallet
 
@@ -756,7 +761,7 @@ def _announce_as_protected(
         summary=f"announce {category}",
     )
     if result is None:
-        return
+        return None
     if not result.success:
         raise typer.Exit(1)
     announced_at = block
@@ -778,7 +783,12 @@ def _announce_as_protected(
         force_proxy_type="Any",
         summary=intent.summary(),
     )
+    if row_extra:
+        updated = ann.update_announcement(record["controller_wallet"], int(row["index"]), row_extra)
+        if updated is not None:
+            row = updated
     print_queued(app_ctx, record=record, row=row, current_block=announced_at)
+    return row
 
 
 def run_show(app_ctx: AppContext, *, index: Optional[int]) -> None:
@@ -1042,24 +1052,71 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
                         f"not pending {pending_delay}; leaving local delay unchanged[/dim]"
                     )
         if record is not None and row.get("category") == "rotate-controller":
+            # Prefer destination committed on THIS announcement row — not the
+            # record's latest pending_rotate (a later rotate would otherwise
+            # rebind to the wrong controller after executing an earlier one).
             pending = record.get("pending_rotate") or {}
-            to_name = pending.get("to_wallet")
-            to_ss58 = pending.get("to_ss58")
-            if to_name:
-                moved = pa.move_protected_controller(
-                    row["controller_wallet"],
-                    to_name,
-                    controller_ss58=to_ss58,
-                )
-                if moved is not None:
-                    moved.pop("pending_rotate", None)
-                    pa.upsert_protected(moved)
-                    ann.move_wallet_announcements(row["controller_wallet"], to_name)
-                    app_ctx.output.message(
-                        f"local protected-account record moved: "
-                        f"{row['controller_wallet']} → {to_name}"
-                        + (f" ({to_ss58})" if to_ss58 else "")
+            to_name = row.get("rotate_to_wallet") or pending.get("to_wallet")
+            to_ss58 = row.get("rotate_to_ss58") or pending.get("to_ss58")
+            if to_name and to_ss58:
+                if not _rotation_complete_on_chain(
+                    app_ctx,
+                    record,
+                    new_controller_ss58=to_ss58,
+                    old_controller_ss58=row.get("delegate_ss58") or record.get("controller_ss58"),
+                ):
+                    app_ctx.output.error(
+                        f"rotate announcement #{row['index']} executed but on-chain "
+                        f"grants do not show {to_ss58} as the sole delayed Any "
+                        "controller; leaving local binding unchanged"
                     )
+                else:
+                    moved = pa.move_protected_controller(
+                        row["controller_wallet"],
+                        to_name,
+                        controller_ss58=to_ss58,
+                    )
+                    if moved is not None:
+                        # Drop pending_rotate only when it matches this row.
+                        pending_now = moved.get("pending_rotate") or {}
+                        if (
+                            pending_now.get("to_ss58") == to_ss58
+                            or pending_now.get("to_wallet") == to_name
+                        ):
+                            moved.pop("pending_rotate", None)
+                        pa.upsert_protected(moved)
+                        ann.move_wallet_announcements(row["controller_wallet"], to_name)
+                        app_ctx.output.message(
+                            f"local protected-account record moved: "
+                            f"{row['controller_wallet']} → {to_name} ({to_ss58})"
+                        )
+
+
+def _rotation_complete_on_chain(
+    app_ctx: AppContext,
+    record: dict[str, Any],
+    *,
+    new_controller_ss58: str,
+    old_controller_ss58: Optional[str],
+) -> bool:
+    """True when the protected pure's delayed Any controller is the new address."""
+    data = app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=record["protected_ss58"]))
+    new_ok = any(
+        d["delegate"] == new_controller_ss58
+        and d["proxy_type"] == "Any"
+        and int(d["delay"] or 0) > 0
+        for d in data["proxies"]
+    )
+    if not new_ok:
+        return False
+    if old_controller_ss58 and old_controller_ss58 != new_controller_ss58:
+        old_still = any(
+            d["delegate"] == old_controller_ss58 and d["proxy_type"] == "Any"
+            for d in data["proxies"]
+        )
+        if old_still:
+            return False
+    return True
 
 
 def run_rotate(app_ctx: AppContext, *, to_wallet: str) -> None:
@@ -1089,8 +1146,9 @@ def run_rotate(app_ctx: AppContext, *, to_wallet: str) -> None:
         record,
         Batch(intents=children),
         category="rotate-controller",
+        row_extra={"rotate_to_wallet": to_name, "rotate_to_ss58": new_ss58},
     )
-    # Stash the intended rebind; applied after the user executes the announcement.
+    # Stash the intended rebind; applied after the matching announcement executes.
     record = {
         **record,
         "pending_rotate": {"to_wallet": to_name, "to_ss58": new_ss58},
@@ -1112,10 +1170,26 @@ def run_rotate_finalize(app_ctx: AppContext, *, to_wallet: str) -> None:
         raise typer.Exit(1)
     pending = record.get("pending_rotate") or {}
     to_name = pending.get("to_wallet") or to_wallet
-    moved = pa.move_protected_controller(wallet_name, to_name)
+    to_ss58 = pending.get("to_ss58") or app_ctx.resolve_address("coldkey_ss58", to_wallet)
+    old_ss58 = record.get("controller_ss58")
+    if not _rotation_complete_on_chain(
+        app_ctx,
+        record,
+        new_controller_ss58=to_ss58,
+        old_controller_ss58=old_ss58,
+    ):
+        app_ctx.output.error(
+            f"on-chain rotation to {to_ss58} is not complete yet "
+            "(new delayed Any missing, or old controller grant still present); "
+            "execute the rotate announcement first, then --finalize"
+        )
+        raise typer.Exit(2)
+    moved = pa.move_protected_controller(wallet_name, to_name, controller_ss58=to_ss58)
     if moved is None:
         raise typer.Exit(1)
     moved.pop("pending_rotate", None)
     pa.upsert_protected(moved)
     ann.move_wallet_announcements(wallet_name, to_name)
-    app_ctx.output.message(f"local protected-account record moved: {wallet_name} → {to_name}")
+    app_ctx.output.message(
+        f"local protected-account record moved: {wallet_name} → {to_name} ({to_ss58})"
+    )
