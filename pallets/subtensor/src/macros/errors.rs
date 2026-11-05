@@ -465,8 +465,6 @@ mod errors {
         ColdkeySwapDestinationReserved,
         /// No live coldkey-swap destination reservation exists for this account.
         ColdkeySwapDestinationReservationNotFound,
-        /// Third-party stake onto the lending custody hotkey is rejected (§14).
-        CustodyHotkey,
         /// An ownership change would weaken a protected account's authorization.
         HotkeyOwnerPolicyViolation,
         /// Minting gamma needs a TAO/USD feed at most 300 blocks old.
@@ -492,5 +490,8 @@ mod errors {
         /// `set_subnet_emission_weights`: burn (slot 0) and recycle (slot 1) together may be
         /// at most 33% of emission.
         BurnRecycleEmissionAboveMaximum,
+        /// Third-party stake onto the lending custody hotkey is rejected (§14).
+        /// Appended after gamma errors so Release 488 indices stay stable.
+        CustodyHotkey,
     }
 }

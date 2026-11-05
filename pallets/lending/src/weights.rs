@@ -11,6 +11,11 @@
 //! reads/writes removed from close / repay / settle / forfeit proofs. Numerics
 //! still need a CI reference re-measure on those extrinsics (do not invent
 //! local weight values here).
+//!
+//! NOTE (2026-11-05 Skeptic fid:e405959d): `collect` now delegates to the
+//! measured `settle` envelope because interest forfeiture buybacks through
+//! the AMM; the last CI `collect` measurement is pre-buyback and under-charges.
+//! Re-measure `collect` on reference hardware when benchmarks next run.
 
 // Executed Command:
 // /workspace/target/production/node-subtensor
@@ -984,13 +989,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `Lending::NextExpiryRetry` (r:0 w:1)
 	/// Proof: `Lending::NextExpiryRetry` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	fn collect() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `2404`
-		//  Estimated: `11306`
-		// Minimum execution time: 243_670_000 picoseconds.
-		Weight::from_parts(246_820_000, 11306)
-			.saturating_add(T::DbWeight::get().reads(36_u64))
-			.saturating_add(T::DbWeight::get().writes(31_u64))
+		// Skeptic fid:e405959d — `charge_interest` → `forfeit` now runs AMM
+		// buyback / quote / swap work (same class as `settle`). The last CI
+		// measurement of `collect` still reflects the pre-buyback forfeit path
+		// (~247ms / 36r/31w) and under-charges. Until a reference re-measure
+		// lands, charge the measured `settle` envelope so each idle position
+		// covers the reachable forfeiture branches. Do not invent local
+		// numerics here.
+		Self::settle()
 	}
 	/// Storage: `Lending::LiftParamsStore` (r:1 w:0)
 	/// Proof: `Lending::LiftParamsStore` (`max_values`: Some(1), `max_size`: Some(68), added: 563, mode: `MaxEncodedLen`)
@@ -2072,13 +2078,10 @@ impl WeightInfo for () {
 	/// Storage: `Lending::NextExpiryRetry` (r:0 w:1)
 	/// Proof: `Lending::NextExpiryRetry` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	fn collect() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `2404`
-		//  Estimated: `11306`
-		// Minimum execution time: 243_670_000 picoseconds.
-		Weight::from_parts(246_820_000, 11306)
-			.saturating_add(RocksDbWeight::get().reads(36_u64))
-			.saturating_add(RocksDbWeight::get().writes(31_u64))
+		// Skeptic fid:e405959d — see `SubstrateWeight::collect`. Charge the
+		// measured `settle` envelope until a CI reference re-measure of the
+		// buyback-inclusive forfeit path lands.
+		Self::settle()
 	}
 	/// Storage: `Lending::LiftParamsStore` (r:1 w:0)
 	/// Proof: `Lending::LiftParamsStore` (`max_values`: Some(1), `max_size`: Some(68), added: 563, mode: `MaxEncodedLen`)
