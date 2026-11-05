@@ -1119,6 +1119,26 @@ def multisig_executed(events: list) -> bool:
     return "MultisigExecuted" in _multisig_event_ids(events)
 
 
+def multisig_approval_only(events: list) -> bool:
+    """True when a multisig approval landed without executing the inner call."""
+    ids = _multisig_event_ids(events)
+    if "MultisigExecuted" in ids:
+        return False
+    return bool(ids & {"NewMultisig", "MultisigApproval"})
+
+
+def announcement_cancel_completed(events: list, *, still_on_chain: bool) -> bool:
+    """Whether a cancel submission actually removed the Proxy announcement.
+
+    A multisig short of threshold returns extrinsic success with only
+    ``NewMultisig`` / ``MultisigApproval``. The announcement stays executable
+    until later approvals reach ``MultisigExecuted`` and the commitment is gone.
+    """
+    if multisig_approval_only(events):
+        return False
+    return not still_on_chain
+
+
 async def await_pending_visible(
     client,
     signatories: list,

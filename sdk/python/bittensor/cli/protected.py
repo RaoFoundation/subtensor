@@ -809,12 +809,7 @@ def _cancel_pending_allow_grants(
     ]
     if not rows:
         return True
-    for row in rows:
-        _cancel_one(app_ctx, row)
-        still = ann.get_by_index(record["controller_wallet"], int(row["index"]))
-        if still is not None and still.get("status") == "pending":
-            return False
-    return True
+    return all(_cancel_one(app_ctx, row) for row in rows)
 
 
 def _announce_as_protected(
@@ -1032,18 +1027,52 @@ def run_cancel(app_ctx: AppContext, *, index: Optional[int], yes: bool) -> None:
         _cancel_one(app_ctx, row)
 
 
-def _cancel_one(app_ctx: AppContext, row: dict[str, Any]) -> None:
+def _announcement_still_on_chain(app_ctx: AppContext, row: dict[str, Any]) -> bool:
+    """True when the row's call hash is still listed under the announcing delegate."""
+    controller = row.get("delegate_ss58")
+    call_hash = str(row.get("call_hash") or "").lower()
+    real = row.get("real_ss58")
+    if not controller or not call_hash:
+        return True
+    data = app_ctx.run(lambda c: c.read("proxy_announcements", delegate_ss58=controller))
+    for item in data.get("announcements") or []:
+        if str(item.get("call_hash") or "").lower() != call_hash:
+            continue
+        if real and str(item.get("real") or "") != str(real):
+            continue
+        return True
+    return False
+
+
+def _cancel_one(app_ctx: AppContext, row: dict[str, Any]) -> bool:
     # Multisig controllers Multisig-wrap this call (remove_announcement is NOT a
     # fee-payer-only exception). Single coldkeys submit as themselves.
+    from . import multisig_helpers as ms_helpers
+
     result = app_ctx.submit(
         RemoveProxyAnnouncement(real_ss58=row["real_ss58"], call_hash=row["call_hash"]),
         proxy_for="self",
         summary=f"cancel announcement #{row['index']}",
     )
-    if result is not None and result.success:
-        if not row.get("plaintext_missing"):
-            ann.mark_status(row["controller_wallet"], int(row["index"]), "cancelled")
-        app_ctx.output.message(f"cancelled #{row['index']}")
+    if result is None or not result.success:
+        return False
+    still = _announcement_still_on_chain(app_ctx, row)
+    if not ms_helpers.announcement_cancel_completed(result.events or [], still_on_chain=still):
+        if ms_helpers.multisig_approval_only(result.events or []):
+            app_ctx.output.message(
+                f"#{row['index']}: cancel approved but awaiting further multisig "
+                "signatures — announcement remains pending/executable"
+            )
+        else:
+            app_ctx.output.message(
+                f"#{row['index']}: cancel submitted but announcement still on chain; "
+                "leaving local plaintext pending"
+            )
+        return False
+    if not row.get("plaintext_missing"):
+        ann.mark_status(row["controller_wallet"], int(row["index"]), "cancelled")
+    app_ctx.output.message(f"cancelled #{row['index']}")
+    return True
 
 
 def run_execute_protected(app_ctx: AppContext, *, index: Optional[int]) -> None:
