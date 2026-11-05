@@ -31,7 +31,6 @@ import typer
 
 from ..intents.proxy import ProxyTypeChoice
 from ..result import BittensorError
-from ..settings import guide_docs_url
 from .logs import setup_logging
 from .multisig_helpers import SIGNATORY_BACKENDS
 from .registration import parse_registration_deposit

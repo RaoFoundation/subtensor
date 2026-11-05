@@ -44,7 +44,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1477-L1506), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L1509-L1538) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1496-L1525), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L1528-L1557) |
 
 ## Parameters
 
@@ -52,13 +52,13 @@ On fork / clone chains without a live MEV decryptor, submit with
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet to borrow against. |
 | `side` | string | yes | short: lock TAO; long: lock subnet alpha. |
-| `collateral` | number \| `"all"` | yes | Additional collateral to lock: TAO for a short, alpha for a long. |
+| `collateral` | number | yes | Additional collateral to lock: TAO for a short, alpha for a long. |
 | `hotkey_ss58` | string | no | Long only: hotkey whose free alpha supplies collateral. Omit for shorts (TAO-only; no hotkey on open). |
-| `min_borrow` | number \| `"all"` | no | Minimum additional principal: alpha for a short, TAO for a long. |
-| `min_proceeds` | number \| `"all"` | no | Minimum additional short opening value in TAO; unused for longs. |
-| `min_escrow_alpha` | number \| `"all"` | no | Minimum escrowed alpha after a long's forced buy; unused for shorts. |
+| `min_borrow` | number | no | Minimum additional principal: alpha for a short, TAO for a long. |
+| `min_proceeds` | number | no | Minimum additional short opening value in TAO; unused for longs. |
+| `min_escrow_alpha` | number | no | Minimum escrowed alpha after a long's forced buy; unused for shorts. |
 | `valid_until` | integer | no | Latest block number that may include this open. |
-| `amount` | number \| `"all"` | no | Exact additional amount to borrow: alpha for a short, TAO for a long. |
+| `amount` | number | no | Exact additional amount to borrow: alpha for a short, TAO for a long. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -72,11 +72,11 @@ submitting), then submit:
 btcli tx open-loan \
   --netuid <int> \
   --side <value> \
-  --collateral <amount|all> --dry-run
+  --collateral <amount> --dry-run
 btcli tx open-loan \
   --netuid <int> \
   --side <value> \
-  --collateral <amount|all> -w my_coldkey
+  --collateral <amount> -w my_coldkey
 ```
 
 ## Python
@@ -105,7 +105,7 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open` — [`pallets/lending/src/lib.rs#L1482`](/code/pallets/lending/src/lib.rs#L1477-L1506):
+`Lending.open` — [`pallets/lending/src/lib.rs#L1501`](/code/pallets/lending/src/lib.rs#L1496-L1525):
 
 ```rust
 #[pallet::call_index(0)]
@@ -140,7 +140,7 @@ pub fn open(
 }
 ```
 
-`Lending.open_exact` — [`pallets/lending/src/lib.rs#L1511`](/code/pallets/lending/src/lib.rs#L1509-L1538):
+`Lending.open_exact` — [`pallets/lending/src/lib.rs#L1530`](/code/pallets/lending/src/lib.rs#L1528-L1557):
 
 ```rust
 #[pallet::call_index(1)]

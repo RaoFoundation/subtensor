@@ -1,10 +1,6 @@
 """Lending failures explain the position, quote or inventory to inspect."""
 
 DESCRIPTIONS: dict[str, str] = {
-    "Disabled": (
-        "New borrowing, including position increases, is disabled. Governance can enable "
-        "borrowing; closes and repays remain available."
-    ),
     "SubnetUnavailable": (
         "The subnet is absent, is root, or is dissolving. Check its lifecycle before borrowing "
         "or closing."

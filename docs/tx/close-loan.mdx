@@ -29,15 +29,15 @@ On fork / clone chains without a live MEV decryptor, submit with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close`](/code/pallets/lending/src/lib.rs#L1545-L1567) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close`](/code/pallets/lending/src/lib.rs#L1564-L1586) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet of the position to repay. |
-| `max_payment` | number \| `"all"` | yes | Maximum repayment: TAO, or alpha for a wallet-repaid short. |
-| `min_refund` | number \| `"all"` | no | Minimum returned collateral: TAO for shorts, alpha for longs. |
+| `max_payment` | number | yes | Maximum repayment: TAO, or alpha for a wallet-repaid short. |
+| `min_refund` | number | no | Minimum returned collateral: TAO for shorts, alpha for longs. |
 | `hotkey_ss58` | string | no | Hotkey for alpha repay (short wallet path) or alpha refund (long close). Required whenever alpha moves; short escrow buyback (from-escrow) may omit it. |
 | `repay_from_wallet` | boolean | no | False (default): buy short alpha back from escrow / sell long escrow. True: repay short alpha from hotkey stake, or pay long TAO from wallet. |
 | `valid_until` | integer | no | Latest block number that may include this close. |
@@ -53,10 +53,10 @@ submitting), then submit:
 ```bash
 btcli tx close-loan \
   --netuid <int> \
-  --max-payment <amount|all> --dry-run
+  --max-payment <amount> --dry-run
 btcli tx close-loan \
   --netuid <int> \
-  --max-payment <amount|all> -w my_coldkey
+  --max-payment <amount> -w my_coldkey
 ```
 
 ## Python
@@ -85,7 +85,7 @@ result = sub.execute_tool("close_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.close` — [`pallets/lending/src/lib.rs#L1548`](/code/pallets/lending/src/lib.rs#L1545-L1567):
+`Lending.close` — [`pallets/lending/src/lib.rs#L1567`](/code/pallets/lending/src/lib.rs#L1564-L1586):
 
 ```rust
 #[pallet::call_index(2)]
