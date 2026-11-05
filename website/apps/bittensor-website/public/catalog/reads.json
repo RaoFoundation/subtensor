@@ -1682,6 +1682,32 @@
     ]
   },
   {
+    "name": "proxy_announcements",
+    "summary": "Pending delayed-proxy announcements made by a delegate, plus reserved deposit.",
+    "description": "Pending delayed-proxy announcements made by a delegate, plus reserved deposit.",
+    "params": {
+      "delegate_ss58": "string"
+    },
+    "param_docs": {
+      "delegate_ss58": "Delegate whose pending Proxy.announce entries to list (announcements are keyed by the announcing delegate)."
+    },
+    "category": "Accounts & keys",
+    "docs_url": "/docs/query/proxy-announcements",
+    "markdown_url": "/llms.mdx/docs/query/proxy-announcements/content.md",
+    "python": "sub.balances.proxy_announcements(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Proxy",
+        "name": "Announcements",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 996,
+        "url": "/code/pallets/proxy/src/lib.rs#L996",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "quote_mint_gamma",
     "summary": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.",
     "description": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.\n\nRaises the chain error that stops the mint, such as `TaoUsdPriceUnavailable`\nwhen the TAO/USD price is missing or stale, or `AmountTooLow` below 0.1 gamma.",

@@ -375,14 +375,14 @@ _MULTISIG_OPS = frozenset(
     }
 )
 
-# Delayed-proxy reveal / cancel only need one funded signer to pay fees. The
-# on-chain delegate is already recorded on the announcement (often a multisig
-# address); wrapping these in Multisig.* would wrongly demand threshold
-# approvals for a fee payment.
+# Delayed-proxy *execution* (`proxy_announced`) only needs one funded signer
+# to pay fees — the on-chain delegate is already recorded on the announcement
+# (often a multisig address). Cancellation (`remove_announcement`) is signed
+# as the announcement owner, so a multisig controller must Multisig-wrap it
+# (threshold approvals); do not put it in this set.
 _PROXY_ANNOUNCEMENT_FEE_PAYER_OPS = frozenset(
     {
         "execute_proxy_announced",
-        "remove_proxy_announcement",
     }
 )
 
@@ -789,8 +789,7 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
         app_ctx.wallet_given = True
         app_ctx.output.message(
             f"[dim]paying announcement fees as member {member_name} "
-            "(no multisig wrap — proxy_announced / remove_announcement "
-            "only need one signer)[/dim]"
+            "(no multisig wrap — proxy_announced only needs one fee payer)[/dim]"
         )
         return intent
 

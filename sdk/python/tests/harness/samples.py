@@ -345,6 +345,7 @@ READ_SAMPLES: dict[str, dict] = {
     "parents": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
     "pending_children": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
     "proxies": {"coldkey_ss58": ALICE},
+    "proxy_announcements": {"delegate_ss58": ALICE},
     "quote_stake": {"netuid": 1, "amount_tao": 1.0},
     "quote_unstake": {"netuid": 1, "amount_alpha": 1.0},
     "reveal_period": {"netuid": 1},

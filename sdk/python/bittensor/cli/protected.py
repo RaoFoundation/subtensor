@@ -192,6 +192,192 @@ def warn_defeating_proxies(app_ctx: AppContext, record: dict[str, Any]) -> None:
         )
 
 
+def _validate_reusable_pure(
+    app_ctx: AppContext,
+    *,
+    book: dict[str, Any],
+    controller_ss58: str,
+    delay_blocks: int,
+) -> None:
+    """Reject a proxy-book resume target that is not a delayed-controller pure.
+
+    A book entry alone does not prove the address is keyless or that this
+    wallet is its sole delayed Any controller. Validate provenance fields and
+    live on-chain proxy grants before announcing a coldkey swap into it.
+    """
+    missing = [
+        key
+        for key in ("address", "spawner", "height", "ext_index", "proxy_type")
+        if book.get(key) in (None, "")
+    ]
+    if missing:
+        app_ctx.output.error(
+            "proxy-book entry is missing pure-creation provenance "
+            f"({', '.join(missing)}); refusing to reuse it as a protected account",
+            help="create a fresh pure with `btcli proxy protect`, or `btcli proxy book "
+            "add` with spawner/height/ext-index from PureCreated",
+        )
+        raise typer.Exit(2)
+    if str(book.get("proxy_type")) != "Any":
+        app_ctx.output.error(
+            f"proxy-book entry has proxy_type {book.get('proxy_type')!r}; "
+            "protected accounts require an Any controller relationship",
+        )
+        raise typer.Exit(2)
+
+    pure = str(book["address"])
+    data = app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=pure))
+    delegations = data["proxies"]
+    if not delegations:
+        app_ctx.output.error(
+            f"{pure} has no on-chain proxy delegations — not a usable protected account"
+        )
+        raise typer.Exit(2)
+
+    controller_any = [
+        d for d in delegations if d["delegate"] == controller_ss58 and d["proxy_type"] == "Any"
+    ]
+    if not controller_any:
+        app_ctx.output.error(
+            f"{controller_ss58} is not an Any proxy of {pure}; refusing to reuse it"
+        )
+        raise typer.Exit(2)
+    delayed = [d for d in controller_any if int(d["delay"]) > 0]
+    if not delayed:
+        app_ctx.output.error(
+            f"controller's Any proxy on {pure} has delay 0 — that defeats protected-account "
+            "delay. Remove the zero-delay grant and re-run protect with a positive --delay."
+        )
+        raise typer.Exit(2)
+    if not any(int(d["delay"]) == delay_blocks for d in delayed):
+        have = ", ".join(str(d["delay"]) for d in delayed)
+        app_ctx.output.error(
+            f"on-chain Any delay ({have}) does not match requested --delay "
+            f"{delay_blocks}; refusing to announce a coldkey swap into a mismatched pure"
+        )
+        raise typer.Exit(2)
+
+    hits = pa.defeating_zero_delay_proxies(delegations, controller_ss58)
+    if hits:
+        types = ", ".join(hits)
+        app_ctx.output.error(
+            f"controller also holds zero-delay {types} on {pure}, which defeats the "
+            "announcement delay; remove those grants before protect can resume"
+        )
+        raise typer.Exit(2)
+
+    # Any other account with a zero-delay transfer-capable grant can drain
+    # immediately after the coldkey swap lands.
+    others = [
+        d
+        for d in delegations
+        if d["delegate"] != controller_ss58
+        and int(d["delay"] or 0) == 0
+        and d["proxy_type"] in pa.DEFEATING_ZERO_DELAY_TYPES
+    ]
+    if others:
+        detail = ", ".join(f"{d['delegate']} ({d['proxy_type']})" for d in others)
+        app_ctx.output.error(
+            f"{pure} has other zero-delay transfer/proxy-capable grants: {detail}. "
+            "Refuse to move funds onto an account with an immediate spending path."
+        )
+        raise typer.Exit(2)
+
+
+def _on_chain_announcements(
+    app_ctx: AppContext, *, controller_ss58: str, protected_ss58: str, delay_blocks: int
+) -> list[dict[str, Any]]:
+    """Pending Proxy.Announcements by the controller targeting the protected pure."""
+
+    async def _load(client):
+        data = await client.read("proxy_announcements", delegate_ss58=controller_ss58)
+        return data["announcements"]
+
+    rows = []
+    for item in app_ctx.run(_load):
+        if item["real"] != protected_ss58:
+            continue
+        height = int(item["height"])
+        rows.append(
+            {
+                "real_ss58": item["real"],
+                "call_hash": item["call_hash"],
+                "announced_at_block": height,
+                "delay_blocks": delay_blocks,
+                "executable_at_block": height + delay_blocks,
+                "delegate_ss58": controller_ss58,
+            }
+        )
+    return rows
+
+
+def _reconcile_pending(app_ctx: AppContext, record: dict[str, Any]) -> list[dict[str, Any]]:
+    """Merge local plaintext rows with live on-chain announcements.
+
+    On-chain entries without local plaintext stay visible and cancellable
+    (category ``unknown``); local-only rows that vanished on chain are dropped
+    from the active list (marked cancelled if they were still pending).
+    """
+    wallet_name = record["controller_wallet"]
+    controller = record.get("controller_ss58") or _controller_ss58(app_ctx)
+    delay = int(record.get("delay_blocks") or 0)
+    on_chain = _on_chain_announcements(
+        app_ctx,
+        controller_ss58=controller,
+        protected_ss58=record["protected_ss58"],
+        delay_blocks=delay,
+    )
+    by_hash = {str(item["call_hash"]).lower(): item for item in on_chain}
+    local = ann.list_for_wallet(wallet_name)
+    merged: list[dict[str, Any]] = []
+    seen_hashes: set[str] = set()
+
+    for row in local:
+        key = str(row.get("call_hash") or "").lower()
+        if key in by_hash:
+            chain = by_hash[key]
+            merged.append(
+                {
+                    **row,
+                    "announced_at_block": chain["announced_at_block"],
+                    "executable_at_block": chain["executable_at_block"],
+                    "on_chain": True,
+                }
+            )
+            seen_hashes.add(key)
+        elif row.get("status") == "pending":
+            # Gone from chain (executed, cancelled elsewhere, or never landed).
+            ann.mark_status(wallet_name, int(row["index"]), "gone")
+
+    next_idx = ann.next_index()
+    for key, chain in by_hash.items():
+        if key in seen_hashes:
+            continue
+        # Unknown hash: visible + cancellable without plaintext.
+        synthetic = {
+            "index": next_idx,
+            "controller_wallet": wallet_name,
+            "delegate_ss58": chain["delegate_ss58"],
+            "real_ss58": chain["real_ss58"],
+            "call_hash": chain["call_hash"],
+            "inner_op": "",
+            "inner_args": {},
+            "category": "unknown",
+            "delay_blocks": delay,
+            "announced_at_block": chain["announced_at_block"],
+            "executable_at_block": chain["executable_at_block"],
+            "force_proxy_type": "Any",
+            "summary": f"on-chain announcement {chain['call_hash']}",
+            "status": "pending",
+            "on_chain": True,
+            "plaintext_missing": True,
+        }
+        next_idx += 1
+        merged.append(synthetic)
+
+    return sorted(merged, key=lambda r: int(r.get("index") or 0))
+
+
 def run_protect(
     app_ctx: AppContext,
     *,
@@ -289,6 +475,12 @@ def _protect_create(
         cfg.add_proxy(create_meta)
         app_ctx.output.message(f"created protected account {name} ({pure_ss58})")
     else:
+        _validate_reusable_pure(
+            app_ctx,
+            book=book,
+            controller_ss58=controller_ss58,
+            delay_blocks=delay_blocks,
+        )
         app_ctx.output.message(f"resuming protect: reusing proxy-book entry {name} ({pure_ss58})")
 
     record = {
@@ -504,32 +696,44 @@ def run_show(app_ctx: AppContext, *, index: Optional[int]) -> None:
         raise typer.Exit(1)
 
     current = app_ctx.run(lambda c: c.block())
+    rows = _reconcile_pending(app_ctx, record)
 
     if index is not None:
-        row = ann.get_by_index(wallet_name, index)
+        row = next((r for r in rows if int(r.get("index") or 0) == index), None)
         if row is None:
-            app_ctx.output.error(f"no local announcement #{index} for wallet {wallet_name!r}")
+            app_ctx.output.error(
+                f"no pending announcement #{index} for wallet {wallet_name!r} "
+                "(checked local store and on-chain Proxy.Announcements)"
+            )
             raise typer.Exit(1)
         call_hash = row["call_hash"]
-
-        async def _verify(client):
-            from ..intents.registry import build as build_intent
-
-            _call, recomputed, _ = await compose_announceable_call(
-                client._substrate,
-                build_intent(row["inner_op"], row["inner_args"]),
-                row["real_ss58"],
-                app_ctx.wallet(),
+        recomputed = None
+        hash_match = False
+        if row.get("plaintext_missing") or not row.get("inner_op"):
+            app_ctx.output.message(
+                "[dim]on-chain announcement without local plaintext — "
+                "cancellable, but call hash cannot be recomputed here[/dim]"
             )
-            return recomputed
+        else:
 
-        try:
-            recomputed = app_ctx.run(_verify)
-            hash_match = recomputed.lower() == str(call_hash).lower()
-        except Exception as error:
-            recomputed = None
-            hash_match = False
-            app_ctx.output.message(f"[dim]could not recompute call hash: {error}[/dim]")
+            async def _verify(client):
+                from ..intents.registry import build as build_intent
+
+                _call, recomputed_hash, _ = await compose_announceable_call(
+                    client._substrate,
+                    build_intent(row["inner_op"], row["inner_args"]),
+                    row["real_ss58"],
+                    app_ctx.wallet(),
+                )
+                return recomputed_hash
+
+            try:
+                recomputed = app_ctx.run(_verify)
+                hash_match = recomputed.lower() == str(call_hash).lower()
+            except Exception as error:
+                recomputed = None
+                hash_match = False
+                app_ctx.output.message(f"[dim]could not recompute call hash: {error}[/dim]")
 
         executable_at = int(row["executable_at_block"])
         status = row.get("status", "pending")
@@ -551,7 +755,6 @@ def run_show(app_ctx: AppContext, *, index: Optional[int]) -> None:
         app_ctx.output.detail(f"announcement #{index}", detail)
         return
 
-    rows = ann.list_for_wallet(wallet_name)
     out = app_ctx.output
     if out.json_mode:
         payload = []
@@ -581,10 +784,13 @@ def run_show(app_ctx: AppContext, *, index: Optional[int]) -> None:
     for row in rows:
         executable_at = int(row["executable_at_block"])
         status = "ready" if current >= executable_at else "waiting"
+        category = row.get("category") or row.get("inner_op") or "unknown"
+        if row.get("plaintext_missing"):
+            category = f"{category}*"
         table_rows.append(
             [
                 str(row["index"]),
-                row.get("category") or row.get("inner_op"),
+                category,
                 str(executable_at),
                 _eta_for_block(executable_at, current),
                 status,
@@ -608,15 +814,18 @@ def run_cancel(app_ctx: AppContext, *, index: Optional[int], yes: bool) -> None:
         app_ctx.output.error(f"wallet {wallet_name!r} does not control a local protected account")
         raise typer.Exit(1)
 
+    pending = _reconcile_pending(app_ctx, record)
     if index is not None:
-        row = ann.get_by_index(wallet_name, index)
+        row = next((r for r in pending if int(r.get("index") or 0) == index), None)
         if row is None:
-            app_ctx.output.error(f"no local announcement #{index} for wallet {wallet_name!r}")
+            app_ctx.output.error(
+                f"no pending announcement #{index} for wallet {wallet_name!r} "
+                "(checked local store and on-chain Proxy.Announcements)"
+            )
             raise typer.Exit(1)
         _cancel_one(app_ctx, row)
         return
 
-    pending = ann.list_for_wallet(wallet_name)
     if not pending:
         app_ctx.output.message("no pending announcements to cancel")
         return
@@ -627,13 +836,16 @@ def run_cancel(app_ctx: AppContext, *, index: Optional[int], yes: bool) -> None:
 
 
 def _cancel_one(app_ctx: AppContext, row: dict[str, Any]) -> None:
+    # Multisig controllers Multisig-wrap this call (remove_announcement is NOT a
+    # fee-payer-only exception). Single coldkeys submit as themselves.
     result = app_ctx.submit(
         RemoveProxyAnnouncement(real_ss58=row["real_ss58"], call_hash=row["call_hash"]),
         proxy_for="self",
         summary=f"cancel announcement #{row['index']}",
     )
     if result is not None and result.success:
-        ann.mark_status(row["controller_wallet"], int(row["index"]), "cancelled")
+        if not row.get("plaintext_missing"):
+            ann.mark_status(row["controller_wallet"], int(row["index"]), "cancelled")
         app_ctx.output.message(f"cancelled #{row['index']}")
 
 
@@ -649,24 +861,37 @@ def run_execute_protected(app_ctx: AppContext, *, index: Optional[int]) -> None:
         raise typer.Exit(1)
 
     current = app_ctx.run(lambda c: c.block())
+    pending = _reconcile_pending(app_ctx, record)
     if index is not None:
-        row = ann.get_by_index(wallet_name, index)
+        row = next((r for r in pending if int(r.get("index") or 0) == index), None)
         if row is None:
-            app_ctx.output.error(f"no local announcement #{index} for wallet {wallet_name!r}")
+            app_ctx.output.error(
+                f"no pending announcement #{index} for wallet {wallet_name!r} "
+                "(checked local store and on-chain Proxy.Announcements)"
+            )
             raise typer.Exit(1)
         _execute_one(app_ctx, row, current)
         return
 
-    pending = ann.list_for_wallet(wallet_name)
-    ready = [r for r in pending if current >= int(r["executable_at_block"])]
+    ready = [
+        r
+        for r in pending
+        if current >= int(r["executable_at_block"]) and not r.get("plaintext_missing")
+    ]
     waiting = [r for r in pending if current < int(r["executable_at_block"])]
+    unknown = [r for r in pending if r.get("plaintext_missing")]
     for row in waiting:
         app_ctx.output.message(
             f"skipping #{row['index']} ({row.get('category')}): not ready — "
             f"{_eta_for_block(int(row['executable_at_block']), current)}"
         )
+    for row in unknown:
+        app_ctx.output.message(
+            f"skipping #{row['index']}: on-chain hash without local plaintext "
+            "(cancel with `btcli proxy cancel --index …`, or re-announce from this device)"
+        )
     if not ready:
-        if not waiting:
+        if not waiting and not unknown:
             app_ctx.output.message("no pending announcements")
         return
     for row in ready:
@@ -674,6 +899,12 @@ def run_execute_protected(app_ctx: AppContext, *, index: Optional[int]) -> None:
 
 
 def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -> None:
+    if row.get("plaintext_missing") or not row.get("inner_op"):
+        app_ctx.output.error(
+            f"#{row['index']} has no local plaintext — cannot execute; cancel instead "
+            "or re-announce the call from this device"
+        )
+        return
     executable_at = int(row["executable_at_block"])
     if current_block < executable_at:
         app_ctx.output.message(
