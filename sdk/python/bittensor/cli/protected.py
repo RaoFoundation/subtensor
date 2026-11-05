@@ -598,6 +598,10 @@ def _protect_create(
 ) -> None:
     name = pa.default_protected_name(wallet_name)
     controller_ss58 = _controller_ss58(app_ctx)
+    controller_ctx = {
+        "controller_wallet": wallet_name,
+        "controller_ss58": controller_ss58,
+    }
 
     # Resume: if a proxy-book entry already exists from a prior partial run, reuse it.
     from .. import config as cfg
@@ -607,11 +611,12 @@ def _protect_create(
     create_meta: dict[str, Any] = dict(book) if book else {}
 
     if not pure_ss58:
-        result = app_ctx.submit(
-            CreatePureProxy(proxy_type="Any", delay=delay_blocks, index=0),
-            proxy_for="self",
-            summary=f"create protected pure proxy (Any, delay {delay_blocks})",
-        )
+        with _preserve_controller_context(app_ctx, controller_ctx):
+            result = app_ctx.submit(
+                CreatePureProxy(proxy_type="Any", delay=delay_blocks, index=0),
+                proxy_for="self",
+                summary=f"create protected pure proxy (Any, delay {delay_blocks})",
+            )
         if result is None or not result.success:
             raise typer.Exit(1)
         pure_ss58 = result.data.get("pure_proxy")
@@ -683,11 +688,12 @@ def _protect_create(
         pa.upsert_protected(record)
 
     # Schedule coldkey swap: moves stake / subnets / identity onto the pure.
-    swap_result = app_ctx.submit(
-        AnnounceColdkeySwap(new_coldkey_ss58=pure_ss58),
-        proxy_for="self",
-        summary=f"announce coldkey swap {wallet_name} → {name}",
-    )
+    with _preserve_controller_context(app_ctx, record):
+        swap_result = app_ctx.submit(
+            AnnounceColdkeySwap(new_coldkey_ss58=pure_ss58),
+            proxy_for="self",
+            summary=f"announce coldkey swap {wallet_name} → {name}",
+        )
     if swap_result is None or not swap_result.success:
         app_ctx.output.message(
             "protected account created, but coldkey-swap announce failed — "
