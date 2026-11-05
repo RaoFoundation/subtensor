@@ -78,3 +78,44 @@ def test_encrypt_for_rejects_sr25519_recipient() -> None:
     sr25519_recipient = Keypair.create_from_uri("//Alice")
     with pytest.raises(ValueError, match="ed25519"):
         Keypair.encrypt_for(sr25519_recipient.ss58_address, b"hello", CRYPTO_SR25519)
+
+
+# secp256k1 generator point G, compressed.
+_ECDSA_PUBKEY = bytes.fromhex("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")
+
+
+def test_ecdsa_crypto_type_is_multisignature_index() -> None:
+    from bittensor import sp_core
+
+    assert sp_core.CRYPTO_ECDSA == bittensor_core.CRYPTO_ECDSA == 2
+
+
+def test_key_and_signature_lengths() -> None:
+    from bittensor import sp_core
+
+    assert sp_core.ECDSA_PUBLIC_KEY_LEN == 33
+    assert sp_core.ED25519_SIGNATURE_LEN == 64
+    assert sp_core.SR25519_SIGNATURE_LEN == 64
+    assert sp_core.ECDSA_SIGNATURE_LEN == 65
+
+
+def test_ecdsa_ss58_is_blake2_256_of_compressed_pubkey() -> None:
+    import hashlib
+
+    from bittensor import sp_core
+
+    account = hashlib.blake2b(_ECDSA_PUBKEY, digest_size=32).digest()
+    assert sp_core.ecdsa_account_id(_ECDSA_PUBKEY) == account
+    assert sp_core.ecdsa_ss58_encode(_ECDSA_PUBKEY) == sp_core.ss58_encode(account, 42)
+    assert sp_core.ecdsa_ss58_encode(_ECDSA_PUBKEY, 0) == sp_core.ss58_encode(account, 0)
+    assert sp_core.ss58_decode(sp_core.ecdsa_ss58_encode(_ECDSA_PUBKEY)) == account
+
+
+@pytest.mark.parametrize(
+    "bad", [_ECDSA_PUBKEY[1:], b"\x04" + _ECDSA_PUBKEY[1:], b"\x04" + bytes(64)]
+)
+def test_ecdsa_ss58_rejects_non_compressed_keys(bad: bytes) -> None:
+    from bittensor import sp_core
+
+    with pytest.raises(ValueError):
+        sp_core.ecdsa_ss58_encode(bad)
