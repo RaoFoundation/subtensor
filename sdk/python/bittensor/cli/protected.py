@@ -680,7 +680,36 @@ def _protect_update(
     current_delay = int(existing.get("delay_blocks") or 0)
     current_allows = list(existing.get("allows") or [])
     pending_allows = list(existing.get("pending_allows") or [])
-    delegate = allow_key_ss58 or existing.get("allow_key_ss58") or controller_ss58
+    old_allow_key = existing.get("allow_key_ss58") or controller_ss58
+    # Keep the recorded allow-key unless the user explicitly retargets it.
+    # Never flip the pointer while the old key still holds grants — otherwise
+    # --disallow / rotation would miss the live authority.
+    if allow_key_ss58 is not None and allow_key_ss58 != old_allow_key:
+        data = app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=existing["protected_ss58"]))
+        blockers = pa.allow_key_change_blockers(
+            old_allow_key_ss58=old_allow_key,
+            new_allow_key_ss58=allow_key_ss58,
+            allows=current_allows,
+            pending_allows=pending_allows,
+            delegations=data["proxies"],
+        )
+        if blockers:
+            app_ctx.output.error(
+                f"cannot change --allow-key from {old_allow_key} to {allow_key_ss58} "
+                "while the old key still holds (or is pending) zero-delay grants: "
+                + "; ".join(blockers),
+                help="run `btcli proxy protect --disallow …` for each grant without "
+                "changing --allow-key, execute those removals, then re-run with the "
+                "new --allow-key and --allow …",
+            )
+            raise typer.Exit(2)
+        existing = {**existing, "allow_key_ss58": allow_key_ss58}
+        pa.upsert_protected(existing)
+    delegate = (
+        allow_key_ss58
+        if allow_key_ss58 is not None
+        else (existing.get("allow_key_ss58") or controller_ss58)
+    )
 
     if delay_blocks != current_delay:
         # Rotate the delayed Any controller grant via announced batch.
@@ -727,7 +756,9 @@ def _protect_update(
         **existing,
         "allows": current_allows,
         "pending_allows": pending_allows,
-        "allow_key_ss58": allow_key_ss58 or existing.get("allow_key_ss58"),
+        "allow_key_ss58": (
+            allow_key_ss58 if allow_key_ss58 is not None else existing.get("allow_key_ss58")
+        ),
         "controller_ss58": controller_ss58,
     }
     pa.upsert_protected(existing)

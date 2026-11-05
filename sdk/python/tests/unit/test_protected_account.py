@@ -83,6 +83,47 @@ def test_defeating_zero_delay_detection():
     assert pa.defeating_zero_delay_proxies(delegations, controller) == ["Any"]
 
 
+def test_allow_key_change_blockers():
+    old = "5AllowA"
+    new = "5AllowB"
+    assert (
+        pa.allow_key_change_blockers(
+            old_allow_key_ss58=old,
+            new_allow_key_ss58=old,
+            allows=["Lock"],
+            pending_allows=[],
+            delegations=[],
+        )
+        == []
+    )
+    blockers = pa.allow_key_change_blockers(
+        old_allow_key_ss58=old,
+        new_allow_key_ss58=new,
+        allows=["Lock"],
+        pending_allows=["Staking"],
+        delegations=[
+            {"delegate": old, "proxy_type": "Lock", "delay": 0},
+            {"delegate": old, "proxy_type": "Any", "delay": 10800},
+            {"delegate": new, "proxy_type": "ChildKeys", "delay": 0},
+        ],
+    )
+    assert any("confirmed allows" in b for b in blockers)
+    assert any("pending allows" in b for b in blockers)
+    assert any("on-chain zero-delay grants" in b and "Lock@0" in b for b in blockers)
+    # Delayed Any on the old key is the controller grant, not an allow-key leftover.
+    assert not any("Any@" in b for b in blockers)
+    assert (
+        pa.allow_key_change_blockers(
+            old_allow_key_ss58=old,
+            new_allow_key_ss58=new,
+            allows=[],
+            pending_allows=[],
+            delegations=[{"delegate": old, "proxy_type": "Any", "delay": 10800}],
+        )
+        == []
+    )
+
+
 def test_controller_owned_allows_and_rotation_complete():
     controller = "5Controller"
     new = "5New"

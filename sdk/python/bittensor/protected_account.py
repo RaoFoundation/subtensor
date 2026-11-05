@@ -399,6 +399,46 @@ def controller_owned_allow_types(record: dict[str, Any], controller_ss58: str) -
     return out
 
 
+def allow_key_grants(
+    delegations: list[dict[str, Any]], allow_key_ss58: str
+) -> list[dict[str, Any]]:
+    """Zero-delay restricted grants held by ``allow_key_ss58`` (excludes delayed Any)."""
+    out: list[dict[str, Any]] = []
+    for row in delegations:
+        if row.get("delegate") != allow_key_ss58:
+            continue
+        if str(row.get("proxy_type") or "") == "Any":
+            continue
+        if int(row.get("delay") or 0) != 0:
+            continue
+        out.append(row)
+    return out
+
+
+def allow_key_change_blockers(
+    *,
+    old_allow_key_ss58: str,
+    new_allow_key_ss58: str,
+    allows: list[str],
+    pending_allows: list[str],
+    delegations: list[dict[str, Any]],
+) -> list[str]:
+    """Human-readable reasons an ``--allow-key`` retarget must be refused."""
+    if old_allow_key_ss58 == new_allow_key_ss58:
+        return []
+    blockers: list[str] = []
+    if allows:
+        blockers.append(f"confirmed allows on old key: {allows}")
+    if pending_allows:
+        blockers.append(f"pending allows on old key: {pending_allows}")
+    on_chain = [
+        f"{row.get('proxy_type')}@0" for row in allow_key_grants(delegations, old_allow_key_ss58)
+    ]
+    if on_chain:
+        blockers.append(f"on-chain zero-delay grants on old key: {on_chain}")
+    return blockers
+
+
 def rotation_complete(
     delegations: list[dict[str, Any]],
     *,
