@@ -490,8 +490,8 @@ mod errors {
         /// `set_subnet_emission_weights`: burn (slot 0) and recycle (slot 1) together may be
         /// at most 33% of emission.
         BurnRecycleEmissionAboveMaximum,
+        // Appended after gamma errors so Release 488 SCALE indices stay stable.
         /// Third-party stake onto the lending custody hotkey is rejected (§14).
-        /// Appended after gamma errors so Release 488 indices stay stable.
         CustodyHotkey,
     }
 }
