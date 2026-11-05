@@ -128,6 +128,7 @@ fn registration_legacy_hold_neutralization_is_cancelled_without_a_phantom() {
     });
 }
 
+// PROTECTED_REGRESSION: registration escrow is additive and survives registrant hold and drain; changes require explicit human approval.
 #[test]
 fn registration_escrow_is_additive_and_survives_registrant_hold_and_drain() {
     use frame_support::traits::{
@@ -183,6 +184,7 @@ fn registration_escrow_is_additive_and_survives_registrant_hold_and_drain() {
     });
 }
 
+// PROTECTED_REGRESSION: registration late failure refunds escrow and does not block next entry; changes require explicit human approval.
 #[test]
 fn registration_late_failure_refunds_escrow_and_does_not_block_next_entry() {
     new_test_ext(0).execute_with(|| {
@@ -237,6 +239,7 @@ fn registration_late_failure_refunds_escrow_and_does_not_block_next_entry() {
     });
 }
 
+// PROTECTED_REGRESSION: registration does not invent reserves when minimum changes while queued; changes require explicit human approval.
 #[test]
 fn registration_does_not_invent_reserves_when_minimum_changes_while_queued() {
     new_test_ext(0).execute_with(|| {
@@ -4144,6 +4147,7 @@ fn set_new_network_state_uses_provided_median_price_for_pool_alpha() {
     });
 }
 
+// PROTECTED_REGRESSION: set new network state never books an unpaid min lock floor; changes require explicit human approval.
 #[test]
 fn set_new_network_state_never_books_an_unpaid_min_lock_floor() {
     new_test_ext(1).execute_with(|| {

@@ -130,6 +130,7 @@ fn new_test_ext(caller: H160, hotkey: &AccountId) -> sp_io::TestExternalities {
     ext
 }
 
+// PROTECTED_REGRESSION: stake exits fit a normal gas limit for a short list; changes require explicit human approval.
 #[test]
 fn stake_exits_fit_a_normal_gas_limit_for_a_short_list() {
     let caller = H160::from_low_u64_be(0x5a01);
@@ -181,6 +182,7 @@ fn stake_exits_fit_a_normal_gas_limit_for_a_short_list() {
     });
 }
 
+// PROTECTED_REGRESSION: moving to a new hotkey fits the reserved walk; changes require explicit human approval.
 #[test]
 fn moving_to_a_new_hotkey_fits_the_reserved_walk() {
     let caller = H160::from_low_u64_be(0x5a02);

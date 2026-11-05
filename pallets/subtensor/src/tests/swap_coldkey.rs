@@ -2327,6 +2327,7 @@ fn test_do_swap_coldkey_refuses_a_destination_left_too_heavy_to_swap() {
 
 // Regression: coldkey swap must migrate miner collateral with the stake so the
 // new coldkey cannot withdraw the locked bond.
+// PROTECTED_REGRESSION: do swap coldkey migrates miner collateral; changes require explicit human approval.
 #[test]
 fn test_do_swap_coldkey_migrates_miner_collateral() {
     new_test_ext(1).execute_with(|| {
@@ -2484,6 +2485,7 @@ fn test_do_swap_coldkey_migrates_zero_locked_min_collateral_floor() {
 
 // Regression: a late failure inside do_swap_coldkey must roll back collateral
 // migration together with the stake move (storage transaction).
+// PROTECTED_REGRESSION: do swap coldkey rolls back collateral on failure; changes require explicit human approval.
 #[test]
 fn test_do_swap_coldkey_rolls_back_collateral_on_failure() {
     new_test_ext(1).execute_with(|| {
@@ -2865,6 +2867,7 @@ fn test_merge_swap_moves_subnet_ownership_and_keeps_dest_auto_stake() {
 
 /// Merge into a used destination that has no auto-stake setting must keep the
 /// unset/default reward route — source policy is dropped (Skeptic fid:5f22d507).
+// PROTECTED_REGRESSION: merge swap does not import source auto stake onto unset dest; changes require explicit human approval.
 #[test]
 fn test_merge_swap_does_not_import_source_auto_stake_onto_unset_dest() {
     new_test_ext(1).execute_with(|| {
@@ -2893,6 +2896,7 @@ fn test_merge_swap_does_not_import_source_auto_stake_onto_unset_dest() {
 
 /// Funded destination without staking associations also keeps unset auto-stake
 /// (Skeptic fid:a2c90852) — free balance alone is prior presence.
+// PROTECTED_REGRESSION: funded dest without staking does not import source auto stake; changes require explicit human approval.
 #[test]
 fn test_funded_dest_without_staking_does_not_import_source_auto_stake() {
     new_test_ext(1).execute_with(|| {
@@ -3004,6 +3008,7 @@ fn test_v2_announcement_snapshot_preserves_funded_destination_default() {
 
 /// A legacy caller cannot opt into V2 snapshot semantics merely by submitting
 /// a correctly formed V2 commitment: the dedicated V2 marker is also required.
+// PROTECTED_REGRESSION: legacy announcement cannot forge v2 policy snapshot; changes require explicit human approval.
 #[test]
 fn test_legacy_announcement_cannot_forge_v2_policy_snapshot() {
     new_test_ext(1).execute_with(|| {
@@ -4004,6 +4009,7 @@ fn test_legacy_announced_swap_cannot_merge_into_reserved_destination() {
 
 /// Third parties must not grow a reserved destination's stake associations
 /// during the announce delay (would trip TooHeavy / dest opt-outs at execute).
+// PROTECTED_REGRESSION: reserved destination blocks third party stake transfer; changes require explicit human approval.
 #[test]
 fn test_reserved_destination_blocks_third_party_stake_transfer() {
     new_test_ext(1).execute_with(|| {

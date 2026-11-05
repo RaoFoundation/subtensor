@@ -198,6 +198,8 @@ def configure_swap_chain():
     asyncio.run(finalize())
 
 
+# Regression invariant: coldkey swap direction.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("source,destination", PAIRS)
 async def test_coldkey_swap_direction(source, destination):
     old, new, hot = key(source), key(destination), key(1)
@@ -295,6 +297,8 @@ async def test_coldkey_swap_direction(source, destination):
         )
 
 
+# Regression invariant: hotkey swap direction.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("source,destination", PAIRS)
 @pytest.mark.parametrize("variant", ["legacy-all", "v2-single", "v2-keep"])
 async def test_hotkey_swap_direction(source, destination, variant):
@@ -367,6 +371,8 @@ async def test_classical_owner_hotkey_upgrade_policy(source, destination, owner)
         assert await run.stake(cold, inactive) == 0
 
 
+# Regression invariant: multi subnet swap preserves delegation.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("source,destination", [(0, 7), (7, 1), (1, 11), (11, 0)])
 @pytest.mark.parametrize("variant", ["legacy-all", "v2-single", "v2-keep"])
 async def test_multi_subnet_swap_preserves_delegation(source, destination, variant):

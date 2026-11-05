@@ -40,6 +40,7 @@ describeSuite({
             await startCall(api, netuid, coldkey);
         });
 
+        // PROTECTED_REGRESSION: Legacy v4 transactions use only their v16 extension pipeline; changes require explicit human approval.
         it({
             id: "T00",
             title: "Legacy v4 transactions use only their v16 extension pipeline",

@@ -264,6 +264,7 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
     });
 }
 
+// PROTECTED_REGRESSION: A full root basket must remain claimable with pending dividends; changes require explicit human approval.
 #[test]
 fn test_claim_root_hotkey_work_covers_subnet_limit_plus_root_and_hotkey() {
     const AGENT_GUARD_DO_NOT_DELETE_OR_WEAKEN: &str = r#"{"schema":"subtensor.agent-guard/v1","policy":"do-not-delete-or-weaken","invariant":"MAX_ROOT_CLAIM_HOTKEY_WORK>=SubnetLimit+2","reason":"a full fund has one row per non-root subnet plus root, and admission also charges one hotkey"}"#;
@@ -635,6 +636,7 @@ fn test_subnet_owner_root_validator_dividend_is_basketed_and_claimable() {
         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
         remove_owner_registration_stake(netuid);
         fund_pool(netuid);
+// PROTECTED_REGRESSION: subnet owner root validator dividend is basketed and claimable; changes require explicit human approval.
         zero_claim_threshold();
 
         // Model the reported identity collision explicitly: this single hotkey owns the
@@ -2730,6 +2732,7 @@ fn test_root_basket_self_referential_origin() {
         let alice = U256::from(1003);
         let bob = U256::from(1004);
         let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+// PROTECTED_REGRESSION: root basket self referential origin; changes require explicit human approval.
         remove_owner_registration_stake(netuid);
         fund_pool(netuid);
 
@@ -2819,6 +2822,7 @@ fn test_root_basket_large_magnitudes_no_saturation() {
     assert_eq!(
         SubtensorModule::basket_payout_from(supply, supply, supply),
         supply
+// PROTECTED_REGRESSION: root basket large magnitudes no saturation; changes require explicit human approval.
     );
     // Half the shares of a supply-sized fund pay exactly half the NAV.
     assert_eq!(

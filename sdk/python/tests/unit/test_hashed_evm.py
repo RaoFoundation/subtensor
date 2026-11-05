@@ -188,6 +188,8 @@ def bound_alias(protected, request):
     return substrate, key, alias
 
 
+# Regression invariant: bound alias claim all recovers only legacy balance.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("enabled", [True, False])
 @pytest.mark.parametrize("mirror_balance", [0, 123, 9_000_000_000])
 async def test_bound_alias_claim_all_recovers_only_legacy_balance(

@@ -920,6 +920,7 @@ fn nested_announced_proxy_intersects_outer_and_inner_authority() {
     });
 }
 
+// PROTECTED_REGRESSION: restricted proxy cannot create deferred authority; changes require explicit human approval.
 #[test]
 fn restricted_proxy_cannot_create_deferred_authority() {
     new_test_ext().execute_with(|| {
@@ -966,6 +967,7 @@ fn restricted_proxy_cannot_create_deferred_authority() {
     });
 }
 
+// PROTECTED_REGRESSION: runtime upgrade invalidates legacy announcements without trapping the deposit; changes require explicit human approval.
 #[test]
 fn runtime_upgrade_invalidates_legacy_announcements_without_trapping_the_deposit() {
     new_test_ext().execute_with(|| {
@@ -1624,6 +1626,7 @@ fn poke_deposit_fails_for_unsigned_origin() {
     });
 }
 
+// PROTECTED_REGRESSION: restricted proxy cannot enable fee sponsorship; changes require explicit human approval.
 #[test]
 fn restricted_proxy_cannot_enable_fee_sponsorship() {
     for delay in [0, 1] {
@@ -1677,6 +1680,7 @@ fn restricted_proxy_cannot_enable_fee_sponsorship() {
     }
 }
 
+// PROTECTED_REGRESSION: restricted outer proxy cannot enable fee sponsorship through a full proxy; changes require explicit human approval.
 #[test]
 fn restricted_outer_proxy_cannot_enable_fee_sponsorship_through_a_full_proxy() {
     new_test_ext().execute_with(|| {
@@ -1733,6 +1737,7 @@ fn full_proxy_can_enable_fee_sponsorship() {
     });
 }
 
+// PROTECTED_REGRESSION: legacy fee sponsorship requires renewed consent; changes require explicit human approval.
 #[test]
 fn legacy_fee_sponsorship_requires_renewed_consent() {
     // The old prefix contains no evidence that the real account authorized the opt-in.

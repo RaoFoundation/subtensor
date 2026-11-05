@@ -104,6 +104,7 @@ fn eip2537_is_registered_in_the_production_runtime() {
     });
 }
 
+// PROTECTED_REGRESSION: root register with no pending dividends fits existing evm gas limit; changes require explicit human approval.
 #[test]
 fn root_register_with_no_pending_dividends_fits_existing_evm_gas_limit() {
     // Exercise both admission paths with the deployment's subnet count. Reserving a

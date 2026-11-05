@@ -25,6 +25,7 @@ logger.captureConsole();
 
 let api;
 
+// PROTECTED_REGRESSION: proxy-filter-security-regressions; changes require explicit human approval.
 async function main() {
   await logger.start();
   api = await connectApi(WS_ENDPOINT, { log: console.log });

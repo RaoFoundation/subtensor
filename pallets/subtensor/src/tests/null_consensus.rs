@@ -641,6 +641,7 @@ fn null_consensus_switch_waits_for_timelock_queues_to_drain() {
     });
 }
 
+// PROTECTED_REGRESSION: null no validator fallback excludes recycled root budget; changes require explicit human approval.
 #[test]
 fn null_no_validator_fallback_excludes_recycled_root_budget() {
     new_test_ext(1).execute_with(|| {
@@ -738,6 +739,7 @@ fn null_bond_cutoff_tracks_last_yuma_epoch_not_null_epochs() {
     });
 }
 
+// PROTECTED_REGRESSION: null replaced miner bonds match clean baseline after return to yuma; changes require explicit human approval.
 #[test]
 fn null_replaced_miner_bonds_match_clean_baseline_after_return_to_yuma() {
     for yuma3 in [false, true] {
@@ -787,6 +789,7 @@ fn null_replaced_miner_bonds_match_clean_baseline_after_return_to_yuma() {
     }
 }
 
+// PROTECTED_REGRESSION: null multiple mechanisms cannot multiply miner rounding remainders; changes require explicit human approval.
 #[test]
 fn null_multiple_mechanisms_cannot_multiply_miner_rounding_remainders() {
     new_test_ext(1).execute_with(|| {

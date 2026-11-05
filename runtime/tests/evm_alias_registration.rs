@@ -145,6 +145,7 @@ fn alias_registration_rejects_incoming_stake_without_system_references() {
     });
 }
 
+// PROTECTED_REGRESSION: alias registration rejects stake without sweeping prefunded tao or reserving deposit; changes require explicit human approval.
 #[test]
 fn alias_registration_rejects_stake_without_sweeping_prefunded_tao_or_reserving_deposit() {
     ext().execute_with(|| {
@@ -242,6 +243,7 @@ fn fresh_alias_registration_still_sweeps_only_tao_and_is_idempotent() {
     }
 }
 
+// PROTECTED_REGRESSION: failed registration deposit rolls back alias preparation and tao sweep; changes require explicit human approval.
 #[test]
 fn failed_registration_deposit_rolls_back_alias_preparation_and_tao_sweep() {
     ext().execute_with(|| {
@@ -369,6 +371,7 @@ fn alias_registration_rejects_reaped_evm_accounts_with_crowdloan_contributions()
     });
 }
 
+// PROTECTED_REGRESSION: registered owner recovers delayed crowdloan payout from legacy backing; changes require explicit human approval.
 #[test]
 fn registered_owner_recovers_delayed_crowdloan_payout_from_legacy_backing() {
     ext().execute_with(|| {

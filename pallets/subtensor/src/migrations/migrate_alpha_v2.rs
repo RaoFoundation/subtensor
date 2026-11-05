@@ -541,6 +541,7 @@ mod tests {
         SubnetAlphaOut::<Test>::mutate(netuid, |v| *v = v.saturating_add(alpha.into()));
     }
 
+    // PROTECTED_REGRESSION: inclusive threshold refunds and converts in batches; changes require explicit human approval.
     #[test]
     fn inclusive_threshold_refunds_and_converts_in_batches() {
         new_test_ext(1).execute_with(|| {
@@ -630,6 +631,7 @@ mod tests {
         });
     }
 
+    // PROTECTED_REGRESSION: fractional empty share is removed from live denominator; changes require explicit human approval.
     #[test]
     fn fractional_empty_share_is_removed_from_live_denominator() {
         new_test_ext(1).execute_with(|| {
@@ -729,6 +731,7 @@ mod tests {
         });
     }
 
+    // PROTECTED_REGRESSION: dust deletion keeps other pool members and reserve accounting intact; changes require explicit human approval.
     #[test]
     fn dust_deletion_keeps_other_pool_members_and_reserve_accounting_intact() {
         use sp_runtime::traits::AccountIdConversion;
@@ -841,6 +844,7 @@ mod tests {
         });
     }
 
+    // PROTECTED_REGRESSION: failed payout rolls back and prevents false completion; changes require explicit human approval.
     #[test]
     fn failed_payout_rolls_back_and_prevents_false_completion() {
         new_test_ext(1).execute_with(|| {
@@ -1004,6 +1008,7 @@ mod tests {
         });
     }
 
+    // PROTECTED_REGRESSION: escrow and retired epochs are not revived or cashed out; changes require explicit human approval.
     #[test]
     fn escrow_and_retired_epochs_are_not_revived_or_cashed_out() {
         new_test_ext(1).execute_with(|| {
@@ -1174,6 +1179,7 @@ mod tests {
         });
     }
 
+    // PROTECTED_REGRESSION: insufficient burn account ed is persisted and not reported complete; changes require explicit human approval.
     #[test]
     fn insufficient_burn_account_ed_is_persisted_and_not_reported_complete() {
         new_test_ext(1).execute_with(|| {

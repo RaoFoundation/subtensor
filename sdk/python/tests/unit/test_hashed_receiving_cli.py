@@ -1063,6 +1063,8 @@ def test_root_list_receiving_selector_matches_position(wallet_path, monkeypatch,
     assert rendered == [position]
 
 
+# Regression invariant: root operations select position owner not configured wallet.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("crypto_type", [4, 6, 7, 8])
 @pytest.mark.parametrize("selector", ["local", "receiving", "canonical"])
 @pytest.mark.parametrize("operation", ["claim", "move"])
@@ -1135,6 +1137,8 @@ def test_root_operations_select_position_owner_not_configured_wallet(
     assert len(submitted) == 1
 
 
+# Regression invariant: root position wallet never falls back to unrelated local wallet.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_root_position_wallet_never_falls_back_to_unrelated_local_wallet(wallet_path):
     from bittensor.cli.root_helpers import resolve_position_wallet
     from tests.harness.samples import BOB
@@ -1146,6 +1150,8 @@ def test_root_position_wallet_never_falls_back_to_unrelated_local_wallet(wallet_
     assert error.value.exit_code == 2
 
 
+# Regression invariant: root position wallet checks explicit dispatch routes.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("route", ["proxy", "multisig", "external"])
 @pytest.mark.parametrize("matches", [False, True])
 def test_root_position_wallet_checks_explicit_dispatch_routes(
@@ -1174,6 +1180,8 @@ def test_root_position_wallet_checks_explicit_dispatch_routes(
             resolve_position_wallet(context, BOB)
 
 
+# Regression invariant: root proxy positions default to dispatch account.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_root_proxy_positions_default_to_dispatch_account(wallet_path):
     from bittensor.cli.root_helpers import resolve_position_wallet
     from tests.harness.samples import BOB

@@ -65,6 +65,7 @@ fn assert_call_fits_normal_limit(call: RuntimeCall) {
         dispatch_info.total_weight()
     );
 }
+// PROTECTED_REGRESSION: legacy hotkey swap with extensions fits normal extrinsic limit; changes require explicit human approval.
 
 #[test]
 #[allow(deprecated)]
@@ -80,6 +81,7 @@ fn legacy_hotkey_swap_with_extensions_fits_normal_extrinsic_limit() {
         }
     });
 }
+// PROTECTED_REGRESSION: hotkey swap v2 with extensions fits normal extrinsic limit; changes require explicit human approval.
 
 #[test]
 fn hotkey_swap_v2_with_extensions_fits_normal_extrinsic_limit() {
@@ -97,6 +99,7 @@ fn hotkey_swap_v2_with_extensions_fits_normal_extrinsic_limit() {
         }
     });
 }
+// PROTECTED_REGRESSION: claim root with extensions fits normal extrinsic limit; changes require explicit human approval.
 
 #[test]
 fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
@@ -111,6 +114,7 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
         assert_call_fits_normal_limit(call);
     });
 }
+// PROTECTED_REGRESSION: claim root with hotkey with extensions fits normal extrinsic limit; changes require explicit human approval.
 
 #[test]
 fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
@@ -125,6 +129,7 @@ fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
         assert_call_fits_normal_limit(call);
     });
 }
+// PROTECTED_REGRESSION: testnet claim root with hotkey with extensions fits normal extrinsic limit; changes require explicit human approval.
 
 #[test]
 fn testnet_claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
@@ -149,6 +154,7 @@ fn testnet_claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() 
         assert_call_fits_normal_limit(call);
     });
 }
+// PROTECTED_REGRESSION: swap basket many at leg cap fits normal extrinsic limit; changes require explicit human approval.
 
 #[test]
 fn swap_basket_many_at_leg_cap_fits_normal_extrinsic_limit() {

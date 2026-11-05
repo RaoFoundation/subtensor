@@ -607,6 +607,7 @@ mod tests {
     /// A `NonTransfer` delegate must not be able to turn itself into a direct
     /// gamma spender and then escape the proxy filter. Removing the cap is part
     /// of the same authority escalation and is denied with the spender change.
+    // PROTECTED_REGRESSION: non transfer cannot grant itself gamma spending authority; changes require explicit human approval.
     #[test]
     fn non_transfer_cannot_grant_itself_gamma_spending_authority() {
         use subtensor_runtime_common::{AccountId, NetUid};

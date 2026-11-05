@@ -163,6 +163,7 @@ fn test_all_subnets_swap_records_lineage_for_residual_collateral() {
     });
 }
 
+// PROTECTED_REGRESSION: bonded hotkey swap migrates collateral keep stake blocked; changes require explicit human approval.
 #[test]
 fn test_bonded_hotkey_swap_migrates_collateral_keep_stake_blocked() {
     new_test_ext(1).execute_with(|| {
@@ -308,6 +309,7 @@ fn test_bonded_hotkey_swap_renames_index_at_cap() {
 
 /// Unindexed legacy collateral at a full index must fail closed before any
 /// swap writes, and the storage transaction must leave fee / ownership intact.
+// PROTECTED_REGRESSION: unindexed collateral at full cap rolls back hotkey swap; changes require explicit human approval.
 #[test]
 fn test_unindexed_collateral_at_full_cap_rolls_back_hotkey_swap() {
     new_test_ext(1).execute_with(|| {

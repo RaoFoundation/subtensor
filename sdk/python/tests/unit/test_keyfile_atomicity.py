@@ -12,6 +12,8 @@ from bittensor.keyfiles import Keyfile, Keypair
 from bittensor.sp_core import serialized_keypair_to_keyfile_data, verify_mldsa_authorization
 
 
+# Regression invariant: short writes publish only the complete keyfile.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_short_writes_publish_only_the_complete_keyfile(tmp_path, monkeypatch):
     path = tmp_path / "coldkey"
     path.write_bytes(b"previous recoverable wallet")
@@ -28,6 +30,8 @@ def test_short_writes_publish_only_the_complete_keyfile(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == [path]
 
 
+# Regression invariant: failure preserves existing wallet and removes temporary file.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("failure", ["zero", "write", "sync", "replace"])
 def test_failure_preserves_existing_wallet_and_removes_temporary_file(
     tmp_path, monkeypatch, failure
@@ -91,6 +95,8 @@ def test_concurrent_writers_publish_complete_independent_files(tmp_path, monkeyp
     assert list(tmp_path.iterdir()) == [path]
 
 
+# Regression invariant: existing shared temp symlink is never followed.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_existing_shared_temp_symlink_is_never_followed(tmp_path):
     victim = tmp_path / "unrelated-backup"
     victim.write_bytes(b"keep this backup")
@@ -160,6 +166,8 @@ def test_directory_sync_failure_reports_error_with_complete_published_wallet(tmp
     )
 
 
+# Regression invariant: declined overwrite preserves existing wallet.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_declined_overwrite_preserves_existing_wallet(tmp_path, monkeypatch):
     path = tmp_path / "coldkey"
     path.write_bytes(b"previous wallet")

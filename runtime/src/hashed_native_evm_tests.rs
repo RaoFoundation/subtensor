@@ -500,6 +500,7 @@ fn fixed_ms_association_keeps_evm_funds_and_signing_authority_separate() {
     });
 }
 
+// PROTECTED_REGRESSION: queried nonce executes and advances independently for every wallet mode; changes require explicit human approval.
 #[test]
 fn queried_nonce_executes_and_advances_independently_for_every_wallet_mode() {
     for mode in MODES.into_iter().chain([
@@ -652,6 +653,7 @@ fn authorization_fee_is_not_refunded_when_gas_pays_for_execution() {
     });
 }
 
+// PROTECTED_REGRESSION: reverted and invalid evm calls keep authorization fees and reject replays; changes require explicit human approval.
 #[test]
 fn reverted_and_invalid_evm_calls_keep_authorization_fees_and_reject_replays() {
     for mode in MODES {
@@ -726,6 +728,7 @@ fn reverted_and_invalid_evm_calls_keep_authorization_fees_and_reject_replays() {
     }
 }
 
+// PROTECTED_REGRESSION: alias nonce survives balance reaping and native transactions when disabled; changes require explicit human approval.
 #[test]
 fn alias_nonce_survives_balance_reaping_and_native_transactions_when_disabled() {
     for mode in [Mode::HashedSr, Mode::HashedEd, Mode::MlDsa] {
@@ -760,6 +763,7 @@ fn alias_nonce_survives_balance_reaping_and_native_transactions_when_disabled() 
     }
 }
 
+// PROTECTED_REGRESSION: protected alias rejects create2 collision before any native evm transaction; changes require explicit human approval.
 #[test]
 fn protected_alias_rejects_create2_collision_before_any_native_evm_transaction() {
     ext().execute_with(|| {
