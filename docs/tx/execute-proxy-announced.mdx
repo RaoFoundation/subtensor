@@ -26,6 +26,7 @@ need not be the multisig that announced.
 | `inner_op` | string | yes | Intent op name of the announced call (see btcli tools for the catalog). |
 | `inner_args` | object | yes | Arguments of the announced call, as a JSON object. |
 | `force_proxy_type` | string | no | Require the delegation to be exactly this proxy type instead of accepting any type that covers the call. |
+| `inner_call_data` | string | no | Exact SCALE bytes (0x-hex) of the announced call. Prefer this over rebuilding from inner_op/inner_args so the hash still matches after pool prices or balances move. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

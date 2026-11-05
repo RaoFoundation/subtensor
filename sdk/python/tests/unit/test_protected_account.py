@@ -64,8 +64,7 @@ def test_instant_proxy_type_for_ops():
         "controller_ss58": "5Controller",
     }
     assert (
-        pa.instant_proxy_type_for("remove_stake", other_key, dispatcher_ss58="5Controller")
-        is None
+        pa.instant_proxy_type_for("remove_stake", other_key, dispatcher_ss58="5Controller") is None
     )
     assert (
         pa.instant_proxy_type_for("remove_stake", other_key, dispatcher_ss58="5AllowKey")
