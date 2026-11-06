@@ -694,10 +694,11 @@ impl Keypair {
 
 /// Verify exactly the supplied message bytes against an SS58 address.
 ///
-/// Uses the pinned Substrate sr25519/ed25519 verifier, without the legacy
-/// `<Bytes>` wrapper retry performed by [`verify`]. Invalid SS58 addresses,
-/// unsupported crypto types and incorrect signature lengths return errors.
-/// Well-sized signatures that do not verify return `Ok(false)`.
+/// Uses the same per-scheme verifier as [`verify`] (pinned Substrate
+/// sr25519/ed25519 and the hashed-account message envelopes), without its
+/// legacy `<Bytes>` wrapper retry. Invalid SS58 addresses, unsupported crypto
+/// types and incorrect sr25519/ed25519 signature lengths return errors; other
+/// signatures that do not verify return `Ok(false)`.
 pub fn verify_strict(
     message: &[u8],
     signature: &[u8],
