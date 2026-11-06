@@ -42,17 +42,33 @@ impl<T: Config> Pallet<T> {
         Ok(deposit)
     }
 
-    /// Opens a deposit only for the hotkey's associated coldkey, so another
-    /// account cannot reserve a customer's API key by minting first.
+    /// Opens a deposit and indexes it under the coldkey that funds and controls it.
+    ///
+    /// Gamma deposit ownership is deliberately independent of `Owner[hotkey]`, the
+    /// staking coldkey association. Here the hotkey is an API credential: its holder
+    /// signs off-chain service requests, while the configured spender submits the
+    /// on-chain gamma charge. A funding coldkey may therefore open a deposit for an
+    /// unassociated hotkey or one associated with another coldkey, allowing another
+    /// party to use prepaid service without giving it administrative control.
+    ///
+    /// Only `deposit.coldkey` controls the deposit's spender and daily cap, moves its
+    /// balance between API keys, and closes it when empty. The funding coldkey can
+    /// revoke an API key's access by moving the balance away. Neither holding that
+    /// hotkey's private key nor being its staking owner grants deposit administration
+    /// or on-chain spending authority; spending requires the named spender (or its
+    /// authorized proxy). Service request authorization remains off-chain.
+    ///
+    /// There is one deposit per `(netuid, hotkey)`: the first opener occupies that
+    /// slot until it is closed. This accepted namespace/squatting trade-off does not
+    /// transfer hotkey ownership or allow taking over an existing deposit. A caller
+    /// needing an unused slot can choose another API key. Existing-deposit paths
+    /// must still enforce `deposit.coldkey`; do not replace that check with staking
+    /// ownership or require staking ownership here, including for move destinations.
     fn insert_gamma_deposit(
         netuid: NetUid,
         hotkey: &T::AccountId,
         deposit: GammaDeposit<T::AccountId>,
     ) -> DispatchResult {
-        ensure!(
-            Owner::<T>::try_get(hotkey).is_ok_and(|owner| owner == deposit.coldkey),
-            Error::<T>::NonAssociatedColdKey
-        );
         ColdkeyGammaHotkeys::<T>::try_mutate(netuid, &deposit.coldkey, |hotkeys| {
             hotkeys
                 .try_push(hotkey.clone())
