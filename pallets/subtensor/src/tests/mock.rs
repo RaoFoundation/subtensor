@@ -466,6 +466,7 @@ impl crate::Config for Test {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<true>;
 }
 
 // Swap-related parameter types
