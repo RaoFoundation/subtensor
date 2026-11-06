@@ -95,10 +95,13 @@ Check the schedule with
   chain buys?** That is root's switch,
   [`subnet_emission_enabled`](/docs/hyperparameters/subnet-emission-enabled),
   flipped with `btcli tx set-subnet-emission-enabled`. New subnets register
-  with it off, and owners cannot set it.
+  with it **on**; owners cannot flip it, but root can still disable specific
+  subnets.
 
-A subnet can be fully active with emissions off: trading and epochs run, but
-no TAO flows into its pool until root flips the switch. Verify both flags:
+A subnet can be fully active with emissions off if root disables the flag:
+trading and epochs run, but no TAO flows into its pool. Fresh registrations
+only need the owner's `start_call` after the activation delay. Verify both
+flags:
 
 ```bash
 btcli sudo get --netuid 42 --name subnet_is_active
@@ -117,8 +120,12 @@ with their TAO — so a subnet's income is set by market demand for its token,
 not by governance. See [emissions](/docs/concepts/emissions) for the full
 mechanics.
 
-Each tempo the subnet's alpha emission splits three ways: 18% to the owner,
-~41% to miners (incentive), ~41% to validators and their stakers (dividends).
+Each tempo the subnet's alpha emission splits three ways — by default 18% to
+the owner, ~41% to miners (incentive), ~41% to validators and their stakers
+(dividends). Since [Etao](/docs/guides/etao) the owner sets that split with
+`btcli subnets emission` (owner ≤ 33%, validator ≤ 50%, miner ≥ 33%, once a
+week); root TAO stakers keep their baseline payout whatever is chosen — see
+[emission weights](/docs/concepts/emission-weights).
 The owner cut can be auto-locked into a conviction position via the
 `owner_cut_auto_lock_enabled` hyperparameter instead of arriving as free
 stake; conviction locking and its unlock schedule are covered in the

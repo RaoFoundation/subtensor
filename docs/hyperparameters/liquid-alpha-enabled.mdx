@@ -24,7 +24,7 @@ by liquid alpha:
 
 Subnet owners can change the mode during the subnet's admin window. The call
 has the same owner/root authorization and per-hyperparameter rate limiting as
-other owner-settable parameters, but it is currently exposed as a raw call:
+other owner-settable parameters. It is available as a raw call:
 
 ```bash
 btcli call AdminUtils.sudo_set_liquid_alpha_consensus_mode \
@@ -40,6 +40,13 @@ mode = await client.query(
     [42],
 )
 ```
+
+EVM contracts can use the Subnet precompile at `0x0803` through
+`getLiquidAlphaConsensusMode(uint16)` and
+`setLiquidAlphaConsensusMode(uint16,uint8)`. The EVM encoding is `0` for
+`Current`, `1` for `Previous`, and `2` for `Auto`; other values revert. The
+setter exposes the signed subnet-owner path and retains the runtime's admin
+window and rate-limit checks.
 
 One important dependency: `compute_bonds` only runs on the Yuma3 path. If [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) is off, the classic bond code ignores this toggle entirely and always uses [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg). Setting `alpha_low`/`alpha_high` also requires this flag to be on first ([`LiquidAlphaDisabled`](/code/pallets/subtensor/src/macros/errors.rs#L134) error otherwise).
 

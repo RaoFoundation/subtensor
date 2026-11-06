@@ -4,7 +4,7 @@ use subtensor_runtime_common::NetUid;
 
 impl<T: Config + pallet_drand::Config> Pallet<T> {
     /// Executes the necessary operations for each block.
-    pub fn block_step() -> Result<(), &'static str> {
+    pub fn block_step() -> Result<Weight, &'static str> {
         let block_number: u64 = Self::get_current_block_as_u64();
 
         // --- 1. Update registration burn prices.
@@ -21,7 +21,7 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         // --- 4b. Flush queued root-dividend basket deposits: one hotkey per block,
         // round-robin. Runs right after coinbase (and before the price EMA update) so a
         // flush lands where the epoch-inline deposits used to happen.
-        Self::flush_pending_basket_deposits_block();
+        let basket_flush_weight = Self::flush_pending_basket_deposits_block();
         // --- 4c. The background beta-index sweep advances one bounded page per block from
         // `on_initialize` (not here), so its work is charged into the hook's weight.
         // --- 5. Update moving prices AFTER using them for emissions.
@@ -38,7 +38,7 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         }
 
         // Return ok.
-        Ok(())
+        Ok(basket_flush_weight)
     }
 
     fn try_set_pending_children(block_number: u64) {
@@ -52,12 +52,17 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         }
     }
     pub fn update_moving_prices() {
-        let subnets_to_emit_to: Vec<NetUid> =
-            Self::get_subnets_to_emit_to(&Self::get_all_subnet_netuids());
-        // Only update price EMA for subnets that we emit to.
-        for netuid_i in subnets_to_emit_to.iter() {
-            // Update moving prices after using them above.
-            Self::update_moving_price(*netuid_i);
+        let netuids = Self::get_all_subnet_netuids();
+        // Price anchors protect basket valuation and trading even when a subnet is not
+        // currently eligible for emission (for example, registration was disabled). Keep
+        // every live dynamic subnet's EMA moving so governance cannot freeze its anchor.
+        for netuid in netuids.iter().copied() {
+            if !netuid.is_root() && SubnetMechanism::<T>::get(netuid) == 1 {
+                Self::update_moving_price(netuid);
+            }
+        }
+        for netuid in netuids.into_iter().filter(|netuid| !netuid.is_root()) {
+            Self::update_gamma_price(netuid);
         }
     }
 
@@ -72,16 +77,22 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         }
     }
 
+    /// Root proportion
+    /// `root_tao · TaoWeight / (root_tao · TaoWeight + alpha_issuance)` with the
+    /// global TAO weight. It drives the alpha-injection cap in
+    /// `get_subnet_terms` and the `RootProp` view, and scaled by the default
+    /// validator share it is root's baseline share of the subnet's emission
+    /// (`baseline_root_emission_share`). Independent of the subnet's emission
+    /// weight vector: changing the validator share must not move TAO-in,
+    /// alpha-in, the pool cap or root's payout.
     pub fn root_proportion(netuid: NetUid) -> U96F32 {
         let alpha_issuance = U96F32::from_num(Self::get_alpha_issuance(netuid));
         let root_tao: U96F32 = U96F32::from_num(Self::get_subnet_tao(NetUid::ROOT));
-        let tao_weight: U96F32 = root_tao.saturating_mul(Self::get_tao_weight());
+        let weighted_root_tao: U96F32 = root_tao.saturating_mul(Self::get_tao_weight());
 
-        let root_proportion: U96F32 = tao_weight
-            .checked_div(tao_weight.saturating_add(alpha_issuance))
-            .unwrap_or(U96F32::from_num(0.0));
-
-        root_proportion
+        weighted_root_tao
+            .checked_div(weighted_root_tao.saturating_add(alpha_issuance))
+            .unwrap_or(U96F32::from_num(0.0))
     }
 
     pub fn reveal_crv3_commits() {

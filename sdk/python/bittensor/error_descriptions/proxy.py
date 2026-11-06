@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
+    "AccountPolicyViolation": (
+        "This proxy delegation would weaken the protected account's authorization. "
+        "Use a compatible hashed delegate; a classical proxy cannot bypass hashed authorization."
+    ),
     "AnnouncementDepositInvariantViolated": (
         "Internal invariant failure in `announce`: recomputing the announcement deposit "
         "returned nothing after the pending announcements were updated. Inspect the caller's "

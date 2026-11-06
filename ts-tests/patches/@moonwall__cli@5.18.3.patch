@@ -1,0 +1,204 @@
+diff --git a/dist/cmds/entrypoint.js b/dist/cmds/entrypoint.js
+index 2ba0f82ebe549a9319e6d667d5e8935d6ab2f076..f6bf91c7f636ed042d2e26a3ea4cb31648e0c32f 100644
+--- a/dist/cmds/entrypoint.js
++++ b/dist/cmds/entrypoint.js
+@@ -1660,6 +1660,6 @@ var init_deriveTestIds = __esm({
+ // src/internal/fileCheckers.ts
+ import fs6 from "fs";
+-import { execSync as execSync2 } from "child_process";
++import { execFileSync as execFileSync2, execSync as execSync2 } from "child_process";
+ import chalk3 from "chalk";
+ import os2 from "os";
+ import path6 from "path";
+@@ -1758,9 +1758,11 @@ function checkListeningPorts(processId) {
+ function checkAlreadyRunning(binaryName) {
+   try {
+     console.log(`Checking if ${chalk3.bgWhiteBright.blackBright(binaryName)} is already running...`);
+-    const stdout = execSync2(`pgrep -x ${[binaryName.slice(0, 14)]}`, {
++    const stdout = execFileSync2("pgrep", ["-x", binaryName.slice(0, 14)], {
+       encoding: "utf8",
+-      timeout: 2e3
++      // Loaded CI hosts can take more than two seconds to schedule a process
++      // scan. Launch pgrep directly and retain a bounded, explicit failure.
++      timeout: 30e3
+     });
+     const pIdStrings = stdout.split("\n").filter(Boolean);
+     return pIdStrings.map((pId) => Number.parseInt(pId, 10));
+diff --git a/dist/cmds/main.js b/dist/cmds/main.js
+index 331b14c3da574f3b19f3fc71ff8633d3fa5fe7e4..0b8a0a9708e9afa8b55ac87a972774e3c0c3f7ff 100644
+--- a/dist/cmds/main.js
++++ b/dist/cmds/main.js
+@@ -1680,6 +1680,6 @@ function customFileSort(a, b) {
+ // src/internal/fileCheckers.ts
+ import fs6 from "fs";
+-import { execSync as execSync2 } from "child_process";
++import { execFileSync as execFileSync2, execSync as execSync2 } from "child_process";
+ import chalk3 from "chalk";
+ import os2 from "os";
+ import path6 from "path";
+@@ -1778,9 +1778,11 @@ function checkListeningPorts(processId) {
+ function checkAlreadyRunning(binaryName) {
+   try {
+     console.log(`Checking if ${chalk3.bgWhiteBright.blackBright(binaryName)} is already running...`);
+-    const stdout = execSync2(`pgrep -x ${[binaryName.slice(0, 14)]}`, {
++    const stdout = execFileSync2("pgrep", ["-x", binaryName.slice(0, 14)], {
+       encoding: "utf8",
+-      timeout: 2e3
++      // Loaded CI hosts can take more than two seconds to schedule a process
++      // scan. Launch pgrep directly and retain a bounded, explicit failure.
++      timeout: 30e3
+     });
+     const pIdStrings = stdout.split("\n").filter(Boolean);
+     return pIdStrings.map((pId) => Number.parseInt(pId, 10));
+diff --git a/dist/cmds/runNetwork.js b/dist/cmds/runNetwork.js
+index 0b6a9f6a2c31a525dbb36779cf25a3e94652dbcc..f63181674c3b6e239c53491f80e3caa1c4d34c06 100644
+--- a/dist/cmds/runNetwork.js
++++ b/dist/cmds/runNetwork.js
+@@ -230,6 +230,6 @@ function reportLogLocation(silent = false) {
+ // src/internal/launcherCommon.ts
+ init_configReader();
+ import chalk2 from "chalk";
+-import { execSync as execSync2 } from "child_process";
++import { execFileSync, execSync as execSync2 } from "child_process";
+ import fs3 from "fs";
+ import path4 from "path";
+@@ -335,9 +335,11 @@ function checkListeningPorts(processId) {
+ function checkAlreadyRunning(binaryName) {
+   try {
+     console.log(`Checking if ${chalk.bgWhiteBright.blackBright(binaryName)} is already running...`);
+-    const stdout = execSync(`pgrep -x ${[binaryName.slice(0, 14)]}`, {
++    const stdout = execFileSync("pgrep", ["-x", binaryName.slice(0, 14)], {
+       encoding: "utf8",
+-      timeout: 2e3
++      // Loaded CI hosts can take more than two seconds to schedule a process
++      // scan. Launch pgrep directly and retain a bounded, explicit failure.
++      timeout: 30e3
+     });
+     const pIdStrings = stdout.split("\n").filter(Boolean);
+     return pIdStrings.map((pId) => Number.parseInt(pId, 10));
+diff --git a/dist/cmds/runTests.js b/dist/cmds/runTests.js
+index 97d3b92cec4276ed2e4dde7c03e5b34d0a68895c..1a1c092b086ec979e73d5101dbe1c425e82d6b0f 100644
+--- a/dist/cmds/runTests.js
++++ b/dist/cmds/runTests.js
+@@ -199,6 +199,6 @@ function clearNodeLogs(silent = true) {
+ // src/internal/launcherCommon.ts
+ init_configReader();
+ import chalk2 from "chalk";
+-import { execSync as execSync2 } from "child_process";
++import { execFileSync, execSync as execSync2 } from "child_process";
+ import fs3 from "fs";
+ import path4 from "path";
+@@ -304,9 +304,11 @@ function checkListeningPorts(processId) {
+ function checkAlreadyRunning(binaryName) {
+   try {
+     console.log(`Checking if ${chalk.bgWhiteBright.blackBright(binaryName)} is already running...`);
+-    const stdout = execSync(`pgrep -x ${[binaryName.slice(0, 14)]}`, {
++    const stdout = execFileSync("pgrep", ["-x", binaryName.slice(0, 14)], {
+       encoding: "utf8",
+-      timeout: 2e3
++      // Loaded CI hosts can take more than two seconds to schedule a process
++      // scan. Launch pgrep directly and retain a bounded, explicit failure.
++      timeout: 30e3
+     });
+     const pIdStrings = stdout.split("\n").filter(Boolean);
+     return pIdStrings.map((pId) => Number.parseInt(pId, 10));
+diff --git a/dist/internal/fileCheckers.js b/dist/internal/fileCheckers.js
+index d7d02ebb90cae35c986c389aa236defb9bdabf25..4ea536648e97d0485aeeb653cddecb980e27bbea 100644
+--- a/dist/internal/fileCheckers.js
++++ b/dist/internal/fileCheckers.js
+@@ -1,6 +1,6 @@
+ // src/internal/fileCheckers.ts
+ import fs from "fs";
+-import { execSync } from "child_process";
++import { execFileSync, execSync } from "child_process";
+ import chalk from "chalk";
+ import os from "os";
+ import path from "path";
+@@ -99,9 +99,11 @@ function checkListeningPorts(processId) {
+ function checkAlreadyRunning(binaryName) {
+   try {
+     console.log(`Checking if ${chalk.bgWhiteBright.blackBright(binaryName)} is already running...`);
+-    const stdout = execSync(`pgrep -x ${[binaryName.slice(0, 14)]}`, {
++    const stdout = execFileSync("pgrep", ["-x", binaryName.slice(0, 14)], {
+       encoding: "utf8",
+-      timeout: 2e3
++      // Loaded CI hosts can take more than two seconds to schedule a process
++      // scan. Launch pgrep directly and retain a bounded, explicit failure.
++      timeout: 30e3
+     });
+     const pIdStrings = stdout.split("\n").filter(Boolean);
+     return pIdStrings.map((pId) => Number.parseInt(pId, 10));
+diff --git a/dist/internal/index.js b/dist/internal/index.js
+index 5b877e016b5243ccdfc3271157d23042f5c9df0f..176401ec2996632e019c858ddf8b41946cfab4da 100644
+--- a/dist/internal/index.js
++++ b/dist/internal/index.js
+@@ -1542,6 +1542,6 @@ function customFileSort(a, b) {
+ // src/internal/fileCheckers.ts
+ import fs6 from "fs";
+-import { execSync as execSync2 } from "child_process";
++import { execFileSync as execFileSync2, execSync as execSync2 } from "child_process";
+ import chalk3 from "chalk";
+ import os2 from "os";
+ import path6 from "path";
+@@ -1640,9 +1640,11 @@ function checkListeningPorts(processId) {
+ function checkAlreadyRunning(binaryName) {
+   try {
+     console.log(`Checking if ${chalk3.bgWhiteBright.blackBright(binaryName)} is already running...`);
+-    const stdout = execSync2(`pgrep -x ${[binaryName.slice(0, 14)]}`, {
++    const stdout = execFileSync2("pgrep", ["-x", binaryName.slice(0, 14)], {
+       encoding: "utf8",
+-      timeout: 2e3
++      // Loaded CI hosts can take more than two seconds to schedule a process
++      // scan. Launch pgrep directly and retain a bounded, explicit failure.
++      timeout: 30e3
+     });
+     const pIdStrings = stdout.split("\n").filter(Boolean);
+     return pIdStrings.map((pId) => Number.parseInt(pId, 10));
+diff --git a/dist/internal/launcherCommon.js b/dist/internal/launcherCommon.js
+index 03556bcd60b34577940b1c562697483fd50ead57..fe9219bf0971cfb8b10d241cb5663a712532194e 100644
+--- a/dist/internal/launcherCommon.js
++++ b/dist/internal/launcherCommon.js
+@@ -1,5 +1,5 @@
+ // src/internal/launcherCommon.ts
+ import chalk2 from "chalk";
+-import { execSync as execSync2 } from "child_process";
++import { execFileSync, execSync as execSync2 } from "child_process";
+ import fs2 from "fs";
+ import path3 from "path";
+@@ -152,9 +152,11 @@ function checkListeningPorts(processId) {
+ function checkAlreadyRunning(binaryName) {
+   try {
+     console.log(`Checking if ${chalk.bgWhiteBright.blackBright(binaryName)} is already running...`);
+-    const stdout = execSync(`pgrep -x ${[binaryName.slice(0, 14)]}`, {
++    const stdout = execFileSync("pgrep", ["-x", binaryName.slice(0, 14)], {
+       encoding: "utf8",
+-      timeout: 2e3
++      // Loaded CI hosts can take more than two seconds to schedule a process
++      // scan. Launch pgrep directly and retain a bounded, explicit failure.
++      timeout: 30e3
+     });
+     const pIdStrings = stdout.split("\n").filter(Boolean);
+     return pIdStrings.map((pId) => Number.parseInt(pId, 10));
+diff --git a/dist/types/src/internal/fileCheckers.js b/dist/types/src/internal/fileCheckers.js
+index 2b14df275af71d5adabe3ce03ce3d0133cdb1682..3285b3bfd58f23b54fc0627ddca8749396627863 100644
+--- a/dist/types/src/internal/fileCheckers.js
++++ b/dist/types/src/internal/fileCheckers.js
+@@ -1,5 +1,5 @@
+ import fs from "node:fs";
+-import { execSync } from "node:child_process";
++import { execFileSync, execSync } from "node:child_process";
+ import chalk from "chalk";
+ import os from "node:os";
+ import path from "node:path";
+@@ -74,9 +74,9 @@ export function checkAlreadyRunning(binaryName) {
+     try {
+         console.log(`Checking if ${chalk.bgWhiteBright.blackBright(binaryName)} is already running...`);
+         // pgrep only supports 15 characters
+-        const stdout = execSync(`pgrep -x ${[binaryName.slice(0, 14)]}`, {
++        const stdout = execFileSync("pgrep", ["-x", binaryName.slice(0, 14)], {
+             encoding: "utf8",
+-            timeout: 2000,
++            timeout: 30_000,
+         });
+         const pIdStrings = stdout.split("\n").filter(Boolean);
+         return pIdStrings.map((pId) => Number.parseInt(pId, 10));

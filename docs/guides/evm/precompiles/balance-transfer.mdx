@@ -33,5 +33,11 @@ not express the complete source operation. They dispatch the highest-level
 Balances call as the mapped signer. `force_transfer` requires Root and the
 feature-gated development faucet is not part of the production interface.
 
+`transferAll(bytes32,bool)` transfers the mapped caller's spendable balance.
+With `keepAlive = false`, the Substrate balance account may be reaped. The
+EVM transaction nonce remains consumed, including when a fee refund or later
+funding recreates the balance account; previously signed transactions do not
+become valid again because of this transfer.
+
 
 Source: [`balanceTransfer.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/balanceTransfer.sol)

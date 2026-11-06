@@ -5,7 +5,7 @@ use safe_math::*;
 use sp_core::Get;
 use sp_core::U256;
 use sp_runtime::{PerU16, Saturating};
-use substrate_fixed::types::{I32F32, I64F64, U64F64, U96F32};
+use substrate_fixed::types::{I32F32, I64F64, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance};
 
 impl<T: Config> Pallet<T> {
@@ -774,16 +774,11 @@ impl<T: Config> Pallet<T> {
     pub fn get_subnet_owner(netuid: NetUid) -> T::AccountId {
         SubnetOwner::<T>::get(netuid)
     }
+    /// Deprecated legacy global owner cut (`u16 / u16::MAX`). Emission reads the per-subnet
+    /// owner slot via `get_subnet_owner_emission_cut`; this remains only for legacy views and
+    /// the emission-weights migration seed.
     pub fn get_subnet_owner_cut() -> u16 {
         SubnetOwnerCut::<T>::get()
-    }
-    pub fn get_float_subnet_owner_cut() -> U96F32 {
-        U96F32::saturating_from_num(SubnetOwnerCut::<T>::get())
-            .safe_div(U96F32::saturating_from_num(u16::MAX))
-    }
-    pub fn set_subnet_owner_cut(subnet_owner_cut: u16) {
-        SubnetOwnerCut::<T>::set(subnet_owner_cut);
-        Self::deposit_event(Event::SubnetOwnerCutSet(subnet_owner_cut));
     }
 
     pub fn get_owned_hotkeys(coldkey: &T::AccountId) -> Vec<T::AccountId> {

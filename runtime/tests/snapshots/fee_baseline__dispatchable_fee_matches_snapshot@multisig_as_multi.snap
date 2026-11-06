@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: multisig_as_multi
+expression: fee
+---
+125826

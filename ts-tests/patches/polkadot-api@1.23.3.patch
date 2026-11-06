@@ -1,0 +1,48 @@
+diff --git a/dist/esm/tx/submit-fns.mjs b/dist/esm/tx/submit-fns.mjs
+index 8c7117dfe30e6de95e6b0e35cd1c332fdd83e76a..c4e1c9b27e03f9a23f11acfa3a5a14eee7fd19ad 100644
+--- a/dist/esm/tx/submit-fns.mjs
++++ b/dist/esm/tx/submit-fns.mjs
+@@ -23,6 +23,19 @@ const computeState = (analized$, blocks$) => new Observable((observer) => {
+       analyzed = analyzedBlocks.get(current = block.parent);
+       analyzedNumber--;
+     }
++    if (!analyzed) {
++      // Delayed analysis can outlive unpinned intermediate finalized headers.
++      // A retained, non-pruned block below finality is still canonical.
++      const finalizedNumber = pinnedBlocks.blocks.get(pinnedBlocks.finalized).number;
++      for (const candidate of analyzedBlocks.values()) {
++        const block = pinnedBlocks.blocks.get(candidate.hash);
++        if (candidate.found.type && block && !block.pruned && block.number <= finalizedNumber) {
++          analyzed = candidate;
++          analyzedNumber = block.number;
++          break;
++        }
++      }
++    }
+     if (!analyzed) return;
+     const isFinalized = analyzedNumber <= pinnedBlocks.blocks.get(pinnedBlocks.finalized).number;
+     const found = analyzed.found.type;
+diff --git a/dist/index.js b/dist/index.js
+index 9edbde856efb10d7ef560c516e446a78568f5c99..1ce1911ad686ac2a3e69ec378da2b1902016e30f 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -880,6 +880,19 @@ const computeState = (analized$, blocks$) => new rxjs.Observable((observer) => {
+       analyzed = analyzedBlocks.get(current = block.parent);
+       analyzedNumber--;
+     }
++    if (!analyzed) {
++      // Delayed analysis can outlive unpinned intermediate finalized headers.
++      // A retained, non-pruned block below finality is still canonical.
++      const finalizedNumber = pinnedBlocks.blocks.get(pinnedBlocks.finalized).number;
++      for (const candidate of analyzedBlocks.values()) {
++        const block = pinnedBlocks.blocks.get(candidate.hash);
++        if (candidate.found.type && block && !block.pruned && block.number <= finalizedNumber) {
++          analyzed = candidate;
++          analyzedNumber = block.number;
++          break;
++        }
++      }
++    }
+     if (!analyzed) return;
+     const isFinalized = analyzedNumber <= pinnedBlocks.blocks.get(pinnedBlocks.finalized).number;
+     const found = analyzed.found.type;

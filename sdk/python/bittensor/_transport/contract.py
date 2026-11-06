@@ -14,6 +14,19 @@ from typing import Any, ClassVar, Optional
 
 
 @dataclass(frozen=True)
+class HashedSigningSnapshot:
+    """One finalized authority state shared by a Shield inner/outer proof pair."""
+
+    block_hash: str
+    address: str
+    crypto_type: int
+    descriptor: bytes
+    generation: int
+    commitment: bytes
+    nonce: int
+
+
+@dataclass(frozen=True)
 class CallBytes:
     """A composed call: raw SCALE call bytes plus the spec version they were
     composed against.
@@ -39,6 +52,9 @@ class SignedExtrinsic:
 
     data: bytes  # full SCALE-encoded extrinsic (length-prefixed)
     extrinsic_hash: str  # 0x-hex blake2b-256 of ``data``
+    # Local reservation bookkeeping, never encoded into the transaction.
+    signer_address: Optional[str] = None
+    nonce: Optional[int] = None
 
     @property
     def data_hex(self) -> str:
@@ -142,6 +158,7 @@ class MultisigAccount:
     threshold: int
     public_key: bytes
     ss58_address: str
+    account_mode: str = "legacy"
 
 
 @dataclass

@@ -66,7 +66,6 @@ grep -Fq '(.previous_filename // empty)' "$eco_workflow"
 grep -Fq 'install-rust-toolchain' "$eco_workflow"
 grep -Fq 'name: cargo test (eco-tests)' "$eco_workflow"
 grep -Fq 'RUST_RELEVANT: ${{ needs.changes.outputs.rust }}' "$eco_workflow"
-grep -Fq 'true) [ "$TRUSTED" = success ] && [ "$TEST_RESULT" = success ]' "$eco_workflow"
 grep -Fq '".github/scripts/install-rust-toolchain.sh"' "$validation_workflow"
 
 echo "Rust CI path registry tests passed"

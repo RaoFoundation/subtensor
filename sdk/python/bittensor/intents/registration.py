@@ -193,10 +193,10 @@ class RegisterSubnet(Intent):
     by default. The result's ``registration_mode`` distinguishes the two paths
     and ``netuid`` is the subnet actually assigned.
     The new subnet starts inactive: call ``start_call`` once the chain's
-    activation delay has passed to activate it; the subnet's share of TAO
-    emission additionally stays off until root enables the subnet's
-    emission-enabled flag. This is a major, expensive commitment — check the
-    current cost before sending.
+    activation delay has passed to activate trading and epoch emission. The
+    pool-side TAO emission-share flag (``SubnetEmissionEnabled``) starts on
+    for new registrations; root can still disable it later. This is a major,
+    expensive commitment — check the current cost before sending.
     """
 
     op = "register_subnet"
@@ -232,12 +232,12 @@ class StartCall(Intent):
 
     Flips a freshly registered subnet from inactive to active: the subnet
     token becomes tradable and alpha emission into the subnet's epochs
-    begins. It does not enable the subnet's share of TAO emission — that
-    additionally requires the root-gated emission-enabled flag, which only
-    root can set. Owner-only, callable once per subnet, and only after the
-    chain's minimum delay since the subnet was registered — calling too
-    early fails. Until this is called the subnet earns nothing, so run it
-    as soon as the delay allows.
+    begins. New registrations already start with the root-gated pool-side
+    TAO emission-share flag on; ``start_call`` is still required before the
+    subnet enters the emission schedule. Owner-only, callable once per
+    subnet, and only after the chain's minimum delay since registration —
+    calling too early fails. Until this is called the subnet earns nothing,
+    so run it as soon as the delay allows.
     """
 
     op = "start_call"

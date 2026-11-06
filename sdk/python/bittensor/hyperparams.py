@@ -246,8 +246,8 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "serving_rate_limit": Hyperparam(
         "blocks",
-        "Minimum blocks between axon serve calls for one neuron.",
-        short="cooldown between axon serve calls",
+        "Minimum blocks between axon serve calls, and between service url updates, for one neuron.",
+        short="cooldown between axon and url updates",
     ),
     "max_validators": Hyperparam(
         "int",
@@ -352,6 +352,12 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         minimum=1,
         maximum=10 * FIXED128_ONE,
     ),
+    "gamma_enabled": Hyperparam(
+        "bool",
+        "Whether this subnet allows gamma minting, which also needs gamma enabled "
+        "network-wide; the root subnet cannot enable it.",
+        short="gamma minting toggle",
+    ),
     "yuma3_enabled": Hyperparam(
         "bool",
         "Whether the Yuma3 consensus variant is enabled for this subnet.",
@@ -372,11 +378,11 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "subnet_emission_enabled": Hyperparam(
         "bool",
-        "Root-controlled pool-side TAO emission switch. False means the subnet "
-        "earns no TAO emission share — the pool-side alpha_in/tao_in/excess_tao "
-        "chain-buy paths are zeroed — even when subnet_is_active is true. Only "
-        "root (the chain sudo key) can flip it, via the "
-        "set_subnet_emission_enabled intent.",
+        "Root-controlled pool-side TAO emission switch. New registrations "
+        "start true. False means the subnet earns no TAO emission share — the "
+        "pool-side alpha_in/tao_in/excess_tao chain-buy paths are zeroed — "
+        "even when subnet_is_active is true. Only root (the chain sudo key) "
+        "can flip it, via the set_subnet_emission_enabled intent.",
         short="root switch for TAO emission share",
     ),
     "user_liquidity_enabled": Hyperparam(
@@ -397,8 +403,34 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "owner_cut_enabled": Hyperparam(
         "bool",
-        "Whether the subnet owner takes their emission cut.",
-        short="owner emission cut toggle",
+        "Whether the subnet owner takes any emission cut: true iff the owner slot of the "
+        "emission weight vector is non-zero. Derived, read-only; change the owner share "
+        "with `btcli subnets emission set-value --slot owner`.",
+        short="owner cut on? (derived, read-only)",
+    ),
+    "owner_emission": Hyperparam(
+        "u64",
+        "Owner slot of the emission weight vector: the share of block alpha emission paid "
+        "to the subnet owner (0 disables the cut; at most 0.33; lease-created subnets keep "
+        "at least the 0.18 launch default). Set via `btcli subnets emission`.",
+        short="owner share of emission (slot 2)",
+    ),
+    "validator_emission": Hyperparam(
+        "u64",
+        "Validator slot of the emission weight vector: the share of block alpha emission "
+        "that becomes validator dividends. At most 0.50. Root is paid its baseline share of "
+        "emission (what it earns with the default validator share and the global TaoWeight, "
+        "recomputed every block) off the top of this slot, capped at the slot; alpha "
+        "validators get the rest, so a change at or below the baseline is rejected. Set via "
+        "`btcli subnets emission`.",
+        short="validator share of emission (slot 3)",
+    ),
+    "miner_emission": Hyperparam(
+        "u64",
+        "Miner slot of the emission weight vector: the share of block alpha emission paid "
+        "as miner incentive (split across mechanisms). At least 0.33. Set via "
+        "`btcli subnets emission`.",
+        short="miner share of emission (slot 4)",
     ),
     "owner_cut_auto_lock_enabled": Hyperparam(
         "bool",
@@ -456,8 +488,13 @@ STORAGE_ITEMS: dict[str, st.Item] = {
     "subnet_emission_enabled": st.SubtensorModule.SubnetEmissionEnabled,
     "bonds_reset_enabled": st.SubtensorModule.BondsResetOn,
     "transfers_enabled": st.SubtensorModule.TransferToggle,
-    "owner_cut_enabled": st.SubtensorModule.OwnerCutEnabled,
     "owner_cut_auto_lock_enabled": st.SubtensorModule.OwnerCutAutoLockEnabled,
+    # The three emission slots live in one vector; owner_cut_enabled is derived
+    # from its owner slot.
+    "owner_cut_enabled": st.SubtensorModule.SubnetEmissionWeights,
+    "owner_emission": st.SubtensorModule.SubnetEmissionWeights,
+    "validator_emission": st.SubtensorModule.SubnetEmissionWeights,
+    "miner_emission": st.SubtensorModule.SubnetEmissionWeights,
 }
 
 # Unit-bearing type identities -> the unit kind they dictate. Ratio types are

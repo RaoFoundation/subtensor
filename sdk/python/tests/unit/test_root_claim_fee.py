@@ -6,9 +6,11 @@ import pytest
 
 from bittensor.balance import Balance
 from bittensor.client import Client
+from bittensor.intents import Policy
 from bittensor.intents import _root_claim_fee as fees
 from bittensor.intents.registration import ClaimRoot
 from bittensor.result import PolicyError
+from bittensor.sp_core import Keypair
 from tests.harness.fake_substrate import FakeSubstrate
 from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, dev_wallet
 
@@ -54,18 +56,41 @@ def test_reserved_fallback_charges_the_fee_allowance_not_the_envelope():
     ) == fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
 
 
-# Recorded from the spec 467 CI release node (PR #3183, commit 546d26bd9), at genesis, for
-# fake-signed //Alice extrinsics: ``TransactionPaymentApi_query_info`` ``weight.ref_time``
-# and ``payment_queryFeeDetails`` ``adjustedWeightFee`` (rao). The 60_000_000 ref_time gap
-# between the node weight and the SDK's declared model is the folded dispatch-extension
-# weight, which the fee wrapper does not discount.
+# Regression invariant: single hotkey admission covers full subnet limit plus root basket.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+def test_single_hotkey_admission_covers_full_subnet_limit_plus_root_basket():
+    admission = fees.RootClaimAdmission(
+        hotkeys=(ALICE_HOT,),
+        holding_counts=(129,),
+        networks=129,
+        limit=fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
+        selection_scans=0,
+    )
+    assert admission.limit == 130
+    assert not admission.too_heavy
+
+    overloaded = fees.RootClaimAdmission(
+        hotkeys=(ALICE_HOT,),
+        holding_counts=(130,),
+        networks=130,
+        limit=fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
+        selection_scans=0,
+    )
+    assert overloaded.too_heavy
+
+
+# Based on the spec 467 CI release-node quotes (PR #3183, commit 546d26bd9), adjusted in
+# spec 484 for the single-hotkey envelope increase from 129 to 130 units. The charged fee
+# stays fixed at the four-unit allowance. The 60_000_000 ref_time gap between the node
+# weight and the SDK's declared model is the folded dispatch-extension weight, which the
+# fee wrapper does not discount.
 _EXTENSION_REF_TIME = 60_000_000
 _NODE_QUOTES = [
-    ("claim_root_with_hotkey", 2_048_205_118_028, 8_224_263, [fees._MAX_ROOT_CLAIM_HOTKEY_WORK]),
+    ("claim_root_with_hotkey", 2_051_581_040_648, 8_224_263, [fees._MAX_ROOT_CLAIM_HOTKEY_WORK]),
     ("claim_root", 2_476_947_290_768, 8_224_263, [fees._MAX_ROOT_CLAIM_WORK]),
     (
         "batch_all[claim_root_with_hotkey, claim_root]",
-        4_525_285_010_166,
+        4_528_660_932_786,
         16_481_677,
         [fees._MAX_ROOT_CLAIM_HOTKEY_WORK, fees._MAX_ROOT_CLAIM_WORK],
     ),
@@ -73,7 +98,7 @@ _NODE_QUOTES = [
 
 
 @pytest.mark.parametrize(("name", "weight", "weight_fee", "limits"), _NODE_QUOTES)
-def test_discount_model_matches_the_467_release_node(name, weight, weight_fee, limits):
+def test_discount_model_matches_the_release_node_quotes(name, weight, weight_fee, limits):
     discount = sum(fees.root_claim_fee_discount_ref_time(limit) for limit in limits)
     assert fees._weight_fee_rao(weight - discount) == weight_fee, name
     if len(limits) == 1:
@@ -190,6 +215,51 @@ def _seed_claim_quote(
         "get_validator_basket",
         lambda params: [(i, 1) for i in range(holdings[params[0]])],
     )
+
+
+@pytest.mark.parametrize("crypto", [7, 8])
+@pytest.mark.parametrize("shielded", [False, True])
+async def test_ms_root_claim_reserve_and_policy_quote_the_actual_signer(
+    monkeypatch, crypto, shielded
+):
+    from unittest.mock import AsyncMock
+
+    substrate = FakeSubstrate()
+    signer = Keypair.create_from_seed(bytes([91]) * 32, crypto)
+    _seed_claim_quote(
+        substrate, hotkeys=[ALICE_HOT], payouts={ALICE_HOT: 10**6}, holdings={ALICE_HOT: 1}
+    )
+    substrate.seed("SubtensorModule", "StakingHotkeys", [signer.ss58_address], [ALICE_HOT])
+    substrate.seed("System", "Account", [signer.ss58_address], {"data": {"free": 10**9}})
+    seen = []
+
+    async def estimate(call, keypair, **kwargs):
+        seen.append(keypair)
+        return Balance.from_rao(100 if keypair.crypto_type == crypto else 20)
+
+    monkeypatch.setattr(substrate, "estimate_fee", estimate)
+    monkeypatch.setattr(
+        substrate, "estimate_shielded_carrier_fee", AsyncMock(return_value=Balance.from_rao(10))
+    )
+    client = Client("local", substrate=substrate)
+    expected = 110 if shielded else 100
+    preview = await client.preflight(ClaimRoot(), signer, shielded=shielded)
+    assert preview.estimated_fee.rao == preview.required_free.rao == expected
+    assert seen and all(key.crypto_type == crypto for key in seen)
+    assert all(key.ss58_address == signer.ss58_address for key in seen)
+    assert all(bytes(key.hashed_descriptor) == bytes(signer.hashed_descriptor) for key in seen)
+
+    policy = Policy(max_fee_tao=Balance.from_rao(50))
+    plan = await client.plan(ClaimRoot(), signer, shielded=shielded, policy=policy)
+    assert not plan.ok and any("max_fee_tao" in value for value in plan.violations)
+    with pytest.raises(PolicyError, match="max_fee_tao"):
+        await client.execute(ClaimRoot(), signer, shielded=shielded, policy=policy)
+    assert substrate.submissions == []
+
+    substrate.seed("System", "Account", [signer.ss58_address], {"data": {"free": 99}})
+    preview = await client.preflight(ClaimRoot(), signer, shielded=shielded)
+    assert preview.required_free.rao == expected
+    assert any("reserved claim fee" in value for value in preview.blocks)
 
 
 @pytest.mark.asyncio
@@ -343,6 +413,32 @@ async def test_shielded_claim_reserves_free_tao_for_inner_and_carrier():
 
 
 @pytest.mark.asyncio
+async def test_affordable_small_shielded_claim_is_not_rejected_by_large_tier_quote(monkeypatch):
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate, hotkeys=[ALICE_HOT], payouts={ALICE_HOT: 1_000_000}, holdings={ALICE_HOT: 1}
+    )
+    substrate.seed("System", "Account", [ALICE], {"data": {"free": 2 * substrate.fee.rao}})
+    substrate.mev_key = bytes(1184)
+    sizes = []
+
+    async def estimate(call, keypair, **kwargs):
+        if call.module == "MevShield":
+            size = len(call.params["ciphertext"])
+            sizes.append(size)
+            if size > 8192:
+                return Balance.from_rao(10**18)
+        return substrate.fee
+
+    monkeypatch.setattr(substrate, "estimate_fee", estimate)
+    result = await Client("local", substrate=substrate).submit_shielded(ClaimRoot(), dev_wallet())
+    assert result.success
+    assert sizes and all(size <= 8192 for size in sizes)
+    assert substrate.last_call.module == "MevShield"
+    assert len(substrate.last_call.params["ciphertext"]) == sizes[-1]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("payout_failure", [None, RuntimeError("payout unavailable")])
 async def test_admission_hard_stop_survives_unavailable_payout_preview(payout_failure):
     substrate = FakeSubstrate()
@@ -476,6 +572,8 @@ async def test_coldkey_wide_admission_ignores_non_root_hotkeys():
     assert not any("admission limit" in block for block in plan.violations)
 
 
+# Regression invariant: coldkey wide admission keeps unstaked basket claimant.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.asyncio
 async def test_coldkey_wide_admission_keeps_unstaked_basket_claimant():
     substrate = FakeSubstrate()
@@ -542,9 +640,9 @@ async def test_proxy_claim_reads_dispatch_state_checks_delegate_and_prices_wrapp
     priced_calls = []
     original_estimate = substrate.estimate_fee
 
-    async def capture_estimate(call, keypair):
+    async def capture_estimate(call, keypair, **kwargs):
         priced_calls.append(call)
-        return await original_estimate(call, keypair)
+        return await original_estimate(call, keypair, **kwargs)
 
     monkeypatch.setattr(substrate, "estimate_fee", capture_estimate)
     intent = ClaimRoot()
@@ -620,10 +718,14 @@ async def test_single_hotkey_quote_uses_the_dust_aware_preview_on_mixed_dust():
     # The work estimate prices two redeemed rows and one scanned row, not three redeemed.
     reserved = fees.Balance.from_rao(10**9)
     spent_all_sold = fees._spent_fee(
-        reserved, fees.RootClaimWork(hotkeys=1, redeem_holdings=3, scan_holdings=0), 129
+        reserved,
+        fees.RootClaimWork(hotkeys=1, redeem_holdings=3, scan_holdings=0),
+        fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
     )
     spent_dust_aware = fees._spent_fee(
-        reserved, fees.RootClaimWork(hotkeys=1, redeem_holdings=2, scan_holdings=1), 129
+        reserved,
+        fees.RootClaimWork(hotkeys=1, redeem_holdings=2, scan_holdings=1),
+        fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
     )
     assert spent_dust_aware.rao < spent_all_sold.rao
     assert quote.spent.rao <= quote.reserved.rao
@@ -773,10 +875,14 @@ async def test_quote_prices_consolidated_rows_as_full_claim_units():
     # 3 full units plus 5 scans: consolidation is swap work, not scans.
     uncapped = Balance.from_rao(10**9)
     full_units = fees._spent_fee(
-        uncapped, fees.RootClaimWork(hotkeys=1, redeem_holdings=9, scan_holdings=0), 129
+        uncapped,
+        fees.RootClaimWork(hotkeys=1, redeem_holdings=9, scan_holdings=0),
+        fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
     )
     scans_only = fees._spent_fee(
-        uncapped, fees.RootClaimWork(hotkeys=1, redeem_holdings=3, scan_holdings=5), 129
+        uncapped,
+        fees.RootClaimWork(hotkeys=1, redeem_holdings=3, scan_holdings=5),
+        fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
     )
     assert full_units.rao > scans_only.rao
 

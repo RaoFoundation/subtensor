@@ -88,6 +88,7 @@ jobs:
             -e PACKAGE=node-subtensor-runtime \
             -e BUILD_OPTS="--features=metadata-hash" \
             -e PROFILE=production \
+            -e CONST_RANDOM_SEED=subtensor-runtime \
             -v "$HOME/.cargo":/cargo-home \
             -v "$(pwd)":/build \
             srtool bash -c "git config --global --add safe.directory /build && \
@@ -146,7 +147,7 @@ jobs:
         if: steps.guard.outputs.should_deploy == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       # Install without the deploy seed in scope and with install scripts
       # disabled, so a malicious transitive dependency cannot run an install
@@ -244,7 +245,7 @@ jobs:
         if: steps.guard.outputs.should_deploy == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install deploy deps
         if: steps.guard.outputs.should_deploy == 'true'
@@ -458,7 +459,7 @@ jobs:
         if: steps.guard.outputs.should_propose == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install deploy deps
         if: steps.guard.outputs.should_propose == 'true'

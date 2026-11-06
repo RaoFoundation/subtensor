@@ -44,7 +44,7 @@ mod errors {
         /// Unsuccessfully withdraw, balance could be zero (can not make account exist) after
         /// withdrawal.
         ZeroBalanceAfterWithdrawn,
-        /// The caller is attempting to set non-self weights without being a permitted validator.
+        /// The caller is setting non-self weights or a service without being a permitted validator.
         NeuronNoValidatorPermit,
         /// The caller is attempting to set the weight keys and values but these vectors have
         /// different size.
@@ -137,7 +137,8 @@ mod errors {
         AlphaHighTooLow,
         /// Alpha low is out of range: alpha_low > 0 && alpha_low < 0.8
         AlphaLowOutOfRange,
-        /// The coldkey has already been swapped
+        /// Retired: coldkey swaps into an already-used destination now merge.
+        /// Kept for SCALE error-index stability; never returned by current runtimes.
         ColdKeyAlreadyAssociated,
         /// The coldkey balance is not enough to pay for the swap
         NotEnoughBalanceToPaySwapColdKey,
@@ -379,8 +380,8 @@ mod errors {
         /// at its cap. Staking to a hotkey the coldkey already stakes through is still
         /// accepted.
         TooManyStakingHotkeys,
-        /// The coldkey stakes through more hotkeys, or holds more stake positions, than a
-        /// coldkey swap can move in one call. Consolidate (unstake or move stake) first.
+        /// The coldkey stakes through more hotkeys, holds more stake positions, or with the destination
+        /// holds more gamma deposits, than a coldkey swap can move in one call. Consolidate first.
         ColdkeySwapTooHeavy,
         /// A `swap_basket` buy would leave the destination holding above
         /// [`crate::BasketConcentrationCap`] of fund NAV (holdings marked at realizable
@@ -414,5 +415,80 @@ mod errors {
         CommitPayloadTooLarge,
         /// The subnet's shared Null timelock queue has reached its byte or count budget.
         CommitQueueFull,
+        /// The recipient refuses a new staking hotkey introduced by another account.
+        AccountRejectsStakingHotkeyGrowth,
+        /// `set_subnet_emission_weights`: `uids` and `values` must have the same length;
+        /// each uid names the slot the matching value sets.
+        EmissionWeightsLengthMismatch,
+        /// `set_subnet_emission_weights`: valid slots are 0 burn, 1 recycle, 2 owner,
+        /// 3 validator, 4 miner. Higher (gamma) slots are reserved and not yet settable.
+        EmissionWeightIndexOutOfRange,
+        /// `set_subnet_emission_weights`: each slot may appear at most once per call.
+        EmissionWeightIndexDuplicated,
+        /// `set_subnet_emission_weights`: after merging with the current vector the five
+        /// slots must sum to exactly one (`u64::MAX` parts). Renormalize before resubmitting;
+        /// `btcli subnets emission set-value` does this automatically.
+        EmissionWeightsDoNotSumToOne,
+        /// Deprecated: burn may be non-zero; the combined burn+recycle cap is
+        /// [`Error::BurnRecycleEmissionAboveMaximum`]. Kept so SCALE error indices stay stable.
+        BurnEmissionMustBeZero,
+        /// Deprecated: recycle may be non-zero; the combined burn+recycle cap is
+        /// [`Error::BurnRecycleEmissionAboveMaximum`]. Kept so SCALE error indices stay stable.
+        RecycleEmissionMustBeZero,
+        /// `set_subnet_emission_weights`: the owner cut (slot 2) may be at most 33% of
+        /// emission.
+        OwnerEmissionAboveMaximum,
+        /// `set_subnet_emission_weights`: this subnet was created through a lease, so its
+        /// owner cut (slot 2) may not drop below the launch default (18%) and squeeze lease
+        /// dividends. Root is bound by this rule too.
+        LeasedSubnetOwnerCutBelowMinimum,
+        /// `set_subnet_emission_weights`: the validator share (slot 3) may be at most 50% of
+        /// emission.
+        ValidatorEmissionAboveMaximum,
+        /// `set_subnet_emission_weights`: root is paid its baseline share of this subnet's
+        /// emission (what root earns here with the default validator share and the global
+        /// `TaoWeight`) off the top of the validator slot every block, and alpha validators
+        /// get the rest. The requested validator share (slot 3) is at or below root's
+        /// baseline share right now, so validators would receive nothing. Raise the
+        /// validator share above the baseline and resubmit.
+        ValidatorEmissionTooLowToPreserveRoot,
+        /// `set_subnet_emission_weights`: the miner share (slot 4) must be at least 33% of
+        /// emission.
+        MinerEmissionBelowMinimum,
+        /// `set_subnet_emission_weights`: the root subnet has no emission vector.
+        EmissionWeightsNotSettableOnRoot,
+        /// This account is reserved as the destination of an in-flight coldkey-swap
+        /// announcement, so it cannot be registered as a hotkey (and another coldkey
+        /// cannot announce to it) until that announcement is executed, cleared,
+        /// released by the destination, reset, or the reservation TTL expires.
+        /// Prevents recovery-delay griefing after announce reveals the dest.
+        ColdkeySwapDestinationReserved,
+        /// No live coldkey-swap destination reservation exists for this account.
+        ColdkeySwapDestinationReservationNotFound,
+        /// An ownership change would weaken a protected account's authorization.
+        HotkeyOwnerPolicyViolation,
+        /// Minting gamma needs a TAO/USD feed at most 300 blocks old.
+        TaoUsdPriceUnavailable,
+        /// Gamma minting is disabled network-wide or on this subnet.
+        GammaDisabled,
+        /// The coldkey would hold more than 64 gamma deposits on this subnet.
+        TooManyGammaDeposits,
+        /// The hotkey holds no gamma deposit on this subnet.
+        GammaDepositDoesNotExist,
+        /// A gamma deposit with a balance cannot be closed.
+        GammaDepositNotEmpty,
+        /// A mint named a spender other than the one its gamma deposit names.
+        GammaDepositSpenderMismatch,
+        /// A mint named a daily spend cap other than its gamma deposit's.
+        GammaDepositDailySpendCapMismatch,
+        /// The signer is not the gamma deposit's spender.
+        NotGammaDepositSpender,
+        /// The gamma deposit's balance is below the amount.
+        InsufficientGammaBalance,
+        /// The amount is above what the gamma deposit's daily spend cap allows now.
+        GammaDepositDailySpendCapExceeded,
+        /// `set_subnet_emission_weights`: burn (slot 0) and recycle (slot 1) together may be
+        /// at most 33% of emission.
+        BurnRecycleEmissionAboveMaximum,
     }
 }

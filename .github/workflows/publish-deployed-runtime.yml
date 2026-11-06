@@ -1,0 +1,270 @@
+name: Publish Deployed Runtime
+
+# Publishes the GitHub release for a runtime that is already finalized on
+# mainnet but was not deployed by release-train.yml, so the train never
+# reserved its v<spec> tag and watch-mainnet-release.yml has nothing to
+# finalize.
+#
+# No approval is required because nothing is deployed: the release is only
+# published when a fresh srtool build of the commit is byte-identical
+# (BLAKE2b-256) to the :code that mainnet finalized for that spec_version.
+# If mainnet still runs that runtime, the mainnet mirror branch (and with it
+# the :mainnet Docker images) also moves to the commit, as the watcher does
+# for train releases.
+#
+# Both inputs are optional. By default the spec_version is the one mainnet
+# runs now, and the commit is the first commit on main that set it (the
+# release PR's merge). Later commits can change the runtime without a spec
+# bump, so the latest main is not used.
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec_version:
+        description: "spec_version to publish (default: the one mainnet runs now)"
+        required: false
+        type: string
+      commit:
+        description: "Commit on main to build (default: first commit on main with that spec_version)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-deployed-runtime
+  cancel-in-progress: false
+
+env:
+  ARCHIVE_HTTP: https://archive.chain.opentensor.ai:443
+  MAINNET_HTTP: https://entrypoint-finney.opentensor.ai:443
+
+jobs:
+  verify:
+    name: Verify build against mainnet
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 120
+    outputs:
+      needed: ${{ steps.target.outputs.needed }}
+      spec: ${{ steps.target.outputs.spec }}
+      commit: ${{ steps.target.outputs.commit }}
+      code_hash: ${{ steps.chain.outputs.code_hash }}
+      first_block: ${{ steps.chain.outputs.first_block }}
+      current_spec: ${{ steps.chain.outputs.current_spec }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve spec_version and commit
+        id: target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_SPEC: ${{ inputs.spec_version }}
+          INPUT_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "dispatch from main"; exit 1; }
+          spec_of() { git show "$1:runtime/src/lib.rs" | grep -Eo 'spec_version: *[0-9]+' | head -n 1 | grep -Eo '[0-9]+'; }
+
+          spec="$INPUT_SPEC"
+          if [ -z "$spec" ]; then
+            spec=$(.github/scripts/mainnet-finalized-runtime.sh | sed -n 's/^spec_version=//p')
+            echo "mainnet runs spec_version $spec"
+          fi
+          [[ "$spec" =~ ^[0-9]+$ ]] || { echo "spec_version must be an integer"; exit 1; }
+          echo "spec=$spec" >> "$GITHUB_OUTPUT"
+
+          # Runtimes from the release train (and anything this workflow already
+          # published) have their release; nothing to rebuild.
+          if release_json=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${spec}" 2>/dev/null); then
+            if [ "$(jq -r '.prerelease' <<<"$release_json")" = false ]; then
+              echo "Release v${spec} is already published; nothing to do."
+              echo "needed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "v${spec} is a release-train pre-release; the watcher finalizes it."
+            exit 1
+          fi
+
+          commit="$INPUT_COMMIT"
+          if [ -z "$commit" ]; then
+            # Oldest first-parent commit on main whose runtime declares $spec.
+            mapfile -t candidates < <(git log --first-parent --reverse --format=%H \
+              -G "spec_version: *${spec}," origin/main -- runtime/src/lib.rs)
+            for sha in "${candidates[@]}"; do
+              if [ "$(spec_of "$sha")" = "$spec" ]; then commit=$sha; break; fi
+            done
+            : "${commit:?no commit on main sets spec_version $spec}"
+          fi
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "commit must be a full lowercase SHA"; exit 1; }
+          git merge-base --is-ancestor "$commit" origin/main || { echo "$commit is not on main"; exit 1; }
+          [ "$(spec_of "$commit")" = "$spec" ] \
+            || { echo "$commit carries spec_version $(spec_of "$commit"), not $spec"; exit 1; }
+
+          echo "Publishing runtime $spec from $commit"
+          { echo "commit=$commit"; echo "needed=true"; } >> "$GITHUB_OUTPUT"
+
+      - name: Read the finalized runtime from mainnet
+        id: chain
+        if: steps.target.outputs.needed == 'true'
+        env:
+          SPEC: ${{ steps.target.outputs.spec }}
+        run: |
+          set -euo pipefail
+          .github/scripts/deployed-runtime.sh "$SPEC" | tee -a "$GITHUB_OUTPUT"
+
+      # Build exactly as the private pipeline that deployed it did: a plain
+      # checkout of the commit, the commit's own srtool recipe and toolchain
+      # pin, the metadata-hash feature, the fixed seed that makes the build
+      # reproducible, and a fresh cargo home (no runner config) at the same
+      # /build and /cargo-home paths, which are embedded in the wasm.
+      - name: Check out the commit to build
+        if: steps.target.outputs.needed == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.commit }}
+          path: source
+          persist-credentials: false
+
+      - name: Srtool build of the commit
+        if: steps.target.outputs.needed == 'true'
+        env:
+          SPEC: ${{ steps.target.outputs.spec }}
+        run: |
+          set -euo pipefail
+          image="srtool-publish-${SPEC}"
+          ( cd source && ./scripts/srtool/build-srtool-image.sh "$image" )
+          ( cd source/runtime && { [ -L node-subtensor ] || ln -s . node-subtensor; } )
+          mkdir -p "$RUNNER_TEMP/cargo-home"
+          docker run --rm --user root --platform=linux/amd64 \
+            -e PACKAGE=node-subtensor-runtime \
+            -e BUILD_OPTS="--features=metadata-hash" \
+            -e PROFILE=production \
+            -e CONST_RANDOM_SEED=subtensor-runtime \
+            -v "$RUNNER_TEMP/cargo-home":/cargo-home \
+            -v "$PWD/source":/build \
+            "$image" bash -c "git config --global --add safe.directory /build && \
+              /srtool/build --app > /build/runtime/node-subtensor/srtool-output.log; \
+              code=\$?; [ \$code -ne 0 ] && cat /build/runtime/node-subtensor/srtool-output.log && exit \$code; \
+              tail -n 1 /build/runtime/node-subtensor/srtool-output.log > /build/runtime/node-subtensor/subtensor-digest.json"
+          mkdir -p wasm
+          wasm_path=$(find source/runtime -name 'node_subtensor_runtime.compact.compressed.wasm' -path '*srtool*' | head -n 1)
+          : ${wasm_path:?srtool wasm not found}
+          cp -v "$wasm_path" wasm/subtensor.wasm
+          cp -v source/runtime/subtensor-digest.json wasm/subtensor-digest.json
+
+      - name: Compare with the finalized runtime
+        if: steps.target.outputs.needed == 'true'
+        env:
+          SPEC: ${{ steps.target.outputs.spec }}
+          COMMIT: ${{ steps.target.outputs.commit }}
+          CODE_HASH: ${{ steps.chain.outputs.code_hash }}
+          FIRST_BLOCK: ${{ steps.chain.outputs.first_block }}
+        run: |
+          set -euo pipefail
+          built=0x$(python3 -c 'import hashlib,sys; print(hashlib.blake2b(open(sys.argv[1],"rb").read(), digest_size=32).hexdigest())' wasm/subtensor.wasm)
+          echo "built:     $built"
+          echo "finalized: $CODE_HASH"
+          [ "$built" = "$CODE_HASH" ] \
+            || { echo "build of $COMMIT does not match runtime $SPEC on mainnet; refusing to publish"; exit 1; }
+          jq -n --arg spec "$SPEC" --arg commit "$COMMIT" --arg code_hash "$CODE_HASH" \
+            --arg block "$FIRST_BLOCK" \
+            '{spec_version: ($spec | tonumber), commit: $commit, code_hash: $code_hash,
+              first_mainnet_block: ($block | tonumber)}' > wasm/deployment.json
+          cat wasm/deployment.json
+
+      - if: steps.target.outputs.needed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployed-runtime-${{ steps.target.outputs.spec }}
+          path: wasm/
+          if-no-files-found: error
+          retention-days: 90
+
+  # Tag, release, and (only while mainnet still runs this runtime) the mainnet
+  # mirror in one job, seconds apart, so the watcher never sees a published
+  # current release with a stale mirror for long. The mainnet-release
+  # environment admits only main and holds the mirror deploy key. If the
+  # mirror push fails, re-run this job: an existing tag and release at the
+  # same commit are accepted.
+  publish:
+    name: Publish release v${{ needs.verify.outputs.spec }}
+    needs: verify
+    if: needs.verify.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    environment: mainnet-release
+    permissions:
+      contents: write
+    env:
+      SPEC: ${{ needs.verify.outputs.spec }}
+      COMMIT: ${{ needs.verify.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: deployed-runtime-${{ needs.verify.outputs.spec }}
+          path: wasm
+
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FIRST_BLOCK: ${{ needs.verify.outputs.first_block }}
+          CURRENT_SPEC: ${{ needs.verify.outputs.current_spec }}
+        run: |
+          set -euo pipefail
+          tag="v${SPEC}"
+          if tag_json=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" 2>/dev/null); then
+            [ "$(jq -er '.object.type' <<<"$tag_json")" = commit ] \
+              || { echo "tag $tag must be a lightweight tag"; exit 1; }
+            tag_sha=$(jq -er '.object.sha' <<<"$tag_json")
+            [ "$tag_sha" = "$COMMIT" ] || { echo "tag $tag already points at $tag_sha"; exit 1; }
+          else
+            # v* tags are immutable once created (release-tags-immutable).
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$tag" -f sha="$COMMIT" >/dev/null
+          fi
+
+          if release_json=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null); then
+            [ "$(jq -r '.prerelease' <<<"$release_json")" = false ] \
+              || { echo "release $tag is a release-train pre-release; refusing to change it"; exit 1; }
+            echo "release $tag is already published"
+            exit 0
+          fi
+
+          latest=false
+          [ "$CURRENT_SPEC" = "$SPEC" ] && latest=true
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$COMMIT" \
+            --title "Runtime ${SPEC}" \
+            --notes "Runtime ${SPEC}, built from ${COMMIT} and finalized on mainnet from block ${FIRST_BLOCK}." \
+            --latest="$latest" \
+            wasm/subtensor.wasm wasm/subtensor-digest.json wasm/deployment.json
+
+      # As watch-mainnet-release.yml does for train releases; this also
+      # publishes the :mainnet Docker images. Skipped for superseded runtimes.
+      - name: Revalidate finalized runtime
+        if: needs.verify.outputs.current_spec == needs.verify.outputs.spec
+        env:
+          EXPECTED_SPEC: ${{ needs.verify.outputs.spec }}
+          EXPECTED_CODE_HASH: ${{ needs.verify.outputs.code_hash }}
+        run: .github/scripts/mainnet-finalized-runtime.sh
+
+      - if: needs.verify.outputs.current_spec == needs.verify.outputs.spec
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify.outputs.commit }}
+          ssh-key: ${{ secrets.MIRROR_DEPLOY_KEY }}
+          path: release-source
+
+      - name: Point mainnet mirror at the release
+        if: needs.verify.outputs.current_spec == needs.verify.outputs.spec
+        working-directory: release-source
+        run: |
+          set -euo pipefail
+          git push --force origin "${COMMIT}:refs/heads/mainnet"
+          mirrored=$(git ls-remote origin refs/heads/mainnet | awk '{print $1}')
+          [ "$mirrored" = "$COMMIT" ] || { echo "mainnet mirror is $mirrored, expected $COMMIT"; exit 1; }

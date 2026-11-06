@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
+    "AuthorizationListTooLarge": (
+        "The EIP-7702 authorization list exceeds the maximum of 255 entries. "
+        "Split the authorizations across transactions; oversized lists are rejected "
+        "before signature recovery."
+    ),
     "BalanceLow": (
         "The sender's mapped account cannot cover the transaction's value plus maximum gas fee, "
         "detected during validation or when withdrawing the fee. Check the account balance "

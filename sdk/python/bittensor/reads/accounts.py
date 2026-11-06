@@ -75,23 +75,28 @@ async def proxies(view, coldkey_ss58: str) -> dict:
     param_docs={"coldkey_ss58": "Coldkey whose pending swap announcement to check."},
 )
 async def coldkey_swap_announcement(view, coldkey_ss58: str) -> Optional[dict]:
-    """A coldkey's pending swap announcement (execute block, new-key hash, disputed), or None.
+    """A coldkey's swap state (execute block, new-key hash, dispute, recovery lock), or None.
 
     This is the ``swap-check`` status: ``ColdkeySwapAnnouncements`` stores the block
     at which the swap becomes executable and the BlakeTwo256 hash committed to.
+    ``recovery_locked`` is true after root ``reset_coldkey_swap_keep_locked`` (stored
+    dispute block 0): the coldkey can only make swap calls until a successful swap or
+    a full reset, even when no announcement is pending.
     """
-    value, disputed = await asyncio.gather(
+    value, dispute = await asyncio.gather(
         view.query(st.SubtensorModule.ColdkeySwapAnnouncements, [coldkey_ss58]),
         view.query(st.SubtensorModule.ColdkeySwapDisputes, [coldkey_ss58]),
     )
-    if not value:
+    recovery_locked = dispute is not None and int(dispute) == 0
+    if not value and not recovery_locked:
         return None
-    execute_block, new_coldkey_hash = value
+    execute_block, new_coldkey_hash = value if value else (None, None)
     return {
-        "execute_block": int(execute_block),
-        "new_coldkey_hash": str(new_coldkey_hash),
-        "disputed": bool(disputed),
-        "dispute_block": int(disputed) if disputed else None,
+        "execute_block": int(execute_block) if execute_block is not None else None,
+        "new_coldkey_hash": str(new_coldkey_hash) if new_coldkey_hash is not None else None,
+        "disputed": bool(dispute),
+        "dispute_block": int(dispute) if dispute else None,
+        "recovery_locked": recovery_locked,
     }
 
 

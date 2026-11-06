@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: proxy_add_proxy
+expression: fee
+---
+80187

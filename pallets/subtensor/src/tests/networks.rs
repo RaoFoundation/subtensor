@@ -10,7 +10,7 @@ use sp_core::U256;
 use sp_runtime::PerU16;
 use sp_std::collections::{btree_map::BTreeMap, vec_deque::VecDeque};
 use substrate_fixed::types::{I96F32, U64F64, U96F32};
-use subtensor_runtime_common::{MechId, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{GammaBalance, MechId, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 
 #[test]
@@ -128,6 +128,7 @@ fn registration_legacy_hold_neutralization_is_cancelled_without_a_phantom() {
     });
 }
 
+// PROTECTED_REGRESSION: registration escrow is additive and survives registrant hold and drain; changes require explicit human approval.
 #[test]
 fn registration_escrow_is_additive_and_survives_registrant_hold_and_drain() {
     use frame_support::traits::{
@@ -183,6 +184,7 @@ fn registration_escrow_is_additive_and_survives_registrant_hold_and_drain() {
     });
 }
 
+// PROTECTED_REGRESSION: registration late failure refunds escrow and does not block next entry; changes require explicit human approval.
 #[test]
 fn registration_late_failure_refunds_escrow_and_does_not_block_next_entry() {
     new_test_ext(0).execute_with(|| {
@@ -237,6 +239,7 @@ fn registration_late_failure_refunds_escrow_and_does_not_block_next_entry() {
     });
 }
 
+// PROTECTED_REGRESSION: registration does not invent reserves when minimum changes while queued; changes require explicit human approval.
 #[test]
 fn registration_does_not_invent_reserves_when_minimum_changes_while_queued() {
     new_test_ext(0).execute_with(|| {
@@ -554,15 +557,17 @@ fn dissolve_owner_cut_refund_logic() {
         assert!(SubtensorModule::get_alpha_issuance(net).to_u64() > 0);
 
         // Owner cut = 11796 / 65535 (about 18%).
-        SubnetOwnerCut::<Test>::put(11_796u16);
+        set_subnet_owner_cut_for_test(net, 11_796u16);
 
         // Compute expected refund with the SAME math as the pallet.
-        let frac: U96F32 = SubtensorModule::get_float_subnet_owner_cut();
+        let frac: U96F32 = SubtensorModule::get_float_subnet_owner_emission_cut(net);
         let total_emitted_alpha: u64 = SubtensorModule::get_alpha_issuance(net).to_u64();
         let owner_alpha_u64: u64 = U96F32::from_num(total_emitted_alpha)
             .saturating_mul(frac)
             .floor()
             .saturating_to_num::<u64>();
+        // The pallet deducts the accrued owner-cut history, not issuance × share.
+        SubnetOwnerCutAccrued::<Test>::insert(net, AlphaBalance::from(owner_alpha_u64));
 
         // Use the current alpha price to estimate the TAO equivalent.
         let owner_emission_tao = {
@@ -603,8 +608,10 @@ fn dissolve_zero_refund_when_emission_exceeds_lock() {
         remove_owner_registration_stake(net);
 
         SubtensorModule::set_subnet_locked_balance(net, TaoBalance::from(1_000));
-        SubnetOwnerCut::<Test>::put(u16::MAX); // 100 %
+        set_subnet_owner_cut_for_test(net, u16::MAX); // 100 %
         Emission::<Test>::insert(net, vec![AlphaBalance::from(2_000)]);
+        // Owner-cut history large enough that its TAO value exceeds the lock.
+        SubnetOwnerCutAccrued::<Test>::insert(net, AlphaBalance::from(u64::MAX / 4));
 
         let before = SubtensorModule::get_coldkey_balance(&oc);
         assert_ok!(SubtensorModule::do_dissolve_network(net));
@@ -779,6 +786,33 @@ fn dissolve_clears_all_per_subnet_storages() {
         // (Optional) subnet -> lease link
         SubnetUidToLeaseId::<Test>::insert(net, 42u32);
 
+        // Gamma and service urls
+        SubnetGammaEnabled::<Test>::insert(net, true);
+        SubnetGammaPrice::<Test>::insert(net, U64F64::from_num(1));
+        GammaDeposits::<Test>::insert(
+            net,
+            owner_hot,
+            GammaDeposit {
+                coldkey: owner_cold,
+                spender: owner_cold,
+                balance: GammaBalance::from(1),
+                daily_spend_cap: None,
+            },
+        );
+        ColdkeyGammaHotkeys::<Test>::insert(
+            net,
+            owner_cold,
+            BoundedVec::truncate_from(vec![owner_hot]),
+        );
+        Services::<Test>::insert(
+            net,
+            owner_hot,
+            ServiceInfo {
+                url: BoundedVec::truncate_from(b"u".to_vec()),
+                spender: owner_cold,
+            },
+        );
+
         // ------------------------------------------------------------------
         // Dissolve
         // ------------------------------------------------------------------
@@ -950,6 +984,13 @@ fn dissolve_clears_all_per_subnet_storages() {
 
         // Subnet -> lease link
         assert!(!SubnetUidToLeaseId::<Test>::contains_key(net));
+
+        // Gamma and service urls
+        assert!(!SubnetGammaEnabled::<Test>::contains_key(net));
+        assert!(!SubnetGammaPrice::<Test>::contains_key(net));
+        assert!(!GammaDeposits::<Test>::contains_key(net, owner_hot));
+        assert!(!ColdkeyGammaHotkeys::<Test>::contains_key(net, owner_cold));
+        assert!(!Services::<Test>::contains_key(net, owner_hot));
 
         // ------------------------------------------------------------------
         // Final subnet removal confirmation
@@ -1518,7 +1559,7 @@ fn destroy_alpha_out_many_stakers_complex_distribution() {
         assert!(SubtensorModule::get_alpha_issuance(netuid).to_u64() > 0);
 
         // Owner already earned some emission; owner-cut = 50 %
-        SubnetOwnerCut::<Test>::put(32_768u16); // ~ 0.5 in fixed-point
+        set_subnet_owner_cut_for_test(netuid, 32_768u16); // ~ 0.5 in fixed-point
 
         // ── 4) balances before ──────────────────────────────────────────────
         let mut bal_before = [TaoBalance::new(0); N];
@@ -1549,12 +1590,14 @@ fn destroy_alpha_out_many_stakers_complex_distribution() {
         }
 
         // ── 5b) expected owner refund with price-aware emission deduction ───
-        let frac: U96F32 = SubtensorModule::get_float_subnet_owner_cut();
+        let frac: U96F32 = SubtensorModule::get_float_subnet_owner_emission_cut(netuid);
         let total_emitted_alpha: u64 = SubtensorModule::get_alpha_issuance(netuid).to_u64();
         let owner_alpha_u64: u64 = U96F32::from_num(total_emitted_alpha)
             .saturating_mul(frac)
             .floor()
             .saturating_to_num::<u64>();
+        // The pallet deducts the accrued owner-cut history, not issuance × share.
+        SubnetOwnerCutAccrued::<Test>::insert(netuid, AlphaBalance::from(owner_alpha_u64));
 
         let owner_emission_tao: u64 = {
             // Fallback matches the pallet's fallback
@@ -1616,7 +1659,7 @@ fn destroy_alpha_out_refund_gating_by_registration_block() {
         let lock_u64: u64 = 50_000;
         SubtensorModule::set_subnet_locked_balance(netuid, TaoBalance::from(lock_u64));
         // Owner cut ≈ 50%
-        SubnetOwnerCut::<Test>::put(32_768u16);
+        set_subnet_owner_cut_for_test(netuid, 32_768u16);
 
         // give some stake to other key
         let other_cold = U256::from(1_234);
@@ -1632,12 +1675,14 @@ fn destroy_alpha_out_refund_gating_by_registration_block() {
         assert!(SubtensorModule::get_alpha_issuance(netuid).to_u64() > 0);
 
         // Compute expected refund using the same math as the pallet
-        let frac: U96F32 = SubtensorModule::get_float_subnet_owner_cut();
+        let frac: U96F32 = SubtensorModule::get_float_subnet_owner_emission_cut(netuid);
         let total_emitted_alpha: u64 = SubtensorModule::get_alpha_issuance(netuid).to_u64();
         let owner_alpha_u64: u64 = U96F32::from_num(total_emitted_alpha)
             .saturating_mul(frac)
             .floor()
             .saturating_to_num::<u64>();
+        // The pallet deducts the accrued owner-cut history, not issuance × share.
+        SubnetOwnerCutAccrued::<Test>::insert(netuid, AlphaBalance::from(owner_alpha_u64));
 
         let owner_emission_tao_u64 = {
             let price: U96F32 = U96F32::from_num(
@@ -1704,7 +1749,7 @@ fn destroy_alpha_out_refund_gating_by_registration_block() {
         );
         // ensure there was some Alpha issued
         assert!(SubtensorModule::get_alpha_issuance(netuid).to_u64() > 0);
-        SubnetOwnerCut::<Test>::put(32_768u16); // ~50%
+        set_subnet_owner_cut_for_test(netuid, 32_768u16); // ~50%
 
         // Balances before
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
@@ -1750,7 +1795,7 @@ fn destroy_alpha_out_refund_gating_by_registration_block() {
         SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000));
         // ensure there was some Alpha issued
         assert!(SubtensorModule::get_alpha_issuance(netuid).to_u64() > 0);
-        SubnetOwnerCut::<Test>::put(32_768u16); // ~50%
+        set_subnet_owner_cut_for_test(netuid, 32_768u16); // ~50%
 
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
         let mut weight_meter =
@@ -4102,6 +4147,7 @@ fn set_new_network_state_uses_provided_median_price_for_pool_alpha() {
     });
 }
 
+// PROTECTED_REGRESSION: set new network state never books an unpaid min lock floor; changes require explicit human approval.
 #[test]
 fn set_new_network_state_never_books_an_unpaid_min_lock_floor() {
     new_test_ext(1).execute_with(|| {

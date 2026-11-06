@@ -479,6 +479,7 @@ mod tests {
     // A pool whose shares add up to more than its denominator quotes a member more than its
     // fraction; the reconciliation sets the denominator to the sum so quotes are exact again
     // and the pool value is untouched.
+    // PROTECTED_REGRESSION: divergent pool denominator becomes the share sum; changes require explicit human approval.
     #[test]
     fn divergent_pool_denominator_becomes_the_share_sum() {
         new_test_ext(1).execute_with(|| {
@@ -612,6 +613,7 @@ mod tests {
 
     /// v1 already stamped must not block v2: a still-divergent target is repaired,
     /// v2 stamps, and a second run is a one-read no-op.
+    // PROTECTED_REGRESSION: v2 repairs after v1 stamp and is idempotent; changes require explicit human approval.
     #[test]
     fn v2_repairs_after_v1_stamp_and_is_idempotent() {
         new_test_ext(1).execute_with(|| {

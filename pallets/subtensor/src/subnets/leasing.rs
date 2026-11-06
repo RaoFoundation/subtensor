@@ -125,6 +125,8 @@ impl<T: Config> Pallet<T> {
             },
         );
         SubnetUidToLeaseId::<T>::insert(netuid, lease_id);
+        // Persists after the lease ends: lease-created subnets keep the owner-cut floor.
+        SubnetCreatedViaLease::<T>::insert(netuid, true);
 
         // The lease take should be 0% to allow all contributors to receive dividends entirely.
         Self::delegate_hotkey(&lease_hotkey, 0);

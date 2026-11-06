@@ -11,9 +11,8 @@ import functools
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-import typer
-
-from .context import AppContext
+from ..intents import MoveGamma
+from .context import AppContext, address_cli_name, ss58_param_help
 from .prompt import PromptSpec, interactive
 from .root_helpers import claim_root_source_spec
 from .stake_picker import (
@@ -55,6 +54,21 @@ def _source(field: str, netuid_field: Optional[str]) -> PromptRule:
 
 def _target(field: str, amount_field: str) -> PromptRule:
     return PromptRule(field, functools.partial(stake_target_spec, field), before=amount_field)
+
+
+def _typed(field: str, help: Optional[str], before: str) -> PromptRule:
+    """A typed address prompt, for a hotkey that is neither a stake position nor a validator."""
+    spec = PromptSpec(
+        field=field,
+        flag=address_cli_name(field),
+        help=f"{help} {ss58_param_help(field)}",
+        parse=lambda app_ctx, raw: app_ctx.resolve_address(field, raw),
+    )
+    return PromptRule(field, lambda: spec, before=before)
+
+
+# A gamma deposit's hotkey is an API key, never the wallet's own hotkey.
+_GAMMA_DEPOSIT = IntentPromptPolicy(required_after_prompt=("hotkey_ss58",))
 
 
 def _remove_stake_notice(kwargs: dict) -> Optional[str]:
@@ -117,7 +131,28 @@ _POLICIES: dict[str, IntentPromptPolicy] = {
         decorators=(PromptDecorator("amount_tao", with_free_balance),),
     ),
     "transfer_all": IntentPromptPolicy(rules=(PromptRule("dest_ss58", dest_account_spec),)),
+    "mint_gamma": _GAMMA_DEPOSIT,
+    "mint_gamma_with_stake": IntentPromptPolicy(
+        rules=(_source("origin_hotkey_ss58", "netuid"),), required_after_prompt=("hotkey_ss58",)
+    ),
+    "move_gamma": IntentPromptPolicy(
+        rules=tuple(
+            _typed(field, MoveGamma.field_help(field), before="amount_gamma")
+            for field in ("origin_hotkey_ss58", "destination_hotkey_ss58")
+        )
+    ),
+    "close_gamma_deposit": _GAMMA_DEPOSIT,
+    "set_gamma_deposit_spender": _GAMMA_DEPOSIT,
+    "set_gamma_deposit_daily_spend_cap": _GAMMA_DEPOSIT,
 }
+
+
+def falls_back_to_wallet(op: str, field: str) -> bool:
+    """Whether an omitted ``field`` takes the signing wallet's own key: true for the
+    ``hotkey_ss58`` / ``coldkey_ss58`` params unless ``op``'s policy requires them."""
+    policy = _POLICIES.get(op)
+    required = policy.required_after_prompt if policy is not None else ()
+    return field in ("hotkey_ss58", "coldkey_ss58") and field not in required
 
 
 def apply_intent_prompt_policy(
@@ -159,19 +194,3 @@ def apply_intent_prompt_policy(
             decorator.apply(spec) if spec.field == decorator.field else spec for spec in missing
         ]
     return missing
-
-
-def validate_intent_prompt_policy(app_ctx: AppContext, op: str, kwargs: dict) -> None:
-    """Enforce values that cannot silently fall back after policy prompting."""
-    policy = _POLICIES.get(op)
-    if policy is None:
-        return
-    missing = [field for field in policy.required_after_prompt if kwargs.get(field) is None]
-    if not missing:
-        return
-    flags = ", ".join(f"`--{field.removesuffix('_ss58').replace('_', '-')}`" for field in missing)
-    app_ctx.output.error(
-        f"missing required option: {flags}",
-        help="pass it explicitly, or run on a terminal to pick one",
-    )
-    raise typer.Exit(2)

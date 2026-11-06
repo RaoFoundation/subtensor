@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_set_auto_parent_delegation_enabled
+expression: fee
+---
+77702

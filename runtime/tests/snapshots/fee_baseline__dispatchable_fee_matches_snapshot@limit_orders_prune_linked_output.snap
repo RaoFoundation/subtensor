@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: limit_orders_prune_linked_output
+expression: fee
+---
+83095

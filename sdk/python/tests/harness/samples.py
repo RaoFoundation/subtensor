@@ -20,6 +20,36 @@ ALICE_HOT = Keypair.create_from_uri("//Alice//hot").ss58_address
 BOB = Keypair.create_from_uri("//Bob").ss58_address
 BOB_HOT = Keypair.create_from_uri("//Bob//hot").ss58_address
 
+_U64_MAX = 2**64 - 1
+_OWNER_18 = (11796 * _U64_MAX) // 65535
+_VALIDATOR_41 = (_U64_MAX - _OWNER_18) // 2
+# Mainnet ``SubtensorInitialTaoWeight`` (~5.27%).
+TAO_WEIGHT = 971_718_665_099_567_868
+# Root TAO and the sample subnet's alpha issuance (rao) the emission fixtures
+# are seeded with; root's baseline share ``V0 * x / (x + A)`` is derived from
+# them exactly as the chain's ``get_subnet_emission_weights`` reports it.
+EMISSION_ROOT_TAO = 5_443_000 * 10**9
+EMISSION_ALPHA_ISSUANCE = 6_457_000 * 10**9
+_ROOT_X = EMISSION_ROOT_TAO * TAO_WEIGHT // _U64_MAX
+ROOT_BASELINE_SHARE = _VALIDATOR_41 * _ROOT_X // (_ROOT_X + EMISSION_ALPHA_ISSUANCE)
+
+# The chain's default emission weight vector as ``get_subnet_emission_weights``
+# decodes it (mainnet: 18% owner, 41% validator, 41% miner); root is paid its
+# baseline share off the top of the validator slot, so on the default vector
+# ``root_share == root_baseline_share``.
+EMISSION_WEIGHTS_INFO: dict = {
+    "netuid": 1,
+    "weights": [0, 0, _OWNER_18, _VALIDATOR_41, _U64_MAX - _OWNER_18 - _VALIDATOR_41],
+    "burn": 0,
+    "recycle": 0,
+    "owner": _OWNER_18,
+    "validator": _VALIDATOR_41,
+    "miner": _U64_MAX - _OWNER_18 - _VALIDATOR_41,
+    "root_baseline_share": ROOT_BASELINE_SHARE,
+    "root_share": min(ROOT_BASELINE_SHARE, _VALIDATOR_41),
+    "created_via_lease": False,
+}
+
 
 def dev_wallet(cold: str = "//Alice", hot: str = "//Alice//hot") -> SimpleNamespace:
     """A KeyedWallet-shaped object carrying dev keypairs (no keyfiles)."""
@@ -100,6 +130,7 @@ INTENT_SAMPLES: dict[str, dict] = {
         "certificate": "0x" + "ab" * 32,
     },
     "serve_prometheus": {"netuid": 1, "ip": "203.0.113.5", "port": 9090},
+    "set_service": {"netuid": 1, "url": "https://example.com/services.json"},
     "reset_axon": {"netuid": 1},
     "set_weights": {"netuid": 1, "uids": [0], "weights": [1.0]},
     "commit_weights": {"netuid": 1, "uids": [0], "weights": [1.0]},
@@ -124,8 +155,15 @@ INTENT_SAMPLES: dict[str, dict] = {
     "announce_coldkey_swap": {"new_coldkey_ss58": BOB},
     "swap_coldkey_announced": {"new_coldkey_ss58": BOB},
     "clear_coldkey_swap_announcement": {},
+    "release_own_coldkey_swap_destination_reservation": {},
     "dispute_coldkey_swap": {},
     "set_hyperparameter": {"netuid": 1, "name": "immunity_period", "value": 42},
+    "set_subnet_emission_weights": {
+        "netuid": 1,
+        "slots": ["owner"],
+        "values": ["10%"],
+        "renormalize": True,
+    },
     "set_identity": {"name": "verify"},
     "set_subnet_identity": {"netuid": 1, "subnet_name": "verify"},
     "trim_subnet": {"netuid": 1, "max_n": 64},
@@ -141,6 +179,7 @@ INTENT_SAMPLES: dict[str, dict] = {
     "move_lock": {"netuid": 1, "destination_hotkey_ss58": BOB_HOT},
     "set_perpetual_lock": {"netuid": 1, "enabled": True},
     "set_reject_locked_alpha": {"enabled": True},
+    "set_reject_staking_hotkey_growth": {"enabled": True},
     "stake_into_basket": {"hotkey_ss58": BOB_HOT, "amount_tao": 1.0},
     "swap_basket": {"hotkey_ss58": BOB_HOT, "origin_netuid": 1, "dest_netuid": 0, "amount": 1.0},
     "swap_basket_many": {
@@ -152,6 +191,30 @@ INTENT_SAMPLES: dict[str, dict] = {
     },
     "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
     "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
+    "mint_gamma": {"netuid": 1, "hotkey_ss58": BOB_HOT, "amount_tao": 1.0},
+    "mint_gamma_with_stake": {
+        "netuid": 1,
+        "hotkey_ss58": BOB_HOT,
+        "origin_hotkey_ss58": ALICE_HOT,
+        "amount_alpha": 1.0,
+    },
+    "move_gamma": {
+        "netuid": 1,
+        "origin_hotkey_ss58": ALICE_HOT,
+        "destination_hotkey_ss58": BOB_HOT,
+        "amount_gamma": "all",
+    },
+    "close_gamma_deposit": {"netuid": 1, "hotkey_ss58": BOB_HOT},
+    "set_gamma_deposit_spender": {"netuid": 1, "hotkey_ss58": BOB_HOT, "spender_ss58": BOB},
+    "set_gamma_deposit_daily_spend_cap": {
+        "netuid": 1,
+        "hotkey_ss58": BOB_HOT,
+        "daily_spend_cap_gamma": 10,
+    },
+    "spend_gamma": {
+        "netuid": 1,
+        "spends": [{"hotkey_ss58": BOB_HOT, "amount_gamma": 0.5, "reference": "0x" + "ab" * 32}],
+    },
     "create_crowdloan": {
         "deposit_tao": 100,
         "min_contribution_tao": 1,
@@ -224,6 +287,12 @@ READ_SAMPLES: dict[str, dict] = {
     "collateral_policy": {"netuid": 1},
     "miner_collateral": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
     "subnet_collateral": {"netuid": 1},
+    "gamma_deposit": {"netuid": 1, "hotkey_ss58": BOB_HOT},
+    "gamma_deposits": {"coldkey_ss58": ALICE},
+    "quote_mint_gamma": {"netuid": 1, "amount_tao": 1.0},
+    "quote_mint_gamma_with_stake": {"netuid": 1, "amount_alpha": 1.0},
+    "tao_usd_price": {},
+    "services": {"netuid": 1},
     "coldkey_swap_announcement": {"coldkey_ss58": ALICE},
     "commit_reveal_enabled": {"netuid": 1},
     "commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
@@ -283,8 +352,11 @@ READ_SAMPLES: dict[str, dict] = {
     "stake_value_for_coldkeys": {"coldkey_ss58s": [ALICE, BOB]},
     "staking_hotkeys": {"coldkey_ss58": ALICE},
     "subnet": {"netuid": 1},
+    "subnet_state": {"netuid": 1},
+    "subnet_states": {},
     "subnet_convictions": {"netuid": 1},
     "subnet_emission_enabled": {"netuid": 1},
+    "subnet_emission_weights": {"netuid": 1},
     "subnet_hyperparameters": {"netuid": 1},
     "subnet_identity": {"netuid": 1},
     "subnet_names": {},
@@ -305,3 +377,49 @@ READ_SAMPLES: dict[str, dict] = {
     "weights": {"netuid": 1},
     "weights_rate_limit": {"netuid": 1},
 }
+
+
+# Account-aware order authorization preserves the complete economic schema.
+_ORDER_SAMPLE = {
+    "V1": {
+        "signer": ALICE,
+        "hotkey": ALICE_HOT,
+        "netuid": 1,
+        "order_type": "LimitBuy",
+        "amount": 1000000,
+        "limit_price": 1000000000,
+        "expiry": 2000000000000,
+        "fee_rate": 0,
+        "fee_recipient": BOB,
+        "relayer": None,
+        "max_slippage": None,
+        "chain_id": 42,
+        "partial_fills_enabled": False,
+    }
+}
+INTENT_SAMPLES.update(
+    {
+        "authorize_order": {"nonce": 1, "order": _ORDER_SAMPLE},
+        "cancel_order": {"nonce": 1, "order": _ORDER_SAMPLE},
+        "execute_orders": {
+            "orders": [
+                {
+                    "order": {"Authorized": {"nonce": 1, "terms": _ORDER_SAMPLE}},
+                    "signature": "AccountApproved",
+                    "partial_fill": None,
+                }
+            ]
+        },
+    }
+)
+
+INTENT_SAMPLES["execute_batched_orders"] = {**INTENT_SAMPLES["execute_orders"], "netuid": 1}
+
+
+def seed_gamma(substrate, owner: str) -> None:
+    """Gamma deposits at the samples' hotkeys, owned and spent by ``owner`` (the one at
+    ``BOB_HOT`` empty, so it can close)."""
+    for hotkey, balance in ((ALICE_HOT, 10**9), (BOB_HOT, 0)):
+        deposit = {"coldkey": owner, "spender": owner, "balance": balance,
+                   "daily_spend_cap": None}  # fmt: skip
+        substrate.seed("SubtensorModule", "GammaDeposits", [1, hotkey], deposit)

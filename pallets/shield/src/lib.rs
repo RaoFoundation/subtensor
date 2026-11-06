@@ -137,6 +137,10 @@ pub mod pallet {
     /// Maximum size of a single encoded call.
     pub type MaxEncryptedCallSize = ConstU32<8192>;
 
+    /// Carrier capacity including large account proofs. The vector encoding and
+    /// call index are unchanged; stored timelock ciphertext keeps its own bound.
+    pub type MaxEncryptedCarrier = ConstU32<32768>;
+
     /// Default maximum number of pending extrinsics.
     pub type DefaultMaxPendingExtrinsics = ConstU32<100>;
 
@@ -350,10 +354,14 @@ pub mod pallet {
         ///        ciphertext = key_hash || kem_len || kem_ct || nonce || aead_ct
         ///
         #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::submit_encrypted())]
+        #[pallet::weight(if ciphertext.len() <= 8192 {
+            T::WeightInfo::submit_encrypted()
+        } else {
+            T::WeightInfo::submit_encrypted_large()
+        })]
         pub fn submit_encrypted(
             origin: OriginFor<T>,
-            ciphertext: BoundedVec<u8, ConstU32<8192>>,
+            ciphertext: BoundedVec<u8, MaxEncryptedCarrier>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let id: T::Hash = T::Hashing::hash_of(&(who.clone(), &ciphertext));
@@ -605,12 +613,17 @@ impl<T: Config> Pallet<T> {
             .ok()?;
         let call = xt.call();
 
-        let Some(Call::submit_encrypted { ciphertext }) = IsSubType::<Call<T>>::is_sub_type(call)
-        else {
-            return None;
-        };
-
+        let ciphertext = Self::carrier_ciphertext(IsSubType::<Call<T>>::is_sub_type(call)?)?;
         ShieldedTransaction::parse(ciphertext)
+    }
+
+    /// Shared recognizer keeps the transaction extension, proposer and mortality
+    /// policy aligned without changing the old carrier's wire representation.
+    pub fn carrier_ciphertext(call: &Call<T>) -> Option<&[u8]> {
+        match call {
+            Call::submit_encrypted { ciphertext } => Some(ciphertext.as_slice()),
+            _ => None,
+        }
     }
 
     pub fn is_shielded_using_current_key(key_hash: &[u8; 16]) -> bool {

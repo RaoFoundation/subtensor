@@ -22,6 +22,11 @@ impl<T: Config> Pallet<T> {
     /// coldkey. The old coldkey's root entry is left unchanged so historical
     /// keys still resolve via [`Self::coldkey_root`]. Clears any stale
     /// outgoing successor on `new_coldkey` so it is the tip.
+    ///
+    /// Callers must only invoke this for renames onto a fresh destination.
+    /// Merges into an already-used coldkey must preserve that account's
+    /// canonical root — otherwise an unsolicited source could assert shared
+    /// identity via [`Self::same_coldkey_lineage`].
     pub fn record_coldkey_swap_lineage(old_coldkey: &T::AccountId, new_coldkey: &T::AccountId) {
         if old_coldkey == new_coldkey {
             return;

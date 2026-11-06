@@ -20,6 +20,7 @@ import {
     getTotalHotkeyAlpha,
     isSubtokenEnabled,
     rootRegister,
+    settleBasketDividends,
     startCall,
     sudoSetAdminFreezeWindow,
     sudoSetEmaPriceHalvingPeriod,
@@ -88,11 +89,13 @@ describeSuite({
                 // root_sell_flag = sum(moving_prices) > 1.0
                 // Each subnet's moving price approaches 1.0 via EMA, so 2 subnets can exceed threshold
                 const netuid1 = await addNewSubnetwork(api, owner1Hotkey, owner1Coldkey);
-                await startCall(api, netuid1, owner1Coldkey);
+                // The independent fast EMA already runs while these pools are funded.
+                // settleBasketDividends reseeds it after the fixture's price jump.
+                await sudoSetSubtokenEnabled(api, netuid1, true);
                 log(`Created subnet 1 with netuid: ${netuid1}`);
 
                 const netuid2 = await addNewSubnetwork(api, owner2Hotkey, owner2Coldkey);
-                await startCall(api, netuid2, owner2Coldkey);
+                await sudoSetSubtokenEnabled(api, netuid2, true);
                 log(`Created subnet 2 with netuid: ${netuid2}`);
 
                 // Set short tempo for faster emission distribution
@@ -139,6 +142,9 @@ describeSuite({
                 await addStake(api, owner2Coldkey, owner2HotkeyAddress, netuid2, subnetStakeAmount);
                 log(`Added ${subnetStakeAmount} owner stake to subnets ${netuid1} and ${netuid2}`);
 
+                await startCall(api, netuid1, owner1Coldkey);
+                await startCall(api, netuid2, owner2Coldkey);
+
                 // Snapshot the staker's ROOT stake before the claim (redemption pays to root).
                 const stakerRootStakeBefore = await getStake(
                     api,
@@ -155,6 +161,8 @@ describeSuite({
                 const blocksToWait = 25;
                 log(`Waiting for ${blocksToWait} blocks for moving prices to converge and emissions to accumulate...`);
                 await waitForBlocks(api, blocksToWait);
+
+                await settleBasketDividends(api, owner1HotkeyAddress, [netuid1, netuid2]);
 
                 // Debug: Check key storage values
                 const subnetTaoRoot = await getSubnetTAO(api, ROOT_NETUID);
@@ -190,6 +198,8 @@ describeSuite({
                 const basketRate = await getBasketRate(api, owner1HotkeyAddress);
                 const basketShares = await getBasketShares(api, owner1HotkeyAddress);
                 log(`BasketRate: ${basketRate}, BasketShares: ${basketShares}`);
+                expect(basketRate, "Dividends must accrue before claiming").toBeGreaterThan(0n);
+                expect(basketShares, "The basket must have shares to redeem").toBeGreaterThan(0n);
 
                 // Call claim_root: redeems the staker's owed fund shares to ROOT stake.
                 await claimRoot(api, stakerColdkey);
@@ -251,11 +261,12 @@ describeSuite({
 
                 // Create TWO dynamic subnets
                 const netuid1 = await addNewSubnetwork(api, owner1Hotkey, owner1Coldkey);
-                await startCall(api, netuid1, owner1Coldkey);
+                // Seed the fast EMA only after all price-changing setup deposits.
+                await sudoSetSubtokenEnabled(api, netuid1, true);
                 log(`Created subnet 1 with netuid: ${netuid1}`);
 
                 const netuid2 = await addNewSubnetwork(api, owner2Hotkey, owner2Coldkey);
-                await startCall(api, netuid2, owner2Coldkey);
+                await sudoSetSubtokenEnabled(api, netuid2, true);
                 log(`Created subnet 2 with netuid: ${netuid2}`);
 
                 // Set short tempo for faster emission distribution
@@ -295,10 +306,15 @@ describeSuite({
                 await addStake(api, owner2Coldkey, owner2HotkeyAddress, netuid2, subnetStakeAmount);
                 log(`Added ${subnetStakeAmount} owner stake to subnets ${netuid1} and ${netuid2}`);
 
+                await startCall(api, netuid1, owner1Coldkey);
+                await startCall(api, netuid2, owner2Coldkey);
+
                 // Wait for blocks
                 const blocksToWait = 25;
                 log(`Waiting for ${blocksToWait} blocks for emissions to accumulate...`);
                 await waitForBlocks(api, blocksToWait);
+
+                await settleBasketDividends(api, owner1HotkeyAddress, [netuid1, netuid2]);
 
                 // Debug: Check moving prices
                 const movingPrice1 = await getSubnetMovingPrice(api, netuid1);
@@ -316,6 +332,8 @@ describeSuite({
                 const basketRate = await getBasketRate(api, owner1HotkeyAddress);
                 const basketShares = await getBasketShares(api, owner1HotkeyAddress);
                 log(`BasketRate: ${basketRate}, BasketShares: ${basketShares}`);
+                expect(basketRate, "Dividends must accrue before claiming").toBeGreaterThan(0n);
+                expect(basketShares, "The basket must have shares to redeem").toBeGreaterThan(0n);
 
                 // Call claim_root - the fund is redeemed to TAO and added to ROOT stake
                 await claimRoot(api, stakerColdkey);

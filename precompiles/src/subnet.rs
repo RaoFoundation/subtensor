@@ -16,6 +16,7 @@ use subtensor_runtime_common::{NetUid, TaoBalance, Token};
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 use pallet_subtensor::subnets::dissolution::DissolveCleanupPhase;
+use pallet_subtensor::{EMISSION_WEIGHT_SLOTS, EMISSION_WEIGHTS_VIEW_READS};
 
 pub struct SubnetPrecompile<R>(PhantomData<R>);
 
@@ -80,10 +81,8 @@ where
             identity: None,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public(
@@ -119,10 +118,8 @@ where
             identity: Some(identity),
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public(
@@ -159,10 +156,8 @@ where
             identity: Some(identity),
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getNetworkRegistrationBlock(uint16)")]
@@ -210,10 +205,8 @@ where
             serving_rate_limit,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getMinDifficulty(uint16)")]
@@ -237,10 +230,8 @@ where
             min_difficulty,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getMaxDifficulty(uint16)")]
@@ -264,10 +255,8 @@ where
             max_difficulty,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getWeightsVersionKey(uint16)")]
@@ -291,10 +280,8 @@ where
             weights_version_key,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getWeightsSetRateLimit(uint16)")]
@@ -341,10 +328,8 @@ where
             adjustment_alpha,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getMaxWeightLimit(uint16)")]
@@ -376,10 +361,8 @@ where
             immunity_period,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getMinAllowedWeights(uint16)")]
@@ -403,10 +386,8 @@ where
             min_allowed_weights,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getKappa(uint16)")]
@@ -424,10 +405,8 @@ where
             kappa,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getRho(uint16)")]
@@ -455,10 +434,8 @@ where
             rho,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("setAlphaSigmoidSteepness(uint16,uint16)")]
@@ -473,10 +450,8 @@ where
             steepness: (steepness as i16),
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getActivityCutoff(uint16)")]
@@ -500,10 +475,8 @@ where
             activity_cutoff,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getActivityCutoffFactor(uint16)")]
@@ -526,10 +499,8 @@ where
             factor_milli,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getNetworkRegistrationAllowed(uint16)")]
@@ -556,10 +527,8 @@ where
             registration_allowed,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getNetworkPowRegistrationAllowed(uint16)")]
@@ -586,10 +555,8 @@ where
             registration_allowed,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getMinBurn(uint16)")]
@@ -643,10 +610,8 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("setMaxBurn(uint16,uint64)")]
@@ -679,10 +644,8 @@ where
             difficulty,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getBondsMovingAverage(uint16)")]
@@ -706,10 +669,8 @@ where
             bonds_moving_average,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getCommitRevealWeightsEnabled(uint16)")]
@@ -736,10 +697,8 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getLiquidAlphaEnabled(uint16)")]
@@ -766,10 +725,46 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+    }
+
+    #[precompile::public("getLiquidAlphaConsensusMode(uint16)")]
+    #[precompile::view]
+    fn get_liquid_alpha_consensus_mode(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<u8> {
+        handle.record_db_reads::<R>(1)?;
+        let mode = match pallet_subtensor::LiquidAlphaConsensusMode::<R>::get(NetUid::from(netuid))
+        {
+            pallet_subtensor::ConsensusMode::Current => 0,
+            pallet_subtensor::ConsensusMode::Previous => 1,
+            pallet_subtensor::ConsensusMode::Auto => 2,
+        };
+        Ok(mode)
+    }
+
+    #[precompile::public("setLiquidAlphaConsensusMode(uint16,uint8)")]
+    #[precompile::payable]
+    fn set_liquid_alpha_consensus_mode(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        mode: u8,
+    ) -> EvmResult<()> {
+        let mode = match mode {
+            0 => pallet_subtensor::ConsensusMode::Current,
+            1 => pallet_subtensor::ConsensusMode::Previous,
+            2 => pallet_subtensor::ConsensusMode::Auto,
+            _ => return Err(revert("invalid liquid alpha consensus mode")),
+        };
+        let call = pallet_admin_utils::Call::<R>::sudo_set_liquid_alpha_consensus_mode {
+            netuid: netuid.into(),
+            mode,
+        };
+
+        let account_id = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
     #[precompile::public("getYuma3Enabled(uint16)")]
@@ -800,10 +795,8 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("setBondsResetEnabled(uint16,bool)")]
@@ -818,10 +811,8 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getAlphaValues(uint16)")]
@@ -847,10 +838,8 @@ where
             alpha_high,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getCommitRevealWeightsInterval(uint16)")]
@@ -877,10 +866,8 @@ where
             interval,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("toggleTransfers(uint16,bool)")]
@@ -895,10 +882,8 @@ where
             toggle,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("isSubnetDissolving(uint16)")]
@@ -953,10 +938,8 @@ where
             logo_url: logo_url.into(),
             additional: additional.into(),
         };
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("updateSubnetSymbol(uint16,string)")]
@@ -969,10 +952,8 @@ where
             netuid: NetUid::from(netuid),
             symbol: symbol.into(),
         };
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("triggerEpoch(uint16)")]
@@ -980,10 +961,8 @@ where
         let call = pallet_subtensor::Call::<R>::trigger_epoch {
             netuid: NetUid::from(netuid),
         };
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("setBondsPenalty(uint16,uint16)")]
@@ -1125,6 +1104,9 @@ where
         )
     }
 
+    /// Deprecated on chain: the dispatched call always fails with `Deprecated`.
+    /// Set slot 2 (owner) of the emission weight vector to zero instead via
+    /// `setSubnetEmissionWeights`.
     #[precompile::public("setOwnerCutEnabled(uint16,bool)")]
     fn set_owner_cut_enabled(
         handle: &mut impl PrecompileHandle,
@@ -1136,6 +1118,26 @@ where
             pallet_admin_utils::Call::<R>::sudo_set_owner_cut_enabled {
                 netuid: netuid.into(),
                 enabled,
+            },
+        )
+    }
+
+    /// Set entries of the subnet's `[burn, recycle, owner, validator, miner]`
+    /// emission weight vector. `uids` names the slots, `values` their new
+    /// `u64 / u64::MAX` shares; omitted slots keep their current value.
+    #[precompile::public("setSubnetEmissionWeights(uint16,uint16[],uint64[])")]
+    fn set_subnet_emission_weights(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        uids: BoundedVec<u16, ConstU32<EMISSION_WEIGHT_SLOTS>>,
+        values: BoundedVec<u64, ConstU32<EMISSION_WEIGHT_SLOTS>>,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_subnet_emission_weights {
+                netuid: netuid.into(),
+                uids: Vec::<u16>::from(uids),
+                values: Vec::<u64>::from(values),
             },
         )
     }
@@ -1269,7 +1271,7 @@ where
             pallet_subtensor::MinNonImmuneUids::<R>::get(netuid),
             pallet_subtensor::ImmuneOwnerUidsLimit::<R>::get(netuid),
             pallet_subtensor::BondsPenalty::<R>::get(netuid),
-            pallet_subtensor::OwnerCutEnabled::<R>::get(netuid),
+            pallet_subtensor::Pallet::<R>::get_owner_cut_enabled(netuid),
             pallet_subtensor::TransferToggle::<R>::get(netuid),
             pallet_subtensor::MaxRegistrationsPerBlock::<R>::get(netuid),
             pallet_subtensor::MechanismCountCurrent::<R>::get(netuid).into(),
@@ -1289,6 +1291,21 @@ where
                 None => (false, Vec::new()),
             },
         )
+    }
+
+    /// The subnet's `[burn, recycle, owner, validator, miner]` emission weight
+    /// vector (`u64 / u64::MAX` shares) and whether the subnet was created via
+    /// a lease.
+    #[precompile::public("getSubnetEmissionWeights(uint16)")]
+    #[precompile::view]
+    fn get_subnet_emission_weights(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(Vec<u64>, bool)> {
+        handle.record_db_reads::<R>(EMISSION_WEIGHTS_VIEW_READS)?;
+        let view =
+            pallet_subtensor::Pallet::<R>::read_subnet_emission_weights_view(NetUid::from(netuid));
+        Ok((view.weights.to_vec(), view.created_via_lease))
     }
 
     #[precompile::public("getBurnConfig(uint16)")]
@@ -1385,7 +1402,7 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
-    let caller = handle.caller_account_id::<R>();
+    let caller = handle.caller_account_id::<R>()?;
     handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
 }
 
@@ -1593,6 +1610,95 @@ mod tests {
                     precompile_utils::prelude::RuntimeHelper::<Runtime>::db_read_gas_cost(),
                 )
                 .execute_returns(true);
+        });
+    }
+
+    #[test]
+    fn subnet_precompile_sets_and_gets_emission_weights() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5004);
+            let netuid = setup_owner_subnet(caller);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+            let one = pallet_subtensor::EMISSION_WEIGHT_ONE;
+
+            let default = pallet_subtensor::Pallet::<Runtime>::get_subnet_emission_weights(netuid);
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getSubnetEmissionWeights(uint16)"),
+                        (TEST_NETUID_U16,),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns((default.to_vec(), false));
+
+            // Owner sets owner 10% / validator 40% / miner 50% through the mapped account.
+            let owner = pallet_subtensor::emission_fraction(10, 100);
+            let validator = pallet_subtensor::emission_fraction(40, 100);
+            let miner = one.saturating_sub(owner).saturating_sub(validator);
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setSubnetEmissionWeights(uint16,uint16[],uint64[])"),
+                        (
+                            TEST_NETUID_U16,
+                            vec![2u16, 3, 4],
+                            vec![owner, validator, miner],
+                        ),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::Pallet::<Runtime>::get_subnet_emission_weights(netuid),
+                [0, 0, owner, validator, miner]
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getSubnetEmissionWeights(uint16)"),
+                        (TEST_NETUID_U16,),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns((vec![0u64, 0, owner, validator, miner], false));
+
+            // A non-owner cannot set the vector.
+            let stranger = addr_from_index(0x5005);
+            let rejected = execute_precompile(
+                &precompiles,
+                precompile_addr,
+                stranger,
+                encode_with_selector(
+                    selector_u32("setSubnetEmissionWeights(uint16,uint16[],uint64[])"),
+                    (TEST_NETUID_U16, vec![2u16], vec![0u64]),
+                ),
+                U256::zero(),
+            );
+            assert!(matches!(rejected, Some(Err(_))));
+
+            // The legacy owner-cut toggle is deprecated on chain and fails.
+            let deprecated = execute_precompile(
+                &precompiles,
+                precompile_addr,
+                caller,
+                encode_with_selector(
+                    selector_u32("setOwnerCutEnabled(uint16,bool)"),
+                    (TEST_NETUID_U16, false),
+                ),
+                U256::zero(),
+            );
+            assert!(matches!(deprecated, Some(Err(_))));
+            assert!(pallet_subtensor::Pallet::<Runtime>::get_owner_cut_enabled(
+                netuid
+            ));
         });
     }
 
@@ -1946,6 +2052,97 @@ mod tests {
     }
 
     #[test]
+    fn liquid_alpha_consensus_mode_preserves_encoding_and_owner_authorization() {
+        new_test_ext().execute_with(|| {
+            let owner = addr_from_index(0x5012);
+            let non_owner = addr_from_index(0x5013);
+            let netuid = setup_owner_subnet(owner);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let address = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+            let get_input = encode_with_selector(
+                selector_u32("getLiquidAlphaConsensusMode(uint16)"),
+                (TEST_NETUID_U16,),
+            );
+
+            assert!(!pallet_subtensor::LiquidAlphaConsensusMode::<Runtime>::contains_key(netuid));
+            precompiles
+                .prepare_test(owner, address, get_input.clone())
+                .with_static_call(true)
+                .expect_cost(
+                    precompile_utils::prelude::RuntimeHelper::<Runtime>::db_read_gas_cost(),
+                )
+                .execute_returns(2_u8);
+
+            for (encoded, expected) in [
+                (0_u8, pallet_subtensor::ConsensusMode::Current),
+                (1_u8, pallet_subtensor::ConsensusMode::Previous),
+                (2_u8, pallet_subtensor::ConsensusMode::Auto),
+            ] {
+                precompiles
+                    .prepare_test(
+                        owner,
+                        address,
+                        encode_with_selector(
+                            selector_u32("setLiquidAlphaConsensusMode(uint16,uint8)"),
+                            (TEST_NETUID_U16, encoded),
+                        ),
+                    )
+                    .execute_returns(());
+                assert_eq!(
+                    pallet_subtensor::LiquidAlphaConsensusMode::<Runtime>::get(netuid),
+                    expected
+                );
+                precompiles
+                    .prepare_test(owner, address, get_input.clone())
+                    .with_static_call(true)
+                    .expect_cost(
+                        precompile_utils::prelude::RuntimeHelper::<Runtime>::db_read_gas_cost(),
+                    )
+                    .execute_returns(encoded);
+            }
+
+            precompiles
+                .prepare_test(
+                    owner,
+                    address,
+                    encode_with_selector(
+                        selector_u32("setLiquidAlphaConsensusMode(uint16,uint8)"),
+                        (TEST_NETUID_U16, 3_u8),
+                    ),
+                )
+                .execute_reverts(|output| output == b"invalid liquid alpha consensus mode");
+            assert_eq!(
+                pallet_subtensor::LiquidAlphaConsensusMode::<Runtime>::get(netuid),
+                pallet_subtensor::ConsensusMode::Auto
+            );
+
+            let set_previous = encode_with_selector(
+                selector_u32("setLiquidAlphaConsensusMode(uint16,uint8)"),
+                (TEST_NETUID_U16, 1_u8),
+            );
+            let rejected = execute_precompile(
+                &precompiles,
+                address,
+                non_owner,
+                set_previous.clone(),
+                U256::zero(),
+            );
+            assert!(matches!(rejected, Some(Err(_))));
+            assert_eq!(
+                pallet_subtensor::LiquidAlphaConsensusMode::<Runtime>::get(netuid),
+                pallet_subtensor::ConsensusMode::Auto
+            );
+
+            precompiles
+                .prepare_test(owner, address, set_previous)
+                .with_static_call(true)
+                .execute_reverts(|output| {
+                    output == b"Can't call non-static function in static context"
+                });
+        });
+    }
+
+    #[test]
     fn subnet_precompile_gets_network_registered_block() {
         new_test_ext().execute_with(|| {
             let caller = addr_from_index(0x5003);
@@ -2171,7 +2368,7 @@ mod tests {
                     pallet_subtensor::MinNonImmuneUids::<Runtime>::get(netuid),
                     pallet_subtensor::ImmuneOwnerUidsLimit::<Runtime>::get(netuid),
                     pallet_subtensor::BondsPenalty::<Runtime>::get(netuid),
-                    pallet_subtensor::OwnerCutEnabled::<Runtime>::get(netuid),
+                    pallet_subtensor::Pallet::<Runtime>::get_owner_cut_enabled(netuid),
                     pallet_subtensor::TransferToggle::<Runtime>::get(netuid),
                     pallet_subtensor::MaxRegistrationsPerBlock::<Runtime>::get(netuid),
                     u8::from(pallet_subtensor::MechanismCountCurrent::<Runtime>::get(

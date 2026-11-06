@@ -86,7 +86,7 @@ where
         handle: &mut impl PrecompileHandle,
         accounts: BoundedVec<H256, ConstU32<64>>,
     ) -> EvmResult<()> {
-        let caller = handle.caller_account_id::<R>();
+        let caller = handle.caller_account_id::<R>()?;
         let who = Vec::<H256>::from(accounts)
             .into_iter()
             .map(|account| R::AccountId::from(account.0))
@@ -132,6 +132,7 @@ mod tests {
         )
     }
 
+    // PROTECTED_REGRESSION: balance precompile does not expose unsynchronized native burn; changes require explicit human approval.
     #[test]
     fn balance_precompile_does_not_expose_unsynchronized_native_burn() {
         assert!(

@@ -38,7 +38,7 @@ for each case. Use the normal SDK and CLI submission paths wherever applicable.
 | Timelock | Encrypt, commit, reveal and consume a full row. Exercise mechanism-dependent payload limits, missing pulses/retry, pending-commit switch guards, queue byte/count bounds and the winner's priority admission under pressure. |
 | Clients and EVM | Submit raw U16 weights and JSON files through SDK/CLI; reject invalid values without rescaling. Check released Solidity selectors and bounds alongside V2 calldata, authorization and gas charging. |
 | Payout destinations | Check owner cuts, validator/root destinations and standing versus draining miner collateral against epoch funding; compare emitted vectors with actual credits. |
-| Scheduling | A due Null epoch uses one scheduler slot. Deferred reveals and emission drains agree; a future Null epoch does not reduce the configured Yuma cap. |
+| Scheduling | A due Null epoch uses one scheduler slot and takes it ahead of earlier due subnets. Deferred reveals and emission drains agree; a future Null epoch does not reduce the configured Yuma cap. |
 
 Run maximum-size resource cases first against an isolated testnet-state clone.
 Repeat safe production-shaped cases on shared testnet after reference resource

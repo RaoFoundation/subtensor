@@ -129,15 +129,20 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
     ) -> DispatchResult {
+        Self::ensure_hotkey_owner_policy(coldkey, hotkey)?;
         // Only allow to register non-system hotkeys
         ensure!(
             Self::is_subnet_account_id(hotkey).is_none(),
             Error::<T>::CannotUseSystemAccount
         );
+        // An in-flight coldkey-swap announcement reserves its destination so a
+        // third party cannot register that address as a hotkey during the delay
+        // and force NewColdKeyIsHotkey at execute (recovery-denial griefing).
+        Self::ensure_account_not_reserved_as_coldkey_swap_destination(hotkey)?;
 
         if !Self::hotkey_account_exists(hotkey) {
+            Self::ensure_staking_hotkeys_can_grow(coldkey, hotkey)?;
             Owner::<T>::insert(hotkey, coldkey);
-
             // Update OwnedHotkeys map
             let mut hotkeys = OwnedHotkeys::<T>::get(coldkey);
             if !hotkeys.contains(hotkey) {
@@ -156,13 +161,32 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn set_hotkey_owner(coldkey: &T::AccountId, hotkey: &T::AccountId) -> DispatchResult {
+        Self::ensure_hotkey_owner_policy(coldkey, hotkey)?;
         // Only allow to register non-system hotkeys
         ensure!(
             Self::is_subnet_account_id(hotkey).is_none(),
             Error::<T>::CannotUseSystemAccount
         );
+        // Same reservation guard as create_account: hotkey-swap must not assign
+        // Owner to a reserved coldkey-swap destination during the announce delay.
+        Self::ensure_account_not_reserved_as_coldkey_swap_destination(hotkey)?;
         Owner::<T>::insert(hotkey, coldkey);
         Ok(())
+    }
+
+    pub fn ensure_hotkey_owner_policy(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) -> DispatchResult {
+        ensure!(
+            T::HotkeyOwnerPolicy::allows_owner(coldkey, hotkey),
+            Error::<T>::HotkeyOwnerPolicyViolation
+        );
+        Ok(())
+    }
+
+    pub fn hotkey_owner_policy_weight() -> Weight {
+        T::HotkeyOwnerPolicy::weight()
     }
 
     //// If the hotkey is not a delegate, make it a delegate.

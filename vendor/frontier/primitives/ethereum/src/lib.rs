@@ -121,7 +121,9 @@ impl From<TransactionData> for CheckEvmTransactionInput {
 						d.chain_id.into(),
 						d.address,
 						d.nonce,
-						d.authorizing_address().ok(),
+						// Validation only needs the authorization count for intrinsic gas.
+						// Recover signatures in the runner after resource validation succeeds.
+						None,
 					)
 				})
 				.collect(),

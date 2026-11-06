@@ -12,7 +12,7 @@ use frame_support::{assert_noop, assert_ok};
 use safe_math::FixedExt;
 use sp_core::U256;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, ProxyType, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
 use super::mock::*;
@@ -423,6 +423,129 @@ fn test_set_perpetual_lock_toggles_owner_lock_decay() {
         ));
         step_block(100);
         assert!(SubtensorModule::get_current_locked(&owner_coldkey, netuid) < lock_amount);
+    });
+}
+
+#[test]
+fn lock_proxy_executes_the_complete_lock_lifecycle_and_nothing_else() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let delegate = U256::from(2);
+        let origin_hotkey = U256::from(3);
+        let destination_hotkey = U256::from(4);
+        let netuid = setup_subnet_with_stake(coldkey, origin_hotkey, 100_000_000_000);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey,
+            &destination_hotkey,
+        ));
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000u64.into());
+
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(coldkey),
+            delegate,
+            ProxyType::Lock,
+            0,
+        ));
+
+        let proxy_lock_call = |call| {
+            assert_ok!(Proxy::proxy(
+                RuntimeOrigin::signed(delegate),
+                coldkey,
+                Some(ProxyType::Lock),
+                Box::new(call),
+            ));
+            assert_eq!(
+                pallet_subtensor_proxy::LastCallResult::<Test>::get(coldkey),
+                Some(Ok(())),
+            );
+        };
+
+        let initial_lock: AlphaBalance = 5_000u64.into();
+        let top_up: AlphaBalance = 2_000u64.into();
+        proxy_lock_call(RuntimeCall::SubtensorModule(crate::Call::lock_stake {
+            hotkey: origin_hotkey,
+            netuid,
+            amount: initial_lock,
+        }));
+        proxy_lock_call(RuntimeCall::SubtensorModule(crate::Call::lock_stake {
+            hotkey: origin_hotkey,
+            netuid,
+            amount: top_up,
+        }));
+        let locked = initial_lock.saturating_add(top_up);
+        assert_eq!(
+            SubtensorModule::get_current_locked(&coldkey, netuid),
+            locked,
+        );
+
+        proxy_lock_call(RuntimeCall::SubtensorModule(
+            crate::Call::set_perpetual_lock {
+                netuid,
+                enabled: true,
+            },
+        ));
+        step_block(100);
+        assert_eq!(
+            SubtensorModule::get_current_locked(&coldkey, netuid),
+            locked,
+            "perpetual lock must not decay",
+        );
+
+        proxy_lock_call(RuntimeCall::SubtensorModule(crate::Call::move_lock {
+            destination_hotkey,
+            netuid,
+        }));
+        assert!(Lock::<Test>::get((coldkey, netuid, origin_hotkey)).is_none());
+        assert!(Lock::<Test>::get((coldkey, netuid, destination_hotkey)).is_some());
+
+        proxy_lock_call(RuntimeCall::SubtensorModule(
+            crate::Call::set_perpetual_lock {
+                netuid,
+                enabled: false,
+            },
+        ));
+        step_block(100);
+        assert!(
+            SubtensorModule::get_current_locked(&coldkey, netuid) < locked,
+            "clearing perpetual mode must resume decay",
+        );
+
+        let stake_before = get_alpha(&origin_hotkey, &coldkey, netuid);
+        assert_ok!(Proxy::proxy(
+            RuntimeOrigin::signed(delegate),
+            coldkey,
+            Some(ProxyType::Lock),
+            Box::new(RuntimeCall::SubtensorModule(crate::Call::remove_stake {
+                hotkey: origin_hotkey,
+                netuid,
+                amount_unstaked: 1u64.into(),
+            })),
+        ));
+        assert_eq!(
+            pallet_subtensor_proxy::LastCallResult::<Test>::get(coldkey),
+            Some(Err(frame_system::Error::<Test>::CallFiltered.into())),
+        );
+        assert_eq!(get_alpha(&origin_hotkey, &coldkey, netuid), stake_before);
+
+        assert_ok!(Proxy::remove_proxy(
+            RuntimeOrigin::signed(coldkey),
+            delegate,
+            ProxyType::Lock,
+            0,
+        ));
+        assert_noop!(
+            Proxy::proxy(
+                RuntimeOrigin::signed(delegate),
+                coldkey,
+                Some(ProxyType::Lock),
+                Box::new(RuntimeCall::SubtensorModule(crate::Call::lock_stake {
+                    hotkey: destination_hotkey,
+                    netuid,
+                    amount: 1u64.into(),
+                })),
+            ),
+            pallet_subtensor_proxy::Error::<Test>::NotProxy,
+        );
     });
 }
 
@@ -4137,7 +4260,7 @@ fn test_coldkey_swap_lock_blocks_unstake() {
 
 #[test]
 // Conviction-only destination lock state is not active, so direct coldkey lock transfer is allowed.
-fn test_coldkey_swap_allows_destination_conviction_only_lock() {
+fn test_coldkey_swap_rejects_destination_conviction_only_lock() {
     new_test_ext(1).execute_with(|| {
         let old_coldkey = U256::from(1);
         let new_coldkey = U256::from(10);
@@ -4170,25 +4293,85 @@ fn test_coldkey_swap_allows_destination_conviction_only_lock() {
             },
         );
 
+        // Residual destination conviction blocks the merge until a path can
+        // preserve it; zero mass alone is not enough to clear the row.
+        assert_noop!(
+            SubtensorModule::swap_coldkey_locks(&old_coldkey, &new_coldkey),
+            Error::<Test>::ActiveLockExists
+        );
+        assert!(Lock::<Test>::get((new_coldkey, netuid, new_hotkey)).is_some());
+        assert_eq!(
+            Lock::<Test>::get((new_coldkey, netuid, new_hotkey))
+                .expect("dest conviction-only lock preserved")
+                .conviction,
+            new_conviction
+        );
+        assert!(Lock::<Test>::get((old_coldkey, netuid, old_hotkey)).is_some());
+    });
+}
+
+#[test]
+// Fully exhausted (dust) destination lock rows that sort before an incoming
+// active source lock must be purged on merge; otherwise get_current_locked can
+// report zero and alpha covered by the active lock becomes withdrawable.
+fn test_coldkey_swap_purges_exhausted_destination_lock_before_active_merge() {
+    new_test_ext(1).execute_with(|| {
+        let old_coldkey = U256::from(1);
+        let new_coldkey = U256::from(10);
+        // Destination hotkey sorts before the source hotkey under the mock
+        // AccountId encoding so the exhausted row would be discovered first.
+        let dest_hotkey = U256::from(2);
+        let source_hotkey = U256::from(20);
+        let netuid = subtensor_runtime_common::NetUid::from(1);
+
+        let active_locked = AlphaBalance::from(5_000_000u64);
+        let active_conviction = U64F64::from_num(55);
+
+        // Destination must accept locked alpha to receive the source active lock.
+        SubtensorModule::set_accept_locked_alpha(&new_coldkey, true);
+
+        SubtensorModule::insert_lock_state(
+            &old_coldkey,
+            netuid,
+            &source_hotkey,
+            LockState {
+                locked_mass: active_locked,
+                conviction: active_conviction,
+                last_update: SubtensorModule::get_current_block_as_u64(),
+            },
+        );
+        // Seed a fully exhausted dust row directly (insert_lock_state would
+        // remove is_zero state).
+        Lock::<Test>::insert(
+            (new_coldkey, netuid, dest_hotkey),
+            LockState {
+                locked_mass: AlphaBalance::ZERO,
+                conviction: U64F64::from_num(0),
+                last_update: SubtensorModule::get_current_block_as_u64(),
+            },
+        );
+        LockingColdkeys::<Test>::insert((netuid, dest_hotkey, new_coldkey), ());
+
+        // Precondition: exhausted dest row is the first discoverable lock.
+        let (first_hotkey, _) = Lock::<Test>::iter_prefix((new_coldkey, netuid))
+            .next()
+            .expect("destination exhausted lock present");
+        assert_eq!(first_hotkey, dest_hotkey);
+
         assert_ok!(SubtensorModule::swap_coldkey_locks(
             &old_coldkey,
             &new_coldkey
         ));
 
-        assert!(
-            Lock::<Test>::iter_prefix((old_coldkey, netuid))
-                .next()
-                .is_none()
+        assert!(Lock::<Test>::get((new_coldkey, netuid, dest_hotkey)).is_none());
+        assert_eq!(Lock::<Test>::iter_prefix((new_coldkey, netuid)).count(), 1);
+        let merged = Lock::<Test>::get((new_coldkey, netuid, source_hotkey))
+            .expect("active source lock transferred");
+        assert_eq!(merged.locked_mass, active_locked);
+        assert_eq!(
+            SubtensorModule::get_current_locked(&new_coldkey, netuid),
+            active_locked
         );
-        assert!(Lock::<Test>::get((new_coldkey, netuid, new_hotkey)).is_some());
-
-        let swapped_lock = Lock::<Test>::get((new_coldkey, netuid, old_hotkey))
-            .expect("source lock should be transferred");
-        assert_eq!(swapped_lock.locked_mass, AlphaBalance::ZERO);
-        assert_eq!(swapped_lock.conviction, old_conviction);
-        assert_eq!(Lock::<Test>::iter_prefix((new_coldkey, netuid)).count(), 2);
-        assert!(DecayingLock::<Test>::get(old_coldkey, netuid).is_none());
-        assert_eq!(DecayingLock::<Test>::get(new_coldkey, netuid), Some(false));
     });
 }
 
@@ -4876,7 +5059,7 @@ fn test_epoch_distribution_auto_locks_owner_cut() {
         SubtensorModule::set_weights_set_rate_limit(netuid, 0);
         SubtensorModule::set_max_allowed_validators(netuid, 1);
         step_block(subnet_tempo);
-        SubnetOwnerCut::<Test>::set(u16::MAX / 10);
+        set_subnet_owner_cut_for_test(netuid, u16::MAX / 10);
         OwnerCutAutoLockEnabled::<Test>::insert(netuid, true);
 
         let owner_uid =

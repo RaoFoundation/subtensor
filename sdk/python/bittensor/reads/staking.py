@@ -11,6 +11,7 @@ from .._generated import storage as st
 from ..balance import Balance
 from .base import read
 from .prices import alpha_prices
+from .subnets import SubnetLifecycleState, subnet_states
 
 
 @dataclass
@@ -27,6 +28,7 @@ class StakePosition:
     netuid: int
     stake: Balance
     is_registered: bool
+    subnet_state: Optional[SubnetLifecycleState] = None
 
 
 @dataclass
@@ -52,13 +54,17 @@ class StakeValuation:
         return Balance.from_rao(int(stake.rao * self.tao_per_alpha.get(stake.netuid, 0.0)))
 
 
-def _stake_position(view, r: dict) -> StakePosition:
+def _stake_position(
+    view, r: dict, states: Optional[dict[int, SubnetLifecycleState]] = None
+) -> StakePosition:
+    netuid = int(r["netuid"])
     return StakePosition(
         hotkey=str(r["hotkey"]),
         coldkey=str(r["coldkey"]),
-        netuid=int(r["netuid"]),
-        stake=view.balance(int(r["stake"]), int(r["netuid"])),
+        netuid=netuid,
+        stake=view.balance(int(r["stake"]), netuid),
         is_registered=bool(r["is_registered"]),
+        subnet_state=(states or {}).get(netuid),
     )
 
 
@@ -94,8 +100,12 @@ async def stake_for_coldkey(view, coldkey_ss58: str) -> list[StakePosition]:
     alpha, or TAO when netuid is 0. Use `stake_value_for_coldkey` to mark alpha
     positions to TAO.
     """
-    records = await view.runtime(api.StakeInfoRuntimeApi.get_stake_info_for_coldkey, [coldkey_ss58])
-    return [_stake_position(view, r) for r in records or []]
+    view = await view.at()
+    records, states = await asyncio.gather(
+        view.runtime(api.StakeInfoRuntimeApi.get_stake_info_for_coldkey, [coldkey_ss58]),
+        subnet_states(view),
+    )
+    return [_stake_position(view, r, states) for r in records or []]
 
 
 @read(
@@ -110,11 +120,13 @@ async def stake_for_coldkeys(view, coldkey_ss58s: list[str]) -> dict[str, list[S
     Each position's `stake` is denominated in the subnet's own currency: subnet
     alpha, or TAO when netuid is 0.
     """
-    records = await view.runtime(
-        api.StakeInfoRuntimeApi.get_stake_info_for_coldkeys, [coldkey_ss58s]
+    view = await view.at()
+    records, states = await asyncio.gather(
+        view.runtime(api.StakeInfoRuntimeApi.get_stake_info_for_coldkeys, [coldkey_ss58s]),
+        subnet_states(view),
     )
     return {
-        str(coldkey): [_stake_position(view, r) for r in positions or []]
+        str(coldkey): [_stake_position(view, r, states) for r in positions or []]
         for coldkey, positions in records or []
     }
 
@@ -139,11 +151,12 @@ def _spot_value(positions: list[StakePosition], tao_per_alpha: dict[int, float])
 async def stake_value_for_coldkey(view, coldkey_ss58: str) -> StakeValuation:
     """A coldkey's stake marked to TAO at spot prices (excludes slippage/fees), block-pinned."""
     view = await view.at()
-    records, tao_per_alpha = await asyncio.gather(
+    records, tao_per_alpha, states = await asyncio.gather(
         view.runtime(api.StakeInfoRuntimeApi.get_stake_info_for_coldkey, [coldkey_ss58]),
         alpha_prices(view),
+        subnet_states(view),
     )
-    positions = [_stake_position(view, r) for r in records or []]
+    positions = [_stake_position(view, r, states) for r in records or []]
     return StakeValuation(
         coldkey=coldkey_ss58,
         block=view.block,
@@ -162,12 +175,13 @@ async def stake_value_for_coldkey(view, coldkey_ss58: str) -> StakeValuation:
 async def stake_value_for_coldkeys(view, coldkey_ss58s: list[str]) -> dict[str, StakeValuation]:
     """Spot-price stake valuation for several coldkeys at once, at one block."""
     view = await view.at()
-    records, tao_per_alpha = await asyncio.gather(
+    records, tao_per_alpha, states = await asyncio.gather(
         view.runtime(api.StakeInfoRuntimeApi.get_stake_info_for_coldkeys, [coldkey_ss58s]),
         alpha_prices(view),
+        subnet_states(view),
     )
     by_coldkey = {
-        str(coldkey): [_stake_position(view, r) for r in positions or []]
+        str(coldkey): [_stake_position(view, r, states) for r in positions or []]
         for coldkey, positions in records or []
     }
     return {

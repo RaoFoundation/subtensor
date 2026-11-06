@@ -8,6 +8,7 @@ from typing import Any, Optional
 import typer
 
 from ... import config as cfg
+from ...account_mode import validate_account_mode
 from ...intents import (
     AddProxy,
     CreatePureProxy,
@@ -64,6 +65,9 @@ def create_proxy(
     proxy_type: ProxyTypeChoice = _proxy_type_option(),
     delay: int = typer.Option(0, "--delay", help=DELAY_HELP),
     index: int = typer.Option(0, "--index"),
+    account_mode: Optional[str] = typer.Option(
+        None, "--account-mode", help="Account derivation: legacy or safe; MS defaults to safe."
+    ),
     name: Optional[str] = typer.Option(
         None,
         "--name",
@@ -80,7 +84,11 @@ def create_proxy(
     `btcli proxy kill NAME` work later.
     """
     app_ctx: AppContext = ctx_of(ctx)
-    result = app_ctx.submit(CreatePureProxy(proxy_type=proxy_type.value, delay=delay, index=index))
+    result = app_ctx.submit(
+        CreatePureProxy(
+            proxy_type=proxy_type.value, delay=delay, index=index, account_mode=account_mode
+        )
+    )
     if result is None or not result.success:
         return
     pure = result.data.get("pure_proxy")
@@ -96,6 +104,7 @@ def create_proxy(
             "name": name,
             "address": pure,
             "spawner": result.data.get("spawner", ""),
+            "account_mode": result.data.get("pure_proxy_account_mode", "legacy"),
             "proxy_type": proxy_type.value,
             "delay": delay,
             "index": index,
@@ -110,9 +119,16 @@ def create_proxy(
             f"use it with `--proxy-for {name}`"
         )
     else:
+        restore = (
+            f"btcli proxy book add --name NAME --address {pure}"
+            f" --account-mode {result.data.get('pure_proxy_account_mode', 'legacy')}"
+            f" --proxy-type {proxy_type.value} --delay {delay} --index {index}"
+        )
+        for key in ("spawner", "height", "ext_index"):
+            if result.data.get(key) is not None:
+                restore += f" --{key.replace('_', '-')} {result.data[key]}"
         app_ctx.output.message(
-            "[dim]tip: save this pure proxy for later with "
-            f"`btcli proxy book add --name NAME --address {pure}` "
+            f"[dim]tip: save this pure proxy for later with `{restore}` "
             "(or pass --name on create to do it automatically)[/dim]"
         )
 
@@ -142,7 +158,11 @@ def remove_proxy(
     ),
     proxy_type: ProxyTypeChoice = _proxy_type_option(),
     delay: int = typer.Option(0, "--delay", help=DELAY_HELP),
-    all_proxies: bool = typer.Option(False, "--all", help="Remove every proxy at once."),
+    all_proxies: bool = typer.Option(
+        False,
+        "--all",
+        help="Remove every proxy at once, including the hotkey's Validate/Weights grants.",
+    ),
 ):
     """Remove a proxy delegate."""
     app_ctx: AppContext = ctx_of(ctx)
@@ -159,7 +179,20 @@ def remove_proxy(
             if answer.strip().lower() != "remove all":
                 app_ctx.output.message("aborted.")
                 raise typer.Exit(1)
-        app_ctx.submit(RemoveProxies())
+        # Resolve once: when acting for another account (--proxy-for or the
+        # proxy_for config), only that account's proxies are in scope.
+        dispatch_as = app_ctx.resolve_dispatch_proxy()
+        app_ctx.submit(RemoveProxies(), proxy_for=dispatch_as or "self")
+        if dispatch_as is not None:
+            return
+        # Validate/Weights grants are keyed by the hotkey, which the coldkey
+        # call cannot revoke.
+        hotkey_ss58 = _local_hotkey_ss58(app_ctx)
+        if (
+            hotkey_ss58 is not None
+            and app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=hotkey_ss58))["proxies"]
+        ):
+            app_ctx.submit(RemoveProxies(from_hotkey=True), proxy_for="self")
         return
     if delegate_ss58 is None:
         answers: dict[str, Any] = {"delegate_ss58": None}
@@ -167,6 +200,19 @@ def remove_proxy(
         delegate_ss58 = answers["delegate_ss58"]
     delegate = app_ctx.resolve_address("coldkey_ss58", delegate_ss58)
     app_ctx.submit(RemoveProxy(delegate_ss58=delegate, proxy_type=proxy_type.value, delay=delay))
+
+
+def _local_hotkey_ss58(app_ctx: AppContext) -> Optional[str]:
+    """Address of the wallet's hotkey, or None when no local hotkey is available."""
+    if app_ctx.uses_external_signer():
+        return None
+    wallet = app_ctx.wallet()
+    for attr in ("hotkeypub", "hotkey"):
+        try:
+            return getattr(wallet, attr).ss58_address
+        except Exception:
+            continue
+    return None
 
 
 @app.command("kill")
@@ -177,6 +223,11 @@ def kill_proxy(
         None,
         help="Proxy book entry to kill (fills the spawner, type, index, height, and "
         "ext-index recorded at create time). Flags override individual values.",
+    ),
+    account_mode: Optional[str] = typer.Option(
+        None,
+        "--account-mode",
+        help="Derivation mode at creation; defaults to the proxy book entry or legacy.",
     ),
     spawner_ss58: Optional[str] = typer.Option(
         None, address_cli_name("spawner_ss58"), help=ss58_param_help("spawner_ss58")
@@ -269,6 +320,7 @@ def kill_proxy(
     result = app_ctx.submit(
         KillPureProxy(
             spawner_ss58=spawner,
+            account_mode=account_mode or from_entry("account_mode") or "legacy",
             proxy_type=type_value,
             index=int(index_value),
             height=int(height_value),
@@ -357,6 +409,9 @@ def book_add(
     name: str = typer.Option(..., "--name"),
     address: str = typer.Option(..., "--address", help="Pure or delegate proxy ss58."),
     spawner: str = typer.Option("", "--spawner"),
+    account_mode: str = typer.Option(
+        "legacy", "--account-mode", help="Derivation mode used at creation: legacy or safe."
+    ),
     proxy_type: ProxyTypeChoice = _proxy_type_option(),
     delay: int = typer.Option(0, "--delay"),
     index: int = typer.Option(0, "--index"),
@@ -373,6 +428,7 @@ def book_add(
     entry: dict[str, Any] = {
         "name": name,
         "address": address,
+        "account_mode": validate_account_mode(account_mode),
         "spawner": spawner,
         "proxy_type": proxy_type.value,
         "delay": delay,

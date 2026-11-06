@@ -10,7 +10,9 @@ use frame_system::Config;
 use pallet_subtensor::{
     Error as SubtensorError, Event, MaxRegistrationsPerBlock, SubnetOwner,
     TargetRegistrationsPerInterval, Tempo, WeightsVersionKeyRateLimit,
-    subnets::mechanism::MAX_MECHANISM_COUNT_PER_SUBNET, utils::rate_limiting::TransactionType, *,
+    subnets::mechanism::MAX_MECHANISM_COUNT_PER_SUBNET,
+    utils::rate_limiting::{Hyperparameter, TransactionType},
+    *,
 };
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{Get, Pair, U256, ed25519};
@@ -21,6 +23,33 @@ pub mod mock;
 mod pow_difficulty;
 mod swap_basket_liquidity_cap;
 use mock::*;
+
+#[test]
+fn test_sudo_set_hashed_account_registration_deposit() {
+    new_test_ext().execute_with(|| {
+        let default = TaoBalance::new(200_000_000);
+        let updated = TaoBalance::new(350_000_000);
+        assert!(!sp_io::storage::exists(&MockRegistrationDeposit::key()));
+        assert_eq!(MockRegistrationDeposit::get(), default);
+        for origin in [RuntimeOrigin::signed(U256::from(1)), RuntimeOrigin::none()] {
+            assert_noop!(
+                AdminUtils::sudo_set_hashed_account_registration_deposit(origin, updated),
+                DispatchError::BadOrigin
+            );
+        }
+        assert!(!sp_io::storage::exists(&MockRegistrationDeposit::key()));
+        for value in [updated, TaoBalance::new(0), default] {
+            assert_ok!(AdminUtils::sudo_set_hashed_account_registration_deposit(
+                RuntimeOrigin::root(),
+                value
+            ));
+            assert_eq!(MockRegistrationDeposit::get(), value);
+            frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+                crate::Event::HashedAccountRegistrationDepositSet { value },
+            ));
+        }
+    });
+}
 
 #[test]
 fn test_sudo_set_default_take() {
@@ -374,23 +403,21 @@ fn test_sudo_set_adjustment_alpha() {
 }
 
 #[test]
-fn test_sudo_subnet_owner_cut() {
+fn test_sudo_subnet_owner_cut_is_deprecated() {
     new_test_ext().execute_with(|| {
-        let to_be_set: u16 = 10;
         let init_value: u16 = SubtensorModule::get_subnet_owner_cut();
-        assert_eq!(
+        assert_noop!(
             AdminUtils::sudo_set_subnet_owner_cut(
                 <<Test as Config>::RuntimeOrigin>::signed(U256::from(0)),
-                to_be_set
+                10
             ),
-            Err(DispatchError::BadOrigin)
+            Error::<Test>::Deprecated
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_owner_cut(<<Test as Config>::RuntimeOrigin>::root(), 10),
+            Error::<Test>::Deprecated
         );
         assert_eq!(SubtensorModule::get_subnet_owner_cut(), init_value);
-        assert_ok!(AdminUtils::sudo_set_subnet_owner_cut(
-            <<Test as Config>::RuntimeOrigin>::root(),
-            to_be_set
-        ));
-        assert_eq!(SubtensorModule::get_subnet_owner_cut(), to_be_set);
     });
 }
 
@@ -2836,39 +2863,42 @@ fn test_sudo_set_mechanism_count() {
 }
 
 #[test]
-fn test_sudo_set_owner_cut_enabled() {
+fn test_sudo_set_owner_cut_enabled_is_deprecated() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(11);
         let owner = U256::from(1234);
-        let call = RuntimeCall::AdminUtils(crate::Call::sudo_set_owner_cut_enabled {
-            netuid,
-            enabled: false,
-        });
 
         add_network(netuid, 10);
         SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_subnet_emission_weights_unchecked(
+            netuid,
+            SubtensorModule::emission_weights_with_owner(pallet_subtensor::emission_fraction(
+                10, 100,
+            )),
+        );
 
         assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
             <<Test as Config>::RuntimeOrigin>::root(),
             0
         ));
 
-        let dispatch_info = call.get_dispatch_info();
-        assert_eq!(dispatch_info.pays_fee, Pays::Yes);
-
         assert!(SubtensorModule::get_owner_cut_enabled(netuid));
-        assert_ok!(AdminUtils::sudo_set_owner_cut_enabled(
-            <<Test as Config>::RuntimeOrigin>::signed(owner),
-            netuid,
-            false
-        ));
-        assert!(!SubtensorModule::get_owner_cut_enabled(netuid));
-
-        assert_ok!(AdminUtils::sudo_set_owner_cut_enabled(
-            <<Test as Config>::RuntimeOrigin>::root(),
-            netuid,
-            true
-        ));
+        assert_noop!(
+            AdminUtils::sudo_set_owner_cut_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                false
+            ),
+            Error::<Test>::Deprecated
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_owner_cut_enabled(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                false
+            ),
+            Error::<Test>::Deprecated
+        );
         assert!(SubtensorModule::get_owner_cut_enabled(netuid));
     });
 }
@@ -4316,5 +4346,373 @@ fn test_sudo_set_basket_min_trade_tao() {
                 crate::Event::BasketMinTradeTaoSet { min_trade_rao },
             ));
         }
+    });
+}
+
+// =============================================================================
+// Emission weight vector (etao)
+// =============================================================================
+
+fn emission_weights_call_setup(netuid: NetUid, owner: U256) {
+    add_network(netuid, 10);
+    SubnetOwner::<Test>::insert(netuid, owner);
+    assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+        <<Test as Config>::RuntimeOrigin>::root(),
+        0
+    ));
+}
+
+/// `[0, 0, owner, validator, rest]` as the sparse `(uids, values)` pair.
+fn emission_weights_full(owner: u64, validator: u64) -> (Vec<u16>, Vec<u64>) {
+    let miner = EMISSION_WEIGHT_ONE
+        .saturating_sub(owner)
+        .saturating_sub(validator);
+    (vec![0, 1, 2, 3, 4], vec![0, 0, owner, validator, miner])
+}
+
+#[test]
+fn test_sudo_set_subnet_emission_weights_owner_and_rate_limit() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(1324);
+        let stranger = U256::from(99);
+        emission_weights_call_setup(netuid, owner);
+
+        let (uids, values) =
+            emission_weights_full(emission_fraction(10, 100), emission_fraction(40, 100));
+
+        // Only the owner or root may call.
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::signed(stranger),
+                netuid,
+                uids.clone(),
+                values.clone()
+            ),
+            DispatchError::BadOrigin
+        );
+
+        // First owner call is never rate limited.
+        assert_ok!(AdminUtils::sudo_set_subnet_emission_weights(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            uids.clone(),
+            values.clone()
+        ));
+        assert_eq!(
+            SubtensorModule::get_subnet_emission_weights(netuid).to_vec(),
+            values
+        );
+        let limit_tx = TransactionType::from(Hyperparameter::EmissionWeights);
+        assert_eq!(
+            limit_tx.rate_limit_on_subnet::<Test>(netuid),
+            SubnetEmissionWeightsRateLimit::<Test>::get()
+        );
+
+        // An immediate second owner call is blocked by the weekly limit...
+        let (uids2, values2) = emission_weights_full(0, emission_fraction(45, 100));
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                uids2.clone(),
+                values2.clone()
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+        // ...root is not.
+        assert_ok!(AdminUtils::sudo_set_subnet_emission_weights(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            uids2.clone(),
+            values2.clone()
+        ));
+        assert_eq!(
+            SubtensorModule::get_subnet_emission_weights(netuid).to_vec(),
+            values2
+        );
+
+        // The limit is keyed per subnet, not per owner coldkey: a new owner is still
+        // bound by the previous owner's call.
+        let new_owner = U256::from(1325);
+        SubnetOwner::<Test>::insert(netuid, new_owner);
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::signed(new_owner),
+                netuid,
+                uids.clone(),
+                values.clone()
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+
+        // Once the window has passed the owner may call again.
+        let limit = SubnetEmissionWeightsRateLimit::<Test>::get();
+        limit_tx.set_last_block_on_subnet::<Test>(
+            &new_owner,
+            netuid,
+            SubtensorModule::get_current_block_as_u64().saturating_sub(limit),
+        );
+        assert_ok!(AdminUtils::sudo_set_subnet_emission_weights(
+            <<Test as Config>::RuntimeOrigin>::signed(new_owner),
+            netuid,
+            uids,
+            values.clone()
+        ));
+        assert_eq!(
+            SubtensorModule::get_subnet_emission_weights(netuid).to_vec(),
+            values
+        );
+
+        // Dissolution clears the per-subnet key, so a reused netuid starts fresh.
+        assert!(limit_tx.last_block_on_subnet::<Test>(&new_owner, netuid) > 0);
+        let mut meter = frame_support::weights::WeightMeter::new();
+        assert!(SubtensorModule::remove_network_parameters(
+            netuid, &mut meter
+        ));
+        assert_eq!(limit_tx.last_block_on_subnet::<Test>(&new_owner, netuid), 0);
+    });
+}
+
+#[test]
+fn test_sudo_set_subnet_emission_weights_root_obeys_rules() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        emission_weights_call_setup(netuid, U256::from(1));
+        let (uids, values) = emission_weights_full(
+            MAX_OWNER_EMISSION.saturating_add(1),
+            emission_fraction(34, 100),
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                uids,
+                values
+            ),
+            SubtensorError::<Test>::OwnerEmissionAboveMaximum
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                vec![3],
+                vec![emission_fraction(40, 100)]
+            ),
+            SubtensorError::<Test>::EmissionWeightsDoNotSumToOne
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                NetUid::from(7),
+                vec![3],
+                vec![emission_fraction(40, 100)]
+            ),
+            SubtensorError::<Test>::SubnetNotExists
+        );
+    });
+}
+
+#[test]
+fn test_sudo_set_subnet_emission_weights_respects_freeze_window() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(9);
+        let tempo: u16 = 10;
+        add_network(netuid, tempo);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            3
+        ));
+        pallet_subtensor::LastEpochBlock::<Test>::insert(netuid, 0);
+        run_to_block(tempo as u64 - 2);
+
+        let (uids, values) = emission_weights_full(0, emission_fraction(45, 100));
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                uids.clone(),
+                values.clone()
+            ),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                uids,
+                values
+            ),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+    });
+}
+
+#[test]
+fn test_sudo_set_tao_usd_price_oracle() {
+    new_test_ext().execute_with(|| {
+        let oracle = U256::from(9);
+        pallet_subtensor::TaoUsdPrice::<Test>::put(pallet_subtensor::TaoUsdPriceState {
+            accepted: 1,
+            feed: 1,
+            fed_at: 0,
+        });
+        assert_noop!(
+            AdminUtils::sudo_set_tao_usd_price_oracle(
+                <<Test as Config>::RuntimeOrigin>::signed(oracle),
+                Some(oracle)
+            ),
+            DispatchError::BadOrigin
+        );
+
+        assert_ok!(AdminUtils::sudo_set_tao_usd_price_oracle(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            Some(oracle)
+        ));
+        assert_eq!(
+            pallet_subtensor::TaoUsdPriceOracle::<Test>::get(),
+            Some(oracle)
+        );
+        assert_eq!(pallet_subtensor::TaoUsdPrice::<Test>::get(), None);
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::TaoUsdPriceOracleSet {
+                oracle: Some(oracle),
+            },
+        ));
+
+        assert_ok!(AdminUtils::sudo_set_tao_usd_price_oracle(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            None
+        ));
+        assert_eq!(pallet_subtensor::TaoUsdPriceOracle::<Test>::get(), None);
+    });
+}
+
+#[test]
+fn test_sudo_set_subnet_gamma_enabled() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(5);
+        add_network(netuid, 10);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_tempo_unchecked(netuid, 1);
+        assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            0
+        ));
+
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(6)),
+                netuid,
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_ok!(AdminUtils::sudo_set_subnet_gamma_enabled(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            true
+        ));
+        assert!(pallet_subtensor::SubnetGammaEnabled::<Test>::get(netuid));
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::SubnetGammaEnabledSet {
+                netuid,
+                enabled: true,
+            },
+        ));
+
+        // The owner is rate limited; root is not.
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                false
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+        assert_ok!(AdminUtils::sudo_set_subnet_gamma_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            false
+        ));
+        assert!(!pallet_subtensor::SubnetGammaEnabled::<Test>::get(netuid));
+
+        // The root subnet and missing subnets are refused, even for root.
+        add_network(NetUid::ROOT, 10);
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                NetUid::ROOT,
+                true
+            ),
+            Error::<Test>::NotPermittedOnRootSubnet
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                NetUid::from(99),
+                true
+            ),
+            Error::<Test>::SubnetDoesNotExist
+        );
+
+        // Both are refused inside the admin freeze window.
+        let windowed = NetUid::from(2);
+        add_network(windowed, 10);
+        SubnetOwner::<Test>::insert(windowed, owner);
+        assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            3
+        ));
+        pallet_subtensor::LastEpochBlock::<Test>::insert(windowed, 0);
+        run_to_block(8);
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                windowed,
+                true
+            ),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                windowed,
+                true
+            ),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+    });
+}
+
+#[test]
+fn test_sudo_set_gamma_enabled() {
+    new_test_ext().execute_with(|| {
+        assert!(!pallet_subtensor::GammaEnabled::<Test>::get());
+        assert_noop!(
+            AdminUtils::sudo_set_gamma_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+
+        assert_ok!(AdminUtils::sudo_set_gamma_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            true
+        ));
+        assert!(pallet_subtensor::GammaEnabled::<Test>::get());
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::GammaEnabledSet { enabled: true },
+        ));
+
+        assert_ok!(AdminUtils::sudo_set_gamma_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            false
+        ));
+        assert!(!pallet_subtensor::GammaEnabled::<Test>::get());
     });
 }

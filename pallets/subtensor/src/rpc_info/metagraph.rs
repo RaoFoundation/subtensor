@@ -565,6 +565,14 @@ pub enum SelectiveMetagraphIndex {
     CollateralEarned,
 }
 
+/// Evaluate each requested field once without restricting legacy input lengths.
+/// Retain unknown indices so RPC callers can query newer runtime field layouts.
+pub fn normalize_metagraph_indices(mut indices: Vec<u16>) -> Vec<u16> {
+    indices.sort_unstable();
+    indices.dedup();
+    indices
+}
+
 impl SelectiveMetagraphIndex {
     fn from_index(index: usize) -> Option<Self> {
         match index {
@@ -651,7 +659,7 @@ impl SelectiveMetagraphIndex {
 }
 impl<T: Config> Pallet<T> {
     pub fn get_metagraph(netuid: NetUid) -> Option<Metagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             return None;
         }
 
@@ -686,7 +694,7 @@ impl<T: Config> Pallet<T> {
             Vec<I64F64>,
             Vec<I64F64>,
             Vec<I64F64>,
-        ) = Self::get_stake_weights_for_network(netuid);
+        ) = Self::get_reported_stake_weights_for_network(netuid);
 
         let subnet_volume = SubnetVolume::<T>::get(netuid);
         let (collateral_locked, collateral_min, collateral_earned) =
@@ -827,7 +835,7 @@ impl<T: Config> Pallet<T> {
         })
     }
     pub fn get_all_metagraphs() -> Vec<Option<Metagraph<T::AccountId>>> {
-        let netuids = Self::get_all_subnet_netuids();
+        let netuids = Self::get_all_reportable_subnet_netuids();
         let mut metagraphs = Vec::<Option<Metagraph<T::AccountId>>>::new();
         for netuid in netuids.clone().iter() {
             metagraphs.push(Self::get_metagraph(*netuid));
@@ -836,7 +844,9 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_mechagraph(netuid: NetUid, mecid: MechId) -> Option<Metagraph<T::AccountId>> {
-        if Self::ensure_mechanism_exists(netuid, mecid).is_err() {
+        // This is a reporting wrapper, so do not use `ensure_mechanism_exists`: that helper is
+        // intentionally operational and rejects a subnet as soon as `NetworksAdded` is cleared.
+        if !Self::is_subnet_reportable(netuid) || MechanismCountCurrent::<T>::get(netuid) <= mecid {
             return None;
         }
 
@@ -863,7 +873,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_all_mechagraphs() -> Vec<Option<Metagraph<T::AccountId>>> {
-        let netuids = Self::get_all_subnet_netuids();
+        let netuids = Self::get_all_reportable_subnet_netuids();
         let mut metagraphs = Vec::<Option<Metagraph<T::AccountId>>>::new();
         for netuid in netuids.clone().iter() {
             let mechanism_count = u8::from(MechanismCountCurrent::<T>::get(netuid));
@@ -878,7 +888,8 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        let metagraph_indexes = normalize_metagraph_indices(metagraph_indexes);
+        if !Self::is_subnet_reportable(netuid) {
             None
         } else {
             let mut result = SelectiveMetagraph::default();
@@ -895,7 +906,8 @@ impl<T: Config> Pallet<T> {
         mecid: MechId,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        let metagraph_indexes = normalize_metagraph_indices(metagraph_indexes);
+        if !Self::is_subnet_reportable(netuid) {
             None
         } else {
             let mut result = SelectiveMetagraph::default();
@@ -1372,7 +1384,7 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::AlphaStake) => {
                 let (_, alpha_stake_fl, _): (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) =
-                    Self::get_stake_weights_for_network(netuid);
+                    Self::get_reported_stake_weights_for_network(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     alpha_stake: Some(
@@ -1386,7 +1398,7 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::TaoStake) => {
                 let (_, _, tao_stake_fl): (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) =
-                    Self::get_stake_weights_for_network(netuid);
+                    Self::get_reported_stake_weights_for_network(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     tao_stake: Some(
@@ -1400,7 +1412,7 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::TotalStake) => {
                 let (total_stake_fl, _, _): (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) =
-                    Self::get_stake_weights_for_network(netuid);
+                    Self::get_reported_stake_weights_for_network(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     total_stake: Some(
@@ -1612,6 +1624,50 @@ impl<T: Config> Pallet<T> {
             ..Default::default()
         }
     }
+}
+
+#[test]
+fn selective_metagraph_indices_accept_repetitions_and_preserve_unknown_fields() {
+    assert_eq!(normalize_metagraph_indices(vec![]), Vec::<u16>::new());
+    assert_eq!(normalize_metagraph_indices(vec![54; 1_024]), vec![54]);
+    assert_eq!(
+        normalize_metagraph_indices(vec![u16::MAX, 54, 1, u16::MAX, 54]),
+        vec![1, 54, u16::MAX]
+    );
+    let all: Vec<_> = (0..=u16::MAX).collect();
+    let repeated = all.iter().rev().chain(all.iter()).copied().collect();
+    assert_eq!(normalize_metagraph_indices(repeated), all);
+}
+
+#[test]
+fn selective_graph_getters_preserve_legacy_results_for_long_selections() {
+    use crate::tests::mock::{SubtensorModule, add_network, new_test_ext};
+    use sp_core::U256;
+
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 1, 0);
+        SubtensorModule::append_neuron(netuid, &U256::from(30), 0);
+        for mecid in [None, Some(MechId::from(0))] {
+            let get = |indices| match mecid {
+                None => SubtensorModule::get_selective_metagraph(netuid, indices),
+                Some(mecid) => SubtensorModule::get_selective_mechagraph(netuid, mecid, indices),
+            };
+            let once = get(vec![54, 52, 1]);
+            assert!(once.is_some(), "the test subnet is reportable");
+            let once = once.unwrap_or_default();
+            assert_eq!(once.hotkeys.as_ref().map(Vec::len), Some(1));
+            assert_eq!(once.identities.as_ref().map(Vec::len), Some(1));
+            assert_eq!(get(vec![54, 1, 52, 54, 52, 1]), Some(once));
+            assert_eq!(get(vec![u16::MAX]), get(vec![]));
+            assert_eq!(get(vec![u16::MAX; 1_024]), get(vec![]));
+            assert_eq!(get(vec![54; 1_024]), get(vec![54]));
+            let repeated = [54, 52, 1, 59, 62, u16::MAX].repeat(128);
+            assert_eq!(get(repeated), get(vec![1, 52, 54, 59, 62]));
+            let all = (0..=SelectiveMetagraphIndex::CollateralEarned as u16).collect();
+            assert!(get(all).is_some());
+        }
+    });
 }
 
 #[test]

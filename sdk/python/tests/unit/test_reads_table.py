@@ -39,6 +39,7 @@ def seeded_substrate() -> FakeSubstrate:
         ("SubnetInfoRuntimeApi", "get_all_dynamic_info", []),
         ("SubnetInfoRuntimeApi", "get_dynamic_info", None),
         ("SubnetInfoRuntimeApi", "get_subnet_hyperparams_v3", None),
+        ("SubnetInfoRuntimeApi", "get_subnet_emission_weights", None),
         ("SubnetInfoRuntimeApi", "get_subnet_state", None),
         ("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", []),
         ("StakeInfoRuntimeApi", "get_stake_info_for_coldkeys", []),

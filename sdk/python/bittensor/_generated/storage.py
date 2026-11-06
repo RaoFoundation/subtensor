@@ -95,6 +95,7 @@ class SubtensorModule:
     MinChildkeyTakePerSubnet = Item('SubtensorModule', 'MinChildkeyTakePerSubnet', 'PerU16')
     Owner = Item('SubtensorModule', 'Owner', 'AccountId32')
     AccountFlags = Item('SubtensorModule', 'AccountFlags', 'u128')
+    HotkeySwapBasketCredits = Item('SubtensorModule', 'HotkeySwapBasketCredits', '()')
     Delegates = Item('SubtensorModule', 'Delegates', 'PerU16')
     ChildkeyTake = Item('SubtensorModule', 'ChildkeyTake', 'PerU16')
     ChildkeyThresholdChecks = Item('SubtensorModule', 'ChildkeyThresholdChecks', '()')
@@ -106,6 +107,13 @@ class SubtensorModule:
     RootAlphaDividendsPerSubnet = Item('SubtensorModule', 'RootAlphaDividendsPerSubnet', 'AlphaBalance')
     PendingBasketDeposits = Item('SubtensorModule', 'PendingBasketDeposits', 'AlphaBalance')
     PendingBasketFlushCursor = Item('SubtensorModule', 'PendingBasketFlushCursor', 'Vec<u8>')
+    DeferredBasketRates = Item('SubtensorModule', 'DeferredBasketRates', 'DeferredBasketState')
+    DeferredBasketGeneration = Item('SubtensorModule', 'DeferredBasketGeneration', 'u64')
+    DeferredBasketDebts = Item('SubtensorModule', 'DeferredBasketDebts', 'BoundedBTreeMap')
+    DeferredBasketConversions = Item('SubtensorModule', 'DeferredBasketConversions', 'DeferredBasketConversion')
+    DeferredBasketCashRate = Item('SubtensorModule', 'DeferredBasketCashRate', 'FixedI128')
+    DeferredBasketCashClaimed = Item('SubtensorModule', 'DeferredBasketCashClaimed', 'i128')
+    DeferredBasketCashReserve = Item('SubtensorModule', 'DeferredBasketCashReserve', 'u64')
     BlockEmission = Item('SubtensorModule', 'BlockEmission', 'u64')
     LastHotkeyEmissionOnNetuid = Item('SubtensorModule', 'LastHotkeyEmissionOnNetuid', 'AlphaBalance')
     SubnetLimit = Item('SubtensorModule', 'SubnetLimit', 'u16')
@@ -133,6 +141,8 @@ class SubtensorModule:
     ColdkeySwapAnnouncementDelay = Item('SubtensorModule', 'ColdkeySwapAnnouncementDelay', 'u32')
     ColdkeySwapReannouncementDelay = Item('SubtensorModule', 'ColdkeySwapReannouncementDelay', 'u32')
     ColdkeySwapAnnouncements = Item('SubtensorModule', 'ColdkeySwapAnnouncements', '(u32, H256)')
+    ColdkeySwapDestinationReservations = Item('SubtensorModule', 'ColdkeySwapDestinationReservations', 'AccountId32')
+    ColdkeySwapReservedDestination = Item('SubtensorModule', 'ColdkeySwapReservedDestination', 'AccountId32')
     ColdkeySwapDisputes = Item('SubtensorModule', 'ColdkeySwapDisputes', 'u32')
     TotalHotkeyAlpha = Item('SubtensorModule', 'TotalHotkeyAlpha', 'AlphaBalance')
     TotalAlphaStaked = Item('SubtensorModule', 'TotalAlphaStaked', 'AlphaBalance')
@@ -175,6 +185,8 @@ class SubtensorModule:
     NetworkLockReductionInterval = Item('SubtensorModule', 'NetworkLockReductionInterval', 'u64')
     SubnetOwnerCut = Item('SubtensorModule', 'SubnetOwnerCut', 'u16')
     OwnerCutEnabled = Item('SubtensorModule', 'OwnerCutEnabled', 'bool')
+    SubnetEmissionWeights = Item('SubtensorModule', 'SubnetEmissionWeights', 'BoundedVec')
+    SubnetCreatedViaLease = Item('SubtensorModule', 'SubnetCreatedViaLease', 'bool')
     NetworkRateLimit = Item('SubtensorModule', 'NetworkRateLimit', 'u64')
     NominatorMinRequiredStake = Item('SubtensorModule', 'NominatorMinRequiredStake', 'u64')
     WeightsVersionKeyRateLimit = Item('SubtensorModule', 'WeightsVersionKeyRateLimit', 'u64')
@@ -191,6 +203,7 @@ class SubtensorModule:
     SubnetMechanism = Item('SubtensorModule', 'SubnetMechanism', 'u16')
     SubnetworkN = Item('SubtensorModule', 'SubnetworkN', 'u16')
     NetworksAdded = Item('SubtensorModule', 'NetworksAdded', 'bool')
+    SubnetState = Item('SubtensorModule', 'SubnetState', 'SubnetLifecycleState')
     IsNetworkMember = Item('SubtensorModule', 'IsNetworkMember', 'bool')
     NetworkRegistrationAllowed = Item('SubtensorModule', 'NetworkRegistrationAllowed', 'bool')
     NetworkPowRegistrationAllowed = Item('SubtensorModule', 'NetworkPowRegistrationAllowed', 'bool')
@@ -201,6 +214,7 @@ class SubtensorModule:
     PendingValidatorEmission = Item('SubtensorModule', 'PendingValidatorEmission', 'AlphaBalance')
     PendingRootAlphaDivs = Item('SubtensorModule', 'PendingRootAlphaDivs', 'AlphaBalance')
     PendingOwnerCut = Item('SubtensorModule', 'PendingOwnerCut', 'AlphaBalance')
+    SubnetOwnerCutAccrued = Item('SubtensorModule', 'SubnetOwnerCutAccrued', 'AlphaBalance')
     MinerBurned = Item('SubtensorModule', 'MinerBurned', 'FixedU128')
     BlocksSinceLastStep = Item('SubtensorModule', 'BlocksSinceLastStep', 'u64')
     LastMechansimStepBlock = Item('SubtensorModule', 'LastMechansimStepBlock', 'u64')
@@ -285,6 +299,7 @@ class SubtensorModule:
     Axons = Item('SubtensorModule', 'Axons', 'AxonInfo')
     NeuronCertificates = Item('SubtensorModule', 'NeuronCertificates', 'NeuronCertificate')
     Prometheus = Item('SubtensorModule', 'Prometheus', 'PrometheusInfo')
+    Services = Item('SubtensorModule', 'Services', 'ServiceInfo')
     IdentitiesV2 = Item('SubtensorModule', 'IdentitiesV2', 'ChainIdentityV2')
     SubnetIdentitiesV3 = Item('SubtensorModule', 'SubnetIdentitiesV3', 'SubnetIdentityV3')
     TransactionKeyLastBlock = Item('SubtensorModule', 'TransactionKeyLastBlock', 'u64')
@@ -349,9 +364,17 @@ class SubtensorModule:
     MinerCollateral = Item('SubtensorModule', 'MinerCollateral', 'MinerCollateralState')
     ColdkeyMinerCollateral = Item('SubtensorModule', 'ColdkeyMinerCollateral', 'AlphaBalance')
     ColdkeyCollateralHotkeys = Item('SubtensorModule', 'ColdkeyCollateralHotkeys', 'BoundedVec')
+    GammaEnabled = Item('SubtensorModule', 'GammaEnabled', 'bool')
+    SubnetGammaEnabled = Item('SubtensorModule', 'SubnetGammaEnabled', 'bool')
+    GammaDeposits = Item('SubtensorModule', 'GammaDeposits', 'GammaDeposit')
+    ColdkeyGammaHotkeys = Item('SubtensorModule', 'ColdkeyGammaHotkeys', 'BoundedVec')
+    SubnetGammaPrice = Item('SubtensorModule', 'SubnetGammaPrice', 'FixedU128')
+    TaoUsdPriceOracle = Item('SubtensorModule', 'TaoUsdPriceOracle', 'AccountId32')
+    TaoUsdPrice = Item('SubtensorModule', 'TaoUsdPrice', 'TaoUsdPriceState')
     AutoParentDelegationEnabled = Item('SubtensorModule', 'AutoParentDelegationEnabled', 'bool')
     HasMigrationRun = Item('SubtensorModule', 'HasMigrationRun', 'bool')
     PendingChildKeyCooldown = Item('SubtensorModule', 'PendingChildKeyCooldown', 'u64')
+    ColdkeySwapV2PolicySnapshots = Item('SubtensorModule', 'ColdkeySwapV2PolicySnapshots', 'bool')
 
 class Sudo:
     Key = Item('Sudo', 'Key', 'AccountId32')
@@ -373,6 +396,7 @@ class Scheduler:
 class Proxy:
     Proxies = Item('Proxy', 'Proxies', '(BoundedVec, TaoBalance)')
     Announcements = Item('Proxy', 'Announcements', '(BoundedVec, TaoBalance)')
+    AnnouncementValidFrom = Item('Proxy', 'AnnouncementValidFrom', 'u32')
     LastCallResult = Item('Proxy', 'LastCallResult', 'Result')
     RealPaysFeeConsentV1 = Item('Proxy', 'RealPaysFeeConsentV1', '()')
 
@@ -387,6 +411,7 @@ class Commitments:
     MaxSpace = Item('Commitments', 'MaxSpace', 'u32')
 
 class AdminUtils:
+    HashedAccountsEnabled = Item('AdminUtils', 'HashedAccountsEnabled', 'bool')
     PrecompileEnable = Item('AdminUtils', 'PrecompileEnable', 'bool')
 
 class SafeMode:
@@ -407,6 +432,7 @@ class EVM:
     AccountStorages = Item('EVM', 'AccountStorages', 'H256')
     WhitelistedCreators = Item('EVM', 'WhitelistedCreators', 'Vec<H160>')
     DisableWhitelistCheck = Item('EVM', 'DisableWhitelistCheck', 'bool')
+    AccountNonces = Item('EVM', 'AccountNonces', 'u32')
 
 class EVMChainId:
     ChainId = Item('EVMChainId', 'ChainId', 'u64')
@@ -472,6 +498,14 @@ class AlphaAssets:
 
 class LimitOrders:
     Orders = Item('LimitOrders', 'Orders', 'OrderStatus')
+    ApprovedOrders = Item('LimitOrders', 'ApprovedOrders', 'AccountOrderApprovals')
     LimitOrdersEnabled = Item('LimitOrders', 'LimitOrdersEnabled', 'bool')
     LinkedOutputs = Item('LimitOrders', 'LinkedOutputs', 'LinkedOutput')
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')
+
+class HashedAccounts:
+    HashedAccountRegistrationDeposit = Item('HashedAccounts', 'HashedAccountRegistrationDeposit', 'TaoBalance')
+    Accounts = Item('HashedAccounts', 'Accounts', 'AccountRecord')
+    EvmAliases = Item('HashedAccounts', 'EvmAliases', 'AccountId32')
+    MlDsaAccounts = Item('HashedAccounts', 'MlDsaAccounts', 'MlDsaAccountRecord')
+    DerivedAuthorities = Item('HashedAccounts', 'DerivedAuthorities', 'DerivedAuthorityRecord')

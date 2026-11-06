@@ -315,6 +315,32 @@ class TestQueries:
     def test_wallet_balance_human_format_uses_three_decimals(self):
         assert format_balance(Balance.from_rao(2_832_438_604_652)) == "τ2,832.439"
 
+    @pytest.mark.parametrize("code", [4, 6])
+    def test_wallet_history_queries_underlying_account(self, fake, monkeypatch, code):
+        from bittensor.cli.commands import wallet as wallet_commands
+        from bittensor.receiving import receiving_address
+        from bittensor.sp_core import Keypair
+
+        key = Keypair.create_from_seed(bytes([93]) * 32, code)
+        queried = []
+
+        def fetch(owner, limit):
+            queried.append(owner)
+            return []
+
+        monkeypatch.setattr(wallet_commands, "_fetch_transfers", fetch)
+        result = invoke(
+            "--json",
+            "--network",
+            "finney",
+            "wallet",
+            "history",
+            "--coldkey",
+            receiving_address(key),
+        )
+        assert result.exit_code == 0, result.output
+        assert queried == [key.ss58_address]
+
 
 class TestAddressResolution:
     @staticmethod
@@ -437,6 +463,59 @@ class TestRoot:
 
 
 class TestTransactions:
+    @pytest.mark.parametrize("mode", ["default", "forced", "required"])
+    def test_affordable_small_carrier_keeps_default_and_forced_shield(
+        self, fake, monkeypatch, mode
+    ):
+        # Free TAO covers the measured small tier, but not the Weight::MAX tier.
+        # No hashed/ML-DSA activation is needed for this ordinary wallet.
+        fake.seed_default("System", "Account", {"data": {"free": 1000}})
+        fake.seed("AdminUtils", "HashedAccountsEnabled", [], False)
+        fake.mev_key = bytes(1184)
+        fake.seed("MevShield", "NextKey", [], fake.mev_key)
+        sizes = []
+
+        async def estimate(call, keypair, **kwargs):
+            if call.module == "MevShield":
+                size = len(call.params["ciphertext"])
+                sizes.append(size)
+                return Balance.from_rao(17 if size <= 8192 else 10**18)
+            return Balance.from_rao(17)
+
+        monkeypatch.setattr(fake, "estimate_fee", estimate)
+        if mode == "required":
+            monkeypatch.setattr(REGISTRY["unstake_all"], "mev_shield_required", True)
+        result = invoke(
+            "--json",
+            "--yes",
+            *(["--mev-shield"] if mode == "forced" else []),
+            "stake",
+            "unstake-all",
+            "--hotkey",
+            BOB,
+        )
+        assert result.exit_code == 0, result.output
+        assert sizes and all(size <= 8192 for size in sizes)
+        assert (fake.last_call.module, fake.last_call.function) == ("MevShield", "submit_encrypted")
+        assert len(fake.last_call.params["ciphertext"]) == sizes[-1]
+
+    @pytest.mark.parametrize("flag", ["--signer", "--key"])
+    @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+    def test_raw_call_selects_key_role(self, fake, wallet_dir, flag, role):
+        result = invoke(
+            "--json",
+            "--yes",
+            "call",
+            "System.remark",
+            "--args",
+            '{"remark":"0x01"}',
+            flag,
+            role,
+        )
+        assert result.exit_code == 0, result.output
+        wallet = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir)
+        assert fake.submissions[-1][1] == getattr(wallet, role).ss58_address
+
     def test_dry_run_renders_plan_without_submitting(self, fake: FakeSubstrate):
         result = invoke(
             "--json",
@@ -1297,3 +1376,70 @@ class TestPowRegistration:
         assert len(calls) == 2
         assert calls[0] == calls[1]
         assert len(fake.submissions) == 1
+
+
+@pytest.mark.parametrize("scheme", [4, 6])
+def test_child_set_submits_guarded_hashed_receiving_address(fake, scheme):
+    from bittensor.hashed import descriptor_value
+    from bittensor.receiving import receiving_address
+    from bittensor.sp_core import Keypair
+
+    child = Keypair.create_from_seed(bytes([91]) * 32, scheme)
+    descriptor = descriptor_value(bytes(child.hashed_descriptor))
+    fake.seed("AdminUtils", "HashedAccountsEnabled", [], True)
+    fake.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
+    fake.seed("HashedAccounts", "Accounts", [child.ss58_address], {"descriptor": descriptor})
+    fake.seed_default("System", "Account", {"data": {"free": 10**12}})
+    result = invoke(
+        "stake",
+        "child",
+        "set",
+        "--netuid",
+        "1",
+        "--hotkey",
+        ALICE_HOT,
+        "--children",
+        json.dumps([[0.5, receiving_address(child)]]),
+        "--yes",
+    )
+    assert result.exit_code == 0, result.output
+    assert len(fake.submissions) == 1
+    call = fake.submissions[0][0]
+    guard, assignment = call.params["calls"]
+    assert guard.function == "check_registered"
+    assert guard.params["descriptor"] == {"Classical": descriptor}
+    assert assignment.function == "set_children"
+    assert assignment.params["children"] == [(round(0.5 * (2**64 - 1)), child.ss58_address)]
+
+
+@pytest.mark.parametrize("crypto", [0, 1, 4, 6, 7, 8])
+@pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+def test_registered_cli_submission_waits_for_finalized_authority(
+    fake, tmp_path, monkeypatch, crypto, role
+):
+    observed = []
+    original_submit = fake.submit
+
+    async def capture(call, keypair, **kwargs):
+        observed.append(kwargs["wait_for_finalization"])
+        return await original_submit(call, keypair, **kwargs)
+
+    monkeypatch.setattr(fake, "submit", capture)
+    path = str(tmp_path / "finality-wallets")
+    wallets.create(
+        name="finality",
+        path=path,
+        coldkey_crypto_type=crypto,
+        use_password=False,
+        on_mnemonic=lambda *_: None,
+    )
+    from bittensor.intents import Transfer
+
+    context = cli_context.AppContext(
+        "finney", "finality", "default", path, True, False, Output(json_mode=True)
+    )
+    intent = Transfer(BOB, 1)
+    intent.signer = role
+    result = context.submit(intent)
+    assert result.success, result.to_dict()
+    assert observed[-1] is (crypto in wallets.HASHED_CRYPTO_TYPES)

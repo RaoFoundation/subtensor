@@ -451,6 +451,7 @@ fn execute_orders_price_not_met_skipped() {
 // Regression tests: with the ×10⁹ scale fix, sub-unity prices can be meaningfully
 // expressed as limit_price values.  A price of 0.5 TAO/alpha is represented as
 // 500_000_000 in ×10⁹ scale, enabling fine-grained TakeProfit thresholds below 1.0.
+// PROTECTED_REGRESSION: take profit sub unity price executes when limit met; changes require explicit human approval.
 #[test]
 fn take_profit_sub_unity_price_executes_when_limit_met() {
     new_test_ext().execute_with(|| {
@@ -1228,6 +1229,7 @@ fn execute_batched_orders_buy_only_fulfills_orders_and_distributes_alpha() {
 /// the mock and is not rolled back here. The balance refund is a property of the
 /// real `frame_system` balances under the dispatch storage layer (exercised by the
 /// L2/integration PoC), not something this mock can model.
+// PROTECTED_REGRESSION: execute batched orders zero share buyer hard fails; changes require explicit human approval.
 #[test]
 fn execute_batched_orders_zero_share_buyer_hard_fails() {
     new_test_ext().execute_with(|| {
@@ -1355,6 +1357,7 @@ fn execute_batched_orders_all_nonzero_shares_still_succeeds() {
 /// seller's collected alpha is not refunded *in the mock* (MockSwap balances are
 /// thread_local, outside the storage overlay); the refund is a real-balance
 /// property under the dispatch storage layer, not modelled here.
+// PROTECTED_REGRESSION: execute batched orders zero share seller hard fails; changes require explicit human approval.
 #[test]
 fn execute_batched_orders_zero_share_seller_hard_fails() {
     new_test_ext().execute_with(|| {
@@ -2110,6 +2113,7 @@ fn execute_batched_orders_four_orders_two_fee_recipients() {
 /// `apply_limits: true` flag set the rate-limit on `to_coldkey` (pallet)
 /// during collection, then the distribution step checked `from_coldkey`
 /// (pallet) and failed with `StakingOperationRateLimitExceeded`.
+// PROTECTED_REGRESSION: execute batched orders mixed batch does not rate limit pallet intermediary; changes require explicit human approval.
 #[test]
 fn execute_batched_orders_mixed_batch_does_not_rate_limit_pallet_intermediary() {
     new_test_ext().execute_with(|| {
@@ -2242,7 +2246,7 @@ fn make_signed_order_with_slippage(
     let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
-        signature: sp_runtime::MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     }
 }
@@ -2382,7 +2386,7 @@ fn execute_batched_orders_buy_dominant_uses_min_ceiling() {
         // price=1.0, scaled=1_000_000_000 <= 1_000_000_000 ✓ for all LimitBuy orders.
         MockTime::set(1_000_000);
         MockSwap::set_price(1.0);
-        MockSwap::set_buy_alpha_return(500);
+        MockSwap::set_buy_alpha_return(1_000);
         MockSwap::set_tao_balance(alice(), 600);
         MockSwap::set_tao_balance(bob(), 200);
         MockSwap::set_tao_balance(dave(), 200);
@@ -2447,7 +2451,7 @@ fn execute_batched_orders_sell_dominant_uses_max_floor() {
         // price=2000.0, scaled=2_000_000_000_000 >= 1_000_000_000 ✓.
         MockTime::set(1_000_000);
         MockSwap::set_price(2_000.0);
-        MockSwap::set_sell_tao_return(500);
+        MockSwap::set_sell_tao_return(1_000);
         MockSwap::set_alpha_balance(alice(), dave(), netuid(), 600);
         MockSwap::set_alpha_balance(bob(), dave(), netuid(), 200);
         MockSwap::set_alpha_balance(dave(), dave(), netuid(), 200);
@@ -2549,7 +2553,7 @@ fn execute_batched_orders_takeprofit_and_stoploss_coexist_sell_dominant() {
         // StopLoss triggers when scaled_price <= limit_price (2T <= 5_000_000_000_000 ✓).
         MockTime::set(1_000_000);
         MockSwap::set_price(2_000.0);
-        MockSwap::set_sell_tao_return(500);
+        MockSwap::set_sell_tao_return(1_000);
 
         // Alice TakeProfit: limit=1_000_000_000 (1.0), 3% → floor=970_000_000.
         // Bob TakeProfit:   limit=1_000_000_000 (1.0), 1% → floor=990_000_000.  ← tightest
@@ -2696,9 +2700,8 @@ fn execute_batched_orders_limitbuy_and_stoploss_offset_coexist_buy_dominant() {
 /// StopLoss with a narrow slippage sets an effective floor above the current market price,
 /// making the pool swap impossible and failing the entire batch.
 ///
-/// This demonstrates Issue 1 from the design: relayers should not apply max_slippage to
-/// StopLoss orders. StopLoss triggers when price has already fallen; a floor derived from
-/// the (higher) trigger threshold will almost always exceed the actual market price.
+/// A trigger permits execution but does not waive the signer's price floor.
+/// A market gap below that floor must leave the order unfilled.
 #[test]
 fn execute_batched_orders_stoploss_narrow_slippage_breaks_batch() {
     new_test_ext().execute_with(|| {
@@ -2729,7 +2732,7 @@ fn execute_batched_orders_stoploss_narrow_slippage_breaks_batch() {
                 netuid(),
                 bounded(vec![stoploss]),
             ),
-            DispatchError::Other("price limit exceeded")
+            Error::<Test>::PriceConditionNotMet
         );
     });
 }
@@ -3045,7 +3048,7 @@ fn execute_orders_partial_fill_without_relayer_skipped() {
             .sign(&order_signing_payload(&versioned));
         let signed = crate::SignedOrder {
             order: versioned,
-            signature: sp_runtime::MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: Some(400),
         };
         let id = order_id(&signed.order);
@@ -3268,6 +3271,7 @@ fn execute_batched_orders_second_partial_fill_completes_order() {
 /// thread-local RefCell maps, not substrate storage, so we do not assert on
 /// them here — see `mock.rs`.) We additionally assert `Orders::get` was never
 /// written.
+// PROTECTED_REGRESSION: execute batched orders full fill duplicate rejected; changes require explicit human approval.
 #[test]
 fn execute_batched_orders_full_fill_duplicate_rejected() {
     new_test_ext().execute_with(|| {
@@ -3311,6 +3315,7 @@ fn execute_batched_orders_full_fill_duplicate_rejected() {
 /// signature) but carry *different* `partial_fill` values must still collide
 /// and be caught by the in-batch dedup. This exercises the partial-fill path
 /// (partial_fills_enabled = true, relayer set).
+// PROTECTED_REGRESSION: execute batched orders partial fill duplicate rejected; changes require explicit human approval.
 #[test]
 fn execute_batched_orders_partial_fill_duplicate_rejected() {
     new_test_ext().execute_with(|| {

@@ -13,7 +13,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from .._generated import calls
-from .base import Intent
+from .base import BuiltCall, Intent
 from .registry import build as build_intent
 from .registry import register
 
@@ -38,6 +38,10 @@ PROXY_TYPES = (
     "SubnetLeaseBeneficiary",
     "RootClaim",
     "BasketTrading",
+    "Validate",
+    "Weights",
+    "Lock",
+    "GammaSpend",
 )
 
 
@@ -52,6 +56,17 @@ def check_proxy_type(proxy_type: str) -> str:
             f"unknown proxy type {proxy_type!r}; expected one of: {', '.join(PROXY_TYPES)}"
         )
     return proxy_type
+
+
+# Proxy types whose calls are hotkey-signed (weights, serving, commitments, EVM
+# association), so the real account is the validator hotkey, not the coldkey. A
+# coldkey grant of these types could dispatch nothing useful.
+HOTKEY_PROXY_TYPES = ("Validate", "Weights")
+
+
+def proxy_grant_signer(proxy_type: str) -> str:
+    """Key that signs add/remove for ``proxy_type``: the hotkey for hotkey-scoped types."""
+    return "hotkey" if proxy_type in HOTKEY_PROXY_TYPES else "coldkey"
 
 
 PROXY_TYPE_HELP = (
@@ -79,7 +94,9 @@ class AddProxy(Intent):
     ``proxy_for=<this account>``. The chain reserves a small deposit from the
     signer per delegation (returned on removal). The delegate can act within
     ``proxy_type`` immediately (or after announcing, if ``delay`` > 0) — grant
-    only to keys you control or fully trust.
+    only to keys you control or fully trust. ``Validate`` and ``Weights`` cover
+    hotkey-signed calls, so the wallet's hotkey signs those grants and must hold
+    the deposit and fee.
     """
 
     op = "add_proxy"
@@ -94,6 +111,8 @@ class AddProxy(Intent):
 
     def __post_init__(self):
         check_proxy_type(self.proxy_type)
+        # Instance attribute shadowing the ClassVar default.
+        self.signer = proxy_grant_signer(self.proxy_type)
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -112,6 +131,11 @@ class AddProxy(Intent):
                 "an Any proxy can do everything this account can, including transfers; "
                 "prefer a narrower proxy type"
             )
+        if self.signer == "hotkey":
+            out.append(
+                f"{self.proxy_type} acts for the hotkey: the hotkey signs this grant "
+                "and needs free TAO for the deposit and fee"
+            )
         return out
 
 
@@ -123,7 +147,9 @@ class RemoveProxy(Intent):
     The (delegate, proxy_type, delay) triple must match the original
     ``add_proxy`` exactly — a mismatch fails with NotFound rather than removing
     a different delegation. The proxy deposit reserved at add time is returned
-    to the signer. Check current delegations with ``btcli query proxies``.
+    to the signer. ``Validate`` and ``Weights`` grants are revoked by the
+    hotkey that granted them. Check current delegations with
+    ``btcli query proxies``.
     """
 
     op = "remove_proxy"
@@ -142,6 +168,7 @@ class RemoveProxy(Intent):
 
     def __post_init__(self):
         check_proxy_type(self.proxy_type)
+        self.signer = proxy_grant_signer(self.proxy_type)
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -162,18 +189,29 @@ class RemoveProxies(Intent):
     A cleanup/panic switch: all delegates lose access in one call and all proxy
     deposits are returned. Careful if this account spawned pure proxies — they
     are controlled *through* delegations, so removing everything can strand them
-    permanently (there is no key to recover a pure proxy with).
+    permanently (there is no key to recover a pure proxy with). ``Validate`` and
+    ``Weights`` grants are keyed by the hotkey, so revoking those needs a second
+    call with ``from_hotkey`` set.
     """
 
     op = "remove_proxies"
     signer = "coldkey"
     wraps = (("Proxy", "remove_proxies"),)
 
+    from_hotkey: bool = field(
+        default=False,
+        metadata={"help": "Sign with the hotkey to revoke its Validate/Weights grants."},
+    )
+
+    def __post_init__(self):
+        # Instance attribute shadowing the ClassVar default.
+        self.signer = "hotkey" if self.from_hotkey else "coldkey"
+
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(calls.Proxy.remove_proxies())
 
     def summary(self) -> str:
-        return "remove ALL proxies for the signer"
+        return f"remove ALL proxies for the {self.signer}"
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         return ["revokes every delegate at once; pure-proxy accounts would become inaccessible"]
@@ -195,7 +233,11 @@ class CreatePureProxy(Intent):
 
     op = "create_pure_proxy"
     signer = "coldkey"
-    wraps = (("Proxy", "create_pure"),)
+    wraps = (
+        ("Proxy", "create_pure"),
+        ("Proxy", "create_protected_pure"),
+        ("Proxy", "create_safe_pure"),
+    )
 
     proxy_type: str = field(default="Staking", metadata={"help": PROXY_TYPE_HELP})
     delay: int = field(default=0, metadata={"help": DELAY_HELP})
@@ -206,13 +248,69 @@ class CreatePureProxy(Intent):
             "one block; also part of the derived address. Keep 0 unless batching."
         },
     )
+    account_mode: Optional[str] = field(
+        default=None,
+        metadata={"help": "Account derivation: legacy or safe; MS wallets default to safe."},
+    )
 
     def __post_init__(self):
         check_proxy_type(self.proxy_type)
 
+    def requires_build_for_policy(self) -> bool:
+        return True
+
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Proxy.create_pure(proxy_type=self.proxy_type, delay=self.delay, index=self.index)
+        from ..account_mode import validate_account_mode, warn_legacy_mldsa
+        from ..hashed import is_pq_required, quote_hashed_registration_deposit
+        from ..signing import public_view
+        from ..sp_core import is_stateless_pq
+
+        payer = self.coldkey_address(wallet)
+        mode = self.account_mode or getattr(wallet, "account_mode", None)
+        if mode is None and is_stateless_pq(public_view(wallet, "coldkey")):
+            mode = "safe"
+        if mode is not None:
+            validate_account_mode(mode)
+        if mode == "safe":
+            call = await substrate.compose(
+                calls.Call(
+                    "Proxy",
+                    "create_safe_pure",
+                    {"proxy_type": self.proxy_type, "delay": self.delay, "index": self.index},
+                )
+            )
+            return BuiltCall(call, {"pure_proxy_account_mode": "safe"})
+        warn_legacy_mldsa("legacy", public_view(wallet, "coldkey"), composite="pure proxy")
+        protected = await is_pq_required(substrate, payer)
+        call = await substrate.compose(
+            calls.Call(
+                "Proxy",
+                "create_protected_pure" if protected else "create_pure",
+                {"proxy_type": self.proxy_type, "delay": self.delay, "index": self.index},
+            )
+        )
+        if not protected:
+            return call
+        quote = await quote_hashed_registration_deposit(substrate, "DerivedRegistrationDeposit")
+        deposit = quote.amount_rao
+        if quote.configurable:
+            guard = await substrate.compose(
+                calls.Call("HashedAccounts", "check_registration_deposit", {"max_deposit": deposit})
+            )
+            call = await substrate.compose(calls.Utility.batch_all(calls=[guard, call]))
+        proxy_deposit = 0
+        for name in ("ProxyDepositBase", "ProxyDepositFactor"):
+            value = await substrate.constant("Proxy", name)
+            if value is None:
+                raise ValueError("could not quote refundable pure-proxy deposit")
+            proxy_deposit += int(value)
+        return BuiltCall(
+            call,
+            {
+                "protected_pure_registration_deposit_rao": int(deposit),
+                "pure_proxy_deposit_rao": proxy_deposit,
+                "pure_proxy_reserves": {payer: int(deposit) + proxy_deposit},
+            },
         )
 
     def summary(self) -> str:
@@ -233,7 +331,7 @@ class KillPureProxy(Intent):
 
     op = "kill_pure_proxy"
     signer = "coldkey"
-    wraps = (("Proxy", "kill_pure"),)
+    wraps = (("Proxy", "kill_pure"), ("Proxy", "kill_safe_pure"))
 
     spawner_ss58: str = field(metadata={"help": "Account that originally created the pure proxy."})
     proxy_type: str = field(
@@ -250,18 +348,30 @@ class KillPureProxy(Intent):
         default=0,
         metadata={"help": "Extrinsic index of the creating call within that block."},
     )
+    account_mode: str = field(
+        default="legacy", metadata={"help": "Derivation mode used when the pure proxy was created."}
+    )
 
     def __post_init__(self):
         check_proxy_type(self.proxy_type)
 
     async def build(self, substrate, wallet: Any):
+        from ..account_mode import validate_account_mode
+
+        function = (
+            "kill_safe_pure" if validate_account_mode(self.account_mode) == "safe" else "kill_pure"
+        )
         return await substrate.compose(
-            calls.Proxy.kill_pure(
-                spawner=self.spawner_ss58,
-                proxy_type=self.proxy_type,
-                index=self.index,
-                height=self.height,
-                ext_index=self.ext_index,
+            calls.Call(
+                "Proxy",
+                function,
+                dict(
+                    spawner=self.spawner_ss58,
+                    proxy_type=self.proxy_type,
+                    index=self.index,
+                    height=self.height,
+                    ext_index=self.ext_index,
+                ),
             )
         )
 
@@ -304,10 +414,22 @@ class ExecuteProxyAnnounced(Intent):
         },
     )
 
+    def requires_build_for_policy(self) -> bool:
+        return build_intent(self.inner_op, self.inner_args).requires_build_for_policy()
+
     async def build(self, substrate, wallet: Any):
-        inner = await build_intent(self.inner_op, self.inner_args).build(substrate, wallet)
-        inner_call = inner.call if hasattr(inner, "call") else inner
-        return await substrate.compose(
+        from ..executor import _compose_nested_intent_call, _OriginView
+        from ..receiving import account_for_read
+
+        origin = _OriginView(await account_for_read(substrate, self.real_ss58))
+        origin._wallet = getattr(wallet, "_wallet", wallet)
+        inner_call, extras = await _compose_nested_intent_call(
+            substrate,
+            build_intent(self.inner_op, self.inner_args),
+            origin,
+            wrapper="announced proxy",
+        )
+        composed = await substrate.compose(
             calls.Proxy.proxy_announced(
                 delegate=self.delegate_ss58,
                 real=self.real_ss58,
@@ -315,6 +437,7 @@ class ExecuteProxyAnnounced(Intent):
                 call=inner_call,
             )
         )
+        return BuiltCall(composed, extras) if extras else composed
 
     def summary(self) -> str:
         return f"execute announced {self.inner_op} as {self.real_ss58} via {self.delegate_ss58}"

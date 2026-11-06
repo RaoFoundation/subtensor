@@ -80,6 +80,7 @@ const EVM_DECIMALS_FACTOR: u64 = 1_000_000_000;
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
     pub const SS58Prefix: u8 = 42;
+    pub static BlockLength: limits::BlockLength = limits::BlockLength::max_with_normal_ratio(5 * 1024 * 1024, Perbill::from_percent(75));
     pub BlockWeights: limits::BlockWeights = limits::BlockWeights::with_sensible_defaults(
         Weight::from_parts(2_000_000_000_000, u64::MAX),
         Perbill::from_percent(75),
@@ -190,6 +191,7 @@ parameter_types! {
 impl frame_system::Config for Runtime {
     type BaseCallFilter = Everything;
     type BlockWeights = BlockWeights;
+    type BlockLength = BlockLength;
     type RuntimeOrigin = RuntimeOrigin;
     type RuntimeCall = RuntimeCall;
     type Hash = H256;
@@ -386,6 +388,16 @@ mod test_crypto {
 
 impl pallet_evm_chain_id::Config for Runtime {}
 
+parameter_types! {
+    pub storage MockRegistrationDeposit: TaoBalance = TaoBalance::new(200_000_000);
+}
+
+impl pallet_admin_utils::RegistrationDepositInterface for MockRegistrationDeposit {
+    fn set(value: TaoBalance) {
+        MockRegistrationDeposit::set(&value);
+    }
+}
+
 impl pallet_admin_utils::Config for Runtime {
     type Aura = ();
     type Grandpa = ();
@@ -393,6 +405,7 @@ impl pallet_admin_utils::Config for Runtime {
     type MaxAuthorities = MaxAuthorities;
     type Balance = TaoBalance;
     type WeightInfo = ();
+    type RegistrationDeposit = MockRegistrationDeposit;
 }
 
 impl pallet_drand::Config for Runtime {
@@ -445,6 +458,7 @@ impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
 }
 
 impl pallet_subtensor::Config for Runtime {
+    type HotkeyOwnerPolicy = ();
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -545,6 +559,8 @@ impl frame_support::traits::InstanceFilter<RuntimeCall> for ProxyType {
 }
 
 impl pallet_subtensor_proxy::Config for Runtime {
+    type SafeDerivationWeight = ();
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = ProxyType;

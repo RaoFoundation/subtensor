@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: grandpa_note_stalled
+expression: fee
+---
+67839

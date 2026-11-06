@@ -1,4 +1,5 @@
 use super::*;
+use crate::subnets::dissolution::DissolveCleanupPhase;
 use frame_support::PalletId;
 use pallet_alpha_assets::AlphaAssetsInterface;
 use safe_math::FixedExt;
@@ -57,6 +58,73 @@ impl<T: Config> Pallet<T> {
             .filter(|(_, added)| *added)
             .map(|(netuid, _)| netuid)
             .collect()
+    }
+
+    /// Returns every subnet that should remain visible to reporting APIs.
+    ///
+    /// Operational code must continue to use [`Self::get_all_subnet_netuids`].
+    pub fn get_all_reportable_subnet_netuids() -> Vec<NetUid> {
+        SubnetState::<T>::iter_keys().collect()
+    }
+
+    /// Returns whether reporting APIs should expose data for `netuid`.
+    pub fn is_subnet_reportable(netuid: NetUid) -> bool {
+        SubnetState::<T>::contains_key(netuid)
+    }
+
+    /// Returns whether a hotkey's stake should still be reported on a subnet.
+    ///
+    /// A pending dissolution remains fully visible. Once settlement is active, the cleanup
+    /// cursor is the atomic reporting boundary: every coldkey under one hotkey is paid as a
+    /// single prefix, so stake is hidden after that hotkey becomes the last completed key.
+    pub fn is_hotkey_stake_reportable(netuid: NetUid, hotkey: &T::AccountId) -> bool {
+        match SubnetState::<T>::get(netuid) {
+            Some(SubnetLifecycleState::Registered | SubnetLifecycleState::Started) => true,
+            Some(SubnetLifecycleState::PendingDissolution) => true,
+            Some(SubnetLifecycleState::Dissolving) => {
+                let Some(status) = CurrentDissolveCleanupStatus::<T>::get()
+                    .filter(|status| status.netuid == netuid)
+                else {
+                    // Prefer continuity if lifecycle bookkeeping is temporarily inconsistent.
+                    return true;
+                };
+
+                match status.phase {
+                    DissolveCleanupPhase::SubnetBasketHoldingsToRoot
+                    | DissolveCleanupPhase::SubnetRootDividendsRootClaimable
+                    | DissolveCleanupPhase::SubnetRootDividendsRootClaimed
+                    | DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue => true,
+                    DissolveCleanupPhase::AlphaInOutStakesSettleStakes => {
+                        let Some(last_key) = status.last_key else {
+                            return true;
+                        };
+                        TotalHotkeyAlpha::<T>::hashed_key_for(hotkey, netuid) > last_key
+                    }
+                    DissolveCleanupPhase::AlphaInOutStakesAlpha
+                    | DissolveCleanupPhase::AlphaInOutStakesHotkeyTotals
+                    | DissolveCleanupPhase::AlphaInOutStakesLocks
+                    | DissolveCleanupPhase::AlphaInOutStakesDecayingLocks
+                    | DissolveCleanupPhase::AlphaInOutStakes
+                    | DissolveCleanupPhase::ProtocolLiquidity
+                    | DissolveCleanupPhase::PurgeNetuid
+                    | DissolveCleanupPhase::NetworkIsNetworkMember
+                    | DissolveCleanupPhase::NetworkParameters
+                    | DissolveCleanupPhase::NetworkMapParameters
+                    | DissolveCleanupPhase::NetworkUpdateWeightsOnRoot
+                    | DissolveCleanupPhase::NetworkChildkeyTake
+                    | DissolveCleanupPhase::NetworkChildkeys
+                    | DissolveCleanupPhase::NetworkParentkeys
+                    | DissolveCleanupPhase::NetworkLastHotkeyEmissionOnNetuid
+                    | DissolveCleanupPhase::NetworkTotalHotkeyAlphaLastEpoch
+                    | DissolveCleanupPhase::NetworkTransactionKeyLastBlock
+                    | DissolveCleanupPhase::NetworkLock
+                    | DissolveCleanupPhase::NetworkDecayingLock
+                    | DissolveCleanupPhase::NetworkPendingBasketDeposits
+                    | DissolveCleanupPhase::NetworkAlphaAssetCounters => false,
+                }
+            }
+            None => false,
+        }
     }
 
     /// Returns the mechanism id for a subnet.
@@ -408,6 +476,7 @@ impl<T: Config> Pallet<T> {
         // Core pool + ownership
         SubnetTAO::<T>::insert(netuid_to_register, total_pool_tao);
         SubnetAlphaIn::<T>::insert(netuid_to_register, total_pool_alpha);
+        SubnetGammaPrice::<T>::insert(netuid_to_register, median_subnet_alpha_price);
         SubnetOwner::<T>::insert(netuid_to_register, coldkey.clone());
         Self::set_subnet_owner_hotkey(netuid_to_register, hotkey)?;
         SubnetLocked::<T>::insert(netuid_to_register, actual_tao_lock_amount);
@@ -415,7 +484,7 @@ impl<T: Config> Pallet<T> {
         SubnetVolume::<T>::insert(netuid_to_register, 0u128);
         RAORecycledForRegistration::<T>::insert(netuid_to_register, tao_recycled_for_registration);
         weight.saturating_accrue(db_weight.reads(2));
-        weight.saturating_accrue(db_weight.writes(8));
+        weight.saturating_accrue(db_weight.writes(9));
 
         if tao_recycled_for_registration > TaoBalance::ZERO
             && let Some(subnet_account_id) = Self::get_subnet_account_id(netuid_to_register)
@@ -451,8 +520,14 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        // --- 10. Default emission off
-        SubnetEmissionEnabled::<T>::insert(netuid_to_register, false);
+        // --- 10. Pool-side TAO emission share starts enabled.
+        // `init_new_network` already writes `true` (and clears any leftover `false`
+        // from a prior dissolve on a reused netuid). Re-assert here so registration
+        // does not depend on that call remaining the last writer. Existing subnets
+        // that root already disabled are untouched — this path only runs for new
+        // registrations. Owner `start_call` / `StartCallDelay` still gate epoch
+        // activation and subtoken trading; root can still flip this flag off.
+        SubnetEmissionEnabled::<T>::insert(netuid_to_register, true);
         weight.saturating_accrue(db_weight.writes(1));
 
         // --- 11. Emit the NetworkAdded event.
@@ -470,9 +545,15 @@ impl<T: Config> Pallet<T> {
 
         // --- 2. Set this network uid to alive.
         NetworksAdded::<T>::insert(netuid, true);
+        SubnetState::<T>::insert(netuid, SubnetLifecycleState::Registered);
 
         // --- 3. Fill tempo memory item.
         Tempo::<T>::insert(netuid, tempo);
+
+        // --- 3.0. Seed the canonical emission weight vector; the subnet follows the global
+        // TaoWeight until its validator share changes. Owners may change the vector once
+        // registration is done.
+        Self::seed_subnet_emission_weights(netuid);
 
         // --- 3.1. Initialise `LastEpochBlock` with a per-netuid stagger
         let now = Self::get_current_block_as_u64();
@@ -492,8 +573,10 @@ impl<T: Config> Pallet<T> {
         Self::set_yuma3_enabled(netuid, true);
         Self::set_burn(netuid, DefaultNeuronBurnCost::<T>::get());
 
-        // New subnets should never inherit a prior subnet owner's disabled state
-        // when a netuid is reused after pruning/dissolve.
+        // New / reused netuids start with pool-side TAO emission enabled so a
+        // prior dissolve cannot leave `SubnetEmissionEnabled = false` on the id.
+        // `set_new_network_state` re-asserts `true` after this; root may still
+        // disable via `sudo_set_subnet_emission_enabled`.
         SubnetEmissionEnabled::<T>::insert(netuid, true);
 
         // Make network parameters explicit.
@@ -564,6 +647,7 @@ impl<T: Config> Pallet<T> {
 
         FirstEmissionBlockNumber::<T>::insert(netuid, next_block_number);
         SubtokenEnabled::<T>::insert(netuid, true);
+        SubnetState::<T>::insert(netuid, SubnetLifecycleState::Started);
         Self::deposit_event(Event::FirstEmissionBlockNumberSet(
             netuid,
             next_block_number,
@@ -658,22 +742,6 @@ impl<T: Config> Pallet<T> {
             Some((decoded_pallet_id, netuid)) if decoded_pallet_id == pallet_id => Some(netuid),
             _ => None,
         }
-    }
-
-    /// Returns whether the owner cut is enabled for the given subnet.
-    ///
-    /// Returns `true` if the owner cut is enabled for the subnet, otherwise `false`.
-    pub fn get_owner_cut_enabled(netuid: NetUid) -> bool {
-        OwnerCutEnabled::<T>::get(netuid)
-    }
-
-    /// Sets whether the owner cut is enabled for the given subnet.
-    ///
-    /// # Arguments
-    /// * `netuid`: The identifier of the subnet to update.
-    /// * `value`: `true` to enable the owner cut for the subnet, `false` to disable it.
-    pub fn set_owner_cut_enabled_flag(netuid: NetUid, value: bool) {
-        OwnerCutEnabled::<T>::insert(netuid, value);
     }
 
     /// Returns whether owner cut auto-locking is enabled for the given subnet.

@@ -734,9 +734,23 @@ where
                 Ok(RetVal::Converging(Output::Success as u32))
             }
             FunctionId::GetStakeAvailabilityV1 => {
+                // Reserve fixed input/output work and the list-length read before touching
+                // contract memory or runtime storage.
+                env.charge_weight(T::DbWeight::get().reads(1))?;
+
                 let (coldkey, netuid): (T::AccountId, NetUid) = env
                     .read_as()
                     .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
+
+                // This getter is synchronous and read-only, so the current list cannot grow
+                // before the walk. Add one entry's conservative allowance for fixed getter work,
+                // without clamping restored historical rows that exceed the admission cap.
+                let walk = pallet_subtensor::Pallet::<T>::staking_hotkeys_walk_actual(&coldkey)
+                    .saturating_add(
+                        T::DbWeight::get()
+                            .reads(pallet_subtensor::STAKING_HOTKEYS_WALK_READS_PER_ENTRY),
+                    );
+                env.charge_weight(walk)?;
 
                 let (total, locked, available) =
                     pallet_subtensor::Pallet::<T>::stake_availability(&coldkey, netuid);

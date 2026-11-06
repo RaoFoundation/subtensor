@@ -398,14 +398,14 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
         )
         .spend(Spend::Bounded(one))
         .touches([netuid]),
+        // Intent op stays `announce_coldkey_swap`; the Python/Rust intent wraps
+        // cleartext V2 (validated + reserved before the fee). Legacy hash-only
+        // `announce_coldkey_swap` remains raw-only.
         "announce_coldkey_swap" => make(
             SignerRole::Coldkey,
             "SubtensorModule",
-            "announce_coldkey_swap",
-            record([(
-                "new_coldkey_hash",
-                bytes(blake2_256(&public_key_from_ss58(&bob_cold)?).to_vec()),
-            )]),
+            "announce_coldkey_swap_v2",
+            record([("new_coldkey", s(bob_cold.clone()))]),
         ),
         "associate_evm_key" => make(
             SignerRole::Hotkey,

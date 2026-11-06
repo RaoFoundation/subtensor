@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: contracts_instantiate_with_code
+expression: fee
+---
+3231900

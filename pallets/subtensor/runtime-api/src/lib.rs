@@ -3,6 +3,7 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::Compact;
+pub use pallet_subtensor::rpc_info::metagraph::normalize_metagraph_indices;
 use pallet_subtensor::rpc_info::{
     basket_info::{
         BasketClaimPreview, BasketPosition, BasketSummary, BasketTradingStatus, BetaPosition,
@@ -10,19 +11,21 @@ use pallet_subtensor::rpc_info::{
     },
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
+    gamma_info::GammaDepositInfo,
     metagraph::{Metagraph, SelectiveMetagraph},
     neuron_info::{NeuronInfo, NeuronInfoLite},
     show_subnet::SubnetState,
     stake_info::{StakeAvailability, StakeInfo},
     subnet_info::{
-        SubnetHyperparams, SubnetHyperparamsV2, SubnetHyperparamsV3, SubnetInfo, SubnetInfov2,
+        SubnetEmissionWeightsInfo, SubnetHyperparams, SubnetHyperparamsV2, SubnetHyperparamsV3,
+        SubnetInfo, SubnetInfov2,
     },
 };
 use pallet_subtensor::staking::lock::LockState;
-use sp_runtime::AccountId32;
+use sp_runtime::{AccountId32, DispatchError};
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{
-    AlphaBalance, MechId, NetUid, ProxyFilterInfo, ProxyTypeInfo, TaoBalance,
+    AlphaBalance, GammaBalance, MechId, NetUid, ProxyFilterInfo, ProxyTypeInfo, TaoBalance,
 };
 
 // Here we declare the runtime API. It is implemented it the `impl` block in
@@ -66,6 +69,12 @@ sp_api::decl_runtime_apis! {
         fn get_subnet_account_id(netuid: NetUid) -> Option<AccountId32>;
         fn get_next_epoch_start_block(netuid: NetUid) -> Option<u64>;
         fn get_block_emission() -> TaoBalance;
+        /// The subnet's `[burn, recycle, owner, validator, miner]` emission weight
+        /// vector plus root's baseline share and the share root is paid off the
+        /// top of the validator slot this block. `None` when the subnet does not
+        /// exist.
+        #[api_version(3)]
+        fn get_subnet_emission_weights(netuid: NetUid) -> Option<SubnetEmissionWeightsInfo>;
     }
 
     pub trait StakeInfoRuntimeApi {
@@ -156,5 +165,16 @@ sp_api::decl_runtime_apis! {
         /// The same for every validator a coldkey-wide `claim_root` would touch.
         #[api_version(5)]
         fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<BasketClaimPreview<AccountId32>>;
+    }
+
+    pub trait GammaRuntimeApi {
+        /// The deposit at a hotkey on a subnet, and what its spender can spend from it now.
+        fn get_gamma_deposit(netuid: NetUid, hotkey: AccountId32) -> Option<GammaDepositInfo<AccountId32>>;
+        /// Every deposit of a coldkey, on every subnet.
+        fn get_gamma_deposits_for_coldkey(coldkey: AccountId32) -> Vec<GammaDepositInfo<AccountId32>>;
+        /// The alpha burned, TAO value and gamma `mint_gamma` would mint now, or the error that stops it.
+        fn sim_mint_gamma(netuid: NetUid, amount: TaoBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), DispatchError>;
+        /// `alpha_amount` and the TAO value and gamma of burning it now, or the error that stops it; it reads no stake.
+        fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), DispatchError>;
     }
 }

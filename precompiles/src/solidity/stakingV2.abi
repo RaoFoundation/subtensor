@@ -1307,7 +1307,7 @@
     "stateMutability": "nonpayable",
     "type": "function"
   },
-{
+  {
     "inputs": [
       {
         "internalType": "bytes32",
@@ -2016,6 +2016,38 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getRejectStakingHotkeyGrowth",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bool",
+        "name": "enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "setRejectStakingHotkeyGrowth",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   }
 ]

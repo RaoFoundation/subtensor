@@ -405,8 +405,12 @@ fn test_swap_staking_hotkeys() {
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
         StakingHotkeys::<Test>::insert(coldkey, vec![old_hotkey]);
-        Alpha::<Test>::insert((old_hotkey, coldkey, netuid), U64F64::from_num(100));
-        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &old_hotkey,
+            &coldkey,
+            netuid,
+            100.into(),
+        );
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
         assert_ok!(SubtensorModule::do_swap_hotkey(
@@ -418,7 +422,7 @@ fn test_swap_staking_hotkeys() {
         ));
 
         let staking_hotkeys = StakingHotkeys::<Test>::get(coldkey);
-        assert!(staking_hotkeys.contains(&old_hotkey));
+        assert!(!staking_hotkeys.contains(&old_hotkey));
         assert!(staking_hotkeys.contains(&new_hotkey));
     });
 }
@@ -581,11 +585,11 @@ fn test_swap_staking_hotkeys_multiple_coldkeys() {
 
         // Check if new_hotkey replaced old_hotkey in StakingHotkeys
         assert!(StakingHotkeys::<Test>::get(coldkey1).contains(&new_hotkey));
-        assert!(StakingHotkeys::<Test>::get(coldkey1).contains(&old_hotkey));
+        assert!(!StakingHotkeys::<Test>::get(coldkey1).contains(&old_hotkey));
 
         // Check if new_hotkey replaced old_hotkey for coldkey2 as well
         assert!(StakingHotkeys::<Test>::get(coldkey2).contains(&new_hotkey));
-        assert!(StakingHotkeys::<Test>::get(coldkey2).contains(&old_hotkey));
+        assert!(!StakingHotkeys::<Test>::get(coldkey2).contains(&old_hotkey));
         assert!(StakingHotkeys::<Test>::get(coldkey2).contains(&staker5));
         // Other hotkeys should remain
     });
@@ -2453,6 +2457,7 @@ fn test_revert_claim_root_with_swap_hotkey() {
         // Route the validator's beta basket back into this subnet so dividends accrue.
         SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
         Uids::<Test>::insert(NetUid::ROOT, hk1, 0u16);
         Weights::<Test>::insert(
             NetUidStorageIndex::ROOT,
@@ -2469,6 +2474,7 @@ fn test_revert_claim_root_with_swap_hotkey() {
             AlphaBalance::ZERO,
         );
 
+        crate::tests::claim_root::flush_baskets();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
             hk1
@@ -2951,6 +2957,7 @@ fn test_swap_hotkey_root_claims_unchanged_if_not_root() {
         // Route the validator's beta basket back into this subnet so dividends accrue.
         SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
         Uids::<Test>::insert(NetUid::ROOT, neuron_hotkey, 0u16);
         Weights::<Test>::insert(
             NetUidStorageIndex::ROOT,
@@ -2968,6 +2975,7 @@ fn test_swap_hotkey_root_claims_unchanged_if_not_root() {
             AlphaBalance::ZERO,
         );
 
+        crate::tests::claim_root::flush_baskets();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(staker_coldkey),
             neuron_hotkey
@@ -3035,6 +3043,7 @@ fn test_swap_hotkey_root_claims_changed_if_root() {
         // Route the validator's beta basket back into this subnet so dividends accrue.
         SubnetTAO::<Test>::insert(netuid_1, TaoBalance::from(1_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid_1, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid_1, U64F64::from_num(1));
         Uids::<Test>::insert(NetUid::ROOT, neuron_hotkey, 0u16);
         Weights::<Test>::insert(
             NetUidStorageIndex::ROOT,
@@ -3052,6 +3061,7 @@ fn test_swap_hotkey_root_claims_changed_if_root() {
             AlphaBalance::ZERO,
         );
 
+        crate::tests::claim_root::flush_baskets();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(staker_coldkey),
             neuron_hotkey
@@ -3121,6 +3131,7 @@ fn test_swap_hotkey_root_claims_changed_if_all_subnets() {
         // Route the validator's beta basket back into this subnet so dividends accrue.
         SubnetTAO::<Test>::insert(netuid_1, TaoBalance::from(1_000_000_000_000u64));
         SubnetAlphaIn::<Test>::insert(netuid_1, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetFastMovingPrice::<Test>::insert(netuid_1, U64F64::from_num(1));
         Uids::<Test>::insert(NetUid::ROOT, neuron_hotkey, 0u16);
         Weights::<Test>::insert(
             NetUidStorageIndex::ROOT,
@@ -3138,6 +3149,7 @@ fn test_swap_hotkey_root_claims_changed_if_all_subnets() {
             AlphaBalance::ZERO,
         );
 
+        crate::tests::claim_root::flush_baskets();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(staker_coldkey),
             neuron_hotkey

@@ -15,6 +15,7 @@ by running benchmarks on reference hardware.
 | Tool | Purpose |
 |------|---------|
 | `scripts/benchmark_all.sh` | Generate `weights.rs` for one or all pallets (runs real benchmarks) |
+| `scripts/benchmark_action.sh` | Validate selected benchmarks and prepare a patch for drifted weights |
 | `weight-compare` | Compare two `weights.rs` files and report drift (used by CI) |
 
 `weight-compare` lives in `support/weight-tools/` and has no heavy dependencies
@@ -83,7 +84,7 @@ and **silently skipped** in all-pallets mode and in CI; only the single-pallet
 invocation (`./scripts/benchmark_all.sh pallet_<name>`) fails, with an
 "unknown pallet" error.
 
-CI will generate real weights automatically when the PR is opened.
+Request reference measurements using the CI workflow described below.
 
 ## Adding a new extrinsic to an existing pallet
 
@@ -105,7 +106,7 @@ CI will generate real weights automatically when the PR is opened.
 
 3. Add `#[pallet::weight(T::WeightInfo::new_extrinsic())]` to the extrinsic.
 
-CI will generate real weights automatically when the PR is opened.
+Request reference measurements using the CI workflow described below.
 
 ## Parameterized weights
 
@@ -149,19 +150,78 @@ The generated weight includes base values plus per-parameter slope terms
 ## CI workflow
 
 The `Validate-Benchmarks` workflow (`.github/workflows/run-benchmarks.yml`)
-runs on every PR:
+runs on PRs carrying the `run-benchmarks` label, nightly on the default branch,
+and through **Actions → Validate-Benchmarks → Run workflow**. PR-label and nightly
+runs cover all registered pallets. Manual runs accept two optional inputs:
+
+| Input | Selection | Example |
+|-------|-----------|---------|
+| `pallet_dirs` | Directory names under `pallets/` or runtime pallet names | `subtensor,hashed-accounts` or `pallet_subtensor` |
+| `extrinsics` | Exact benchmark function names | `add_stake,remove_stake` |
+
+Both inputs accept comma-separated or whitespace-separated lists. Blank or `*`
+means all. For example, `pallet_dirs=subtensor` with blank `extrinsics` runs the
+entire Subtensor pallet; adding `extrinsics=add_stake` runs only that benchmark.
+Benchmark variants must be named explicitly; prefix patterns such as `add_*`
+are not supported.
+
+You can also dispatch a targeted run with GitHub CLI:
+
+```sh
+gh workflow run run-benchmarks.yml --ref YOUR_BRANCH \
+  -f pallet_dirs=subtensor \
+  -f extrinsics=add_stake,remove_stake
+```
+
+An extrinsic list may span multiple pallets. Each pallet runs only its matching
+benchmarks; pallets with no matches are skipped. Every requested pallet and
+extrinsic must be recognized, so a typo fails the run before measurements begin.
+Pallet names and input syntax are checked before the build; extrinsic names are
+checked against the built runtime's benchmark registry. The branch's
+`.maintain/benchmark-focus.json` is no longer loaded implicitly: blank manual
+inputs always request the full suite.
+
+The workflow:
 
 1. Builds the node with `--features runtime-benchmarks`
-2. Runs benchmarks for every pallet, generating new `weights.rs` to temp files
-3. Uses `weight-compare` to compare old vs new values with a **40% threshold**
+2. Resolves the selection and generates measured weights into temporary files
+3. Uses `weight-compare` to compare old vs new values with a **75% threshold**
    - Base weight: threshold-based (allows measurement noise)
    - Reads/writes: exact match (these are deterministic)
    - Component slopes: threshold-based for weights, exact for reads/writes
-4. If drift is detected, prepares a patch in `.bench_patch/`
-5. Adding the `apply-benchmark-patch` label auto-applies the patch
+4. If drift is detected, prepares a patch in `.bench_patch/` and exits with a drift failure
+5. Uploads the `bench-patch` artifact, including the selected scope, summary, and raw generated weights
 
-To skip benchmarks on a PR, add the `skip-validate-benchmarks` label. This can
-be added at any point during the job — it's checked between expensive steps.
+Targeted runs preserve unselected methods in the trait and both weight
+implementations. Only measured methods that drift are included in the patch.
+Completed results are checkpointed between pallets so a later failure or timeout
+does not discard earlier measurements. A successful targeted run validates only
+its recorded selection.
+
+After the run finishes, add `apply-benchmark-patch` to the PR to commit and push
+the latest benchmark results for its branch and current commit. This works for
+manual and PR-label runs, whether they measured the full suite, one pallet, or
+individual extrinsics. Only drifted weights from that run's selection are applied.
+Benchmarks themselves never commit or push changes.
+
+The apply workflow selects the latest actual benchmark execution, including
+reruns. It verifies the artifact's source commit and run attempt before applying
+it. A completed run with no drift makes no changes; an unfinished run, missing
+artifact, or incomplete measurements fails clearly instead of applying an older
+patch. A drift failure is expected and can be applied when all measurements
+completed. Adding or removing the apply label does not start another benchmark.
+
+The validation workflow runs PR tooling tests in a separate read-only job on a
+fresh GitHub-hosted runner. The writer uses another fresh runner, loads its helper
+from the immutable commit supplying the trusted apply workflow, and treats the
+exact labeled head commit as data.
+It accepts only changes to existing regular `pallets/*/src/weights.rs` files and
+publishes only if the PR branch still points to that head. PR scripts, imports,
+and Git hooks never run with the writer's credentials.
+
+The trusted apply workflow and its helper must first be deployed together to the
+default branch. If trusted tooling is missing, applying fails; it never falls
+back to the PR's copy of the helper.
 
 ## Running benchmarks locally
 

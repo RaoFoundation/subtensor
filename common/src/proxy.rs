@@ -32,6 +32,7 @@ pub enum ProxyType {
     NonFungible, // Nothing involving moving TAO
     Triumvirate,
     Governance,
+    /// Manage stake positions and claim accumulated root dividends.
     Staking,
     Registration,
     Transfer,
@@ -43,6 +44,20 @@ pub enum ProxyType {
     SubnetLeaseBeneficiary,
     RootClaim,
     BasketTrading,
+    /// Operate a validator hotkey: weights, serving, commitments, EVM-key
+    /// association. Never stake, transfer, or key rotation.
+    Validate,
+    /// Submit weights only (set / commit / reveal). A strict subset of
+    /// `Validate` for third-party weight setters.
+    Weights,
+    /// Control the complete stake conviction-lock lifecycle. The delegate can
+    /// lock up to the account's subnet stake, target any existing hotkey, move
+    /// the lock, and toggle perpetual locking. Moving between hotkeys owned by
+    /// different coldkeys forfeits accrued conviction. This does not permit
+    /// adding, removing, or transferring stake positions.
+    Lock,
+    /// Spend gamma deposits only (`spend_gamma`).
+    GammaSpend,
 }
 
 impl TryFrom<u8> for ProxyType {
@@ -69,6 +84,10 @@ impl TryFrom<u8> for ProxyType {
             16 => Ok(Self::SubnetLeaseBeneficiary),
             17 => Ok(Self::RootClaim),
             18 => Ok(Self::BasketTrading),
+            19 => Ok(Self::Validate),
+            20 => Ok(Self::Weights),
+            21 => Ok(Self::Lock),
+            22 => Ok(Self::GammaSpend),
             _ => Err(()),
         }
     }
@@ -96,6 +115,10 @@ impl From<ProxyType> for u8 {
             ProxyType::SubnetLeaseBeneficiary => 16,
             ProxyType::RootClaim => 17,
             ProxyType::BasketTrading => 18,
+            ProxyType::Validate => 19,
+            ProxyType::Weights => 20,
+            ProxyType::Lock => 21,
+            ProxyType::GammaSpend => 22,
         }
     }
 }
@@ -219,4 +242,48 @@ pub struct ProxyTypeInfo {
     pub name: Vec<u8>,
     pub index: u8,
     pub deprecated: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every stored `ProxyDefinition` carries the SCALE variant index, so the
+    /// `u8` mapping, the declaration order, and the wire encoding must agree
+    /// for every variant. A reordered or renumbered variant would silently
+    /// change what an existing on-chain delegation is allowed to do.
+    #[test]
+    fn proxy_type_indices_are_pinned_to_scale_encoding() {
+        let mut seen = 0u32;
+        for index in 0u8..=u8::MAX {
+            let Ok(proxy_type) = ProxyType::try_from(index) else {
+                continue;
+            };
+            seen = seen.saturating_add(1);
+            assert_eq!(u8::from(proxy_type), index, "{proxy_type:?} round trip");
+            assert_eq!(
+                proxy_type.encode(),
+                vec![index],
+                "{proxy_type:?} SCALE index"
+            );
+        }
+        assert_eq!(seen, 23, "ProxyType variant count");
+    }
+
+    #[test]
+    fn validate_and_weights_have_stable_indices() {
+        assert_eq!(u8::from(ProxyType::BasketTrading), 18);
+        assert_eq!(u8::from(ProxyType::Validate), 19);
+        assert_eq!(u8::from(ProxyType::Weights), 20);
+        assert_eq!(u8::from(ProxyType::Lock), 21);
+        assert_eq!(ProxyType::try_from(19), Ok(ProxyType::Validate));
+        assert_eq!(ProxyType::try_from(20), Ok(ProxyType::Weights));
+        assert_eq!(ProxyType::try_from(21), Ok(ProxyType::Lock));
+        assert_eq!(u8::from(ProxyType::GammaSpend), 22);
+        assert_eq!(ProxyType::try_from(22), Ok(ProxyType::GammaSpend));
+        assert_eq!(ProxyType::try_from(23), Err(()));
+        assert!(!ProxyType::Validate.is_deprecated());
+        assert!(!ProxyType::Weights.is_deprecated());
+        assert!(!ProxyType::Lock.is_deprecated());
+    }
 }

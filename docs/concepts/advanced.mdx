@@ -31,22 +31,35 @@ Prefer the narrowest type that covers the job:
 
 - **Any** — everything the account can do, including transfers. Avoid.
 - **NonTransfer** — everything *except* balance transfers, stake transfers,
-  and coldkey swaps. Notably it can manage the account's other proxies.
+  coldkey swaps, basket trading, gamma mints, moves and spends, and
+  `set_service`. It can still set a gamma deposit's spender and daily spend
+  cap, so it can let a spender of its choice spend the deposit. Notably it can
+  manage the account's other proxies.
 - **Transfer** — balance transfers and stake transfers (`transfer_stake` /
   `transfer_stake_and_hotkey`) only.
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
   (0.5 alpha for stake transfers).
-- **Staking** — stake operations only: add / remove / move / swap /
-  unstake-all and their limit variants. The
+- **Staking** — stake operations (add / remove / move / swap / unstake-all and
+  their limit variants) plus `claim_root` and `claim_root_with_hotkey`. The
   allowlist does **not** include `Utility.batch_all`, so batching staking
   calls through a Staking proxy fails with `CallFiltered` — use a NonTransfer
   proxy for batched staking.
 - **Registration** — neuron registration calls ([`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832),
   [`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814), [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
 - **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945).
-- **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939) and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970).
+- **RootClaim** — only [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939) and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970); it is a strict subset of `Staking`.
+- **BasketTrading** — `swap_basket` and `swap_basket_many` only.
+- **GammaSpend** — `spend_gamma` only.
+- **Validate** — validator hotkey operations: all weights calls,
+  `serve_axon` / `serve_axon_tls` / `serve_prometheus`,
+  `associate_evm_key`,
+  and `Commitments.set_commitment`. Nothing that moves stake or TAO. The real
+  account is the hotkey, which signs the grant.
+- **Weights** — the weights calls only; a strict subset of
+  `Validate` for third-party weight setters.
 - **Owner** — subnet-owner admin calls; **NonCritical** — everything except
-  registrations, coldkey swaps, and subnet dissolution;
+  registrations, coldkey swaps, subnet dissolution, basket trading, and gamma
+  spends;
   **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.
 
 ### Deposits and limits

@@ -81,6 +81,42 @@ impl Default for DissolveCleanupPhase {
     }
 }
 
+impl DissolveCleanupPhase {
+    /// Whether the owner's legacy lock refund has not been paid yet. The refund
+    /// is settled at the end of [`Self::AlphaInOutStakes`] (phase 2.7), so every
+    /// phase up to and including it still needs `SubnetOwnerCutAccrued`.
+    pub fn lock_refund_pending(&self) -> bool {
+        match self {
+            Self::SubnetBasketHoldingsToRoot
+            | Self::SubnetRootDividendsRootClaimable
+            | Self::SubnetRootDividendsRootClaimed
+            | Self::AlphaInOutStakesGetTotalAlphaValue
+            | Self::AlphaInOutStakesSettleStakes
+            | Self::AlphaInOutStakesAlpha
+            | Self::AlphaInOutStakesHotkeyTotals
+            | Self::AlphaInOutStakesLocks
+            | Self::AlphaInOutStakesDecayingLocks
+            | Self::AlphaInOutStakes => true,
+            Self::ProtocolLiquidity
+            | Self::PurgeNetuid
+            | Self::NetworkIsNetworkMember
+            | Self::NetworkParameters
+            | Self::NetworkMapParameters
+            | Self::NetworkUpdateWeightsOnRoot
+            | Self::NetworkChildkeyTake
+            | Self::NetworkChildkeys
+            | Self::NetworkParentkeys
+            | Self::NetworkLastHotkeyEmissionOnNetuid
+            | Self::NetworkTotalHotkeyAlphaLastEpoch
+            | Self::NetworkTransactionKeyLastBlock
+            | Self::NetworkLock
+            | Self::NetworkDecayingLock
+            | Self::NetworkPendingBasketDeposits
+            | Self::NetworkAlphaAssetCounters => false,
+        }
+    }
+}
+
 #[crate::freeze_struct("c524ea54893ae91a")]
 #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking)]
 pub struct DissolveCleanupStatus {
@@ -151,6 +187,7 @@ impl<T: Config> Pallet<T> {
 
         // Just remove the network from the added networks, it is used to check if the network is existed.
         NetworksAdded::<T>::remove(netuid);
+        SubnetState::<T>::insert(netuid, SubnetLifecycleState::PendingDissolution);
         // Reduce the total networks count.
         TotalNetworks::<T>::mutate(|n: &mut u16| *n = n.saturating_sub(1));
         TotalStake::<T>::mutate(|total| *total = total.saturating_sub(SubnetTAO::<T>::get(netuid)));
@@ -184,6 +221,8 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Prometheus::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            Services::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             AlphaDividendsPerSubnet::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             PendingChildKeys::<T>::clear_prefix(netuid, limit, None)
@@ -207,6 +246,10 @@ impl<T: Config> Pallet<T> {
             ColdkeyMinerCollateral::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             ColdkeyCollateralHotkeys::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            GammaDeposits::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            ColdkeyGammaHotkeys::<T>::clear_prefix(netuid, limit, None)
         });
 
         if !result {
@@ -299,7 +342,7 @@ impl<T: Config> Pallet<T> {
     pub fn remove_network_parameters(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
         // Flat write charge for the `::remove(netuid)` list below. Bump this when
         // adding or removing entries from that list so the weight stays in step.
-        let removal_weight = T::DbWeight::get().writes(87);
+        let removal_weight = T::DbWeight::get().writes(94);
         if !weight_meter.can_consume(removal_weight) {
             return false;
         }
@@ -402,6 +445,15 @@ impl<T: Config> Pallet<T> {
         VotingPowerDisableAtBlock::<T>::remove(netuid);
         VotingPowerEmaAlpha::<T>::remove(netuid);
         TotalAlphaStaked::<T>::remove(netuid);
+        SubnetEmissionWeights::<T>::remove(netuid);
+        SubnetCreatedViaLease::<T>::remove(netuid);
+        SubnetOwnerCutAccrued::<T>::remove(netuid);
+        SubnetGammaEnabled::<T>::remove(netuid);
+        SubnetGammaPrice::<T>::remove(netuid);
+        Self::remove_rate_limited_last_block(&RateLimitKey::OwnerHyperparamUpdate(
+            netuid,
+            Hyperparameter::EmissionWeights,
+        ));
 
         if SubnetIdentitiesV3::<T>::contains_key(netuid) {
             SubnetIdentitiesV3::<T>::remove(netuid);
@@ -615,7 +667,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn remove_data_for_dissolved_networks(remaining_weight: Weight) -> Weight {
-        let w = T::DbWeight::get().writes(1);
+        let start_writes = T::DbWeight::get().writes(2);
         let r = T::DbWeight::get().reads(1);
         let mut weight_meter = frame_support::weights::WeightMeter::with_limit(remaining_weight);
 
@@ -628,7 +680,8 @@ impl<T: Config> Pallet<T> {
                     queue.retain(|queued_netuid| *queued_netuid != status.netuid);
                 });
                 CurrentDissolveCleanupStatus::<T>::kill();
-                return weight.saturating_add(T::DbWeight::get().writes(2));
+                SubnetState::<T>::remove(status.netuid);
+                return weight.saturating_add(T::DbWeight::get().writes(3));
             }
             return weight;
         }
@@ -640,13 +693,14 @@ impl<T: Config> Pallet<T> {
 
         let dissolved_networks = DissolveCleanupQueue::<T>::get();
         if let Some(netuid) = dissolved_networks.first() {
-            if !weight_meter.can_consume(w) {
+            if !weight_meter.can_consume(start_writes) {
                 return weight_meter.consumed();
             }
-            weight_meter.consume(w);
+            weight_meter.consume(start_writes);
 
             let mut status = DissolveCleanupStatus::new(*netuid);
             CurrentDissolveCleanupStatus::<T>::set(Some(status.clone()));
+            SubnetState::<T>::insert(*netuid, SubnetLifecycleState::Dissolving);
 
             let (cleanup_completed, _weight) =
                 Self::clean_up_data_for_one_dissolved_network(&mut weight_meter, &mut status);
@@ -656,7 +710,8 @@ impl<T: Config> Pallet<T> {
                     queue.retain(|queued_netuid| *queued_netuid != status.netuid);
                 });
                 CurrentDissolveCleanupStatus::<T>::kill();
-                weight_meter.consume(T::DbWeight::get().writes(2));
+                SubnetState::<T>::remove(status.netuid);
+                weight_meter.consume(T::DbWeight::get().writes(3));
             }
         }
 

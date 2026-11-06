@@ -1022,6 +1022,7 @@ mod tests {
     // dividends interleaved with partial withdrawals (the audit measured 1458x in 299 ops).
     // With the denominator-derived share update the ratio is bounded by 1 on every step.
     // cargo test --package share-pool --lib -- tests::test_grind_keeps_member_share_within_denominator --exact
+    // PROTECTED_REGRESSION: Share-pool updates must not inflate member shares above the denominator; changes require explicit human approval.
     #[test]
     fn test_grind_keeps_member_share_within_denominator() {
         let mut worst_member = 0.0_f64;
@@ -1048,6 +1049,7 @@ mod tests {
     // member's own share (when a deposit dwarfs its existing position) or of the denominator
     // (dust cleanup), each at most one unit in the 21st digit.
     // cargo test --package share-pool --lib -- tests::test_denominator_equals_sum_of_shares --exact
+    // PROTECTED_REGRESSION: The denominator must cover the sum of stored member shares; changes require explicit human approval.
     #[test]
     fn test_denominator_equals_sum_of_shares() {
         let mock_ops = MockSharePoolDataOperations::new();
@@ -1093,6 +1095,7 @@ mod tests {
     // A pool whose last member withdraws everything is closed (D == 0) and re-opens cleanly:
     // the next depositor owns the whole pool and old members quote nothing.
     // cargo test --package share-pool --lib -- tests::test_drained_pool_reopens_clean --exact
+    // PROTECTED_REGRESSION: drained pool reopens clean; changes require explicit human approval.
     #[test]
     fn test_drained_pool_reopens_clean() {
         let mock_ops = MockSharePoolDataOperations::new();
@@ -1127,6 +1130,7 @@ mod tests {
     // inflated member drains the whole pool through the value cap. That must close the pool,
     // so the other inflated share cannot sweep a later depositor, who recovers in full.
     // cargo test --package share-pool --lib -- tests::test_stale_inflated_share_cannot_claim_later_deposit --exact
+    // PROTECTED_REGRESSION: Stale inflated shares must not steal later deposits; changes require explicit human approval.
     #[test]
     fn test_stale_inflated_share_cannot_claim_later_deposit() {
         let mut mock_ops = MockSharePoolDataOperations::new();
@@ -1163,6 +1167,7 @@ mod tests {
     // share that could read as one rao. Withdrawing exactly the quoted value must retire the
     // member's whole share, with the remaining shares still summing to the denominator.
     // cargo test --package share-pool --lib -- tests::test_full_quoted_withdrawal_retires_the_share_in_an_inexact_pool --exact
+    // PROTECTED_REGRESSION: A full withdrawal must retire residual shares despite rounding; changes require explicit human approval.
     #[test]
     fn test_full_quoted_withdrawal_retires_the_share_in_an_inexact_pool() {
         let mut mock_ops = MockSharePoolDataOperations::new();
@@ -1195,6 +1200,7 @@ mod tests {
     // A pool that still has shares but no value cannot price a deposit. It is closed and
     // re-opened by the deposit, so the depositor gets the whole pool instead of nothing.
     // cargo test --package share-pool --lib -- tests::test_deposit_into_valueless_pool_reopens_it --exact
+    // PROTECTED_REGRESSION: deposit into valueless pool reopens it; changes require explicit human approval.
     #[test]
     fn test_deposit_into_valueless_pool_reopens_it() {
         let mut mock_ops = MockSharePoolDataOperations::new();
@@ -1228,6 +1234,7 @@ mod tests {
     // backed on every step, and after the grind each member can withdraw exactly its quote
     // with the pool never going negative and the last member closing it.
     // cargo test --package share-pool --lib -- tests::test_no_unbacked_value_after_grind --exact
+    // PROTECTED_REGRESSION: Dividends and withdrawals must not create unbacked value; changes require explicit human approval.
     #[test]
     fn test_no_unbacked_value_after_grind() {
         for seed in [5_u64, 17, 99, 1234] {
@@ -1287,6 +1294,7 @@ mod tests {
     }
 
     // cargo test --package share-pool --lib -- tests::test_get_value_is_capped_at_shared_value --exact
+    // PROTECTED_REGRESSION: A member quote must not exceed the backing pool value; changes require explicit human approval.
     #[test]
     fn test_get_value_is_capped_at_shared_value() {
         // Divergent state: the member's share S exceeds the denominator D (S/D = 1.5),
@@ -1377,6 +1385,7 @@ mod tests {
         assert_eq!(value2, 10);
     }
 
+    // PROTECTED_REGRESSION: full integer withdrawal clears sub rao share residue; changes require explicit human approval.
     #[test]
     fn test_full_integer_withdrawal_clears_sub_rao_share_residue() {
         let mock_ops = MockSharePoolDataOperations::new();

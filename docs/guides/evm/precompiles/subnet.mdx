@@ -38,6 +38,7 @@ getCommitRevealWeightsInterval(uint16)
 getDifficulty(uint16)
 getImmunityPeriod(uint16)
 getKappa(uint16)
+getLiquidAlphaConsensusMode(uint16)
 getLiquidAlphaEnabled(uint16)
 getMaxBurn(uint16)
 getMaxDifficulty(uint16)
@@ -74,6 +75,9 @@ bits.
 netuid. It increments on every successful registration, allowing a contract to
 distinguish a reused netuid even when it did not retain the previous
 registration block.
+
+`getLiquidAlphaConsensusMode` returns `0` for `Current`, `1` for `Previous`,
+and `2` for `Auto` (the default).
 
 `getSubnetDissolutionStatus` returns `(isDissolving, cleanupInProgress,
 cleanupPhase)`. Phase `0` means that detailed cleanup has not started. Active
@@ -126,6 +130,7 @@ setCommitRevealWeightsInterval(uint16,uint64)
 setDifficulty(uint16,uint64)
 setImmunityPeriod(uint16,uint16)
 setKappa(uint16,uint16)
+setLiquidAlphaConsensusMode(uint16,uint8)
 setLiquidAlphaEnabled(uint16,bool)
 setMaxDifficulty(uint16,uint64)
 setMinAllowedWeights(uint16,uint16)
@@ -139,6 +144,12 @@ setWeightsVersionKey(uint16,uint64)
 setYuma3Enabled(uint16,bool)
 toggleTransfers(uint16,bool)
 ```
+
+`setLiquidAlphaConsensusMode` uses the same mode encoding as the getter and
+reverts for values above `2`. It dispatches
+`AdminUtils.sudo_set_liquid_alpha_consensus_mode` with the mapped EVM caller,
+so subnet-owner authorization, the admin window, and the hyperparameter rate
+limit remain enforced by the runtime.
 
 ## Legacy no-op functions
 

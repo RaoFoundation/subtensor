@@ -15,6 +15,7 @@ Layers:
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 
 import pytest
 from typer._click.core import Context
@@ -29,7 +30,7 @@ from bittensor.client import Client
 from bittensor.intents import REGISTRY as INTENT_REGISTRY
 from bittensor.reads import REGISTRY as READ_REGISTRY
 from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import INTENT_SAMPLES, READ_SAMPLES
+from tests.harness.samples import EMISSION_WEIGHTS_INFO, INTENT_SAMPLES, READ_SAMPLES, seed_gamma
 from tests.unit.test_reads_table import seeded_substrate
 
 runner = CliRunner()
@@ -126,6 +127,9 @@ def _seed_tx_preview(substrate: FakeSubstrate) -> None:
     )
     substrate.seed_runtime("SubnetRegistrationRuntimeApi", "get_network_registration_cost", 10**9)
     substrate.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", [])
+    substrate.seed_runtime(
+        "SubnetInfoRuntimeApi", "get_subnet_emission_weights", EMISSION_WEIGHTS_INFO
+    )
     substrate.seed("SubtensorModule", "SubnetLimit", [], 16)
     substrate.seed("SubtensorModule", "DissolveCleanupQueue", [], [])
     substrate.seed("SubtensorModule", "NetworkRegistrationQueue", [], [])
@@ -133,9 +137,12 @@ def _seed_tx_preview(substrate: FakeSubstrate) -> None:
 
 
 @pytest.fixture()
-def fake(isolated_cli, monkeypatch) -> FakeSubstrate:
+def fake(isolated_cli, monkeypatch, wallet_dir) -> FakeSubstrate:
     substrate = FakeSubstrate()
     _seed_tx_preview(substrate)
+    seed_gamma(
+        substrate, wallets.open_wallet(_WALLET_NAME, path=wallet_dir).coldkeypub.ss58_address
+    )
 
     def make_client(network, **kwargs):
         return Client(network, substrate=substrate)
@@ -180,19 +187,42 @@ def test_help_exits_zero(path: tuple[str, ...]):
 
 
 @pytest.mark.parametrize("op", sorted(INTENT_REGISTRY))
-def test_tx_dry_run_from_sample(op: str, fake: FakeSubstrate):
+def test_tx_dry_run_from_sample(op: str, fake: FakeSubstrate, wallet_dir):
+    sample = deepcopy(INTENT_SAMPLES[op])
+    if op in ("multisig_approve", "multisig_execute"):
+        address = wallets.open_wallet(name=_WALLET_NAME, path=wallet_dir).coldkeypub.ss58_address
+        fake.seed("System", "Account", [address], {"data": {"free": 10**9}})
+    if op in ("authorize_order", "cancel_order"):
+        sample["order"]["V1"]["signer"] = wallets.open_wallet(
+            name=_WALLET_NAME, path=wallet_dir
+        ).coldkeypub.ss58_address
     result = invoke(
         "--json",
         "--dry-run",
         "tx",
         op.replace("_", "-"),
-        *argv_from_sample(INTENT_SAMPLES[op], lists="json"),
+        *argv_from_sample(sample, lists="json"),
     )
     assert result.exit_code == 0, result.output
     plan = json.loads(result.output)
     assert plan["op"] == op
     assert plan["ok"] is True, plan
     assert fake.submissions == []
+
+
+@pytest.mark.parametrize("command", ["claim-root", "claim_root"])
+@pytest.mark.parametrize(
+    ("options", "expected_subnets"),
+    [([], [0]), (["--subnets", "0,1"], [0, 1]), (["--subnets", "[0, 2]"], [0, 2])],
+    ids=["default", "csv", "json"],
+)
+def test_tx_claim_root_subnets(command, options, expected_subnets, fake: FakeSubstrate):
+    result = invoke("--yes", "tx", command, "-w", _WALLET_NAME, *options)
+
+    assert result.exit_code == 0, result.exception or result.output
+    assert len(fake.submissions) == 1
+    assert (fake.last_call.module, fake.last_call.function) == ("SubtensorModule", "claim_root")
+    assert fake.last_call.params == {"subnets": expected_subnets}
 
 
 @pytest.mark.parametrize("name", sorted(READ_REGISTRY))

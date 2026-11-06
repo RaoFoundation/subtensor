@@ -138,7 +138,7 @@ fn make_signed_order_inner(
     let sig = keyring.pair().sign(&order.encode());
     SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: MultiSignature::Sr25519(sig).into(),
         partial_fill: None,
     }
 }
@@ -330,7 +330,7 @@ fn execute_orders_ecdsa_signature_rejected() {
         assert!(signature.verify(order.encode().as_slice(), &ecdsa_id));
         let signed = SignedOrder {
             order,
-            signature,
+            signature: signature.into(),
             partial_fill: None,
         };
 
@@ -381,7 +381,7 @@ fn execute_orders_chain_id_mismatch_rejected() {
         let sig = alice.pair().sign(&order.encode());
         let signed = SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: MultiSignature::Sr25519(sig).into(),
             partial_fill: None,
         };
 
@@ -504,7 +504,7 @@ fn execute_orders_ed25519_wrapped_signature_executes() {
         let ed_sig = ed_pair.sign(&payload);
         let signed = SignedOrder {
             order,
-            signature: MultiSignature::Ed25519(ed_sig),
+            signature: MultiSignature::Ed25519(ed_sig).into(),
             partial_fill: None,
         };
 
@@ -561,7 +561,7 @@ fn execute_orders_wrapped_sr25519_signature_executes() {
         );
         let id = order_id(&signed.order);
         let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
-        signed.signature = MultiSignature::Sr25519(alice.pair().sign(&payload));
+        signed.signature = MultiSignature::Sr25519(alice.pair().sign(&payload)).into();
 
         assert_ok!(LimitOrders::execute_orders(
             RuntimeOrigin::signed(relayer),
@@ -807,6 +807,7 @@ fn batched_buy_dominant_executes_correctly() {
 /// all-or-nothing rollback is faithfully observable: free TAO and staked alpha
 /// must match their pre-call values exactly, and the order must never be
 /// recorded in `Orders`.
+// PROTECTED_REGRESSION: batched full fill duplicate rejected and rolled back; changes require explicit human approval.
 #[test]
 fn batched_full_fill_duplicate_rejected_and_rolled_back() {
     new_test_ext().execute_with(|| {
@@ -2680,6 +2681,7 @@ fn batched_sell_order_fails_when_alpha_is_conviction_locked() {
 ///       `stake_into_subnet` debits the full `18_000_000` because
 ///       `B - ED = 18_999_500 ≥ 18_000_000` (no ED clamp).  Balance → 1_000_000.
 ///     * `forward_fee` of `fee_tao (2_000_000)` then fails: only 1_000_000 left.
+// PROTECTED_REGRESSION: fee failure after buy rolls back swap; changes require explicit human approval.
 #[test]
 fn fee_failure_after_buy_rolls_back_swap() {
     new_test_ext().execute_with(|| {
@@ -2896,7 +2898,7 @@ fn execute_batched_orders_readable_signature_executes() {
         let sig = alice.pair().sign(&readable_signed_bytes(&inner));
         let signed = SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: MultiSignature::Sr25519(sig).into(),
             partial_fill: None,
         };
 

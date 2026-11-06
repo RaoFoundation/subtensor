@@ -1,0 +1,49 @@
+---
+title: owner_emission
+description: Owner slot of the subnet's emission weight vector — the share of alpha emission paid to the subnet owner.
+---
+
+Slot 2 of the [emission weight vector](/docs/concepts/emission-weights):
+the fraction of each block's `alpha_out` that accrues to the subnet owner and
+is staked to the owner's hotkey at each epoch. Stored as `u64` parts of
+`u64::MAX`; the listing shows it as a 0..1 fraction.
+
+## How it works
+
+Per block, `alpha_out × owner_emission` is set aside in the owner's pending
+bucket; the validator and miner slots take their own shares of the same
+`alpha_out`. Zero means no owner cut at all — the legacy
+[`owner_cut_enabled`](/docs/hyperparameters/owner-cut-enabled) flag is now
+derived from this slot. Lease-created subnets pay crowdloan contributors out
+of the owner cut, so on those subnets the owner slot may not drop below the
+18% launch default.
+
+New subnets start at **0.18** (`11796/65535` scaled to u64 parts, the
+historical `SubnetOwnerCut`).
+
+## Bounds
+
+`0 ≤ owner_emission ≤ 0.33`, and `≥ 0.18` on lease-created subnets. The
+five slots must still sum to one, so raising the owner share lowers the
+others. Errors: `OwnerEmissionAboveMaximum`,
+`LeasedSubnetOwnerCutBelowMinimum`, `EmissionWeightsDoNotSumToOne`.
+
+## Reading and setting
+
+```bash
+btcli subnets emission show --netuid 12
+btcli subnets emission set-value --netuid 12 --slot owner --value 0.10
+```
+
+Settable by the subnet owner (once per week per subnet) or root through
+[`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights); not
+available on the root subnet. `set-value` rescales the validator and miner
+slots proportionally so the vector still sums to one.
+
+## Related
+
+- [`validator_emission`](/docs/hyperparameters/validator-emission),
+  [`miner_emission`](/docs/hyperparameters/miner-emission)
+- [`owner_cut_auto_lock_enabled`](/docs/hyperparameters/owner-cut-auto-lock-enabled)
+  — lock the cut as it arrives
+- [Emission weights](/docs/concepts/emission-weights)

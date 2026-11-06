@@ -17,7 +17,7 @@ back with the `auto_stake` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_coldkey_auto_stake_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1974-L2016) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_coldkey_auto_stake_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2039-L2091) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("set_auto_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_coldkey_auto_stake_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1976`](/code/pallets/subtensor/src/macros/dispatches.rs#L1974-L2016):
+`SubtensorModule.set_coldkey_auto_stake_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2041`](/code/pallets/subtensor/src/macros/dispatches.rs#L2039-L2091):
 
 ```rust
 #[pallet::call_index(114)]
@@ -84,10 +84,12 @@ pub fn set_coldkey_auto_stake_hotkey(
         Error::<T>::HotKeyNotRegisteredInSubNet
     );
 
+    Self::ensure_staking_hotkeys_can_grow(&coldkey, &hotkey)?;
+
     let current_hotkey = AutoStakeDestination::<T>::get(coldkey.clone(), netuid);
-    if let Some(current_hotkey) = current_hotkey {
+    if let Some(current_hotkey) = &current_hotkey {
         ensure!(
-            current_hotkey != hotkey,
+            *current_hotkey != hotkey,
             Error::<T>::SameAutoStakeHotkeyAlreadySet
         );
 
@@ -98,12 +100,20 @@ pub fn set_coldkey_auto_stake_hotkey(
     }
 
     // Add the coldkey to the new hotkey (if not already present)
+    StakingHotkeys::<T>::mutate(&coldkey, |hotkeys| {
+        if !hotkeys.contains(&hotkey) {
+            hotkeys.push(hotkey.clone());
+        }
+    });
     AutoStakeDestination::<T>::insert(coldkey.clone(), netuid, hotkey.clone());
     AutoStakeDestinationColdkeys::<T>::mutate(hotkey.clone(), netuid, |v| {
         if !v.contains(&coldkey) {
             v.push(coldkey.clone());
         }
     });
+    if let Some(old_hotkey) = current_hotkey {
+        Self::maybe_remove_staking_hotkey(&old_hotkey, &coldkey);
+    }
 
     Self::deposit_event(Event::AutoStakeDestinationSet {
         coldkey,
@@ -115,6 +125,6 @@ pub fn set_coldkey_auto_stake_hotkey(
 }
 ```
 
-Delegates to [`if_subnet_exist`](/code/pallets/subtensor/src/subnets/subnet.rs#L40).
+Delegates to [`if_subnet_exist`](/code/pallets/subtensor/src/subnets/subnet.rs#L41), [`ensure_staking_hotkeys_can_grow`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1542), [`maybe_remove_staking_hotkey`](/code/pallets/subtensor/src/staking/stake_utils.rs#L957).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -54,8 +54,8 @@ use super::meter::StorageMeter;
 use crate::{
 	runner::Runner as RunnerT, AccountCodes, AccountCodesMetadata, AccountProvider,
 	AccountStorages, AddressMapping, BalanceConverter, BalanceOf, BlockHashMapping, Config,
-	EnsureCreateOrigin, Error, Event, EvmBalance, FeeCalculator, OnChargeEVMTransaction, OnCreate,
-	Pallet, RunnerError,
+	EnsureCreateOrigin, Error, Event, EvmBalance, FeeCalculator, GasWeightMapping,
+	OnChargeEVMTransaction, OnCreate, Pallet, RunnerError,
 };
 
 #[cfg(feature = "forbid-evm-reentrancy")]
@@ -70,6 +70,59 @@ impl<T: Config> Runner<T>
 where
 	BalanceOf<T>: TryFrom<U256> + Into<U256>,
 {
+	fn out_of_gas<R: Default>(gas_limit: u64) -> ExecutionInfoV2<R> {
+		ExecutionInfoV2 {
+			value: R::default(),
+			exit_reason: ExitError::OutOfGas.into(),
+			used_gas: fp_evm::UsedGas {
+				standard: gas_limit.into(),
+				effective: gas_limit.into(),
+			},
+			weight_info: None,
+			logs: Vec::new(),
+		}
+	}
+
+	/// Bound before recovery and reuse these recovered authorities for both
+	/// policy validation and EVM execution. Never recover a second time in an adapter.
+	pub fn recover_authorizations(
+		list: &AuthorizationList,
+	) -> Result<Vec<(U256, H160, U256, Option<H160>)>, RunnerError<Error<T>>> {
+		Self::check_authorization_size(list.len())?;
+		let mut weight = Weight::zero();
+		let mut recovered = Vec::with_capacity(list.len());
+		for item in list {
+			// Recovery already belongs to EIP-7702 intrinsic gas. Preserve that
+			// accounting when a rejected authority returns before execution.
+			weight = weight.saturating_add(T::GasWeightMapping::gas_to_weight(
+				T::config().gas_auth_base_cost,
+				false,
+			));
+			let authority = item.authorizing_address().ok();
+			if let Some(authority) = authority {
+				weight = weight.saturating_add(T::AddressMapping::extra_read_weight());
+				if !T::AddressMapping::is_ethereum_authority_allowed(authority) {
+					return Err(RunnerError {
+						error: Error::<T>::Undefined,
+						weight,
+					});
+				}
+			}
+			recovered.push((item.chain_id.into(), item.address, item.nonce, authority));
+		}
+		Ok(recovered)
+	}
+
+	pub fn check_authorization_size(len: usize) -> Result<(), RunnerError<Error<T>>> {
+		if len > fp_evm::MAX_AUTHORIZATION_LIST_SIZE {
+			return Err(RunnerError {
+				error: Error::<T>::AuthorizationListTooLarge,
+				weight: Weight::zero(),
+			});
+		}
+		Ok(())
+	}
+
 	#[allow(clippy::let_and_return)]
 	/// Execute an already validated EVM operation.
 	fn execute<'config, 'precompiles, F, R>(
@@ -84,6 +137,7 @@ where
 		weight_limit: Option<Weight>,
 		proof_size_base_cost: Option<u64>,
 		measured_proof_size_before: u64,
+		account_weight: Weight,
 		f: F,
 	) -> Result<ExecutionInfoV2<R>, RunnerError<Error<T>>>
 	where
@@ -115,6 +169,7 @@ where
 			weight_limit,
 			proof_size_base_cost,
 			measured_proof_size_before,
+			account_weight,
 		);
 
 		#[cfg(feature = "forbid-evm-reentrancy")]
@@ -154,6 +209,7 @@ where
 				weight_limit,
 				proof_size_base_cost,
 				measured_proof_size_before,
+				account_weight,
 			)
 		});
 
@@ -176,6 +232,7 @@ where
 		weight_limit: Option<Weight>,
 		proof_size_base_cost: Option<u64>,
 		measured_proof_size_before: u64,
+		account_weight: Weight,
 	) -> Result<ExecutionInfoV2<R>, RunnerError<Error<T>>>
 	where
 		F: FnOnce(
@@ -188,14 +245,27 @@ where
 		) -> (ExitReason, R),
 		R: Default,
 	{
+		let weight = weight.saturating_add(account_weight);
 		// Used to record the external costs in the evm through the StackState implementation
-		let maybe_weight_info =
+		// Keep external ref-time accounting even on chains without a PoV gas
+		// ratio. Gas refunds must not erase the cost of registry work performed.
+		let weight_limit = crate::account_cost::external_weight_limit::<T>(gas_limit, weight_limit);
+		let mut maybe_weight_info =
 			WeightInfo::new_from_weight_limit(weight_limit, proof_size_base_cost).map_err(
 				|_| RunnerError {
 					error: Error::<T>::GasLimitTooLow,
 					weight,
 				},
 			)?;
+		if let Some(info) = maybe_weight_info.as_mut() {
+			info.try_record_ref_time_or_fail(account_weight.ref_time())
+				.and_then(|_| info.try_record_proof_size_or_fail(account_weight.proof_size()))
+				.map_err(|_| RunnerError {
+					error: Error::<T>::GasLimitTooLow,
+					weight: account_weight,
+				})?;
+		}
+
 		// The precompile check is only used for transactional invocations. However, here we always
 		// execute the check, because the check has side effects.
 		match precompiles.is_precompile(source, gas_limit) {
@@ -296,6 +366,14 @@ where
 		let (reason, retv, used_gas, effective_gas) =
 			fp_evm::handle_storage_oog::<R, _>(gas_limit, || {
 				let (reason, retv) = f(&mut executor);
+				if fp_evm::is_storage_oog() {
+					// The pinned executor can return from CREATE's nonce update
+					// without exiting its frame. Unwind only this executor's frames;
+					// root nonce/authorization changes and fee withdrawal must survive.
+					while executor.state().substate.parent.is_some() {
+						let _ = executor.state_mut().substate.exit_discard();
+					}
+				}
 
 				// Compute the storage gas cost based on the storage growth.
 				let storage_gas = match &executor.state().storage_meter {
@@ -350,7 +428,15 @@ where
 				// Post execution.
 				let pov_gas = actual_proof_size.saturating_mul(T::GasLimitPovSizeRatio::get());
 				let used_gas = executor.used_gas();
-				let effective_gas = core::cmp::max(core::cmp::max(used_gas, pov_gas), storage_gas);
+				let external_gas = crate::account_cost::gas::<T>(Weight::from_parts(
+					executor
+						.state()
+						.weight_info()
+						.and_then(|info| info.ref_time_usage)
+						.unwrap_or_default(),
+					0,
+				));
+				let effective_gas = used_gas.max(pov_gas).max(storage_gas).max(external_gas);
 
 				log::debug!(
 					target: "evm",
@@ -481,9 +567,23 @@ where
 		proof_size_base_cost: Option<u64>,
 		evm_config: &evm::Config,
 	) -> Result<(), RunnerError<Self::Error>> {
+		Self::check_authorization_size(authorization_list.len())?;
+		let mut policy_weight = Weight::zero();
+		for authority in authorization_list.iter().filter_map(|item| item.3) {
+			policy_weight = policy_weight.saturating_add(T::AddressMapping::extra_read_weight());
+			if !T::AddressMapping::is_ethereum_authority_allowed(authority) {
+				return Err(RunnerError {
+					error: Error::<T>::Undefined,
+					weight: policy_weight,
+				});
+			}
+		}
+
 		let (base_fee, mut weight) = T::FeeCalculator::min_gas_price();
 		let (source_account, inner_weight) = Pallet::<T>::account_basic(&source);
-		weight = weight.saturating_add(inner_weight);
+		weight = weight
+			.saturating_add(inner_weight)
+			.saturating_add(policy_weight);
 
 		let _ = fp_evm::CheckEvmTransaction::<Self::Error>::new(
 			fp_evm::CheckEvmTransactionConfig {
@@ -533,19 +633,44 @@ where
 		proof_size_base_cost: Option<u64>,
 		config: &evm::Config,
 	) -> Result<CallInfo, RunnerError<Self::Error>> {
+		if let Err(error) = crate::account_cost::check_budget::<T>(
+			config,
+			false,
+			authorization_list.len(),
+			gas_limit,
+			weight_limit,
+			proof_size_base_cost,
+		) {
+			// RPC gas estimation probes below intrinsic gas. Return an EVM
+			// OOG result without recovering signatures, so binary search can
+			// raise its lower bound rather than abort with a runtime error.
+			if !is_transactional
+				&& matches!(error, fp_evm::TransactionValidationError::GasLimitTooLow)
+			{
+				return Ok(Self::out_of_gas(gas_limit));
+			}
+			return Err(RunnerError {
+				error: error.into(),
+				weight: Weight::zero(),
+			});
+		}
 		let measured_proof_size_before = get_proof_size().unwrap_or_default();
-
-		let authorization_list = authorization_list
+		let account_weight =
+			crate::account_cost::transaction_weight::<T>(false, authorization_list.len());
+		let recovery_weight = T::GasWeightMapping::gas_to_weight(
+			config
+				.gas_auth_base_cost
+				.saturating_mul(authorization_list.len() as u64),
+			false,
+		)
+		.saturating_add(crate::account_cost::weight::<T>(
+			authorization_list.len() as u64
+		));
+		let signed_authorizations = authorization_list;
+		let authorization_list = signed_authorizations
 			.iter()
-			.map(|d| {
-				(
-					U256::from(d.chain_id),
-					d.address,
-					d.nonce,
-					d.authorizing_address().ok(),
-				)
-			})
-			.collect::<Vec<(U256, sp_core::H160, U256, Option<sp_core::H160>)>>();
+			.map(|item| (U256::from(item.chain_id), item.address, item.nonce, None))
+			.collect::<Vec<_>>();
 
 		if validate {
 			Self::validate(
@@ -566,6 +691,9 @@ where
 			)?;
 		}
 
+		// Recover once after validation, retaining the protected-authority check
+		// for both validated and already-validated execution entry points.
+		let authorization_list = Self::recover_authorizations(&signed_authorizations)?;
 		let precompiles = T::PrecompilesValue::get();
 		Self::execute(
 			source,
@@ -579,6 +707,7 @@ where
 			weight_limit,
 			proof_size_base_cost,
 			measured_proof_size_before,
+			account_weight,
 			|executor| {
 				executor.transact_call(
 					source,
@@ -591,6 +720,10 @@ where
 				)
 			},
 		)
+		.map_err(|mut error| {
+			error.weight = error.weight.saturating_add(recovery_weight);
+			error
+		})
 	}
 
 	fn create(
@@ -611,29 +744,55 @@ where
 		proof_size_base_cost: Option<u64>,
 		config: &evm::Config,
 	) -> Result<CreateInfo, RunnerError<Self::Error>> {
-		let measured_proof_size_before = get_proof_size().unwrap_or_default();
 		let (_, weight) = T::FeeCalculator::min_gas_price();
 
 		T::CreateOriginFilter::check_create_origin(&source)
 			.map_err(|error| RunnerError { error, weight })?;
 
-		let authorization_list = authorization_list
+		if let Err(error) = crate::account_cost::check_budget::<T>(
+			config,
+			true,
+			authorization_list.len(),
+			gas_limit,
+			weight_limit,
+			proof_size_base_cost,
+		) {
+			// RPC gas estimation probes below intrinsic gas. Return an EVM
+			// OOG result without recovering signatures, so binary search can
+			// raise its lower bound rather than abort with a runtime error.
+			if !is_transactional
+				&& matches!(error, fp_evm::TransactionValidationError::GasLimitTooLow)
+			{
+				return Ok(Self::out_of_gas(gas_limit));
+			}
+			return Err(RunnerError {
+				error: error.into(),
+				weight: Weight::zero(),
+			});
+		}
+		let measured_proof_size_before = get_proof_size().unwrap_or_default();
+		let account_weight =
+			crate::account_cost::transaction_weight::<T>(true, authorization_list.len());
+		let recovery_weight = T::GasWeightMapping::gas_to_weight(
+			config
+				.gas_auth_base_cost
+				.saturating_mul(authorization_list.len() as u64),
+			false,
+		)
+		.saturating_add(crate::account_cost::weight::<T>(
+			authorization_list.len() as u64
+		));
+		let signed_authorizations = authorization_list;
+		let authorization_list = signed_authorizations
 			.iter()
-			.map(|d| {
-				(
-					U256::from(d.chain_id),
-					d.address,
-					d.nonce,
-					d.authorizing_address().ok(),
-				)
-			})
-			.collect::<Vec<(U256, sp_core::H160, U256, Option<sp_core::H160>)>>();
+			.map(|item| (U256::from(item.chain_id), item.address, item.nonce, None))
+			.collect::<Vec<_>>();
 
 		if validate {
 			if !disable_whitelist_check && !whitelist.contains(&source) {
 				return Err(RunnerError {
 					error: Error::<T>::NotAllowed,
-					weight: Weight::zero(),
+					weight: recovery_weight,
 				});
 			}
 
@@ -655,6 +814,9 @@ where
 			)?;
 		}
 
+		// Recover once after validation, retaining the protected-authority check
+		// for both validated and already-validated execution entry points.
+		let authorization_list = Self::recover_authorizations(&signed_authorizations)?;
 		let precompiles = T::PrecompilesValue::get();
 		Self::execute(
 			source,
@@ -668,6 +830,7 @@ where
 			weight_limit,
 			proof_size_base_cost,
 			measured_proof_size_before,
+			account_weight,
 			|executor| {
 				let address = executor.create_address(evm::CreateScheme::Legacy { caller: source });
 				T::OnCreate::on_create(source, address);
@@ -682,6 +845,10 @@ where
 				(reason, address)
 			},
 		)
+		.map_err(|mut error| {
+			error.weight = error.weight.saturating_add(recovery_weight);
+			error
+		})
 	}
 
 	fn create2(
@@ -703,29 +870,55 @@ where
 		proof_size_base_cost: Option<u64>,
 		config: &evm::Config,
 	) -> Result<CreateInfo, RunnerError<Self::Error>> {
-		let measured_proof_size_before = get_proof_size().unwrap_or_default();
 		let (_, weight) = T::FeeCalculator::min_gas_price();
 
 		T::CreateOriginFilter::check_create_origin(&source)
 			.map_err(|error| RunnerError { error, weight })?;
 
-		let authorization_list = authorization_list
+		if let Err(error) = crate::account_cost::check_budget::<T>(
+			config,
+			true,
+			authorization_list.len(),
+			gas_limit,
+			weight_limit,
+			proof_size_base_cost,
+		) {
+			// RPC gas estimation probes below intrinsic gas. Return an EVM
+			// OOG result without recovering signatures, so binary search can
+			// raise its lower bound rather than abort with a runtime error.
+			if !is_transactional
+				&& matches!(error, fp_evm::TransactionValidationError::GasLimitTooLow)
+			{
+				return Ok(Self::out_of_gas(gas_limit));
+			}
+			return Err(RunnerError {
+				error: error.into(),
+				weight: Weight::zero(),
+			});
+		}
+		let measured_proof_size_before = get_proof_size().unwrap_or_default();
+		let account_weight =
+			crate::account_cost::transaction_weight::<T>(true, authorization_list.len());
+		let recovery_weight = T::GasWeightMapping::gas_to_weight(
+			config
+				.gas_auth_base_cost
+				.saturating_mul(authorization_list.len() as u64),
+			false,
+		)
+		.saturating_add(crate::account_cost::weight::<T>(
+			authorization_list.len() as u64
+		));
+		let signed_authorizations = authorization_list;
+		let authorization_list = signed_authorizations
 			.iter()
-			.map(|d| {
-				(
-					U256::from(d.chain_id),
-					d.address,
-					d.nonce,
-					d.authorizing_address().ok(),
-				)
-			})
-			.collect::<Vec<(U256, sp_core::H160, U256, Option<sp_core::H160>)>>();
+			.map(|item| (U256::from(item.chain_id), item.address, item.nonce, None))
+			.collect::<Vec<_>>();
 
 		if validate {
 			if !disable_whitelist_check && !whitelist.contains(&source) {
 				return Err(RunnerError {
 					error: Error::<T>::NotAllowed,
-					weight: Weight::zero(),
+					weight: recovery_weight,
 				});
 			}
 
@@ -747,6 +940,9 @@ where
 			)?;
 		}
 
+		// Recover once after validation, retaining the protected-authority check
+		// for both validated and already-validated execution entry points.
+		let authorization_list = Self::recover_authorizations(&signed_authorizations)?;
 		let precompiles = T::PrecompilesValue::get();
 		let code_hash = H256::from(sp_io::hashing::keccak_256(&init));
 		Self::execute(
@@ -761,6 +957,7 @@ where
 			weight_limit,
 			proof_size_base_cost,
 			measured_proof_size_before,
+			account_weight,
 			|executor| {
 				let address = executor.create_address(evm::CreateScheme::Create2 {
 					caller: source,
@@ -780,6 +977,10 @@ where
 				(reason, address)
 			},
 		)
+		.map_err(|mut error| {
+			error.weight = error.weight.saturating_add(recovery_weight);
+			error
+		})
 	}
 }
 
@@ -816,6 +1017,13 @@ impl<'config> SubstrateStackSubstate<'config> {
 	}
 
 	pub fn exit_commit(&mut self) -> Result<(), ExitError> {
+		// A child may catch an ordinary gas failure, but cannot recover from
+		// exhaustion of a transaction-wide resource budget. Discard before
+		// merging storage, logs or deletions into the parent.
+		if fp_evm::is_storage_oog() {
+			self.exit_discard()?;
+			return Err(ExitError::OutOfGas);
+		}
 		let mut exited = *self.parent.take().expect("Cannot commit on root substate");
 		mem::swap(&mut exited, self);
 
@@ -917,6 +1125,16 @@ pub struct SubstrateStackState<'vicinity, 'config, T> {
 }
 
 impl<'vicinity, 'config, T: Config> SubstrateStackState<'vicinity, 'config, T> {
+	fn record_nonce_access(weight_info: &mut WeightInfo) -> Result<(), ExitError> {
+		let reads = T::AccountProvider::extra_nonce_reads();
+		if reads != 0 {
+			weight_info.try_record_ref_time_or_fail(T::DbWeight::get().reads(reads).ref_time())?;
+			weight_info
+				.try_record_proof_size_or_fail(T::AccountProvider::extra_nonce_proof_size())?;
+		}
+		Ok(())
+	}
+
 	/// Create a new backend with given vicinity.
 	pub fn new(
 		vicinity: &'vicinity Vicinity,
@@ -967,6 +1185,7 @@ impl<'vicinity, 'config, T: Config> SubstrateStackState<'vicinity, 'config, T> {
 			// First we record account emptiness check.
 			// Transfers to EOAs with standard 21_000 gas limit are able to
 			// pay for this pov size.
+			Self::record_nonce_access(weight_info)?;
 			weight_info.try_record_proof_size_or_fail(IS_EMPTY_CHECK_PROOF_SIZE)?;
 			if <AccountCodes<T>>::decode_len(address).unwrap_or(0) == 0 {
 				return Ok(());
@@ -987,6 +1206,23 @@ impl<'vicinity, 'config, T: Config> SubstrateStackState<'vicinity, 'config, T> {
 				weight_info.refund_proof_size(create_contract_limit.saturating_sub(actual_size));
 			}
 			recorded.account_codes.push(address);
+		}
+		Ok(())
+	}
+}
+
+impl<T: Config> SubstrateStackState<'_, '_, T>
+where
+	BalanceOf<T>: TryFrom<U256> + Into<U256>,
+{
+	fn record_mapping_reads(&mut self, reads: u64) -> Result<(), ExitError> {
+		let weight = crate::account_cost::weight::<T>(reads);
+		// Mapping work uses the transaction-wide external meter. Charging the
+		// frame's gasometer would change opcode costs and forwarded call gas.
+		// Keep this reservation before the read, including on failed subcalls.
+		if let Some(info) = self.weight_info.as_mut() {
+			info.try_record_ref_time_or_fail(weight.ref_time())?;
+			info.try_record_proof_size_or_fail(weight.proof_size())?;
 		}
 		Ok(())
 	}
@@ -1125,9 +1361,19 @@ where
 	}
 
 	fn inc_nonce(&mut self, address: H160) -> Result<(), ExitError> {
+		let (reads, writes) = T::AccountProvider::extra_nonce_write_counts();
+		if reads != 0 || writes != 0 {
+			self.record_external_cost(
+				Some(T::DbWeight::get().reads_writes(reads, writes).ref_time()),
+				Some(T::AccountProvider::extra_nonce_proof_size()),
+				None,
+			)?;
+		}
+		// Nonce mapping reads are prepaid by the transaction, authorization or
+		// CREATE opcode, before EVM's required nonce-before-gas ordering.
 		let account_id = T::AddressMapping::into_account_id(address);
-		T::AccountProvider::inc_account_nonce(&account_id);
-		Ok(())
+		let nonce_account_id = T::AddressMapping::nonce_account_id(address);
+		T::AccountProvider::try_inc_account_nonce(nonce_account_id.as_ref().unwrap_or(&account_id))
 	}
 
 	fn set_storage(&mut self, address: H160, index: H256, value: H256) {
@@ -1190,16 +1436,25 @@ where
 		code: Vec<u8>,
 		caller: Option<H160>,
 	) -> Result<(), ExitError> {
+		// CREATE cleanup calls this even if exit_commit failed. Never install
+		// code outside the discarded frame after global resource exhaustion.
+		if fp_evm::is_storage_oog() {
+			return Err(ExitError::OutOfGas);
+		}
 		log::debug!(
 			target: "evm",
 			"Inserting code ({} bytes) at {:?}",
 			code.len(),
 			address
 		);
+		// Charged before the CREATE frame commits (ExternalOperation::Write),
+		// or upfront for EIP-7702 authorizations.
 		Pallet::<T>::create_account(address, code, caller)
 	}
 
 	fn transfer(&mut self, transfer: Transfer) -> Result<(), ExitError> {
+		// Reserved in the external resource meter by the calling opcode or
+		// transaction admission before entering the recipient's CALL frame.
 		let source = T::AddressMapping::into_account_id(transfer.source);
 		let target = T::AddressMapping::into_account_id(transfer.target);
 
@@ -1252,6 +1507,11 @@ where
 	}
 
 	fn record_external_operation(&mut self, op: evm::ExternalOperation) -> Result<(), ExitError> {
+		// IsEmpty runs during dynamic-gas calculation, before the opcode charge
+		// can fail. Prepay its mapping lookup before the executor reads storage.
+		if matches!(op, ExternalOperation::Write(_) | ExternalOperation::IsEmpty) {
+			self.record_mapping_reads(1)?;
+		}
 		let size_limit: u64 = self
 			.metadata()
 			.gasometer()
@@ -1263,13 +1523,19 @@ where
 		if let Some(weight_info) = weight_info {
 			match op {
 				ExternalOperation::AccountBasicRead => {
-					weight_info.try_record_proof_size_or_fail(ACCOUNT_BASIC_PROOF_SIZE)?
+					Self::record_nonce_access(weight_info)?;
+					weight_info.try_record_proof_size_or_fail(ACCOUNT_BASIC_PROOF_SIZE)?;
 				}
 				ExternalOperation::AddressCodeRead(address) => {
 					Self::record_address_code_read(address, weight_info, recorded, size_limit)?;
 				}
 				ExternalOperation::IsEmpty => {
-					weight_info.try_record_proof_size_or_fail(IS_EMPTY_CHECK_PROOF_SIZE)?
+					Self::record_nonce_access(weight_info)?;
+					// The patched gasometer also uses this pre-read hook for
+					// SELFDESTRUCT's source balance; cover either account proof.
+					weight_info.try_record_proof_size_or_fail(
+						IS_EMPTY_CHECK_PROOF_SIZE.max(ACCOUNT_BASIC_PROOF_SIZE),
+					)?;
 				}
 				ExternalOperation::Write(len) => {
 					weight_info.try_record_proof_size_or_fail(WRITE_PROOF_SIZE)?;
@@ -1298,6 +1564,21 @@ where
 		gas_cost: GasCost,
 		target: evm::gasometer::StorageTarget,
 	) -> Result<(), ExitError> {
+		let reads = match opcode {
+			Opcode::BALANCE | Opcode::SELFBALANCE | Opcode::EXTCODEHASH => 1,
+			// Charge both transfer mappings before allocating the callee's gas,
+			// even for zero value (the executor still calls transfer).
+			// Target existence is already charged by the early IsEmpty hook.
+			Opcode::CALL | Opcode::CALLCODE => 2,
+			// Three basic reads, two nonce updates and two transfer mappings.
+			Opcode::CREATE | Opcode::CREATE2 => 7,
+			// Source balance and target existence were charged before dynamic gas;
+			// prepay the remaining balance read, deletion and two transfer mappings.
+			Opcode::SUICIDE => 4,
+			_ => 0,
+		};
+		self.record_mapping_reads(reads)?;
+
 		if let Some(storage_meter) = self.storage_meter.as_mut() {
 			storage_meter
 				.record_dynamic_opcode_cost(opcode, gas_cost, target)
@@ -1345,6 +1626,7 @@ where
 				|address: H160, empty_check: bool| -> Result<(), ExitError> {
 					let mut base_size = ACCOUNT_CODES_METADATA_PROOF_SIZE;
 					if empty_check {
+						Self::record_nonce_access(weight_info)?;
 						base_size = base_size.saturating_add(IS_EMPTY_CHECK_PROOF_SIZE);
 					}
 					weight_info.try_record_proof_size_or_fail(base_size)?;
@@ -1376,6 +1658,7 @@ where
 			//	contract size limit.
 			match opcode {
 				Opcode::BALANCE => {
+					Self::record_nonce_access(weight_info)?;
 					weight_info.try_record_proof_size_or_fail(ACCOUNT_BASIC_PROOF_SIZE)?;
 				}
 				Opcode::EXTCODESIZE | Opcode::EXTCODECOPY | Opcode::EXTCODEHASH => {
@@ -1415,6 +1698,7 @@ where
 				//	- Target basic account read
 				//	- 5 bytes of `decode_len`
 				Opcode::SUICIDE => {
+					Self::record_nonce_access(weight_info)?;
 					weight_info.try_record_proof_size_or_fail(IS_EMPTY_CHECK_PROOF_SIZE)?;
 				}
 				// Rest of dynamic opcodes that do not involve proof size recording, do nothing
@@ -1509,6 +1793,7 @@ mod tests {
 				None,
 				None,
 				measured_proof_size_before,
+				Weight::zero(),
 				|_| {
 					let measured_proof_size_before2 = get_proof_size().unwrap_or_default();
 					let res = Runner::<Test>::execute(
@@ -1523,6 +1808,7 @@ mod tests {
 						None,
 						None,
 						measured_proof_size_before2,
+						Weight::zero(),
 						|_| (ExitReason::Succeed(ExitSucceed::Stopped), ()),
 					);
 					assert_matches!(
@@ -1557,6 +1843,7 @@ mod tests {
 				None,
 				None,
 				measured_proof_size_before,
+				Weight::zero(),
 				|_| (ExitReason::Succeed(ExitSucceed::Stopped), ()),
 			);
 			assert!(res.is_ok());

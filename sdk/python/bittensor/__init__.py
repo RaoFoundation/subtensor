@@ -68,7 +68,12 @@ from .reads import (
     StakePosition,
     StakeValuation,
     SubnetInfo,
+    SubnetLifecycleState,
     SwapQuote,
+)
+from .registration_sponsorship import (
+    RegistrationSponsorship,
+    RegistrationSponsorshipRequired,
 )
 from .result import (
     BittensorError,
@@ -139,7 +144,10 @@ __all__ = [
     "MetagraphNeuron",
     "NeuronCommitment",
     "SubnetInfo",
+    "SubnetLifecycleState",
     "Balance",
+    "RegistrationSponsorship",
+    "RegistrationSponsorshipRequired",
     "UnitMismatchError",
     "tao",
     "alpha",

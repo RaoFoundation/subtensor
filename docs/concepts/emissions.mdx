@@ -145,24 +145,37 @@ user LP positions or LP tokens.
 ## The per-tempo split
 
 Per-block `alpha_out` is divided as it accrues
-([`emit_to_subnets`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L265-L354)):
+([`emit_to_subnets`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs))
+by the subnet's [emission weight vector](/docs/concepts/emission-weights)
+`[burn, recycle, owner, validator, miner]`, which the subnet owner sets
+within chain-enforced bounds. Subnets that have never changed it keep the
+historical split:
 
-- **18%** to the subnet owner ([`SubnetOwnerCut`](/code/pallets/subtensor/src/lib.rs#L1780), 11796/65535).
-- **41%** to miners — 50% of the remainder.
-- **41%** to validators and their stakers — the other 50%.
+- **18%** to the subnet owner (the `owner` slot; 0 disables the cut).
+- **41%** to miners (the `miner` slot; at least 33%).
+- **41%** to validators and their stakers (the `validator` slot; at most 50%).
 
-A [`root_proportion`](/code/pallets/subtensor/src/coinbase/block_step.rs#L74-L84) share of the validator half (same formula as the
-injection cap) is reserved for **root TAO stakers** and accumulated as
-claimable root dividends — but only in blocks where the sum of eligible
-non-root subnets' EMA prices exceeds 1.0; otherwise that alpha is recycled.
+Root's **baseline share** of the subnet's emission — `V0 × x / (x + A)` with
+`V0` the default 41% validator share, `x = root_tao × TaoWeight` and `A` the
+subnet's alpha issuance, the same proportion as the injection cap scaled by
+`V0` ([`get_root_emission_share`](/code/pallets/subtensor/src/subnets/emission_weights.rs)) —
+is taken **off the top of the validator slot** every block, capped at the
+slot, and accumulated as claimable **root TAO staker** dividends; alpha
+validators get what is left of the slot. The root alpha is only paid in
+blocks where the sum of eligible non-root subnets' EMA prices exceeds 1.0;
+otherwise it is recycled. The baseline is recomputed from live state each
+block, so whatever validator share a subnet sets, root earns what it would
+on an untouched subnet (see
+[Emission weights](/docs/concepts/emission-weights#root-off-the-top)); the
+injection cap itself is unaffected.
 
 If an epoch ends with zero total miner incentive, the miner half of that
 tempo's pending alpha is paid to validators instead of being withheld.
 
 Within a validator's dividends, each staker is paid according to the
 validator's stake mix: the TAO-staker portion is `τ × w / (α + τ × w)` and
-the alpha-staker portion is `α / (α + τ × w)`, where `w` is the global TAO
-weight (currently 0.18 on mainnet, governance-set). The validator's
+the alpha-staker portion is `α / (α + τ × w)`, where `w` is the global
+`TaoWeight` (0.18 on mainnet today and governance-set). The validator's
 [take](/docs/tx/set-take) is
 deducted before delegators are paid.
 

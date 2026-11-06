@@ -29,6 +29,10 @@ pub struct UnstakeAllWork {
     /// (lock / collateral), so a locked skip still costs the walk, not just the
     /// cheap quote reads.
     pub validated: u32,
+    /// Whether the pending-root-dividend settlement point was reached.
+    pub root_checked: bool,
+    /// Pending-dividend settlement work actually performed.
+    pub flush: crate::staking::basket_flush::BasketFlushWork,
 }
 
 impl<T: Config> Pallet<T> {
@@ -178,7 +182,8 @@ impl<T: Config> Pallet<T> {
                 Self::unstake_all_consider_subnet(work, &coldkey, &hotkey, netuid)
             {
                 work.legs = work.legs.saturating_add(1);
-                Self::unstake_from_subnet(
+                work.root_checked |= netuid.is_root();
+                let (_, flush) = Self::unstake_from_subnet_with_flush_work(
                     &hotkey,
                     &coldkey,
                     &coldkey,
@@ -188,6 +193,7 @@ impl<T: Config> Pallet<T> {
                     false,
                     true,
                 )?;
+                work.flush = work.flush.saturating_add(flush);
                 Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
             }
         }
@@ -235,6 +241,8 @@ impl<T: Config> Pallet<T> {
     fn unstake_all_weight(base: Weight, work: UnstakeAllWork, walk: Weight) -> Weight {
         let cheap = u64::from(work.scanned.saturating_sub(work.validated));
         let expensive_skips = u64::from(work.validated.saturating_sub(work.legs));
+        // Pending settlement is intentionally excluded from stake-call pricing,
+        // as in the pre-487 schedule. The work still runs synchronously.
         base.saturating_add(
             <T as crate::pallet::Config>::WeightInfo::remove_stake()
                 .saturating_add(walk)
@@ -257,6 +265,11 @@ impl<T: Config> Pallet<T> {
             scanned: networks,
             legs: cap,
             validated: cap,
+            root_checked: true,
+            flush: crate::staking::basket_flush::BasketFlushWork::new(
+                crate::staking::basket_flush::MAX_BASKET_ROWS.saturating_mul(6),
+                crate::staking::basket_flush::MAX_BASKET_ROWS,
+            ),
         }
     }
 
@@ -279,6 +292,10 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    pub fn unstake_all_declared_weight_for(_hotkey: &T::AccountId) -> Weight {
+        Self::unstake_all_declared_weight()
+    }
+
     /// Post-dispatch weight of `unstake_all` for the work it really did.
     pub fn unstake_all_actual_weight(coldkey: &T::AccountId, work: UnstakeAllWork) -> Weight {
         Self::unstake_all_weight(
@@ -296,6 +313,10 @@ impl<T: Config> Pallet<T> {
             Self::unstake_all_worst_case_work(),
             Self::staking_hotkeys_walk_bound(),
         )
+    }
+
+    pub fn unstake_all_alpha_declared_weight_for(_hotkey: &T::AccountId) -> Weight {
+        Self::unstake_all_alpha_declared_weight()
     }
 
     /// Post-dispatch weight of `unstake_all_alpha` for the work it really did.
@@ -396,6 +417,10 @@ impl<T: Config> Pallet<T> {
         }
 
         // Stake into root.
+        work.root_checked = true;
+        let (flush, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
+        work.flush = work.flush.saturating_add(flush);
+        ensure!(completed, Error::<T>::BasketDepositPending);
         Self::stake_into_subnet(
             &hotkey,
             &coldkey,
@@ -597,33 +622,24 @@ impl<T: Config> Pallet<T> {
         let pot_u128: u128 = pot_tao.into();
 
         // Compute owner's received emission in TAO at current price (ONLY if we may refund).
-        // We:
-        //      - get the current alpha issuance,
-        //      - apply owner fraction to get owner α,
-        //      - price that α using a *simulated* AMM swap.
+        // The owner α is the cumulative owner cut accrued over the subnet's life
+        // (`SubnetOwnerCutAccrued`), not `issuance × current owner share`: the share is
+        // owner-adjustable, so pricing history with it would let an owner zero the
+        // deduction right before dissolving. A subnet with no accrued entry at all
+        // falls back to the legacy `issuance × SubnetOwnerCut` deduction, never to zero.
         let mut owner_emission_tao = TaoBalance::ZERO;
         if should_refund_owner && !lock_cost.is_zero() {
-            let total_emitted_alpha_u128: u128 = Self::get_alpha_issuance(netuid).to_u64() as u128;
+            let owner_alpha_u64: u64 = Self::owner_cut_alpha_for_lock_refund(netuid).to_u64();
 
-            if total_emitted_alpha_u128 > 0 {
-                let owner_fraction: U96F32 = Self::get_float_subnet_owner_cut();
-                let owner_alpha_u64 = U96F32::from_num(total_emitted_alpha_u128)
-                    .saturating_mul(owner_fraction)
+            if owner_alpha_u64 > 0 {
+                let cur_price: U96F32 = U96F32::saturating_from_num(
+                    T::SwapInterface::current_alpha_price(netuid.into()),
+                );
+                let val_u64 = U96F32::from_num(owner_alpha_u64)
+                    .saturating_mul(cur_price)
                     .floor()
                     .saturating_to_num::<u64>();
-
-                owner_emission_tao = if owner_alpha_u64 > 0 {
-                    let cur_price: U96F32 = U96F32::saturating_from_num(
-                        T::SwapInterface::current_alpha_price(netuid.into()),
-                    );
-                    let val_u64 = U96F32::from_num(owner_alpha_u64)
-                        .saturating_mul(cur_price)
-                        .floor()
-                        .saturating_to_num::<u64>();
-                    val_u64.into()
-                } else {
-                    TaoBalance::ZERO
-                };
+                owner_emission_tao = val_u64.into();
             }
         }
 

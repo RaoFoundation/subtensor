@@ -4,8 +4,8 @@ use crate::{PrecompileExt, PrecompileHandleExt};
 
 use alloc::format;
 use fp_evm::{ExitError, PrecompileFailure};
-use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
-use frame_support::traits::IsSubType;
+use frame_support::dispatch::{DispatchClass, DispatchInfo, GetDispatchInfo, PostDispatchInfo};
+use frame_support::traits::{Get, IsSubType};
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, PrecompileHandle};
 use pallet_subtensor_proxy as pallet_proxy;
@@ -81,6 +81,36 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
+    // The macro ABI-decodes both uint8[] arguments before proxy_call is entered.
+    // Meter the raw calldata here, and only for this selector, before that decode.
+    #[precompile::pre_check]
+    fn pre_check(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
+        let Some(selector) = handle.input().first_chunk::<4>() else {
+            return Ok(());
+        };
+        let selector = u32::from_be_bytes(*selector);
+        if !ProxyPrecompileCall::<R>::proxy_call_selectors().contains(&selector) {
+            return Ok(());
+        }
+        let max_scale_len = *R::BlockLength::get().max.get(DispatchClass::Normal) as u64;
+        // Legacy ABI with empty force_proxy_type: selector + three head words +
+        // two array lengths + one word per SCALE byte. Bound the full calldata,
+        // including any nonempty force_proxy_type array, by the same ceiling.
+        let max_abi_len = max_scale_len.saturating_mul(32).saturating_add(164);
+        let input_len = handle.input().len() as u64;
+        if input_len > max_abi_len {
+            return Err(PrecompileFailure::Error {
+                exit_status: ExitError::Other("proxy ABI input exceeds limit".into()),
+            });
+        }
+        handle.record_cost(
+            input_len
+                .div_ceil(32)
+                .saturating_mul(R::config().gas_transaction_non_zero_data),
+        )?;
+        Ok(())
+    }
+
     #[precompile::public("createPureProxy(uint8,uint32,uint16)")]
     pub fn create_pure_proxy(
         handle: &mut impl PrecompileHandle,
@@ -88,7 +118,7 @@ where
         delay: u32,
         index: u16,
     ) -> EvmResult<H256> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let proxy_type =
             ProxyType::try_from(proxy_type_).map_err(|_| PrecompileFailure::Error {
                 exit_status: ExitError::Other("Invalid proxy type".into()),
@@ -135,7 +165,7 @@ where
         height: u32,
         ext_index: u32,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let proxy_type = ProxyType::try_from(proxy_type).map_err(|_| PrecompileFailure::Error {
             exit_status: ExitError::Other("Invalid proxy type".into()),
         })?;
@@ -160,7 +190,18 @@ where
         force_proxy_type: Vec<u8>,
         call: Vec<u8>,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let max_len = *R::BlockLength::get().max.get(DispatchClass::Normal) as usize;
+        if call.len() > max_len {
+            return Err(PrecompileFailure::Error {
+                exit_status: ExitError::Other("call input exceeds normal block length".into()),
+            });
+        }
+        // Charge every SCALE byte (zeros too), also covering the subsequent linear
+        // dispatch-info traversal. ABI decoding was separately prepaid in pre_check.
+        handle.record_cost(
+            (call.len() as u64).saturating_mul(R::config().gas_transaction_non_zero_data),
+        )?;
+        let account_id = handle.caller_account_id::<R>()?;
 
         let call = <R as pallet_proxy::Config>::RuntimeCall::decode_with_depth_limit(
             MAX_DECODE_DEPTH,
@@ -211,7 +252,7 @@ where
         proxy_type: u8,
         delay: u32,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let proxy_type = ProxyType::try_from(proxy_type).map_err(|_| PrecompileFailure::Error {
             exit_status: ExitError::Other("Invalid proxy type".into()),
         })?;
@@ -234,7 +275,7 @@ where
         proxy_type: u8,
         delay: u32,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let proxy_type = ProxyType::try_from(proxy_type).map_err(|_| PrecompileFailure::Error {
             exit_status: ExitError::Other("Invalid proxy type".into()),
         })?;
@@ -252,7 +293,7 @@ where
 
     #[precompile::public("removeProxies()")]
     pub fn remove_proxies(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
 
         let call = pallet_proxy::Call::<R>::remove_proxies {};
 
@@ -261,7 +302,7 @@ where
 
     #[precompile::public("pokeDeposit()")]
     pub fn poke_deposit(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
 
         let call = pallet_proxy::Call::<R>::poke_deposit {};
 
@@ -370,7 +411,7 @@ where
         real: H256,
         call_hash: H256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call_hash = DecodeLimit::decode_all_with_depth_limit(1, &mut &call_hash.as_bytes()[..])
             .map_err(|_| PrecompileFailure::Error {
                 exit_status: ExitError::Other(
@@ -392,7 +433,7 @@ where
         real: H256,
         call_hash: H256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call_hash = DecodeLimit::decode_all_with_depth_limit(1, &mut &call_hash.as_bytes()[..])
             .map_err(|_| PrecompileFailure::Error {
                 exit_status: ExitError::Other(
@@ -414,7 +455,7 @@ where
         delegate: H256,
         call_hash: H256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call_hash = DecodeLimit::decode_all_with_depth_limit(1, &mut &call_hash.as_bytes()[..])
             .map_err(|_| PrecompileFailure::Error {
                 exit_status: ExitError::Other(
@@ -436,7 +477,7 @@ where
         delegate: H256,
         pays_fee: bool,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_proxy::Call::<R>::set_real_pays_fee {
             delegate: <<R as frame_system::Config>::Lookup as StaticLookup>::Source::from(
                 delegate.0.into(),

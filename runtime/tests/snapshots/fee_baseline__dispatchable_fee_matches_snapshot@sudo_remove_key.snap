@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: sudo_remove_key
+expression: fee
+---
+74943

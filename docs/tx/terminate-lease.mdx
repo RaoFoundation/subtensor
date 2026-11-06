@@ -14,7 +14,7 @@ block with the `lease` read before calling.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.terminate_lease`](/code/pallets/subtensor/src/macros/dispatches.rs#L1884-L1892) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.terminate_lease`](/code/pallets/subtensor/src/macros/dispatches.rs#L1949-L1957) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("terminate_lease", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.terminate_lease` — [`pallets/subtensor/src/macros/dispatches.rs#L1886`](/code/pallets/subtensor/src/macros/dispatches.rs#L1884-L1892):
+`SubtensorModule.terminate_lease` — [`pallets/subtensor/src/macros/dispatches.rs#L1951`](/code/pallets/subtensor/src/macros/dispatches.rs#L1949-L1957):
 
 ```rust
 #[pallet::call_index(111)]
@@ -78,6 +78,6 @@ pub fn terminate_lease(
 }
 ```
 
-Delegates to [`do_terminate_lease`](/code/pallets/subtensor/src/subnets/leasing.rs#L181).
+Delegates to [`do_terminate_lease`](/code/pallets/subtensor/src/subnets/leasing.rs#L183).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

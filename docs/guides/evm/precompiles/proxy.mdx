@@ -57,3 +57,28 @@ dependency on SCALE-encoded `RuntimeCall`.
 No selector is reserved for `proxyAnnounced`.
 
 Source: [`proxy.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/proxy.sol)
+
+## Input processing and gas
+
+The deployed `proxyCall(bytes32,uint8[],uint8[])` ABI is unchanged. Before the
+ABI decoder reads either array, this selector prepays
+`ceil(calldata_bytes / 32) × gas_transaction_non_zero_data`. Other proxy
+selectors, including views, do not pay this input-processing tariff.
+
+Inside `proxyCall`, each raw SCALE byte, including zero bytes, additionally
+costs `gas_transaction_non_zero_data` before SCALE decoding. This tariff also
+covers the linear dispatch-info traversal of the decoded call tree. It uses
+the runtime's EVM configuration; it is not a measured benchmark weight.
+Processing charges are not refunded on malformed inputs, failed authorization,
+or later dispatch rejection.
+
+The SCALE call cannot exceed the runtime's normal-block byte limit. The full
+ABI calldata cannot exceed `32 × normal_block_byte_limit + 164` bytes. Each
+size limit is checked before its corresponding decoder, and SCALE decoding
+retains its depth limit of 8. Oversized input is rejected by a constant-time
+length check. Runtime dispatch must fit the gas remaining after processing;
+otherwise the current precompile frame consumes its remaining gas and returns
+`OutOfGas`. The parent contract can handle that failure.
+
+Proxy authorization still runs in the proxy pallet with the mapped caller as
+the signed delegate. These processing charges do not grant proxy authority.

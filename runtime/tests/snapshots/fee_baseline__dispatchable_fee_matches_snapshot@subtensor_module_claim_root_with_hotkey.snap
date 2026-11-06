@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_claim_root_with_hotkey
+expression: fee
+---
+8251352

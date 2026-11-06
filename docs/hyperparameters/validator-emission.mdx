@@ -1,0 +1,50 @@
+---
+title: validator_emission
+description: Validator slot of the subnet's emission weight vector — the share of alpha emission paid as validator dividends, with root's baseline share taken off the top.
+---
+
+Slot 3 of the [emission weight vector](/docs/concepts/emission-weights):
+the fraction of each block's `alpha_out` that becomes validator dividends.
+Root TAO stakers are paid their baseline share out of this slot first; alpha
+validators share the rest. Stored as `u64` parts of `u64::MAX`.
+
+## How it works
+
+Per block, `alpha_out × validator_emission` goes to the validator bucket.
+Root's **baseline share** `r = V0 × x / (x + A)` — `V0` the default 41%
+validator share, `x = root_tao × TaoWeight`, `A` the subnet's alpha
+issuance, recomputed every block — is set aside for root TAO stakers as
+`min(validator_emission, r) × alpha_out`, and the rest is distributed through
+Yuma Consensus dividends at the epoch
+([Root off the top](/docs/concepts/emission-weights#root-off-the-top)).
+Root therefore earns what it would on an untouched subnet whatever this slot
+is set to; moving the slot only changes what alpha validators receive.
+
+## Bounds
+
+`validator_emission ≤ 0.50`, and the new value must be **strictly above**
+root's baseline share `r` at the block of the call, or alpha validators would
+receive nothing. On a mainnet subnet with 5.4M TAO on root, 6.5M alpha
+issued and `TaoWeight = 0.18`, `r` is about 5.40%. The floor moves with root
+stake, issuance and the global weight, so `btcli subnets emission show`
+prints the current value. If the baseline later grows past the slot, root's
+cut is capped at the whole slot and alpha validators get nothing until the
+owner raises it. Errors: `ValidatorEmissionAboveMaximum`,
+`ValidatorEmissionTooLowToPreserveRoot`, `EmissionWeightsDoNotSumToOne`.
+
+## Reading and setting
+
+```bash
+btcli subnets emission show --netuid 12          # prints the current floor
+btcli subnets emission decrease --netuid 12 --slot validator --by 0.05
+```
+
+Settable by the subnet owner (once per week per subnet) or root through
+[`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights); not
+available on the root subnet.
+
+## Related
+
+- [`owner_emission`](/docs/hyperparameters/owner-emission),
+  [`miner_emission`](/docs/hyperparameters/miner-emission)
+- [Emission weights](/docs/concepts/emission-weights)

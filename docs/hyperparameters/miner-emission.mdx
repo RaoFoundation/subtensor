@@ -1,0 +1,39 @@
+---
+title: miner_emission
+description: Miner slot of the subnet's emission weight vector — the share of alpha emission paid as miner incentive.
+---
+
+Slot 4 of the [emission weight vector](/docs/concepts/emission-weights):
+the fraction of each block's `alpha_out` that becomes miner incentive. On
+subnets with several mechanisms the miner share is divided between them by
+the mechanism emission split. Stored as `u64` parts of `u64::MAX`.
+
+## How it works
+
+Per block, `alpha_out × miner_emission` goes to the miner bucket and is paid
+to miners by incentive at the epoch. If an epoch ends with zero total miner
+incentive, that tempo's miner alpha is paid to validators instead of being
+withheld. When a change to another slot leaves a rounding remainder, the
+miner slot absorbs it so the vector sums to exactly one.
+
+## Bounds
+
+`miner_emission ≥ 0.33`. Errors: `MinerEmissionBelowMinimum`,
+`EmissionWeightsDoNotSumToOne`.
+
+## Reading and setting
+
+```bash
+btcli subnets emission show --netuid 12
+btcli subnets emission increase --netuid 12 --slot miner --by 5%
+```
+
+Settable by the subnet owner (once per week per subnet) or root through
+[`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights); not
+available on the root subnet.
+
+## Related
+
+- [`owner_emission`](/docs/hyperparameters/owner-emission),
+  [`validator_emission`](/docs/hyperparameters/validator-emission)
+- [Emission weights](/docs/concepts/emission-weights)

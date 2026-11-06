@@ -31,7 +31,7 @@ refuses when free TAO cannot cover the reserve.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L2096-L2138) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L2171-L2221) |
 
 ## Parameters
 
@@ -78,7 +78,7 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L2100`](/code/pallets/subtensor/src/macros/dispatches.rs#L2096-L2138):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L2175`](/code/pallets/subtensor/src/macros/dispatches.rs#L2171-L2221):
 
 ```rust
 #[pallet::call_index(121)]
@@ -93,7 +93,15 @@ pub fn claim_root(
     let _ = subnets; // ignored: basket claims are fund-level, not per-subnet
 
     let staking_hotkeys = StakingHotkeys::<T>::get(&coldkey);
-    let selection_scanned = u32::try_from(staking_hotkeys.len()).unwrap_or(u32::MAX);
+    let staking_count = u32::try_from(staking_hotkeys.len()).unwrap_or(u32::MAX);
+    let credit_count = HotkeySwapBasketCredits::<T>::iter_key_prefix(&coldkey)
+        .take(
+            Self::root_claim_declared_work()
+                .saturating_sub(staking_count)
+                .saturating_add(1) as usize,
+        )
+        .count() as u32;
+    let selection_scanned = staking_count.saturating_add(credit_count);
     // Admission failures keep the declared envelope: the admission scan's cost is
     // not precisely metered, so refunding it could under-charge. Only a claim that
     // was admitted and then failed is billed for the work it actually did.
@@ -126,6 +134,6 @@ pub fn claim_root(
 }
 ```
 
-Delegates to [`root_claim_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1124), [`root_claim_hotkeys`](/code/pallets/subtensor/src/staking/claim_root.rs#L1165), [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1208).
+Delegates to [`root_claim_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1157), [`root_claim_hotkeys`](/code/pallets/subtensor/src/staking/claim_root.rs#L1207), [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1259).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

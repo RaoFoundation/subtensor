@@ -119,6 +119,28 @@ The `get` functions are `view`; the other functions are `payable`.
 
 ## Proxies and stake allowances
 
+Accounts can opt out of staking-hotkey list growth initiated by other accounts:
+
+```solidity
+setRejectStakingHotkeyGrowth(bool enabled)
+getRejectStakingHotkeyGrowth(bytes32 coldkey)
+```
+
+The flag defaults to false and follows a coldkey swap. The setter is nonpayable
+and applies to the calling contract's mapped account; the getter is a view.
+With the flag enabled, incoming transfers may use only an existing staking
+hotkey or a hotkey owned by the receiver. Check the getter before transferring:
+a refused runtime dispatch consumes the gas forwarded to the precompile.
+
+A single-subnet hotkey swap renames a delegator's entry when its old position
+exists nowhere else. When a second entry would be needed, the swap respects
+the recipient's flag and the 128-entry third-party cap. A refused position
+stays on the old hotkey, including its auto-stake target and lock, and emits
+`HotkeySwapStakeRetained`. Earned root basket shares remain claimable under the
+new hotkey with `claimRootHotkey`; the credit does not grow the staking list.
+The validator's own split respects its 256-entry cap and fails before the swap
+charge. An all-subnets swap remains a rename.
+
 ```text
 addProxy(bytes32)
 removeProxy(bytes32)

@@ -8,6 +8,7 @@ use sp_core::Get;
 use sp_runtime::DispatchError;
 use sp_runtime::traits::{AccountIdConversion, Zero};
 use sp_std::collections::btree_map::BTreeMap;
+use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::clear_prefix_with_meter;
 use subtensor_swap_interface::{SwapFailureKind, SwapHandler};
@@ -114,7 +115,11 @@ impl<T: Config> Pallet<T> {
     /// pre-deposit NAV `nav_before` and `shares_outstanding` (`P`) shares outstanding:
     /// `value * P / N` (deposit-at-NAV, so existing holders are neither diluted nor
     /// gifted). First deposit mints at par.
-    fn basket_shares_for_value(value: u64, nav_before: u64, shares_outstanding: u64) -> u64 {
+    pub(super) fn basket_shares_for_value(
+        value: u64,
+        nav_before: u64,
+        shares_outstanding: u64,
+    ) -> u64 {
         if shares_outstanding == 0 {
             // Genuine first deposit: mint at par (1 share per TAO of value added).
             return value;
@@ -143,7 +148,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Shared tail of both dividend deposit flows: attribute the value added between real
-    /// stakers and the fund's own escrow slot, mint fund shares at the pre-deposit NAV, and
+    /// stakers and the fund's own escrow slot, price new shares after the fund's own yield, and
     /// advance the per-validator claimable rate. Errors on a dust deposit so the caller rolls
     /// back and re-queues (or recycles only when the credit is unapportionable).
     pub(super) fn mint_basket_dividend_shares(
@@ -169,11 +174,15 @@ impl<T: Config> Pallet<T> {
             total_root.saturating_add(escrow_root),
         );
 
-        // Mint fund shares at the pre-deposit NAV: shares = stakers_value * P / N. A
-        // deposit into an already-compounded fund (N/P > 1) mints fewer shares than TAO
-        // added, so N/P is left unchanged.
+        // Let x be the real stakers' value and y the fund's own yield. New shares s must
+        // satisfy s * (N + x + y) / (P + s) = x, hence s = x * P / (N + y).
+        // Pricing at N instead would give the newcomers part of the incumbents' y.
+        let fund_yield = value_added.saturating_sub(stakers_value);
+        let mint_nav = nav_before
+            .checked_add(fund_yield)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
         let shares: u64 =
-            Self::basket_shares_for_value(stakers_value, nav_before, shares_outstanding);
+            Self::basket_shares_for_value(stakers_value, mint_nav, shares_outstanding);
 
         // Per-staker claimable rate increment: fund shares per unit of root stake.
         let increment: I96F32 = I96F32::saturating_from_num(shares)
@@ -200,14 +209,20 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // `nav_before == 0` with outstanding shares means `basket_shares_for_value`
+        // Do not create claimable shares that the supply cannot represent. The enclosing
+        // deposit transaction rolls back and re-queues the credit on overflow.
+        let shares_after = shares_outstanding
+            .checked_add(shares)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+
+        // `mint_nav == 0` with outstanding shares means `basket_shares_for_value`
         // took its dust-revival branch: this par mint starts a new fund life, so the
         // previous life's display baseline/TWR must not describe it.
-        if nav_before == 0 && shares_outstanding > 0 {
+        if mint_nav == 0 && shares_outstanding > 0 {
             Self::retire_beta_display_state(hotkey);
         }
 
-        BasketShares::<T>::mutate(hotkey, |p| *p = p.saturating_add(shares));
+        BasketShares::<T>::insert(hotkey, shares_after);
         BasketRate::<T>::mutate(hotkey, |rate| *rate = rate.saturating_add(increment));
         // Canonical staker total-return series (display state, see `BasketTwr`).
         Self::accrue_basket_twr(hotkey, stakers_value, total_root);
@@ -420,11 +435,16 @@ impl<T: Config> Pallet<T> {
         let precheck = Self::stake_into_basket_precheck_weight();
         Self::check_stake_into_basket(&coldkey, &hotkey, tao)
             .map_err(|err| (precheck, err.into()))?;
-        // Deposit queued dividend credits first so the share mint below prices against
-        // the fund's full, current NAV. The flush work is priced into the post-dispatch
-        // weight; the declared weight carries its flat allowance.
-        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(&hotkey);
+        // Settle material credits or snapshot their alpha ownership before changing
+        // the fund or its escrow root stake.
+        let (flush_work, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
         let flush_weight = Self::basket_flush_weight(flush_work);
+        if !completed {
+            return Err((
+                precheck.saturating_add(flush_weight),
+                Error::<T>::BasketDepositPending.into(),
+            ));
+        }
 
         // The deployment slots are the holdings the deposit mirrors, or the single root
         // cash slot that opens an empty fund. Each slot can add at most one new holding, so
@@ -556,18 +576,24 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().reads_writes(8_u64, 6_u64))
     }
 
-    /// Pre-dispatch weight of `stake_into_basket`: a cap sized for the row cap of holdings
-    /// as deployment slots over the row cap of holdings, plus the flat pending-deposit flush allowance
-    /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes. Refunded
-    /// to actual post-dispatch.
+    /// Worst-case pre-dispatch weight of `stake_into_basket`: deployment and NAV work at the
+    /// holding cap plus aggregate pending-dividend settlement. Runtime calls use the
+    /// hotkey-specific variant below and refund to actual post-dispatch work.
     pub fn stake_into_basket_declared_weight() -> Weight {
         Self::stake_into_basket_weight(MAX_BASKET_ROWS, MAX_BASKET_ROWS)
             .saturating_add(Self::basket_flush_weight_bound())
     }
 
+    /// Call-specific envelope: the deployment stays capped at the holding bound, while the
+    /// pending-dividend term is sized from this fund's actual queue and holdings.
+    pub fn stake_into_basket_declared_weight_for(hotkey: &T::AccountId) -> Weight {
+        Self::stake_into_basket_weight(MAX_BASKET_ROWS, MAX_BASKET_ROWS)
+            .saturating_add(Self::root_pending_dividend_weight_for(hotkey, true))
+    }
+
     /// Weight of one realizable-NAV sweep over `num_holdings` escrow rows: one sim-swap
     /// valuation plus reads per row. Shared by every basket path that values the fund.
-    pub(crate) fn basket_nav_sweep_weight(num_holdings: u64) -> Weight {
+    pub fn basket_nav_sweep_weight(num_holdings: u64) -> Weight {
         Weight::from_parts(10_000_000, 1000)
             .saturating_add(T::DbWeight::get().reads(4_u64))
             .saturating_mul(num_holdings.max(1))
@@ -587,7 +613,10 @@ impl<T: Config> Pallet<T> {
 
         // Subtract the already-claimed watermark (signed: unstake rebasing can push it below
         // zero) to avoid over- or under-claiming.
-        let claimed: I96F32 = I96F32::saturating_from_num(BasketClaimed::<T>::get(hotkey, coldkey));
+        let claimed: I96F32 = I96F32::saturating_from_num(
+            BasketClaimed::<T>::get(hotkey, coldkey)
+                .saturating_add(Self::deferred_claimed_correction(hotkey, coldkey)),
+        );
 
         claimable.saturating_sub(claimed)
     }
@@ -658,15 +687,30 @@ impl<T: Config> Pallet<T> {
         ignore_minimum_condition: bool,
         outcome: &mut RootClaimOutcome,
     ) -> DispatchResult {
-        // Deposit any queued dividend credits first so the claim redeems against the
-        // fund's full, current state. The flush work is priced into the outcome.
-        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
+        // Settle queued dividend credits before redemption against the fund's full, current
+        // state. The price-band guard protects synchronous settlement; its actual work is
+        // priced into the outcome.
+        let (flush_work, _, flush_completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
         outcome.flush = flush_work;
+        Self::settle_deferred_debts(hotkey, coldkey)?;
+        ensure!(flush_completed, Error::<T>::BasketDepositPending);
+        let (deferred_tao, deferred_rows) =
+            Self::claim_deferred_dividends(hotkey, coldkey, ignore_minimum_condition)?;
+        outcome.tao = deferred_tao;
+        outcome.realized = outcome.realized.saturating_add(deferred_rows);
+        outcome.rows = outcome.rows.saturating_add(deferred_rows);
 
         let owed_shares: u64 = Self::get_basket_owed_shares(hotkey, coldkey);
         if owed_shares == 0 {
             return Ok(()); // no-op
         }
+        // A successful claim establishes or grows root stake. Do not let that new claimant
+        // base participate in dividend credits earned before this claim but deferred by a
+        // transient valuation failure.
+        ensure!(flush_completed, Error::<T>::BasketDepositPending);
+        // A retained root-swap credit is discoverable without a staking-list entry.
+        // Redeeming it establishes root stake, so the caller's overall cap applies.
+        Self::ensure_staking_hotkeys_can_grow(coldkey, hotkey)?;
 
         let shares_total: u64 = BasketShares::<T>::get(hotkey);
         // Nothing realizable yet (fund drained); leave the watermark untouched so the claim can
@@ -685,7 +729,7 @@ impl<T: Config> Pallet<T> {
         // swap error on one pool) still scanned every row up to it, and the refund on that
         // failure must charge the scan, not report zero rows.
         let holdings = Self::get_basket_holdings(hotkey);
-        outcome.rows = holdings.len() as u32;
+        outcome.rows = outcome.rows.saturating_add(holdings.len() as u32);
         let valued_holdings = Self::plan_basket_claim_rows(holdings, owed_shares, shares_total)?;
 
         let has_terminal_garbage = valued_holdings.iter().any(|row| row.terminal_garbage);
@@ -732,7 +776,7 @@ impl<T: Config> Pallet<T> {
         // Redeemed slots are counted outside the transaction: a rolled-back redemption
         // still executed its swaps, so the work is charged either way.
         let realized = &mut outcome.realized;
-        outcome.tao = with_transaction(|| {
+        let redeemed_tao = with_transaction(|| {
             // TAO credited to the staker's root stake, split by source: the root-slot portion is
             // a stake reassignment (no new TAO on root), while subnet sells realize new TAO that
             // must also be credited to the root reserves.
@@ -889,10 +933,12 @@ impl<T: Config> Pallet<T> {
 
             // The staker's root stake just grew; rebase their claimed watermark so the new stake
             // does not retroactively inflate their claimable.
-            if total_tao > 0 {
-                Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+            if total_tao > 0
+                && let Err(error) = Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
                     hotkey, coldkey, total_tao,
-                );
+                )
+            {
+                return TransactionOutcome::Rollback(Err(error));
             }
 
             // Consume the claimed shares and advance the watermark. The whole entitlement
@@ -910,6 +956,9 @@ impl<T: Config> Pallet<T> {
             BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
                 *claimed = claimed.saturating_add(i128::from(owed_shares));
             });
+            if BasketClaimed::<T>::get(hotkey, coldkey) >= 0 {
+                HotkeySwapBasketCredits::<T>::remove(coldkey, hotkey);
+            }
             BasketRedeemedTao::<T>::mutate(hotkey, |total| {
                 *total = total.saturating_add(total_tao.into())
             });
@@ -930,6 +979,7 @@ impl<T: Config> Pallet<T> {
 
             TransactionOutcome::Commit(Ok::<u64, DispatchError>(total_tao))
         })?;
+        outcome.tao = outcome.tao.saturating_add(redeemed_tao);
 
         Ok(())
     }
@@ -1135,26 +1185,31 @@ impl<T: Config> Pallet<T> {
     /// Weight of a claim over `units` hotkeys-plus-holdings (full claim work plus scan-only
     /// work for every unit) that flushes `flush` queued-deposit work first.
     pub fn root_claim_weight_for_work(units: u32, flush: BasketFlushWork) -> Weight {
-        <T as crate::pallet::Config>::WeightInfo::claim_root(units)
-            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
-                units,
-            ))
-            .saturating_add(Self::basket_flush_weight(flush))
+        <T as crate::pallet::Config>::WeightInfo::claim_root(
+            units.saturating_add(u32::try_from(flush.rows).unwrap_or(u32::MAX)),
+        )
+        .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+            units,
+        ))
+        // Credit-row writes are already represented by the combined claim_root units.
+        .saturating_add(Self::basket_flush_weight(BasketFlushWork::new(
+            flush.quotes,
+            0,
+        )))
     }
 
-    /// Pre-dispatch weight for every independently bounded dimension: full claim work,
-    /// scan-only work, and the flat pending-deposit flush allowance
-    /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes.
+    /// Holdings and pending credits have independent bounded allowances. A full
+    /// 129-row basket must remain claimable even while dividends are queued.
     pub fn root_claim_declared_weight_for(limit: u32) -> Weight {
-        Self::root_claim_weight_for_work(limit, Self::basket_flush_work_bound())
+        Self::root_claim_weight_for_work(limit, Self::basket_pending_work_bound())
     }
 
-    /// Coldkey-wide declared weight: the 256-unit envelope plus the flush allowance.
+    /// Coldkey-wide declared weight for the 256-unit holdings envelope plus pending settlement.
     pub(crate) fn root_claim_declared_weight() -> Weight {
         Self::root_claim_declared_weight_for(Self::root_claim_declared_work())
     }
 
-    /// Single-hotkey declared weight: the 129-unit envelope plus the same flush allowance.
+    /// Single-hotkey declared weight for the 130-unit holdings envelope plus pending settlement.
     pub(crate) fn root_claim_hotkey_declared_weight() -> Weight {
         Self::root_claim_declared_weight_for(Self::root_claim_hotkey_declared_work())
     }
@@ -1166,21 +1221,27 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         staking_hotkeys: Vec<T::AccountId>,
     ) -> Vec<T::AccountId> {
-        staking_hotkeys
+        let credit_limit = crate::MAX_ROOT_CLAIM_WORK
+            .saturating_sub(staking_hotkeys.len() as u32)
+            .saturating_add(1) as usize;
+        let mut hotkeys: BTreeSet<_> = staking_hotkeys
             .into_iter()
             .filter(|hotkey| {
                 !Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, NetUid::ROOT)
                     .is_zero()
                     || BasketClaimed::<T>::get(hotkey, coldkey) < 0
+                    || DeferredBasketDebts::<T>::contains_key(hotkey, coldkey)
+                    || DeferredBasketCashClaimed::<T>::get(hotkey, coldkey) < 0
             })
-            .collect()
+            .collect();
+        hotkeys.extend(HotkeySwapBasketCredits::<T>::iter_key_prefix(coldkey).take(credit_limit));
+        hotkeys.into_iter().collect()
     }
 
-    /// True when the hotkeys plus the basket storage rows the claim will scan fit the fixed
-    /// admission envelope, and the pending-deposit flushes the claim runs first fit the flat
-    /// flush allowance ([`Self::basket_flush_fits_declared_budget`]). Count raw Alpha/AlphaV2
-    /// rows so legacy duplicates and malformed zero rows are charged conservatively, and stop
-    /// as soon as a bound is exceeded.
+    /// True when hotkeys and basket storage rows fit the holdings envelope and
+    /// queued credits fit their separate flush allowance. Count raw Alpha/AlphaV2 rows
+    /// so legacy duplicates and malformed zero rows are charged conservatively, and
+    /// stop as soon as the bound is exceeded.
     pub(crate) fn root_claim_fits_budget(hotkeys: &[T::AccountId], budget: u32) -> bool {
         let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
         if work > budget {
@@ -1235,11 +1296,16 @@ impl<T: Config> Pallet<T> {
             .max(selection_scanned)
             .max(1);
         let scanned = outcome.rows.saturating_sub(outcome.realized);
-        <T as crate::pallet::Config>::WeightInfo::claim_root(active)
-            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
-                scanned,
-            ))
-            .saturating_add(Self::basket_flush_weight(outcome.flush))
+        <T as crate::pallet::Config>::WeightInfo::claim_root(
+            active.saturating_add(u32::try_from(outcome.flush.rows).unwrap_or(u32::MAX)),
+        )
+        .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+            scanned,
+        ))
+        .saturating_add(Self::basket_flush_weight(BasketFlushWork::new(
+            outcome.flush.quotes,
+            0,
+        )))
     }
 
     /// Weight of a claim's admission scan, charged on top of the work done when an admitted
@@ -1350,10 +1416,11 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         stake_delta: i128,
-    ) {
+    ) -> DispatchResult {
+        Self::rebase_deferred_dividends(hotkey, coldkey, stake_delta)?;
         let rate = BasketRate::<T>::get(hotkey);
         if rate == I96F32::saturating_from_num(0) {
-            return;
+            return Ok(());
         }
         BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
             *claimed = claimed.saturating_add(
@@ -1361,6 +1428,7 @@ impl<T: Config> Pallet<T> {
                     .saturating_to_num::<i128>(),
             );
         });
+        Ok(())
     }
 
     /// Grant `shares` fund shares to a staker unconditionally by decrementing their signed
@@ -1379,8 +1447,8 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         amount: u64,
-    ) {
-        Self::rebase_basket_claimed_for_stake_delta(hotkey, coldkey, i128::from(amount));
+    ) -> DispatchResult {
+        Self::rebase_basket_claimed_for_stake_delta(hotkey, coldkey, i128::from(amount))
     }
 
     /// Watermark rebase for a root-stake decrease of `amount`.
@@ -1388,33 +1456,88 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         amount: AlphaBalance,
-    ) {
+    ) -> DispatchResult {
         Self::rebase_basket_claimed_for_stake_delta(
             hotkey,
             coldkey,
             i128::from(u64::from(amount)).saturating_neg(),
-        );
+        )
     }
 
     /// Moves a staker's claimed watermark on `hotkey` to a new coldkey (used by coldkey swaps;
     /// hotkey swaps migrate all watermarks via `transfer_basket_for_new_hotkey`).
+    ///
+    /// Returns `ArithmeticError::Overflow` when the summed watermark does not fit in
+    /// `i128`. Callers run inside a transactional coldkey swap so the take is rolled
+    /// back with the rest of the swap.
     pub fn transfer_basket_claimed_for_new_coldkey(
         hotkey: &T::AccountId,
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
-    ) {
+    ) -> DispatchResult {
+        Self::settle_deferred_debts(hotkey, old_coldkey)?;
+        Self::settle_deferred_debts(hotkey, new_coldkey)?;
+        let old_cash = DeferredBasketCashClaimed::<T>::take(hotkey, old_coldkey);
+        if old_cash != 0 {
+            DeferredBasketCashClaimed::<T>::try_mutate(
+                hotkey,
+                new_coldkey,
+                |claimed| -> DispatchResult {
+                    *claimed = claimed
+                        .checked_add(old_cash)
+                        .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+                    Ok(())
+                },
+            )?;
+        }
+        let old_debts = DeferredBasketDebts::<T>::take(hotkey, old_coldkey);
+        if !old_debts.is_empty() {
+            DeferredBasketDebts::<T>::try_mutate(hotkey, new_coldkey, |debts| -> DispatchResult {
+                for (netuid, debt) in old_debts {
+                    if let Some(existing) = debts.get_mut(&netuid) {
+                        ensure!(
+                            existing.generation == debt.generation,
+                            DispatchError::Other("unsettled dividend generation")
+                        );
+                        existing.amount = existing
+                            .amount
+                            .checked_add(debt.amount)
+                            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+                        DeferredBasketRates::<T>::mutate(hotkey, netuid, |state| {
+                            if let Some(state) = state {
+                                state.debt_count = state.debt_count.saturating_sub(1);
+                            }
+                        });
+                    } else {
+                        debts
+                            .try_insert(netuid, debt)
+                            .map_err(|_| Error::<T>::BasketDepositPending)?;
+                    }
+                }
+                Ok(())
+            })?;
+        }
         // Sum the two already-claimed watermarks. When BOTH the source and the destination
         // hold a legitimate watermark — e.g. a coldkey swap onto a hotkey the new coldkey has
         // already staked to — the merged "already claimed" total is old + new. Taking the max
         // would drop one side, under-count what has already been claimed, and cause a future
         // over-payment / double-claim (see GHSA-2026-010 for the hotkey-swap analog, which is
         // prevented upstream by the root-swap cleanliness gate in `do_swap_hotkey`).
+        //
+        // Fail closed on i128 overflow rather than saturating: a saturated watermark
+        // under-counts already-claimed value and re-opens a double-claim window.
         let old_claimed: i128 = BasketClaimed::<T>::take(hotkey, old_coldkey);
         if old_claimed != 0 {
-            BasketClaimed::<T>::mutate(hotkey, new_coldkey, |claimed| {
-                *claimed = claimed.saturating_add(old_claimed);
-            });
+            let dest_claimed: i128 = BasketClaimed::<T>::get(hotkey, new_coldkey);
+            let sum = dest_claimed
+                .checked_add(old_claimed)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+            BasketClaimed::<T>::insert(hotkey, new_coldkey, sum);
         }
+        if HotkeySwapBasketCredits::<T>::take(old_coldkey, hotkey).is_some() {
+            HotkeySwapBasketCredits::<T>::insert(new_coldkey, hotkey, ());
+        }
+        Ok(())
     }
 
     /// Migrates a validator's entire fund to a new hotkey: shares, rate, per-coldkey watermarks,
@@ -1457,12 +1580,18 @@ impl<T: Config> Pallet<T> {
         // One row per historical coldkey — may be large; weight is charged by the caller.
         let claimed_entries: Vec<(T::AccountId, i128)> =
             BasketClaimed::<T>::iter_prefix(old_hotkey).collect();
-        let mut moved_rows = claimed_entries.len() as u32;
+        let mut moved_rows = (claimed_entries.len() as u32)
+            .saturating_add(Self::move_deferred_dividends(old_hotkey, new_hotkey));
         for (coldkey, claimed) in claimed_entries {
             BasketClaimed::<T>::remove(old_hotkey, &coldkey);
             BasketClaimed::<T>::mutate(new_hotkey, &coldkey, |c| {
                 *c = c.saturating_add(claimed);
             });
+            if (HotkeySwapBasketCredits::<T>::take(&coldkey, old_hotkey).is_some() || claimed < 0)
+                && !StakingHotkeys::<T>::get(&coldkey).contains(new_hotkey)
+            {
+                HotkeySwapBasketCredits::<T>::insert(&coldkey, new_hotkey, ());
+            }
         }
 
         // Queued dividend credits follow the fund. The clean-root guard doesn't inspect
@@ -1543,7 +1672,7 @@ impl<T: Config> Pallet<T> {
     ) -> (bool, Option<Vec<u8>>) {
         // Budget covers stake reads, AMM swap bookkeeping, TAO transfer, root-slot credit,
         // and the conversion event for one non-empty holding.
-        let per_key = T::DbWeight::get().reads_writes(25, 20);
+        let per_key = T::DbWeight::get().reads_writes(32, 20);
         let escrow = Self::get_beta_escrow_account_id();
 
         let mut keys = match &last_key {
@@ -1559,6 +1688,35 @@ impl<T: Config> Pallet<T> {
                 return (false, cursor);
             }
             weight_meter.consume(per_key);
+            if DeferredBasketRates::<T>::contains_key(&hotkey, netuid) {
+                if !weight_meter.can_consume(per_key) {
+                    return (false, cursor);
+                }
+                weight_meter.consume(per_key);
+                let alpha = PendingBasketDeposits::<T>::get(&hotkey, netuid);
+                if Self::dissolve_deferred_dividend(&hotkey, netuid, alpha).is_err() {
+                    return (false, cursor);
+                }
+            }
+            // Conversion creates escrow root stake, which must not capture a fraction of
+            // dividends earned before it existed. Settle first if this call's meter can afford
+            // the bounded work; otherwise preserve the cursor for the next cleanup call.
+            let held = Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid);
+            if !held.is_zero()
+                && PendingBasketDeposits::<T>::iter_key_prefix(&hotkey)
+                    .next()
+                    .is_some()
+            {
+                let check_weight = Self::root_pending_dividend_weight_for(&hotkey, true);
+                if !weight_meter.can_consume(check_weight) {
+                    return (false, cursor);
+                }
+                weight_meter.consume(check_weight);
+                let (_, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
+                if !completed {
+                    return (false, cursor);
+                }
+            }
             Self::convert_basket_holding_to_root(&hotkey, &escrow, netuid);
             cursor = Some(BasketShares::<T>::hashed_key_for(hotkey));
         }
@@ -1663,7 +1821,7 @@ impl<T: Config> Pallet<T> {
     /// Sells basket `alpha` on `netuid` for TAO and lands it in the root subnet account, booking
     /// the protocol outflow. The alpha must already have been removed from the escrow position.
     /// Shared by claim redemption and dissolution conversion; callers stay transactional.
-    fn sell_basket_alpha_for_root_tao(
+    pub(super) fn sell_basket_alpha_for_root_tao(
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {

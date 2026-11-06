@@ -3,6 +3,18 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
+    "AccountRejectsStakingHotkeyGrowth": (
+        "The receiving coldkey opted out of staking-list growth caused by other accounts. "
+        "Transfer onto a hotkey the receiver already lists or owns, or have the receiver "
+        "voluntarily establish the destination through its own staking action. Contracts "
+        "can check getRejectStakingHotkeyGrowth before transferring to avoid a refused "
+        "precompile call."
+    ),
+    "HotkeyOwnerPolicyViolation": (
+        "This ownership change would weaken a protected hotkey's authorization. "
+        "Use a coldkey account with a compatible authorization policy before registering, "
+        "associating or moving ownership of the hotkey."
+    ),
     "AccountRejectsLockedAlpha": (
         "Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the "
         "accept-locked-alpha bit set, e.g. during a lock transfer or coldkey swap of locks. "
@@ -54,7 +66,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "AmountTooLow": (
         "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the "
-        "minimum stake threshold after fees and slippage. Compare the amount against the "
+        "minimum stake threshold after fees and slippage, a gamma mint came to less than "
+        "0.1 gamma, or a gamma move found its origin deposit empty. Compare the amount against the "
         "`DefaultMinStake` storage item and the subnet's alpha price before retrying with a "
         "larger amount."
     ),
@@ -76,9 +89,10 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "BasketDepositPending": (
         "A queued root-dividend deposit on this validator could not be settled yet, so an "
-        "operation that changes the hotkey's root claimant base was refused. No current "
-        "dispatch raises it; if it appears, wait for the pending deposit to flush (the next "
-        "claim or basket operation on the hotkey settles it) and retry."
+        "operation that changes the claimant base or basket was refused. Wait for the "
+        "block queue processor to settle the dividend, then retry. Settlement also requires "
+        "the affected basket prices to be within their fast-EMA band; user calls cannot "
+        "force a dividend mint between pool swaps."
     ),
     "BasketHasNoWeights": (
         "Retired on current runtimes: a basket deposit into a fund with no holdings is held "
@@ -187,9 +201,10 @@ DESCRIPTIONS: dict[str, str] = {
         "overlap."
     ),
     "ColdKeyAlreadyAssociated": (
-        "The destination coldkey of a coldkey swap already has staking hotkeys associated with "
-        "it, so it cannot receive the swapped identity. Check the `StakingHotkeys` storage for "
-        "the new coldkey and swap to a fresh, unused coldkey instead."
+        "Retired error: coldkey swaps into an already-used destination now merge assets into "
+        "that coldkey. Current runtimes never return this code; if you still see it, you are "
+        "on a pre-merge runtime — upgrade, or use a destination without staking hotkeys on "
+        "the older chain."
     ),
     "ColdkeyCollateralIncomplete": (
         "A coldkey swap could not fully migrate miner collateral: after migrating every "
@@ -283,7 +298,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "Deprecated": (
         "The extrinsic has been removed and always fails, e.g. `schedule_swap_coldkey`, the "
-        "swap pallet's user-liquidity calls, or `sudo_set_total_issuance`. Migrate to the "
+        "swap pallet's user-liquidity calls, `sudo_set_total_issuance`, or the owner-cut "
+        "setters `sudo_set_subnet_owner_cut` / `sudo_set_owner_cut_enabled` (replaced by "
+        "`sudo_set_subnet_emission_weights`, `btcli subnets emission`). Migrate to the "
         "replacement call noted in the deprecation (for coldkey swaps, "
         "`btcli wallet announce-coldkey-swap` then `btcli wallet swap-coldkey`)."
     ),
@@ -362,10 +379,10 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "HotKeyNotRegisteredInNetwork": (
         "The hotkey is not registered on the relevant subnet, raised by "
-        "`serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring "
-        "registration on any subnet. Verify registration with `btcli wallet registrations` "
-        "(or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register "
-        "via `btcli subnets register` first."
+        "`serve_axon`/`serve_prometheus`/`set_service` for the serving netuid or by "
+        "identity calls requiring registration on any subnet. Verify registration with "
+        "`btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query "
+        "netuids-for-hotkey`) and register via `btcli subnets register` first."
     ),
     "HotKeyNotRegisteredInSubNet": (
         "The hotkey holds no UID on the given netuid, so weight setting, commits, or UID "
@@ -487,7 +504,8 @@ DESCRIPTIONS: dict[str, str] = {
         "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, "
         "emission splits summing away from 65535, max UIDs or take bounds. Check the specific "
         "argument against the min/max storage items the extrinsic validates (e.g. "
-        "`MinAllowedUids`, `MaxMechanismCount`)."
+        "`MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the "
+        "same hotkey, or an empty `spend_gamma`."
     ),
     "InvalidVotingPowerEmaAlpha": (
         "The alpha passed to set the voting power EMA exceeds 10^18, which represents 1.0. "
@@ -578,9 +596,10 @@ DESCRIPTIONS: dict[str, str] = {
         "remaining blocks."
     ),
     "NeuronNoValidatorPermit": (
-        "The hotkey tried to set weights on other neurons without holding a validator permit on "
-        "that subnet. Check `ValidatorPermit` for the neuron's uid (e.g. via the metagraph or "
-        "`btcli subnets metagraph`) and whether its stake ranks it as a validator."
+        "The hotkey tried to set weights on other neurons, or to publish a service other than "
+        "the subnet owner's, without holding a validator permit on that subnet. Check "
+        "`ValidatorPermit` for the neuron's uid (e.g. via the metagraph or `btcli subnets "
+        "metagraph`) and whether its stake ranks it as a validator."
     ),
     "NewColdKeyIsHotkey": (
         "The proposed new coldkey in a coldkey swap is already an existing hotkey account, "
@@ -614,8 +633,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "NonAssociatedColdKey": (
         "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, "
-        "serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. "
-        "via `btcli wallet registrations`, and sign with the coldkey that registered it."
+        "serve, children or take changes), or the gamma deposit at the hotkey belongs to "
+        "another coldkey. Check the hotkey's `Owner` (`btcli wallet registrations`) or the "
+        "gamma deposit's coldkey (`btcli gamma show`), and sign with the coldkey that owns it."
     ),
     "NotEnoughAlphaOutToRecycle": (
         "A recycle or burn of alpha requested more than the subnet's outstanding alpha supply. "
@@ -634,8 +654,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "NotEnoughBalanceToStake": (
         "The coldkey's free balance is less than the TAO required, either the stake amount in "
-        "add_stake or the burn cost of a registration. Check `btcli wallet balance` against the "
-        "amount or the current registration burn (`Burn` storage for the netuid)."
+        "add_stake, the TAO of a gamma mint, or the burn cost of a registration. Check "
+        "`btcli wallet balance` against the amount or the current registration burn (`Burn` "
+        "storage for the netuid)."
     ),
     "NotEnoughStake": (
         "The caller's hotkey holds less stake than the action requires; a generic "
@@ -753,7 +774,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "SlippageTooHigh": (
         "A stake, unstake, or move would move the price past the slippage-protection limit "
-        "(default 5% tolerance). Retry, raise `--rate-tolerance`, or disable protection with "
+        "(default 5% tolerance), or a gamma mint would credit less than its minimum. Retry, "
+        "raise `--rate-tolerance`, or, for stake, disable protection with "
         "`--no-slippage-protection`; check the current price with `btcli subnets price`."
     ),
     "StakeTooLowForRoot": (
@@ -796,6 +818,76 @@ DESCRIPTIONS: dict[str, str] = {
         "existing subnet is eligible to be pruned. Check the number of registered subnets "
         "(`btcli subnets list`) against the subnet limit and retry once a subnet becomes "
         "prunable."
+    ),
+    "EmissionWeightsLengthMismatch": (
+        "`sudo_set_subnet_emission_weights` was given `uids` and `values` lists of different "
+        "lengths. Each slot index in `uids` needs exactly one share in `values`; pass the two "
+        "lists pairwise (e.g. `uids=[2, 3, 4]`, `values=[owner, validator, miner]`)."
+    ),
+    "EmissionWeightIndexOutOfRange": (
+        "`sudo_set_subnet_emission_weights` named a slot index outside the five-slot emission "
+        "weight vector. Valid indices are 0 = burn, 1 = recycle, 2 = owner, 3 = validator, "
+        "4 = miner; later slots (e.g. gamma buys) are reserved for a future runtime."
+    ),
+    "EmissionWeightIndexDuplicated": (
+        "`sudo_set_subnet_emission_weights` listed the same slot index twice in `uids`. Give "
+        "each slot at most once per call."
+    ),
+    "EmissionWeightsDoNotSumToOne": (
+        "After merging your update into the subnet's current emission weight vector, the five "
+        "shares do not sum to exactly `u64::MAX` (1.0). Omitted slots keep their current value, "
+        "so raising one slot requires lowering another in the same call. `btcli subnets "
+        "emission set-value/increase/decrease` renormalise the other slots for you; with the "
+        "raw call, pass a full `[burn, recycle, owner, validator, miner]` vector whose parts "
+        "total 18446744073709551615."
+    ),
+    "BurnEmissionMustBeZero": (
+        "Deprecated. Slot 0 (burn) may now be non-zero; burn and recycle together may be at "
+        "most 33% (`BurnRecycleEmissionAboveMaximum`)."
+    ),
+    "RecycleEmissionMustBeZero": (
+        "Deprecated. Slot 1 (recycle) may now be non-zero; burn and recycle together may be "
+        "at most 33% (`BurnRecycleEmissionAboveMaximum`)."
+    ),
+    "BurnRecycleEmissionAboveMaximum": (
+        "Slots 0 (burn) and 1 (recycle) of the emission weight vector together exceed the 33% "
+        "ceiling. Burn destroys alpha but still counts toward issuance; recycle removes alpha "
+        "from `SubnetAlphaOut` and `TotalAlphaIssuance`. Lower burn and/or recycle so their "
+        "sum is at most 0.33."
+    ),
+    "OwnerEmissionAboveMaximum": (
+        "Slot 2 (owner) of the emission weight vector exceeds the 33% ceiling. The subnet "
+        "owner may take at most 0.33 of block emission; lower the owner share (0 disables the "
+        "owner cut entirely on subnets that were not created through a lease)."
+    ),
+    "LeasedSubnetOwnerCutBelowMinimum": (
+        "The subnet was created through a crowdloan lease, so slot 2 (owner) of its emission "
+        "weight vector may not drop below the 18% launch default that lease contributors are "
+        "paid from. Keep the owner share at or above 0.18 on lease-created subnets."
+    ),
+    "ValidatorEmissionAboveMaximum": (
+        "Slot 3 (validator) of the emission weight vector exceeds the 50% ceiling. Validator "
+        "dividends may draw at most 0.50 of block emission; lower the validator share."
+    ),
+    "ValidatorEmissionTooLowToPreserveRoot": (
+        "Slot 3 (validator) of the emission weight vector is at or below root's baseline "
+        "share. Every block the chain pays root `min(V, r)` of the subnet's emission off the "
+        "top of the validator slot, where `r = V0 * x / (x + A)` is what root would earn with "
+        "the default validator share V0 (0.41) and the global TaoWeight (`x` = root TAO times "
+        "that weight, `A` = the subnet's alpha issuance), recomputed from live state; alpha "
+        "validators get `V - min(V, r)`. A set with `V <= r` would leave validators nothing, "
+        "so it is rejected. `btcli subnets emission show --netuid <n>` prints the baseline "
+        "and the floor for this block. Raise the validator share above it and resubmit."
+    ),
+    "MinerEmissionBelowMinimum": (
+        "Slot 4 (miner) of the emission weight vector is below the 33% floor. Miner incentive "
+        "must receive at least 0.33 of block emission; raise the miner share (or lower the "
+        "owner/validator shares that crowd it out)."
+    ),
+    "EmissionWeightsNotSettableOnRoot": (
+        "`sudo_set_subnet_emission_weights` was called for netuid 0. The root network has no "
+        "alpha emission to divide, so it carries no emission weight vector; pass a subnet "
+        "netuid."
     ),
     "SubnetNotExists": (
         "The netuid passed to the call does not correspond to a registered subnet. Verify the "
@@ -869,8 +961,8 @@ DESCRIPTIONS: dict[str, str] = {
     "TxRateLimitExceeded": (
         "An owner or admin transaction (e.g. `set_children`, tempo or hyperparameter updates, "
         "setting the owner hotkey) was repeated within its rate-limit window for that key and "
-        "subnet. Check when the same transaction type last succeeded and wait for the limit to "
-        "pass."
+        "subnet, or the oracle fed the TAO/USD price twice in one block. Check when the same "
+        "transaction type last succeeded and wait for the limit to pass."
     ),
     "UidMapCouldNotBeCleared": (
         "During a UID reshuffle or trim, clearing the subnet's `Uids` map left residual entries "
@@ -934,7 +1026,68 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "ColdkeySwapTooHeavy": (
         "The coldkey stakes through more hotkeys, or holds more stake positions, than one "
-        "coldkey swap can move. Unstake from or move stake off unused hotkeys and subnets "
-        "to consolidate, then retry the swap."
+        "coldkey swap can move, or the two coldkeys together hold more than 128 gamma deposits. "
+        "Unstake from or move stake off unused hotkeys and subnets, or move gamma into fewer "
+        "deposits and close empty ones, to consolidate, then retry the swap."
+    ),
+    "TaoUsdPriceUnavailable": (
+        "Gamma cannot be minted because the TAO/USD price is unusable: there is no feed, or "
+        "the last feed is more than 300 blocks old. Check `tao_usd_price` and retry once the "
+        "oracle has fed."
+    ),
+    "GammaDisabled": (
+        "Gamma minting is switched off network-wide (`GammaEnabled`) or on this subnet (the "
+        "`gamma_enabled` hyperparameter). Root enables it network-wide; the subnet owner or "
+        "root enables the subnet."
+    ),
+    "TooManyGammaDeposits": (
+        "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or "
+        "by a coldkey swap into it. Move gamma into an existing deposit, or close an empty one "
+        "with `close_gamma_deposit`, then retry."
+    ),
+    "GammaDepositDoesNotExist": (
+        "The hotkey holds no gamma deposit on this subnet. List the coldkey's deposits with "
+        "the `gamma_deposits` read."
+    ),
+    "GammaDepositNotEmpty": (
+        "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` "
+        "closes it; once its spender has spent it to zero, close it."
+    ),
+    "GammaDepositSpenderMismatch": (
+        "A mint named a spender, but the gamma deposit it credits already names another. A "
+        "named spender opens a new deposit and must match an existing one. Mint without naming "
+        "one, or change the deposit's spender with `set_gamma_deposit_spender` first."
+    ),
+    "GammaDepositDailySpendCapMismatch": (
+        "A mint named a daily spend cap, but the gamma deposit it credits has another. A named "
+        "cap opens a new deposit and must match an existing one's. Mint without naming one, or "
+        "change the deposit's cap with `set_gamma_deposit_daily_spend_cap` first."
+    ),
+    "NotGammaDepositSpender": (
+        "A spend entry was skipped because its gamma deposit names another spender. Only the "
+        "deposit's spender, or its `GammaSpend` proxy, spends it."
+    ),
+    "InsufficientGammaBalance": (
+        "A spend entry was skipped because its amount is above the gamma deposit's balance. An "
+        "entry spends its whole amount or nothing. The `gamma_deposit` read gives "
+        "`spendable_gamma`, what an entry can spend now."
+    ),
+    "GammaDepositDailySpendCapExceeded": (
+        "A spend entry was skipped because its amount is above what the gamma deposit's daily "
+        "spend cap allows now. The cap refills over a day. The `gamma_deposit` read gives "
+        "`spendable_gamma`, what an entry can spend now."
+    ),
+    "ColdkeySwapDestinationReserved": (
+        "This account is reserved as the destination of an in-flight coldkey-swap "
+        "announcement, so it cannot be registered as a hotkey and another coldkey cannot "
+        "announce to it until that announcement is executed, cleared, released by the "
+        "destination, reset by root, or the reservation TTL expires. Wait for the "
+        "reservation to clear, have the destination call "
+        "`release_own_coldkey_swap_destination_reservation`, or choose a different account."
+    ),
+    "ColdkeySwapDestinationReservationNotFound": (
+        "No live coldkey-swap destination reservation exists for this account, so "
+        "`release_own_coldkey_swap_destination_reservation` has nothing to free. Confirm "
+        "the account is the reserved destination of an in-flight announcement."
     ),
 }

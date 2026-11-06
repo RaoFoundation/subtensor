@@ -14,6 +14,7 @@ from eth_utils import keccak
 from bittensor.balance import Balance
 from bittensor.evm import addresses, precompiles, rpc, transactions
 from bittensor.evm.keys import write_keystore_file
+from bittensor.sp_core import Keypair
 from tests.harness.samples import ALICE, ALICE_HOT, BOB_HOT
 
 # Vectors for Frontier HashedAddressMapping<BlakeTwo256>: ss58(blake2_256(b"evm:" ++ h160)).
@@ -73,6 +74,29 @@ class TestAssociationProof:
         )
         assert recovered == account.address
 
+    def test_fixed_ms_proof_binds_the_full_native_identity_to_a_separate_evm_key(self):
+        hotkey = Keypair.create_from_seed(bytes([72]) * 32, crypto_type=8)
+        native_identity = bytes(hotkey.public_key)
+        assert len(native_identity) == 32
+        evm = Account.from_key(bytes([73]) * 32)
+        signature, block_number = transactions.association_proof(evm, hotkey.ss58_address, 7200)
+        block_hash = keccak(block_number.to_bytes(8, "little"))
+        assert (
+            Account.recover_message(
+                encode_defunct(primitive=native_identity + block_hash), signature=signature
+            )
+            == evm.address
+        )
+        # Sharing only the truncated H160 must not authenticate another native
+        # identity. Association proofs cover the remaining twelve bytes too.
+        other_identity = native_identity[:-1] + bytes([native_identity[-1] ^ 1])
+        assert (
+            Account.recover_message(
+                encode_defunct(primitive=other_identity + block_hash), signature=signature
+            )
+            != evm.address
+        )
+
 
 class TestPrecompileEncoding:
     def test_coerce_argument_accepts_ss58_for_bytes32(self):
@@ -108,6 +132,16 @@ class TestPrecompileEncoding:
             batch_commit,
             ["[1, 2]", ["0x" + "11" * 32, "0x" + "22" * 32]],
         ).startswith("0x")
+
+    def test_liquid_alpha_consensus_mode_calls_encode(self):
+        subnet = precompiles.get_precompile("subnet")
+        getter = subnet.function("getLiquidAlphaConsensusMode")
+        setter = subnet.function("setLiquidAlphaConsensusMode")
+
+        assert precompiles.encode_call(getter, [1]).startswith("0x")
+        assert precompiles.encode_call(setter, [1, 2]).startswith("0x")
+        assert getter["outputs"] == [{"internalType": "uint8", "name": "", "type": "uint8"}]
+        assert setter["stateMutability"] == "payable"
 
 
 # The vendored ABIs in bittensor/evm/abi must stay in sync with the canonical

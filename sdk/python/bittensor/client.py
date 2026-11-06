@@ -31,6 +31,7 @@ from .balance import Balance
 from .executor import Executor, estimate_shielded_carrier_fee
 from .intents import Intent, Plan, Policy
 from .intents.base import IntentPreflight
+from .limit_orders import LimitOrders
 from .multisig import Multisig
 from .namespaces import (
     Balances,
@@ -38,6 +39,7 @@ from .namespaces import (
     Collateral,
     Delegation,
     Epochs,
+    Gamma,
     Hyperparameters,
     Identity,
     Leasing,
@@ -50,7 +52,9 @@ from .namespaces import (
 )
 from .result import BittensorError, ChainError, ExtrinsicResult
 from .settings import (
+    DEFAULT_ERA_PERIOD,
     DEFAULT_NETWORK,
+    MEV_SHIELD_ERA_PERIOD,
     default_archive_endpoints,
     default_fallback_endpoints,
     explorer_block_url,
@@ -191,6 +195,7 @@ class Client:
         self.collateral = Collateral(self)
         self.delegation = Delegation(self)
         self.epochs = Epochs(self)
+        self.gamma = Gamma(self)
         self.hyperparameters = Hyperparameters(self)
         self.identity = Identity(self)
         self.leasing = Leasing(self)
@@ -200,6 +205,7 @@ class Client:
         self.staking = Staking(self)
         self.subnets = Subnets(self)
         self.weights = Weights(self)
+        self.limit_orders = LimitOrders(self)
 
     # Reads: generic accessors over generated descriptors ---------------------
 
@@ -452,18 +458,26 @@ class Client:
         *,
         proxy_for: Optional[str] = None,
         proxy_type: Optional[str] = None,
+        shielded: bool | None = None,
+        period: Optional[int] = DEFAULT_ERA_PERIOD,
     ) -> IntentPreflight:
-        """Preview context-sensitive effects and hard stops without fee planning."""
+        """Preview effects, hard stops, and the selected route's total fee."""
         return await self._executor.preflight(
             intent,
             wallet,
             proxy_for=proxy_for,
             proxy_type=proxy_type,
+            shielded=shielded,
+            period=period,
         )
 
-    async def estimate_shielded_carrier_fee(self, fee_payer: str) -> Balance:
-        """Conservatively estimate the TAO fee of a MevShield carrier."""
-        return await estimate_shielded_carrier_fee(self._substrate, fee_payer)
+    async def estimate_shielded_carrier_fee(
+        self, fee_payer: Any, call: Any, *, period: int = MEV_SHIELD_ERA_PERIOD
+    ) -> Balance:
+        """Quote a carrier without signing. Pass a public keypair for standard MS;
+        a bare SS58 cannot identify its signing scheme and uses the classical fallback.
+        """
+        return await estimate_shielded_carrier_fee(self._substrate, fee_payer, call, period=period)
 
     async def plan(self, intent: Intent, wallet: WalletLike, **kwargs) -> Plan:
         """Preview an intent (fee, effects, warnings, policy) without submitting.
@@ -477,6 +491,12 @@ class Client:
         """Sign and submit an intent through the policy-gated choke point.
 
         Raises :class:`PolicyError` if the intent violates the active policy.
+        Automatic recipient registration also requires an explicit native TAO
+        ``Balance`` cap (``max_registration_deposit``) or an approving
+        ``on_registration_sponsorship(quote)`` callback. The deposit is
+        permanently reserved separately from the payment and transaction fees.
+        Account registration defaults to Shield when available. Pass
+        ``shielded=False`` to opt out or ``shielded=True`` to require Shield.
         """
         return await self._executor.execute(intent, wallet, **kwargs)
 
@@ -491,7 +511,7 @@ class Client:
     ) -> ExtrinsicResult:
         """Submit an intent MEV-shielded (encrypted until block-author execution).
 
-        Same ``policy`` / ``proxy_for`` / ``proxy_type`` options as :meth:`execute`;
+        Same policy, origin and registration sponsorship options as :meth:`execute`;
         see ``Executor.submit_shielded``.
         """
         return await self._executor.submit_shielded(intent, wallet, **kwargs)
@@ -501,10 +521,36 @@ class Client:
 
         No intent, no preview — an active :class:`Policy` refuses this unless it
         sets ``allow_raw_calls=True``. Pass ``signer="hotkey"`` for hotkey-signed
-        extrinsics. ``shielded=True`` encrypts the composed call like
-        :meth:`submit_shielded`.
+        extrinsics. Account registration defaults to Shield when available;
+        ``shielded=False`` opts out and ``shielded=True`` requires encryption.
         """
         return await self._executor.submit_call(call, wallet, **kwargs)
+
+    async def register_wallet(
+        self,
+        wallet: WalletLike,
+        *,
+        payer: WalletLike,
+        roles=("coldkey", "hotkey"),
+        max_registration_deposit: Balance | None = None,
+        on_registration_sponsorship=None,
+    ):
+        """Register persisted hashed keys with a funded payer through required MEV Shield.
+
+        Approval covers the aggregate permanent reserve. Waits for finalized
+        registration of every selected hashed key; standard keys require no RPC.
+        Failures preserve the wallet and any receipt in WalletRegistrationError.
+        """
+        from .wallet_registration import register_wallet
+
+        return await register_wallet(
+            self,
+            wallet,
+            payer=payer,
+            roles=roles,
+            max_registration_deposit=max_registration_deposit,
+            on_registration_sponsorship=on_registration_sponsorship,
+        )
 
     async def prepare_call(self, call, *, address: str, **kwargs) -> UnsignedExtrinsic:
         """Build an unsigned extrinsic to be signed out-of-process (QR vault,
@@ -527,6 +573,22 @@ class Client:
         submitting side.
         """
         return await self._executor.prepare_call(call, address=address, **kwargs)
+
+    async def prepare_mldsa_call(self, call, *, descriptor: bytes, **kwargs):
+        """Prepare a versioned full-payload request for an ML-DSA-capable signer.
+
+        Export with to_dict(), then sign with sign_prepared_mldsa() using the
+        offline wallet, independently trusted runtime codec, and expected
+        genesis hash. Pass the returned proof to submit_signature(), which
+        rechecks finalized authority and runtime versions under normal policy.
+        Existing hardware/extension apps require explicit support for this format.
+        """
+        composed = call if hasattr(call, "data") else await self._substrate.compose(call)
+        return await self._substrate.prepare_mldsa(composed, descriptor=descriptor, **kwargs)
+
+    async def prepare_pq_call(self, call, *, descriptor: bytes, **kwargs):
+        """Prepare an MS or Falcon transaction for an explicitly supporting signer."""
+        return await self.prepare_mldsa_call(call, descriptor=descriptor, **kwargs)
 
     async def submit_signature(
         self, unsigned: UnsignedExtrinsic, signature: bytes | str, **kwargs
@@ -561,21 +623,27 @@ class Client:
         view = _AddressView(address)
         return await self._substrate.estimate_weight(call, view)
 
-    async def multisig(self, signatories: list[str], threshold: int) -> Multisig:
+    async def multisig(
+        self, signatories: list[str], threshold: int, *, account_mode="legacy"
+    ) -> Multisig:
         """A handle to the M-of-N multisig account for a signer set.
 
-        The address is derived deterministically from the signatory *set* and
-        ``threshold`` against the connected runtime. Have each signatory call
+        ``account_mode="legacy"`` preserves existing Substrate addresses.
+        Choose ``"safe"`` for a new off-curve composite account; its quorum
+        determines the signing security. Have each signatory call
         ``approve(call, wallet)`` on the returned object; the one that reaches the
         threshold executes the call.
         """
-        account = self._substrate.multisig_account(signatories, threshold)
+        account = self._substrate.multisig_account(
+            signatories, threshold, account_mode=account_mode
+        )
         return Multisig(
-            signatories=list(signatories),
+            signatories=list(account.signatories),
             threshold=threshold,
             address=account.ss58_address,
             _client=self,
             _account=account,
+            account_mode=account_mode,
         )
 
     def tools(self) -> list[dict]:

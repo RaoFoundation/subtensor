@@ -1172,15 +1172,6 @@ impl<T: Config> Pallet<T> {
         // Compute rao based emission scores. range: I96F32(0, rao_emission)
         let float_rao_emission: I96F32 = I96F32::saturating_from_num(rao_emission);
 
-        let server_emission: Vec<I96F32> = normalized_server_emission
-            .iter()
-            .map(|se: &I32F32| I96F32::saturating_from_num(*se).saturating_mul(float_rao_emission))
-            .collect();
-        let server_emission: Vec<AlphaBalance> = server_emission
-            .iter()
-            .map(|e: &I96F32| e.saturating_to_num::<u64>().into())
-            .collect();
-
         let validator_emission: Vec<I96F32> = normalized_validator_emission
             .iter()
             .map(|ve: &I32F32| I96F32::saturating_from_num(*ve).saturating_mul(float_rao_emission))
@@ -1210,6 +1201,22 @@ impl<T: Config> Pallet<T> {
                     .collect();
                 (miners, validators, combined)
             } else {
+                // Incentive scores determine relative miner shares, while the
+                // accumulated mining budget determines the amount to pay. The
+                // combined budget can have a different validator/root share.
+                // Use full-precision scores and allocate rounding remainders
+                // in UID order so every funded unit has a recipient.
+                let miner_shares: Vec<u128> = incentive
+                    .iter()
+                    .map(|score| {
+                        if *score > I32F32::from(0) {
+                            score.to_bits() as u128
+                        } else {
+                            0
+                        }
+                    })
+                    .collect();
+                let server_emission = apportion_units(&miner_shares, u64::from(mining_budget));
                 (server_emission, validator_emission, combined_emission)
             };
 

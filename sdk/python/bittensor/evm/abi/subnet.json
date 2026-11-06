@@ -259,6 +259,25 @@
 				"type": "uint16"
 			}
 		],
+		"name": "getLiquidAlphaConsensusMode",
+		"outputs": [
+			{
+				"internalType": "uint8",
+				"name": "",
+				"type": "uint8"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			}
+		],
 		"name": "getYuma3Enabled",
 		"outputs": [
 			{
@@ -879,6 +898,24 @@
 				"type": "uint16"
 			},
 			{
+				"internalType": "uint8",
+				"name": "mode",
+				"type": "uint8"
+			}
+		],
+		"name": "setLiquidAlphaConsensusMode",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
 				"internalType": "bool",
 				"name": "yuma3Enabled",
 				"type": "bool"
@@ -1383,6 +1420,29 @@
         "type": "uint16"
       },
       {
+        "internalType": "uint16[]",
+        "name": "uids",
+        "type": "uint16[]"
+      },
+      {
+        "internalType": "uint64[]",
+        "name": "values",
+        "type": "uint64[]"
+      }
+    ],
+    "name": "setSubnetEmissionWeights",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
         "internalType": "uint16",
         "name": "immuneNeurons",
         "type": "uint16"
@@ -1606,6 +1666,30 @@
         "internalType": "uint16[]",
         "name": "split",
         "type": "uint16[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getSubnetEmissionWeights",
+    "outputs": [
+      {
+        "internalType": "uint64[]",
+        "name": "weights",
+        "type": "uint64[]"
+      },
+      {
+        "internalType": "bool",
+        "name": "createdViaLease",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",

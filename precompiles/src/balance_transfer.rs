@@ -79,7 +79,7 @@ where
             return Ok(());
         }
 
-        let caller = handle.caller_account_id::<R>();
+        let caller = handle.caller_account_id::<R>()?;
         let dest = R::AccountId::from(address.0).into();
 
         let call = <R as frame_system::Config>::RuntimeCall::from(
@@ -113,7 +113,7 @@ where
         address: H256,
         amount: U256,
     ) -> EvmResult<()> {
-        let caller = handle.caller_account_id::<R>();
+        let caller = handle.caller_account_id::<R>()?;
         let call = pallet_balances::Call::<R>::transfer_keep_alive {
             dest: R::AccountId::from(address.0).into(),
             value: amount
@@ -133,7 +133,7 @@ where
         address: H256,
         keep_alive: bool,
     ) -> EvmResult<()> {
-        let caller = handle.caller_account_id::<R>();
+        let caller = handle.caller_account_id::<R>()?;
         let call = pallet_balances::Call::<R>::transfer_all {
             dest: R::AccountId::from(address.0).into(),
             keep_alive,

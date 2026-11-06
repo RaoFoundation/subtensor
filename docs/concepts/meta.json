@@ -1,4 +1,4 @@
 {
   "title": "Concepts",
-  "pages": ["network", "emissions", "wallets", "money", "beta-tokens", "staking-pools", "client", "transactions", "chain-consensus", "advanced"]
+  "pages": ["network", "emissions", "emission-weights", "wallets", "money", "beta-tokens", "staking-pools", "client", "transactions", "chain-consensus", "advanced"]
 }

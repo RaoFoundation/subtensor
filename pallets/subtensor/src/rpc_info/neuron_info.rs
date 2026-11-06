@@ -56,7 +56,7 @@ pub struct NeuronInfoLite<AccountId: TypeInfo + Encode + Decode> {
 
 impl<T: Config> Pallet<T> {
     pub fn get_neurons(netuid: NetUid) -> Vec<NeuronInfo<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             return Vec::new();
         }
 
@@ -117,7 +117,7 @@ impl<T: Config> Pallet<T> {
             .collect::<Vec<(Compact<u16>, Compact<u16>)>>();
         let stake: Vec<(T::AccountId, Compact<AlphaBalance>)> = vec![(
             coldkey.clone(),
-            Self::get_stake_for_hotkey_on_subnet(&hotkey, netuid).into(),
+            Self::get_reported_stake_for_hotkey_on_subnet(&hotkey, netuid).into(),
         )];
         let neuron = NeuronInfo {
             hotkey: hotkey.clone(),
@@ -146,7 +146,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_neuron(netuid: NetUid, uid: u16) -> Option<NeuronInfo<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             return None;
         }
 
@@ -179,7 +179,7 @@ impl<T: Config> Pallet<T> {
 
         let stake: Vec<(T::AccountId, Compact<AlphaBalance>)> = vec![(
             coldkey.clone(),
-            Self::get_stake_for_hotkey_on_subnet(&hotkey, netuid).into(),
+            Self::get_reported_stake_for_hotkey_on_subnet(&hotkey, netuid).into(),
         )];
 
         let neuron = NeuronInfoLite {
@@ -207,7 +207,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_neurons_lite(netuid: NetUid) -> Vec<NeuronInfoLite<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             return Vec::new();
         }
 
@@ -225,7 +225,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_neuron_lite(netuid: NetUid, uid: u16) -> Option<NeuronInfoLite<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             return None;
         }
 

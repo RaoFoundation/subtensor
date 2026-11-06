@@ -108,10 +108,8 @@ where
             version_key,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Commit a hash of intended weights for the commit-reveal-v2 flow.
@@ -140,10 +138,8 @@ where
             commit_hash,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Reveal previously committed weights and set them for the calling neuron.
@@ -180,10 +176,8 @@ where
             version_key,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Register a hotkey on a subnet by burning TAO from the caller coldkey.
@@ -208,7 +202,7 @@ where
         netuid: u16,
         hotkey: H256,
     ) -> EvmResult<()> {
-        let coldkey = handle.caller_account_id::<R>();
+        let coldkey = handle.caller_account_id::<R>()?;
         let hotkey = R::AccountId::from(hotkey.0);
         let call = pallet_subtensor::Call::<R>::burned_register {
             netuid: netuid.into(),
@@ -241,7 +235,7 @@ where
         hotkey: H256,
         limit_price: u64,
     ) -> EvmResult<()> {
-        let coldkey = handle.caller_account_id::<R>();
+        let coldkey = handle.caller_account_id::<R>()?;
         let hotkey = R::AccountId::from(hotkey.0);
         let call = pallet_subtensor::Call::<R>::register_limit {
             netuid: netuid.into(),
@@ -295,10 +289,8 @@ where
             placeholder2,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Publish the calling neuron's Axon endpoint metadata together with a TLS certificate.
@@ -349,10 +341,8 @@ where
             certificate: certificate.into(),
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Publish the calling neuron's Prometheus metrics endpoint metadata for a subnet.
@@ -388,10 +378,8 @@ where
             ip_type,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("setMechanismWeights(uint16,uint8,uint16[],uint16[],uint64)")]
@@ -848,6 +836,9 @@ where
         )
     }
 
+    /// Legacy hash commitment. `bytes32` is BlakeTwo256(`destination`), not the
+    /// account itself. Prefer [`Self::announce_coldkey_swap_v2`] for cleartext
+    /// destinations (pre-fee validation + reservation).
     #[precompile::public("announceColdkeySwap(bytes32)")]
     fn announce_coldkey_swap(
         handle: &mut impl PrecompileHandle,
@@ -858,6 +849,20 @@ where
         dispatch_neuron(
             handle,
             pallet_subtensor::Call::<R>::announce_coldkey_swap { new_coldkey_hash },
+        )
+    }
+
+    /// Cleartext destination announce: validates and reserves before the fee.
+    #[precompile::public("announceColdkeySwapV2(bytes32)")]
+    fn announce_coldkey_swap_v2(
+        handle: &mut impl PrecompileHandle,
+        new_coldkey: H256,
+    ) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::announce_coldkey_swap_v2 {
+                new_coldkey: R::AccountId::from(new_coldkey.0),
+            },
         )
     }
 
@@ -1318,7 +1323,7 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
-    let caller = handle.caller_account_id::<R>();
+    let caller = handle.caller_account_id::<R>()?;
     handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
 }
 
@@ -1683,6 +1688,45 @@ mod tests {
             assert_eq!(axon.protocol, SERVE_PROTOCOL);
             assert_eq!(axon.placeholder1, SERVE_PLACEHOLDER1);
             assert_eq!(axon.placeholder2, SERVE_PLACEHOLDER2);
+        });
+    }
+
+    #[test]
+    fn announce_coldkey_swap_bytes32_keeps_legacy_hash_commitment() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0xA401);
+            let (_, caller_account) = setup_registered_caller(caller);
+            let dest = AccountId::new([0x42; 32]);
+            let dest_hash = <Runtime as frame_system::Config>::Hashing::hash_of(&dest);
+            let swap_cost = pallet_subtensor::Pallet::<Runtime>::get_key_swap_cost();
+            add_balance_to_coldkey_account(&caller_account, swap_cost);
+
+            let target = addr_from_index(NeuronPrecompile::<Runtime>::INDEX);
+            let precompiles = precompiles::<NeuronPrecompile<Runtime>>();
+            precompiles
+                .prepare_test(
+                    caller,
+                    target,
+                    encode_with_selector(
+                        selector_u32("announceColdkeySwap(bytes32)"),
+                        (H256::from_slice(dest_hash.as_ref()),),
+                    ),
+                )
+                .execute_returns(());
+
+            let (_when, stored) =
+                pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::get(&caller_account)
+                    .expect("announcement stored");
+            assert_eq!(stored, dest_hash);
+            // Legacy path must not reserve the cleartext destination (or the
+            // hash-as-account reinterpretation).
+            assert!(
+                pallet_subtensor::ColdkeySwapReservedDestination::<Runtime>::get(&caller_account)
+                    .is_none()
+            );
+            assert!(!pallet_subtensor::ColdkeySwapDestinationReservations::<
+                Runtime,
+            >::contains_key(&dest));
         });
     }
 

@@ -9,6 +9,7 @@ use jsonrpsee::{
 use sp_blockchain::HeaderBackend;
 use sp_runtime::{AccountId32, traits::Block as BlockT};
 use std::sync::Arc;
+use subtensor_custom_rpc_runtime_api::normalize_metagraph_indices;
 use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
 
 use sp_api::ProvideRuntimeApi;
@@ -99,6 +100,12 @@ pub trait SubtensorCustomApi<BlockHash> {
     fn get_coldkey_auto_stake_hotkey(
         &self,
         coldkey: AccountId32,
+        netuid: NetUid,
+        at: Option<BlockHash>,
+    ) -> RpcResult<Vec<u8>>;
+    #[method(name = "subnetInfo_getSubnetEmissionWeights")]
+    fn get_subnet_emission_weights(
+        &self,
         netuid: NetUid,
         at: Option<BlockHash>,
     ) -> RpcResult<Vec<u8>>;
@@ -546,6 +553,7 @@ where
         metagraph_index: Vec<u16>,
         at: Option<<Block as BlockT>::Hash>,
     ) -> RpcResult<Vec<u8>> {
+        let metagraph_index = normalize_metagraph_indices(metagraph_index);
         let api = self.client.runtime_api();
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
 
@@ -575,6 +583,23 @@ where
         }
     }
 
+    fn get_subnet_emission_weights(
+        &self,
+        netuid: NetUid,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<Vec<u8>> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_subnet_emission_weights(at, netuid) {
+            Ok(result) => Ok(result.encode()),
+            Err(e) => Err(Error::RuntimeError(format!(
+                "Unable to get subnet emission weights: {e:?}"
+            ))
+            .into()),
+        }
+    }
+
     fn get_selective_mechagraph(
         &self,
         netuid: NetUid,
@@ -582,6 +607,7 @@ where
         metagraph_index: Vec<u16>,
         at: Option<<Block as BlockT>::Hash>,
     ) -> RpcResult<Vec<u8>> {
+        let metagraph_index = normalize_metagraph_indices(metagraph_index);
         let api = self.client.runtime_api();
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
 
@@ -764,5 +790,20 @@ where
             ))
             .into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod selective_graph_tests {
+    use super::*;
+
+    #[test]
+    fn long_selections_are_deduplicated_without_rejecting_or_dropping_unknown_fields() {
+        assert_eq!(normalize_metagraph_indices(vec![54; 1_024]), vec![54]);
+        assert_eq!(normalize_metagraph_indices(vec![54, 1, 54, 1]), vec![1, 54]);
+        assert_eq!(
+            normalize_metagraph_indices(vec![u16::MAX; 1_024]),
+            vec![u16::MAX]
+        );
     }
 }

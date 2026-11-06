@@ -62,7 +62,7 @@ must not add another SCALE-encoded `RuntimeCall` interface.
 
 | Pallet extrinsic | Reason |
 |---|---|
-| Root-only `SubtensorModule` extrinsics | `dissolve_network`, `root_dissolve_network`, `swap_coldkey`, `sudo_set_tx_childkey_take_rate_limit`, `sudo_set_min_childkey_take`, `sudo_set_max_childkey_take`, `set_pending_childkey_cooldown`, `reset_coldkey_swap`, `sudo_set_num_root_claims`, and `sudo_set_voting_power_ema_alpha` require Root. |
+| Root-only `SubtensorModule` extrinsics | `dissolve_network`, `root_dissolve_network`, `swap_coldkey`, `sudo_set_tx_childkey_take_rate_limit`, `sudo_set_min_childkey_take`, `sudo_set_max_childkey_take`, `set_pending_childkey_cooldown`, `reset_coldkey_swap`, `reset_coldkey_swap_keep_locked`, `sudo_set_num_root_claims`, and `sudo_set_voting_power_ema_alpha` require Root. |
 | `SubtensorModule.schedule_swap_coldkey` | Deprecated compatibility call that always returns `Deprecated`. |
 | `SubtensorModule.faucet` | Build-feature-only development call; it is not part of the production runtime interface. |
 | `SubtensorModule.set_tempo` | Retained call-index compatibility entry point that succeeds without changing state. The real setting is exposed as `SubnetPrecompile.setTempo` through `AdminUtils.sudo_set_tempo`. |

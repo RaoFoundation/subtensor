@@ -7,7 +7,6 @@ import {
     addStake,
     announceColdkeySwap,
     burnedRegister,
-    coldkeyHashBinary,
     disputeColdkeySwap,
     forceSetBalance,
     generateKeyringPair,
@@ -21,6 +20,7 @@ import {
     getSubnetOwner,
     startCall,
     sudoResetColdkeySwap,
+    sudoResetColdkeySwapKeepLocked,
     sudoSwapColdkey,
     tao,
 } from "../../utils";
@@ -45,7 +45,7 @@ describeSuite({
                 await forceSetBalance(api, oldColdkey.address);
 
                 // Announce and dispute
-                await announceColdkeySwap(api, oldColdkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, oldColdkey, newColdkey);
                 await disputeColdkeySwap(api, oldColdkey);
                 log("Announced + disputed");
 
@@ -65,8 +65,44 @@ describeSuite({
                 log("Storage cleared");
 
                 // Re-announce should succeed
-                await announceColdkeySwap(api, oldColdkey, coldkeyHashBinary(newColdkey));
+                await announceColdkeySwap(api, oldColdkey, newColdkey);
                 log("Re-announce after reset succeeded");
+            },
+        });
+
+        it({
+            id: "T04",
+            title: "reset as root: clears announcement and dispute while retaining the recovery lock",
+            test: async () => {
+                const oldColdkey = generateKeyringPair("sr25519");
+                const newColdkey = generateKeyringPair("sr25519");
+                await forceSetBalance(api, oldColdkey.address);
+
+                // Announce and dispute
+                await announceColdkeySwap(api, oldColdkey, newColdkey);
+                await disputeColdkeySwap(api, oldColdkey);
+                log("Announced + disputed");
+
+                // Verify storage before reset
+                const annBefore = await getColdkeySwapAnnouncement(api, oldColdkey.address);
+                expect(annBefore, "announcement should exist before reset").not.toBeNull();
+
+                // Reset via sudo
+                await sudoResetColdkeySwapKeepLocked(api, oldColdkey.address);
+                log("Reset via sudo");
+
+                // Zero replaces the active dispute timestamp and retains the recovery lock.
+                const annAfter = await getColdkeySwapAnnouncement(api, oldColdkey.address);
+                expect(annAfter, "announcement should be cleared").toBeNull();
+                const dispAfter = await getColdkeySwapDispute(api, oldColdkey.address);
+                expect(dispAfter, "recovery lock should remain without an active dispute").toBe(0);
+                log("Announcement and active dispute cleared; recovery lock retained");
+
+                // Re-announce should succeed
+                await announceColdkeySwap(api, oldColdkey, newColdkey);
+                log("Re-announce after reset succeeded");
+                await disputeColdkeySwap(api, oldColdkey);
+                expect(await getColdkeySwapDispute(api, oldColdkey.address)).toBeGreaterThan(0);
             },
         });
 
@@ -157,7 +193,7 @@ describeSuite({
                 await forceSetBalance(api, oldColdkey.address);
 
                 // Announce for decoy
-                await announceColdkeySwap(api, oldColdkey, coldkeyHashBinary(decoy));
+                await announceColdkeySwap(api, oldColdkey, decoy);
                 const annBefore = await getColdkeySwapAnnouncement(api, oldColdkey.address);
                 expect(annBefore, "announcement should exist").not.toBeNull();
                 log("Pending announcement exists");

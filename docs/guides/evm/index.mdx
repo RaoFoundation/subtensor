@@ -388,6 +388,16 @@ Third-party services (not part of this SDK):
 - [tao.app/bridge](https://tao.app/bridge) — TAO between substrate and EVM wallets.
 - vTAO — liquid-staked TAO ERC-20 on the Bittensor EVM, bridgeable to Base.
 
+## EIP-7702 authorizations
+
+Authorization lists accept at most 255 entries in Ethereum transactions,
+direct native EVM calls, and RPC simulations. Oversized lists are rejected
+before signature recovery. Split larger lists across transactions.
+
+Allow intrinsic gas for every entry, including invalid or duplicate
+authorizations. Transaction gas, nonce, and balance checks run before
+authorization signatures are recovered.
+
 ## Tooling notes
 
 - Compile with **Solidity 0.8.24 or lower, EVM target Cancun**. Newer targets

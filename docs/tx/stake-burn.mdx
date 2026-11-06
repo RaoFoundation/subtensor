@@ -19,14 +19,14 @@ against a configured spend cap.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_burn`](/code/pallets/subtensor/src/macros/dispatches.rs#L2581-L2591) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_burn`](/code/pallets/subtensor/src/macros/dispatches.rs#L2810-L2820) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet whose alpha is bought and burned. |
-| `amount_tao` | number \| `"all"` | yes | Spent from the coldkey to buy alpha that is then burned. |
+| `amount_tao` | number | yes | Spent from the coldkey to buy alpha that is then burned. |
 | `limit_price` | integer | no | Worst acceptable price in rao per alpha; the call fails rather than filling beyond it. Defaults to the current pool price plus `rate_tolerance`. |
 | `rate_tolerance` | number | no | Maximum price move accepted when `limit_price` is omitted, as a fraction (0.05 = 5%). Ignored when `limit_price` is given. |
 | `hotkey_ss58` | string | no | Hotkey the burn is routed through; defaults to the wallet's hotkey. |
@@ -42,10 +42,10 @@ submitting), then submit:
 ```bash
 btcli tx stake-burn \
   --netuid <int> \
-  --amount-tao <amount|all> --dry-run
+  --amount-tao <amount> --dry-run
 btcli tx stake-burn \
   --netuid <int> \
-  --amount-tao <amount|all> -w my_coldkey
+  --amount-tao <amount> -w my_coldkey
 ```
 
 ## Python
@@ -74,7 +74,7 @@ result = sub.execute_tool("stake_burn", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_stake_burn` — [`pallets/subtensor/src/macros/dispatches.rs#L2583`](/code/pallets/subtensor/src/macros/dispatches.rs#L2581-L2591):
+`SubtensorModule.add_stake_burn` — [`pallets/subtensor/src/macros/dispatches.rs#L2812`](/code/pallets/subtensor/src/macros/dispatches.rs#L2810-L2820):
 
 ```rust
 #[pallet::call_index(132)]

@@ -312,6 +312,15 @@ interface IStaking {
      * Rejection is enabled by default. Pass false to opt into receiving locked
      * alpha through compatible stake transfers or coldkey swaps.
      */
+    /** @dev Opt out of staking-list growth caused by others (off by default).
+     * Incoming transfers may still use existing or receiver-owned hotkeys.
+     * A subnet swap that cannot rename leaves this account's stake in place.
+     */
+    function setRejectStakingHotkeyGrowth(bool enabled) external;
+
+    /** @dev Read a recipient's flag before transferring stake to avoid a refused call. */
+    function getRejectStakingHotkeyGrowth(bytes32 coldkey) external view returns (bool);
+
     function setRejectLockedAlpha(bool enabled) external payable;
 
     /**

@@ -8,11 +8,13 @@ description: "Revoke one proxy delegation."
 The (delegate, proxy_type, delay) triple must match the original
 `add_proxy` exactly — a mismatch fails with NotFound rather than removing
 a different delegation. The proxy deposit reserved at add time is returned
-to the signer. Check current delegations with `btcli query proxies`.
+to the signer. `Validate` and `Weights` grants are revoked by the
+hotkey that granted them. Check current delegations with
+`btcli query proxies`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.remove_proxy`](/code/pallets/proxy/src/lib.rs#L302-L313) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.remove_proxy`](/code/pallets/proxy/src/lib.rs#L356-L367) |
 
 ## Parameters
 
@@ -63,7 +65,7 @@ result = sub.execute_tool("remove_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.remove_proxy` — [`pallets/proxy/src/lib.rs#L304`](/code/pallets/proxy/src/lib.rs#L302-L313):
+`Proxy.remove_proxy` — [`pallets/proxy/src/lib.rs#L358`](/code/pallets/proxy/src/lib.rs#L356-L367):
 
 ```rust
 #[pallet::call_index(2)]
@@ -80,6 +82,6 @@ pub fn remove_proxy(
 }
 ```
 
-Delegates to [`remove_proxy_delegate`](/code/pallets/proxy/src/lib.rs#L1010).
+Delegates to [`remove_proxy_delegate`](/code/pallets/proxy/src/lib.rs#L1247).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

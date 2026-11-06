@@ -17,6 +17,442 @@ use super::mock;
 use super::mock::*;
 use crate::*;
 
+#[test]
+fn subnet_swaps_rename_a_delegators_only_staking_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(900);
+        let mut old = U256::from(901);
+        let netuid = NetUid::from(1);
+        assert_ok!(SubtensorModule::set_reject_staking_hotkey_growth(
+            RuntimeOrigin::signed(coldkey),
+            true
+        ));
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &old,
+            &coldkey,
+            netuid,
+            100.into(),
+        );
+        for i in 902..1162 {
+            let new = U256::from(i);
+            assert_ok!(SubtensorModule::perform_hotkey_swap_on_one_subnet(
+                &old,
+                &new,
+                &mut Weight::zero(),
+                netuid,
+                false,
+            ));
+            assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![new]);
+            old = new;
+        }
+    });
+}
+
+// PROTECTED_REGRESSION: gifted stake and repeated subnet swaps cannot grow the victims list; changes require explicit human approval.
+#[test]
+fn gifted_stake_and_repeated_subnet_swaps_cannot_grow_the_victims_list() {
+    new_test_ext(1).execute_with(|| {
+        let attacker = U256::from(800);
+        let victim = U256::from(801);
+        let netuid = NetUid::from(1);
+        add_network(netuid, 13, 0);
+        add_balance_to_coldkey_account(&attacker, 100_000_000_000u64.into());
+        add_balance_to_coldkey_account(
+            &SubtensorModule::get_subnet_account_id(netuid).unwrap(),
+            100_000_000_000u64.into(),
+        );
+        let amount: AlphaBalance = 100_000_000u64.into();
+        let mut hotkeys = Vec::new();
+        for i in 0..128 {
+            let hotkey = U256::from(30_000 + i);
+            Owner::<Test>::insert(hotkey, attacker);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &attacker, netuid, amount,
+            );
+            assert_ok!(SubtensorModule::transfer_stake(
+                RuntimeOrigin::signed(attacker),
+                victim,
+                hotkey,
+                netuid,
+                netuid,
+                amount
+            ));
+            hotkeys.push(hotkey);
+        }
+        let extra = U256::from(40_000);
+        Owner::<Test>::insert(extra, attacker);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &extra, &attacker, netuid, amount,
+        );
+        let before = StakingHotkeys::<Test>::get(victim);
+        assert_eq!(
+            SubtensorModule::transfer_stake(
+                RuntimeOrigin::signed(attacker),
+                victim,
+                extra,
+                netuid,
+                netuid,
+                amount
+            )
+            .unwrap_err()
+            .error,
+            Error::<Test>::TooManyStakingHotkeys.into()
+        );
+        assert_eq!(StakingHotkeys::<Test>::get(victim), before);
+        for round in 1..=2 {
+            for (i, old) in hotkeys.iter_mut().enumerate() {
+                System::set_block_number((round * 128 + i as u64 + 1) * 20);
+                let new = U256::from(50_000 + round * 128 + i as u64);
+                assert_ok!(SubtensorModule::swap_hotkey_v2(
+                    RuntimeOrigin::signed(attacker),
+                    *old,
+                    new,
+                    Some(netuid),
+                    false
+                ));
+                let list = StakingHotkeys::<Test>::get(victim);
+                assert_eq!(list.len(), 128);
+                assert!(!list.contains(old));
+                assert!(list.contains(&new));
+                *old = new;
+            }
+        }
+        // Full dust exits prune every renamed entry immediately.
+        for hotkey in hotkeys {
+            assert_ok!(SubtensorModule::remove_stake(
+                RuntimeOrigin::signed(victim),
+                hotkey,
+                netuid,
+                amount
+            ));
+        }
+        assert!(StakingHotkeys::<Test>::get(victim).is_empty());
+    });
+}
+
+#[test]
+fn subnet_swap_respects_split_caps_and_opt_out_without_touching_other_subnets() {
+    for (length, flagged, moves) in [
+        (127, false, true),
+        (128, false, false),
+        (256, false, false),
+        (1, true, false),
+    ] {
+        new_test_ext(1).execute_with(|| {
+            let owner = U256::from(700);
+            let staker = U256::from(701);
+            let old = U256::from(702);
+            let new = U256::from(703);
+            let netuid = NetUid::from(1);
+            let other = NetUid::from(2);
+            add_network(netuid, 13, 0);
+            add_network(other, 13, 0);
+            register_ok_neuron(netuid, old, owner, 0);
+            add_balance_to_coldkey_account(&SubtensorModule::get_subnet_account_id(netuid).unwrap(), 100_000_000_000u64.into());
+            add_balance_to_coldkey_account(&owner, 1_000_000_000_000_000u64.into());
+            for n in [netuid, other] {
+                SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(&old, &staker, n, 1_000_000_000.into());
+            }
+            let mut hotkeys = vec![old];
+            hotkeys.extend((0..length-1).map(|i| U256::from(10_000+i)));
+            StakingHotkeys::<Test>::insert(staker, hotkeys.clone());
+            assert_ok!(SubtensorModule::set_reject_staking_hotkey_growth(RuntimeOrigin::signed(staker), flagged));
+            assert_ok!(SubtensorModule::set_coldkey_auto_stake_hotkey(RuntimeOrigin::signed(staker), netuid, old));
+            assert_ok!(SubtensorModule::swap_hotkey_v2(RuntimeOrigin::signed(owner), old, new, Some(netuid), false));
+            assert_eq!(SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&old, &staker, other), 1_000_000_000.into());
+            assert_eq!(SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&new, &staker, other), 0.into());
+            assert_eq!(SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&new, &staker, netuid), if moves {1_000_000_000.into()} else {0.into()});
+            assert_eq!(AutoStakeDestination::<Test>::get(staker, netuid), Some(if moves {new} else {old}));
+            assert_eq!(StakingHotkeys::<Test>::get(staker).len(), length as usize + usize::from(moves));
+            if !moves {
+                assert!(System::events().iter().any(|e| matches!(&e.event, RuntimeEvent::SubtensorModule(Event::HotkeySwapStakeRetained { coldkey, .. }) if *coldkey == staker)));
+                // The unregistered old hotkey still permits the staker's own exits.
+                if length < 256 {
+                    assert_ok!(SubtensorModule::move_stake(RuntimeOrigin::signed(staker), old, new, netuid, netuid, 1_000_000_000.into()));
+                } else {
+                    assert_ok!(SubtensorModule::remove_stake(RuntimeOrigin::signed(staker), old, netuid, 1_000_000_000.into()));
+                }
+            }
+        });
+    }
+}
+
+#[test]
+fn subnet_swap_refuses_only_the_validators_own_full_list_before_charging() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(710);
+        let old = U256::from(711);
+        let new = U256::from(712);
+        let netuid = NetUid::from(1);
+        let other = NetUid::from(2);
+        add_network(netuid, 13, 0);
+        add_network(other, 13, 0);
+        register_ok_neuron(netuid, old, owner, 0);
+        add_balance_to_coldkey_account(&owner, 1_000_000_000_000u64.into());
+        for n in [netuid, other] {
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &old,
+                &owner,
+                n,
+                100.into(),
+            );
+        }
+        let mut hotkeys = vec![old];
+        hotkeys.extend((0..255).map(|i| U256::from(20_000 + i)));
+        StakingHotkeys::<Test>::insert(owner, hotkeys);
+        assert_noop!(
+            SubtensorModule::swap_hotkey_v2(
+                RuntimeOrigin::signed(owner),
+                old,
+                new,
+                Some(netuid),
+                false
+            ),
+            Error::<Test>::TooManyStakingHotkeys
+        );
+        assert_ok!(SubtensorModule::set_reject_staking_hotkey_growth(
+            RuntimeOrigin::signed(owner),
+            true
+        ));
+        assert_ok!(SubtensorModule::swap_hotkey_v2(
+            RuntimeOrigin::signed(owner),
+            old,
+            new,
+            None,
+            false
+        ));
+        let list = StakingHotkeys::<Test>::get(owner);
+        assert_eq!(list.len(), 256);
+        assert!(!list.contains(&old));
+        assert!(list.contains(&new));
+    });
+}
+
+#[test]
+fn root_swap_retained_stake_keeps_earned_basket_credit_without_list_growth() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(720);
+        let staker = U256::from(721);
+        let old = U256::from(722);
+        let new = U256::from(723);
+        let other = NetUid::from(1);
+        add_network(other, 13, 0);
+        Owner::<Test>::insert(old, owner);
+        for n in [NetUid::ROOT, other] {
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &old,
+                &staker,
+                n,
+                100.into(),
+            );
+        }
+        BasketRate::<Test>::insert(old, substrate_fixed::types::I96F32::from_num(2));
+        BasketShares::<Test>::insert(old, 300);
+        BasketClaimed::<Test>::insert(old, staker, 50);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &old,
+            &escrow,
+            NetUid::ROOT,
+            1000.into(),
+        );
+        assert_ok!(SubtensorModule::set_reject_staking_hotkey_growth(
+            RuntimeOrigin::signed(staker),
+            true
+        ));
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_one_subnet(
+            &old,
+            &new,
+            &mut Weight::zero(),
+            NetUid::ROOT,
+            false
+        ));
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&new, &staker), 150);
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&old, &staker), 0);
+        assert_eq!(BasketShares::<Test>::get(new), 300);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &old,
+                &staker,
+                NetUid::ROOT
+            ),
+            100.into()
+        );
+        assert_eq!(StakingHotkeys::<Test>::get(staker), vec![old]);
+        assert!(HotkeySwapBasketCredits::<Test>::contains_key(staker, new));
+        assert_eq!(
+            SubtensorModule::root_claim_hotkeys(&staker, vec![old]),
+            vec![old, new]
+        );
+        let replacement = U256::from(724);
+        assert_ok!(SubtensorModule::do_swap_coldkey(&staker, &replacement));
+        assert!(SubtensorModule::account_rejects_staking_hotkey_growth(
+            &replacement
+        ));
+        assert!(!SubtensorModule::account_rejects_staking_hotkey_growth(
+            &staker
+        ));
+        assert_eq!(
+            SubtensorModule::get_basket_owed_shares(&new, &replacement),
+            150
+        );
+        assert!(HotkeySwapBasketCredits::<Test>::contains_key(
+            replacement,
+            new
+        ));
+        assert_eq!(StakingHotkeys::<Test>::get(replacement), vec![old]);
+        let outcome = SubtensorModule::root_claim_for_hotkey(&new, &replacement, true).unwrap();
+        assert_eq!(outcome.tao, 500);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &new,
+                &escrow,
+                NetUid::ROOT
+            ),
+            500.into()
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &new,
+                &replacement,
+                NetUid::ROOT
+            ),
+            500.into()
+        );
+        assert_eq!(BasketShares::<Test>::get(new), 150);
+        assert_eq!(
+            SubtensorModule::get_basket_owed_shares(&new, &replacement),
+            0
+        );
+        assert!(!HotkeySwapBasketCredits::<Test>::contains_key(
+            replacement,
+            new
+        ));
+    });
+}
+
+// PROTECTED_REGRESSION: auto stake target and hotkey creation cannot grow a full list; changes require explicit human approval.
+#[test]
+fn auto_stake_target_and_hotkey_creation_cannot_grow_a_full_list() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(730);
+        let target = U256::from(731);
+        let new_owned = U256::from(732);
+        let netuid = NetUid::from(1);
+        add_network(netuid, 13, 0);
+        let list: Vec<_> = (0..256).map(|i| U256::from(60_000 + i)).collect();
+        StakingHotkeys::<Test>::insert(coldkey, list.clone());
+        Uids::<Test>::insert(netuid, target, 0);
+        assert_noop!(
+            SubtensorModule::set_coldkey_auto_stake_hotkey(
+                RuntimeOrigin::signed(coldkey),
+                netuid,
+                target
+            ),
+            Error::<Test>::TooManyStakingHotkeys
+        );
+        assert_noop!(
+            SubtensorModule::create_account_if_non_existent(&coldkey, &new_owned),
+            Error::<Test>::TooManyStakingHotkeys
+        );
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), list);
+        assert!(!Owner::<Test>::contains_key(new_owned));
+    });
+}
+
+#[test]
+fn retained_delegator_lock_and_aggregate_stay_on_the_old_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(740);
+        let staker = U256::from(741);
+        let old = U256::from(742);
+        let new = U256::from(743);
+        let netuid = NetUid::from(1);
+        let other = NetUid::from(2);
+        add_network(netuid, 13, 0);
+        add_network(other, 13, 0);
+        register_ok_neuron(netuid, old, owner, 0);
+        add_balance_to_coldkey_account(&owner, 1_000_000_000_000u64.into());
+        for n in [netuid, other] {
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &old,
+                &staker,
+                n,
+                1_000_000_000.into(),
+            );
+        }
+        assert_ok!(SubtensorModule::set_reject_staking_hotkey_growth(
+            RuntimeOrigin::signed(staker),
+            true
+        ));
+        assert_ok!(SubtensorModule::lock_stake(
+            RuntimeOrigin::signed(staker),
+            old,
+            netuid,
+            500_000_000.into()
+        ));
+        let before = Lock::<Test>::get((staker, netuid, old)).unwrap();
+        assert_ok!(SubtensorModule::swap_hotkey_v2(
+            RuntimeOrigin::signed(owner),
+            old,
+            new,
+            Some(netuid),
+            false
+        ));
+        assert_eq!(
+            Lock::<Test>::get((staker, netuid, old)),
+            Some(before.clone())
+        );
+        assert!(Lock::<Test>::get((staker, netuid, new)).is_none());
+        let old_aggregate = DecayingHotkeyLock::<Test>::get(netuid, old).unwrap();
+        assert_eq!(old_aggregate.locked_mass, before.locked_mass);
+        assert!(DecayingHotkeyLock::<Test>::get(netuid, new).is_none());
+        assert!(LockingColdkeys::<Test>::contains_key((netuid, old, staker)));
+    });
+}
+
+#[test]
+fn subnet_rename_removes_fractional_old_shares_without_growing_a_full_list() {
+    new_test_ext(1).execute_with(|| {
+        let old = U256::from(750);
+        let new = U256::from(751);
+        let netuid = NetUid::from(1);
+        let stakers = [U256::from(752), U256::from(753)];
+        for coldkey in stakers {
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &old,
+                &coldkey,
+                netuid,
+                1.into(),
+            );
+            let mut list = vec![old];
+            list.extend((0..255).map(|i| U256::from(70_000 + i)));
+            StakingHotkeys::<Test>::insert(coldkey, list);
+        }
+        // Each staker's quoted balance floors 1.5 alpha to 1.
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(&old, netuid, 1.into());
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_one_subnet(
+            &old,
+            &new,
+            &mut Weight::zero(),
+            netuid,
+            false
+        ));
+        for coldkey in stakers {
+            let list = StakingHotkeys::<Test>::get(coldkey);
+            assert_eq!(list.len(), 256);
+            assert!(!list.contains(&old));
+            assert!(list.contains(&new));
+            assert!(!AlphaV2::<Test>::contains_key((old, coldkey, netuid)));
+        }
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_on_subnet(&old, netuid).to_u64()
+                + SubtensorModule::get_stake_for_hotkey_on_subnet(&new, netuid).to_u64(),
+            3
+        );
+    });
+}
+
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_owner --exact --nocapture
 #[test]
 fn test_swap_owner() {
@@ -127,6 +563,7 @@ fn test_swap_total_hotkey_stake() {
     });
 }
 
+// PROTECTED_REGRESSION: all subnets keep stake preserves ownership and withdrawal; changes require explicit human approval.
 #[test]
 fn test_all_subnets_keep_stake_preserves_ownership_and_withdrawal() {
     for destination_exists in [false, true] {
@@ -341,6 +778,37 @@ fn test_swap_axons() {
     });
 }
 
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_service --exact --nocapture
+#[test]
+fn test_swap_service() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let coldkey = U256::from(3);
+        let netuid = NetUid::from(0u16);
+        let info = ServiceInfo {
+            url: BoundedVec::truncate_from(b"https://example.com".to_vec()),
+            spender: U256::from(9),
+        };
+        let mut weight = Weight::zero();
+
+        add_network(netuid, 1, 1);
+        IsNetworkMember::<Test>::insert(old_hotkey, netuid, true);
+        Services::<Test>::insert(netuid, old_hotkey, info.clone());
+
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
+            &old_hotkey,
+            &new_hotkey,
+            &coldkey,
+            &mut weight,
+            false
+        ));
+
+        assert!(!Services::<Test>::contains_key(netuid, old_hotkey));
+        assert_eq!(Services::<Test>::get(netuid, new_hotkey), Some(info));
+    });
+}
+
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_certificates --exact --nocapture
 #[test]
 fn test_swap_certificates() {
@@ -464,8 +932,12 @@ fn test_swap_staking_hotkeys() {
         let netuid = NetUid::from(1);
 
         StakingHotkeys::<Test>::insert(coldkey, vec![old_hotkey]);
-        Alpha::<Test>::insert((old_hotkey, coldkey, netuid), U64F64::from_num(100));
-        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &old_hotkey,
+            &coldkey,
+            netuid,
+            100.into(),
+        );
 
         assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
             &old_hotkey,
@@ -1901,6 +2373,7 @@ fn ghsa_2026_011_subnet_swap_interval_bypassed_by_all_subnets_path() {
     });
 }
 
+// PROTECTED_REGRESSION: delegated alpha destination has recovery window after deregistration; changes require explicit human approval.
 #[test]
 fn delegated_alpha_destination_has_recovery_window_after_deregistration() {
     new_test_ext(1).execute_with(|| {
@@ -2117,6 +2590,7 @@ fn ghsa_2026_011_all_subnets_swap_covers_parent_key_subnets_not_child_side() {
 // Fails on the vulnerable code; passes with the fix in this PR.
 // ============================================================
 
+// PROTECTED_REGRESSION: ghsa 2026 014 childkey take not migrated on hotkey swap; changes require explicit human approval.
 #[test]
 fn ghsa_2026_014_childkey_take_not_migrated_on_hotkey_swap() {
     new_test_ext(1).execute_with(|| {

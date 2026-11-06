@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Callable, Optional
 
 import typer
@@ -22,7 +23,9 @@ from rich.text import Text
 from .. import config as cfg
 from .. import wallets
 from ..balance import Balance
+from ..keyfiles import KeyfileError
 from ..reads import StakePosition, StakeValuation
+from ..receiving import parse_recipient
 from .context import AppContext, address_cli_name
 from .helpers import chain_identity_names, local_address_names
 from .output import (
@@ -36,6 +39,7 @@ from .output import (
     prompt_hint,
 )
 from .prompt import PromptSpec, ask
+from .wallet_addresses import public_key_from_file
 
 # Positions whose spot value is below this are dust: hidden from the pickers
 # (unless everything is dust) but still selectable by typing the netuid/hotkey.
@@ -76,6 +80,19 @@ def _pick_target(
         [],
     )
     local = [hk for hk in local if hk.ss58]
+    local = [
+        replace(
+            hk,
+            ss58=app_ctx.wallet_address(
+                wallets.open_wallet(
+                    name=app_ctx.wallet_name, hotkey=hk.name, path=app_ctx.wallet_path
+                ).hotkeypub
+            ),
+        )
+        if hk.crypto_type in wallets.REGISTERED_CRYPTO_TYPES
+        else hk
+        for hk in local
+    ]
     flag = address_cli_name(hotkey_field)
 
     console.print(
@@ -199,14 +216,14 @@ def _pick_dest_account(
             console.print(line, soft_wrap=True)
         console.print(
             prompt_hint(
-                "a number above, or any account: ss58 address, address-book name, "
+                "a number above, or any account: receiving address, address-book name, "
                 "or local wallet name"
             )
         )
     else:
         console.print(
             prompt_hint(
-                "no address-book contacts or other local wallets — paste the destination ss58"
+                "no address-book contacts or other local wallets — paste the receiving address"
             )
         )
 
@@ -249,6 +266,7 @@ def _dest_choices(app_ctx: AppContext) -> list[_DestChoice]:
     def _add(name: str, ss58: Optional[str], kind: str) -> None:
         if not ss58 or ss58 in seen:
             return
+        ss58 = parse_recipient(ss58).address
         seen.add(ss58)
         choices.append(_DestChoice(name=name, ss58=ss58, kind=kind))
 
@@ -260,7 +278,16 @@ def _dest_choices(app_ctx: AppContext) -> list[_DestChoice]:
     for coldkey in wallets.list_wallets_detailed(app_ctx.wallet_path):
         if coldkey.name == app_ctx.wallet_name:
             continue
-        _add(coldkey.name, coldkey.ss58, "wallet")
+        try:
+            public = public_key_from_file(
+                Path(app_ctx.wallet_path).expanduser() / coldkey.name / "coldkeypub.txt"
+            )
+            address = app_ctx.wallet_address(public)
+        except (OSError, ValueError, KeyfileError):
+            # Never offer an unvalidated bare address as a fallback, or unlock
+            # private keys just to populate the public destination picker.
+            continue
+        _add(coldkey.name, address, "wallet")
     return choices
 
 

@@ -44,12 +44,15 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn update_moving_price(netuid: NetUid) {
+        let Some(first_emission_block) = FirstEmissionBlockNumber::<T>::get(netuid) else {
+            // Basket price protection needs a live fast anchor even before start_call.
+            // The slow emission/pruning EMA must not accumulate a pre-start history.
+            Self::update_fast_moving_price(netuid);
+            return;
+        };
         let blocks_since_start_call = U64F64::saturating_from_num({
-            // We expect FirstEmissionBlockNumber to be set earlier, and we take the block when
-            // `start_call` was called (first block before FirstEmissionBlockNumber).
-            let start_call_block = FirstEmissionBlockNumber::<T>::get(netuid)
-                .unwrap_or_default()
-                .saturating_sub(1);
+            // start_call records the following block as the first emission block.
+            let start_call_block = first_emission_block.saturating_sub(1);
 
             Self::get_current_block_as_u64().saturating_sub(start_call_block)
         });
@@ -92,10 +95,7 @@ impl<T: Config> Pallet<T> {
         let next = match SubnetFastMovingPrice::<T>::get(netuid) {
             None => spot,
             Some(fast) => {
-                // ln 2 / H: the per-block weight that halves the distance to spot every H blocks.
-                let alpha: U64F64 = U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(
-                    U64F64::saturating_from_num(crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1)),
-                );
+                let alpha = Self::fast_moving_price_weight();
                 if spot >= fast {
                     fast.saturating_add(spot.saturating_sub(fast).saturating_mul(alpha))
                 } else {
@@ -104,6 +104,29 @@ impl<T: Config> Pallet<T> {
             }
         };
         SubnetFastMovingPrice::<T>::insert(netuid, next);
+    }
+
+    /// ln 2 / H: the per-block weight that halves the distance to spot every H blocks.
+    fn fast_moving_price_weight() -> U64F64 {
+        U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(U64F64::saturating_from_num(
+            crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1),
+        ))
+    }
+
+    /// Steps [`SubnetGammaPrice`]: down to spot at once, up toward it by
+    /// [`SubnetFastMovingPrice`]'s weight of the gap, at most of itself. An unset price starts
+    /// at spot.
+    pub fn update_gamma_price(netuid: NetUid) {
+        let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
+        let alpha = Self::fast_moving_price_weight();
+        SubnetGammaPrice::<T>::mutate(netuid, |price| {
+            let rise = spot.saturating_sub(*price).min(*price);
+            *price = if *price == U64F64::from_num(0) {
+                spot
+            } else {
+                price.saturating_add(rise.saturating_mul(alpha)).min(spot)
+            };
+        });
     }
 
     /// Gets the Median Subnet Alpha Price
@@ -194,15 +217,7 @@ impl<T: Config> Pallet<T> {
     /// # Note
     /// This function uses saturating division to prevent potential overflow errors.
     pub fn get_tao_weight() -> U96F32 {
-        // Step 1: Fetch the TAO weight from storage
-        let stored_weight = TaoWeight::<T>::get();
-
-        // Step 2: Convert the u64 weight to U96F32
-        let weight_fixed = U96F32::saturating_from_num(stored_weight);
-
-        // Step 3: Normalize the weight by dividing by u64::MAX
-        // This ensures the result is always between 0 and 1
-        weight_fixed.safe_div(U96F32::saturating_from_num(u64::MAX))
+        normalize_tao_weight(TaoWeight::<T>::get())
     }
     pub fn get_ck_burn() -> U96F32 {
         let stored_weight = CKBurn::<T>::get();
@@ -242,7 +257,7 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         netuid: NetUid,
     ) -> (I64F64, I64F64, I64F64) {
-        // Retrieve the TAO weight.
+        // Retrieve the global tao weight.
         let tao_weight = I64F64::saturating_from_num(Self::get_tao_weight());
         log::debug!("tao_weight: {tao_weight:?}");
 
@@ -269,7 +284,7 @@ impl<T: Config> Pallet<T> {
     pub fn get_stake_weights_for_network(
         netuid: NetUid,
     ) -> (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) {
-        // Retrieve the TAO weight.
+        // Retrieve the global tao weight.
         let tao_weight: I64F64 = I64F64::saturating_from_num(Self::get_tao_weight());
         log::debug!("tao_weight: {tao_weight:?}");
 
@@ -317,6 +332,79 @@ impl<T: Config> Pallet<T> {
         log::trace!("total_stake: {total_stake:?}");
 
         (total_stake, alpha_stake, tao_stake)
+    }
+
+    /// Reporting-only stake weights that hide hotkeys after dissolution settlement pays them.
+    pub fn get_reported_stake_weights_for_network(
+        netuid: NetUid,
+    ) -> (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) {
+        let tao_weight = I64F64::saturating_from_num(Self::get_tao_weight());
+        let n = Self::get_subnetwork_n(netuid);
+
+        // Filter source balances before applying inheritance. Settlement pays one hotkey at a
+        // time but leaves its physical alpha in storage until the following cleanup phase; using
+        // the raw balance here would keep that paid alpha visible through an unpaid child.
+        let alpha_stake = (0..n)
+            .map(|uid| {
+                Keys::<T>::try_get(netuid, uid)
+                    .ok()
+                    .filter(|hotkey| Self::is_hotkey_stake_reportable(netuid, hotkey))
+                    .map(|hotkey| {
+                        I64F64::saturating_from_num(
+                            Self::get_reported_inherited_for_hotkey_on_subnet(&hotkey, netuid),
+                        )
+                    })
+                    .unwrap_or_else(|| I64F64::from_num(0))
+            })
+            .collect::<Vec<_>>();
+        let tao_stake = (0..n)
+            .map(|uid| {
+                Keys::<T>::try_get(netuid, uid)
+                    .ok()
+                    .filter(|hotkey| Self::is_hotkey_stake_reportable(netuid, hotkey))
+                    .map(|hotkey| {
+                        I64F64::saturating_from_num(Self::get_tao_inherited_for_hotkey_on_subnet(
+                            &hotkey, netuid,
+                        ))
+                    })
+                    .unwrap_or_else(|| I64F64::from_num(0))
+            })
+            .collect::<Vec<_>>();
+        let total_stake = alpha_stake
+            .iter()
+            .zip(&tao_stake)
+            .map(|(alpha, tao)| alpha.saturating_add(tao.saturating_mul(tao_weight)))
+            .collect();
+
+        (total_stake, alpha_stake, tao_stake)
+    }
+
+    /// Reporting-only hotkey stake, zeroed once dissolution settlement has paid the hotkey.
+    pub fn get_reported_stake_for_hotkey_on_subnet(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> AlphaBalance {
+        if Self::is_hotkey_stake_reportable(netuid, hotkey) {
+            Self::get_stake_for_hotkey_on_subnet(hotkey, netuid)
+        } else {
+            AlphaBalance::ZERO
+        }
+    }
+
+    /// Reporting-only coldkey total that follows the dissolution payout cursor.
+    pub fn get_reported_total_coldkey_alpha_on_subnet(
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> AlphaBalance {
+        StakingHotkeys::<T>::get(coldkey)
+            .into_iter()
+            .filter(|hotkey| Self::is_hotkey_stake_reportable(netuid, hotkey))
+            .map(|hotkey| {
+                Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, coldkey, netuid)
+            })
+            .fold(AlphaBalance::ZERO, |total, stake| {
+                total.saturating_add(stake)
+            })
     }
 
     /// Null stake election uses the same inherited-stake arithmetic as Yuma,
@@ -513,9 +601,30 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         netuid: NetUid,
     ) -> AlphaBalance {
+        Self::get_inherited_for_hotkey_on_subnet_with(hotkey, netuid, |hotkey, netuid| {
+            Self::get_stake_for_hotkey_on_subnet(hotkey, netuid)
+        })
+    }
+
+    fn get_reported_inherited_for_hotkey_on_subnet(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> AlphaBalance {
+        Self::get_inherited_for_hotkey_on_subnet_with(hotkey, netuid, |hotkey, netuid| {
+            Self::get_reported_stake_for_hotkey_on_subnet(hotkey, netuid)
+        })
+    }
+
+    fn get_inherited_for_hotkey_on_subnet_with<F>(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        stake_for_hotkey: F,
+    ) -> AlphaBalance
+    where
+        F: Fn(&T::AccountId, NetUid) -> AlphaBalance,
+    {
         // Step 1: Retrieve the initial total stake (alpha) for the hotkey on the specified subnet.
-        let initial_alpha: U96F32 =
-            U96F32::saturating_from_num(Self::get_stake_for_hotkey_on_subnet(hotkey, netuid));
+        let initial_alpha = U96F32::saturating_from_num(stake_for_hotkey(hotkey, netuid));
         log::debug!("Initial alpha for hotkey {hotkey:?} on subnet {netuid}: {initial_alpha:?}");
         if netuid.is_root() {
             return initial_alpha.saturating_to_num::<u64>().into();
@@ -551,8 +660,7 @@ impl<T: Config> Pallet<T> {
         // Step 4: Calculate the total alpha inherited from parents.
         for (proportion, parent) in parents {
             // Retrieve the parent's total stake on this subnet.
-            let parent_alpha: U96F32 =
-                U96F32::saturating_from_num(Self::get_stake_for_hotkey_on_subnet(&parent, netuid));
+            let parent_alpha = U96F32::saturating_from_num(stake_for_hotkey(&parent, netuid));
             log::trace!("Parent alpha for parent {parent:?} on subnet {netuid}: {parent_alpha:?}");
 
             // Convert the proportion to a normalized value between 0 and 1.
@@ -724,6 +832,9 @@ impl<T: Config> Pallet<T> {
                 staking_hotkeys.push(hotkey.clone());
                 StakingHotkeys::<T>::insert(coldkey, staking_hotkeys.clone());
             }
+            // Once a voluntary stake establishes the association, the staking
+            // list also discovers any root-swap credit for this fund.
+            HotkeySwapBasketCredits::<T>::remove(coldkey, hotkey);
         }
 
         let mut alpha_share_pool = Self::get_alpha_share_pool(hotkey.clone(), netuid);
@@ -807,6 +918,26 @@ impl<T: Config> Pallet<T> {
         pool_before.saturating_sub(pool_after)
     }
 
+    /// Take an entire position for a hotkey rename. A quoted balance is floored;
+    /// withdrawing just that integer can leave fractional shares behind, resurrect
+    /// the old entry on a later dividend, and turn a rename into unchecked growth.
+    /// Burn the complete share, carrying exactly the debited integer value to the
+    /// new pool. Sub-rao residue stays with the old pool's remaining holders.
+    pub(crate) fn take_stake_position_for_hotkey_swap(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> AlphaBalance {
+        let amount = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
+        let mut ops = HotkeyAlphaSharePoolDataOperations::<T>::new(hotkey.clone(), netuid);
+        let share = ops.get_share(coldkey);
+        let denominator = ops.get_denominator();
+        ops.set_shared_value(ops.get_shared_value().saturating_sub(amount.to_u64()));
+        ops.set_share(coldkey, SafeFloat::zero());
+        ops.set_denominator(denominator.sub(&share).unwrap_or_default());
+        amount
+    }
+
     /// Keep the index until all alpha keys have been removed, across both share formats
     /// and every subnet. Even a zero-valued share can grow with pool-wide dividends,
     /// which do not recreate the index. Exact-zero rows are removed by storage GC.
@@ -818,6 +949,9 @@ impl<T: Config> Pallet<T> {
         Alpha::<T>::contains_prefix((hotkey, coldkey))
             || AlphaV2::<T>::contains_prefix((hotkey, coldkey))
             || BasketClaimed::<T>::get(hotkey, coldkey) != 0
+            || DeferredBasketDebts::<T>::contains_key(hotkey, coldkey)
+            || DeferredBasketCashClaimed::<T>::get(hotkey, coldkey) != 0
+            || AutoStakeDestination::<T>::iter_prefix(coldkey).any(|(_, target)| target == *hotkey)
     }
 
     /// Remove a staking-hotkey association once the pair has no alpha keys left anywhere.
@@ -1086,7 +1220,9 @@ impl<T: Config> Pallet<T> {
             if enforce_root_hold {
                 Self::ensure_root_stake_unlocked(coldkey, hotkey)?;
             }
-            (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
+            let completed;
+            (flush_work, _, completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+            ensure!(completed, Error::<T>::BasketDepositPending);
         }
 
         // Refuse to strip conviction-locked or collateral-bonded alpha even when
@@ -1124,7 +1260,7 @@ impl<T: Config> Pallet<T> {
         // If this is a root-stake
         if netuid == NetUid::ROOT {
             // Adjust root claimed value for this hotkey and coldkey.
-            Self::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha);
+            Self::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha)?;
 
             // If the coldkey no longer holds any root stake, remove it from the
             // auto-claim staking-coldkey index so dead entries do not accumulate.
@@ -1188,7 +1324,8 @@ impl<T: Config> Pallet<T> {
         // pending dividend credits before the new stake lands, so it can't capture
         // flushable dividends earned before it arrived.
         if netuid.is_root() {
-            Self::flush_basket_deposits_for_hotkey(hotkey);
+            let (_, _, completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+            ensure!(completed, Error::<T>::BasketDepositPending);
         }
 
         // Transfer TAO from coldkey to the subnet account.
@@ -1254,7 +1391,7 @@ impl<T: Config> Pallet<T> {
             Self::touch_root_stake_age(coldkey, hotkey);
             // Adjust root claimed for this hotkey and coldkey.
             let alpha = swap_result.amount_paid_out.into();
-            Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha);
+            Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha)?;
             Self::maybe_add_coldkey_index(coldkey);
         }
 
@@ -1301,9 +1438,12 @@ impl<T: Config> Pallet<T> {
         // Root stake moves claimant base on both hotkeys: settle queued basket deposits
         // on each side first (see `stake_into_subnet` / `unstake_from_subnet`).
         if netuid.is_root() {
-            Self::flush_basket_deposits_for_hotkey(origin_hotkey);
+            let (_, _, origin_completed) = Self::flush_basket_deposits_for_hotkey(origin_hotkey);
+            ensure!(origin_completed, Error::<T>::BasketDepositPending);
             if destination_hotkey != origin_hotkey {
-                Self::flush_basket_deposits_for_hotkey(destination_hotkey);
+                let (_, _, destination_completed) =
+                    Self::flush_basket_deposits_for_hotkey(destination_hotkey);
+                ensure!(destination_completed, Error::<T>::BasketDepositPending);
             }
         }
 
@@ -1334,7 +1474,7 @@ impl<T: Config> Pallet<T> {
                 origin_hotkey,
                 origin_coldkey,
                 alpha,
-            );
+            )?;
         }
 
         // If the destination coldkey does not own the destination hotkey, make the
@@ -1355,7 +1495,7 @@ impl<T: Config> Pallet<T> {
                 destination_hotkey,
                 destination_coldkey,
                 u64::from(alpha).into(),
-            );
+            )?;
         }
 
         // Calculate TAO equivalent based on current price (it is accurate because
@@ -1412,6 +1552,65 @@ impl<T: Config> Pallet<T> {
         ensure!(
             staking_hotkeys.contains(hotkey)
                 || staking_hotkeys.len() < crate::MAX_STAKING_HOTKEYS as usize,
+            Error::<T>::TooManyStakingHotkeys
+        );
+        Ok(())
+    }
+
+    pub fn account_rejects_staking_hotkey_growth(coldkey: &T::AccountId) -> bool {
+        AccountFlags::<T>::get(coldkey) & crate::ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH != 0
+    }
+
+    /// A subnet rename needs a second list entry only if another position survives.
+    pub(crate) fn hotkey_swap_needs_split(
+        coldkey: &T::AccountId,
+        old_hotkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> bool {
+        Self::alpha_iter_prefix((old_hotkey, coldkey))
+            .any(|(other, shares)| other != netuid && !shares.is_zero())
+            || (!netuid.is_root() && BasketClaimed::<T>::get(old_hotkey, coldkey) != 0)
+            || AutoStakeDestination::<T>::iter_prefix(coldkey)
+                .any(|(other, target)| other != netuid && target == *old_hotkey)
+    }
+
+    pub(crate) fn hotkey_swap_stake_can_follow(
+        coldkey: &T::AccountId,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        netuid: NetUid,
+        swapping_coldkey: &T::AccountId,
+    ) -> bool {
+        let hotkeys = StakingHotkeys::<T>::get(coldkey);
+        if hotkeys.contains(new_hotkey)
+            || (hotkeys.contains(old_hotkey)
+                && !Self::hotkey_swap_needs_split(coldkey, old_hotkey, netuid))
+        {
+            return true;
+        }
+        if coldkey == swapping_coldkey {
+            return hotkeys.len() < crate::MAX_STAKING_HOTKEYS as usize;
+        }
+        !Self::account_rejects_staking_hotkey_growth(coldkey)
+            && hotkeys.len() < crate::MAX_THIRD_PARTY_STAKING_HOTKEYS as usize
+    }
+
+    /// Third-party deposits obey both the recipient's opt-out and the smaller cap.
+    pub fn ensure_third_party_staking_hotkeys_can_grow(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        let hotkeys = StakingHotkeys::<T>::get(coldkey);
+        if hotkeys.contains(hotkey) {
+            return Ok(());
+        }
+        ensure!(
+            !Self::account_rejects_staking_hotkey_growth(coldkey)
+                || Self::coldkey_owns_hotkey(coldkey, hotkey),
+            Error::<T>::AccountRejectsStakingHotkeyGrowth
+        );
+        ensure!(
+            hotkeys.len() < crate::MAX_THIRD_PARTY_STAKING_HOTKEYS as usize,
             Error::<T>::TooManyStakingHotkeys
         );
         Ok(())
@@ -1768,6 +1967,14 @@ impl<T: Config> Pallet<T> {
             Error::<T>::CannotUseSystemAccount
         );
 
+        // A V2 coldkey-swap announcement reserves the destination so third parties
+        // cannot grow its staking associations / locks during the delay and force
+        // `ColdkeySwapTooHeavy` or dest opt-out failures at execute. Same-coldkey
+        // moves (and the destination acting on itself) are unaffected.
+        if origin_coldkey != destination_coldkey {
+            Self::ensure_account_not_reserved_as_coldkey_swap_destination(destination_coldkey)?;
+        }
+
         // Ensure stake transition is actually happening
         if origin_coldkey == destination_coldkey && origin_hotkey == destination_hotkey {
             ensure!(origin_netuid != destination_netuid, Error::<T>::SameNetuid);
@@ -1863,12 +2070,10 @@ impl<T: Config> Pallet<T> {
         // budget, so third parties may only grow it up to a fixed bound. The coldkey's own
         // moves are bounded by the larger overall cap.
         if origin_coldkey != destination_coldkey {
-            let staking_hotkeys = StakingHotkeys::<T>::get(destination_coldkey);
-            ensure!(
-                staking_hotkeys.contains(destination_hotkey)
-                    || staking_hotkeys.len() < crate::MAX_THIRD_PARTY_STAKING_HOTKEYS as usize,
-                Error::<T>::TooManyStakingHotkeys
-            );
+            Self::ensure_third_party_staking_hotkeys_can_grow(
+                destination_coldkey,
+                destination_hotkey,
+            )?;
         } else {
             Self::ensure_staking_hotkeys_can_grow(destination_coldkey, destination_hotkey)?;
         }
