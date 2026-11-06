@@ -18,6 +18,7 @@ use pallet_ethereum::Call as EthereumCall;
 use pallet_evm::Call as EvmCall;
 use pallet_grandpa::Call as GrandpaCall;
 use pallet_hashed_accounts::Call as HashedAccountsCall;
+use pallet_lending::Call as LendingCall;
 use pallet_limit_orders::Call as LimitOrdersCall;
 use pallet_multisig::Call as MultisigCall;
 use pallet_preimage::Call as PreimageCall;
@@ -157,6 +158,39 @@ call_filter_group!(
         RuntimeCall::Crowdloan(CrowdloanCall::update_end),
         RuntimeCall::Crowdloan(CrowdloanCall::update_cap),
         RuntimeCall::Crowdloan(CrowdloanCall::set_max_contribution),
+    ]
+);
+
+// Open / close / increase: granted with staking management. Root setters live
+// in `LendingRootCalls` (AdminAll / RootConfigCalls pattern — inert without
+// `ensure_root`).
+call_filter_group!(
+    LendingCalls,
+    [
+        RuntimeCall::Lending(LendingCall::open),
+        RuntimeCall::Lending(LendingCall::open_exact),
+        RuntimeCall::Lending(LendingCall::close),
+        RuntimeCall::Lending(LendingCall::repay),
+        RuntimeCall::Lending(LendingCall::warm_reference),
+    ]
+);
+
+// Atomic raise (escrowed long + unlocked-alpha sale). Granted only when a
+// proxy type already allows both `LendingCalls` and `StakeManagementCalls`
+// (stricter of open and remove_stake); see `proxy_type_filter`.
+call_filter_group!(
+    LendingRaiseCalls,
+    [RuntimeCall::Lending(LendingCall::open_long_and_sell),]
+);
+
+// Root-only lending knobs (`ensure_root`). Granted with AdminAll the same way
+// `RootConfigCalls` are: broad proxies may list them, but dispatch still fails
+// without root.
+call_filter_group!(
+    LendingRootCalls,
+    [
+        RuntimeCall::Lending(LendingCall::set_enabled),
+        RuntimeCall::Lending(LendingCall::set_lift_params),
     ]
 );
 
@@ -899,6 +933,9 @@ type SubtensorSplitCalls = (
     BalanceMaintenanceCalls,
     StakeManagementCalls,
     StakeTransferCalls,
+    LendingCalls,
+    LendingRaiseCalls,
+    LendingRootCalls,
     PowRegistrationCalls,
     BurnedRegistrationCalls,
     RootRegistrationCalls,

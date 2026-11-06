@@ -39,6 +39,7 @@ from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
 from .intents._money import UNBOUNDED, gamma_from_units
 from .intents.base import BuiltCall, IntentPreflight
+from .intents.lending import _fmt_outcome_amount, lending_outcome_data
 from .intents.proxy import check_proxy_type
 from .multisig import merge_approval_metadata, multisig_deposit_rao
 from .receiving import account_for_read, coerce_payment_address
@@ -1341,6 +1342,23 @@ class Executor:
             semantic_intent = await _coerce_addresses(self.substrate, intent.semantic_intent())
             if semantic_intent.op == "create_pure_proxy":
                 data.update(_pure_created_data(result))
+            if semantic_intent.op in {
+                "open_loan",
+                "close_loan",
+                "repay_loan",
+                "raise_loan",
+            }:
+                # N19: SDK ExtrinsicResult.data gets the same decoded outcome
+                # the CLI Result card prints (CLI on_result may refine further).
+                data.update(lending_outcome_data(result.events, op=semantic_intent.op))
+                # Closed has no payment field. Attach the preflight quote under
+                # quoted_* — never as executed payment (Auditor fid:fcde4084).
+                if semantic_intent.op == "close_loan" and "quoted_payment_rao" not in data:
+                    quoted = getattr(semantic_intent, "_quoted_payment_rao", None)
+                    if quoted is not None:
+                        unit = int(getattr(semantic_intent, "_quoted_payment_unit", 0) or 0)
+                        data["quoted_payment"] = _fmt_outcome_amount(int(quoted), unit)
+                        data["quoted_payment_rao"] = int(quoted)
             if semantic_intent.op == "spend_gamma":
                 data.update(_gamma_spent_data(result))
             if semantic_intent.op in ("mint_gamma", "mint_gamma_with_stake"):

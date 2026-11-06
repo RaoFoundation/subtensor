@@ -444,6 +444,107 @@ class Prices(_ReadNamespace):
     async def alpha_prices(self, *, block: Optional[int] = None) -> dict[int, float]:
         """Spot alpha price for every subnet, as TAO per alpha keyed by netuid."""
 
+    async def lending_close_quote(self, coldkey_ss58: str, netuid: int, hotkey_ss58: Optional[str] = None, repay_from_wallet: bool = False, *, block: Optional[int] = None) -> dict:
+        """Runtime quote of the combined debt repayment and refund, after accrued interest.
+
+        Payment is TAO except for a wallet-repaid short, which returns its fixed
+        alpha principal. Refund is TAO for a short and alpha for a long. Default
+        `repay_from_wallet=False` quotes the escrow AMM path: shorts buy P alpha
+        from escrow+collateral (leftover TAO refund); when the buyback costs more
+        than the pot, payment is the TAO needed, refund is 0, and `max_payment`
+        on close must cover the shortfall from free balance. Longs sell escrow A
+        then only enough collateral to cover any shortfall to P (leftover alpha
+        refund). Set True to quote a wallet repayment instead. Pass
+        `hotkey_ss58` when alpha is repaid or refunded so quote and call share
+        hotkey-existence checks; omit it on TAO-only short escrow buyback.
+        """
+
+    async def lending_current_terms_version(self, *, block: Optional[int] = None) -> dict:
+        """Terms version assigned to newly opened lending positions."""
+
+    async def lending_open_quote(self, netuid: int, side: str, collateral: str, coldkey_ss58: Optional[str] = None, hotkey_ss58: Optional[str] = None, amount: Optional[str] = '', *, block: Optional[int] = None) -> dict:
+        """Quote additional fixed debt, opening value and annual interest.
+
+        Supply `coldkey_ss58` to quote a new position or increase an existing
+        one on the same side (positions are keyed by coldkey and netuid). Longs
+        also need `hotkey_ss58` as the collateral source; shorts must omit it
+        (TAO-only). The runtime accrues old interest and checks the combined
+        position. Alpha loans require conservative funded-claim coverage; TAO
+        loans require conservative funded collateral backing. Both protect each
+        other same-side loan after accrued interest. Returned principal,
+        annual_interest and opening_value are additions, not totals. Short
+        opening_value is the loan's TAO value at the lending EMA, rounded up,
+        and fixes its annual TAO interest. `escrow_estimate` is simulated sale
+        proceeds in TAO for shorts and escrowed alpha for longs. Omitting the
+        owner quotes a fresh loan only. A refusal is an error; it never becomes
+        a zero-protection quote. The result is indicative until the transaction
+        executes. Supply `amount` with an owner to quote exactly that
+        additional principal.
+        """
+
+    async def lending_position(self, coldkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
+        """A coldkey's fixed-principal loan on one subnet, or None.
+
+        Principal increases when more is borrowed and never falls when interest is
+        collected. This record reports the combined position. Amounts retain their
+        currency: short collateral is TAO and short debt is alpha; long collateral
+        is alpha and long debt is TAO. `proceeds` is the short's escrowed TAO
+        (E_S) from the forced alpha sale at open; it is zero for longs.
+        `escrow_alpha` is the long's escrowed alpha (A); zero for shorts.
+        `expires_at` is the fixed one-year term end (increases restart it).
+        `runway_days` is capped at days remaining until `expires_at`. Interest
+        and runway are estimates at the selected block. `underwater` /
+        `insolvent` are true when interest is exhausted or the escrow close
+        quote reports a positive `shortfall` (AMM cannot cover principal).
+        """
+
+    async def lending_positions(self, netuid: int, *, block: Optional[int] = None) -> list[dict]:
+        """All open loans on a subnet, pinned to one block and sorted by owner."""
+
+    async def lending_raise_quote(self, netuid: int, coldkey_ss58: str, hotkey_ss58: str, borrow_tao: Optional[str] = '', collateral_alpha: Optional[str] = '', sell_alpha: Optional[str] = '', *, block: Optional[int] = None) -> dict:
+        """Quote an atomic raise: escrowed long sizing plus optional unlocked sale."""
+
+    async def lending_repay_quote(self, coldkey_ss58: str, netuid: int, principal_part: str, hotkey_ss58: Optional[str] = None, repay_from_wallet: bool = False, *, block: Optional[int] = None) -> dict:
+        """Runtime quote of a partial-repay payment and refund.
+
+        Same payment/refund/shortfall units as :func:`lending_close_quote`, sized
+        for `principal_part`. Full principal delegates to the close quote on
+        chain.
+        """
+
+    async def lending_required_collateral(self, netuid: int, side: str, amount: str, coldkey_ss58: str, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> dict:
+        """Minimum additional collateral for exactly the requested borrowed amount.
+
+        The search uses exact-principal runtime quotes at one block. It includes
+        existing principal, accrued interest, market depth and funded-redemption
+        guards. Only the owner's `InsufficientCollateral` response means to
+        search higher; unavailable references, inventory, borrowing caps and
+        other positions' uncovered debt remain hard refusals. For longs, probes
+        are capped by unlocked alpha on `hotkey_ss58` so the owner-aware stake
+        gate cannot abort an otherwise affordable search. The requested opening
+        value must meet the runtime's minimum, currently 0.1 TAO.
+
+        Returns collateral and its opening quote. The exact-principal transaction
+        rechecks admission without borrowing extra if state changes.
+        """
+
+    async def lending_reserves(self, netuid: int, *, block: Optional[int] = None) -> dict:
+        """Lift-book balances for a subnet: held legs, escrow, and long collateral.
+
+        Reports custody accounting for lift-based lending, not a separate vault.
+        Outstanding short/long lift legs and escrowed proceeds are included.
+        """
+
+    async def lending_stats(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> dict:
+        """Cumulative lending health counters (saturating, monotonic).
+
+        Per-netuid values may clear on dissolution; the global totals never reset.
+        Counters update at the same sites as the matching pallet events.
+        """
+
+    async def lending_stats_global(self, *, block: Optional[int] = None) -> dict:
+        """Chain-wide cumulative lending health counters (never reset)."""
+
     async def quote_stake(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> SwapQuote:
         """Simulate staking `amount_tao` TAO into a subnet: alpha out, fee, and slippage.
 

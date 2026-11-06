@@ -42,6 +42,7 @@ from .commands import (
     evm,
     extension,
     gamma,
+    lending,
     lock,
     misc,
     multisig,
@@ -85,8 +86,15 @@ app = typer.Typer(
     help=(
         "btcli - a lean command line for the Bittensor chain."
         f"\n\nDocs: [underline link={DOCS_URL}]{DOCS_URL}[/underline link]"
+        "\n\nOverride docs links with BITTENSOR_DOCS_REF=<git-ref> "
+        "(default main) or BITTENSOR_DOCS_URL=<site-root>."
     ),
-    context_settings={"help_option_names": ["-h", "--help"]},
+    # Wide enough that long option names stay intact on typical panes;
+    # lending shortens 80-col alias lists separately (E2E F15).
+    context_settings={
+        "help_option_names": ["-h", "--help"],
+        "max_content_width": 200,
+    },
 )
 
 # Root --help is grouped into panels so it reads as a map, not a linear dump.
@@ -101,6 +109,7 @@ PANEL_ADDITIONAL = "Additional"
 app.add_typer(wallet.app, name="wallet")
 app.add_typer(stake.app, name="stake")
 app.add_typer(gamma.app, name="gamma")
+app.add_typer(lending.app, name="lending")
 app.add_typer(root.app, name="root")
 app.add_typer(subnets.app, name="subnets")
 app.add_typer(lock.app, name="conviction")
@@ -119,6 +128,7 @@ app.add_typer(multisig.app, name="multisig", rich_help_panel=PANEL_ACCOUNTS)
 for _sub_app, _aliases in (
     (wallet.app, ("w", "wallets")),
     (stake.app, ("st",)),
+    (lending.app, ("ln", "loan", "loans")),
     (root.app, ("rt",)),
     (subnets.app, ("s", "subnet")),
     (sudo.app, ("su", "sudo")),
@@ -305,6 +315,8 @@ def main_callback(
     setup_logging(verbosity=verbosity, quiet=quiet)
     wallet_source = ctx.get_parameter_source("wallet_name")
     hotkey_source = ctx.get_parameter_source("hotkey_name")
+    output = Output(json_mode=json_output, quiet=quiet, network=network)
+    output.dry_run = bool(dry_run)
     ctx.obj = AppContext(
         network=network,
         fallback_endpoints=fallback_endpoints,
@@ -320,7 +332,7 @@ def main_callback(
         dry_run=dry_run,
         mev_shield=mev_shield,
         verbosity=verbosity,
-        output=Output(json_mode=json_output, quiet=quiet, network=network),
+        output=output,
         signer_backend=signer_backend,
         signer_address=signer_address,
         extension_source=extension_source,
@@ -529,7 +541,7 @@ def _warn_if_legacy_config() -> None:
         f"warning: {legacy} is the legacy (v9) btcli config and is ignored by this CLI; "
         f"migrate values with `btcli config set` (stored in {config_path()}), then rename "
         f"or delete the old file. "
-        f"Migration guide: {DOCS_URL}/migration",
+        f"Migration guide: {DOCS_URL}/migration.mdx",
         file=sys.stderr,
     )
     with contextlib.suppress(OSError):

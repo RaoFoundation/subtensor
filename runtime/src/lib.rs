@@ -280,7 +280,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 488,
+    // Above mainnet tip (488) so a real upgrade from main never rolls version back.
+    spec_version: 489,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1132,6 +1133,7 @@ impl pallet_subtensor::Config for Runtime {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = Swap;
+    type Lending = Lending;
     type KeySwapOnSubnetCost = SubtensorInitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = Proxier;
@@ -1515,6 +1517,42 @@ impl pallet_crowdloan::Config for Runtime {
     type MaxContributors = MaxContributors;
 }
 
+// Lending (Jacob v5.1 lift / escrow)
+parameter_types! {
+    pub const LendingPalletId: PalletId = PalletId(*b"bt/lends");
+    pub const LendingMinimumLoanValue: u64 = 1_000_000; // 0.001 τ
+    // Spec §6: weekly coupon collection. 100 was a fork-test remnant (~20 min);
+    // 50_400 ≈ 7 days at 12 s blocks.
+    pub const LendingInterestPeriod: BlockNumber = 50_400;
+    pub const LendingBlocksPerYear: u64 = 2_628_000; // ~12s blocks
+    pub const LendingReferenceWarmup: BlockNumber = 7_200; // ~24h
+    pub const LendingMaxPositionsPerSubnet: u32 = 10_000;
+    pub const LendingMaxTotalPositions: u32 = 1_000_000;
+    // ~20 min at 12 s blocks: defer failed expiry settles without stalling the queue.
+    pub const LendingExpiryRetryDelay: BlockNumber = 100;
+    // Same bound for failed interest collections (Auditor fid:2aff7381).
+    pub const LendingInterestRetryDelay: BlockNumber = 100;
+    // Max band-deferral window for permissionless expiry / interest-exhaustion
+    // forfeit (~7 days at 12 s). Longer than settle_ema_blocks (24 h) so a
+    // sustained pump through forced settle is far costlier (N28 / Jacob).
+    pub const LendingMaxSettlementDeferral: BlockNumber = 50_400;
+}
+
+impl pallet_lending::Config for Runtime {
+    type Pool = SubtensorModule;
+    type PalletId = LendingPalletId;
+    type MinimumLoanValue = LendingMinimumLoanValue;
+    type InterestPeriod = LendingInterestPeriod;
+    type BlocksPerYear = LendingBlocksPerYear;
+    type ReferenceWarmup = LendingReferenceWarmup;
+    type MaxPositionsPerSubnet = LendingMaxPositionsPerSubnet;
+    type MaxTotalPositions = LendingMaxTotalPositions;
+    type ExpiryRetryDelay = LendingExpiryRetryDelay;
+    type InterestRetryDelay = LendingInterestRetryDelay;
+    type MaxSettlementDeferral = LendingMaxSettlementDeferral;
+    type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
+}
+
 // Limit Orders
 parameter_types! {
     pub const LimitOrdersPalletId: PalletId = PalletId(*b"bt/limit");
@@ -1739,6 +1777,7 @@ construct_runtime!(
         AlphaAssets: pallet_alpha_assets = 31,
         LimitOrders: pallet_limit_orders = 32,
         HashedAccounts: pallet_hashed_accounts = 33,
+        Lending: pallet_lending = 34,
     }
 );
 
@@ -1854,6 +1893,17 @@ type Migrations = (
     // try-runtime compares the complete result with a pre-upgrade snapshot and checks the
     // one-shot marker.
     pallet_subtensor::migrations::migrate_subnet_state::subnet_state::Migration<Runtime>,
+    // Lending: one-shot warm of References/G_ema for live subnets, widen LiftParams
+    // with ema_band_bps, drop the stored Position hotkey and its indexes, then
+    // append terms_version / interest cadence snapshots for versioned loan rules.
+    // Registered here (not the pallet hook) so try-runtime executes pre/post-upgrade
+    // validation against real network state.
+    pallet_lending::migrations::WarmReferencesMigration<Runtime>,
+    pallet_lending::migrations::LiftParamsEmaBandMigration<Runtime>,
+    pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
+    pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
+    pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,
+    pallet_lending::migrations::ResetN24ShortfallCountersMigration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -1900,6 +1950,7 @@ mod benches {
         [pallet_subtensor_utility, Utility]
         [pallet_limit_orders, LimitOrders]
         [pallet_hashed_accounts, HashedAccounts]
+        [pallet_lending, Lending]
     );
 }
 
@@ -2855,6 +2906,115 @@ impl_runtime_apis! {
             _key_owner_proof: sp_consensus_babe::OpaqueKeyOwnershipProof,
         ) -> Option<()> {
             None
+        }
+    }
+
+    impl pallet_lending_runtime_api::LendingRuntimeApi<Block, AccountId> for Runtime {
+        fn quote_open(
+            netuid: u16,
+            side: pallet_lending::Side,
+            collateral: u64,
+        ) -> Result<pallet_lending::OpeningQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_open(netuid.into(), side, collateral)
+        }
+
+        fn quote_open_for(
+            owner: AccountId,
+            netuid: u16,
+            side: pallet_lending::Side,
+            collateral: u64,
+            source_hotkey: Option<AccountId>,
+        ) -> Result<pallet_lending::OpeningQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_open_for(
+                &owner,
+                netuid.into(),
+                side,
+                collateral,
+                source_hotkey.as_ref(),
+            )
+        }
+
+        fn quote_open_exact_for(
+            owner: AccountId,
+            netuid: u16,
+            side: pallet_lending::Side,
+            collateral: u64,
+            source_hotkey: Option<AccountId>,
+            principal: u64,
+        ) -> Result<pallet_lending::OpeningQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_open_exact_for(
+                &owner,
+                netuid.into(),
+                side,
+                collateral,
+                source_hotkey.as_ref(),
+                principal,
+            )
+        }
+
+        fn quote_close(
+            owner: AccountId,
+            netuid: u16,
+            hotkey: Option<AccountId>,
+            repay_from_wallet: bool,
+        ) -> Result<pallet_lending::ClosingQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_close(
+                &owner,
+                netuid.into(),
+                hotkey.as_ref(),
+                repay_from_wallet,
+            )
+        }
+
+        fn quote_repay(
+            owner: AccountId,
+            netuid: u16,
+            hotkey: Option<AccountId>,
+            principal_part: u64,
+            repay_from_wallet: bool,
+        ) -> Result<pallet_lending::ClosingQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_repay(
+                &owner,
+                netuid.into(),
+                hotkey.as_ref(),
+                principal_part,
+                repay_from_wallet,
+            )
+        }
+
+        fn quote_raise(
+            owner: AccountId,
+            netuid: u16,
+            hotkey: AccountId,
+            amount: Option<u64>,
+            collateral: Option<u64>,
+            sell: Option<u64>,
+        ) -> Result<pallet_lending::RaiseQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_raise(
+                &owner,
+                netuid.into(),
+                &hotkey,
+                amount,
+                collateral,
+                sell,
+            )
+        }
+
+        fn lending_stats(netuid: u16) -> pallet_lending::LendingStats {
+            pallet_lending::Pallet::<Runtime>::lending_stats(netuid.into())
+        }
+
+        fn lending_stats_global() -> pallet_lending::LendingStats {
+            pallet_lending::Pallet::<Runtime>::lending_stats_global()
+        }
+
+        fn current_terms_version() -> u16 {
+            let v = pallet_lending::CurrentTermsVersion::<Runtime>::get();
+            if v == 0 {
+                pallet_lending::TERMS_VERSION_V1
+            } else {
+                v
+            }
         }
     }
 

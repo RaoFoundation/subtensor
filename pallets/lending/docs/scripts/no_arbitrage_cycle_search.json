@@ -1,0 +1,357 @@
+{
+  "criterion": {
+    "N": 8,
+    "K_split_max": 3,
+    "eps_profit_tao": 1e-06,
+    "fee": 0.000503547722590982,
+    "statement": "PASS iff no self-contained \u2264N-action sequence (multi-coldkey and trade-split variants included) yields attacker net TAO > 1e-06 for any \u03c6 up to side-cap \u03c6_max on live snapshots.",
+    "design_under_test": "a (keep-weights)"
+  },
+  "subnets": [
+    {
+      "netuid": 29,
+      "name": "hotfloat",
+      "y": 7898.541706,
+      "x": 3153847.828736673,
+      "w_q": 0.49999999838361536,
+      "clone_fixture": false,
+      "G": 7898.541706,
+      "thin": false,
+      "Cap": 2606.51876298,
+      "Cap_short": 1303.25938149,
+      "Cap_long": 1303.25938149,
+      "phi_max_short": 0.16499999999999998,
+      "phi_max_long": 0.16499999999999998,
+      "y_star": 20488.08841387755
+    },
+    {
+      "netuid": 64,
+      "name": "Chutes",
+      "y": 200195.554717456,
+      "x": 2975271.523691783,
+      "w_q": 0.49999999571399273,
+      "clone_fixture": false,
+      "G": 200195.554717456,
+      "thin": false,
+      "Cap": 100097.777358728,
+      "Cap_short": 50048.888679364,
+      "Cap_long": 50048.888679364,
+      "phi_max_short": 0.25,
+      "phi_max_long": 0.25,
+      "y_star": 20488.08830185933
+    },
+    {
+      "netuid": 51,
+      "name": "lium.io",
+      "y": 192399.387580989,
+      "x": 1540502.421523548,
+      "w_q": 0.4999999904325722,
+      "clone_fixture": false,
+      "G": 192399.387580989,
+      "thin": false,
+      "Cap": 96199.6937904945,
+      "Cap_short": 48099.84689524725,
+      "Cap_long": 48099.84689524725,
+      "phi_max_short": 0.25,
+      "phi_max_long": 0.25,
+      "y_star": 20488.08808024941
+    },
+    {
+      "netuid": 4,
+      "name": "Targon",
+      "y": 141667.3524437,
+      "x": 2474799.692716788,
+      "w_q": 0.499999994701321,
+      "clone_fixture": false,
+      "G": 141667.3524437,
+      "thin": false,
+      "Cap": 70833.67622185,
+      "Cap_short": 35416.838110925,
+      "Cap_long": 35416.838110925,
+      "phi_max_short": 0.25,
+      "phi_max_long": 0.25,
+      "y_star": 20488.08825936735
+    },
+    {
+      "netuid": 119,
+      "name": "CapabilityForge Next",
+      "y": 2990.552978757,
+      "x": 1394469.296284051,
+      "w_q": 0.5,
+      "clone_fixture": false,
+      "G": 2990.552978757,
+      "thin": true,
+      "Cap": 448.58294681354994,
+      "Cap_short": 224.29147340677497,
+      "Cap_long": 224.29147340677497,
+      "phi_max_short": 0.075,
+      "phi_max_long": 0.075,
+      "y_star": 20488.08848170148
+    },
+    {
+      "netuid": 29,
+      "name": "hotfloat-clone-a13",
+      "y": 7449.956,
+      "x": 3153861.0,
+      "w_q": 0.471657,
+      "clone_fixture": true,
+      "G": 7449.956,
+      "thin": false,
+      "Cap": 2458.4854800000003,
+      "Cap_short": 1229.2427400000001,
+      "Cap_long": 1229.2427400000001,
+      "phi_max_short": 0.165,
+      "phi_max_long": 0.165,
+      "y_star": 19362.61901347186
+    }
+  ],
+  "by_design_live": {
+    "a": {
+      "n": 20087,
+      "max_profit": -0.011270157862510288,
+      "n_profitable": 0,
+      "pass": true,
+      "at": {
+        "netuid": 119,
+        "name": "CapabilityForge Next",
+        "side": "long",
+        "close": "buyback",
+        "phi": 0.00375,
+        "pump_or_dump": 0.0,
+        "n_pump_splits": 1,
+        "n_repay_splits": 1,
+        "n_unwind_splits": 1,
+        "multi_ck": false,
+        "n_actions": 2,
+        "w2_after": 0.5,
+        "L_ratio": 1.0000000000000067
+      },
+      "profitable_examples": []
+    },
+    "buggy": {
+      "n": 20087,
+      "max_profit": 193796.69630657416,
+      "n_profitable": 16619,
+      "pass": false,
+      "at": {
+        "netuid": 64,
+        "name": "Chutes",
+        "side": "short",
+        "close": "wallet",
+        "phi": 0.25,
+        "pump_or_dump": 1.25,
+        "n_pump_splits": 1,
+        "n_repay_splits": 3,
+        "n_unwind_splits": 1,
+        "multi_ck": true,
+        "n_actions": 7,
+        "w2_after": 0.16661294851430053,
+        "L_ratio": 1.351160180868503
+      },
+      "profitable_examples": [
+        {
+          "netuid": 64,
+          "name": "Chutes",
+          "side": "short",
+          "close": "wallet",
+          "phi": 0.25,
+          "pump_or_dump": 1.25,
+          "n_actions": 7,
+          "multi_ck": true,
+          "splits": [
+            1,
+            3,
+            1
+          ],
+          "profit": 193796.69630657416,
+          "w2_after": 0.16661294851430053
+        },
+        {
+          "netuid": 64,
+          "name": "Chutes",
+          "side": "short",
+          "close": "wallet",
+          "phi": 0.25,
+          "pump_or_dump": 1.25,
+          "n_actions": 7,
+          "multi_ck": false,
+          "splits": [
+            1,
+            3,
+            1
+          ],
+          "profit": 193796.69630657416,
+          "w2_after": 0.16661294851430053
+        },
+        {
+          "netuid": 64,
+          "name": "Chutes",
+          "side": "short",
+          "close": "wallet",
+          "phi": 0.25,
+          "pump_or_dump": 1.25,
+          "n_actions": 8,
+          "multi_ck": true,
+          "splits": [
+            1,
+            3,
+            2
+          ],
+          "profit": 193796.69630657416,
+          "w2_after": 0.16661294851430053
+        },
+        {
+          "netuid": 64,
+          "name": "Chutes",
+          "side": "short",
+          "close": "wallet",
+          "phi": 0.25,
+          "pump_or_dump": 1.25,
+          "n_actions": 8,
+          "multi_ck": false,
+          "splits": [
+            1,
+            3,
+            2
+          ],
+          "profit": 193796.69630657416,
+          "w2_after": 0.16661294851430053
+        },
+        {
+          "netuid": 64,
+          "name": "Chutes",
+          "side": "short",
+          "close": "wallet",
+          "phi": 0.25,
+          "pump_or_dump": 1.25,
+          "n_actions": 8,
+          "multi_ck": true,
+          "splits": [
+            2,
+            3,
+            1
+          ],
+          "profit": 193796.69630657416,
+          "w2_after": 0.16661294851430053
+        },
+        {
+          "netuid": 64,
+          "name": "Chutes",
+          "side": "short",
+          "close": "wallet",
+          "phi": 0.25,
+          "pump_or_dump": 1.25,
+          "n_actions": 8,
+          "multi_ck": false,
+          "splits": [
+            2,
+            3,
+            1
+          ],
+          "profit": 193796.69630657416,
+          "w2_after": 0.16661294851430053
+        },
+        {
+          "netuid": 64,
+          "name": "Chutes",
+          "side": "short",
+          "close": "wallet",
+          "phi": 0.25,
+          "pump_or_dump": 1.25,
+          "n_actions": 8,
+          "multi_ck": true,
+          "splits": [
+            3,
+            2,
+            1
+          ],
+          "profit": 193796.69630657416,
+          "w2_after": 0.16661294851430036
+        },
+        {
+          "netuid": 64,
+          "name": "Chutes",
+          "side": "short",
+          "close": "wallet",
+          "phi": 0.25,
+          "pump_or_dump": 1.25,
+          "n_actions": 8,
+          "multi_ck": false,
+          "splits": [
+            3,
+            2,
+            1
+          ],
+          "profit": 193796.69630657416,
+          "w2_after": 0.16661294851430036
+        },
+        {
+          "netuid": 64,
+          "name": "Chutes",
+          "side": "short",
+          "close": "wallet",
+          "phi": 0.25,
+          "pump_or_dump": 1.25,
+          "n_actions": 5,
+          "multi_ck": true,
+          "splits": [
+            1,
+            1,
+            1
+          ],
+          "profit": 193796.69630657393,
+          "w2_after": 0.16661294851430056
+        },
+        {
+          "netuid": 64,
+          "name": "Chutes",
+          "side": "short",
+          "close": "wallet",
+          "phi": 0.25,
+          "pump_or_dump": 1.25,
+          "n_actions": 5,
+          "multi_ck": false,
+          "splits": [
+            1,
+            1,
+            1
+          ],
+          "profit": 193796.69630657393,
+          "w2_after": 0.16661294851430056
+        }
+      ]
+    }
+  },
+  "by_design_including_clone_fixture": {
+    "a": {
+      "n": 24083,
+      "max_profit": -0.011270157862510288,
+      "n_profitable": 0,
+      "pass": true,
+      "at": {
+        "netuid": 119,
+        "name": "CapabilityForge Next",
+        "side": "long",
+        "close": "buyback",
+        "phi": 0.00375,
+        "pump_or_dump": 0.0,
+        "n_pump_splits": 1,
+        "n_repay_splits": 1,
+        "n_unwind_splits": 1,
+        "multi_ck": false,
+        "n_actions": 2,
+        "w2_after": 0.5,
+        "L_ratio": 1.0000000000000067
+      },
+      "profitable_examples": []
+    }
+  },
+  "verdict": {
+    "keep_weights_pass": true,
+    "buggy_finds_profit": true,
+    "max_profit_keep_weights": -0.011270157862510288,
+    "max_profit_buggy": 193796.69630657416,
+    "n_cells_keep_weights": 20087,
+    "n_cells_buggy": 20087
+  }
+}

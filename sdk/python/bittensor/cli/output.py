@@ -11,6 +11,7 @@ import contextlib
 import json as _json
 import os
 import re
+import shutil
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -137,11 +138,25 @@ def _diagnostic(text: str) -> str:
 
     The first character is lowered only when it starts an ordinary word (next
     character lowercase), so acronyms and identifiers keep their casing.
+    CamelCase chain error names (SubnetUnavailable) and § section refs are
+    left alone / stripped for user-facing headlines (E2E F12).
     """
     text = text.strip()
+    # Drop pallet §section cross-refs from headlines. Strip wrapping parens
+    # too so "side (§5.4)." becomes "side." not "side ()." (E2E F12).
+    text = re.sub(r"^§\d+(?:\.\d+)*\s*[:—-]\s*", "", text)
+    text = re.sub(r"\s*\(§\d+(?:\.\d+)*\)", "", text)
+    text = re.sub(r"\s*§\d+(?:\.\d+)*\b", "", text)
     if text.endswith(".") and not text.endswith(".."):
         text = text[:-1]
-    if len(text) > 1 and text[0].isupper() and text[1].islower():
+    # Do not camelCase-mangle PascalCase identifiers (SubnetUnavailable).
+    # "Price too far" → "price too far"; "PriceTooFarFromEma" stays.
+    if (
+        len(text) > 1
+        and text[0].isupper()
+        and text[1].islower()
+        and (not any(c.isupper() for c in text[1:]) or " " in text)
+    ):
         text = text[0].lower() + text[1:]
     return text
 
@@ -193,6 +208,27 @@ CHOICE_INDENT = 4
 # line wrapped past the real edge hard-wraps mid-word back to column 0 — a
 # fixed cap keeps the prompt area deterministic everywhere.
 PROMPT_WRAP_WIDTH = 100
+
+
+def _detect_terminal_width() -> int:
+    """Best-effort tty width for tables and cards.
+
+    ``shutil.get_terminal_size`` prefers ioctl over ``$COLUMNS``. On some SSH /
+    multiplexer setups ioctl stays at 80 while the visible pane (and COLUMNS)
+    is wider — take the max so ``loan list`` can use the real width (E2E N9).
+    Fallback 120 when nothing is detectable.
+    """
+    detected = 0
+    try:
+        detected = int(shutil.get_terminal_size(fallback=(0, 0)).columns or 0)
+    except Exception:
+        detected = 0
+    env_raw = os.environ.get("COLUMNS")
+    env_cols = int(env_raw) if env_raw and env_raw.isdigit() else 0
+    width = max(detected, env_cols)
+    if width <= 0:
+        width = 120
+    return max(width, 80)
 
 
 def prompt_hint(content: "str | Text", *, indent: int = CHOICE_INDENT) -> Constrain:
@@ -292,10 +328,13 @@ class Output:
         self.json_mode = json_mode
         self.quiet = quiet
         self.network = network
+        # Set by AppContext when --dry-run is active (F12 wording).
+        self.dry_run = False
         # highlight=False: rich's default highlighter colors digits, parens,
         # and quoted strings on its own; every color here should be deliberate.
-        self._out = Console(highlight=False, theme=_THEME)
-        self._err = Console(stderr=True, highlight=False, theme=_THEME)
+        term_width = _detect_terminal_width()
+        self._out = Console(highlight=False, theme=_THEME, width=term_width)
+        self._err = Console(stderr=True, highlight=False, theme=_THEME, width=term_width)
         # Whether the terminal honors OSC-8 hyperlinks (invisible clickable
         # text). Apple's Terminal.app ignores them entirely, so on it a link
         # must be printed as visible URL text to be clickable (Terminal.app
@@ -1085,12 +1124,14 @@ class Output:
         records: Optional[list[dict]] = None,
         *,
         legend: Optional[list[tuple[str, str]]] = None,
+        truncate: bool = True,
     ) -> None:
         """A collection as a table (human) or a list of objects (json).
 
         ``records`` supplies the JSON shape; when omitted it is derived by zipping
         ``columns`` with each row. ``legend`` is a human-only list of
-        ``(term, meaning)`` pairs explaining the columns.
+        ``(term, meaning)`` pairs explaining the columns. Pass ``truncate=False``
+        to keep full owner/amount strings (Rich default ellipsis off).
         """
         if self.json_mode:
             self._json(
@@ -1101,9 +1142,20 @@ class Output:
             self._print_title(title)
             self._out.print("  [dim]none[/dim]")
             return
+        # Refresh width at print time — Output may have been constructed when
+        # the tty was still the default 80 cols (E2E N9).
+        self._out.width = _detect_terminal_width()
         table = Table(title=title, title_style=STYLE_TITLE, header_style=STYLE_KEY)
         for column in columns:
-            table.add_column(column, style=_value_style(column) or None)
+            if truncate:
+                table.add_column(column, style=_value_style(column) or None)
+            else:
+                table.add_column(
+                    column,
+                    style=_value_style(column) or None,
+                    overflow="fold",
+                    no_wrap=False,
+                )
         for row in rows:
             table.add_row(
                 *(
@@ -2461,7 +2513,11 @@ class Output:
             if result.explorer_url:
                 fields["explorer"] = result.explorer_url
             fields.update(
-                (key, value) for key, value in result.data.items() if key != "multisig_followup"
+                (key, value)
+                for key, value in result.data.items()
+                # N19: *_rao companions are --json / SDK only; keep text Result
+                # cards on the human display strings.
+                if key != "multisig_followup" and not str(key).endswith("_rao")
             )
             if fields:
                 self.result_fields(fields)
@@ -2531,13 +2587,33 @@ class Output:
         header.append(f"[{error.code.value}]", style=STYLE_ERROR)
         header.append(":", style=STYLE_ERROR)
         header.append(" ")
-        body = _prose(_diagnostic(self.with_subnets(self.with_names(message))))
+        # Prefer the human description over a raw CamelCase error name /
+        # pallet metadata doc string (often carries [`OtherError`] refs) (E2E F12).
+        headline = message
+        raw_docs = bool(message) and (
+            message == error.name
+            or message.startswith("§")
+            or "Replaces " in message
+            or "[`" in message
+            or message.startswith("Opening value")
+            or message.startswith("Side-cap")
+            or message.startswith("Side capacity")
+            or message.startswith("Forced trade")
+            or message.startswith("Requested principal")
+        )
+        if error.description and (not message or raw_docs):
+            headline = error.description
+        body = _prose(_diagnostic(self.with_subnets(self.with_names(headline))))
         body.style = STYLE_MESSAGE
         header.append_text(body)
         self._err.print(header)
-        if error.name:
-            self._sub_diag("note", f"the chain rejected the call with `{error.name}`")
-        if error.description and error.description != message:
+        if error.name and headline != error.name:
+            # Dry-run / simulation never submitted — don't say "rejected" (F12).
+            if getattr(self, "dry_run", False):
+                self._sub_diag("note", f"the call would fail with `{error.name}`")
+            else:
+                self._sub_diag("note", f"the chain rejected the call with `{error.name}`")
+        if error.description and error.description != message and error.description != headline:
             self._sub_diag("note", error.description)
         self._sub_diag("help", error.remediation)
         if error.docs_url:

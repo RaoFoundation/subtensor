@@ -2370,6 +2370,12 @@ pub mod pallet {
     pub type SubnetTaoFlow<T: Config> =
         StorageMap<_, Identity, NetUid, i64, ValueQuery, DefaultZeroI64<T>>;
 
+    /// When true, `stake_into_subnet` / `unstake_from_subnet` skip
+    /// [`SubnetTaoFlow`] updates. Set around long-side lending forced trades
+    /// so dormant flow-based shares exclude longs but not shorts (Jacob).
+    #[pallet::storage]
+    pub type LendingSkipTaoFlow<T: Config> = StorageValue<_, bool, ValueQuery>;
+
     /// MAP ( netuid ) --> subnet_ema_tao_flow | Returns the EMA of TAO inflow-outflow balance.
     #[pallet::storage]
     pub type SubnetEmaTaoFlow<T: Config> =

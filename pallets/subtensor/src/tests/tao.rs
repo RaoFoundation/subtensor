@@ -571,3 +571,79 @@ fn test_recycle_tao_cannot_cross_preserve_threshold_in_high_ed_runtime() {
         );
     });
 }
+
+/// Live-subnet expiry/settle payouts must debit TotalStake with SubnetTAO.
+/// Dissolution already drops the reserve from TotalStake earlier; expiry does not.
+#[test]
+fn test_pay_from_pot_decreases_total_stake_on_live_subnet() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10, 0);
+        let pot = 1_000_000u64;
+        let pay = 250_000u64;
+        SubnetTAO::<Test>::set(netuid, pot.into());
+        TotalStake::<Test>::put(TaoBalance::from(pot));
+        let subnet = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet, pot.into());
+        let recipient = U256::from(42);
+        add_balance_to_coldkey_account(&recipient, ExistentialDeposit::get());
+
+        let paid = <SubtensorModule as LendingPoolInterface<U256>>::pay_from_pot(
+            netuid,
+            &recipient,
+            pay.into(),
+        )
+        .expect("live pot payout must succeed");
+        assert_eq!(paid, pay.into());
+        assert_eq!(SubnetTAO::<Test>::get(netuid), (pot - pay).into());
+        assert_eq!(
+            TotalStake::<Test>::get(),
+            TaoBalance::from(pot - pay),
+            "live expiry payout must keep TotalStake aligned with SubnetTAO"
+        );
+    });
+}
+
+/// Regression for short dissolution settlement: recovery + below-ED refund must
+/// leave the escrow via one credit split. Separate Expendable transfers would
+/// reap the refund remainder after recovery and strand the position.
+#[test]
+fn test_terminal_split_tao_recovers_when_refund_is_below_ed() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let escrow = U256::from(10);
+        let vault = U256::from(11);
+        let recipient = U256::from(12);
+        let ed = ExistentialDeposit::get();
+        assert!(ed > 1u64.into(), "high-ED mock required");
+        let recovery = ed + TaoBalance::from(50);
+        let refund = ed - TaoBalance::from(1);
+        add_balance_to_coldkey_account(&escrow, recovery + refund);
+        assert!(Balances::total_balance(&recipient).is_zero());
+
+        let subtensor_ti_before = subtensor_total_issuance();
+        let balances_ti_before = balances_total_issuance();
+
+        let (recovered, refunded) =
+            <SubtensorModule as LendingPoolInterface<U256>>::terminal_split_tao(
+                &escrow, &vault, &recipient, recovery, refund,
+            )
+            .expect("terminal split must not fail mid-refund");
+
+        assert_eq!(recovered, recovery);
+        assert_eq!(
+            refunded,
+            TaoBalance::ZERO,
+            "below-ED refund to empty recipient is recycled as dust"
+        );
+        assert_eq!(Balances::total_balance(&escrow), 0.into());
+        assert_eq!(Balances::total_balance(&vault), recovery);
+        assert_eq!(Balances::total_balance(&recipient), 0.into());
+        // Recycled dust reduces issuance by the unrepayable refund.
+        assert_eq!(balances_ti_before - balances_total_issuance(), refund);
+        assert_eq!(subtensor_ti_before - subtensor_total_issuance(), refund);
+    });
+}
