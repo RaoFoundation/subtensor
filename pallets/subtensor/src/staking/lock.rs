@@ -613,8 +613,24 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         now: u64,
     ) -> ConvictionModel {
-        ConvictionModel::new(
+        Self::read_conviction_model_for_hotkey_with_owner_status(
+            coldkey,
+            netuid,
+            hotkey,
+            now,
             Self::is_subnet_owner_hotkey(netuid, hotkey),
+        )
+    }
+
+    fn read_conviction_model_for_hotkey_with_owner_status(
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        now: u64,
+        owner_lock: bool,
+    ) -> ConvictionModel {
+        ConvictionModel::new(
+            owner_lock,
             Self::is_perpetual_lock(coldkey, netuid),
             Lock::<T>::get((coldkey, netuid, hotkey)).unwrap_or_else(|| Self::empty_lock(now)),
             HotkeyLock::<T>::get(netuid, hotkey).unwrap_or_else(|| Self::empty_lock(now)),
@@ -942,8 +958,28 @@ impl<T: Config> Pallet<T> {
         amount: AlphaBalance,
         conviction: U64F64,
     ) {
+        Self::reduce_aggregate_lock_with_owner_status(
+            coldkey,
+            hotkey,
+            netuid,
+            amount,
+            conviction,
+            Self::is_subnet_owner_hotkey(netuid, hotkey),
+        );
+    }
+
+    fn reduce_aggregate_lock_with_owner_status(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+        conviction: U64F64,
+        owner_lock: bool,
+    ) {
         let now = Self::get_current_block_as_u64();
-        let mut model = Self::read_conviction_model_for_hotkey(coldkey, netuid, hotkey, now);
+        let mut model = Self::read_conviction_model_for_hotkey_with_owner_status(
+            coldkey, netuid, hotkey, now, owner_lock,
+        );
         model.roll_forward_aggregate(now, UnlockRate::<T>::get(), MaturityRate::<T>::get());
         model.reduce_aggregate(amount, conviction);
         Self::save_conviction_model(coldkey, netuid, hotkey, model);
@@ -2028,6 +2064,49 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         amount: AlphaBalance,
     ) -> DispatchResult {
+        Self::transfer_lock_with_policy(
+            origin_coldkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            amount,
+            None,
+            false,
+        )
+    }
+
+    /// Transfer a lease's lock after subnet ownership has moved away from its synthetic
+    /// coldkey. The source lock was accumulated in the owner bucket, even though its hotkey
+    /// is no longer the current owner hotkey. The beneficiary explicitly consents to receive
+    /// locked alpha by signing `terminate_lease`, so the account-level unsolicited-transfer
+    /// preference does not apply to this protocol hand-over.
+    pub(crate) fn transfer_former_owner_lock_with_consent(
+        origin_coldkey: &T::AccountId,
+        destination_coldkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> DispatchResult {
+        Self::transfer_lock_with_policy(
+            origin_coldkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            amount,
+            Some(true),
+            true,
+        )
+    }
+
+    fn transfer_lock_with_policy(
+        origin_coldkey: &T::AccountId,
+        destination_coldkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+        source_owner_lock: Option<bool>,
+        destination_consented_to_locked_alpha: bool,
+    ) -> DispatchResult {
         let now = Self::get_current_block_as_u64();
 
         // If no actual transfer happens, this is ok
@@ -2048,11 +2127,19 @@ impl<T: Config> Pallet<T> {
         let mut remaining_to_transfer = amount;
 
         // Read the locks for source and destination coldkey (if exist) and roll forward
-        let Some((source_hotkey, mut source_model)) =
-            Self::read_conviction_model(origin_coldkey, netuid, now)
+        let Some((source_hotkey, _)) = Lock::<T>::iter_prefix((origin_coldkey, netuid)).next()
         else {
             return Ok(());
         };
+        let source_owner_lock = source_owner_lock
+            .unwrap_or_else(|| Self::is_subnet_owner_hotkey(netuid, &source_hotkey));
+        let mut source_model = Self::read_conviction_model_for_hotkey_with_owner_status(
+            origin_coldkey,
+            netuid,
+            &source_hotkey,
+            now,
+            source_owner_lock,
+        );
 
         let unlock_rate = UnlockRate::<T>::get();
         let maturity_rate = MaturityRate::<T>::get();
@@ -2135,14 +2222,16 @@ impl<T: Config> Pallet<T> {
                 .conviction
                 .saturating_add(received_conviction);
         }
-        Self::ensure_can_receive_locked_alpha(destination_coldkey, locked_transfer)?;
+        if !destination_consented_to_locked_alpha {
+            Self::ensure_can_receive_locked_alpha(destination_coldkey, locked_transfer)?;
+        }
 
         source_lock = ConvictionModel::roll_forward_lock(
             source_lock,
             now,
             unlock_rate,
             maturity_rate,
-            Self::is_subnet_owner_hotkey(netuid, &source_hotkey),
+            source_owner_lock,
             Self::is_perpetual_lock(origin_coldkey, netuid),
         )
         .0;
@@ -2166,12 +2255,13 @@ impl<T: Config> Pallet<T> {
             destination_lock,
         );
         if !locked_transfer.is_zero() {
-            Self::reduce_aggregate_lock(
+            Self::reduce_aggregate_lock_with_owner_status(
                 origin_coldkey,
                 &source_hotkey,
                 netuid,
                 locked_transfer,
                 conviction_transfer,
+                source_owner_lock,
             );
             Self::add_aggregate_lock(
                 destination_coldkey,

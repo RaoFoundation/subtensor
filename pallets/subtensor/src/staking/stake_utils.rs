@@ -1435,6 +1435,48 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {
+        Self::transfer_stake_within_subnet_impl(
+            origin_coldkey,
+            origin_hotkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            alpha,
+            false,
+        )
+    }
+
+    /// Protocol hand-over of a former subnet owner's position. The signed lease beneficiary
+    /// consents to receiving its lock, and the source lock still belongs to the aggregate owner
+    /// bucket that existed before `terminate_lease` changed the subnet owner.
+    pub(crate) fn transfer_former_owner_stake_within_subnet(
+        origin_coldkey: &T::AccountId,
+        origin_hotkey: &T::AccountId,
+        destination_coldkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
+        netuid: NetUid,
+        alpha: AlphaBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        Self::transfer_stake_within_subnet_impl(
+            origin_coldkey,
+            origin_hotkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            alpha,
+            true,
+        )
+    }
+
+    fn transfer_stake_within_subnet_impl(
+        origin_coldkey: &T::AccountId,
+        origin_hotkey: &T::AccountId,
+        destination_coldkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
+        netuid: NetUid,
+        alpha: AlphaBalance,
+        former_owner_handover: bool,
+    ) -> Result<TaoBalance, DispatchError> {
         // Root stake moves claimant base on both hotkeys: settle queued basket deposits
         // on each side first (see `stake_into_subnet` / `unstake_from_subnet`).
         if netuid.is_root() {
@@ -1451,13 +1493,23 @@ impl<T: Config> Pallet<T> {
         // The lock must follow the stake to the destination hotkey, otherwise a
         // hotkey-changing transfer would leave the recipient's lock and conviction
         // stranded on the origin hotkey.
-        Self::transfer_lock(
-            origin_coldkey,
-            destination_coldkey,
-            destination_hotkey,
-            netuid,
-            alpha,
-        )?;
+        if former_owner_handover {
+            Self::transfer_former_owner_lock_with_consent(
+                origin_coldkey,
+                destination_coldkey,
+                destination_hotkey,
+                netuid,
+                alpha,
+            )?;
+        } else {
+            Self::transfer_lock(
+                origin_coldkey,
+                destination_coldkey,
+                destination_hotkey,
+                netuid,
+                alpha,
+            )?;
+        }
 
         // Decrease alpha on origin keys. The destination is credited only with what was
         // really debited; a transfer that cannot debit the full amount is refused so that
