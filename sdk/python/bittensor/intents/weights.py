@@ -87,9 +87,13 @@ def clip_to_max_weight(weights: Sequence[float], limit: float) -> list[float]:
     Weights already within the limit are just sum-normalized. Otherwise a cutoff
     is found such that clipping everything above it lands the largest normalized
     weight exactly on the limit — mass is redistributed rather than discarded.
-    Empty or all-zero input raises; a limit no distribution can satisfy
-    (``len * limit <= 1``) returns the uniform distribution.
+    Non-finite, negative, empty, or all-zero input raises; a limit no
+    distribution can satisfy (``len * limit <= 1``) returns the uniform distribution.
     """
+    # Validate before clipping (especially the uniform shortcut), which can
+    # otherwise hide invalid scores from normalize's downstream validation.
+    if any(not isfinite(w) or w < 0 for w in weights):
+        raise BittensorError("Weights must be finite and non-negative.")
     n = len(weights)
     total = float(sum(weights))
     if n == 0 or total <= 0:
