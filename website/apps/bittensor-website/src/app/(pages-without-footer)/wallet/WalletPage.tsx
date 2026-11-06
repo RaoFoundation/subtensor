@@ -228,6 +228,13 @@ const walletsSectionCards: WalletCardConfig[] = [
     },
   },
   {
+    title: 'TAOApp Wallet',
+    primaryHref: 'https://wallet.tao.app',
+    primaryAriaLabel: 'TAOApp Wallet — open website',
+    description: 'Browser extension for TAO, staking, multisig, proxies, Ledger and Vault',
+    platforms: [{kind: 'chrome'}, {kind: 'ledger'}, {kind: 'polkadotVault'}],
+  },
+  {
     title: 'Talisman Wallet',
     primaryHref: 'https://www.talisman.xyz/',
     primaryAriaLabel: 'Talisman Wallet — open website',
