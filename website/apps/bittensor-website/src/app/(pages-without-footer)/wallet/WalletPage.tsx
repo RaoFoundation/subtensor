@@ -261,6 +261,14 @@ const walletsSectionCards: WalletCardConfig[] = [
     ),
     platforms: [{kind: 'chrome'}, {kind: 'external'}],
   },
+  {
+    title: 'Vultisig',
+    primaryHref: 'https://vultisig.com/',
+    primaryAriaLabel: 'Vultisig — open website',
+    description:
+      'Open-source wallet with no seed phrase, secured across your own devices, partial support (TAO transfers only)',
+    platforms: [{kind: 'apple'}, {kind: 'googlePlay'}, {kind: 'chrome'}, {kind: 'firefox'}, {kind: 'external'}],
+  },
 ];
 
 const coldStorageSectionCards: WalletCardConfig[] = [
