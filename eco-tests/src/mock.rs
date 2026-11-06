@@ -340,6 +340,7 @@ impl pallet_subtensor::Config for Test {
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
     type AlphaAssets = AlphaAssets;
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<false>;
 }
 
 // Swap-related parameter types

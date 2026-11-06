@@ -542,6 +542,7 @@ impl pallet_subtensor::Config for Runtime {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<false>;
 }
 
 impl frame_support::traits::InstanceFilter<RuntimeCall> for ProxyType {

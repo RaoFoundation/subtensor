@@ -677,6 +677,9 @@ fn test_terminate_lease_works() {
             Some(
                 <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::terminate_lease(
                     contributors_count,
+                )
+                .saturating_add(
+                    <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::transfer_stake(),
                 ),
             )
         );
@@ -703,6 +706,88 @@ fn test_terminate_lease_works() {
             }
             .into()
         );
+    });
+}
+
+// Lease termination must hand retained owner-cut stake and its lock to the beneficiary.
+// PROTECTED_REGRESSION: synthetic lease keys must not strand funds; changes require explicit human approval.
+#[test]
+fn regression_terminate_lease_transfers_retained_owner_cut_and_lock() {
+    new_test_ext(1).execute_with(|| {
+        let beneficiary = U256::from(1);
+        setup_crowdloan(
+            0,
+            10_000_000_000,
+            1_000_000_000_000,
+            beneficiary,
+            &[(U256::from(2), 990_000_000_000)],
+        );
+        let end_block = 500;
+        let (lease_id, lease) = setup_leased_network(
+            beneficiary,
+            Percent::from_percent(30),
+            Some(end_block),
+            Some(100_000_000_000),
+        );
+
+        run_to_block(end_block + 1);
+        OwnerCutAutoLockEnabled::<Test>::insert(lease.netuid, true);
+        let owner_cut = AlphaBalance::from(5_000_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey,
+            &lease.coldkey,
+            lease.netuid,
+            owner_cut,
+        );
+        SubtensorModule::auto_lock_owner_cut(lease.netuid, owner_cut);
+
+        let stranded = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey,
+            &lease.coldkey,
+            lease.netuid,
+        );
+        let source_lock = Lock::<Test>::get((lease.coldkey, lease.netuid, lease.hotkey))
+            .expect("retained owner cut should be locked on the lease position");
+        assert!(stranded >= owner_cut);
+
+        let owner_hotkey = U256::from(3);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &beneficiary,
+            &owner_hotkey,
+        ));
+        assert!(SubtensorModule::account_rejects_locked_alpha(&beneficiary));
+        assert_ok!(SubtensorModule::terminate_lease(
+            RuntimeOrigin::signed(beneficiary),
+            lease_id,
+            owner_hotkey,
+        ));
+
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                &lease.coldkey,
+                lease.netuid,
+            ),
+            AlphaBalance::ZERO,
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &owner_hotkey,
+                &beneficiary,
+                lease.netuid,
+            ),
+            stranded,
+        );
+        assert!(!Lock::<Test>::contains_key((
+            lease.coldkey,
+            lease.netuid,
+            lease.hotkey,
+        )));
+        let beneficiary_lock = Lock::<Test>::get((beneficiary, lease.netuid, owner_hotkey))
+            .expect("the retained owner-cut lock should follow the transferred stake");
+        assert_eq!(beneficiary_lock.locked_mass, source_lock.locked_mass);
+        assert_eq!(SubnetLeases::<Test>::get(lease_id), None);
+        assert!(!SubnetUidToLeaseId::<Test>::contains_key(lease.netuid));
     });
 }
 
