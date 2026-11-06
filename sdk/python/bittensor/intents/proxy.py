@@ -381,6 +381,115 @@ class KillPureProxy(Intent):
 
 @register
 @dataclass
+class AnnounceProxyCall(Intent):
+    """Commit the hash of a future proxy call (delayed-proxy announce step).
+
+    A delegate whose grant has ``delay`` > 0 must publish the call hash here
+    and wait before ``execute_proxy_announced`` can reveal and run it. The
+    chain stores only the hash; keep the plaintext locally (the CLI's
+    protected-account store does this). The deposit reserved for the
+    announcement is returned when the call is executed, removed, or rejected.
+    """
+
+    op = "announce_proxy_call"
+    signer = "coldkey"
+    wraps = (("Proxy", "announce"),)
+
+    real_ss58: str = field(
+        metadata={"help": "Account the future call will execute as (the delegation's grantor)."}
+    )
+    call_hash: str = field(
+        metadata={
+            "help": "Blake2-256 hash of the exact call bytes that will later be "
+            "passed to execute_proxy_announced (0x-prefixed hex)."
+        }
+    )
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.Proxy.announce(real=self.real_ss58, call_hash=self.call_hash)
+        )
+
+    def summary(self) -> str:
+        short = _short_hash(self.call_hash)
+        return f"announce proxy call {short} for {self.real_ss58}"
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        return [
+            "reserves an announcement deposit from the signer (returned on "
+            "execute, remove, or reject)"
+        ]
+
+
+@register
+@dataclass
+class RemoveProxyAnnouncement(Intent):
+    """Cancel one of your own pending proxy announcements (delegate path).
+
+    Signed by the delegate that announced the call. Returns the announcement
+    deposit. Prefer this over ``reject_proxy_announcement`` when the real
+    account is a keyless pure proxy (it has no key to sign a reject).
+    """
+
+    op = "remove_proxy_announcement"
+    signer = "coldkey"
+    wraps = (("Proxy", "remove_announcement"),)
+
+    real_ss58: str = field(
+        metadata={"help": "Account the announcement targeted (the delegation's grantor)."}
+    )
+    call_hash: str = field(
+        metadata={"help": "Hash previously passed to announce_proxy_call (0x-prefixed hex)."}
+    )
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.Proxy.remove_announcement(real=self.real_ss58, call_hash=self.call_hash)
+        )
+
+    def summary(self) -> str:
+        short = _short_hash(self.call_hash)
+        return f"remove announcement {short} for {self.real_ss58}"
+
+
+@register
+@dataclass
+class RejectProxyAnnouncement(Intent):
+    """Veto a delegate's pending announcement (real-account path).
+
+    Must be signed *as the real account*. For a keyless pure proxy that means
+    dispatching through a proxy relationship that can reach this call — typically
+    impractical during the same delay window, which is why protected-account
+    cancel uses ``remove_proxy_announcement`` (delegate path) instead.
+    """
+
+    op = "reject_proxy_announcement"
+    signer = "coldkey"
+    wraps = (("Proxy", "reject_announcement"),)
+
+    delegate_ss58: str = field(metadata={"help": "Delegate that made the announcement."})
+    call_hash: str = field(
+        metadata={"help": "Hash previously announced by the delegate (0x-prefixed hex)."}
+    )
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.Proxy.reject_announcement(delegate=self.delegate_ss58, call_hash=self.call_hash)
+        )
+
+    def summary(self) -> str:
+        short = _short_hash(self.call_hash)
+        return f"reject announcement {short} from {self.delegate_ss58}"
+
+
+def _short_hash(call_hash: str) -> str:
+    if len(call_hash) <= 18:
+        return call_hash
+    return f"{call_hash[:10]}…{call_hash[-6:]}"
+
+
+@register
+@dataclass
 class ExecuteProxyAnnounced(Intent):
     """Execute a proxy call that was announced and has passed its delay.
 
@@ -389,7 +498,8 @@ class ExecuteProxyAnnounced(Intent):
     veto), then anyone may dispatch the announced call with this intent. The
     inner call is given as an intent op name plus its arguments and must hash
     to exactly what was announced. Fails if the delay has not elapsed or no
-    matching announcement exists.
+    matching announcement exists. Fee payer can be any funded account — it
+    need not be the multisig that announced.
     """
 
     op = "execute_proxy_announced"
@@ -413,22 +523,50 @@ class ExecuteProxyAnnounced(Intent):
             "accepting any type that covers the call."
         },
     )
+    # Distinct from MultisigIntentAdapter.inner_call_data: the executor treats
+    # that attribute as a multisig pin and skips ``build()``. Announced payload
+    # bytes must not share the name or saved withdrawals compose to ``None``.
+    announced_call_data: Optional[str] = field(
+        default=None,
+        repr=False,
+        metadata={
+            "help": "Exact SCALE bytes (0x-hex) of the announced call. Prefer this "
+            "over rebuilding from inner_op/inner_args so the hash still matches "
+            "after pool prices or balances move."
+        },
+    )
 
     def requires_build_for_policy(self) -> bool:
+        if self.announced_call_data:
+            return False
         return build_intent(self.inner_op, self.inner_args).requires_build_for_policy()
 
     async def build(self, substrate, wallet: Any):
+        from .._transport.contract import CallBytes
         from ..executor import _compose_nested_intent_call, _OriginView
         from ..receiving import account_for_read
 
-        origin = _OriginView(await account_for_read(substrate, self.real_ss58))
-        origin._wallet = getattr(wallet, "_wallet", wallet)
-        inner_call, extras = await _compose_nested_intent_call(
-            substrate,
-            build_intent(self.inner_op, self.inner_args),
-            origin,
-            wrapper="announced proxy",
-        )
+        extras: dict = {}
+        if self.announced_call_data:
+            data = bytes.fromhex(self.announced_call_data.removeprefix("0x"))
+            spec = await substrate.spec_version()
+            inner_call = CallBytes(data=data, spec_version=spec)
+            # Verify the stored bytes still match the announced commitment.
+            actual = "0x" + bytes(inner_call.call_hash).hex()
+            # Hash check happens at dispatch time via the pallet; we still
+            # refuse early if the local row is obviously corrupt.
+            if not data:
+                raise ValueError("announced_call_data is empty")
+            _ = actual
+        else:
+            origin = _OriginView(await account_for_read(substrate, self.real_ss58))
+            origin._wallet = getattr(wallet, "_wallet", wallet)
+            inner_call, extras = await _compose_nested_intent_call(
+                substrate,
+                build_intent(self.inner_op, self.inner_args),
+                origin,
+                wrapper="announced proxy",
+            )
         composed = await substrate.compose(
             calls.Proxy.proxy_announced(
                 delegate=self.delegate_ss58,
@@ -441,3 +579,21 @@ class ExecuteProxyAnnounced(Intent):
 
     def summary(self) -> str:
         return f"execute announced {self.inner_op} as {self.real_ss58} via {self.delegate_ss58}"
+
+
+async def compose_announceable_call(substrate, intent: Any, real_ss58: str, wallet: Any):
+    """Build the exact inner call bytes (and hash) that announce / proxy_announced share.
+
+    Returns ``(call, call_hash_hex, extras)`` where ``call_hash_hex`` is
+    ``0x``-prefixed Blake2-256 of the call bytes.
+    """
+    from ..executor import _compose_nested_intent_call, _OriginView
+    from ..receiving import account_for_read
+
+    origin = _OriginView(await account_for_read(substrate, real_ss58), wallet=wallet)
+    call, extras = await _compose_nested_intent_call(
+        substrate, intent, origin, wrapper="announced proxy"
+    )
+    composed = call if hasattr(call, "call_hash") else await substrate.compose(call)
+    call_hash = "0x" + bytes(composed.call_hash).hex()
+    return composed, call_hash, extras

@@ -69,6 +69,32 @@ async def proxies(view, coldkey_ss58: str) -> dict:
 
 
 @read(
+    "proxy_announcements",
+    {"delegate_ss58": "string"},
+    category="Accounts & keys",
+    param_docs={
+        "delegate_ss58": "Delegate whose pending Proxy.announce entries to list "
+        "(announcements are keyed by the announcing delegate)."
+    },
+)
+async def proxy_announcements(view, delegate_ss58: str) -> dict:
+    """Pending delayed-proxy announcements made by a delegate, plus reserved deposit."""
+    value = await view.query(st.Proxy.Announcements, [delegate_ss58])
+    pending, deposit = value or ([], 0)
+    return {
+        "announcements": [
+            {
+                "real": str(item["real"]),
+                "call_hash": str(item["call_hash"]),
+                "height": int(item["height"]),
+            }
+            for item in pending
+        ],
+        "deposit": Balance.from_rao(int(deposit)),
+    }
+
+
+@read(
     "coldkey_swap_announcement",
     {"coldkey_ss58": "string"},
     category="Accounts & keys",

@@ -330,6 +330,53 @@
     ]
   },
   {
+    "name": "announce_proxy_call",
+    "summary": "Commit the hash of a future proxy call (delayed-proxy announce step).",
+    "description": "Commit the hash of a future proxy call (delayed-proxy announce step).\n\nA delegate whose grant has `delay` > 0 must publish the call hash here\nand wait before `execute_proxy_announced` can reveal and run it. The\nchain stores only the hash; keep the plaintext locally (the CLI's\nprotected-account store does this). The deposit reserved for the\nannouncement is returned when the call is executed, removed, or rejected.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "announce"
+      ]
+    ],
+    "docs_url": "/docs/tx/announce-proxy-call",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "real_ss58": {
+          "type": "string",
+          "description": "Account the future call will execute as (the delegation's grantor)."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Blake2-256 hash of the exact call bytes that will later be passed to execute_proxy_announced (0x-prefixed hex)."
+        }
+      },
+      "required": [
+        "real_ss58",
+        "call_hash"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx announce-proxy-call --real <ss58|name> --call-hash <value>",
+    "python_class": "AnnounceProxyCall",
+    "markdown_url": "/llms.mdx/docs/tx/announce-proxy-call/content.md",
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "announce",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 480,
+        "end_line": 522,
+        "url": "/code/pallets/proxy/src/lib.rs#L478-L522",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "associate_evm_key",
     "summary": "Associate an EVM key with a hotkey on a subnet.",
     "description": "Associate an EVM key with a hotkey on a subnet.\n\nLinks an Ethereum-style (H160) address to the signing hotkey on one subnet,\nletting EVM-side activity be attributed to that neuron. Signed by the\nhotkey, and additionally proven by the EVM key itself: `signature` must\nbe an EIP-191 personal-sign signature by the EVM key over the message\n`hotkey_pubkey (32 bytes) ++ keccak_256(scale(block_number))`, where the\nblock number is SCALE-encoded (u64 little-endian). Use\n`bittensor.evm.transactions.association_proof` to produce it (it needs\nthe EVM private key); a wrong message, block number, or key makes the\nchain reject the call. Prerequisites: the hotkey must be registered on\n`netuid` (else HotKeyNotRegisteredInSubNet) and have an owning coldkey,\nand re-association is rate-limited to once per 7,200 blocks (~1 day) per\nneuron.",
@@ -1359,7 +1406,7 @@
   {
     "name": "execute_proxy_announced",
     "summary": "Execute a proxy call that was announced and has passed its delay.",
-    "description": "Execute a proxy call that was announced and has passed its delay.\n\nThe delayed-proxy flow: a delegate added with `delay` > 0 first announces\nthe call's hash, waits out the delay (during which the real account can\nveto), then anyone may dispatch the announced call with this intent. The\ninner call is given as an intent op name plus its arguments and must hash\nto exactly what was announced. Fails if the delay has not elapsed or no\nmatching announcement exists.",
+    "description": "Execute a proxy call that was announced and has passed its delay.\n\nThe delayed-proxy flow: a delegate added with `delay` > 0 first announces\nthe call's hash, waits out the delay (during which the real account can\nveto), then anyone may dispatch the announced call with this intent. The\ninner call is given as an intent op name plus its arguments and must hash\nto exactly what was announced. Fails if the delay has not elapsed or no\nmatching announcement exists. Fee payer can be any funded account \u2014 it\nneed not be the multisig that announced.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1392,6 +1439,10 @@
         "force_proxy_type": {
           "type": "string",
           "description": "Require the delegation to be exactly this proxy type instead of accepting any type that covers the call."
+        },
+        "announced_call_data": {
+          "type": "string",
+          "description": "Exact SCALE bytes (0x-hex) of the announced call. Prefer this over rebuilding from inner_op/inner_args so the hash still matches after pool prices or balances move."
         }
       },
       "required": [
@@ -2680,6 +2731,53 @@
     ]
   },
   {
+    "name": "reject_proxy_announcement",
+    "summary": "Veto a delegate's pending announcement (real-account path).",
+    "description": "Veto a delegate's pending announcement (real-account path).\n\nMust be signed *as the real account*. For a keyless pure proxy that means\ndispatching through a proxy relationship that can reach this call \u2014 typically\nimpractical during the same delay window, which is why protected-account\ncancel uses `remove_proxy_announcement` (delegate path) instead.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "reject_announcement"
+      ]
+    ],
+    "docs_url": "/docs/tx/reject-proxy-announcement",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "delegate_ss58": {
+          "type": "string",
+          "description": "Delegate that made the announcement."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Hash previously announced by the delegate (0x-prefixed hex)."
+        }
+      },
+      "required": [
+        "delegate_ss58",
+        "call_hash"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx reject-proxy-announcement --delegate <ss58|name> --call-hash <value>",
+    "python_class": "RejectProxyAnnouncement",
+    "markdown_url": "/llms.mdx/docs/tx/reject-proxy-announcement/content.md",
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "reject_announcement",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 566,
+        "end_line": 578,
+        "url": "/code/pallets/proxy/src/lib.rs#L561-L578",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "release_own_coldkey_swap_destination_reservation",
     "summary": "Free a coldkey-swap destination reservation that names this account.",
     "description": "Free a coldkey-swap destination reservation that names this account.\n\nAnnounce exclusively reserves its destination so a third party cannot\nregister that address as a hotkey during the delay. If someone else\nannounced a swap into your coldkey (or you no longer want the hold), sign\nthis from the reserved destination to drop exclusivity. The announcer's\nannouncement may still exist; reservations also expire after\n`when + reannouncement delay`.",
@@ -2800,6 +2898,53 @@
         "line": 358,
         "end_line": 367,
         "url": "/code/pallets/proxy/src/lib.rs#L356-L367",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "remove_proxy_announcement",
+    "summary": "Cancel one of your own pending proxy announcements (delegate path).",
+    "description": "Cancel one of your own pending proxy announcements (delegate path).\n\nSigned by the delegate that announced the call. Returns the announcement\ndeposit. Prefer this over `reject_proxy_announcement` when the real\naccount is a keyless pure proxy (it has no key to sign a reject).",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "remove_announcement"
+      ]
+    ],
+    "docs_url": "/docs/tx/remove-proxy-announcement",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "real_ss58": {
+          "type": "string",
+          "description": "Account the announcement targeted (the delegation's grantor)."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Hash previously passed to announce_proxy_call (0x-prefixed hex)."
+        }
+      },
+      "required": [
+        "real_ss58",
+        "call_hash"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx remove-proxy-announcement --real <ss58|name> --call-hash <value>",
+    "python_class": "RemoveProxyAnnouncement",
+    "markdown_url": "/llms.mdx/docs/tx/remove-proxy-announcement/content.md",
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "remove_announcement",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 539,
+        "end_line": 549,
+        "url": "/code/pallets/proxy/src/lib.rs#L534-L549",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]

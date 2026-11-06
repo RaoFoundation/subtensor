@@ -9,6 +9,7 @@
     "existential-deposit",
     "multisig",
     "proxies",
+    "proxy-announcements",
     "---Chain---",
     "block-info",
     "block-time",

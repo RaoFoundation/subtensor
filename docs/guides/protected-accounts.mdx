@@ -1,0 +1,152 @@
+---
+title: Protected accounts
+description: Delay every value-moving action behind a coercion-resistant pure proxy controlled by your wallet or multisig.
+---
+
+A **protected account** is a keyless [pure proxy](/docs/guides/proxies) that
+holds your funds. Your wallet — a single coldkey **or** a multisig (for
+example 2-of-3 Polkadot Vault + local agent key + optional Ledger) — is its
+only full controller, and that control has a mandatory announcement delay
+(default 36 hours).
+
+## Why
+
+Physical coercion ("someone forces you to sign") is not a software bug. The
+mitigation is time: every value-moving call is **announced** on chain as a
+hash commit, then can only **execute** after the delay. During the window you
+(or an agent watching on your behalf) can cancel. Instant ops are opt-in and
+narrow — never transfers, never proxy or coldkey-swap management.
+
+This builds on the existing Substrate proxy pallet. There is no new pallet.
+
+## Setup
+
+```bash
+btcli proxy protect --wallet main --delay 36h
+```
+
+What this does:
+
+1. Creates a pure proxy with `main` as an `Any` controller at the given delay.
+2. Optionally grants zero-delay restricted proxies for each `--allow` item
+   (held by `main` by default, or by `--allow-key`).
+3. Announces a [coldkey swap](/docs/tx/announce-coldkey-swap) from `main` onto
+   the protected account (moves stake, subnets, identity).
+4. Saves a local record that `main` controls this protected account.
+
+`--wallet` / `-w` is required. Multisig controllers are detected automatically
+and use the existing multisig signing flow.
+
+### Allows (optional, no presets)
+
+```bash
+btcli proxy protect --wallet main --delay 36h \
+  --allow unstake --allow childkeys --allow basket-swaps
+```
+
+Each `--allow` maps to an existing narrow `ProxyType` at delay 0. Known items:
+`stake` / `unstake`, `childkeys`, `basket` / `basket-swaps`, `registration`,
+`lock`, `gamma`, `root-claim`, `validate`, `weights`, `owner`, `swap-hotkey`,
+`subnet-lease`.
+
+The CLI **refuses** allow items that would let someone transfer free balance
+or change proxies / coldkey swaps immediately (`transfer`, `any`,
+`nontransfer`, …). If an item has no suitably narrow existing type, it reports
+that rather than granting something broader.
+
+With no `--allow`, nothing is instant.
+
+### Coldkey swap follow-up
+
+Protect prints the execute block and the exact command:
+
+```bash
+btcli wallet swap-coldkey --new-coldkey <protected-ss58> --wallet main
+```
+
+Check progress with `btcli wallet swap-check --wallet main`. Setup is
+idempotent and resumable if a step fails midway.
+
+### Updating settings
+
+Re-run protect with a new `--delay`, `--allow`, or `--disallow` on an
+already-protected wallet. Changes are queued as delayed announcements (they
+cannot take effect instantly — that would defeat the model).
+
+## Daily usage
+
+Normal commands stay unchanged. If `main` controls a protected account, the
+CLI automatically targets it:
+
+```bash
+btcli wallet transfer --wallet main --dest X --amount 500
+btcli stake remove --wallet main ...
+```
+
+Value-moving calls are **announced** (signed via `main` / its multisig), the
+plaintext is stored locally, and you see:
+
+```
+Protected account: main-protected (5H..)
+Queued #7, executes after block N (~<local time>)
+Cancel with: btcli proxy cancel --index 7 --wallet main
+```
+
+You do **not** need `--proxy-for` or an announce flag. Ops covered by a
+zero-delay `--allow` go through that restricted proxy immediately.
+
+## Pending, cancel, execute
+
+```bash
+btcli proxy show --wallet main
+btcli proxy show --index 7 --wallet main   # full detail + hash match
+btcli proxy cancel --index 7 --wallet main
+btcli proxy cancel --wallet main           # all, with confirm; -y to skip
+btcli proxy execute --index 7 --wallet main
+btcli proxy execute --wallet main          # all READY; skips not-ready
+```
+
+Execute needs only one signer to pay fees (`Proxy.proxy_announced`). When
+`-w` is a multisig, a local member pays fees — no threshold wrap.
+
+Cancel uses `Proxy.remove_announcement` (delegate path), so a keyless pure
+proxy can still cancel without a guardian key.
+
+## Rotate controller
+
+```bash
+btcli proxy rotate --wallet main --to newwallet
+```
+
+Announces a batch that adds `newwallet` as the delayed controller and removes
+`main`. No coldkey swap. After execution, the local config record moves to
+`newwallet` automatically.
+
+## Hard-to-misuse rules
+
+* Delay 0 is refused for a protected account.
+* A loud warning is printed if the controller also holds a zero-delay
+  `Any` / `NonCritical` / `Transfer` / `SmallTransfer` / `NonTransfer` proxy
+  on the protected account — those defeat the delay.
+* `--allow` never grants transfer or proxy/swap management.
+
+## Limitations
+
+* On-chain announcements store only the call **hash**. Plaintext lives in
+  `~/.bittensor/btcli_proxy_announcements.json` (override with
+  `BTCLI_PROXY_ANNOUNCEMENTS_PATH`). There is no encryption beyond the hash
+  commit.
+* Local protected bindings live in `~/.bittensor/btcli_protected.json`
+  (`BTCLI_PROTECTED_PATH`). Losing that file does not lose funds, but you
+  lose the plaintext queue and the wallet↔pure binding convenience.
+* Root / governance can still force a coldkey swap (privileged path). See
+  the security audit in the protected-accounts PR.
+* Finer proxy types (and a cancel-only guardian type) are a later job.
+* No watch/alerts command yet; no slippage limits on allows.
+
+## Related
+
+* [Proxy accounts](/docs/guides/proxies) — types, delays, pure proxies
+* [Multisig](/docs/guides/multisig) — shared controllers
+* [Vault](/docs/guides/vault) — Polkadot Vault signer (`--signer vault`;
+  unrelated to this feature's local store names)

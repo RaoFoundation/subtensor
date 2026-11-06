@@ -375,6 +375,17 @@ _MULTISIG_OPS = frozenset(
     }
 )
 
+# Delayed-proxy *execution* (`proxy_announced`) only needs one funded signer
+# to pay fees — the on-chain delegate is already recorded on the announcement
+# (often a multisig address). Cancellation (`remove_announcement`) is signed
+# as the announcement owner, so a multisig controller must Multisig-wrap it
+# (threshold approvals); do not put it in this set.
+_PROXY_ANNOUNCEMENT_FEE_PAYER_OPS = frozenset(
+    {
+        "execute_proxy_announced",
+    }
+)
+
 
 def _address_book_signer(ref: str) -> Optional[str]:
     """The stored signing backend for an address-book name or ss58, if tagged."""
@@ -762,6 +773,26 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
     if not preset or cfg.get_multisig(preset) is None:
         return intent
 
+    if getattr(intent, "op", None) in _PROXY_ANNOUNCEMENT_FEE_PAYER_OPS:
+        # -w names the protected controller (possibly a multisig). Use a local
+        # member only as the extrinsic fee payer; do not Multisig-wrap.
+        _threshold, signatories, _refs = resolve_multisig_preset(app_ctx, preset)
+        infer_external_signer_from_signatory(app_ctx, signatories)
+        external = external_signer_member(app_ctx, preset=preset, signatories=signatories)
+        if external:
+            member_name, _signer_ss58 = external
+        else:
+            member_name, _signer_ss58 = pick_local_signatory(
+                app_ctx, preset=preset, signatories=signatories
+            )
+            app_ctx.wallet_name = member_name
+        app_ctx.wallet_given = True
+        app_ctx.output.message(
+            f"[dim]paying announcement fees as member {member_name} "
+            "(no multisig wrap — proxy_announced only needs one fee payer)[/dim]"
+        )
+        return intent
+
     threshold, signatories, _refs = resolve_multisig_preset(app_ctx, preset)
     # Chained rounds after the first repeat this wrap with another member; the
     # driver already announced the sequence, so the per-wrap narration would
@@ -1086,6 +1117,26 @@ def _multisig_event_ids(events: list) -> set[str]:
 def multisig_executed(events: list) -> bool:
     """Whether a result's events show the multisig call reached threshold and ran."""
     return "MultisigExecuted" in _multisig_event_ids(events)
+
+
+def multisig_approval_only(events: list) -> bool:
+    """True when a multisig approval landed without executing the inner call."""
+    ids = _multisig_event_ids(events)
+    if "MultisigExecuted" in ids:
+        return False
+    return bool(ids & {"NewMultisig", "MultisigApproval"})
+
+
+def announcement_cancel_completed(events: list, *, still_on_chain: bool) -> bool:
+    """Whether a cancel submission actually removed the Proxy announcement.
+
+    A multisig short of threshold returns extrinsic success with only
+    ``NewMultisig`` / ``MultisigApproval``. The announcement stays executable
+    until later approvals reach ``MultisigExecuted`` and the commitment is gone.
+    """
+    if multisig_approval_only(events):
+        return False
+    return not still_on_chain
 
 
 async def await_pending_visible(
