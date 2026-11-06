@@ -11,6 +11,7 @@ mod errors;
 mod keys;
 #[cfg(feature = "ledger")]
 mod ledger;
+mod metadata_ir;
 mod pow;
 mod runtime;
 mod timelock;
