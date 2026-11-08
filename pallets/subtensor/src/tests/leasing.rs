@@ -746,8 +746,10 @@ fn regression_terminate_lease_transfers_retained_owner_cut_and_lock() {
             &lease.coldkey,
             lease.netuid,
         );
-        let source_lock = Lock::<Test>::get((lease.coldkey, lease.netuid, lease.hotkey))
-            .expect("retained owner cut should be locked on the lease position");
+        let Some(source_lock) = Lock::<Test>::get((lease.coldkey, lease.netuid, lease.hotkey))
+        else {
+            panic!("retained owner cut should be locked on the lease position");
+        };
         assert!(stranded >= owner_cut);
 
         let owner_hotkey = U256::from(3);
@@ -783,8 +785,10 @@ fn regression_terminate_lease_transfers_retained_owner_cut_and_lock() {
             lease.netuid,
             lease.hotkey,
         )));
-        let beneficiary_lock = Lock::<Test>::get((beneficiary, lease.netuid, owner_hotkey))
-            .expect("the retained owner-cut lock should follow the transferred stake");
+        let Some(beneficiary_lock) = Lock::<Test>::get((beneficiary, lease.netuid, owner_hotkey))
+        else {
+            panic!("the retained owner-cut lock should follow the transferred stake");
+        };
         assert_eq!(beneficiary_lock.locked_mass, source_lock.locked_mass);
         assert_eq!(SubnetLeases::<Test>::get(lease_id), None);
         assert!(!SubnetUidToLeaseId::<Test>::contains_key(lease.netuid));
