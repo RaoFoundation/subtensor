@@ -12,10 +12,10 @@
 //! | 3    | validator | `≤ 50%`, and above root's baseline share  |
 //! | 4    | miner     | `≥ 33%`                                   |
 //!
-//! A subnet may also give shares of at most 10% each to the gamma of whitelisted subnets with gamma
-//! enabled
-//! ([`EmissionSlot::Gamma`], stored in [`SubnetGammaEmission`]); the five slots and the gamma
-//! shares together sum to exactly one.
+//! A subnet may also give shares of at most 10% each to the gamma of
+//! whitelisted subnets with gamma enabled ([`EmissionSlot::Gamma`], stored in
+//! [`SubnetGammaEmission`]); the five slots and the gamma shares together sum
+//! to exactly one.
 //!
 //! Root holders are paid **off the top** of the validator slot. Every block,
 //! root's alpha on a subnet is `min(V, r) · alpha_out` where `r` is root's
@@ -162,6 +162,34 @@ pub enum EmissionIndex {
     Miner = 4,
 }
 
+impl EmissionIndex {
+    /// Every slot, in vector order.
+    pub const ALL: [EmissionIndex; EMISSION_WEIGHT_SLOTS as usize] = [
+        EmissionIndex::Burn,
+        EmissionIndex::Recycle,
+        EmissionIndex::Owner,
+        EmissionIndex::Validator,
+        EmissionIndex::Miner,
+    ];
+
+    /// Decode a wire index; `None` for reserved / unknown slots.
+    pub fn from_u16(value: u16) -> Option<Self> {
+        match value {
+            0 => Some(Self::Burn),
+            1 => Some(Self::Recycle),
+            2 => Some(Self::Owner),
+            3 => Some(Self::Validator),
+            4 => Some(Self::Miner),
+            _ => None,
+        }
+    }
+
+    /// Position of this slot in the vector.
+    pub const fn position(self) -> usize {
+        self as u16 as usize
+    }
+}
+
 /// A slot of a subnet's emission split: a fixed slot or a share of a subnet's gamma.
 #[derive(
     Copy,
@@ -190,34 +218,6 @@ pub enum EmissionSlot {
     Miner,
     /// Alpha converted at each epoch into this subnet's gamma for the subnet owner hotkey.
     Gamma { netuid: NetUid },
-}
-
-impl EmissionIndex {
-    /// Every slot, in vector order.
-    pub const ALL: [EmissionIndex; EMISSION_WEIGHT_SLOTS as usize] = [
-        EmissionIndex::Burn,
-        EmissionIndex::Recycle,
-        EmissionIndex::Owner,
-        EmissionIndex::Validator,
-        EmissionIndex::Miner,
-    ];
-
-    /// Decode a wire index; `None` for reserved / unknown slots.
-    pub fn from_u16(value: u16) -> Option<Self> {
-        match value {
-            0 => Some(Self::Burn),
-            1 => Some(Self::Recycle),
-            2 => Some(Self::Owner),
-            3 => Some(Self::Validator),
-            4 => Some(Self::Miner),
-            _ => None,
-        }
-    }
-
-    /// Position of this slot in the vector.
-    pub const fn position(self) -> usize {
-        self as u16 as usize
-    }
 }
 
 impl<T: Config> Pallet<T> {
@@ -679,7 +679,7 @@ impl<T: Config> Pallet<T> {
         if gamma.is_empty() {
             SubnetGammaEmission::<T>::remove(netuid);
         } else {
-            SubnetGammaEmission::<T>::insert(netuid, gamma.clone());
+            SubnetGammaEmission::<T>::insert(netuid, &gamma);
         }
         Self::deposit_event(Event::SubnetEmissionWeightsSet {
             netuid,

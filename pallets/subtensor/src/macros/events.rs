@@ -1067,7 +1067,7 @@ mod events {
             source_netuid: NetUid,
             /// Coldkey that owns the deposit.
             coldkey: T::AccountId,
-            /// The source's subnet owner hotkey, the deposit credited.
+            /// Hotkey of the deposit credited.
             hotkey: T::AccountId,
             /// The deposit's spender.
             spender: T::AccountId,

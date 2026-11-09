@@ -273,7 +273,7 @@ pub const GAMMA_REFILL_BLOCKS: u64 = 7200;
 /// Smallest gamma a mint credits: 0.1 gamma.
 pub const MIN_GAMMA_AMOUNT: u64 = 100_000_000;
 
-/// How far a gamma emission trade may move its pool from the fast moving price: 2%.
+/// How far a gamma emission trade may fill from its pool's fast moving and spot prices: 2%.
 pub const GAMMA_EMISSION_MAX_SLIPPAGE_BPS: u64 = 200;
 
 /// Oldest TAO/USD feed, in blocks, a mint accepts: one hour.
