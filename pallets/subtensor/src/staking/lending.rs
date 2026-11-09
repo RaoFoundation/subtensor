@@ -342,9 +342,13 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         custody_hot: &T::AccountId,
         netuid: NetUid,
         tao: TaoBalance,
+        exclude_emission_flow: bool,
     ) -> Result<AlphaBalance, DispatchError> {
-        // Long-only path: exclude from dormant SubnetTaoFlow.
-        LendingSkipTaoFlow::<T>::set(true);
+        // Long path: skip dormant SubnetTaoFlow only when the lending book has
+        // no offsetting short sold-alpha (net-long consistency, Jacob v5.8).
+        if exclude_emission_flow {
+            LendingSkipTaoFlow::<T>::set(true);
+        }
         let result =
             <Self as subtensor_swap_interface::OrderSwapInterface<T::AccountId>>::buy_alpha(
                 custody_cold,
@@ -354,7 +358,9 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
                 u64::MAX.into(),
                 false,
             );
-        LendingSkipTaoFlow::<T>::kill();
+        if exclude_emission_flow {
+            LendingSkipTaoFlow::<T>::kill();
+        }
         result
     }
 

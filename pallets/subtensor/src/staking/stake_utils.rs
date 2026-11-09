@@ -46,25 +46,28 @@ impl<T: Config> Pallet<T> {
 
     /// Spot price used for subnet emission's moving EMA ([`SubnetMovingPrice`]).
     ///
-    /// **Asymmetric (Jacob):** only open *longs* are stripped from the emission
-    /// input. Shorts keep moving it — that sell pressure protects the emission
-    /// vector. Uses live TAO (`y* = SubnetTAO`) so short lift + escrow TAO still
-    /// depress price, and restores long alpha only:
-    /// `x* = SubnetAlphaIn + held_alpha + escrow_alpha`.
+    /// **Net-long (Jacob v5.8):** restore only unmatched long alpha. Shorts keep
+    /// moving emission (live TAO), lone longs cannot raise it above the no-long
+    /// counterfactual, and an equal long+short hedge leaves emission ≈ spot.
+    /// Uses live TAO (`y* = SubnetTAO`) and:
+    /// `add_back = max(0, held_alpha + escrow_alpha − short_sold_alpha)`,
+    /// `x* = SubnetAlphaIn + add_back`.
     ///
-    /// When there are no longs (`held_alpha == escrow_alpha == 0`) this is
-    /// byte-identical to live AMM spot — covering no-loan subnets and
-    /// shorts-only books. Trading spot and [`SubnetFastMovingPrice`] stay on
-    /// the live AMM either way. Including `held_alpha` (the long lift leg) with
-    /// `escrow_alpha` is required: adding only escrow would leave a residual
-    /// pump from parked lift alpha.
+    /// When `add_back == 0` (no loans, shorts-only, or fully hedged longs) this
+    /// is byte-identical to live AMM spot. Trading spot and
+    /// [`SubnetFastMovingPrice`] stay on the live AMM either way. Including
+    /// `held_alpha` (the long lift leg) with `escrow_alpha` is required for lone
+    /// longs: adding only escrow would leave a residual pump from parked lift
+    /// alpha. Do **not** add `held_tao` / `escrow_tao` — that would undo shorts.
     pub fn emission_alpha_price(netuid: NetUid) -> U64F64 {
         let spot = T::SwapInterface::current_alpha_price(netuid.into());
-        let (_held_tao, held_alpha, _escrow_tao, escrow_alpha) =
+        let (_held_tao, held_alpha, _escrow_tao, escrow_alpha, short_sold_alpha) =
             T::Lending::emission_reserve_offsets(netuid);
-        // Long-only fast path: shorts leave alpha offsets at zero, so a
-        // shorts-only book returns live spot unchanged (shorts count fully).
-        if held_alpha == 0 && escrow_alpha == 0 {
+        let long_alpha = held_alpha.saturating_add(escrow_alpha);
+        let add_back = long_alpha.saturating_sub(short_sold_alpha);
+        // Net-long fast path: no unmatched long alpha ⇒ emission == live spot
+        // (covers no-loan, shorts-only, and equal hedges).
+        if add_back == 0 {
             return spot;
         }
 
@@ -72,7 +75,7 @@ impl<T: Config> Pallet<T> {
         let x = u64::from(SubnetAlphaIn::<T>::get(netuid));
         // Do NOT add held_tao / escrow_tao: that would undo shorts.
         let y_star = y;
-        let x_star = x.saturating_add(held_alpha).saturating_add(escrow_alpha);
+        let x_star = x.saturating_add(add_back);
         if x_star == 0 {
             return U64F64::saturating_from_num(0);
         }
@@ -116,8 +119,9 @@ impl<T: Config> Pallet<T> {
         // Because alpha = b / (b + h), where b and h > 0, alpha < 1, so 1 - alpha > 0.
         // We can use unsigned type here: U96F32
         let one_minus_alpha: U64F64 = U64F64::saturating_from_num(1.0).saturating_sub(alpha);
-        // Emission EMA tracks the no-long counterfactual (see `emission_alpha_price`):
-        // longs cannot pump emission share; shorts still can dump it.
+        // Emission EMA tracks the net-long counterfactual (see `emission_alpha_price`):
+        // unmatched longs cannot pump emission share; shorts still can dump it;
+        // equal hedges leave emission ≈ spot.
         let current_price: U64F64 = alpha.saturating_mul(U64F64::saturating_from_num(
             Self::emission_alpha_price(netuid).min(U64F64::saturating_from_num(1.0)),
         ));

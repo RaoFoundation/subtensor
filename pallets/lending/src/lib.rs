@@ -244,21 +244,25 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
 
     /// Forced buy: spend custody TAO into the pool, credit alpha to custody stake.
     ///
-    /// Always excludes the trade from dormant `SubnetTaoFlow` accounting — this
-    /// path is long-only (short buybacks use [`Self::buy_alpha`] and do record).
+    /// `exclude_emission_flow`: when true (lone-long books), skip dormant
+    /// `SubnetTaoFlow`; when false (shorts already offset on the book), record
+    /// so long buys can cancel short dumps in the flow accumulator. Short
+    /// buybacks use [`Self::buy_alpha`] and always record.
     fn forced_buy_into_custody(
         custody_cold: &AccountId,
         custody_hot: &AccountId,
         netuid: NetUid,
         tao: TaoBalance,
+        exclude_emission_flow: bool,
     ) -> Result<AlphaBalance, DispatchError>;
 
     /// Forced sell of custody alpha into escrow TAO on `escrow_cold`.
     /// Fails if the realised TAO is below `min_tao_out` (pass zero to disable).
     ///
-    /// `exclude_emission_flow`: when true (long close / interest / forfeit),
-    /// skip `SubnetTaoFlow` updates; when false (short open), record like a
-    /// normal trade so shorts still move dormant flow-based shares.
+    /// `exclude_emission_flow`: when true (long close / interest / forfeit on a
+    /// book with no open short sold-alpha), skip `SubnetTaoFlow`; when false
+    /// (short open, or long trade while shorts offset), record like a normal
+    /// trade so shorts still move dormant flow and hedges can cancel.
     fn forced_sell_into_escrow(
         custody_cold: &AccountId,
         custody_hot: &AccountId,
@@ -397,16 +401,17 @@ pub trait LendingInterface<AccountId> {
     fn on_subtoken_enabled(netuid: NetUid) {
         let _ = netuid;
     }
-    /// O(1) `Lifts` book legs for emission's **no-long** counterfactual price.
+    /// O(1) `Lifts` book legs for emission's **net-long** counterfactual price.
     ///
-    /// Returns `(held_tao, held_alpha, escrow_tao, escrow_alpha)`. Callers that
-    /// build the emission price must use **only** the alpha legs
-    /// (`held_alpha + escrow_alpha` added to `SubnetAlphaIn`) and leave TAO at
-    /// the live reserve so shorts still move emission (Jacob). When both alpha
-    /// legs are zero the emission input is byte-identical to live spot.
-    fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64) {
+    /// Returns `(held_tao, held_alpha, escrow_tao, escrow_alpha, short_sold_alpha)`.
+    /// Callers add back only `max(0, held_alpha + escrow_alpha − short_sold_alpha)`
+    /// to `SubnetAlphaIn` and leave TAO at the live reserve so lone shorts still
+    /// move emission, lone longs cannot raise it, and an equal hedge ≈ spot
+    /// (Jacob v5.8). When the net add-back is zero the emission input is
+    /// byte-identical to live spot.
+    fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64, u64) {
         let _ = netuid;
-        (0, 0, 0, 0)
+        (0, 0, 0, 0, 0)
     }
 }
 
@@ -568,7 +573,7 @@ pub(crate) struct LiftParamsBeforeEmaBand {
     new_subnet_ramp: u64,
 }
 
-#[freeze_struct("d323ee362fafacc9")]
+#[freeze_struct("7bf4887a563d4874")]
 #[derive(
     Encode,
     Decode,
@@ -598,6 +603,10 @@ pub struct LiftBook {
     /// Geometric EMA of un-lifted depth `G`.
     pub g_ema: u64,
     pub last: u64,
+    /// Aggregate short principal alpha force-sold into the pool (v5.8 net-long
+    /// emission). Subtracted from long alpha when building `emission_alpha_price`
+    /// so a matched long+short leaves emission ≈ spot.
+    pub short_sold_alpha: u64,
 }
 
 /// First terms version: today's close / interest / forfeit / expiry / dissolution
@@ -868,6 +877,11 @@ pub mod pallet {
         /// (24 h) so holding a pump through forced settle is far costlier.
         #[pallet::constant]
         type MaxSettlementDeferral: Get<BlockNumberFor<Self>>;
+        /// Age window (blocks) under which a short at dissolution settles its
+        /// alpha debt at `max(r, P_open)` instead of `r` (Jacob v5.8). Production:
+        /// 25_200 (~3.5 days at 12 s). Older shorts keep full dereg payout at `r`.
+        #[pallet::constant]
+        type YoungShortSettlementWindow: Get<BlockNumberFor<Self>>;
         type WeightInfo: WeightInfo;
     }
 
@@ -1388,6 +1402,7 @@ pub mod pallet {
             assert!(T::ExpiryRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::InterestRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::MaxSettlementDeferral::get() > BlockNumberFor::<T>::default());
+            assert!(T::YoungShortSettlementWindow::get() > BlockNumberFor::<T>::default());
             assert!(T::MinimumLoanValue::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() <= T::MaxTotalPositions::get());
@@ -2957,6 +2972,7 @@ pub mod pallet {
                         book.held_tao = book.held_tao.saturating_add(lift_tao.to_u64());
                         book.held_alpha = book.held_alpha.saturating_add(held_alpha);
                         book.escrow_tao = book.escrow_tao.saturating_add(e_s.to_u64());
+                        book.short_sold_alpha = book.short_sold_alpha.saturating_add(sell);
                     });
                     (e_s.to_u64(), 0u64)
                 }
@@ -2977,11 +2993,15 @@ pub mod pallet {
                     ensure!(buy_tao == principal, Error::<T>::InvalidQuote);
                     // Move buy TAO from reserve custody free balance into escrow, then buy.
                     T::Pool::transfer_tao(&reserve, &escrow, buy_tao.into())?;
+                    // Skip TaoFlow only while the book has no offsetting short
+                    // sold-alpha (net-long consistency with emission_alpha_price).
+                    let skip_flow = Lifts::<T>::get(netuid).short_sold_alpha == 0;
                     let a = T::Pool::forced_buy_into_custody(
                         &escrow,
                         &custody,
                         netuid,
                         buy_tao.into(),
+                        skip_flow,
                     )?;
                     ensure!(a.to_u64() >= min_escrow_alpha, Error::<T>::SlippageExceeded);
                     Self::deposit_event(Event::LongEscrowed {
@@ -3198,6 +3218,8 @@ pub mod pallet {
                             book.l_s = book.l_s.saturating_sub(position.lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
                             book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
+                            book.short_sold_alpha =
+                                book.short_sold_alpha.saturating_sub(position.principal);
                         });
                         (pot, position.proceeds)
                     } else {
@@ -3295,6 +3317,8 @@ pub mod pallet {
                             book.l_s = book.l_s.saturating_sub(position.lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
                             book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
+                            book.short_sold_alpha =
+                                book.short_sold_alpha.saturating_sub(position.principal);
                         });
                         (refund, 0)
                     };
@@ -3594,6 +3618,7 @@ pub mod pallet {
                             book.l_s = book.l_s.saturating_sub(slice_lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(slice_lift_tao);
                             book.escrow_tao = book.escrow_tao.saturating_sub(slice_e_s);
+                            book.short_sold_alpha = book.short_sold_alpha.saturating_sub(slice_p);
                         });
                         (total_refund, slice_e_s)
                     } else {
@@ -3673,6 +3698,7 @@ pub mod pallet {
                             book.l_s = book.l_s.saturating_sub(slice_lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(slice_lift_tao);
                             book.escrow_tao = book.escrow_tao.saturating_sub(slice_e_s);
+                            book.short_sold_alpha = book.short_sold_alpha.saturating_sub(slice_p);
                         });
                         (refund, 0)
                     }
@@ -4555,6 +4581,8 @@ pub mod pallet {
                             book.l_s = book.l_s.saturating_sub(position.lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
                             book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
+                            book.short_sold_alpha =
+                                book.short_sold_alpha.saturating_sub(position.principal);
                         });
                         (
                             position.lift_tao,
@@ -6093,9 +6121,35 @@ pub mod pallet {
 
             match position.side {
                 Side::Short => {
-                    // Pay min(P*r, E+C) into the pot/pool; borrower gets E+C−P·r
-                    // (interest already burned from collateral above).
-                    let debt = Self::tao_for_alpha(position.principal, r, true)?;
+                    // Pay min(P·rate, E+C) into the pot/pool; borrower gets the
+                    // remainder (interest already burned from collateral above).
+                    //
+                    // Young shorts (age < YoungShortSettlementWindow): rate =
+                    // max(r, P_open) where P_open is the volume-weighted short
+                    // sell price `proceeds/principal` (execution VWAP). That
+                    // bounds the dereg spot-to-r gap so a last-minute short
+                    // earns about a spot round trip. Extra TAO collected stays
+                    // in the pot for stakers; escrow remainder still refunds.
+                    // Older shorts keep settlement at r (full dereg payout).
+                    // Age uses expires_at − blocks_per_year (= open / last
+                    // increase); boundary age == window keeps r.
+                    let mut settle_rate = r;
+                    if position.principal > 0 {
+                        let opened_at = position
+                            .expires_at
+                            .saturating_sub(position.blocks_per_year.saturated_into());
+                        let age = interest_until.saturating_sub(opened_at);
+                        if age < T::YoungShortSettlementWindow::get() {
+                            if let Some(p_open) = U64F64::from_num(position.proceeds)
+                                .checked_div(U64F64::from_num(position.principal))
+                            {
+                                if p_open > settle_rate {
+                                    settle_rate = p_open;
+                                }
+                            }
+                        }
+                    }
+                    let debt = Self::tao_for_alpha(position.principal, settle_rate, true)?;
                     let available = Self::add(position.proceeds, position.collateral)?;
                     let to_pot = debt.min(available);
                     let refund = available.saturating_sub(to_pot);
@@ -6129,6 +6183,8 @@ pub mod pallet {
                     Lifts::<T>::mutate(netuid, |book| {
                         book.l_s = book.l_s.saturating_sub(position.lift_tao);
                         book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
+                        book.short_sold_alpha =
+                            book.short_sold_alpha.saturating_sub(position.principal);
                     });
                     // Dissolution already re-added lift legs; skip k-burn.
                     Self::maybe_burn_invariant_surplus(
@@ -6427,6 +6483,8 @@ pub mod pallet {
                         book.l_s = book.l_s.saturating_sub(position.lift_tao);
                         book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
                         book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
+                        book.short_sold_alpha =
+                            book.short_sold_alpha.saturating_sub(position.principal);
                     });
                     (position.lift_tao, repaid_alpha, paid, paid, refund)
                 }
@@ -7366,13 +7424,14 @@ pub mod pallet {
         fn on_subtoken_enabled(netuid: NetUid) {
             let _ = Self::try_seed_reference(netuid);
         }
-        fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64) {
+        fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64, u64) {
             let book = Lifts::<T>::get(netuid);
             (
                 book.held_tao,
                 book.held_alpha,
                 book.escrow_tao,
                 book.escrow_alpha,
+                book.short_sold_alpha,
             )
         }
     }

@@ -1,6 +1,7 @@
 //! One-shot storage migrations for the lending pallet.
 mod migrate_clear_invariant_baseline;
 mod migrate_drop_position_hotkey;
+mod migrate_lift_book_short_sold;
 mod migrate_lift_params_ema_band;
 mod migrate_position_terms_version;
 mod migrate_reset_n24_shortfall_counters;
@@ -15,6 +16,10 @@ pub use migrate_drop_position_hotkey::{
 };
 #[cfg(test)]
 pub(crate) use migrate_drop_position_hotkey::{PositionBeforeHotkeyDrop, RETIRED_HOTKEY_INDEXES};
+#[allow(unused_imports)]
+pub use migrate_lift_book_short_sold::{
+    Migration as LiftBookShortSoldMigration, migrate_lift_book_short_sold,
+};
 #[allow(unused_imports)]
 pub use migrate_lift_params_ema_band::{
     Migration as LiftParamsEmaBandMigration, migrate_lift_params_ema_band,

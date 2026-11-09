@@ -579,9 +579,10 @@ thread_local! {
     static MOCK_LENDING_POSITIONS: RefCell<sp_std::collections::btree_map::BTreeMap<U256, u32>> =
         const { RefCell::new(sp_std::collections::btree_map::BTreeMap::new()) };
     /// Injected `Lifts` reserve offsets for emission-price tests:
-    /// `(held_tao, held_alpha, escrow_tao, escrow_alpha)`. Cleared in `new_test_ext`.
+    /// `(held_tao, held_alpha, escrow_tao, escrow_alpha, short_sold_alpha)`.
+    /// Cleared in `new_test_ext`.
     static MOCK_EMISSION_OFFSETS: RefCell<
-        sp_std::collections::btree_map::BTreeMap<NetUid, (u64, u64, u64, u64)>,
+        sp_std::collections::btree_map::BTreeMap<NetUid, (u64, u64, u64, u64, u64)>,
     > = const { RefCell::new(sp_std::collections::btree_map::BTreeMap::new()) };
     /// Optional hotkey treated as the lending custody hotkey (flow-exclusion tests).
     static MOCK_CUSTODY_HOTKEY: Cell<Option<U256>> = const { Cell::new(None) };
@@ -606,9 +607,29 @@ pub fn set_mock_emission_offsets(
     escrow_tao: u64,
     escrow_alpha: u64,
 ) {
+    set_mock_emission_offsets_full(netuid, held_tao, held_alpha, escrow_tao, escrow_alpha, 0);
+}
+
+/// Full net-long offsets including `short_sold_alpha` (Jacob v5.8).
+pub fn set_mock_emission_offsets_full(
+    netuid: NetUid,
+    held_tao: u64,
+    held_alpha: u64,
+    escrow_tao: u64,
+    escrow_alpha: u64,
+    short_sold_alpha: u64,
+) {
     MOCK_EMISSION_OFFSETS.with(|m| {
-        m.borrow_mut()
-            .insert(netuid, (held_tao, held_alpha, escrow_tao, escrow_alpha));
+        m.borrow_mut().insert(
+            netuid,
+            (
+                held_tao,
+                held_alpha,
+                escrow_tao,
+                escrow_alpha,
+                short_sold_alpha,
+            ),
+        );
     });
 }
 
@@ -662,8 +683,8 @@ impl pallet_lending::LendingInterface<U256> for MockLending {
     fn is_custody_hotkey(hotkey: &U256) -> bool {
         MOCK_CUSTODY_HOTKEY.with(|c| c.get() == Some(*hotkey))
     }
-    fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64) {
-        MOCK_EMISSION_OFFSETS.with(|m| m.borrow().get(&netuid).copied().unwrap_or((0, 0, 0, 0)))
+    fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64, u64) {
+        MOCK_EMISSION_OFFSETS.with(|m| m.borrow().get(&netuid).copied().unwrap_or((0, 0, 0, 0, 0)))
     }
 }
 

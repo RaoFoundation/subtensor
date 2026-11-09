@@ -281,7 +281,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
     // Above mainnet tip (488) so a real upgrade from main never rolls version back.
-    spec_version: 489,
+    spec_version: 490,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1520,7 +1520,10 @@ impl pallet_crowdloan::Config for Runtime {
 // Lending (Jacob v5.1 lift / escrow)
 parameter_types! {
     pub const LendingPalletId: PalletId = PalletId(*b"bt/lends");
-    pub const LendingMinimumLoanValue: u64 = 1_000_000; // 0.001 τ
+    /// Minimum loan *opening value* in TAO (rao). Checked as TAO of loan size:
+    /// long principal is already TAO; short uses `tao_for_alpha(principal, coupon)`.
+    /// Raised to 1 τ (from 0.001 τ) so 10k position slots cannot be filled for ~40 τ.
+    pub const LendingMinimumLoanValue: u64 = 1_000_000_000; // 1 τ
     // Spec §6: weekly coupon collection. 100 was a fork-test remnant (~20 min);
     // 50_400 ≈ 7 days at 12 s blocks.
     pub const LendingInterestPeriod: BlockNumber = 50_400;
@@ -1536,6 +1539,9 @@ parameter_types! {
     // forfeit (~7 days at 12 s). Longer than settle_ema_blocks (24 h) so a
     // sustained pump through forced settle is far costlier (N28 / Jacob).
     pub const LendingMaxSettlementDeferral: BlockNumber = 50_400;
+    /// Young-short dissolution window: shorts younger than this settle debt at
+    /// `max(r, P_open)` (~3.5 days at 12 s). Older shorts keep full dereg at `r`.
+    pub const LendingYoungShortSettlementWindow: BlockNumber = 25_200;
 }
 
 impl pallet_lending::Config for Runtime {
@@ -1550,6 +1556,7 @@ impl pallet_lending::Config for Runtime {
     type ExpiryRetryDelay = LendingExpiryRetryDelay;
     type InterestRetryDelay = LendingInterestRetryDelay;
     type MaxSettlementDeferral = LendingMaxSettlementDeferral;
+    type YoungShortSettlementWindow = LendingYoungShortSettlementWindow;
     type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
 }
 
@@ -1904,6 +1911,8 @@ type Migrations = (
     pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
     pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,
     pallet_lending::migrations::ResetN24ShortfallCountersMigration<Runtime>,
+    // v5.8: append LiftBook.short_sold_alpha for net-long emission.
+    pallet_lending::migrations::LiftBookShortSoldMigration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.

@@ -207,3 +207,4 @@ class Lending:
     ExpiryRetryDelay = Item('Lending', 'ExpiryRetryDelay')
     InterestRetryDelay = Item('Lending', 'InterestRetryDelay')
     MaxSettlementDeferral = Item('Lending', 'MaxSettlementDeferral')
+    YoungShortSettlementWindow = Item('Lending', 'YoungShortSettlementWindow')

@@ -34,12 +34,18 @@ impl frame_system::Config for Test {
     type Hashing = BlakeTwo256;
 }
 
-parameter_types! { pub const LendingId: PalletId = PalletId(*b"bt/lends"); }
+parameter_types! {
+    pub const LendingId: PalletId = PalletId(*b"bt/lends");
+    /// Mutable so min-loan tests can raise it to 1 τ without rewriting every fixture.
+    pub static MinLoanValue: u64 = 1;
+    /// Production is 25_200; tests use a short window so age cases stay cheap.
+    pub const YoungShortWindow: u64 = 100;
+}
 
 impl Config for Test {
     type Pool = MockPool;
     type PalletId = LendingId;
-    type MinimumLoanValue = ConstU64<1>;
+    type MinimumLoanValue = MinLoanValue;
     type InterestPeriod = ConstU64<10>;
     type BlocksPerYear = ConstU64<520>;
     type ReferenceWarmup = ConstU64<1>;
@@ -51,6 +57,7 @@ impl Config for Test {
     type InterestRetryDelay = ConstU64<100>;
     // Short window so band-force tests stay cheap (2× ExpiryRetryDelay).
     type MaxSettlementDeferral = ConstU64<200>;
+    type YoungShortSettlementWindow = YoungShortWindow;
     type WeightInfo = ();
 }
 
@@ -569,6 +576,7 @@ impl LendingPoolInterface<Account> for MockPool {
         custody_hot: &Account,
         netuid: NetUid,
         tao_in: TaoBalance,
+        _exclude_emission_flow: bool,
     ) -> Result<AlphaBalance, DispatchError> {
         Self::buy_alpha(
             custody_cold,
@@ -748,6 +756,7 @@ fn new_test_ext() -> sp_io::TestExternalities {
         .unwrap()
         .into();
     ext.execute_with(|| {
+        MinLoanValue::set(1); // restore after tests that raise it to 1 τ
         System::set_block_number(10);
         assert_ok!(Lending::initialize_custody());
         Enabled::<Test>::put(true);
@@ -2552,6 +2561,7 @@ fn short_settlement_uses_terminal_split_for_recovery_and_refund() {
         let owner = account(1);
         let _hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
+        let open_block = System::block_number();
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
@@ -2563,6 +2573,14 @@ fn short_settlement_uses_terminal_split_for_recovery_and_refund() {
             0,
             deadline(),
         ));
+        // Age past the young-short window so r=0 is not floored to P_open.
+        let aged = open_block.saturating_add(YoungShortWindow::get());
+        System::set_block_number(aged);
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = aged;
+            }
+        });
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
         let escrow = position.custody.clone();
         let escrow_before = tao(&escrow);
@@ -9601,15 +9619,16 @@ fn lending_stats_match_open_and_close_events() {
     });
 }
 
-/// No-long emission price: live TAO + long alpha restore (Jacob asymmetry).
+/// Net-long emission price: live TAO + unmatched long alpha (Jacob v5.8).
 fn emission_counterfactual_price() -> U64F64 {
-    let (_held_tao, held_alpha, _escrow_tao, escrow_alpha) =
+    let (_held_tao, held_alpha, _escrow_tao, escrow_alpha, short_sold) =
         <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
-    // Shorts count fully: do not add held_tao / escrow_tao back.
+    let add_back = held_alpha
+        .saturating_add(escrow_alpha)
+        .saturating_sub(short_sold);
+    // Shorts count fully on the TAO side; only unmatched long alpha is restored.
     let y = pool_tao();
-    let x = pool_alpha()
-        .saturating_add(held_alpha)
-        .saturating_add(escrow_alpha);
+    let x = pool_alpha().saturating_add(add_back);
     let w2 = quote_weight_parts() as u128;
     let w1 = WEIGHT_ACCURACY.saturating_sub(w2);
     if x == 0 || w2 == 0 {
@@ -9646,7 +9665,7 @@ fn emission_offsets_zero_with_no_loans() {
     new_test_ext().execute_with(|| {
         assert_eq!(
             <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid()),
-            (0, 0, 0, 0)
+            (0, 0, 0, 0, 0)
         );
         // No loans ⇒ emission input == live spot (byte-identical).
         assert_eq!(emission_counterfactual_price(), MockPool::price());
@@ -9677,10 +9696,11 @@ fn long_open_held_does_not_change_emission_price() {
             spot_after > price_before,
             "forced long buy must raise live spot ({spot_after} vs {price_before})"
         );
-        let (_ht, ha, et, ea) =
+        let (_ht, ha, et, ea, ss) =
             <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
         assert!(ha > 0 || ea > 0, "long must leave held and/or escrow alpha");
         assert_eq!(et, 0, "long has no TAO escrow");
+        assert_eq!(ss, 0, "long leaves no short_sold_alpha");
         assert_prices_close(
             emission_counterfactual_price(),
             price_before,
@@ -9717,10 +9737,12 @@ fn short_open_held_moves_emission_like_spot() {
             spot_after < price_before,
             "forced short sell must depress live spot ({spot_after} vs {price_before})"
         );
-        let (ht, ha, et, ea) = <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
+        let (ht, ha, et, ea, ss) =
+            <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
         assert!(ht > 0 || et > 0, "short must leave held and/or escrow TAO");
         assert_eq!(ea, 0, "short has no alpha escrow");
-        // Asymmetry: no long alpha to restore ⇒ emission tracks live spot,
+        assert!(ss > 0, "short must record short_sold_alpha");
+        // Net-long: no long alpha to restore ⇒ emission tracks live spot,
         // so the short moves emission exactly like the live trade does.
         assert_eq!(
             ha, 0,
@@ -9733,7 +9755,7 @@ fn short_open_held_moves_emission_like_spot() {
 }
 
 #[test]
-fn mixed_long_short_only_long_excluded_from_emission() {
+fn mixed_long_short_net_long_emission() {
     new_test_ext().execute_with(|| {
         let long_owner = account(1);
         let short_owner = account(3);
@@ -9759,6 +9781,9 @@ fn mixed_long_short_only_long_excluded_from_emission() {
         assert!(after_long_spot > price_before);
         assert_prices_close(after_long_emis, price_before, "long-only emission");
 
+        let long_pos = Positions::<Test>::get(&long_owner, netuid()).unwrap();
+        let long_alpha = long_pos.lift_alpha.saturating_add(long_pos.escrow_alpha);
+
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(short_owner.clone()),
             netuid(),
@@ -9772,18 +9797,114 @@ fn mixed_long_short_only_long_excluded_from_emission() {
         ));
         let after_both_spot = MockPool::price();
         let after_both_emis = emission_counterfactual_price();
-        // Short depresses live spot; emission follows that dump on the TAO
-        // side while still restoring the long's alpha — so emission drops
-        // below the no-loan control even though the long is open.
-        assert!(after_both_spot < after_long_spot);
-        assert!(after_both_emis < after_long_emis);
-        assert!(after_both_emis < price_before);
-        // Restoring long alpha lowers the emission price below live spot
-        // (live still has the long's alpha missing from the pool).
-        assert!(after_both_emis < after_both_spot);
-        let (_ht, ha, _et, ea) =
+        let short_pos = Positions::<Test>::get(&short_owner, netuid()).unwrap();
+        let (_ht, ha, _et, ea, ss) =
             <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
         assert!(ha > 0 || ea > 0, "long legs still in the book");
+        assert_eq!(ss, short_pos.principal);
+        // Net-long: add_back = max(0, long_alpha − short_sold). Equal-ish
+        // notional hedge leaves emission far closer to live spot than v5.7's
+        // full long restore (which sat well below spot).
+        let add_back = ha.saturating_add(ea).saturating_sub(ss);
+        assert_eq!(
+            add_back,
+            long_alpha.saturating_sub(short_pos.principal),
+            "book add_back must match position legs"
+        );
+        assert!(after_both_spot < after_long_spot);
+        // With netting, emission tracks spot much more closely than the
+        // long-only counterfactual once the short offsets long alpha.
+        if add_back == 0 {
+            assert_eq!(after_both_emis, after_both_spot);
+        } else {
+            // Residual unmatched long alpha still pulls emission ≤ spot.
+            // Netting still leaves emission above the v5.7 full-restore level
+            // (x + ha + ea with no short offset) whenever short_sold > 0.
+            assert!(
+                after_both_emis <= after_both_spot || {
+                    let af = after_both_emis.to_num::<f64>();
+                    let bf = after_both_spot.to_num::<f64>();
+                    ((af - bf).abs() / af.abs().max(bf.abs()).max(1e-12)) < 1e-6
+                }
+            );
+            if ss > 0 {
+                let y = pool_tao();
+                let x_full = pool_alpha().saturating_add(ha).saturating_add(ea);
+                let w2 = quote_weight_parts() as u128;
+                let w1 = WEIGHT_ACCURACY.saturating_sub(w2);
+                let full_restore = {
+                    let w1_fixed = U64F64::saturating_from_num(w1);
+                    let w2_fixed = U64F64::saturating_from_num(w2);
+                    w1_fixed
+                        .checked_div(w2_fixed)
+                        .unwrap_or_default()
+                        .saturating_mul(
+                            U64F64::saturating_from_num(y)
+                                .checked_div(U64F64::saturating_from_num(x_full))
+                                .unwrap_or_default(),
+                        )
+                };
+                assert!(
+                    after_both_emis > full_restore,
+                    "net-long must beat full long restore ({after_both_emis} > {full_restore})"
+                );
+            }
+        }
+        let _ = (price_before, after_long_emis);
+    });
+}
+
+#[test]
+fn hedged_equal_alpha_emission_near_spot() {
+    new_test_ext().execute_with(|| {
+        let long_owner = account(1);
+        let short_owner = account(3);
+        let hotkey = account(2);
+        mint_tao(&long_owner, 1);
+        mint_tao(&short_owner, 200_000_000_000_000);
+        mint_alpha(&long_owner, &hotkey, netuid(), 80_000_000_000_000);
+
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(long_owner.clone()),
+            netuid(),
+            Side::Long,
+            4_000_000_000_000,
+            Some(hotkey),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let long_pos = Positions::<Test>::get(&long_owner, netuid()).unwrap();
+        let long_alpha = long_pos.lift_alpha.saturating_add(long_pos.escrow_alpha);
+
+        // Open a short whose principal ≈ long alpha so add_back ≈ 0.
+        // Collateral is TAO at 25% LTV: need ≥ 4 × (principal × price).
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(short_owner.clone()),
+            netuid(),
+            Side::Short,
+            200_000_000_000_000,
+            None,
+            long_alpha,
+            1,
+            0,
+            deadline(),
+        ));
+        let (_ht, ha, _et, ea, ss) =
+            <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
+        let add_back = ha.saturating_add(ea).saturating_sub(ss);
+        // Allow 1% residual from lift/impact rounding.
+        let tol = long_alpha / 100 + 1;
+        assert!(
+            add_back <= tol,
+            "equal-alpha hedge should net near zero add_back (got {add_back}, long={long_alpha}, short={ss})"
+        );
+        assert_prices_close(
+            emission_counterfactual_price(),
+            MockPool::price(),
+            "hedged equal-alpha emission ≈ spot",
+        );
     });
 }
 
@@ -9806,7 +9927,7 @@ fn open_close_round_trip_restores_emission_state() {
             0,
             deadline(),
         ));
-        let (_ht, ha, _et, ea) =
+        let (_ht, ha, _et, ea, _ss) =
             <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
         assert!(ha > 0 || ea > 0);
         assert_ok!(Lending::close(
@@ -9821,7 +9942,7 @@ fn open_close_round_trip_restores_emission_state() {
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
         assert_eq!(
             <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid()),
-            (0, 0, 0, 0),
+            (0, 0, 0, 0, 0),
             "close must clear lift/escrow aggregates"
         );
         assert_eq!(emission_counterfactual_price(), MockPool::price());
@@ -9865,9 +9986,43 @@ fn multi_loan_and_forfeit_emission_offsets() {
         ));
         assert_eq!(PositionCount::<Test>::get(netuid()), 2);
         let emis_both = emission_counterfactual_price();
-        // Short still moves emission below the no-loan control; long is stripped.
-        assert!(emis_both < price_before);
-        assert!(emis_both < MockPool::price());
+        let spot_both = MockPool::price();
+        let (_ht, ha, _et, ea, ss) =
+            <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
+        let add_back = ha.saturating_add(ea).saturating_sub(ss);
+        // Net-long: emission is at or above live spot's neighborhood once short
+        // sold-alpha offsets long legs — never the deep v5.7 dump below spot
+        // from restoring *all* long alpha while shorts still move TAO.
+        if add_back == 0 {
+            assert_eq!(emis_both, spot_both);
+        } else {
+            // Residual unmatched long alpha: emission < spot, but still above
+            // the full-restore counterfactual (x + ha + ea with no short offset).
+            let y = pool_tao();
+            let x_full = pool_alpha().saturating_add(ha).saturating_add(ea);
+            let w2 = quote_weight_parts() as u128;
+            let w1 = WEIGHT_ACCURACY.saturating_sub(w2);
+            let full_restore = {
+                let w1_fixed = U64F64::saturating_from_num(w1);
+                let w2_fixed = U64F64::saturating_from_num(w2);
+                w1_fixed
+                    .checked_div(w2_fixed)
+                    .unwrap_or_default()
+                    .saturating_mul(
+                        U64F64::saturating_from_num(y)
+                            .checked_div(U64F64::saturating_from_num(x_full))
+                            .unwrap_or_default(),
+                    )
+            };
+            assert!(emis_both > full_restore);
+            assert!(
+                emis_both <= spot_both || {
+                    let af = emis_both.to_num::<f64>();
+                    let bf = spot_both.to_num::<f64>();
+                    ((af - bf).abs() / af.abs().max(bf.abs()).max(1e-12)) < 1e-6
+                }
+            );
+        }
 
         // Close the short: emission should return to the long-only counterfactual
         // (≈ price_before), not to live spot.
@@ -9909,10 +10064,333 @@ fn multi_loan_and_forfeit_emission_offsets() {
             !Positions::<Test>::contains_key(&a, netuid()),
             "long must be cleared by forfeit/expiry"
         );
-        let (_ht, ha, _et, ea) =
+        let (_ht, ha, _et, ea, ss) =
             <Lending as LendingInterface<_>>::emission_reserve_offsets(netuid());
         assert_eq!(ha, 0);
         assert_eq!(ea, 0);
+        assert_eq!(ss, 0);
         assert_eq!(emission_counterfactual_price(), MockPool::price());
+    });
+}
+
+#[test]
+fn minimum_loan_value_one_tao_rejects_below_accepts_exact() {
+    new_test_ext().execute_with(|| {
+        // Mirror production: MinimumLoanValue is opening-value in TAO (rao).
+        // Long principal is already TAO; short uses tao_for_alpha(principal, coupon).
+        MinLoanValue::set(1_000_000_000); // 1 τ
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+
+        // Below-min long (0.5 τ principal) rejected (opening_value gate).
+        assert_err!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Long,
+                10_000_000_000,
+                Some(hotkey.clone()),
+                500_000_000, // 0.5 τ
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::AmountTooSmall
+        );
+
+        // Exactly 1 τ long accepted.
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000,
+            Some(hotkey.clone()),
+            1_000_000_000, // 1 τ
+            1,
+            0,
+            deadline(),
+        ));
+        let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(pos.principal, 1_000_000_000);
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey.clone(),
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+
+        // Below-min short: principal alpha whose TAO value < 1 τ.
+        let price = MockPool::price().to_num::<f64>();
+        let tiny_alpha = ((0.1 / price) as u64).max(1); // ~0.1 τ
+        assert_err!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                50_000_000_000_000,
+                None,
+                tiny_alpha,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::AmountTooSmall
+        );
+
+        // Short with opening value ≥ 1 τ accepted (size well above the floor
+        // so coupon ceil / impact cannot drop it back under the minimum).
+        let one_tao_alpha = ((2.0 / price) as u64).max(2_000_000_000);
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            50_000_000_000_000,
+            None,
+            one_tao_alpha,
+            1,
+            0,
+            deadline(),
+        ));
+        MinLoanValue::set(1); // restore default for other tests in same process
+    });
+}
+
+#[test]
+fn partial_repay_cannot_leave_below_minimum_loan() {
+    new_test_ext().execute_with(|| {
+        MinLoanValue::set(1_000_000_000); // 1 τ
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 1);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            20_000_000_000,
+            Some(hotkey.clone()),
+            2_000_000_000, // 2 τ
+            1,
+            0,
+            deadline(),
+        ));
+        // Repay 1.5 τ → remainder 0.5 τ < min → AmountTooSmall.
+        assert_err!(
+            Lending::repay(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                hotkey.clone(),
+                1_500_000_000,
+                false,
+                u64::MAX,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::AmountTooSmall
+        );
+        // Repay 1 τ → remainder exactly 1 τ OK.
+        assert_ok!(Lending::repay(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey,
+            1_000_000_000,
+            false,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(pos.principal, 1_000_000_000);
+        MinLoanValue::set(1);
+    });
+}
+
+/// Young short at dereg: debt at max(r, P_open) ≈ E_S so gain ~ spot round-trip.
+#[test]
+fn young_short_dissolution_settles_at_max_r_open_price() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let principal = position.principal;
+        let escrow_before = position.proceeds.saturating_add(position.collateral);
+        let p_open = U64F64::from_num(position.proceeds) / U64F64::from_num(principal);
+
+        // Crash the pot rate well below P_open so the young floor binds.
+        let t = Lending::settlement_tao_basis(netuid()) / 20;
+        set_tao_ema(t);
+        write(&key(b"test/pool_tao", netuid()), t);
+        set_moving_price(U64F64::from_num(1_000_000u64));
+
+        // Age 0 < YoungShortWindow (100) ⇒ young.
+        let free_before = tao(&owner);
+        assert_ok!(Lending::start_dissolution(netuid()));
+        assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
+        let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(Lending::settle_lending(netuid(), &mut meter));
+
+        let r = Dissolutions::<Test>::get(netuid()).unwrap().rate;
+        assert!(r < p_open, "test requires r < P_open (r={r}, p_open={p_open})");
+        let debt_at_r = (U64F64::from_num(principal) * r)
+            .saturating_ceil()
+            .saturating_to_num::<u64>();
+        let debt_at_open = (U64F64::from_num(principal) * p_open)
+            .saturating_ceil()
+            .saturating_to_num::<u64>();
+        // Young floor ⇒ debt ≈ E_S (proceeds), refund ≈ collateral (spot round-trip).
+        assert!(debt_at_open >= debt_at_r);
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        let refund = tao(&owner).saturating_sub(free_before);
+        let expected_refund = escrow_before.saturating_sub(debt_at_open.min(escrow_before));
+        let tol = expected_refund / 100 + 2;
+        assert!(
+            refund.abs_diff(expected_refund) <= tol,
+            "young short refund≈collateral: got={refund} expected={expected_refund} debt_open={debt_at_open} debt_r={debt_at_r}"
+        );
+        // Pot collected more than r-only settlement would have.
+        assert!(debt_at_open.min(escrow_before) >= debt_at_r.min(escrow_before));
+    });
+}
+
+/// Old short (age ≥ window) keeps full dereg payout at r.
+#[test]
+fn old_short_dissolution_keeps_rate_r() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        let open_block = System::block_number();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let principal = position.principal;
+        let escrow_before = position.proceeds.saturating_add(position.collateral);
+        let p_open = U64F64::from_num(position.proceeds) / U64F64::from_num(principal);
+
+        // Advance past the young window (test window = 100).
+        let aged = open_block.saturating_add(YoungShortWindow::get());
+        System::set_block_number(aged);
+        // Keep interest from burning all collateral: sync last_accrued.
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = aged;
+            }
+        });
+
+        let t = Lending::settlement_tao_basis(netuid()) / 20;
+        set_tao_ema(t);
+        write(&key(b"test/pool_tao", netuid()), t);
+        set_moving_price(U64F64::from_num(1_000_000u64));
+
+        let free_before = tao(&owner);
+        assert_ok!(Lending::start_dissolution(netuid()));
+        let frozen = Dissolutions::<Test>::get(netuid()).unwrap().frozen_at;
+        let opened_at = position.expires_at.saturating_sub(position.blocks_per_year);
+        assert!(
+            frozen.saturating_sub(opened_at) >= YoungShortWindow::get(),
+            "fixture must be at/past the young window"
+        );
+        assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
+        let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(Lending::settle_lending(netuid(), &mut meter));
+
+        let r = Dissolutions::<Test>::get(netuid()).unwrap().rate;
+        assert!(r < p_open);
+        let debt_at_r = (U64F64::from_num(principal) * r)
+            .saturating_ceil()
+            .saturating_to_num::<u64>();
+        let expected_refund = escrow_before.saturating_sub(debt_at_r.min(escrow_before));
+        let refund = tao(&owner).saturating_sub(free_before);
+        let tol = expected_refund / 100 + 2;
+        assert!(
+            refund.abs_diff(expected_refund) <= tol,
+            "old short keeps r payout: got={refund} expected={expected_refund} debt_r={debt_at_r}"
+        );
+        assert!(
+            expected_refund > position.collateral / 2,
+            "dereg payout still large"
+        );
+    });
+}
+
+#[test]
+fn young_short_boundary_exactly_window_uses_r() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        let open_block = System::block_number();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let principal = position.principal;
+        let escrow_before = position.proceeds.saturating_add(position.collateral);
+
+        // Age exactly == window ⇒ not young (strict <).
+        let aged = open_block.saturating_add(YoungShortWindow::get());
+        System::set_block_number(aged);
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = aged;
+            }
+        });
+
+        let t = Lending::settlement_tao_basis(netuid()) / 20;
+        set_tao_ema(t);
+        write(&key(b"test/pool_tao", netuid()), t);
+        set_moving_price(U64F64::from_num(1_000_000u64));
+
+        let free_before = tao(&owner);
+        assert_ok!(Lending::start_dissolution(netuid()));
+        let frozen = Dissolutions::<Test>::get(netuid()).unwrap().frozen_at;
+        let opened_at = position.expires_at.saturating_sub(position.blocks_per_year);
+        assert_eq!(frozen.saturating_sub(opened_at), YoungShortWindow::get());
+        assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
+        let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(Lending::settle_lending(netuid(), &mut meter));
+
+        let r = Dissolutions::<Test>::get(netuid()).unwrap().rate;
+        let debt_at_r = (U64F64::from_num(principal) * r)
+            .saturating_ceil()
+            .saturating_to_num::<u64>();
+        let expected_refund = escrow_before.saturating_sub(debt_at_r.min(escrow_before));
+        let tol = expected_refund / 100 + 2;
+        let refund = tao(&owner).saturating_sub(free_before);
+        assert!(
+            refund.abs_diff(expected_refund) <= tol,
+            "boundary age==window must use r: got={refund} expected={expected_refund}"
+        );
     });
 }

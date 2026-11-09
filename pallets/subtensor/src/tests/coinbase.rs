@@ -796,6 +796,32 @@ fn test_emission_price_includes_short_offsets() {
     });
 }
 
+/// Equal long+short alpha hedge: net add-back is zero ⇒ emission == live spot.
+#[test]
+fn test_emission_price_net_long_hedge_matches_spot() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 1, 0);
+        let y0 = 1_000_000u64;
+        let x0 = 1_000_000u64;
+        let held_alpha = 50_000u64;
+        let escrow_alpha = 40_000u64;
+        let short_sold = held_alpha + escrow_alpha;
+        // Live pool after a matched hedge ≈ no-loan reserves.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(y0));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(x0));
+        SubnetMechanism::<Test>::insert(netuid, 1);
+        set_mock_emission_offsets_full(netuid, 0, held_alpha, 0, escrow_alpha, short_sold);
+
+        let spot = <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into());
+        let emission = SubtensorModule::emission_alpha_price(netuid);
+        assert_eq!(
+            emission, spot,
+            "equal-alpha hedge must leave emission == live spot"
+        );
+    });
+}
+
 /// Long forced trades set [`LendingSkipTaoFlow`] so dormant flow ignores them;
 /// ordinary stake still records.
 #[test]

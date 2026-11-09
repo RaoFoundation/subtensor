@@ -64,7 +64,7 @@ mod benchmarks {
             RawOrigin::Signed(caller.clone()).into(),
             netuid,
             Side::Short,
-            1_000_000_000u64,
+            10_000_000_000u64, // ≥4× MinimumLoanValue at 25% LTV
             None,
             1u64,
             0u64,
@@ -89,7 +89,7 @@ mod benchmarks {
             RawOrigin::Signed(caller),
             netuid,
             Side::Short,
-            1_000_000_000u64,
+            10_000_000_000u64, // ≥4× MinimumLoanValue at 25% LTV
             None,
             1u64,
             0u64,
@@ -118,7 +118,7 @@ mod benchmarks {
                 RawOrigin::Signed(peer).into(),
                 netuid,
                 Side::Long,
-                100_000_000u64,
+                10_000_000_000u64,
                 Some(peer_hk),
                 1u64,
                 0u64,
@@ -132,7 +132,7 @@ mod benchmarks {
             RawOrigin::Signed(caller),
             netuid,
             Side::Long,
-            1_000_000_000u64,
+            10_000_000_000u64, // ≥4× MinimumLoanValue at 25% LTV
             Some(hotkey),
             1u64,
             0u64,
@@ -153,9 +153,9 @@ mod benchmarks {
             RawOrigin::Signed(caller),
             netuid,
             Side::Long,
-            1_000_000_000u64,
+            10_000_000_000u64, // ≥4× MinimumLoanValue at 25% LTV
             Some(hotkey),
-            1_000_000u64,
+            1_000_000_000u64, // exactly MinimumLoanValue (1 τ principal)
             0u64,
             0u64,
             now.saturating_add(100u32.into()),
@@ -177,7 +177,7 @@ mod benchmarks {
             hotkey,
             Some(1_000_000_000u64),
             None,
-            1_000_000_000u64,
+            10_000_000_000u64, // ≥4× MinimumLoanValue at 25% LTV
             1u64,
             Some(1_000_000u64),
             0u64,
