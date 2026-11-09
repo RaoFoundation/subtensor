@@ -1083,6 +1083,14 @@ impl Client {
         options: ExternalSigningOptions,
         lifecycle: Arc<ExternalPlanLifecycle>,
     ) -> Result<ExternalSigningPlan, CoreError> {
+        if !matches!(
+            signer.crypto_type,
+            crate::keys::CRYPTO_ED25519 | crate::keys::CRYPTO_SR25519 | crate::keys::CRYPTO_ECDSA
+        ) {
+            return Err(CoreError::Crypto(
+                "unsupported external signer crypto type".into(),
+            ));
+        }
         let address_key = public_key_from_ss58(&signer.ss58_address)?;
         if address_key != signer.public_key {
             return Err(CoreError::Crypto(
@@ -1169,7 +1177,14 @@ impl Client {
         crypto_type: u8,
         params: &TxParams,
     ) -> Result<u128, CoreError> {
-        let signature = vec![0u8; 64];
+        let signature = vec![
+            0u8;
+            if crypto_type == crate::keys::CRYPTO_ECDSA {
+                65
+            } else {
+                64
+            }
+        ];
         let (extrinsic, _) = runtime.encode_signed_extrinsic(
             call_data,
             public_key,
@@ -1208,13 +1223,12 @@ impl Client {
                 "signature crypto type does not match the Rust signing plan".into(),
             ));
         }
-        let verifier = Keypair::new(
-            Some(&plan.signer_address),
-            Some(&plan.public_key),
+        if !crate::keys::verify(
+            &plan.payload,
+            signature,
+            &plan.signer_address,
             plan.crypto_type,
-            self.ss58_format,
-        )?;
-        if !verifier.verify(&plan.payload, signature)? {
+        )? {
             return Err(CoreError::Crypto(
                 "external signature does not verify against the Rust signing plan".into(),
             ));
@@ -2388,7 +2402,23 @@ impl Client {
         block_number: u64,
         extrinsic_index: u32,
     ) -> Result<TxOutcome, CoreError> {
-        let records = self.query("System", "Events", &[], Some(&block_hash))?;
+        // Events were written by the runtime that began executing this block.
+        // An upgrade changes post-state metadata, but not those event layouts or
+        // dispatch-error indices. Keep the storage read at the inclusion block.
+        let execution_hash = if block_number == 0 {
+            block_hash.clone()
+        } else {
+            let header = self.header(Some(&block_hash))?;
+            if header.parent_hash.is_empty() {
+                return Err(CoreError::Rpc(
+                    "receipt inclusion block has no execution parent".into(),
+                ));
+            }
+            header.parent_hash
+        };
+        let runtime = self.runtime_for_block(Some(&execution_hash))?;
+        let records =
+            self.query_with_runtime(&runtime, "System", "Events", &[], Some(&block_hash))?;
         let mut events = Vec::new();
         if let Value::List(items) = records {
             for item in items {
@@ -2400,7 +2430,6 @@ impl Client {
                 }
             }
         }
-        let runtime = self.runtime()?;
         let mut success = events
             .iter()
             .any(|event| event_is(event, "System", "ExtrinsicSuccess"));
@@ -4165,6 +4194,8 @@ mod registered_signing_tests {
         submitted: Vec<Vec<u8>>,
         included: Vec<Vec<u8>>,
         events: Vec<u8>,
+        event_reads: Vec<String>,
+        runtime_reads: Vec<Option<String>>,
         block_reads: usize,
     }
 
@@ -4289,7 +4320,12 @@ mod registered_signing_tests {
                         PINNED_HASH
                     };
                     let result = match request["method"].as_str().unwrap() {
-                        "state_getRuntimeVersion" => version.clone(),
+                        "state_getRuntimeVersion" => {
+                            state
+                                .runtime_reads
+                                .push(request["params"][0].as_str().map(str::to_owned));
+                            version.clone()
+                        }
                         "system_properties" => json!({}),
                         "chain_getFinalizedHead" => {
                             state.finalized_reads += 1;
@@ -4324,6 +4360,7 @@ mod registered_signing_tests {
                             if key == next_key {
                                 json!(hex_prefixed(&encoded_key))
                             } else if key == events_key {
+                                state.event_reads.push(block.unwrap().to_owned());
                                 json!(hex_prefixed(&state.events))
                             } else {
                                 let block = block.expect("authority reads must specify a block");
@@ -4589,6 +4626,28 @@ mod registered_signing_tests {
         carrier.block_number = Some(10);
         carrier.fee_rao = Some(7);
         carrier
+    }
+
+    #[test]
+    fn receipts_use_execution_parent_metadata_and_inclusion_storage() {
+        for (number, inclusion, execution) in [
+            (10, ADVANCED_HASH, PINNED_HASH),
+            (0, PINNED_HASH, PINNED_HASH),
+        ] {
+            let signer = Keypair::from_seed(&[34; 32], crate::keys::CRYPTO_MLDSA65_FIXED).unwrap();
+            let node = MockNode::new(&signer);
+            node.state.lock().unwrap().events = shield_events(&node, false);
+            let outcome = node
+                .client
+                .decode_outcome("inner".into(), hex_prefixed(&inclusion), number, 1)
+                .unwrap();
+            assert!(!outcome.success);
+            assert_eq!(outcome.error.unwrap().name, "BadOrigin");
+            assert_eq!(outcome.fee_rao, Some(3));
+            let state = node.state.lock().unwrap();
+            assert_eq!(state.runtime_reads, vec![Some(hex_prefixed(&execution))]);
+            assert_eq!(state.event_reads, vec![hex_prefixed(&inclusion)]);
+        }
     }
 
     #[test]

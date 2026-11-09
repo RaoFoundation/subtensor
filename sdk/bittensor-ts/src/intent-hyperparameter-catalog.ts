@@ -292,6 +292,16 @@ export const OWNER_HYPERPARAMETER_CATALOG = {
     "minimum": "0",
     "maximum": "1"
   },
+  "gamma_enabled": {
+    "call": "sudo_set_subnet_gamma_enabled",
+    "params": [
+      "netuid",
+      "enabled"
+    ],
+    "kind": "bool",
+    "minimum": "0",
+    "maximum": "1"
+  },
   "yuma3_enabled": {
     "call": "sudo_set_yuma3_enabled",
     "params": [

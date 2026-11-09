@@ -208,6 +208,16 @@ export const CHAIN_ERROR_CODES = {
   "AddStakeBurnRateLimitExceeded": "rate_limited",
   "ColdkeyCollateralIncomplete": "internal",
   "ColdkeyCollateralPositionsFull": "limit_exceeded",
+  "TaoUsdPriceUnavailable": "disabled",
+  "GammaDisabled": "disabled",
+  "TooManyGammaDeposits": "limit_exceeded",
+  "GammaDepositDoesNotExist": "not_found",
+  "GammaDepositNotEmpty": "invalid_argument",
+  "GammaDepositSpenderMismatch": "invalid_argument",
+  "GammaDepositDailySpendCapMismatch": "invalid_argument",
+  "NotGammaDepositSpender": "not_authorized",
+  "InsufficientGammaBalance": "insufficient_balance",
+  "GammaDepositDailySpendCapExceeded": "limit_exceeded",
   "ColdkeySwapAnnounced": "disabled",
   "ColdkeySwapDisputed": "disabled",
   "ColdkeySwapClearTooEarly": "too_early",
@@ -224,6 +234,7 @@ export const CHAIN_ERROR_CODES = {
   "EmissionWeightsDoNotSumToOne": "invalid_argument",
   "BurnEmissionMustBeZero": "policy_violation",
   "RecycleEmissionMustBeZero": "policy_violation",
+  "BurnRecycleEmissionAboveMaximum": "policy_violation",
   "OwnerEmissionAboveMaximum": "policy_violation",
   "LeasedSubnetOwnerCutBelowMinimum": "policy_violation",
   "ValidatorEmissionAboveMaximum": "policy_violation",
@@ -449,7 +460,8 @@ export const CHAIN_ERROR_CODES = {
   "AliasCollision": "already_exists",
   "AuthenticationKindConflict": "policy_violation",
   "InvalidDerivedAuthority": "invalid_argument",
-  "DerivedAuthorityTooComplex": "limit_exceeded"
+  "DerivedAuthorityTooComplex": "limit_exceeded",
+  "RegistrationDepositTooHigh": "limit_exceeded"
 } as const
 
 export const CUSTOM_TRANSACTION_ERRORS = {
@@ -913,7 +925,7 @@ export const CHAIN_ERROR_CATALOG = [
     "errorIndex": 15,
     "pallet": "SubtensorModule",
     "name": "NeuronNoValidatorPermit",
-    "docs": "The caller is attempting to set non-self weights without being a permitted validator."
+    "docs": "The caller is setting non-self weights or a service without being a permitted validator."
   },
   {
     "palletIndex": 7,
@@ -1956,7 +1968,7 @@ export const CHAIN_ERROR_CATALOG = [
     "errorIndex": 164,
     "pallet": "SubtensorModule",
     "name": "ColdkeySwapTooHeavy",
-    "docs": "The coldkey stakes through more hotkeys, or holds more stake positions, than a coldkey swap can move in one call. Consolidate (unstake or move stake) first."
+    "docs": "The coldkey stakes through more hotkeys, holds more stake positions, or with the destination holds more gamma deposits, than a coldkey swap can move in one call. Consolidate first."
   },
   {
     "palletIndex": 7,
@@ -2068,14 +2080,14 @@ export const CHAIN_ERROR_CATALOG = [
     "errorIndex": 180,
     "pallet": "SubtensorModule",
     "name": "BurnEmissionMustBeZero",
-    "docs": "`set_subnet_emission_weights`: burn (slot 0) is not yet enabled and must be 0."
+    "docs": "Deprecated: burn may be non-zero; the combined burn+recycle cap is [`Error::BurnRecycleEmissionAboveMaximum`]. Kept so SCALE error indices stay stable."
   },
   {
     "palletIndex": 7,
     "errorIndex": 181,
     "pallet": "SubtensorModule",
     "name": "RecycleEmissionMustBeZero",
-    "docs": "`set_subnet_emission_weights`: recycle (slot 1) is not yet enabled and must be 0."
+    "docs": "Deprecated: recycle may be non-zero; the combined burn+recycle cap is [`Error::BurnRecycleEmissionAboveMaximum`]. Kept so SCALE error indices stay stable."
   },
   {
     "palletIndex": 7,
@@ -2139,6 +2151,83 @@ export const CHAIN_ERROR_CATALOG = [
     "pallet": "SubtensorModule",
     "name": "HotkeyOwnerPolicyViolation",
     "docs": "An ownership change would weaken a protected account's authorization."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 191,
+    "pallet": "SubtensorModule",
+    "name": "TaoUsdPriceUnavailable",
+    "docs": "Minting gamma needs a TAO/USD feed at most 300 blocks old."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 192,
+    "pallet": "SubtensorModule",
+    "name": "GammaDisabled",
+    "docs": "Gamma minting is disabled network-wide or on this subnet."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 193,
+    "pallet": "SubtensorModule",
+    "name": "TooManyGammaDeposits",
+    "docs": "The coldkey would hold more than 64 gamma deposits on this subnet."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 194,
+    "pallet": "SubtensorModule",
+    "name": "GammaDepositDoesNotExist",
+    "docs": "The hotkey holds no gamma deposit on this subnet."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 195,
+    "pallet": "SubtensorModule",
+    "name": "GammaDepositNotEmpty",
+    "docs": "A gamma deposit with a balance cannot be closed."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 196,
+    "pallet": "SubtensorModule",
+    "name": "GammaDepositSpenderMismatch",
+    "docs": "A mint named a spender other than the one its gamma deposit names."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 197,
+    "pallet": "SubtensorModule",
+    "name": "GammaDepositDailySpendCapMismatch",
+    "docs": "A mint named a daily spend cap other than its gamma deposit's."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 198,
+    "pallet": "SubtensorModule",
+    "name": "NotGammaDepositSpender",
+    "docs": "The signer is not the gamma deposit's spender."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 199,
+    "pallet": "SubtensorModule",
+    "name": "InsufficientGammaBalance",
+    "docs": "The gamma deposit's balance is below the amount."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 200,
+    "pallet": "SubtensorModule",
+    "name": "GammaDepositDailySpendCapExceeded",
+    "docs": "The amount is above what the gamma deposit's daily spend cap allows now."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 201,
+    "pallet": "SubtensorModule",
+    "name": "BurnRecycleEmissionAboveMaximum",
+    "docs": "`set_subnet_emission_weights`: burn (slot 0) and recycle (slot 1) together may be at most 33% of emission."
   },
   {
     "palletIndex": 11,
@@ -3735,6 +3824,13 @@ export const CHAIN_ERROR_CATALOG = [
     "pallet": "HashedAccounts",
     "name": "DerivedAuthorityTooComplex",
     "docs": "The derived authority graph exceeds a deterministic runtime bound."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 13,
+    "pallet": "HashedAccounts",
+    "name": "RegistrationDepositTooHigh",
+    "docs": "The current registration reserve exceeds the sponsor's approved maximum."
   }
 ] as const
 

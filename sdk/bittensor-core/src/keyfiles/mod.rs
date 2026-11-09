@@ -357,6 +357,7 @@ pub fn save_keypair_to_keyfile(
         .parent()
         .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
     ensure_private_directory(parent)?;
+    let _locks = lock_keyfile_directories(&[path])?;
     validate_keyfile_target(path, overwrite)?;
 
     let plaintext = Zeroizing::new(serialized_keypair_to_keyfile_data(keypair)?);
@@ -393,6 +394,9 @@ pub fn save_keypair_pair_to_keyfiles(
 
     prepare_keyfile_target(private_path, overwrite)?;
     prepare_keyfile_target(public_path, overwrite)?;
+    let _locks = lock_keyfile_directories(&[private_path, public_path])?;
+    validate_keyfile_target(private_path, overwrite)?;
+    validate_keyfile_target(public_path, overwrite)?;
 
     let private_plaintext = Zeroizing::new(serialized_keypair_to_keyfile_data(private_keypair)?);
     let private_data = if let Some(password) = private_password {
@@ -408,6 +412,219 @@ pub fn save_keypair_pair_to_keyfiles(
         &public_data,
         overwrite,
     )
+}
+
+/// Persist a complete coldkey/hotkey wallet as one rollback-capable transaction.
+/// All encryption and validation finish before replacing any existing keyfile.
+pub fn save_wallet_keypairs_to_keyfiles(
+    keypairs: [&Keypair; 4],
+    paths: [&Path; 4],
+    passwords: [Option<&str>; 2],
+    overwrite: bool,
+    allow_plaintext: [bool; 2],
+) -> Result<(), CoreError> {
+    for index in [0, 2] {
+        if keypairs[index].public_key_bytes() != keypairs[index + 1].public_key_bytes()
+            || keypairs[index].crypto_type() != keypairs[index + 1].crypto_type()
+        {
+            return Err(key_err("private and public wallet identities differ"));
+        }
+    }
+    for (index, path) in paths.iter().enumerate() {
+        if paths[..index].contains(path) {
+            return Err(key_err("wallet keyfile paths must be distinct"));
+        }
+        prepare_keyfile_target(path, overwrite)?;
+    }
+    let _locks = lock_keyfile_directories(&paths)?;
+    let mut data = Vec::new();
+    for (index, keypair) in keypairs.iter().enumerate() {
+        validate_keyfile_target(paths[index], overwrite)?;
+        if index % 2 == 1 && keypair.has_private_key() {
+            return Err(key_err("public keyfile must not contain a private key"));
+        }
+        let password = if index % 2 == 0 {
+            passwords[index / 2]
+        } else {
+            None
+        };
+        if keypair.has_private_key() && password.is_none() && !allow_plaintext[index / 2] {
+            return Err(key_err("plaintext private keyfile writes are disabled"));
+        }
+        let plaintext = Zeroizing::new(serialized_keypair_to_keyfile_data(keypair)?);
+        data.push(Zeroizing::new(if let Some(password) = password {
+            encrypt_keyfile_data(&plaintext, password)?
+        } else {
+            plaintext.to_vec()
+        }));
+    }
+    atomic_write_wallet(&paths, &data, overwrite)
+}
+
+/// Unix directory locks also coordinate with the Python wallet's directory flock.
+/// Windows uses persistent lock files, which must not be unlinked while in use.
+fn lock_keyfile_directories(paths: &[&Path]) -> Result<Vec<File>, CoreError> {
+    let mut directories = Vec::new();
+    for path in paths {
+        let parent = path
+            .parent()
+            .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+        ensure_private_directory(parent)?;
+        directories.push(fs::canonicalize(parent).map_err(|error| key_err(error.to_string()))?);
+    }
+    directories.sort();
+    directories.dedup();
+    let mut locks = Vec::new();
+    for directory in directories {
+        ensure_private_directory(&directory)?;
+        #[cfg(unix)]
+        let path = directory.clone();
+        #[cfg(unix)]
+        let lock = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+            .open(&path)
+            .map_err(|error| key_err(format!("could not open wallet directory: {error}")))?;
+        #[cfg(not(unix))]
+        let path = directory.join(".bittensor-wallet.lock");
+        #[cfg(not(unix))]
+        let lock = {
+            if let Ok(metadata) = fs::symlink_metadata(&path) {
+                if !metadata.is_file() || metadata.file_type().is_symlink() {
+                    return Err(key_err("wallet lock must be a regular file"));
+                }
+            }
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&path)
+                .map_err(|error| key_err(format!("could not open wallet lock: {error}")))?
+        };
+        lock.lock()
+            .map_err(|error| key_err(format!("could not lock wallet directory: {error}")))?;
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| key_err(format!("could not inspect wallet lock: {error}")))?;
+        if metadata.file_type().is_symlink() {
+            return Err(key_err("wallet lock changed while waiting"));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let opened = lock
+                .metadata()
+                .map_err(|error| key_err(error.to_string()))?;
+            if (metadata.dev(), metadata.ino()) != (opened.dev(), opened.ino()) {
+                return Err(key_err("wallet lock changed while waiting"));
+            }
+        }
+        locks.push(lock);
+    }
+    Ok(locks)
+}
+
+fn atomic_write_wallet(
+    paths: &[&Path],
+    data: &[Zeroizing<Vec<u8>>],
+    overwrite: bool,
+) -> Result<(), CoreError> {
+    publish_wallet(paths, data, overwrite, |temporary, destination| {
+        fs::hard_link(temporary, destination)
+    })
+}
+
+fn publish_wallet(
+    paths: &[&Path],
+    data: &[Zeroizing<Vec<u8>>],
+    overwrite: bool,
+    mut publish: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), CoreError> {
+    let mut temporary = Vec::new();
+    let mut backups = Vec::new();
+    let mut installed = 0;
+    let result = (|| {
+        for (path, data) in paths.iter().zip(data) {
+            temporary.push(write_temp_keyfile(path, data)?);
+        }
+        for path in paths {
+            validate_keyfile_target(path, overwrite)?;
+            backups.push(if overwrite {
+                move_existing_to_backup(path)?
+            } else {
+                None
+            });
+        }
+        for (path, temp) in paths.iter().zip(&temporary) {
+            publish(temp, path).map_err(|error| {
+                key_err(format!(
+                    "could not publish wallet keyfile {}: {error}",
+                    path.display()
+                ))
+            })?;
+            installed += 1;
+            fsync_parent(path);
+        }
+        Ok(())
+    })();
+    let mut rollback_errors = Vec::new();
+    if result.is_err() {
+        for (index, backup) in backups.iter().enumerate().rev() {
+            let path = paths[index];
+            if index < installed {
+                // Do not erase a different file installed by an uncooperative writer.
+                if same_keyfile(path, &temporary[index]) {
+                    if let Err(error) = fs::remove_file(path) {
+                        rollback_errors.push(error.to_string());
+                    }
+                } else {
+                    rollback_errors.push(format!("{} changed during rollback", path.display()));
+                }
+            }
+            if let Some(backup) = backup {
+                // A hard link never overwrites a concurrent writer; keep the backup on failure.
+                match fs::hard_link(backup, path) {
+                    Ok(()) => {
+                        let _ = fs::remove_file(backup);
+                    }
+                    Err(error) => rollback_errors.push(format!(
+                        "original retained at {}: {error}",
+                        backup.display()
+                    )),
+                }
+            }
+            fsync_parent(path);
+        }
+    } else {
+        for backup in backups.iter().flatten() {
+            let _ = fs::remove_file(backup);
+        }
+    }
+    for temp in temporary {
+        let _ = fs::remove_file(temp);
+    }
+    if !rollback_errors.is_empty() {
+        return Err(key_err(format!(
+            "wallet write failed; rollback incomplete: {}",
+            rollback_errors.join("; ")
+        )));
+    }
+    result
+}
+
+fn same_keyfile(left: &Path, right: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (fs::symlink_metadata(left), fs::symlink_metadata(right)) {
+            (Ok(a), Ok(b)) => a.is_file() && (a.dev(), a.ino()) == (b.dev(), b.ino()),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        matches!((fs::read(left), fs::read(right)), (Ok(a), Ok(b)) if a == b)
+    }
 }
 
 fn prepare_keyfile_target(path: &Path, overwrite: bool) -> Result<(), CoreError> {
@@ -580,6 +797,12 @@ fn set_private_directory_permissions(_path: &Path) -> Result<(), CoreError> {
 }
 
 fn validate_keyfile_target(path: &Path, overwrite: bool) -> Result<(), CoreError> {
+    if path
+        .file_name()
+        .is_some_and(|name| name == ".bittensor-wallet.lock")
+    {
+        return Err(key_err("wallet lock filename is reserved"));
+    }
     match fs::symlink_metadata(path) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() {
@@ -1286,6 +1509,86 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keyp
         "keypair could not be created from keyfile data: no secretPhrase, secretSeed, \
          privateKey, or ss58Address field (found: {found_fields})",
     )))
+}
+
+#[cfg(test)]
+mod wallet_transaction_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    // PROTECTED_REGRESSION: a later wallet publication failure must preserve every existing recovery keyfile; changes require explicit human approval.
+    #[test]
+    fn full_wallet_failure_restores_all_original_keyfiles() {
+        for overwrite in [false, true] {
+            let dir = std::env::temp_dir().join(format!(
+                "bt-wallet-atomic-{}-{}",
+                std::process::id(),
+                SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&dir).unwrap();
+            let paths = [
+                dir.join("coldkey"),
+                dir.join("coldkeypub"),
+                dir.join("hotkey"),
+                dir.join("hotkeypub"),
+            ];
+            if overwrite {
+                for path in &paths {
+                    fs::write(path, b"original recovery material").unwrap();
+                }
+            }
+            let data = (0..4)
+                .map(|_| Zeroizing::new(b"new recovery material".to_vec()))
+                .collect::<Vec<_>>();
+            let mut published = 0;
+            let error = publish_wallet(
+                &paths.each_ref().map(|path| path.as_path()),
+                &data,
+                overwrite,
+                |temp, path| {
+                    published += 1;
+                    if published == 3 {
+                        return Err(std::io::Error::other("injected hotkey publication failure"));
+                    }
+                    fs::hard_link(temp, path)
+                },
+            )
+            .unwrap_err();
+            assert!(error
+                .to_string()
+                .contains("injected hotkey publication failure"));
+            for path in &paths {
+                if overwrite {
+                    assert_eq!(fs::read(path).unwrap(), b"original recovery material");
+                } else {
+                    assert!(!path.exists());
+                }
+            }
+            assert_eq!(
+                fs::read_dir(&dir).unwrap().count(),
+                if overwrite { 4 } else { 0 }
+            );
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn complete_wallet_validates_public_identity_before_writing() {
+        let cold = Keypair::from_seed(&[1; 32], CRYPTO_SR25519).unwrap();
+        let hot = Keypair::from_seed(&[2; 32], CRYPTO_SR25519).unwrap();
+        let public = hot.public_only().unwrap();
+        let error = save_wallet_keypairs_to_keyfiles(
+            [&cold, &public, &hot, &public],
+            [Path::new("unused"); 4],
+            [None; 2],
+            false,
+            [true; 2],
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("identities differ"));
+    }
 }
 
 #[cfg(test)]

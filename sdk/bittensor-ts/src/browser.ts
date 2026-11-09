@@ -28,6 +28,7 @@ import type {
 
 export const CRYPTO_ED25519 = 0
 export const CRYPTO_SR25519 = 1
+export const CRYPTO_ECDSA = 2
 export const DEFAULT_SS58_FORMAT = 42
 
 export type BrowserByteLike = Uint8Array | ArrayBuffer | ArrayBufferView
@@ -66,6 +67,7 @@ export interface BrowserWasmModule {
   CryptoType: {
     Ed25519: number
     Sr25519: number
+    Ecdsa: number
   }
   verifySignature(
     message: BrowserMessage,
@@ -660,6 +662,7 @@ export class Keypair
     cryptoType = CRYPTO_SR25519,
     ss58Format = DEFAULT_SS58_FORMAT,
   ) {
+    keyTypeForCryptoType(cryptoType)
     this.handle = new (wasmSync().Keypair)(
       ss58Address ?? undefined,
       publicKey == null ? undefined : toBytes(publicKey, 'publicKey'),
@@ -681,9 +684,10 @@ export class Keypair
     cryptoType = CRYPTO_SR25519,
     password?: string | null,
   ): Keypair {
+    const type = keyTypeForCryptoType(cryptoType)
     return Keypair.wrap(
       wasmSync().Keypair.fromMnemonic(mnemonic, cryptoType, password ?? undefined),
-      { type: keyTypeForCryptoType(cryptoType) },
+      { type },
     )
   }
 
@@ -696,9 +700,10 @@ export class Keypair
   }
 
   static fromSeed(seed: BrowserByteLike, cryptoType = CRYPTO_SR25519): Keypair {
+    const type = keyTypeForCryptoType(cryptoType)
     return Keypair.wrap(
       wasmSync().Keypair.fromSeed(toBytes(seed, 'seed'), cryptoType),
-      { type: keyTypeForCryptoType(cryptoType) },
+      { type },
     )
   }
 
@@ -707,9 +712,10 @@ export class Keypair
   }
 
   static fromUri(uri: string, cryptoType = CRYPTO_SR25519): Keypair {
+    const type = keyTypeForCryptoType(cryptoType)
     return Keypair.wrap(
       wasmSync().Keypair.fromUri(uri, cryptoType),
-      { type: keyTypeForCryptoType(cryptoType) },
+      { type },
     )
   }
 
@@ -718,14 +724,25 @@ export class Keypair
   }
 
   static fromPrivateKey(privateKey: string, cryptoType = CRYPTO_SR25519): Keypair {
+    const type = keyTypeForCryptoType(cryptoType)
     return Keypair.wrap(
       wasmSync().Keypair.fromPrivateKey(privateKey, cryptoType),
-      { type: keyTypeForCryptoType(cryptoType) },
+      { type },
     )
   }
 
   static createFromPrivateKey(privateKey: string, cryptoType = CRYPTO_SR25519): Keypair {
     return Keypair.fromPrivateKey(privateKey, cryptoType)
+  }
+
+  static generateWithMnemonic(cryptoType = CRYPTO_SR25519, nWords?: number): { keypair: Keypair; mnemonic: string } {
+    keyTypeForCryptoType(cryptoType)
+    const mnemonic = Keypair.generateMnemonic(nWords ?? (isPqCrypto(cryptoType) ? 24 : 12))
+    return { keypair: Keypair.fromMnemonic(mnemonic, cryptoType), mnemonic }
+  }
+
+  static generate(cryptoType = CRYPTO_SR25519, nWords?: number): Keypair {
+    return Keypair.generateWithMnemonic(cryptoType, nWords).keypair
   }
 
   static generateMnemonic(nWords = 12): string {
@@ -917,6 +934,7 @@ export function verifySignature(
   ss58Address: string,
   cryptoType = CRYPTO_SR25519,
 ): boolean {
+  if (![CRYPTO_ED25519, CRYPTO_SR25519, CRYPTO_ECDSA].includes(cryptoType)) throw new RangeError(`unsupported signer crypto type ${cryptoType}`)
   return wasmSync().verifySignature(
     typeof message === 'string' ? message : toBytes(message, 'message'),
     toBytes(signature, 'signature'),
@@ -1113,7 +1131,7 @@ export * from './shielded-receipt'
 export * from './root-claim'
 export * from './fee-payer'
 export * from './unsigned-transaction'
-import { walletType, walletCryptoType, walletScheme, isProtectedCrypto, u64, type SigningScheme } from './wallet-types'
+import { walletType, walletCryptoType, walletScheme, isProtectedCrypto, isPqCrypto, u64, type SigningScheme } from './wallet-types'
 export * from './wallet-types'
 export * from './protected-accounts'
 export * from './protected-transactions'
@@ -1127,3 +1145,9 @@ export function encodeReceivingAddress(descriptor: BrowserByteLike): string { re
 export function verifyAuthorization(proof: BrowserByteLike, payload: BrowserByteLike, descriptor: BrowserByteLike, generation: bigint | number, commitment: BrowserByteLike): boolean {
   return wasmSync().verifyAuthorization(toBytes(proof), toBytes(payload), toBytes(descriptor), u64(generation), toBytes(commitment))
 }
+
+export * from './gamma'
+export type { GammaDepositRecord, GammaMintQuote, TaoUsdPrice } from './reads/gamma'
+export * from './wallet-registration'
+
+export type { SubnetService } from './reads/subnets'

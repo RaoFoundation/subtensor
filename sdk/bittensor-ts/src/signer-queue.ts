@@ -1,4 +1,5 @@
-import { publicKeyFromSs58 } from './keys'
+import { publicKeyFromSs58, accountIdFromEcdsaPublic, CRYPTO_ECDSA } from './keys'
+import { toBuffer } from './wire'
 import type { ChainSigner, SignerLike } from './client'
 
 declare const permitBrand: unique symbol
@@ -51,8 +52,10 @@ export function bindSignerIdentity(signer: SignerLike, identity: BoundSignerIden
       const address = current.ss58Address ?? current.address
       const key = address == null ? null : publicKeyFromSs58(address)
       const cryptoType = current.cryptoType ?? original.cryptoType ?? 1
+      const rawPublicKey = current.publicKey == null ? undefined : toBuffer(current.publicKey, 'publicKey')
+      const accountPublicKey = cryptoType === CRYPTO_ECDSA && rawPublicKey?.length === 33 ? accountIdFromEcdsaPublic(rawPublicKey) : rawPublicKey
       const requiresMetadataProof = Boolean(current.requiresMetadataProof ?? current.requiresMetadataHash ?? original.requiresMetadataProof ?? original.requiresMetadataHash)
-      if (key == null || !key.equals(publicKey) || current.publicKey != null && !Buffer.from(current.publicKey).equals(publicKey) || cryptoType !== identity.cryptoType || requiresMetadataProof !== identity.requiresMetadataProof) throw new Error('signer account changed after preflight')
+      if (key == null || !key.equals(publicKey) || accountPublicKey != null && !accountPublicKey.equals(publicKey) || cryptoType !== identity.cryptoType || requiresMetadataProof !== identity.requiresMetadataProof) throw new Error('signer account changed after preflight')
       return { address: identity.address, publicKey, cryptoType: identity.cryptoType, requiresMetadataProof: identity.requiresMetadataProof }
     },
   }

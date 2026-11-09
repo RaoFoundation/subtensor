@@ -307,6 +307,13 @@ fn verify_with_crypto(
     signature: &[u8],
 ) -> Result<bool, CoreError> {
     match crypto_type {
+        CRYPTO_ECDSA => {
+            let sig = sp_core::ecdsa::Signature::from_slice(signature)
+                .map_err(|_| crypto_err("invalid ecdsa signature length"))?;
+            Ok(sig
+                .recover(message)
+                .is_some_and(|key| sp_core::hashing::blake2_256(key.as_ref()) == *public_key))
+        }
         CRYPTO_SR25519 => {
             let public = sr25519::Public::from_raw(*public_key);
             let sig = sr25519::Signature::from_slice(signature)
@@ -891,6 +898,26 @@ mod tests {
     use sp_core::crypto::{AccountId32, Ss58AddressFormat, Ss58Codec};
 
     use super::*;
+
+    #[test]
+    fn external_ecdsa_verifies_recovered_account_identity() {
+        let pair = sp_core::ecdsa::Pair::from_seed(&[23; 32]);
+        let account = account_id_from_ecdsa_public(pair.public().as_ref()).unwrap();
+        let address = ss58_from_public(account, 42);
+        let message = b"external transaction payload";
+        let signature = pair.sign(message);
+        assert!(verify(message, signature.as_ref(), &address, CRYPTO_ECDSA).unwrap());
+        assert!(!verify(
+            b"different payload",
+            signature.as_ref(),
+            &address,
+            CRYPTO_ECDSA
+        )
+        .unwrap());
+        let other = ss58_from_public([0; 32], 42);
+        assert!(!verify(message, signature.as_ref(), &other, CRYPTO_ECDSA).unwrap());
+        assert!(verify(message, &[0; 64], &address, CRYPTO_ECDSA).is_err());
+    }
 
     #[test]
     fn ss58_rendering_matches_sp_core() {

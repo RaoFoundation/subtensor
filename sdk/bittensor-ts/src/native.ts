@@ -735,6 +735,7 @@ export interface NativeBinding {
     allowPlaintext: boolean,
   ): Promise<void>
   encryptKeyfileData(keyfileData: Buffer, password: string): Promise<Buffer>
+  writeWalletKeyfiles(coldkey: NativeKeypairHandle, coldkeyPublic: NativeKeypairHandle, hotkey: NativeKeypairHandle, hotkeyPublic: NativeKeypairHandle, paths: string[], coldkeyPassword: string | null | undefined, hotkeyPassword: string | null | undefined, overwrite: boolean, coldkeyAllowPlaintext: boolean, hotkeyAllowPlaintext: boolean): Promise<void>
   decryptKeyfileData(keyfileData: Buffer, password?: string | null): Promise<Buffer>
   keyfileDataIsEncrypted(keyfileData: Buffer): boolean
   keyfileDataIsEncryptedNacl(keyfileData: Buffer): boolean

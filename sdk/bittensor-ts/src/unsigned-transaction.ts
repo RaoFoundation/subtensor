@@ -70,7 +70,7 @@ export function restoreUnsignedTransaction(value: unknown, runtime: UnsignedRunt
   const input = value as Record<string, unknown>
   const allowed = new Set(['version', 'address', 'publicKey', 'cryptoType', 'callData', 'payload', 'includedInExtrinsic', 'includedInSignedData', 'metadataProof', 'specVersion', 'transactionVersion', 'metadataFingerprint', 'era', 'nonce', 'tip', 'tipAssetId', 'genesisHash', 'eraBlockHash', 'metadataHash'])
   if (Object.keys(input).some(key => !allowed.has(key))) throw new TypeError('unsigned transaction contains an unsupported field')
-  if (input.version !== 1 || typeof input.address !== 'string' || ![0, 1].includes(Number(input.cryptoType)) || typeof input.cryptoType !== 'number') throw new TypeError('unsupported unsigned transaction version or signer')
+  if (input.version !== 1 || typeof input.address !== 'string' || ![0, 1, 2].includes(Number(input.cryptoType)) || typeof input.cryptoType !== 'number') throw new TypeError('unsupported unsigned transaction version or signer')
   if (version(input.specVersion, 'specVersion') !== runtime.specVersion || version(input.transactionVersion, 'transactionVersion') !== runtime.transactionVersion) throw new Error('runtime upgraded since transaction preparation; prepare and sign again')
   if (!equal(bytes(input.metadataFingerprint, 'metadataFingerprint', 32), crypto.blake2_256(metadata))) throw new Error('runtime metadata differs from transaction preparation')
   if (!equal(bytes(input.genesisHash, 'genesisHash', 32), bytes(genesisHash, 'connected genesis', 32))) throw new Error('unsigned transaction belongs to another chain')

@@ -1,4 +1,5 @@
 import { bytesHex, hexBytes, concatBytes, type PortableCrypto } from './portable'
+import { normalizeSignatureBytes } from './signatures'
 
 export interface UnsignedTransaction {
   address: string; publicKey: Uint8Array; cryptoType: number; callData: Uint8Array
@@ -62,7 +63,7 @@ export class ExtensionSigner {
   readonly cryptoType: number
   constructor(readonly account: ExtensionAccount, readonly extension: InjectedExtension) {
     this.address = this.ss58Address = account.address
-    this.cryptoType = account.type == null || account.type === 'sr25519' ? 1 : account.type === 'ed25519' ? 0 : -1
+    this.cryptoType = account.type == null || account.type === 'sr25519' ? 1 : account.type === 'ed25519' ? 0 : account.type === 'ecdsa' ? 2 : -1
     if (this.cryptoType < 0) throw new TypeError(`unsupported extension account type ${account.type}`)
   }
   signPayload(payload: Record<string, unknown>): Promise<{ signature: string }> {
@@ -78,12 +79,7 @@ export class ExtensionSigner {
   }
   async sign(payload: Uint8Array): Promise<Uint8Array> {
     const signature = hexBytes((await this.signRaw({ address: this.address, data: bytesHex(payload), type: 'bytes' })).signature)
-    if (signature.length === 65) {
-      if (signature[0] !== this.cryptoType) throw new Error('extension signature scheme mismatch')
-      return signature.slice(1)
-    }
-    if (signature.length !== 64) throw new Error('invalid extension signature length')
-    return signature
+    return normalizeSignatureBytes(signature, this.cryptoType)
   }
 }
 export async function extensionAccounts(appName: string, providers: Record<string, ExtensionProvider> = (globalThis as typeof globalThis & { injectedWeb3?: Record<string, ExtensionProvider> }).injectedWeb3 ?? {}): Promise<Array<{ account: ExtensionAccount; extension: InjectedExtension }>> {

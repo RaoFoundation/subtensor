@@ -1,19 +1,23 @@
 import { isDefiniteSubmissionRejection, SubmissionUncertainError, SubmissionNotSentError } from './transport'
 import { serializeUnsignedTransaction, restoreUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime, type SerializedUnsignedTransaction } from './unsigned-transaction'
+import { extrinsicSignerAccountId } from './extrinsic-signer'
 import { ProtectedWalletClient } from './protected-transactions'
+import { registerWallet, registrationDepositForTypes, estimateWalletRegistrationFee, walletPublicKey, requireWalletIdentity, bindWalletRegistrationSigner, type WalletRegistrationOptions, type WalletRegistrationAdapter } from './wallet-registration'
 import type { ProtectedKeypair } from './protected-accounts'
 import { verifyAuthorization, decodeReceivingAddress, Keypair } from './browser'
 import { parseRecipient } from './receiving'
 import { isProtectedCrypto } from './wallet-types'
+import { normalizeSignatureBytes } from './signatures'
+import { gammaReceiptData } from './gamma'
 import { resolveEvmRecipient } from './evm-alias'
 import { authorizeRegistrationSponsorship, type RegistrationSponsorshipOptions } from './registration-sponsorship'
 import { chainErrorFromDispatch, type ChainErrorInfo } from './chain-errors'
 import { followShieldedResult } from './shielded-receipt'
 import { prepareMultisigApproval, type MultisigApprovalRequest } from './multisig-workflow'
 import { UpgradeClient, type UpgradeAdapter } from './upgrade'
-import { bindReadNamespace, type AccountsReadNamespace, type SubnetsReadNamespace, type StakingReadNamespace, type NeuronsReadNamespace, type ChainReadNamespace, type EpochsReadNamespace, type HyperparametersReadNamespace, type DelegationReadNamespace, type LeasingReadNamespace, type CollateralReadNamespace, type LocksReadNamespace, type IdentityReadNamespace, type WeightsReadNamespace, type PricesReadNamespace } from './read-namespaces'
+import { bindReadNamespace, type AccountsReadNamespace, type SubnetsReadNamespace, type StakingReadNamespace, type NeuronsReadNamespace, type ChainReadNamespace, type EpochsReadNamespace, type HyperparametersReadNamespace, type DelegationReadNamespace, type LeasingReadNamespace, type CollateralReadNamespace, type LocksReadNamespace, type IdentityReadNamespace, type WeightsReadNamespace, type GammaReadNamespace, type PricesReadNamespace } from './read-namespaces'
 import {
-  Runtime, initBrowser, publicKeyFromSs58, ss58FromPublic, verifySignature,
+  Runtime, initBrowser, publicKeyFromSs58, accountIdFromEcdsaPublic, ss58FromPublic, verifySignature,
   blake2_256, storagePrefixFor, decodeOptionalOpaqueMetadata, eraBirth, metadataDigest,
   generateExtrinsicProof, generateCommitV2, multisigAccountId, sealMevShieldTransaction,
   type BrowserTransactionParams,
@@ -85,6 +89,7 @@ export class Client {
   readonly locks: LocksReadNamespace = bindReadNamespace({}, 'Locks & conviction', block => this.at(block)) as LocksReadNamespace
   readonly identity: IdentityReadNamespace = bindReadNamespace({}, 'Identity & commitments', block => this.at(block)) as IdentityReadNamespace
   readonly weights: WeightsReadNamespace = bindReadNamespace({}, 'Weights & bonds', block => this.at(block)) as WeightsReadNamespace
+  readonly gamma: GammaReadNamespace = bindReadNamespace({}, 'Gamma', block => this.at(block)) as GammaReadNamespace
   readonly prices: PricesReadNamespace = bindReadNamespace({}, 'Prices & swaps', block => this.at(block)) as PricesReadNamespace
   readonly transport: JsonRpcTransport
   readonly network: string
@@ -288,8 +293,8 @@ export class Client {
     if (!address) throw new TypeError('signer must expose an address')
     if (signer.genesisHash && signer.genesisHash.toLowerCase() !== genesisHash.toLowerCase()) throw new ChainError('signer belongs to another chain')
     const publicKey = publicKeyFromSs58(address), cryptoType = signer.cryptoType ?? 1
-    if (signer.publicKey && hex(signer.publicKey) !== hex(publicKey)) throw new TypeError('signer public key does not match address')
-    if (![0, 1].includes(cryptoType)) throw new TypeError('unsupported signer scheme')
+    if (signer.publicKey && hex(signerAccountId(signer.publicKey, cryptoType)) !== hex(publicKey)) throw new TypeError('signer public key does not match address')
+    if (![0, 1, 2].includes(cryptoType)) throw new TypeError('unsupported signer scheme')
     const nonce = options.nonce ?? await this.peekNonce(address)
     if (!Number.isSafeInteger(nonce) || nonce < 0) throw new TypeError('invalid nonce')
     const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
@@ -315,9 +320,8 @@ export class Client {
   private signed(unsigned: PreparedTransaction, response: unknown) {
     const expectedPayload = unsigned.runtime.signaturePayload(unsigned.callData, unsigned.txParams)
     if (hex(expectedPayload) !== hex(unsigned.payload) || hex(publicKeyFromSs58(unsigned.address)) !== hex(unsigned.publicKey)) throw new ChainError('prepared transaction was modified after signing preparation')
-    let signature = signatureBytes(response)
-    if (signature.length === 65) { if (signature[0] !== unsigned.cryptoType) throw new ChainError('signature scheme differs from signer'); signature = signature.slice(1) }
-    if (signature.length !== 64 || !verifySignature(unsigned.payload, signature, unsigned.address, unsigned.cryptoType)) throw new ChainError('invalid transaction signature')
+    const signature = normalizeSignatureBytes(signatureBytes(response), unsigned.cryptoType)
+    if (!verifySignature(unsigned.payload, signature, unsigned.address, unsigned.cryptoType)) throw new ChainError('invalid transaction signature')
     const signed = unsigned.runtime.encodeSignedExtrinsic(unsigned.callData, unsigned.publicKey, signature, unsigned.cryptoType, { ...unsigned.txParams, metadataHashEnabled: unsigned.txParams.metadataHash != null })
     return { ...signed, hex: hex(signed.bytes), nonce: unsigned.nonce, signerAddress: unsigned.address }
   }
@@ -372,9 +376,9 @@ export class Client {
   async submitExtrinsic(bytes: Uint8Array, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
     rejectDetachedPolicy(options)
     const submitted = bytes.slice(), decoded = (await this.currentRuntime()).decodeExtrinsic(submitted) as Record<string, any>
-    if (decoded.address == null) return this.broadcastExtrinsic(submitted, options)
-    const address = decoded.address.Id ?? decoded.address
-    const signer = { address: typeof address === 'string' ? address : ss58FromPublic(Uint8Array.from(address)) }
+    const account = extrinsicSignerAccountId(decoded.address, publicKeyFromSs58)
+    if (account == null) return this.broadcastExtrinsic(submitted, options)
+    const signer = { address: ss58FromPublic(account) }
     return this.serial(signer, () => this.broadcastExtrinsic(submitted, options))
   }
   private async broadcastExtrinsic(bytes: Uint8Array, options: SubmitOptions): Promise<ExtrinsicResult> {
@@ -438,7 +442,8 @@ export class Client {
     const failed = outerFailure ?? (nested == null ? undefined : { attributes: { dispatch_error: nested } })
     const success = !failed && events.some(event => eventName(event) === 'System.ExtrinsicSuccess')
     const fee = events.find(event => eventName(event) === 'TransactionPayment.TransactionFeePaid')
-    return { status: failed ? 'failed' : success ? finalized ? 'finalized' : 'inBlock' : 'unknown', success: failed ? false : success || undefined, message: failed ? dispatchFailureMessage(decoded.runtime, failed) : success ? 'Success' : 'Included without a dispatch outcome', extrinsicHash: hash, blockHash, blockNumber: normalizeHeader(block.header).number, extrinsicIndex: index, finalized, events, error: failed, chainError: failed ? chainErrorFromDispatch(failed, (pallet, error) => decoded.runtime.moduleError(pallet, error)) : undefined, fee: fee ? feeFromEvent(fee) : undefined }
+    const data = await gammaReceiptData(events, async (pallet, error) => decoded.runtime.moduleError(pallet, error))
+    return { status: failed ? 'failed' : success ? finalized ? 'finalized' : 'inBlock' : 'unknown', success: failed ? false : success || undefined, message: failed ? dispatchFailureMessage(decoded.runtime, failed) : success ? 'Success' : 'Included without a dispatch outcome', extrinsicHash: hash, blockHash, blockNumber: normalizeHeader(block.header).number, extrinsicIndex: index, finalized, events, ...(Object.keys(data).length ? { data } : {}), error: failed, chainError: failed ? chainErrorFromDispatch(failed, (pallet, error) => decoded.runtime.moduleError(pallet, error)) : undefined, fee: fee ? feeFromEvent(fee) : undefined }
   }
   private async resolveShieldedInner(outer: ExtrinsicResult, innerHash: string, period: number, options: SubmitOptions): Promise<ExtrinsicResult> {
     return followShieldedResult(outer, innerHash, period, this, options)
@@ -469,6 +474,30 @@ export class Client {
       followShielded: (carrier, hash, period, options) => this.resolveShieldedInner(carrier, hash, period, options),
     }, keypair, this)
   }
+  private walletRegistrationAdapter(): WalletRegistrationAdapter {
+    const publicIdentity = (wallet: any, role: 'coldkey' | 'hotkey') => walletPublicKey(wallet, role, {
+      decodeAddress: publicKeyFromSs58, ecdsaAccount: accountIdFromEcdsaPublic,
+      accountContext: async () => { const runtime = await this.runtimeAt(); return { client: this, runtime, ss58Format: runtime.ss58Format } },
+    })
+    return {
+      publicKey: publicIdentity, descriptorAccount: descriptor => Keypair.fromDescriptor(descriptor).ss58Address,
+      decodeAddress: publicKeyFromSs58, finalizedHead: () => this.finalizedHead(), blockHash: () => this.blockHash(),
+      reader: block => this.intentReader(block),
+      estimateFee: (call, payer, block) => estimateWalletRegistrationFee(this, call, payer, block, publicKeyFromSs58),
+      submit: async (call, payer, expected, options) => {
+        const signer = await (payer.coldkey ?? payer)
+        requireWalletIdentity(await publicIdentity(signer, 'coldkey'), expected, publicKeyFromSs58)
+        const submitOptions = { allowRawCall: true, mevShield: true, waitForFinalization: true, signal: options.signal, timeoutMs: options.timeoutMs }
+        return isProtectedCrypto(expected.cryptoType) ? this.protectedWallet(signer).submit(call, submitOptions) : this.submit(call, bindWalletRegistrationSigner(signer, expected, () => publicIdentity(signer, 'coldkey'), publicKeyFromSs58), submitOptions)
+      },
+    }
+  }
+  registerWallet(wallet: unknown, options: WalletRegistrationOptions = {}) {
+    return registerWallet(this.walletRegistrationAdapter(), wallet, options)
+  }
+  registrationDepositForTypes(cryptoTypes: readonly number[]) {
+    return registrationDepositForTypes(this.walletRegistrationAdapter(), cryptoTypes)
+  }
   private reserveNonceRange(address: string, nonce: number, count: number): number {
     if (!Number.isSafeInteger(count) || count < 1 || !Number.isSafeInteger(nonce) || nonce < 0 || !Number.isSafeInteger(nonce + count)) throw new RangeError('invalid nonce reservation')
     const key = hex(publicKeyFromSs58(address)), start = Math.max(nonce, this.nonceFloors.get(key) ?? 0)
@@ -493,9 +522,11 @@ export class Client {
       this.nonceFloors.delete(key); this.nonceTokens.delete(key)
     }
   }
-  async estimateFee(call: Call, address: string, options: SubmitOptions = {}, block?: BlockRef): Promise<Balance> {
-    const unsigned = await this.prepareRaw(call, { address }, options, block == null ? undefined : await this.resolveBlockHash(block))
-    const bytes = unsigned.runtime.encodeSignedExtrinsic(unsigned.callData, unsigned.publicKey, new Uint8Array(64), 1, { ...unsigned.txParams, metadataHashEnabled: unsigned.txParams.metadataHash != null }).bytes
+  async estimateFee(call: Call, account: string | BrowserSigner, options: SubmitOptions = {}, block?: BlockRef): Promise<Balance> {
+    const signer = typeof account === 'string' ? { address: account } : account
+    const address = signer.ss58Address ?? signer.address!
+    const unsigned = await this.prepareRaw(call, signer, options, block == null ? undefined : await this.resolveBlockHash(block))
+    const bytes = unsigned.runtime.encodeSignedExtrinsic(unsigned.callData, unsigned.publicKey, new Uint8Array(unsigned.cryptoType === 2 ? 65 : 64), unsigned.cryptoType, { ...unsigned.txParams, metadataHashEnabled: unsigned.txParams.metadataHash != null }).bytes
     const info = await this.rpc('payment_queryInfo', [hex(bytes), unsigned.blockHash])
     const payer = await resolveTransactionFeePayer(await this.intentReader(unsigned.blockHash), unsigned.runtime.decodeCall(unsigned.callData), address)
     // Keep the original tip encoded for length fees; sponsored calls discard its charge.
@@ -514,6 +545,7 @@ export class Client {
       parseRecipient: (address, descriptor) => parseRecipient(address, decodeReceivingAddress, Keypair.fromDescriptor, publicKeyFromSs58, descriptor),
       supportsPqProfile: async profile => (await this.runtimeAt(snapshot.hash)).supportsMldsaProfile(profile),
       hasStorage: async (pallet, item, at) => (await this.runtimeAt(at)).metadataIr().pallets.find(entry => entry.name === pallet)?.storage.includes(item) ?? false,
+      moduleError: async (pallet, error, at) => (await this.runtimeAt(at ?? snapshot.hash)).moduleError(pallet, error),
       finalizedHead: () => this.finalizedHead(),
       queryMap: (p, f, a = [], limit) => this.queryMap(p, f, a as ScaleValue[], snapshot.hash, { maxResults: limit }),
       countStorageKeys: async (pallet, item, params, limit) => {
@@ -525,7 +557,7 @@ export class Client {
         if (!Array.isArray(keys)) throw new ChainError('storage key admission count unavailable')
         return keys.length
       },
-      query: (p, f, a = [], at) => this.query(p, f, a as ScaleValue[], at ?? snapshot.hash), runtimeCall: (p, f, a = []) => snapshot.runtime([p, f], a as ScaleValue[]), constant: (p, f, at) => this.constant(p, f, at ?? snapshot.hash),
+      query: (p, f, a = [], at) => this.query(p, f, a as ScaleValue[], at ?? snapshot.hash), runtimeCall: (p, f, a = [], at) => this.runtimeCall(p, f, a as ScaleValue[], at ?? snapshot.hash), constant: (p, f, at) => this.constant(p, f, at ?? snapshot.hash),
       blockNumber: async () => snapshot.block, blockHash: n => n == null ? Promise.resolve(snapshot.hash) : this.blockHash(n), blockTime: () => snapshot.blockTime(),
       decodeAddress: publicKeyFromSs58, encodeAddress: ss58FromPublic,
       multisigAccount: (signers, threshold, safe) => { const { accountId } = multisigAccountId(signers.map(publicKeyFromSs58), threshold, safe); return { address: ss58FromPublic(accountId), publicKey: accountId } },
@@ -622,8 +654,9 @@ export class Client {
       const unsigned = await this.prepareRaw(call, signer, { ...signingOptions, nonce }, snapshot.hash)
       signingOptions.metadataHash = unsigned.txParams.metadataHash as Uint8Array
     }
-    const innerFee = await this.estimateFee(call, prepared.feePayer, { ...signingOptions, nonce: nonce + (shielded ? 1 : 0) }, snapshot.hash)
-    const carrierFee = shielded ? await this.estimateFee({ pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext: new Uint8Array(8192) } }, prepared.feePayer, { ...signingOptions, nonce }, snapshot.hash) : Balance.fromRao(0)
+    const feeSigner = signer ?? prepared.feePayer
+    const innerFee = await this.estimateFee(call, feeSigner, { ...signingOptions, nonce: nonce + (shielded ? 1 : 0) }, snapshot.hash)
+    const carrierFee = shielded ? await this.estimateFee({ pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext: new Uint8Array(8192) } }, feeSigner, { ...signingOptions, nonce }, snapshot.hash) : Balance.fromRao(0)
     const fee = Balance.fromRao(innerFee.rao + carrierFee.rao), violations = checkIntentPolicy(prepared, policy, fee.rao)
     if (prepared.mevShieldRequired && !shielded) violations.push('this intent requires MEV shielding')
     if (options.expectedCallHash != null && String(prepared.extras.multisig_call_hash).toLowerCase() !== options.expectedCallHash.toLowerCase()) violations.push('multisig call changed from expectedCallHash')
@@ -661,15 +694,28 @@ export class Client {
     signer = pinSigner(signer)
     return this.serial(signer, async () => {
       const address = signer.ss58Address ?? signer.address!, context = options.context ?? { coldkey: address, ...(intentSignerRole(intent) === 'hotkey' ? { hotkey: address, hotkeyPublicKey: publicKeyFromSs58(address) } : {}) }
-      const { prepared, call, violations, blockHash, nonce, signingOptions } = await this.planForSigner(intent, context, options.policy, options, signer)
-      if (violations.length) throw new ChainError(`transaction rejected: ${violations.join('; ')}`)
-      await authorizeRegistrationSponsorship(prepared,options)
-      if (hex(publicKeyFromSs58(prepared.feePayer)) !== hex(publicKeyFromSs58(address))) throw new ChainError('signer differs from intent fee payer')
-      const shield = options.mevShield ?? prepared.mevShieldDefault
-      if (prepared.mevShieldRequired && !shield) throw new ChainError('this intent requires MEV shielding')
-      const submissionNonce = options.nonce == null ? this.reserveNonceRange(address, nonce, shield ? 2 : 1) : nonce
-      return this.submitPreparedCall(call, signer, { ...signingOptions, nonce: submissionNonce, mevShield: shield }, blockHash, options.nonce == null)
-
+      let plan = await this.planForSigner(intent, context, options.policy, options, signer)
+      if (plan.violations.length) throw new ChainError(`transaction rejected: ${plan.violations.join('; ')}`)
+      const shield = options.mevShield ?? plan.prepared.mevShieldDefault
+      const reserved = options.nonce == null, count = shield ? 2 : 1
+      const submissionNonce = reserved ? this.reserveNonceRange(address, plan.nonce, count) : plan.nonce
+      const key = hex(publicKeyFromSs58(address)), token = this.nonceTokens.get(key)
+      let handedOff = false
+      try {
+        // A reservation may have advanced during planning. Price the exact nonce
+        // that will be signed, including changes in SCALE compact-encoded length.
+        if (submissionNonce !== plan.nonce) plan = await this.planForSigner(intent, context, options.policy, { ...options, nonce: submissionNonce }, signer)
+        const { prepared, call, violations, blockHash, signingOptions } = plan
+        if (violations.length) throw new ChainError(`transaction rejected: ${violations.join('; ')}`)
+        if (hex(publicKeyFromSs58(prepared.feePayer)) !== key) throw new ChainError('signer differs from intent fee payer')
+        if (prepared.mevShieldRequired && !shield) throw new ChainError('this intent requires MEV shielding')
+        await authorizeRegistrationSponsorship(prepared, options)
+        handedOff = true
+        return await this.submitPreparedCall(call, signer, { ...signingOptions, nonce: submissionNonce, mevShield: shield }, blockHash, reserved)
+      } catch (error) {
+        if (!handedOff && reserved && this.nonceTokens.get(key) === token && this.nonceFloors.get(key) === submissionNonce + count) this.nonceFloors.set(key, submissionNonce)
+        throw error
+      }
     })
   }
 }
@@ -721,6 +767,7 @@ export class BrowserMultisig {
 }
 
 export class Snapshot implements ReadView {
+  async moduleError(pallet: number, error: number) { return (await this.client.runtimeAt(this.hash)).moduleError(pallet, error) }
   readonly balances: AccountsReadNamespace = bindReadNamespace({}, 'Accounts & keys', block => block == null || block === this.block ? Promise.resolve(this) : this.client.at(block)) as AccountsReadNamespace
   readonly subnets: SubnetsReadNamespace = bindReadNamespace({}, 'Subnets', block => block == null || block === this.block ? Promise.resolve(this) : this.client.at(block)) as SubnetsReadNamespace
   readonly staking: StakingReadNamespace = bindReadNamespace({}, 'Staking', block => block == null || block === this.block ? Promise.resolve(this) : this.client.at(block)) as StakingReadNamespace
@@ -734,6 +781,7 @@ export class Snapshot implements ReadView {
   readonly locks: LocksReadNamespace = bindReadNamespace({}, 'Locks & conviction', block => block == null || block === this.block ? Promise.resolve(this) : this.client.at(block)) as LocksReadNamespace
   readonly identity: IdentityReadNamespace = bindReadNamespace({}, 'Identity & commitments', block => block == null || block === this.block ? Promise.resolve(this) : this.client.at(block)) as IdentityReadNamespace
   readonly weights: WeightsReadNamespace = bindReadNamespace({}, 'Weights & bonds', block => block == null || block === this.block ? Promise.resolve(this) : this.client.at(block)) as WeightsReadNamespace
+  readonly gamma: GammaReadNamespace = bindReadNamespace({}, 'Gamma', block => block == null || block === this.block ? Promise.resolve(this) : this.client.at(block)) as GammaReadNamespace
   readonly prices: PricesReadNamespace = bindReadNamespace({}, 'Prices & swaps', block => block == null || block === this.block ? Promise.resolve(this) : this.client.at(block)) as PricesReadNamespace
   constructor(readonly client: Client, readonly block: number, readonly hash: string) {}
   query(item: Descriptor, params: ScaleValue[] = []) { return this.client.query(item, params, this.hash) }
@@ -756,6 +804,10 @@ function storageArgs(pallet: string | Descriptor, item: string | ScaleValue[], p
 function decodeStorage(runtime: Runtime, pallet: string, item: string, raw?: string | null) { const entry = runtime.storageEntry(pallet, item); return raw == null ? entry.modifier === 'Optional' ? null : runtime.decode(entry.valueType, entry.defaultBytes, false) : runtime.decode(entry.valueType, hexBytes(raw), false) }
 function signatureBytes(response: any): Uint8Array { const raw = response?.signature ?? response; if (typeof raw === 'string') return hexBytes(raw); if (raw instanceof Uint8Array) return raw; throw new ChainError('signer did not return a signature') }
 
+function signerAccountId(publicKey: Uint8Array, cryptoType: number): Uint8Array {
+  return cryptoType === 2 && publicKey.length === 33 ? accountIdFromEcdsaPublic(publicKey) : publicKey
+}
+
 function pinSigner(signer: BrowserSigner): BrowserSigner {
   const address = signer.ss58Address ?? signer.address
   if (!address) throw new TypeError('signer must expose an address')
@@ -765,7 +817,7 @@ function pinSigner(signer: BrowserSigner): BrowserSigner {
   const assertIdentity = () => {
     const current = signer.ss58Address ?? signer.address
     if (!current || hex(publicKeyFromSs58(current)) !== hex(publicKey) || (signer.cryptoType ?? 1) !== cryptoType ||
-      signer.publicKey != null && hex(signer.publicKey) !== hex(publicKey) ||
+      signer.publicKey != null && hex(signerAccountId(signer.publicKey, cryptoType)) !== hex(publicKey) ||
       (signer.genesisHash?.toLowerCase() ?? null) !== genesisHash || Boolean(signer.requiresMetadataHash) !== requiresMetadataHash || Boolean(signer.requiresMetadataProof) !== requiresMetadataProof) {
       throw new ChainError('signer identity changed while the transaction was pending')
     }

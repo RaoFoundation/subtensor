@@ -41,3 +41,41 @@ test('native and browser ECDSA address helpers preserve the chain account mappin
     }
   }
 })
+
+test('actual browser WASM verifies externally signed ECDSA payloads and rejects another payload or account', async () => {
+  const wasm = await browser.initBrowser(loadBrowserWasm)
+  const { SigningKey, getBytes } = require('ethers')
+  // Public test scalar 1 produces the independent account vector above.
+  const externalKey = new SigningKey('0x' + '0'.repeat(63) + '1')
+  assert.deepEqual(Buffer.from(getBytes(externalKey.compressedPublicKey)), publicKey)
+  const payload = Buffer.from('real WASM external ECDSA verification')
+  const signed = externalKey.sign(browser.blake2_256(payload))
+  const signature = Uint8Array.from([...getBytes(signed.r), ...getBytes(signed.s), signed.yParity])
+  const address = browser.ss58FromPublic(accountId)
+  assert.equal(signature.length, 65)
+  assert.equal(browser.verifySignature(payload, signature, address, browser.CRYPTO_ECDSA), true)
+  assert.equal(browser.verifySignature(Buffer.from('different payload'), signature, address, browser.CRYPTO_ECDSA), false)
+  assert.equal(browser.verifySignature(payload, signature, browser.ss58FromPublic(new Uint8Array(32).fill(9)), browser.CRYPTO_ECDSA), false)
+  assert.equal(wasm.CryptoType.Ecdsa, 2)
+  // This release accepts external ECDSA signers, not internal ECDSA key generation.
+  // The WASM enum must not interpret scheme 2 as the omitted/default Sr25519 value.
+  assert.throws(() => wasm.Keypair.fromSeed(new Uint8Array(32).fill(1), 2), /unsupported signing scheme/i)
+  assert.throws(() => browser.Keypair.fromSeed(new Uint8Array(32).fill(1), 2), /unsupported crypto type/i)
+})
+
+test('Node and browser key constructors reject invalid numeric schemes before foreign enum coercion', async () => {
+  await browser.initBrowser(loadBrowserWasm)
+  const seed = new Uint8Array(32).fill(1)
+  const mnemonic = 'bottom drive obey lake curtain smoke basket hold race lonely fit walk'
+  for (const sdk of [native, browser]) for (const scheme of [2, 3, 5, -1, 1.5, 256, NaN, Infinity]) {
+    for (const construct of [
+      () => new sdk.Keypair(sdk.ss58FromPublic(accountId), accountId, scheme),
+      () => sdk.Keypair.fromSeed(seed, scheme),
+      () => sdk.Keypair.fromMnemonic(mnemonic, scheme),
+      () => sdk.Keypair.fromUri('//Alice', scheme),
+      () => sdk.Keypair.fromPrivateKey('0x' + '11'.repeat(64), scheme),
+      () => sdk.Keypair.generateWithMnemonic(scheme),
+    ]) assert.throws(construct, /unsupported crypto type/i)
+  }
+  assert.throws(() => browser.verifySignature(seed, new Uint8Array(64), browser.ss58FromPublic(accountId), 3), /unsupported signer crypto type/i)
+})

@@ -1,9 +1,11 @@
 /** Pure emission-weight arithmetic. Exact on-chain shares use bigint u64 parts. */
 export const ONE = (1n << 64n) - 1n
 export const SLOT_NAMES = ['burn', 'recycle', 'owner', 'validator', 'miner'] as const
+export const ADJUSTABLE_SLOTS = [0, 1, 2, 3, 4] as const
 export const DEFAULT_OWNER = 11796n * ONE / 65535n
 export const DEFAULT_VALIDATOR = (ONE - DEFAULT_OWNER) / 2n
 export const MAX_OWNER = ONE * 33n / 100n
+export const MAX_BURN_RECYCLE = ONE * 33n / 100n
 export const MAX_VALIDATOR = ONE / 2n
 export const MIN_MINER = ONE * 33n / 100n
 export const OWNER_RATE_LIMIT_BLOCKS = 50400
@@ -60,21 +62,16 @@ export function defaultWeights(owner = DEFAULT_OWNER): bigint[] {
 }
 export function mergeWeights(current: Iterable<bigint>, updates: Record<string, bigint>): bigint[] {
   const result = normalizeWeights(current)
-  result[0] = result[1] = 0n
   for (const [slot, value] of Object.entries(updates)) result[slotIndex(slot)] = value
   return result
 }
 export function renormalize(current: Iterable<bigint>, fixed: Record<string, bigint>): bigint[] {
   const result = normalizeWeights(current)
   const pinned = new Map(Object.entries(fixed).map(([slot, value]) => [slotIndex(slot), value]))
-  for (const index of [0, 1]) {
-    if ((pinned.get(index) ?? 0n) !== 0n) throw new RangeError(`${SLOT_NAMES[index]} must stay zero`)
-    pinned.set(index, 0n)
-  }
   for (const value of pinned.values()) if (value < 0n || value > ONE) throw new RangeError('invalid pinned share')
   let remaining = ONE - [...pinned.values()].reduce((a, b) => a + b, 0n)
   if (remaining < 0n) throw new RangeError('pinned shares exceed 100%')
-  const free = [2, 3, 4].filter(i => !pinned.has(i))
+  const free = ADJUSTABLE_SLOTS.filter(i => !pinned.has(i))
   if (!free.length && remaining !== 0n) throw new RangeError('pinned shares do not sum to 100%')
   const total = free.reduce((sum, index) => sum + result[index], 0n)
   for (const [index, value] of pinned) result[index] = value
@@ -87,8 +84,7 @@ export function validate(weights: Iterable<bigint>, rules: EmissionRules = {}): 
   const w = normalizeWeights(weights), found: EmissionViolation[] = []
   const check = (fails: boolean, error: string, message: string) => { if (fails) found.push({ error, message }) }
   check(w.some(v => v < 0n || v > ONE), 'InvalidEmissionWeight', 'weights must be u64 parts')
-  check(w[0] !== 0n, 'BurnEmissionMustBeZero', 'burn must be zero')
-  check(w[1] !== 0n, 'RecycleEmissionMustBeZero', 'recycle must be zero')
+  check(w[0] + w[1] > MAX_BURN_RECYCLE, 'BurnRecycleEmissionAboveMaximum', 'burn and recycle together exceed 33%')
   check(w[2] > MAX_OWNER, 'OwnerEmissionAboveMaximum', 'owner share exceeds 33%')
   check(Boolean(rules.created_via_lease) && w[2] < (rules.min_owner ?? 0n), 'LeasedSubnetOwnerCutBelowMinimum', 'owner share is below the lease floor')
   check(w[3] > MAX_VALIDATOR, 'ValidatorEmissionAboveMaximum', 'validator share exceeds 50%')

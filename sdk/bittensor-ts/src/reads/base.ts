@@ -11,6 +11,7 @@ export interface ReadView {
   queryBatch(item: ReadDescriptor, sets: ScaleValue[][]): Promise<any[]>
   runtime(item: ReadDescriptor, params?: ScaleValue[]): Promise<any>
   constant(item: ReadDescriptor): Promise<any>
+  moduleError?(moduleIndex: number, errorIndex: number): Promise<{ name: string; docs: string[] }>
   at(block?: number | null): Promise<ReadView>
   balance(rao: BalanceLike, netuid?: number, symbol?: string | null): Balance
   timestamp(): Promise<Date>

@@ -195,6 +195,33 @@ impl IntentCall {
             }
             "HashedAccounts.register" | "HashedAccounts.check_registered" => &["descriptor"],
             "HashedAccounts.check_registration_deposit" => &["max_deposit"],
+            "SubtensorModule.mint_gamma" => &[
+                "hotkey",
+                "netuid",
+                "amount",
+                "min_amount_out",
+                "spender",
+                "daily_spend_cap",
+            ],
+            "SubtensorModule.mint_gamma_with_stake" => &[
+                "origin_hotkey",
+                "destination_hotkey",
+                "netuid",
+                "alpha_amount",
+                "min_amount_out",
+                "spender",
+                "daily_spend_cap",
+            ],
+            "SubtensorModule.move_gamma" => {
+                &["origin_hotkey", "destination_hotkey", "netuid", "amount"]
+            }
+            "SubtensorModule.close_gamma_deposit" => &["hotkey", "netuid"],
+            "SubtensorModule.set_gamma_deposit_spender" => &["hotkey", "netuid", "spender"],
+            "SubtensorModule.set_gamma_deposit_daily_spend_cap" => {
+                &["hotkey", "netuid", "daily_spend_cap"]
+            }
+            "SubtensorModule.spend_gamma" => &["netuid", "spends"],
+            "SubtensorModule.set_service" => &["netuid", "hotkey", "url", "spender"],
             "LimitOrders.authorize_order" | "LimitOrders.cancel_order" => &["order"],
             "LimitOrders.execute_orders" => &["orders", "should_fail"],
             "LimitOrders.execute_batched_orders" => &["netuid", "orders"],
@@ -268,9 +295,9 @@ impl IntentCall {
             | "SubtensorModule.stake_into_basket" => {
                 Spend::Bounded(number(field(&params, "amount_staked")?)?)
             }
-            "SubtensorModule.add_stake_burn" | "Crowdloan.contribute" => {
-                Spend::Bounded(number(field(&params, "amount")?)?)
-            }
+            "SubtensorModule.add_stake_burn"
+            | "SubtensorModule.mint_gamma"
+            | "Crowdloan.contribute" => Spend::Bounded(number(field(&params, "amount")?)?),
             "Balances.transfer_all"
             | "LimitOrders.authorize_order"
             | "HashedAccounts.register"
@@ -280,6 +307,9 @@ impl IntentCall {
             | "SubtensorModule.transfer_stake"
             | "SubtensorModule.transfer_stake_and_hotkey"
             | "SubtensorModule.add_collateral"
+            | "SubtensorModule.mint_gamma_with_stake"
+            | "SubtensorModule.move_gamma"
+            | "SubtensorModule.set_gamma_deposit_spender"
             | "Crowdloan.finalize" => Spend::Unbounded,
             _ => Spend::None,
         };
@@ -716,6 +746,39 @@ mod tests {
                 .check(&IntentCall::operation(operation, params)?, None)
                 .is_empty());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn gamma_operations_preserve_funds_and_subnet_policy() -> Result<(), CoreError> {
+        let call = IntentCall::operation(
+            "SubtensorModule.mint_gamma",
+            record(&[
+                ("hotkey", Value::str("hotkey")),
+                ("netuid", Value::Int(7)),
+                ("amount", Value::Uint(500)),
+                ("min_amount_out", Value::Uint(1)),
+                ("spender", Value::Null),
+                ("daily_spend_cap", Value::Uint(100)),
+            ]),
+        )?;
+        assert_eq!(call.security.spend, Spend::Bounded(500));
+        let policy = Policy {
+            max_spend_rao: Some(499),
+            allowed_netuids: Some([8].into_iter().collect()),
+            ..Default::default()
+        };
+        assert_eq!(policy.check(&call, None).len(), 2);
+        let delegate = IntentCall::operation(
+            "SubtensorModule.set_gamma_deposit_spender",
+            record(&[
+                ("hotkey", Value::str("hotkey")),
+                ("netuid", Value::Int(7)),
+                ("spender", Value::str("spender")),
+            ]),
+        )?;
+        assert_eq!(delegate.security.spend, Spend::Unbounded);
+        assert_eq!(policy.check(&delegate, None).len(), 2);
         Ok(())
     }
 

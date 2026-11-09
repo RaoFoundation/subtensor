@@ -360,6 +360,7 @@ export async function createNodeIntentReader(client: Client, native: NativeChain
     parseRecipient: (address, descriptor) => parseRecipient(address, decodeReceivingAddress, Keypair.fromDescriptor, publicKeyFromSs58, descriptor),
     supportsPqProfile: profile => runtime.supportsMldsaProfile(profile),
     hasStorage: async (pallet, item, at) => (await client.runtimeAt(at)).pallet(pallet)?.storage.some(entry => entry.name === item) ?? false,
+    moduleError: async (pallet, error, at) => (await client.runtimeAt(at ?? blockHash)).moduleError(pallet, error),
     finalizedHead: () => client.finalizedHead(),
     query: (pallet, item, params = [], at) => client.query(pallet, item, params as ScaleValue[], at ?? blockHash),
     queryMap: (pallet, item, params = [], limit) => client.queryMap(pallet, item, params as ScaleValue[], blockHash, { maxResults: limit }),
@@ -373,7 +374,7 @@ export async function createNodeIntentReader(client: Client, native: NativeChain
       if (!Array.isArray(keys)) throw new Error('storage key admission count unavailable')
       return keys.length
     },
-    runtimeCall: (api, method, params = []) => client.runtimeCall(api, method, params as ScaleValue[], blockHash),
+    runtimeCall: (api, method, params = [], at) => client.runtimeCall(api, method, params as ScaleValue[], at ?? blockHash),
     constant: (pallet, name, at) => client.constant(pallet, name, at ?? blockHash),
     blockNumber: async () => block,
     blockHash: async () => blockHash,

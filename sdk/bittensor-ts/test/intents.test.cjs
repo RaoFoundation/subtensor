@@ -14,6 +14,8 @@ function reader(overrides = {}) {
         case 'Account': return { data: { free: 100_000_000_000n } }
         case 'StakingHotkeys': return ['hotkey']
         case 'BasketClaimed': return -1n
+        case 'DeferredBasketDebts': return {}
+        case 'DeferredBasketCashRate': case 'DeferredBasketCashClaimed': case 'DeferredBasketCashReserve': return 0n
         case 'MinerCollateral': return { locked: 1n }
         case 'Delegates': return 0
         case 'RootStakeUnlockInterval': return 0
@@ -22,6 +24,12 @@ function reader(overrides = {}) {
         case 'LastRateLimitedBlock': return 0
         case 'AlphaValues': return [1000, 50000]
         case 'Uids': return 0
+        case 'GammaDeposits': return { coldkey: 'coldkey', spender: 'coldkey', balance: 0n, daily_spend_cap: null }
+        case 'Owner': return 'coldkey'
+        case 'ColdkeyGammaHotkeys': return []
+        case 'NetworksAdded': return true
+        case 'SubnetOwnerHotkey': return 'hotkey'
+        case 'ValidatorPermit': return [true]
         case 'CommitRevealWeightsEnabled': return false
         case 'WeightsSetRateLimit': return 0
         case 'LastUpdate': return [0, 0]
@@ -40,6 +48,8 @@ function reader(overrides = {}) {
     async runtimeCall(api, method) {
       switch (method) {
         case 'current_alpha_price': return 2_000_000_000n
+        case 'sim_mint_gamma': case 'sim_mint_gamma_with_stake': return { Ok: [1_000_000_000n, 1_000_000_000n, 1_000_000_000n] }
+        case 'get_gamma_deposit': return { netuid: 1, hotkey: 'hotkey', deposit: { coldkey: 'coldkey', spender: 'coldkey', balance: 10_000_000_000n, daily_spend_cap: null }, spendable: 10_000_000_000n }
         case 'get_stake_info_for_hotkey_coldkey_netuid': return { stake: 10_000_000_000n }
         case 'get_stake_info_for_coldkey': return [{ hotkey: 'hotkey', netuid: 0, stake: 10n }]
         case 'get_validator_basket': return [[1, 10_000_000_000n, 20_000_000_000n]]
@@ -91,6 +101,10 @@ function sample(tool) {
   if ('timepoint' in args) args.timepoint = { height: 1, index: 0 }
   if ('take' in args) args.take = '0.1'
   switch (tool.name) {
+    case 'set_gamma_deposit_spender': args.default_spender = true; break
+    case 'set_gamma_deposit_daily_spend_cap': args.daily_spend_cap_gamma = '0'; break
+    case 'set_service': args.url = 'https://example.test/service'; break
+    case 'spend_gamma': args.spends = [{ hotkey_ss58: 'hotkey', amount_gamma: '1' }]; break
     case 'authorize_order': case 'cancel_order': args.order = order; args.nonce = 1; break
     case 'execute_orders': case 'execute_batched_orders': args.orders = [{order:{Authorized:{nonce:1n,terms:order}},signature:'AccountApproved',partial_fill:null}]; args.should_fail = true; break
     case 'create_crowdloan': args.target_ss58 = 'target'; break
@@ -108,7 +122,16 @@ function sample(tool) {
 for (const tool of listIntentTools()) {
   test(`Python semantic catalog operation ${tool.name} prepares a call`, async () => {
     const intent = buildIntent(tool.name, sample(tool))
-    const plan = await intent.prepare(reader(), context)
+    const fixture = reader()
+    if (tool.name.includes('gamma') || tool.name === 'set_service') {
+      // An all-zero Owner is the runtime's unassociated-hotkey sentinel.
+      fixture.decodeAddress = address => Uint8Array.from({ length: 32 }, () => address === 'coldkey' ? 3 : address === 'other' ? 2 : 1)
+      if (tool.name === 'move_gamma') {
+        const query = fixture.query
+        fixture.query = async (pallet, item, params) => item === 'GammaDeposits' ? { coldkey: 'coldkey', spender: 'coldkey', balance: 10_000_000_000n, daily_spend_cap: null } : query(pallet, item, params)
+      }
+    }
+    const plan = await intent.prepare(fixture, context)
     assert.equal(isPreparedIntent(plan), true)
     assert.ok(plan.call.pallet)
     assert.ok(plan.call.call)
@@ -180,7 +203,7 @@ test('root claim admission blocks the 130-unit envelope and failed state cannot 
 })
 
 test('root claim admission includes claim-only swap credits, retired rows and queued flush work', async () => {
-  const claims = await buildIntent('claim_root').prepare(reader({ queryMap: async () => Array.from({ length: 257 }, (_, index) => [`credit${index}`, null]) }), context)
+  const claims = await buildIntent('claim_root').prepare(reader({ queryMap: async (_, item) => item === 'HotkeySwapBasketCredits' ? Array.from({ length: 257 }, (_, index) => [`credit${index}`, null]) : [] }), context)
   assert.match(claims.violations.join(), /selection scans/)
   const retired = await buildIntent('claim_root_with_hotkey', { hotkey_ss58: 'hotkey' }).prepare(reader({ countStorageKeys: async (_, item) => item === 'Alpha' ? 129 : item === 'AlphaV2' ? 1 : 0 }), context)
   assert.match(retired.violations.join(), /130-unit/)
@@ -288,8 +311,8 @@ test('hash-only approval retains semantic descriptor for native hash verificatio
   assert.equal(plan.spendRao, 1250000000n)
 })
 
-test('all 33 owner hyperparameters have exact human-unit conversion', async () => {
-  assert.equal(OWNER_HYPERPARAMETERS.length, 33)
+test('all 34 owner hyperparameters have exact human-unit conversion', async () => {
+  assert.equal(OWNER_HYPERPARAMETERS.length, 34)
   assert.equal(hyperparameterToRaw('collateral_drain_ratio', '1.5'), 3n << 63n)
   assert.equal(hyperparameterToRaw('min_burn', '1.000000001'), 1000000001n)
   assert.equal(hyperparameterToRaw('bonds_penalty', '0.5'), 32768n)

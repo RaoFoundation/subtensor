@@ -12,19 +12,20 @@ values. Formatting, prompts, and terminal dashboards remain application concerns
 
 | Reference surface | TypeScript application API | Platforms |
 | --- | --- | --- |
-| 105 registered Python reads | `Client.read`, typed namespaces, pinned `Snapshot`, `Metagraph` | Node and browser |
-| 86 semantic Python intents | Typed `buildIntent`, `intentBuilders`, `plan`, `execute`, tools and policies | Node and browser |
-| Current chain metadata | 411 storage, 136 constants, 125 runtime APIs, 316 call descriptors; dynamic SCALE/runtime access | Node and browser |
+| 111 registered Python reads | `Client.read`, typed namespaces, pinned `Snapshot`, `Metagraph` | Node and browser |
+| 98 semantic Python intents | Typed `buildIntent`, `intentBuilders`, `plan`, `execute`, tools and policies | Node and browser |
+| Current chain metadata | 434 storage, 142 constants, 129 runtime APIs, 348 call descriptors; dynamic SCALE/runtime access | Node and browser |
+| Gamma and services | Exact decimal Gamma, quotes, deposits, spending caps, spender management, per-entry spend receipts, and service registration | Node and browser |
 | Transactions and composition | Transfers, stake and root baskets, claims, proxy, multisig, batch, sudo, registration, weights, identities, collateral, locks, leases, crowdloans, and subnet administration | Node and browser |
-| Detached and external signing | Strict unsigned JSON import/export, extension signers, Vault adapters, metadata proofs and signature verification | Node and browser |
+| Detached and external signing | ECDSA, Sr25519 and Ed25519; strict unsigned JSON import/export, extension signers, Vault adapters, metadata proofs and signature verification | Node and browser |
 | Shielded transactions | Short mortal eras, paired nonces, separate carrier fee accounting, actual inner receipts | Node and browser |
-| Wallet and secret storage | Filesystem wallets, keyfile import/export, encrypted Ethereum keystores, Ledger HID | Node; browser signers use injected extensions or explicit adapters |
+| Wallet and secret storage | Atomic four-file wallet creation, finalized rotating-wallet registration, filesystem wallets, keyfile import/export, encrypted Ethereum keystores, Ledger HID | Node; browser signers use injected extensions or explicit adapters |
 | Extension bridge | Token-bound loopback WebSocket server and extension signer | Node server, browser extension |
 | EVM workflows | Canonical 21 precompiles, address mapping, association, funding, stake, contract deployment and calls | Node and browser; filesystem artifacts in Node |
 | Timelock and proof of work | Encryption/reveal helpers, weight commits, bounded registration orchestration | Node and browser; CPU/OpenCL miners in Node |
 | Operator workflows | Upgrade inspection, asset verification and reproduction recipe, restartable Null pruning, transfer history, endpoint probes | Node and browser through explicit adapters |
 | Local application state | Configuration, address/proxy/multisig books, subnet label caching | File, browser storage, memory, or custom stores |
-| Diagnostics | 421 module errors, 18 semantic error codes, pool rejections, nested dispatch failures | Node and browser |
+| Diagnostics | 459 module errors, 18 semantic error codes, pool rejections, nested dispatch failures | Node and browser |
 
 `scripts/check-native-parity.cjs` checks the Rust export surfaces, including
 explicit mappings for Rust client operations implemented by TypeScript adapters.

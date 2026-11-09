@@ -58,7 +58,7 @@
     "build": "npm run build:native && npm run build:ts && npm run build:wasm && npm run check:binding-parity",
     "check": "npm run check:source-parity && npm run build && npm test",
     "test": "node --test test/*.test.cjs && node scripts/browser-smoke.cjs",
-    "test:localnet": "BT_TS_LOCALNET=1 node --test --test-concurrency=1 test/localnet.test.cjs test/workflows-localnet.test.cjs",
+    "test:localnet": "BT_TS_LOCALNET=1 node --test --test-concurrency=1 test/localnet.test.cjs test/workflows-localnet.test.cjs test/release-localnet.test.cjs",
     "clean": "node scripts/clean.cjs",
     "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",

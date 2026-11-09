@@ -140,3 +140,31 @@ test('browser delayed receipts cannot erase a newer reservation epoch', async ()
   assert.equal(client.reserveNonceRange(signer.address, 0, 1), 1)
   await client.close()
 })
+
+test('browser reprices a reservation crossing the compact nonce boundary before signing', async () => {
+  for (const shield of [false, true]) {
+    const { browser, client, signer } = await fixture()
+    const intent = browser.buildIntent('transfer', { dest_ss58: signer.address, amount_tao: '1' })
+    const quoted = [], signed = []
+    let floorAdvanced = false
+    client.planForSigner = async (_intent, _context, _policy, options) => {
+      const nonce = options.nonce ?? 16383
+      quoted.push(nonce)
+      if (!floorAdvanced) {
+        floorAdvanced = true
+        client.reserveNonceRange(signer.address, 16384, 1)
+      }
+      return {
+        prepared: { feePayer: signer.address, extras: {} }, call: {},
+        violations: nonce >= 16384 ? ['estimated fee exceeds maxFeeRao'] : [],
+        blockHash: await client.blockHash(), nonce, signingOptions: options,
+      }
+    }
+    client.signPrepared = async () => { signed.push(true); throw Error('must reject before signing') }
+    await assert.rejects(client.execute(intent, signer, { mevShield: shield, policy: { maxFeeRao: 100n } }), /exceeds maxFeeRao/)
+    assert.deepEqual(quoted, [16383, 16385])
+    assert.deepEqual(signed, [])
+    assert.equal(await client.peekNonce(signer.address), 16385, 'refused plan releases only its own reservation')
+    await client.close()
+  }
+})

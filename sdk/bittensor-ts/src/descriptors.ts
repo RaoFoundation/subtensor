@@ -90,6 +90,13 @@ export const storage = Object.freeze({
     RootAlphaDividendsPerSubnet: ["SubtensorModule", "RootAlphaDividendsPerSubnet"] as const,
     PendingBasketDeposits: ["SubtensorModule", "PendingBasketDeposits"] as const,
     PendingBasketFlushCursor: ["SubtensorModule", "PendingBasketFlushCursor"] as const,
+    DeferredBasketRates: ["SubtensorModule", "DeferredBasketRates"] as const,
+    DeferredBasketGeneration: ["SubtensorModule", "DeferredBasketGeneration"] as const,
+    DeferredBasketDebts: ["SubtensorModule", "DeferredBasketDebts"] as const,
+    DeferredBasketConversions: ["SubtensorModule", "DeferredBasketConversions"] as const,
+    DeferredBasketCashRate: ["SubtensorModule", "DeferredBasketCashRate"] as const,
+    DeferredBasketCashClaimed: ["SubtensorModule", "DeferredBasketCashClaimed"] as const,
+    DeferredBasketCashReserve: ["SubtensorModule", "DeferredBasketCashReserve"] as const,
     BlockEmission: ["SubtensorModule", "BlockEmission"] as const,
     LastHotkeyEmissionOnNetuid: ["SubtensorModule", "LastHotkeyEmissionOnNetuid"] as const,
     SubnetLimit: ["SubtensorModule", "SubnetLimit"] as const,
@@ -275,6 +282,7 @@ export const storage = Object.freeze({
     Axons: ["SubtensorModule", "Axons"] as const,
     NeuronCertificates: ["SubtensorModule", "NeuronCertificates"] as const,
     Prometheus: ["SubtensorModule", "Prometheus"] as const,
+    Services: ["SubtensorModule", "Services"] as const,
     IdentitiesV2: ["SubtensorModule", "IdentitiesV2"] as const,
     SubnetIdentitiesV3: ["SubtensorModule", "SubnetIdentitiesV3"] as const,
     TransactionKeyLastBlock: ["SubtensorModule", "TransactionKeyLastBlock"] as const,
@@ -339,6 +347,13 @@ export const storage = Object.freeze({
     MinerCollateral: ["SubtensorModule", "MinerCollateral"] as const,
     ColdkeyMinerCollateral: ["SubtensorModule", "ColdkeyMinerCollateral"] as const,
     ColdkeyCollateralHotkeys: ["SubtensorModule", "ColdkeyCollateralHotkeys"] as const,
+    GammaEnabled: ["SubtensorModule", "GammaEnabled"] as const,
+    SubnetGammaEnabled: ["SubtensorModule", "SubnetGammaEnabled"] as const,
+    GammaDeposits: ["SubtensorModule", "GammaDeposits"] as const,
+    ColdkeyGammaHotkeys: ["SubtensorModule", "ColdkeyGammaHotkeys"] as const,
+    SubnetGammaPrice: ["SubtensorModule", "SubnetGammaPrice"] as const,
+    TaoUsdPriceOracle: ["SubtensorModule", "TaoUsdPriceOracle"] as const,
+    TaoUsdPrice: ["SubtensorModule", "TaoUsdPrice"] as const,
     AutoParentDelegationEnabled: ["SubtensorModule", "AutoParentDelegationEnabled"] as const,
     HasMigrationRun: ["SubtensorModule", "HasMigrationRun"] as const,
     PendingChildKeyCooldown: ["SubtensorModule", "PendingChildKeyCooldown"] as const,
@@ -364,6 +379,7 @@ export const storage = Object.freeze({
   Proxy: Object.freeze({
     Proxies: ["Proxy", "Proxies"] as const,
     Announcements: ["Proxy", "Announcements"] as const,
+    AnnouncementValidFrom: ["Proxy", "AnnouncementValidFrom"] as const,
     LastCallResult: ["Proxy", "LastCallResult"] as const,
     RealPaysFeeConsentV1: ["Proxy", "RealPaysFeeConsentV1"] as const,
   }),
@@ -471,6 +487,7 @@ export const storage = Object.freeze({
     HasMigrationRun: ["LimitOrders", "HasMigrationRun"] as const,
   }),
   HashedAccounts: Object.freeze({
+    HashedAccountRegistrationDeposit: ["HashedAccounts", "HashedAccountRegistrationDeposit"] as const,
     Accounts: ["HashedAccounts", "Accounts"] as const,
     EvmAliases: ["HashedAccounts", "EvmAliases"] as const,
     MlDsaAccounts: ["HashedAccounts", "MlDsaAccounts"] as const,
@@ -743,6 +760,12 @@ export const runtimeApi = Object.freeze({
     pending_block: ["EthereumRuntimeRPCApi", "pending_block"] as const,
     initialize_pending_block: ["EthereumRuntimeRPCApi", "initialize_pending_block"] as const,
   }),
+  GammaRuntimeApi: Object.freeze({
+    get_gamma_deposit: ["GammaRuntimeApi", "get_gamma_deposit"] as const,
+    get_gamma_deposits_for_coldkey: ["GammaRuntimeApi", "get_gamma_deposits_for_coldkey"] as const,
+    sim_mint_gamma: ["GammaRuntimeApi", "sim_mint_gamma"] as const,
+    sim_mint_gamma_with_stake: ["GammaRuntimeApi", "sim_mint_gamma_with_stake"] as const,
+  }),
   GenesisBuilder: Object.freeze({
     build_state: ["GenesisBuilder", "build_state"] as const,
     get_preset: ["GenesisBuilder", "get_preset"] as const,
@@ -892,6 +915,7 @@ export const calls = Object.freeze({
     claim_root(subnets: ScaleValue): GeneratedCall { return ["SubtensorModule", "claim_root", { "subnets": subnets }] },
     claim_root_with_hotkey(hotkey: string | Uint8Array): GeneratedCall { return ["SubtensorModule", "claim_root_with_hotkey", { "hotkey": hotkey }] },
     clear_coldkey_swap_announcement(): GeneratedCall { return ["SubtensorModule", "clear_coldkey_swap_announcement", {  }] },
+    close_gamma_deposit(hotkey: string | Uint8Array, netuid: number): GeneratedCall { return ["SubtensorModule", "close_gamma_deposit", { "hotkey": hotkey, "netuid": netuid }] },
     commit_crv3_mechanism_weights(netuid: number, mecid: number, commit: ScaleValue, reveal_round: bigint | number | string): GeneratedCall { return ["SubtensorModule", "commit_crv3_mechanism_weights", { "netuid": netuid, "mecid": mecid, "commit": commit, "reveal_round": reveal_round }] },
     commit_mechanism_weights(netuid: number, mecid: number, commit_hash: string | Uint8Array): GeneratedCall { return ["SubtensorModule", "commit_mechanism_weights", { "netuid": netuid, "mecid": mecid, "commit_hash": commit_hash }] },
     commit_timelocked_mechanism_weights(netuid: number, mecid: number, commit: ScaleValue, reveal_round: bigint | number | string, commit_reveal_version: number): GeneratedCall { return ["SubtensorModule", "commit_timelocked_mechanism_weights", { "netuid": netuid, "mecid": mecid, "commit": commit, "reveal_round": reveal_round, "commit_reveal_version": commit_reveal_version }] },
@@ -902,8 +926,12 @@ export const calls = Object.freeze({
     dispute_coldkey_swap(): GeneratedCall { return ["SubtensorModule", "dispute_coldkey_swap", {  }] },
     dissolve_network(coldkey: string | Uint8Array, netuid: number): GeneratedCall { return ["SubtensorModule", "dissolve_network", { "coldkey": coldkey, "netuid": netuid }] },
     enable_voting_power_tracking(netuid: number): GeneratedCall { return ["SubtensorModule", "enable_voting_power_tracking", { "netuid": netuid }] },
+    feed_tao_usd_price(price: bigint | number | string): GeneratedCall { return ["SubtensorModule", "feed_tao_usd_price", { "price": price }] },
     increase_take(hotkey: string | Uint8Array, take: number): GeneratedCall { return ["SubtensorModule", "increase_take", { "hotkey": hotkey, "take": take }] },
     lock_stake(hotkey: string | Uint8Array, netuid: number, amount: bigint | number | string): GeneratedCall { return ["SubtensorModule", "lock_stake", { "hotkey": hotkey, "netuid": netuid, "amount": amount }] },
+    mint_gamma(hotkey: string | Uint8Array, netuid: number, amount: bigint | number | string, min_amount_out: ScaleValue, spender: ScaleValue, daily_spend_cap: ScaleValue): GeneratedCall { return ["SubtensorModule", "mint_gamma", { "hotkey": hotkey, "netuid": netuid, "amount": amount, "min_amount_out": min_amount_out, "spender": spender, "daily_spend_cap": daily_spend_cap }] },
+    mint_gamma_with_stake(origin_hotkey: string | Uint8Array, destination_hotkey: string | Uint8Array, netuid: number, alpha_amount: bigint | number | string, min_amount_out: ScaleValue, spender: ScaleValue, daily_spend_cap: ScaleValue): GeneratedCall { return ["SubtensorModule", "mint_gamma_with_stake", { "origin_hotkey": origin_hotkey, "destination_hotkey": destination_hotkey, "netuid": netuid, "alpha_amount": alpha_amount, "min_amount_out": min_amount_out, "spender": spender, "daily_spend_cap": daily_spend_cap }] },
+    move_gamma(origin_hotkey: string | Uint8Array, destination_hotkey: string | Uint8Array, netuid: number, amount: ScaleValue): GeneratedCall { return ["SubtensorModule", "move_gamma", { "origin_hotkey": origin_hotkey, "destination_hotkey": destination_hotkey, "netuid": netuid, "amount": amount }] },
     move_lock(destination_hotkey: string | Uint8Array, netuid: number): GeneratedCall { return ["SubtensorModule", "move_lock", { "destination_hotkey": destination_hotkey, "netuid": netuid }] },
     move_stake(origin_hotkey: string | Uint8Array, destination_hotkey: string | Uint8Array, origin_netuid: number, destination_netuid: number, alpha_amount: bigint | number | string): GeneratedCall { return ["SubtensorModule", "move_stake", { "origin_hotkey": origin_hotkey, "destination_hotkey": destination_hotkey, "origin_netuid": origin_netuid, "destination_netuid": destination_netuid, "alpha_amount": alpha_amount }] },
     move_stake_limit(origin_hotkey: string | Uint8Array, destination_hotkey: string | Uint8Array, origin_netuid: number, destination_netuid: number, alpha_amount: bigint | number | string, limit_price: bigint | number | string, allow_partial: boolean): GeneratedCall { return ["SubtensorModule", "move_stake_limit", { "origin_hotkey": origin_hotkey, "destination_hotkey": destination_hotkey, "origin_netuid": origin_netuid, "destination_netuid": destination_netuid, "alpha_amount": alpha_amount, "limit_price": limit_price, "allow_partial": allow_partial }] },
@@ -933,6 +961,8 @@ export const calls = Object.freeze({
     set_childkey_take(hotkey: string | Uint8Array, netuid: number, take: number): GeneratedCall { return ["SubtensorModule", "set_childkey_take", { "hotkey": hotkey, "netuid": netuid, "take": take }] },
     set_children(hotkey: string | Uint8Array, netuid: number, children: ScaleValue): GeneratedCall { return ["SubtensorModule", "set_children", { "hotkey": hotkey, "netuid": netuid, "children": children }] },
     set_coldkey_auto_stake_hotkey(netuid: number, hotkey: string | Uint8Array): GeneratedCall { return ["SubtensorModule", "set_coldkey_auto_stake_hotkey", { "netuid": netuid, "hotkey": hotkey }] },
+    set_gamma_deposit_daily_spend_cap(hotkey: string | Uint8Array, netuid: number, daily_spend_cap: ScaleValue): GeneratedCall { return ["SubtensorModule", "set_gamma_deposit_daily_spend_cap", { "hotkey": hotkey, "netuid": netuid, "daily_spend_cap": daily_spend_cap }] },
+    set_gamma_deposit_spender(hotkey: string | Uint8Array, netuid: number, spender: ScaleValue): GeneratedCall { return ["SubtensorModule", "set_gamma_deposit_spender", { "hotkey": hotkey, "netuid": netuid, "spender": spender }] },
     set_identity(name: ScaleValue, url: ScaleValue, github_repo: ScaleValue, image: ScaleValue, discord: ScaleValue, description: ScaleValue, additional: ScaleValue): GeneratedCall { return ["SubtensorModule", "set_identity", { "name": name, "url": url, "github_repo": github_repo, "image": image, "discord": discord, "description": description, "additional": additional }] },
     set_mechanism_weights(netuid: number, mecid: number, dests: ScaleValue, weights: ScaleValue, version_key: bigint | number | string): GeneratedCall { return ["SubtensorModule", "set_mechanism_weights", { "netuid": netuid, "mecid": mecid, "dests": dests, "weights": weights, "version_key": version_key }] },
     set_min_collateral(netuid: number, hotkey: string | Uint8Array, min_locked: bigint | number | string): GeneratedCall { return ["SubtensorModule", "set_min_collateral", { "netuid": netuid, "hotkey": hotkey, "min_locked": min_locked }] },
@@ -940,9 +970,11 @@ export const calls = Object.freeze({
     set_perpetual_lock(netuid: number, enabled: boolean): GeneratedCall { return ["SubtensorModule", "set_perpetual_lock", { "netuid": netuid, "enabled": enabled }] },
     set_reject_locked_alpha(enabled: boolean): GeneratedCall { return ["SubtensorModule", "set_reject_locked_alpha", { "enabled": enabled }] },
     set_reject_staking_hotkey_growth(enabled: boolean): GeneratedCall { return ["SubtensorModule", "set_reject_staking_hotkey_growth", { "enabled": enabled }] },
+    set_service(netuid: number, hotkey: string | Uint8Array, url: ScaleValue, spender: string | Uint8Array): GeneratedCall { return ["SubtensorModule", "set_service", { "netuid": netuid, "hotkey": hotkey, "url": url, "spender": spender }] },
     set_subnet_identity(netuid: number, subnet_name: ScaleValue, github_repo: ScaleValue, subnet_contact: ScaleValue, subnet_url: ScaleValue, discord: ScaleValue, description: ScaleValue, logo_url: ScaleValue, additional: ScaleValue): GeneratedCall { return ["SubtensorModule", "set_subnet_identity", { "netuid": netuid, "subnet_name": subnet_name, "github_repo": github_repo, "subnet_contact": subnet_contact, "subnet_url": subnet_url, "discord": discord, "description": description, "logo_url": logo_url, "additional": additional }] },
     set_tempo(netuid: number, tempo: number): GeneratedCall { return ["SubtensorModule", "set_tempo", { "netuid": netuid, "tempo": tempo }] },
     set_weights(netuid: number, dests: ScaleValue, weights: ScaleValue, version_key: bigint | number | string): GeneratedCall { return ["SubtensorModule", "set_weights", { "netuid": netuid, "dests": dests, "weights": weights, "version_key": version_key }] },
+    spend_gamma(netuid: number, spends: ScaleValue): GeneratedCall { return ["SubtensorModule", "spend_gamma", { "netuid": netuid, "spends": spends }] },
     stake_into_basket(hotkey: string | Uint8Array, amount_staked: bigint | number | string): GeneratedCall { return ["SubtensorModule", "stake_into_basket", { "hotkey": hotkey, "amount_staked": amount_staked }] },
     start_call(netuid: number): GeneratedCall { return ["SubtensorModule", "start_call", { "netuid": netuid }] },
     sudo_set_max_childkey_take(take: number): GeneratedCall { return ["SubtensorModule", "sudo_set_max_childkey_take", { "take": take }] },
@@ -1076,6 +1108,8 @@ export const calls = Object.freeze({
     sudo_set_emission_gate_exponent(exponent: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_emission_gate_exponent", { "exponent": exponent }] },
     sudo_set_epoch_consensus(netuid: number, mode: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_epoch_consensus", { "netuid": netuid, "mode": mode }] },
     sudo_set_evm_chain_id(chain_id: bigint | number | string): GeneratedCall { return ["AdminUtils", "sudo_set_evm_chain_id", { "chain_id": chain_id }] },
+    sudo_set_gamma_enabled(enabled: boolean): GeneratedCall { return ["AdminUtils", "sudo_set_gamma_enabled", { "enabled": enabled }] },
+    sudo_set_hashed_account_registration_deposit(value: bigint | number | string): GeneratedCall { return ["AdminUtils", "sudo_set_hashed_account_registration_deposit", { "value": value }] },
     sudo_set_hashed_accounts_enabled(enabled: boolean): GeneratedCall { return ["AdminUtils", "sudo_set_hashed_accounts_enabled", { "enabled": enabled }] },
     sudo_set_immunity_period(netuid: number, immunity_period: number): GeneratedCall { return ["AdminUtils", "sudo_set_immunity_period", { "netuid": netuid, "immunity_period": immunity_period }] },
     sudo_set_kappa(netuid: number, kappa: number): GeneratedCall { return ["AdminUtils", "sudo_set_kappa", { "netuid": netuid, "kappa": kappa }] },
@@ -1118,6 +1152,7 @@ export const calls = Object.freeze({
     sudo_set_start_call_delay(delay: bigint | number | string): GeneratedCall { return ["AdminUtils", "sudo_set_start_call_delay", { "delay": delay }] },
     sudo_set_subnet_emission_enabled(netuid: number, enabled: boolean): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_emission_enabled", { "netuid": netuid, "enabled": enabled }] },
     sudo_set_subnet_emission_weights(netuid: number, uids: ScaleValue, values: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_emission_weights", { "netuid": netuid, "uids": uids, "values": values }] },
+    sudo_set_subnet_gamma_enabled(netuid: number, enabled: boolean): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_gamma_enabled", { "netuid": netuid, "enabled": enabled }] },
     sudo_set_subnet_limit(max_subnets: number): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_limit", { "max_subnets": max_subnets }] },
     sudo_set_subnet_moving_alpha(alpha: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_moving_alpha", { "alpha": alpha }] },
     sudo_set_subnet_owner_cut(subnet_owner_cut: number): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_owner_cut", { "subnet_owner_cut": subnet_owner_cut }] },
@@ -1125,6 +1160,7 @@ export const calls = Object.freeze({
     sudo_set_tao_flow_cutoff(flow_cutoff: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_tao_flow_cutoff", { "flow_cutoff": flow_cutoff }] },
     sudo_set_tao_flow_normalization_exponent(exponent: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_tao_flow_normalization_exponent", { "exponent": exponent }] },
     sudo_set_tao_flow_smoothing_factor(smoothing_factor: bigint | number | string): GeneratedCall { return ["AdminUtils", "sudo_set_tao_flow_smoothing_factor", { "smoothing_factor": smoothing_factor }] },
+    sudo_set_tao_usd_price_oracle(oracle: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_tao_usd_price_oracle", { "oracle": oracle }] },
     sudo_set_target_registrations_per_interval(netuid: number, target_registrations_per_interval: number): GeneratedCall { return ["AdminUtils", "sudo_set_target_registrations_per_interval", { "netuid": netuid, "target_registrations_per_interval": target_registrations_per_interval }] },
     sudo_set_tempo(netuid: number, tempo: number): GeneratedCall { return ["AdminUtils", "sudo_set_tempo", { "netuid": netuid, "tempo": tempo }] },
     sudo_set_toggle_transfer(netuid: number, toggle: boolean): GeneratedCall { return ["AdminUtils", "sudo_set_toggle_transfer", { "netuid": netuid, "toggle": toggle }] },
@@ -1222,6 +1258,7 @@ export const calls = Object.freeze({
   HashedAccounts: Object.freeze({
     check_derived(descriptor: ScaleValue): GeneratedCall { return ["HashedAccounts", "check_derived", { "descriptor": descriptor }] },
     check_registered(descriptor: ScaleValue): GeneratedCall { return ["HashedAccounts", "check_registered", { "descriptor": descriptor }] },
+    check_registration_deposit(max_deposit: bigint | number | string): GeneratedCall { return ["HashedAccounts", "check_registration_deposit", { "max_deposit": max_deposit }] },
     register(descriptor: ScaleValue): GeneratedCall { return ["HashedAccounts", "register", { "descriptor": descriptor }] },
     register_derived(descriptor: ScaleValue): GeneratedCall { return ["HashedAccounts", "register_derived", { "descriptor": descriptor }] },
     register_derived_sponsored(descriptor: ScaleValue, deposit_payer: string | Uint8Array): GeneratedCall { return ["HashedAccounts", "register_derived_sponsored", { "descriptor": descriptor, "deposit_payer": deposit_payer }] },
@@ -1540,6 +1577,14 @@ export const callDescriptors = [
   },
   {
     "pallet": "SubtensorModule",
+    "function": "close_gamma_deposit",
+    "args": [
+      "hotkey",
+      "netuid"
+    ]
+  },
+  {
+    "pallet": "SubtensorModule",
     "function": "commit_crv3_mechanism_weights",
     "args": [
       "netuid",
@@ -1623,6 +1668,13 @@ export const callDescriptors = [
   },
   {
     "pallet": "SubtensorModule",
+    "function": "feed_tao_usd_price",
+    "args": [
+      "price"
+    ]
+  },
+  {
+    "pallet": "SubtensorModule",
     "function": "increase_take",
     "args": [
       "hotkey",
@@ -1634,6 +1686,41 @@ export const callDescriptors = [
     "function": "lock_stake",
     "args": [
       "hotkey",
+      "netuid",
+      "amount"
+    ]
+  },
+  {
+    "pallet": "SubtensorModule",
+    "function": "mint_gamma",
+    "args": [
+      "hotkey",
+      "netuid",
+      "amount",
+      "min_amount_out",
+      "spender",
+      "daily_spend_cap"
+    ]
+  },
+  {
+    "pallet": "SubtensorModule",
+    "function": "mint_gamma_with_stake",
+    "args": [
+      "origin_hotkey",
+      "destination_hotkey",
+      "netuid",
+      "alpha_amount",
+      "min_amount_out",
+      "spender",
+      "daily_spend_cap"
+    ]
+  },
+  {
+    "pallet": "SubtensorModule",
+    "function": "move_gamma",
+    "args": [
+      "origin_hotkey",
+      "destination_hotkey",
       "netuid",
       "amount"
     ]
@@ -1910,6 +1997,24 @@ export const callDescriptors = [
   },
   {
     "pallet": "SubtensorModule",
+    "function": "set_gamma_deposit_daily_spend_cap",
+    "args": [
+      "hotkey",
+      "netuid",
+      "daily_spend_cap"
+    ]
+  },
+  {
+    "pallet": "SubtensorModule",
+    "function": "set_gamma_deposit_spender",
+    "args": [
+      "hotkey",
+      "netuid",
+      "spender"
+    ]
+  },
+  {
+    "pallet": "SubtensorModule",
     "function": "set_identity",
     "args": [
       "name",
@@ -1972,6 +2077,16 @@ export const callDescriptors = [
   },
   {
     "pallet": "SubtensorModule",
+    "function": "set_service",
+    "args": [
+      "netuid",
+      "hotkey",
+      "url",
+      "spender"
+    ]
+  },
+  {
+    "pallet": "SubtensorModule",
     "function": "set_subnet_identity",
     "args": [
       "netuid",
@@ -2001,6 +2116,14 @@ export const callDescriptors = [
       "dests",
       "weights",
       "version_key"
+    ]
+  },
+  {
+    "pallet": "SubtensorModule",
+    "function": "spend_gamma",
+    "args": [
+      "netuid",
+      "spends"
     ]
   },
   {
@@ -2961,6 +3084,20 @@ export const callDescriptors = [
   },
   {
     "pallet": "AdminUtils",
+    "function": "sudo_set_gamma_enabled",
+    "args": [
+      "enabled"
+    ]
+  },
+  {
+    "pallet": "AdminUtils",
+    "function": "sudo_set_hashed_account_registration_deposit",
+    "args": [
+      "value"
+    ]
+  },
+  {
+    "pallet": "AdminUtils",
     "function": "sudo_set_hashed_accounts_enabled",
     "args": [
       "enabled"
@@ -3285,6 +3422,14 @@ export const callDescriptors = [
   },
   {
     "pallet": "AdminUtils",
+    "function": "sudo_set_subnet_gamma_enabled",
+    "args": [
+      "netuid",
+      "enabled"
+    ]
+  },
+  {
+    "pallet": "AdminUtils",
     "function": "sudo_set_subnet_limit",
     "args": [
       "max_subnets"
@@ -3331,6 +3476,13 @@ export const callDescriptors = [
     "function": "sudo_set_tao_flow_smoothing_factor",
     "args": [
       "smoothing_factor"
+    ]
+  },
+  {
+    "pallet": "AdminUtils",
+    "function": "sudo_set_tao_usd_price_oracle",
+    "args": [
+      "oracle"
     ]
   },
   {
@@ -3940,6 +4092,13 @@ export const callDescriptors = [
     "function": "check_registered",
     "args": [
       "descriptor"
+    ]
+  },
+  {
+    "pallet": "HashedAccounts",
+    "function": "check_registration_deposit",
+    "args": [
+      "max_deposit"
     ]
   },
   {

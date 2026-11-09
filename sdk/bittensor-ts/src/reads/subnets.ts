@@ -63,7 +63,31 @@ export async function subnetEmissionWeights(view: ReadView, netuid: number) {
   const block = blockOf(view), lastChange = num(last)
   return { netuid: num(info.netuid), weights, shares: shares(weights), burn: integer(info.burn), recycle: integer(info.recycle), owner: integer(info.owner), validator: integer(info.validator), miner: integer(info.miner), global_tao_weight: shareToFloat(integer(global)), created_via_lease: Boolean(info.created_via_lease), root_tao: integer(root), alpha_issuance: integer(ain) + integer(aout) + integer(reservoir), root_share: shareToFloat(rootParts), baseline_root_share: shareToFloat(baseline), baseline_root_parts: baseline, validator_share_after_root: shareToFloat(weights[3] - rootParts), root_capped: baseline > weights[3], min_validator: floor, block, last_change_block: lastChange, rules: () => ({ min_validator: floor, min_owner: DEFAULT_OWNER, created_via_lease: Boolean(info.created_via_lease) }), rate_limit: () => rateLimitStatus(lastChange, block) }
 }
+export interface SubnetService {
+  url: string
+  spender: string
+  owner: boolean
+}
+function serviceUrl(value: unknown): string {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value instanceof Uint8Array ? value : Array.isArray(value) ? Uint8Array.from(value) : null
+  if (!bytes) throw new TypeError('invalid service URL bytes')
+  const hex = () => '0x' + Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  let text: string
+  try { text = typeof value === 'string' ? value : new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { return hex() }
+  // Preserve printable strings literally, even when they begin with "0x".
+  // Control, format and non-ASCII separator characters must not reach a terminal.
+  return !text || /[\p{C}\p{Z}]/u.test(text.replace(/ /g, '')) ? hex() : text
+}
+export async function services(view: ReadView, netuid: number): Promise<Record<string, SubnetService>> {
+  const [rows, ownerHotkey, subnetOwner] = await Promise.all([view.queryMap(st('Services'), [netuid]), view.query(st('SubnetOwnerHotkey'), [netuid]), view.query(st('SubnetOwner'), [netuid])])
+  const ownerStillOwnsHotkey = ownerHotkey != null && String(await view.query(st('Owner'), [ownerHotkey])) === String(subnetOwner)
+  return Object.fromEntries(rows.map(([key, info]) => {
+    const hotkey = String(keyOf(key))
+    return [hotkey, { url: serviceUrl(info.url), spender: String(info.spender), owner: ownerStillOwnsHotkey && hotkey === String(ownerHotkey) }]
+  }))
+}
 export const subnetReads = {
+  services: (view: ReadView, p: { netuid: number }) => services(view, p.netuid),
   subnet_state: (view: ReadView, p: { netuid: number }) => subnetState(view, p.netuid),
   subnet_states: (view: ReadView) => subnetStates(view),
   subnet: (view: ReadView, p: { netuid: number }) => subnet(view, p.netuid),

@@ -60,14 +60,14 @@ test('localnet covers live reads, metadata, namespaces, snapshots, and fallback 
     assert.deepEqual(await node.validateDescriptorSchema(head), [])
     await node.assertDescriptorSchema(head)
 
-    const now = await node.query(sdk.storage.Timestamp.Now)
+    const now = await node.query(sdk.storage.Timestamp.Now, [], head)
     assert.ok(typeof now === 'number' || typeof now === 'bigint')
     assert.ok(await node.timestamp() instanceof Date)
     const blockInfo = await node.blockInfo(blockNumber)
     assert.equal(blockInfo?.number, blockNumber)
     assertHash(blockInfo?.hash, 'blockInfo hash')
 
-    const account = await node.query(sdk.storage.System.Account, [alice.ss58Address])
+    const account = await node.query(sdk.storage.System.Account, [alice.ss58Address], head)
     assert.ok(account?.data)
     const accountBatch = await node.queryBatch(sdk.storage.System.Account, [
       [alice.ss58Address],
@@ -134,7 +134,7 @@ test('localnet covers live reads, metadata, namespaces, snapshots, and fallback 
     assert.ok((await native.queryMap('SubtensorModule', 'NetworksAdded')).length >= 1)
     assert.ok((await native.runtimeCall('SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v3', [netuid])))
 
-    const browserAccount = await browser.query(sdk.storage.System.Account, [alice.ss58Address])
+    const browserAccount = await browser.query(sdk.storage.System.Account, [alice.ss58Address], head)
     assert.deepEqual(browserAccount.data.free, account.data.free)
     const waited = await browser.waitForBlock(blockNumber, { timeoutMs: 30_000 })
     assert.ok(waited.number >= blockNumber)

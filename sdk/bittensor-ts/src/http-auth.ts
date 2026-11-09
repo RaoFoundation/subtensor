@@ -24,6 +24,29 @@ export class InMemoryNonceStore implements NonceStore {
   }
 }
 export interface AuthRequest { method: string; path: string; body?: Uint8Array; receiverSs58?: string; nonceNs?: bigint }
+export interface AuthVerificationOptions {
+  method: string; path: string; selfHotkeySs58: string
+  /** A trusted per-request scheme overrides the receiver's configured registry. */
+  expectedCryptoType?: number
+  maxAge?: number; allowedSkew?: number; requireReceiver?: boolean; nonceStore?: NonceStore; nowNs?: bigint
+}
+const trustedSenderSchemes = new Map<string, ReadonlyMap<string, number>>()
+function trustedCryptoType(value: number): void {
+  if (!Number.isInteger(value) || ![0, 1, 4, 6].includes(value)) throw new TypeError('unsupported trusted sender crypto type; only ordinary and hashed SR/ED HTTP authentication is supported')
+}
+function verifierAddress(value: string): void {
+  if (typeof value !== 'string' || value.length === 0) throw new TypeError('verifier hotkey must be a nonempty SS58 string')
+}
+/** Publish a copied trusted registry atomically. Never derive it from request headers. */
+export function configureVerifier(selfHotkeySs58: string, options: { trustedSenderSchemes: Readonly<Record<string, number>> | ReadonlyMap<string, number> }): void {
+  verifierAddress(selfHotkeySs58)
+  const entries = options.trustedSenderSchemes instanceof Map ? options.trustedSenderSchemes.entries() : Object.entries(options.trustedSenderSchemes)
+  const registry = new Map<string, number>()
+  for (const [sender, scheme] of entries) { verifierAddress(sender); trustedCryptoType(scheme); registry.set(sender, scheme) }
+  trustedSenderSchemes.set(selfHotkeySs58, registry)
+}
+/** Clearing a receiver makes subsequent unconfigured verification fail closed. */
+export function clearVerifier(selfHotkeySs58: string): void { verifierAddress(selfHotkeySs58); trustedSenderSchemes.delete(selfHotkeySs58) }
 export async function buildAuthPayload(options: AuthRequest & { scheme: 'sr25519' | 'ed25519' | 'hashed-sr25519' | 'hashed-ed25519'; nonceNs: bigint; senderSs58: string }): Promise<Uint8Array> {
   const bodyHash = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(options.body ?? []).buffer))
   return new TextEncoder().encode([HTTP_AUTH_PROTOCOL, options.scheme, options.method.toUpperCase(), options.path, bytesHex(bodyHash).slice(2), String(options.nonceNs), options.senderSs58, options.receiverSs58 || '-'].join('\n'))
@@ -44,6 +67,8 @@ export function createHttpAuth(crypto: PortableCrypto) {
   let lastNonce = 0n
   return {
     buildPayload: buildAuthPayload,
+    configureVerifier,
+    clearVerifier,
     async sign(signer: PortableSigner, options: AuthRequest): Promise<Record<string, string>> {
       if ([4,6].includes(signer.cryptoType) && !preparedHashedSigners.has(signer)) throw new Error('use prepareHttpSigner with finalized chain authority first')
       const now = BigInt(Date.now()) * 1_000_000n
@@ -55,14 +80,16 @@ export function createHttpAuth(crypto: PortableCrypto) {
       if (!(signature instanceof Uint8Array)) throw new TypeError('signer must return signature bytes')
       return { [HTTP_AUTH_HEADERS.version]: '1', [HTTP_AUTH_HEADERS.hotkey]: signer.ss58Address, [HTTP_AUTH_HEADERS.nonce]: String(nonceNs), [HTTP_AUTH_HEADERS.signature]: bytesHex(signature), ...(scheme === 'sr25519' ? {} : { [HTTP_AUTH_HEADERS.crypto]: scheme }), ...(options.receiverSs58 == null ? {} : { [HTTP_AUTH_HEADERS.receiver]: options.receiverSs58 }) }
     },
-    async verify(headers: Headers | Record<string, string>, body: Uint8Array, options: { method: string; path: string; selfHotkeySs58: string; expectedCryptoType: number; maxAge?: number; allowedSkew?: number; requireReceiver?: boolean; nonceStore?: NonceStore; nowNs?: bigint }): Promise<AuthCaller> {
+    async verify(headers: Headers | Record<string, string>, body: Uint8Array, options: AuthVerificationOptions): Promise<AuthCaller> {
+      if (options.expectedCryptoType !== undefined) trustedCryptoType(options.expectedCryptoType)
       const h = new Headers(headers)
       if (h.get(HTTP_AUTH_HEADERS.version) !== '1') throw new MalformedAuth('missing or unsupported authentication version')
       const sender = h.get(HTTP_AUTH_HEADERS.hotkey), nonce = h.get(HTTP_AUTH_HEADERS.nonce), signature = h.get(HTTP_AUTH_HEADERS.signature)
       if (!sender || !nonce || !/^-?\d+$/.test(nonce) || signature == null) throw new MalformedAuth('missing or malformed authentication headers')
       const nonceNs = BigInt(nonce), cryptoType = cryptoFor(h.get(HTTP_AUTH_HEADERS.crypto) ?? 'sr25519')
-      if (![0,1,4,6].includes(options.expectedCryptoType)) throw new TypeError('expectedCryptoType must come from trusted configuration or chain state')
-      if (cryptoType !== options.expectedCryptoType) throw new BadSignature('declared scheme differs from trusted sender scheme')
+      const expected = options.expectedCryptoType ?? trustedSenderSchemes.get(options.selfHotkeySs58)?.get(sender)
+      if (expected === undefined) throw new BadSignature('no trusted sender scheme configured; supply expectedCryptoType or configureVerifier')
+      if (cryptoType !== expected) throw new BadSignature('declared scheme differs from trusted sender scheme')
       let signatureBytes: Uint8Array
       try { signatureBytes = hexBytes(signature) } catch { throw new MalformedAuth('invalid signature encoding') }
       const receiverSs58 = h.get(HTTP_AUTH_HEADERS.receiver) ?? undefined

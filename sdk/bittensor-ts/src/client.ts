@@ -2,6 +2,9 @@ import { SubmissionUncertainError, SubmissionNotSentError, isDefiniteSubmissionR
 export { SubmissionUncertainError, SubmissionNotSentError } from './transport'
 import { serializeUnsignedTransaction, restoreUnsignedTransaction, type SerializedUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime } from './unsigned-transaction'
 import { ProtectedWalletClient } from './protected-transactions'
+import { registerWallet, registrationDepositForTypes, estimateWalletRegistrationFee, walletPublicKey, requireWalletIdentity, bindWalletRegistrationSigner, type WalletRegistrationOptions, type WalletRegistrationAdapter } from './wallet-registration'
+import { Wallet, type WalletPasswordOptions } from './wallet'
+import { isProtectedCrypto } from './wallet-types'
 import type { ProtectedKeypair } from './protected-accounts'
 import { verifyAuthorization } from './keys'
 import { resolveEvmRecipient } from './evm-alias'
@@ -10,19 +13,22 @@ import { followShieldedResult } from './shielded-receipt'
 import { createNodeIntentReader } from './node-workflows'
 import { classifyChainError, chainErrorFromDispatch, type ChainErrorInfo } from './chain-errors'
 import { nestedDispatchError } from './receipt'
+import { gammaReceiptData } from './gamma'
+import { extrinsicSignerAccountId } from './extrinsic-signer'
 import { WorkflowClient, type WorkflowOptions, type WorkflowPlan, type WorkflowSigner, type WorkflowResult } from './node-workflows'
 import { runSignerQueue, signerQueueOptions, bindSignerIdentity } from './signer-queue'
-import { listIntentTools, type Intent } from './intents'
+import { encodeIntentCall, listIntentTools, type Intent } from './intents'
 import { createNodeUpgradeClient } from './node-upgrade'
 import type { UpgradeClient } from './upgrade'
 import { dispatchRead, listReads, type ReadName, type ReadParams, type ReadResult, type ReadArgs, type ReadView } from './reads'
 import { fetchMetagraph, fetchCommitments } from './metagraph'
-import { bindReadNamespace, type AccountsReadNamespace, type ChainReadNamespace, type SubnetsReadNamespace, type StakingReadNamespace, type EpochsReadNamespace, type HyperparametersReadNamespace, type DelegationReadNamespace, type NeuronsReadNamespace, type LeasingReadNamespace, type CollateralReadNamespace, type LocksReadNamespace, type IdentityReadNamespace, type WeightsReadNamespace, type PricesReadNamespace, type ReadBlock } from './read-namespaces'
+import { bindReadNamespace, type AccountsReadNamespace, type ChainReadNamespace, type SubnetsReadNamespace, type StakingReadNamespace, type EpochsReadNamespace, type HyperparametersReadNamespace, type DelegationReadNamespace, type NeuronsReadNamespace, type LeasingReadNamespace, type CollateralReadNamespace, type LocksReadNamespace, type IdentityReadNamespace, type WeightsReadNamespace, type GammaReadNamespace, type PricesReadNamespace, type ReadBlock } from './read-namespaces'
 import { storage as generatedStorage, constants as generatedConstants, runtimeApi as generatedRuntimeApi, calls as generatedCalls, callDescriptors } from './descriptors'
 import { DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_MAX_REQUEST_RETRIES, DEFAULT_RETRY_BACKOFF_MS, DEFAULT_MAX_RETRY_BACKOFF_MS, DEFAULT_ENDPOINT_VALIDATION_TTL_MS, DEFAULT_MAX_SUBSCRIPTION_QUEUE, DEFAULT_MAX_WS_MESSAGE_BYTES, IDEMPOTENT_RPC_METHODS, RpcRequestOptions, JsonRpcTransportOptions, RpcRequest, SubscriptionWaiter, SubscriptionState, EndpointAttempt, ActiveConnection, ConnectingAttempt, SubscriptionOptions, WebSocketLike, WebSocketConstructor, WebSocketFactory, EndpointRequest, EndpointValidator, JsonRpcError, ChainError, RequestTimeoutError, RequestAbortedError, EndpointValidationError, JsonRpcTransport, nonNegativeNumber, nonNegativeInteger, hasOwn, parseJsonRpcResponse, readResponseText, jsonRpcResponseResult, jsonRpcSubscriptionNotification, RequestSignal, delay, withRequestSignal, normalizeAbortError, throwIfAborted } from './transport'
 export { JsonRpcTransport, EndpointValidationError, RequestAbortedError, RequestTimeoutError, ChainError, JsonRpcError, EndpointValidator, EndpointRequest, WebSocketFactory, WebSocketConstructor, WebSocketLike, JsonRpcTransportOptions, RpcRequestOptions, DEFAULT_MAX_WS_MESSAGE_BYTES, DEFAULT_MAX_SUBSCRIPTION_QUEUE, DEFAULT_ENDPOINT_VALIDATION_TTL_MS, DEFAULT_MAX_RETRY_BACKOFF_MS, DEFAULT_RETRY_BACKOFF_MS, DEFAULT_MAX_REQUEST_RETRIES, DEFAULT_REQUEST_TIMEOUT_MS } from './transport'
 import { blake2_256, generateExtrinsicProof, hexToBytes, metadataDigest } from './crypto'
-import { CRYPTO_ED25519, CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPublic, verify } from './keys'
+import { CRYPTO_ED25519, CRYPTO_SR25519, CRYPTO_ECDSA, Keypair, publicKeyFromSs58, accountIdFromEcdsaPublic, ss58FromPublic, verify } from './keys'
+import { normalizeSignatureBytes } from './signatures'
 import { LedgerDevice } from './ledger'
 import { Runtime, decodeOptionalOpaqueMetadata, eraBirth, type RuntimeSignerPayload } from './runtime'
 import { IntentCall, NativeChainClient, Policy, createNativeCancellationToken, isIntentCall, rawCall, type NativeCancellationToken, type PolicyOptions, type SignerRoleLike } from './transaction'
@@ -322,6 +328,7 @@ export class BrowserChainClient {
   readonly locks: LocksReadNamespace
   readonly identity: IdentityReadNamespace
   readonly weights: WeightsReadNamespace
+  readonly gamma: GammaReadNamespace
   readonly prices: PricesReadNamespace
   readonly neurons: NeuronsNamespace & NeuronsReadNamespace
   readonly staking: StakingNamespace & StakingReadNamespace
@@ -378,6 +385,7 @@ export class BrowserChainClient {
     this.locks = bindReadNamespace({}, 'Locks & conviction', block => scopedReadView(this, block)) as LocksReadNamespace
     this.identity = bindReadNamespace({}, 'Identity & commitments', block => scopedReadView(this, block)) as IdentityReadNamespace
     this.weights = bindReadNamespace({}, 'Weights & bonds', block => scopedReadView(this, block)) as WeightsReadNamespace
+    this.gamma = bindReadNamespace({}, 'Gamma', block => scopedReadView(this, block)) as GammaReadNamespace
     this.prices = bindReadNamespace({}, 'Prices & swaps', block => scopedReadView(this, block)) as PricesReadNamespace
     this.headRuntimeTtlMs = nonNegativeNumber(options.headRuntimeTtlMs, DEFAULT_HEAD_RUNTIME_TTL_MS)
     this.historicalRuntimeCacheSize = nonNegativeInteger(
@@ -1196,9 +1204,9 @@ export class BrowserChainClient {
     const { runtime } = snapshot
     const { callData } = this.prepareCallForSigning(call, runtime, options)
     const account = await this.resolveSigner(signer, runtime)
-    // Both supported schemes use 64-byte signatures. A zero-filled signature
+    // A zero-filled signature with the selected scheme's exact length
     // preserves the encoded length without granting the RPC signing authority.
-    const quoted = runtime.encodeSignedExtrinsic(callData, account.publicKey, Buffer.alloc(64), account.cryptoType, {
+    const quoted = runtime.encodeSignedExtrinsic(callData, account.publicKey, Buffer.alloc(account.cryptoType === CRYPTO_ECDSA ? 65 : 64), account.cryptoType, {
       era: '00',
       nonce: await this.peekNextIndex(account.ss58Address),
       tip: 0n,
@@ -1463,13 +1471,13 @@ export class BrowserChainClient {
     if (ss58Address == null) {
       throw new ChainError('signer must expose an address, ss58Address, or getAccount()')
     }
-    const publicKey = signerPublicKey(account?.publicKey ?? signerShape.publicKey, ss58Address)
+    const cryptoType = account?.cryptoType ?? signerShape.cryptoType ?? CRYPTO_SR25519
+    const publicKey = signerPublicKey(account?.publicKey ?? signerShape.publicKey, ss58Address, cryptoType)
     const addressPublicKey = publicKeyFromSs58(ss58Address)
     if (!publicKey.equals(addressPublicKey)) {
       throw new ChainError('signer publicKey does not match signer address')
     }
-    const cryptoType = account?.cryptoType ?? signerShape.cryptoType ?? CRYPTO_SR25519
-    if (cryptoType !== CRYPTO_ED25519 && cryptoType !== CRYPTO_SR25519) {
+    if (cryptoType !== CRYPTO_ED25519 && cryptoType !== CRYPTO_SR25519 && cryptoType !== CRYPTO_ECDSA) {
       throw new ChainError(`unsupported signer cryptoType ${cryptoType}`)
     }
     return {
@@ -1602,7 +1610,9 @@ export class BrowserChainClient {
     const success = triggered.some((event) => eventName(event) === 'System.ExtrinsicSuccess')
     const feeEvent = triggered.find((event) => eventName(event) === 'TransactionPayment.TransactionFeePaid')
     const dispatchSuccess = success && failed == null
+    const gammaData = await gammaReceiptData(triggered, async (pallet, error) => runtime.moduleError(pallet, error))
     return {
+      ...(Object.keys(gammaData).length ? { data: gammaData } : {}),
       status: failed ? 'failed' : dispatchSuccess ? finalized ? 'finalized' : 'inBlock' : 'unknown',
       success: failed ? false : dispatchSuccess || undefined,
       message: failed ? dispatchFailureMessage(runtime, failed) : dispatchSuccess ? 'Success' : 'Included, but no dispatch outcome event was found',
@@ -1616,6 +1626,36 @@ export class BrowserChainClient {
 }
 
 export class Client extends BrowserChainClient {
+  private walletRegistrationAdapter(passwordOptions: WalletPasswordOptions = {}): WalletRegistrationAdapter {
+    const publicIdentity = (wallet: any, role: 'coldkey' | 'hotkey') => walletPublicKey(wallet, role, {
+      decodeAddress: publicKeyFromSs58, ecdsaAccount: accountIdFromEcdsaPublic,
+      accountContext: async () => { const runtime = await this.runtimeAt(); return { client: this, runtime, ss58Format: runtime.ss58Format } },
+    })
+    return {
+      publicKey: publicIdentity, descriptorAccount: descriptor => Keypair.fromDescriptor(descriptor).ss58Address,
+      decodeAddress: publicKeyFromSs58, finalizedHead: () => this.finalizedHead(), blockHash: () => this.blockHash(),
+      reader: async block => createNodeIntentReader(this, await this.requireNativeClient(), block),
+      estimateFee: (call, payer, block) => estimateWalletRegistrationFee(this, call, payer, block, publicKeyFromSs58),
+      submit: async (call, payer, expected, options) => {
+        const signer = payer instanceof Wallet ? await payer.signer('coldkey', passwordOptions) : await (payer.coldkey ?? payer)
+        requireWalletIdentity(await publicIdentity(signer, 'coldkey'), expected, publicKeyFromSs58)
+        const submitOptions = { allowRawCall: true, mevShield: true, waitForFinalization: true, signal: options.signal, timeoutMs: options.timeoutMs }
+        if (isProtectedCrypto(expected.cryptoType)) return this.protectedWallet(signer).submit(call, submitOptions)
+        // The native raw-call path accepts SCALE RuntimeCall bytes for nested
+        // calls, not semantic descriptors. Encode every child with one runtime
+        // before handing the guarded atomic registration to Shield.
+        const runtime = await this.runtimeAt()
+        const encoded = await encodeIntentCall(call, async (pallet, name, params) => runtime.composeCall(pallet, name, params as ScaleValue))
+        return this.submitRawShielded(encoded, bindWalletRegistrationSigner(signer, expected, () => publicIdentity(signer, 'coldkey'), publicKeyFromSs58), submitOptions)
+      },
+    }
+  }
+  registerWallet(wallet: unknown, options: WalletRegistrationOptions & WalletPasswordOptions = {}) {
+    return registerWallet(this.walletRegistrationAdapter(options), wallet, options)
+  }
+  registrationDepositForTypes(cryptoTypes: readonly number[]) {
+    return registrationDepositForTypes(this.walletRegistrationAdapter(), cryptoTypes)
+  }
   async resolveEvmRecipient(address: string) { return resolveEvmRecipient(await createNodeIntentReader(this,await this.requireNativeClient(),await this.finalizedHead()),address) }
   protectedWallet(keypair: ProtectedKeypair): ProtectedWalletClient {
     return new ProtectedWalletClient({
@@ -1929,7 +1969,7 @@ export class Client extends BrowserChainClient {
       const normalized = normalizeSignature(signature, record.planned.resolved.cryptoType)
       const cancellation = nativeCancellationForSignal(options.signal)
       const outcome = await abortableNative(record.planned.native.submitExternal(record.planned.plan, normalized.signature, nativeSubmitOptions(options), normalized.cryptoType, cancellation), options.signal, cancellation)
-      return nativeOutcomeToExtrinsicResult(outcome, options.waitForFinalization === true)
+      return nativeOutcomeToExtrinsicResult(outcome, options.waitForFinalization === true, this)
     }, options)
   }
 
@@ -2000,6 +2040,7 @@ export class Client extends BrowserChainClient {
     return nativeOutcomeToExtrinsicResult(
       outcome,
       options.waitForFinalization === true,
+      this,
     )
     }, options)
   }
@@ -2050,6 +2091,7 @@ export class Client extends BrowserChainClient {
     return nativeOutcomeToExtrinsicResult(
       outcome,
       options.waitForFinalization === true,
+      this,
     )
     }
     return address == null ? broadcast() : runSignerQueue(this, address, broadcast, options)
@@ -2083,6 +2125,7 @@ export class Client extends BrowserChainClient {
       .then((outcome) => nativeOutcomeToExtrinsicResult(
         outcome,
         options.waitForFinalization === true,
+        this,
       )), signal, cancellation)
     }
     const result = address == null ? broadcast() : runSignerQueue(this, address, broadcast, options)
@@ -2099,9 +2142,9 @@ export class Client extends BrowserChainClient {
   private async signedExtrinsicAccount(bytes: Buffer, expectedAddress?: string): Promise<string | undefined> {
     const runtime = await this.runtimeAt()
     const decoded = runtime.decodeExtrinsic(bytes) as Record<string, any>
-    if (decoded.address == null) return undefined
-    const raw = decoded.address.Id ?? decoded.address
-    const publicKey = typeof raw === 'string' ? raw.startsWith('0x') ? hexToBuffer(raw) : publicKeyFromSs58(raw) : toBuffer(raw, 'extrinsic signer')
+    const account = extrinsicSignerAccountId(decoded.address, publicKeyFromSs58)
+    if (account == null) return undefined
+    const publicKey = Buffer.from(account)
     if (expectedAddress != null && !publicKeyFromSs58(expectedAddress).equals(publicKey)) throw new ChainError('submitted extrinsic signer differs from signerAddress')
     return ss58FromPublic(publicKey, runtime.ss58Format)
   }
@@ -2213,6 +2256,7 @@ export class Client extends BrowserChainClient {
 }
 
 export class Snapshot {
+  async moduleError(pallet: number, error: number) { return (await this.client.runtimeAt(this.blockHash)).moduleError(pallet, error) }
   readonly balances: SnapshotBalancesNamespace & AccountsReadNamespace
   readonly subnets: SnapshotSubnetsNamespace & SubnetsReadNamespace
   readonly staking: SnapshotStakingNamespace & StakingReadNamespace
@@ -2225,6 +2269,7 @@ export class Snapshot {
   readonly locks: LocksReadNamespace
   readonly identity: IdentityReadNamespace
   readonly weights: WeightsReadNamespace
+  readonly gamma: GammaReadNamespace
   readonly prices: PricesReadNamespace
   readonly neurons: SnapshotNeuronsNamespace & NeuronsReadNamespace
 
@@ -2238,6 +2283,7 @@ export class Snapshot {
     this.locks = bindReadNamespace({}, 'Locks & conviction', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as LocksReadNamespace
     this.identity = bindReadNamespace({}, 'Identity & commitments', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as IdentityReadNamespace
     this.weights = bindReadNamespace({}, 'Weights & bonds', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as WeightsReadNamespace
+    this.gamma = bindReadNamespace({}, 'Gamma', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as GammaReadNamespace
     this.prices = bindReadNamespace({}, 'Prices & swaps', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as PricesReadNamespace
     this.balances = bindReadNamespace(new SnapshotBalancesNamespace(this), 'Accounts & keys', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as SnapshotBalancesNamespace & AccountsReadNamespace
     this.subnets = bindReadNamespace(new SnapshotSubnetsNamespace(this), 'Subnets', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as SnapshotSubnetsNamespace & SubnetsReadNamespace
@@ -3119,10 +3165,11 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-function signerPublicKey(value: ByteLike | undefined, ss58Address: string): Buffer {
-  return value == null
+function signerPublicKey(value: ByteLike | undefined, ss58Address: string, cryptoType = CRYPTO_SR25519): Buffer {
+  const key = value == null
     ? publicKeyFromSs58(ss58Address)
     : toBuffer(value, 'signer.publicKey')
+  return cryptoType === CRYPTO_ECDSA && key.length === 33 ? accountIdFromEcdsaPublic(key) : key
 }
 
 function nativeExternalSigningOptions(options: SubmitOptions): NativeExternalSigningOptions {
@@ -3339,10 +3386,7 @@ function normalizeSignature(
     throw new ChainError('signer returned signedTransaction, which is not supported by this signing path')
   }
   const raw = signatureBytes(result)
-  if (raw.length === 65 && raw[0] <= CRYPTO_SR25519) {
-    return { signature: Buffer.from(raw.subarray(1)), cryptoType: raw[0] }
-  }
-  return { signature: raw, cryptoType: fallbackCryptoType }
+  return { signature: Buffer.from(normalizeSignatureBytes(raw, fallbackCryptoType)), cryptoType: fallbackCryptoType }
 }
 
 function signatureBytes(result: SignerSignature): Buffer {
@@ -3441,11 +3485,24 @@ function policyForSubmitOptions(options: SubmitOptions): Policy {
   })
 }
 
-function nativeOutcomeToExtrinsicResult(outcome: NativeTxOutcome, finalized: boolean): ExtrinsicResult {
+async function nativeOutcomeToExtrinsicResult(outcome: NativeTxOutcome, finalized: boolean, client: BrowserChainClient): Promise<ExtrinsicResult> {
   const blockNumber = outcome.blockNumber == null ? undefined : Number(outcome.blockNumber)
   const extrinsicIndex = outcome.extrinsicIndex ?? undefined
   const included = outcome.blockHash != null && blockNumber != null && extrinsicIndex != null
-  const data = (outcome.data ?? {}) as Record<string, unknown>
+  // Error indices belong to the runtime that executed the inclusion block.
+  // Load it only when a skipped Gamma spend contains a Module dispatch error.
+  let executionRuntime: Promise<Runtime> | undefined
+  const gammaData = await gammaReceiptData(outcome.events, async (pallet, error) => {
+    executionRuntime ??= (async () => {
+      if (!outcome.blockHash) throw new ChainError('Gamma receipt has no inclusion block')
+      const header = await client.rpc('chain_getHeader', [outcome.blockHash]) as { number?: string | number; parentHash?: string }
+      const at = headerNumber(header) === 0 ? outcome.blockHash : header.parentHash
+      if (!at) throw new ChainError('Gamma inclusion block has no execution parent')
+      return client.runtimeAt(at)
+    })()
+    return (await executionRuntime).moduleError(pallet, error)
+  })
+  const data = { ...(outcome.data ?? {}) as Record<string, unknown>, ...gammaData }
   const uncertain = data.submission_uncertain === true
   return {
     data,

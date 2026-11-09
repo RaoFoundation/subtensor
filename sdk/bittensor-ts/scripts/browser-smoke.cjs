@@ -164,8 +164,8 @@ try {
   assert(decodedExtrinsic.call.call_function === 'remark', 'extrinsic call function decoded')
 
   assert(typeof globalThis.Buffer === 'undefined', 'no Node Buffer polyfill is present')
-  assert(sdk.listReads().length === 105, 'complete read catalog available')
-  assert(sdk.listIntentTools().length === 90, 'complete intent catalog available')
+  assert(sdk.listReads().length === 111, 'complete read catalog available')
+  assert(sdk.listIntentTools().length === 98, 'complete intent catalog available')
   assert(typeof sdk.resolveTransactionFeePayer === 'function' && typeof sdk.serializeUnsignedTransaction === 'function', 'portable fee-payer and unsigned helpers are public browser exports')
   assert(sdk.blake2_256(new Uint8Array()).length === 32, 'WASM hash available')
   const client = new sdk.Client('local')

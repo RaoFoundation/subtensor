@@ -1,4 +1,5 @@
 import { Balance, RAO_PER_TAO, UnitMismatchError } from './balance'
+import { gammaAmount, normalizeGammaArguments, prepareGammaIntent } from './gamma'
 import { prepareOrderIntent } from './limit-orders'
 import { prepareRecipients, registrationShieldDefault, type Recipient } from './receiving'
 import { quoteRegistrationDeposit, registrationDepositGuard } from './registration-deposit'
@@ -6,7 +7,7 @@ import { INTENT_CATALOG } from './intent-catalog'
 import * as emission from './emission-weights'
 import { prepareWeights, type EncryptWeightsV2Options } from './intent-weights'
 import { prepareHyperparameter } from './intent-hyperparameters'
-import { rootClaimChargedFeeRao, quoteRootClaimPreviews, type RootClaimPreview } from './root-claim'
+import { rootClaimChargedFeeRao, quoteRootClaimPreviews, readRootClaimRelationships, type RootClaimPreview } from './root-claim'
 import type { IntentArguments, IntentBuilders, IntentInputMap } from './intent-inputs'
 export type { IntentInputMap, IntentJSON, IntentArguments, IntentBuilders, IntentAmountInput, BasketSwapLegInput, IntentTimepointInput } from './intent-inputs'
 
@@ -43,6 +44,7 @@ export interface IntentReader {
   /** Count physical keys, including retired Alpha rows not present in runtime metadata. */
   countStorageKeys?(pallet: string, item: string, params: unknown[], limit: number): Promise<number>
   runtimeCall(api: string, method: string, params?: unknown[], block?: number | string | null): Promise<unknown>
+  moduleError?(pallet: number, error: number, block?: string): Promise<{ name: string; docs: readonly string[] }>
   constant?(pallet: string, name: string, block?: string): unknown | Promise<unknown>
   blockNumber?(): Promise<number>
   blockHash?(number?: number): Promise<string>
@@ -115,7 +117,7 @@ const catalog = new Map<string, CatalogEntry>((INTENT_CATALOG as unknown as Cata
 const preparedIntents = new WeakSet<object>()
 const U64_MAX = (1n << 64n) - 1n
 const encoder = new TextEncoder()
-export const PROXY_TYPES = Object.freeze(['Any', 'Owner', 'NonCritical', 'NonTransfer', 'Senate', 'NonFungible', 'Triumvirate', 'Governance', 'Staking', 'Registration', 'Transfer', 'SmallTransfer', 'RootWeights', 'ChildKeys', 'SudoUncheckedSetCode', 'SwapHotkey', 'SubnetLeaseBeneficiary', 'RootClaim', 'BasketTrading', 'Validate', 'Weights', 'Lock'])
+export const PROXY_TYPES = Object.freeze(['Any', 'Owner', 'NonCritical', 'NonTransfer', 'Senate', 'NonFungible', 'Triumvirate', 'Governance', 'Staking', 'Registration', 'Transfer', 'SmallTransfer', 'RootWeights', 'ChildKeys', 'SudoUncheckedSetCode', 'SwapHotkey', 'SubnetLeaseBeneficiary', 'RootClaim', 'BasketTrading', 'Validate', 'Weights', 'Lock', 'GammaSpend'])
 
 /** Machine-readable Python-compatible input schemas, defaults, safety notes and signer roles. */
 export function listIntentTools(): readonly CatalogEntry[] { return INTENT_CATALOG as unknown as readonly CatalogEntry[] }
@@ -157,7 +159,7 @@ export class Intent {
     for (const [key, value] of Object.entries(normalized)) {
       if (value == null) continue
       if (tool.money_fields.includes(key)) {
-        normalized[key] = amount(value, moneyNetuid(op, key, normalized), tool.all_amount_fields.includes(key))
+        normalized[key] = key.endsWith('_gamma') ? gammaAmount(value, tool.all_amount_fields.includes(key)) : amount(value, moneyNetuid(op, key, normalized), tool.all_amount_fields.includes(key))
         continue
       }
       const type = tool.input_schema.properties[key]?.type
@@ -172,6 +174,7 @@ export class Intent {
     }
     for (const key of ['netuid', 'origin_netuid', 'dest_netuid']) if (normalized[key] != null) normalized[key] = netuid(normalized[key])
     if (normalized.rate_tolerance != null && !(Number(normalized.rate_tolerance) >= 0 && Number(normalized.rate_tolerance) < 1)) throw new RangeError('rate_tolerance must be in [0, 1)')
+    normalizeGammaArguments(op, normalized)
     this.op = op
     this.args = freeze(normalized)
     Object.freeze(this)
@@ -241,6 +244,13 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
   }
   const sub = (fn: string, params: Record<string, unknown> = {}) => descriptor('SubtensorModule', fn, params)
   switch (op) {
+    case 'mint_gamma': case 'mint_gamma_with_stake': case 'move_gamma': case 'close_gamma_deposit':
+    case 'set_gamma_deposit_spender': case 'set_gamma_deposit_daily_spend_cap': case 'spend_gamma': case 'set_service': {
+      const gamma = await prepareGammaIntent(op, a, reader, context)
+      plan.call = gamma.call; plan.spendRao = gamma.spendRao
+      plan.warnings = gamma.warnings; plan.violations = gamma.violations; plan.preview = gamma.preview
+      break
+    }
     case 'transfer': case 'transfer_all': {
       const all = op === 'transfer_all' || a.amount_tao === 'all'
       plan.call = descriptor('Balances', all ? 'transfer_all' : a.keep_alive ? 'transfer_keep_alive' : 'transfer_allow_death', all ? { dest: a.dest_ss58, keep_alive: a.keep_alive } : { dest: a.dest_ss58, value: rao(a.amount_tao) })
@@ -738,19 +748,22 @@ async function optionalClaim(plan: MutablePlan, args: Record<string, any>, reade
 
 /** Fail-closed admission checks: failed state reads never permit an unverifiable root claim. */
 async function claimPreflight(plan: MutablePlan, reader: IntentReader, context: IntentContext, hotkey?: string): Promise<void> {
+  const positions = list(await reader.runtimeCall('StakeInfoRuntimeApi', 'get_stake_info_for_coldkey', [context.coldkey]))
+  const root = new Set(positions.map(rec).filter(row => Number(row.netuid) === 0 && unsigned(row.stake, 'stake') > 0n).map(row => String(row.hotkey)))
   let selected: string[], scans = 0
-  if (hotkey) selected = [hotkey]
-  else {
+  let relationships: Awaited<ReturnType<typeof readRootClaimRelationships>>
+  if (hotkey) {
+    selected = [hotkey]
+    relationships = await readRootClaimRelationships(reader, context.coldkey, selected, root)
+  } else {
     const keys = list(await reader.query('SubtensorModule', 'StakingHotkeys', [context.coldkey]) ?? []).map(String)
-    const positions = list(await reader.runtimeCall('StakeInfoRuntimeApi', 'get_stake_info_for_coldkey', [context.coldkey]))
-    const root = new Set(positions.map(rec).filter(row => Number(row.netuid) === 0 && unsigned(row.stake, 'stake') > 0n).map(row => String(row.hotkey)))
-    const [watermarks, credits] = await Promise.all([
-      Promise.all(keys.map(key => reader.query('SubtensorModule', 'BasketClaimed', [key, context.coldkey]))),
-      required(reader.queryMap, 'queryMap').call(reader, 'SubtensorModule', 'HotkeySwapBasketCredits', [context.coldkey], 257),
-    ])
-    selected = [...new Set([...keys.filter((key, index) => root.has(key) || signedInteger(watermarks[index] ?? 0) < 0n), ...credits.map(([key]) => String(Array.isArray(key) ? key[0] : key))])]
+    const credits = await required(reader.queryMap, 'queryMap').call(reader, 'SubtensorModule', 'HotkeySwapBasketCredits', [context.coldkey], 257)
+    const creditKeys = new Set(credits.map(([key]) => String(Array.isArray(key) ? key[0] : key)))
+    relationships = await readRootClaimRelationships(reader, context.coldkey, [...new Set([...keys, ...creditKeys])], root)
+    selected = relationships.filter(row => row.selected || creditKeys.has(row.hotkey)).map(row => row.hotkey)
     scans = keys.length + credits.length
   }
+  const unquotedHotkeys = relationships.filter(row => selected.includes(row.hotkey) && row.hasUnquotedDeferredEntitlement).length
   const palletId = await required(reader.constant, 'constant').call(reader, 'SubtensorModule', 'SubtensorPalletId')
   const id = palletId instanceof Uint8Array ? palletId : Array.isArray(palletId) ? Uint8Array.from(palletId) : bytes(palletId)
   if (id.length !== 8) throw new Error('SubtensorPalletId must be eight bytes')
@@ -784,7 +797,7 @@ async function claimPreflight(plan: MutablePlan, reader: IntentReader, context: 
   if (free < reserved) plan.violations = [...plan.violations, `free TAO ${free} is below reserved claim fee ${reserved}`]
   plan.requiredFreeByAccount = [...plan.requiredFreeByAccount, { address: reserveAccount, requiredRao: reserved, availableRao: free }]
   if (exact) plan.estimatedFeeRao = reserved
-  plan.preview = { ...plan.preview, rootClaim: { selectedHotkeys: selected, holdings, holdingCounts, queuedCredits, selectionScans: scans, admissionLimit: limit, reservedFeeRao: reserved } }
+  plan.preview = { ...plan.preview, rootClaim: { selectedHotkeys: selected, relationships, holdings, holdingCounts, queuedCredits, selectionScans: scans, admissionLimit: limit, reservedFeeRao: reserved } }
   try {
     const raw = hotkey ? await reader.runtimeCall('BetaBasketRuntimeApi', 'get_basket_claim_preview', [hotkey, context.coldkey]) : await reader.runtimeCall('BetaBasketRuntimeApi', 'get_root_basket_claim_previews', [context.coldkey])
     const byHotkey = hotkey ? new Map([[hotkey, raw]]) : new Map(list(raw).map(rec).map(row => [String(row.hotkey), row]))
@@ -799,11 +812,12 @@ async function claimPreflight(plan: MutablePlan, reader: IntentReader, context: 
     })
     const rawThreshold = await reader.query('SubtensorModule', 'RootClaimableThreshold', [0])
     const storedThreshold = rawThreshold == null ? 0n : signedInteger(rec(rawThreshold).bits ?? rawThreshold) >> 32n
-    const quote = quoteRootClaimPreviews(previews, reserved, storedThreshold > 0n ? storedThreshold : 500000n, scans, limit)
+    const quote = quoteRootClaimPreviews(previews, reserved, storedThreshold > 0n ? storedThreshold : 500000n, scans, limit, unquotedHotkeys)
     plan.preview = { ...plan.preview, rootClaim: { ...rec(plan.preview.rootClaim), ...quote } }
+    if (!quote.previewComplete) plan.warnings = [...plan.warnings, 'basket-share preview excludes independently redeemable deferred alpha and cash; total redeemable value requires runtime settlement, so accruedRao and redeemableRao are unknown']
     if (quote.redeemableRao === 0n) plan.warnings = [...plan.warnings, 'claim has no currently redeemable yield; a scan fee is still charged']
     else if (quote.losesMoney) plan.warnings = [...plan.warnings, 'estimated spent fee exceeds redeemable yield']
-    if (quote.belowThresholdHotkeys > 0) plan.warnings = [...plan.warnings, `${quote.belowThresholdHotkeys} validator claims are below the payout threshold and keep accruing`]
+    if (quote.belowThresholdHotkeys > 0) plan.warnings = [...plan.warnings, `${quote.belowThresholdHotkeys} basket-share claims are below the payout threshold and keep accruing`]
     if (quote.dustRows > 0) plan.warnings = [...plan.warnings, `${quote.dustRows} dust rows are skipped; estimated forfeited slices total ${quote.forfeitedRao} rao`]
     if (quote.possibleRefundRao > 0n) plan.warnings = [...plan.warnings, 'spent fee is a floor; pending deposit flush work can reduce the estimated refund']
   } catch { plan.warnings = [...plan.warnings, 'basket yield preview unavailable; admission and fee reserve were checked separately'] }
@@ -814,7 +828,6 @@ async function emissionWeights(plan: MutablePlan, reader: IntentReader, context:
   const slots = a.slots.map(emission.slotIndex)
   if (new Set(slots).size !== slots.length) throw new RangeError('each emission slot may appear only once')
   const updates: Record<string, bigint> = Object.fromEntries(slots.map((slot: number, index: number) => [slot, emission.parseShare(a.values[index])]))
-  if ((updates[0] ?? 0n) !== 0n || (updates[1] ?? 0n) !== 0n) throw new RangeError('burn and recycle slots must remain zero')
   const current = rec(await reader.runtimeCall('SubnetInfoRuntimeApi', 'get_subnet_emission_weights', [a.netuid]))
   if (!Array.isArray(current.weights)) throw new Error('subnet emission vector unavailable; root has no emission vector')
   const before = current.weights.map((value: unknown) => unsigned(value, 'emission share'))

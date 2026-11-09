@@ -11,13 +11,14 @@ import { rootReads } from './reads/root'
 import { lockReads } from './reads/locks'
 import { identityReads } from './reads/identity'
 import { weightReads } from './reads/weights'
+import { gammaReads } from './reads/gamma'
 
 export { READ_CATALOG }
 export type { ReadName, ReadParams, ReadView }
 export type { ReadAddress } from './read-catalog'
 export type { ReadStakePosition, StakeValuation } from './reads/staking'
 export type { SubnetLifecycleState } from './reads/subnets'
-export const READ_HANDLERS = { ...accountReads, ...subnetReads, ...stakingReads, ...epochReads, ...delegationReads, ...leasingReads, ...collateralReads, ...rootReads, ...lockReads, ...identityReads, ...weightReads }
+export const READ_HANDLERS = { ...accountReads, ...subnetReads, ...stakingReads, ...epochReads, ...delegationReads, ...leasingReads, ...collateralReads, ...rootReads, ...lockReads, ...identityReads, ...weightReads, ...gammaReads }
 export type ReadArgs<Name extends ReadName> = {} extends ReadParams[Name] ? [params?: ReadParams[Name]] : [params: ReadParams[Name]]
 export type ReadResult<Name extends ReadName> = Awaited<ReturnType<(typeof READ_HANDLERS)[Name]>>
 // Compile-time exhaustiveness: adding a Python read to the catalog requires an implementation.

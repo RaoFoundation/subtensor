@@ -45,7 +45,14 @@ await client.execute(buildIntent('transfer', {
 
 Fixed PQ wallets receive at their ordinary SS58 address without registration.
 Rotating wallets need their descriptor registered and finalized before signing;
-another funded account can submit `registrationCall(key)`. Receiving addresses
+use `client.registerWallet(wallet, { payer, maxRegistrationDepositRao })` with
+an existing funded payer. This workflow requires Shield, quotes the reserve and
+both transaction fees, guards the approved reserve on chain, and verifies each
+registration in finalized storage. Classical hashed roles register sequentially.
+Already registered roles are skipped on retry; `WalletRegistrationError` preserves
+the wallet, quote, and last receipt. Browser callers can pass an object with
+`coldkeypub` and `hotkeypub`, or a single public keypair. Fixed modes return without
+contacting the chain. Receiving addresses
 retain their descriptor through semantic transfers. Initial registration requires
 an explicit `maxRegistrationDepositRao` allowance or an
 `onRegistrationSponsorship` callback, separate from the payment and fees.
@@ -63,7 +70,7 @@ their already encoded transaction with `submitSigned`.
 
 `client.multisig(members, threshold, 'safe')`, safe multisig intents,
 `derivativeCall`, and `multisigProtection` expose the new composite account
-modes. `Lock` is included in proxy types. `session.prepareOrder` pins complete
+modes. `Lock` and `GammaSpend` are included in proxy types. `session.prepareOrder` pins complete
 order terms and exposes `accountApproved()` for authorization through an on-chain
 `authorize_order` transaction. Owners need an existing System account and can
 hold eight live approvals. Choose new nonces above the owner's
@@ -73,13 +80,70 @@ The four order intents cover authorization,
 cancellation, relay, and netted relay. Protected keys do not sign detached orders
 or arbitrary messages; the release has removed wallet capability delegation and
 PQ HTTP authentication. Classical `httpAuth.verify` requires a trusted
-`expectedCryptoType`; the request header is not an authority source.
+`expectedCryptoType` or receiver-specific `httpAuth.configureVerifier` configuration;
+the request header is not an authority source.
 Hashed classical signers use `prepareHttpSigner` after generation zero retires.
 
 `fund_evm_key` uses the runtime's native `EVM.deposit` route when supported.
 `resolveEvmRecipient` resolves finalized protected aliases for display or
 descriptor-guarded native transfers; deterministic legacy mirrors alone are
 insufficient to identify protected deposit routes.
+
+### Creating and registering wallets
+
+`await wallet.create({ coldkey: options, hotkey: options })` writes both private
+keys and both public descriptors in one native transaction. A failed publish rolls
+back all four files; other named hotkeys are preserved. PQ key generation defaults
+to 24 mnemonic words and classical generation to 12. Explicit word counts remain
+available. Private/public identities are checked again before signing.
+
+`await client.registerWallet(wallet, { payer, maxRegistrationDepositRao })` registers
+missing rotating keys with required Shield, quotes the combined reserve and fees,
+and verifies finalized descriptors. The payer must already be funded and registered
+when using a rotating key. `Wallet.createAndRegister` combines local creation and
+registration; registration failures retain the local wallet and expose the receipt
+through `WalletRegistrationError`. Retrying skips already finalized registrations.
+An application may approve the quote with `onRegistrationSponsorship` instead of
+providing a fixed reserve allowance. Browser callers can supply public wallet views
+and an external payer without filesystem access.
+
+### External ECDSA accounts
+
+External signers may use `CRYPTO_ECDSA` with a compressed 33-byte secp256k1 public
+key or its mapped 32-byte AccountId. `accountIdFromEcdsaPublic` and
+`ss58FromEcdsaPublic` implement the chain mapping. Sign the Substrate payload using
+its Blake2 hashing rules; Ethereum personal-message signatures are different.
+Raw signatures are 65 bytes; prefixed MultiSignature values are 66 bytes with
+variant 2. Fee estimates use the selected signature length. Private ECDSA key
+creation and hardware capabilities remain the responsibility of the external signer.
+
+### Gamma credits and services
+
+Gamma uses decimal strings or numbers with at most nine decimal places; it is
+separate from TAO and alpha `Balance`. Prefer strings for exact application inputs.
+`gammaUnits` and `gammaFromUnits` convert between decimal credits and chain units.
+The `client.gamma` namespace and pinned snapshots expose deposits, mint quotes,
+and oracle prices. Quotes preserve runtime dispatch errors.
+
+```ts
+const mint = buildIntent('mint_gamma', {
+  hotkey_ss58: hotkey, netuid: 1, amount_tao: '1', rate_tolerance: 0.005,
+})
+const plan = await client.plan(mint, signer)
+if (!plan.ok) throw new Error(plan.violations.join('; '))
+const receipt = await client.execute(mint, signer, { waitForFinalization: true })
+```
+
+The seven Gamma intents cover minting from TAO or stake, moving credits, closing
+deposits, selecting spenders, changing daily caps, and batch spending. Planning
+checks ownership, limits and sequential effects of repeated spends. The
+`set_service` intent and `client.subnets.services` expose service URLs and spenders.
+Receipts expose actual minted credits and separate spent/skipped entries, including
+execution through proxy, multisig and Shield. Submission alone is not a spend receipt.
+
+Root-claim previews include deferred entitlements after stake has been removed.
+When a deferred entitlement cannot be quoted, the aggregate remains unavailable
+and the preview explains the missing valuation instead of presenting a zero claim.
 
 ## Build locally
 
@@ -268,10 +332,22 @@ APIs (`legacyGetPasswordFromEnvironment()` and
 `legacySavePasswordToEnvironment()`); they use reversible obfuscation, not
 secure password storage.
 
+`wallet.create({ coldkey: { cryptoType, keyfilePassword }, hotkey: {
+cryptoType, allowPlaintext: true } })` generates both roles and publishes all four
+keyfiles in one native transaction, rolling back on failure. It returns both
+mnemonics for application-owned backup; the SDK never prints them. PQ creation
+defaults to 24 words and rejects shorter mnemonics. `accountType: 'standard' |
+'hashed'` selects account mode independently of `cryptoType`.
+`wallet.createAndRegister(client, creationOptions, registrationOptions)` checks
+the reserve allowance before creation and preserves the files if registration
+fails. `wallet.register(client, options)` retries an existing wallet. Wallet
+signing snapshots the public identity before invoking a password provider and
+rejects any different identity returned after unlocking.
+
 ## Semantic workflows
 
-`listReads()` describes all 105 registered reads. `listIntentTools()` describes
-all 86 semantic operations, their inputs, defaults, signer roles, and safety
+`listReads()` describes all 111 registered reads. `listIntentTools()` describes
+all 98 semantic operations, their inputs, defaults, signer roles, and safety
 requirements. Calls, storage, constants, and runtime API descriptors are generated
 from the Python metadata catalog; precompile ABIs come from canonical Solidity.
 `buildIntent()` and `intentBuilders` provide operation-specific argument types,
@@ -373,8 +449,11 @@ The test suite exercises each semantic operation, read domains, fixed-point
 amounts, signing/authentication vectors, wallet storage, and real Chromium/WASM
 integration. `npm run test:localnet` additionally submits against an explicitly
 configured loopback chain with funded development accounts, working finality,
-and an MEV-capable authority. Set `BT_CHAIN_ENDPOINT` to its WebSocket endpoint;
-the live files run serially because they share development signers. Mock RPC
+and an MEV-capable authority. Its runtime must enable the `metadata-hash` build
+feature used in production for the default metadata-bound signing mode. The
+release feature suite also requires the development `//Alice` sudo key and changes
+Gamma and wallet feature flags, so use a disposable chain. Set `BT_CHAIN_ENDPOINT`
+to its WebSocket endpoint; the live files run serially because they share development signers. Mock RPC
 tests and browser codec tests do not establish
 that every runtime operation succeeds on a live network.
 

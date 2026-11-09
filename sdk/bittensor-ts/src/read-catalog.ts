@@ -316,6 +316,25 @@ export const READ_CATALOG = [
     "summary": "Minimum balance an account must keep to stay alive."
   },
   {
+    "name": "gamma_deposit",
+    "category": "Gamma",
+    "params": {
+      "netuid": "integer",
+      "hotkey_ss58": "string"
+    },
+    "defaults": {},
+    "summary": "The gamma deposit at a hotkey on a subnet, or None."
+  },
+  {
+    "name": "gamma_deposits",
+    "category": "Gamma",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "defaults": {},
+    "summary": "Every gamma deposit of a coldkey, on every subnet."
+  },
+  {
     "name": "hotkey_conviction",
     "category": "Locks & conviction",
     "params": {
@@ -565,6 +584,26 @@ export const READ_CATALOG = [
     "summary": "Proxy delegations of an account: who may sign on its behalf, and the reserved deposit."
   },
   {
+    "name": "quote_mint_gamma",
+    "category": "Gamma",
+    "params": {
+      "netuid": "integer",
+      "amount_tao": "number"
+    },
+    "defaults": {},
+    "summary": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now."
+  },
+  {
+    "name": "quote_mint_gamma_with_stake",
+    "category": "Gamma",
+    "params": {
+      "netuid": "integer",
+      "amount_alpha": "number"
+    },
+    "defaults": {},
+    "summary": "The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now."
+  },
+  {
     "name": "quote_stake",
     "category": "Prices & swaps",
     "params": {
@@ -650,6 +689,15 @@ export const READ_CATALOG = [
     "params": {},
     "defaults": {},
     "summary": "The minimum TAO payout for a root dividend claim."
+  },
+  {
+    "name": "services",
+    "category": "Subnets",
+    "params": {
+      "netuid": "integer"
+    },
+    "defaults": {},
+    "summary": "Every service published on a subnet, by hotkey."
   },
   {
     "name": "stake",
@@ -844,6 +892,13 @@ export const READ_CATALOG = [
     "summary": "Info for every subnet, fetched in four batched map queries rather than"
   },
   {
+    "name": "tao_usd_price",
+    "category": "Gamma",
+    "params": {},
+    "defaults": {},
+    "summary": "The TAO/USD price oracle, its last feed, and the accepted price at this block."
+  },
+  {
     "name": "timelocked_weight_commits",
     "category": "Weights & bonds",
     "params": {
@@ -983,6 +1038,8 @@ export interface ReadParams {
   difficulty: { netuid: number }
   epoch_status: { netuid: number }
   existential_deposit: {  }
+  gamma_deposit: { netuid: number; hotkey_ss58: ReadAddress }
+  gamma_deposits: { coldkey_ss58: ReadAddress }
   hotkey_conviction: { hotkey_ss58: ReadAddress; netuid: number }
   hotkey_identities: { hotkey_ss58s: ReadAddress[] }
   hotkey_owner: { hotkey_ss58: ReadAddress }
@@ -1010,6 +1067,8 @@ export interface ReadParams {
   parents: { hotkey_ss58: ReadAddress; netuid: number }
   pending_children: { hotkey_ss58: ReadAddress; netuid: number }
   proxies: { coldkey_ss58: ReadAddress }
+  quote_mint_gamma: { netuid: number; amount_tao: number | string }
+  quote_mint_gamma_with_stake: { netuid: number; amount_alpha: number | string }
   quote_stake: { netuid: number; amount_tao: number | string }
   quote_unstake: { netuid: number; amount_alpha: number | string }
   reveal_period: { netuid: number }
@@ -1020,6 +1079,7 @@ export interface ReadParams {
   root_basket_total_nav: {  }
   root_baskets: {  }
   root_claim_threshold: {  }
+  services: { netuid: number }
   stake: { coldkey_ss58: ReadAddress; hotkey_ss58: ReadAddress; netuid: number }
   stake_availability: { coldkey_ss58: ReadAddress; netuid: number }
   stake_availability_for_coldkey: { coldkey_ss58: ReadAddress; netuids: number[] }
@@ -1042,6 +1102,7 @@ export interface ReadParams {
   subnet_states: {  }
   subnet_tao_flows: {  }
   subnets: {  }
+  tao_usd_price: {  }
   timelocked_weight_commits: { netuid: number; mechid?: number }
   timestamp: {  }
   token_symbols: {  }

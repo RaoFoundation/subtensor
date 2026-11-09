@@ -14,6 +14,7 @@ use crate::errors::{to_js_err, value_err};
 pub enum CryptoType {
     Ed25519 = 0,
     Sr25519 = 1,
+    Ecdsa = 2,
     Hashed = 4,
     HashedEd25519 = 6,
     MlDsa65 = 7,
@@ -28,6 +29,7 @@ fn crypto_code(crypto_type: Option<CryptoType>) -> u8 {
     match crypto_type.unwrap_or(CryptoType::Sr25519) {
         CryptoType::Ed25519 => keys::CRYPTO_ED25519,
         CryptoType::Sr25519 => keys::CRYPTO_SR25519,
+        CryptoType::Ecdsa => keys::CRYPTO_ECDSA,
         CryptoType::Hashed => keys::CRYPTO_HASHED,
         CryptoType::HashedEd25519 => keys::CRYPTO_HASHED_ED25519,
         CryptoType::MlDsa65 => keys::CRYPTO_MLDSA65,

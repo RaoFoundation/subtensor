@@ -12,6 +12,8 @@ import type {
 
 export const CRYPTO_ED25519 = nativeCall(() => native.cryptoEd25519())
 export const CRYPTO_SR25519 = nativeCall(() => native.cryptoSr25519())
+/** External secp256k1 signers; the Substrate account id hashes their compressed public key. */
+export const CRYPTO_ECDSA = 2
 export const DEFAULT_SS58_FORMAT = nativeCall(() => native.defaultSs58Format())
 
 export type SubstrateKeyType = RustSubstrateKeyType
@@ -144,6 +146,7 @@ export class Keypair
     cryptoType = CRYPTO_SR25519,
     ss58Format = DEFAULT_SS58_FORMAT,
   ) {
+    keyTypeForCryptoType(cryptoType)
     this.handle = nativeCall(() =>
       native.keypairNew(
         ss58Address ?? undefined,
@@ -170,9 +173,10 @@ export class Keypair
     cryptoType = CRYPTO_SR25519,
     password?: string | null,
   ): Keypair {
+    const type = keyTypeForCryptoType(cryptoType)
     return Keypair.wrap(
       nativeCall(() => native.keypairFromMnemonic(mnemonic, cryptoType, password ?? undefined)),
-      { type: keyTypeForCryptoType(cryptoType) },
+      { type },
     )
   }
 
@@ -201,9 +205,10 @@ export class Keypair
   }
 
   static fromSeed(seed: ByteLike, cryptoType = CRYPTO_SR25519): Keypair {
+    const type = keyTypeForCryptoType(cryptoType)
     return Keypair.wrap(
       nativeCall(() => native.keypairFromSeed(toBuffer(seed, 'seed'), cryptoType)),
-      { type: keyTypeForCryptoType(cryptoType) },
+      { type },
     )
   }
 
@@ -220,9 +225,10 @@ export class Keypair
   }
 
   static fromUri(uri: string, cryptoType = CRYPTO_SR25519): Keypair {
+    const type = keyTypeForCryptoType(cryptoType)
     return Keypair.wrap(
       nativeCall(() => native.keypairFromUri(uri, cryptoType)),
-      { type: keyTypeForCryptoType(cryptoType) },
+      { type },
     )
   }
 
@@ -239,9 +245,10 @@ export class Keypair
   }
 
   static fromPrivateKey(privateKey: string, cryptoType = CRYPTO_SR25519): Keypair {
+    const type = keyTypeForCryptoType(cryptoType)
     return Keypair.wrap(
       nativeCall(() => native.keypairFromPrivateKey(privateKey, cryptoType)),
-      { type: keyTypeForCryptoType(cryptoType) },
+      { type },
     )
   }
 
@@ -285,7 +292,7 @@ export class Keypair
 
   static generate(
     cryptoType = CRYPTO_SR25519,
-    nWords = 12,
+    nWords = isPqCrypto(cryptoType) ? 24 : 12,
     password?: string | null,
   ): Keypair {
     return Keypair.generateWithMnemonic(cryptoType, nWords, password).keypair
@@ -293,9 +300,10 @@ export class Keypair
 
   static generateWithMnemonic(
     cryptoType = CRYPTO_SR25519,
-    nWords = 12,
+    nWords = isPqCrypto(cryptoType) ? 24 : 12,
     password?: string | null,
   ): GeneratedKeypair {
+    keyTypeForCryptoType(cryptoType)
     const mnemonic = Keypair.generateMnemonic(nWords)
     return {
       keypair: Keypair.fromMnemonic(mnemonic, cryptoType, password),
@@ -322,6 +330,11 @@ export class Keypair
         normalized.allowPlaintext,
       ),
     )
+  }
+
+  static writeWalletKeyfiles(coldkey: Keypair, coldkeyPublic: Keypair, hotkey: Keypair, hotkeyPublic: Keypair, paths: [string, string, string, string], coldkeyOptions: WriteKeyfileOptions, hotkeyOptions: WriteKeyfileOptions, overwrite = false): Promise<void> {
+    const cold = normalizeWriteKeyfileOptions(coldkeyOptions), hot = normalizeWriteKeyfileOptions(hotkeyOptions)
+    return nativeAsync(() => native.writeWalletKeyfiles(coldkey.handle, coldkeyPublic.handle, hotkey.handle, hotkeyPublic.handle, paths, cold.password, hot.password, overwrite, cold.allowPlaintext, hot.allowPlaintext))
   }
 
   static encryptFor(
@@ -640,7 +653,7 @@ export function generateKeyringPair(type?: 'sr25519' | 'ed25519', nWords?: numbe
 export function generateKeyringPair(type: SubstrateKeyType, nWords?: number, meta?: KeypairMetadata): Keypair
 export function generateKeyringPair(
   type: SubstrateKeyType = 'sr25519',
-  nWords = 12,
+  nWords = isPqCrypto(cryptoTypeForKeyType(type)) ? 24 : 12,
   meta: KeypairMetadata = {},
 ): Keypair {
   const pair = Keypair.generate(cryptoTypeForKeyType(type), nWords)
@@ -650,7 +663,7 @@ export function generateKeyringPair(
 
 export function generateKeypairWithMnemonic(
   cryptoType = CRYPTO_SR25519,
-  nWords = 12,
+  nWords = isPqCrypto(cryptoType) ? 24 : 12,
   password?: string | null,
 ): GeneratedKeypair {
   return Keypair.generateWithMnemonic(cryptoType, nWords, password)
@@ -855,7 +868,7 @@ export const dangerousKeyfiles = Object.freeze({
   legacyGetPasswordFromEnvironment,
   legacy_get_password_from_environment,
 })
-import { walletType, walletCryptoType, walletScheme, isProtectedCrypto, u64, type SigningScheme } from './wallet-types'
+import { walletType, walletCryptoType, walletScheme, isProtectedCrypto, isPqCrypto, u64, type SigningScheme } from './wallet-types'
 export * from './wallet-types'
 export function decodeReceivingAddress(address: string): Buffer { return nativeCall(() => native.decodeReceivingAddress(address)) }
 export function encodeReceivingAddress(descriptor: ByteLike): string { return nativeCall(() => native.encodeReceivingAddress(toBuffer(descriptor))) }

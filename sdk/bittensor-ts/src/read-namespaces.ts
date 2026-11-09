@@ -34,6 +34,7 @@ export interface SubnetsReadNamespace {
   mechanism_emission_split(netuid: number, block?: ReadBlock): Promise<ReadResult<'mechanism_emission_split'>>
   mechanismEmissionSplit(netuid: number, block?: ReadBlock): Promise<ReadResult<'mechanism_emission_split'>>
   metagraph(netuid: number, block?: ReadBlock): Promise<ReadResult<'metagraph'>>
+  services(netuid: number, block?: ReadBlock): Promise<ReadResult<'services'>>
   subnet(netuid: number, block?: ReadBlock): Promise<ReadResult<'subnet'>>
   subnet_emission_weights(netuid: number, block?: ReadBlock): Promise<ReadResult<'subnet_emission_weights'>>
   subnetEmissionWeights(netuid: number, block?: ReadBlock): Promise<ReadResult<'subnet_emission_weights'>>
@@ -212,6 +213,18 @@ export interface PricesReadNamespace {
   quoteStake(netuid: number, amount_tao: number | string, block?: ReadBlock): Promise<ReadResult<'quote_stake'>>
   quote_unstake(netuid: number, amount_alpha: number | string, block?: ReadBlock): Promise<ReadResult<'quote_unstake'>>
   quoteUnstake(netuid: number, amount_alpha: number | string, block?: ReadBlock): Promise<ReadResult<'quote_unstake'>>
+}
+export interface GammaReadNamespace {
+  gamma_deposit(netuid: number, hotkey_ss58: ReadAddress, block?: ReadBlock): Promise<ReadResult<'gamma_deposit'>>
+  gammaDeposit(netuid: number, hotkey_ss58: ReadAddress, block?: ReadBlock): Promise<ReadResult<'gamma_deposit'>>
+  gamma_deposits(coldkey_ss58: ReadAddress, block?: ReadBlock): Promise<ReadResult<'gamma_deposits'>>
+  gammaDeposits(coldkey_ss58: ReadAddress, block?: ReadBlock): Promise<ReadResult<'gamma_deposits'>>
+  quote_mint_gamma(netuid: number, amount_tao: number | string, block?: ReadBlock): Promise<ReadResult<'quote_mint_gamma'>>
+  quoteMintGamma(netuid: number, amount_tao: number | string, block?: ReadBlock): Promise<ReadResult<'quote_mint_gamma'>>
+  quote_mint_gamma_with_stake(netuid: number, amount_alpha: number | string, block?: ReadBlock): Promise<ReadResult<'quote_mint_gamma_with_stake'>>
+  quoteMintGammaWithStake(netuid: number, amount_alpha: number | string, block?: ReadBlock): Promise<ReadResult<'quote_mint_gamma_with_stake'>>
+  tao_usd_price(block?: ReadBlock): Promise<ReadResult<'tao_usd_price'>>
+  taoUsdPrice(block?: ReadBlock): Promise<ReadResult<'tao_usd_price'>>
 }
 
 export function bindReadNamespace<T>(target: T, category: string, scope: (block?: ReadBlock) => Promise<ReadView>): T {

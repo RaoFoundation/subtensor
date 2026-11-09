@@ -92,7 +92,7 @@ export const INTENT_CATALOG = [
         },
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -641,6 +641,44 @@ export const INTENT_CATALOG = [
     "money_fields": []
   },
   {
+    "name": "close_gamma_deposit",
+    "summary": "Close your empty gamma deposit, releasing its hotkey.",
+    "description": "Close your empty gamma deposit, releasing its hotkey.\n\nFails with `GammaDepositNotEmpty` while the deposit holds gamma.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "close_gamma_deposit"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/close-gamma-deposit",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the deposit."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the empty deposit."
+        }
+      },
+      "required": [
+        "netuid",
+        "hotkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [],
+    "defaults": {},
+    "money_fields": []
+  },
+  {
     "name": "commit_weights",
     "summary": "Timelock-encrypt and commit weights, forcing the commit-reveal path.",
     "description": "Timelock-encrypt and commit weights, forcing the commit-reveal path.\n\nEncrypts the weights with drand timelock encryption and submits the\nciphertext; the weights stay hidden until the chain auto-decrypts and\napplies them at the reveal round (no separate reveal call is needed).\nHiding weights until the round closes prevents other validators from\ncopying them. Signed by the hotkey, with the same preflight, conforming,\nand rate-limit behavior as `set_weights`. Use `set_weights` instead\nunless you need to force the commit path regardless of the subnet's\ncommit-reveal setting.",
@@ -884,7 +922,7 @@ export const INTENT_CATALOG = [
       "properties": {
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -1465,6 +1503,256 @@ export const INTENT_CATALOG = [
     },
     "money_fields": [
       "amount_alpha"
+    ]
+  },
+  {
+    "name": "mint_gamma",
+    "summary": "Mint gamma with TAO into your deposit at an API-key hotkey.",
+    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy.\nA new deposit's spender is the spender of the subnet owner's service,\notherwise the subnet owner, or a leased subnet's beneficiary, unless\n`spender_ss58` names another or `service_hotkey_ss58` names a service\npublished on the subnet, whose spender it takes. It has\nno daily spend cap unless `daily_spend_cap_gamma` sets one. A mint\nnaming either fails on a deposit with another.\nFails rather than minting less than the current quote less\n`rate_tolerance`. A plan's `preview` holds the quote's `gamma`,\n`minimum_gamma`, `alpha_burned` and `tao_value`, and the deposit's\nbalance, spender and cap as `deposit_balance_gamma` (None when the mint\nopens it), `spender_ss58` (None for the default spender) and\n`daily_spend_cap_gamma`. The result's `data[\"minted\"]` holds the\ndeposit's `hotkey_ss58`, `spender_ss58` and `daily_spend_cap_gamma`,\nand the `alpha_burned`, `tao_value` and `gamma` minted.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "mint_gamma"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/mint-gamma",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose alpha is bought and burned."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the deposit credited: an API key, not a staking hotkey."
+        },
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "TAO spent buying the alpha that is burned."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
+        },
+        "spender_ss58": {
+          "type": "string",
+          "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+        },
+        "service_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes."
+        },
+        "daily_spend_cap_gamma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
+        }
+      },
+      "required": [
+        "netuid",
+        "hotkey_ss58",
+        "amount_tao"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": true,
+    "mev_shield_required": false,
+    "all_amount_fields": [],
+    "defaults": {
+      "rate_tolerance": 0.05,
+      "spender_ss58": null,
+      "service_hotkey_ss58": null,
+      "daily_spend_cap_gamma": null
+    },
+    "money_fields": [
+      "amount_tao",
+      "daily_spend_cap_gamma"
+    ]
+  },
+  {
+    "name": "mint_gamma_with_stake",
+    "summary": "Mint gamma by burning your stake into your deposit at an API-key hotkey.",
+    "description": "Mint gamma by burning your stake into your deposit at an API-key hotkey.\n\nBurns up to `amount_alpha` (`all` for the whole stake) of your stake\non `origin_hotkey_ss58` and credits its value in gamma to the deposit at\n`hotkey_ss58`, valued as `mint_gamma` values bought alpha. The stake is\ndestroyed, not moved. `spender_ss58`, `service_hotkey_ss58` and\n`daily_spend_cap_gamma` name the deposit's spender and cap as for\n`mint_gamma`. Fails rather than minting less than the current quote\nless `rate_tolerance`. Its plan's `preview` and result's\n`data[\"minted\"]` are as for `mint_gamma`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "mint_gamma_with_stake"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/mint-gamma-with-stake",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the stake burned."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the deposit credited: an API key, not a staking hotkey."
+        },
+        "amount_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          ],
+          "description": "Alpha of stake burned."
+        },
+        "origin_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the stake is held on (the validator backing the position)."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
+        },
+        "spender_ss58": {
+          "type": "string",
+          "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+        },
+        "service_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes."
+        },
+        "daily_spend_cap_gamma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
+        }
+      },
+      "required": [
+        "netuid",
+        "hotkey_ss58",
+        "amount_alpha",
+        "origin_hotkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [
+      "amount_alpha"
+    ],
+    "defaults": {
+      "rate_tolerance": 0.05,
+      "spender_ss58": null,
+      "service_hotkey_ss58": null,
+      "daily_spend_cap_gamma": null
+    },
+    "money_fields": [
+      "amount_alpha",
+      "daily_spend_cap_gamma"
+    ]
+  },
+  {
+    "name": "move_gamma",
+    "summary": "Move gamma between two of your deposits on a subnet.",
+    "description": "Move gamma between two of your deposits on a subnet.\n\nMoves up to `amount_gamma` (`all` for the whole balance) from the\ndeposit at `origin_hotkey_ss58` to the one at\n`destination_hotkey_ss58`. A destination with no deposit is opened with\nthe origin's spender and daily spend cap, and a move that empties the\norigin closes it.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "move_gamma"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/move-gamma",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of both deposits."
+        },
+        "origin_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the deposit moved from."
+        },
+        "destination_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the deposit moved to."
+        },
+        "amount_gamma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          ],
+          "description": "Gamma moved."
+        }
+      },
+      "required": [
+        "netuid",
+        "origin_hotkey_ss58",
+        "destination_hotkey_ss58",
+        "amount_gamma"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [
+      "amount_gamma"
+    ],
+    "defaults": {},
+    "money_fields": [
+      "amount_gamma"
     ]
   },
   {
@@ -2868,6 +3156,120 @@ export const INTENT_CATALOG = [
     ]
   },
   {
+    "name": "set_gamma_deposit_daily_spend_cap",
+    "summary": "Set or remove the daily spend cap of your gamma deposit.",
+    "description": "Set or remove the daily spend cap of your gamma deposit.\n\nWhat the spender can spend refills linearly at the cap per 7200 blocks, up\nto the cap, and a cap of zero pauses the deposit. A changed cap keeps what\nthe spender can spend now, up to the new cap. Set exactly one of\n`daily_spend_cap_gamma` or `remove_cap`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_gamma_deposit_daily_spend_cap"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/set-gamma-deposit-daily-spend-cap",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the deposit."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the deposit."
+        },
+        "daily_spend_cap_gamma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "The cap, in gamma; 0 pauses the deposit."
+        },
+        "remove_cap": {
+          "type": "boolean",
+          "description": "Remove the cap."
+        }
+      },
+      "required": [
+        "netuid",
+        "hotkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [],
+    "defaults": {
+      "daily_spend_cap_gamma": null,
+      "remove_cap": false
+    },
+    "money_fields": [
+      "daily_spend_cap_gamma"
+    ]
+  },
+  {
+    "name": "set_gamma_deposit_spender",
+    "summary": "Set who may spend your gamma deposit.",
+    "description": "Set who may spend your gamma deposit.\n\nTakes effect at once; a deposit opened by a move inherits it. Set exactly\none of `spender_ss58`, `service_hotkey_ss58` or `default_spender`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_gamma_deposit_spender"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/set-gamma-deposit-spender",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the deposit."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the deposit."
+        },
+        "spender_ss58": {
+          "type": "string",
+          "description": "The account that spends the deposit."
+        },
+        "service_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes."
+        },
+        "default_spender": {
+          "type": "boolean",
+          "description": "Name the default spender: the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet."
+        }
+      },
+      "required": [
+        "netuid",
+        "hotkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [],
+    "defaults": {
+      "spender_ss58": null,
+      "service_hotkey_ss58": null,
+      "default_spender": false
+    },
+    "money_fields": []
+  },
+  {
     "name": "set_hyperparameter",
     "summary": "Set an owner-settable subnet hyperparameter (btcli `sudo set`).",
     "description": "Set an owner-settable subnet hyperparameter (btcli `sudo set`).\n\nDispatches the matching AdminUtils `sudo_set_*` call for the named\nparameter (`alpha_low`/`alpha_high` read the current pair from chain and\nset both via `sudo_set_alpha_values`). The signer must be the subnet's\nowner coldkey; root-only parameters are not available here and must go\nthrough the raw-call escape hatch. Changes take effect on chain immediately\nand shape subnet economics and consensus (registration costs, weight\nrules, immunity, transfers), so\nverify the raw value before sending — `value` accepts either the raw\non-chain integer or a human form that is converted for you. Some\nparameters are rate-limited by the chain, so a quick follow-up change can\nfail. Read current values back with the `subnet_hyperparameters` read.",
@@ -2989,6 +3391,10 @@ export const INTENT_CATALOG = [
       ],
       [
         "AdminUtils",
+        "sudo_set_subnet_gamma_enabled"
+      ],
+      [
+        "AdminUtils",
         "sudo_set_yuma3_enabled"
       ],
       [
@@ -3014,7 +3420,7 @@ export const INTENT_CATALOG = [
         },
         "name": {
           "type": "string",
-          "description": "Hyperparameter to set. One of: activity_cutoff_factor, adjustment_alpha, alpha_high, alpha_low, alpha_sigmoid_steepness, bonds_moving_avg, bonds_penalty, bonds_reset_enabled, burn_half_life, burn_increase_mult, collateral_drain_ratio, collateral_lock_share, commit_reveal_period, commit_reveal_weights_enabled, epoch_consensus, immunity_period, liquid_alpha_enabled, max_allowed_uids, max_burn, max_difficulty, min_allowed_weights, min_burn, min_childkey_take, network_pow_registration_allowed, owner_cut_auto_lock_enabled, owner_immune_neuron_limit, registration_allowed, rho, serving_rate_limit, tempo, transfers_enabled, weights_version, yuma3_enabled."
+          "description": "Hyperparameter to set. One of: activity_cutoff_factor, adjustment_alpha, alpha_high, alpha_low, alpha_sigmoid_steepness, bonds_moving_avg, bonds_penalty, bonds_reset_enabled, burn_half_life, burn_increase_mult, collateral_drain_ratio, collateral_lock_share, commit_reveal_period, commit_reveal_weights_enabled, epoch_consensus, gamma_enabled, immunity_period, liquid_alpha_enabled, max_allowed_uids, max_burn, max_difficulty, min_allowed_weights, min_burn, min_childkey_take, network_pow_registration_allowed, owner_cut_auto_lock_enabled, owner_immune_neuron_limit, registration_allowed, rho, serving_rate_limit, tempo, transfers_enabled, weights_version, yuma3_enabled."
         },
         "value": {
           "type": [
@@ -3348,6 +3754,55 @@ export const INTENT_CATALOG = [
     ]
   },
   {
+    "name": "set_service",
+    "summary": "Publish this hotkey's service on a subnet, with the url where it describes",
+    "description": "Publish this hotkey's service on a subnet, with the url where it describes\nits services and the spender customers name on their gamma deposits.\n\nThe chain stores the url and the spender only; the document the url points\nto (the services and their interfaces) is the publisher's. Without\n`spender_ss58` the spender is the coldkey. Signed by the coldkey; the\nhotkey must hold a validator permit on the subnet, or be the subnet owner's\nhotkey with the subnet owner signing. An empty url removes the service.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_service"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/set-service",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet on which to publish the service."
+        },
+        "url": {
+          "type": "string",
+          "description": "An http(s) url of the services document, up to 256 bytes; empty removes it."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey whose service it is; defaults to the wallet's."
+        },
+        "spender_ss58": {
+          "type": "string",
+          "description": "The spender customers name for the service; defaults to the coldkey."
+        }
+      },
+      "required": [
+        "netuid",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [],
+    "defaults": {
+      "hotkey_ss58": null,
+      "spender_ss58": null
+    },
+    "money_fields": []
+  },
+  {
     "name": "set_subnet_emission_enabled",
     "summary": "Enable or disable a subnet's pool-side TAO emission (root only).",
     "description": "Enable or disable a subnet's pool-side TAO emission (root only).\n\nFlips the `SubnetEmissionEnabled` storage flag for each listed subnet —\nthe ROOT-ONLY switch that gates whether a subnet earns its share of TAO\nemission on the pool side. New registrations start with this flag on;\nroot uses this call mainly to disable (or re-enable) specific subnets.\nDistinct from the owner's one-shot `start_call` (`subnet_is_active`):\na subnet can be active — epochs running, alpha trading — yet earn no TAO\nemission share while this flag is off. Disabling only zeros the pool-side\n`alpha_in` / `tao_in` / `excess_tao` chain-buy paths; it does not\nremove the subnet from emission share calculation and does not touch\n`alpha_out`, the owner cut, root proportion, or pending server/validator\nemission.\n\nRequires the chain sudo key: `Executor` wraps the built call in\n`Sudo.sudo` because `origin` is `root`, and when root is a multisig\nthat `Sudo.sudo` call is what the multisig must dispatch. Multiple\nnetuids batch atomically via `Utility.batch_all` inside the single sudo\ncall. Verify the effect afterwards with the `subnet_emission_enabled`\nread.",
@@ -3395,7 +3850,7 @@ export const INTENT_CATALOG = [
   {
     "name": "set_subnet_emission_weights",
     "summary": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).",
-    "description": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).\n\nDispatches `AdminUtils.sudo_set_subnet_emission_weights` for the named\nslots. The signer must be the subnet's owner coldkey (root may also call\nit). With `renormalize` the untouched owner/validator/miner slots are\nrescaled so the vector still sums to one; without it the merged vector is\nsubmitted as given. Root stakers are paid their baseline share of emission\n(what they earn with the default validator share and the global TaoWeight)\noff the top of the validator slot every block, whatever the subnet sets —\nthe pre-sign plan shows that share and what alpha validators are left\nwith, and lists every rule the chain would reject (including a validator\nshare at or below the baseline), so a bad vector is caught before signing.\nOwners may change the vector once per week per subnet.",
+    "description": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).\n\nDispatches `AdminUtils.sudo_set_subnet_emission_weights` for the named\nslots. The signer must be the subnet's owner coldkey (root may also call\nit). With `renormalize` the untouched slots are rescaled so the vector\nstill sums to one; without it the merged vector is submitted as given.\nRoot stakers are paid their baseline share of emission (what they earn\nwith the default validator share and the global TaoWeight) off the top of\nthe validator slot every block, whatever the subnet sets — the pre-sign\nplan shows that share and what alpha validators are left with, and lists\nevery rule the chain would reject (including a validator share at or below\nthe baseline), so a bad vector is caught before signing. Owners may change\nthe vector once per week per subnet.",
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": "subnet_emission_weights",
@@ -3421,7 +3876,7 @@ export const INTENT_CATALOG = [
               "string"
             ]
           },
-          "description": "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted owner/validator/miner slots keep their current share; omitted burn/recycle are zero."
+          "description": "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted slots keep their current share."
         },
         "values": {
           "type": "array",
@@ -3432,11 +3887,11 @@ export const INTENT_CATALOG = [
               "string"
             ]
           },
-          "description": "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage (\"41%\"), or raw u64 parts of 2^64-1. Rules: burn = recycle = 0; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five sum to exactly 1."
+          "description": "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage (\"41%\"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five sum to exactly 1."
         },
         "renormalize": {
           "type": "boolean",
-          "description": "Keep the named slots as given and rescale the other owner/validator/miner slots proportionally so the vector sums to 1 (the miner slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1."
+          "description": "Keep the named slots as given and rescale the other slots proportionally so the vector sums to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1."
         }
       },
       "required": [
@@ -3642,6 +4097,47 @@ export const INTENT_CATALOG = [
       "version_key": 0,
       "raw_u16": false
     },
+    "money_fields": []
+  },
+  {
+    "name": "spend_gamma",
+    "summary": "Spend gamma from the deposits you are the spender of.",
+    "description": "Spend gamma from the deposits you are the spender of.\n\nSpends, in order, each entry's `amount_gamma` from the deposit at its\n`hotkey_ss58`. Entries whose hotkey has no deposit, whose deposit you are\nnot the spender of, or whose amount is zero or above the deposit's balance\nor what its daily spend cap allows, are skipped. Spent gamma is destroyed.\nEach entry's optional `reference`, 32 bytes as hex, is repeated in its\n`GammaSpent` or `GammaSpendSkipped` event; by convention it is the\nservice's own id for the request it pays for, returned with its response.\nSign as the spender, or as its `GammaSpend` proxy. The result's\n`data[\"spent\"]` lists, in order, each entry that spent, with its\n`hotkey_ss58`, `amount_gamma` and `reference`, and\n`data[\"skipped\"]` each entry that was skipped, with the chain error that\nskipped it as `reason`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "spend_gamma"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/spend-gamma",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the deposits."
+        },
+        "spends": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "One to 512 objects of hotkey_ss58, amount_gamma and an optional 32-byte hex reference, spent in order."
+        }
+      },
+      "required": [
+        "netuid",
+        "spends"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [],
+    "defaults": {},
     "money_fields": []
   },
   {

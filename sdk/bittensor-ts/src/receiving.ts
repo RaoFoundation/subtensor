@@ -31,6 +31,12 @@ export async function registeredRecipient(reader: IntentReader, address: string)
   if (recipient.descriptor) {
     if (!reader.finalizedHead) throw new Error('finalized recipient lookup is required')
     const block = await reader.finalizedHead()
+    if (!block) throw new Error('finalized recipient lookup is required')
+    if (recipient.descriptor[0] === 2 && [5, 7, 9].includes(recipient.descriptor[1])) {
+      if (await reader.query('AdminUtils', 'HashedAccountsEnabled', [], block) !== true) throw new Error('protected accounts are disabled')
+      if (!await reader.supportsPqProfile?.(recipient.descriptor[1])) throw new Error('runtime does not support receiving profile')
+      return recipient.account
+    }
     const record = await reader.query('HashedAccounts', recipient.descriptor[0] === 2 ? 'MlDsaAccounts' : 'Accounts', [recipient.account], block) as any
     if (!record || hex(descriptorBytes(record.descriptor)) !== hex(recipient.descriptor)) throw new Error('recipient registration is not finalized or differs from its descriptor')
   }

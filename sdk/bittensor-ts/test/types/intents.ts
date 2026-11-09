@@ -22,3 +22,14 @@ buildIntent('transfer', { dest_ss58: 'dest', amount_tao: 1000000000n })
 intentBuilders.batch({ intents: [{ op: 'transfer', amount_tao: '1' }] })
 // @ts-expect-error operation with required arguments cannot omit the argument object
 intentBuilders.add_collateral()
+
+buildIntent('mint_gamma', { netuid: 1, hotkey_ss58: 'api-key', amount_tao: Balance.fromTao('1'), daily_spend_cap_gamma: '0' })
+intentBuilders.mint_gamma_with_stake({ netuid: 1, origin_hotkey_ss58: 'validator', hotkey_ss58: 'api-key', amount_alpha: 'all' })
+intentBuilders.spend_gamma({ netuid: 1, spends: [{ hotkey_ss58: 'api-key', amount_gamma: '1.000000001', reference: 'ab'.repeat(32) }] })
+intentBuilders.set_service({ netuid: 1, url: 'https://example.test/services' })
+// @ts-expect-error Gamma credits are not a TAO/alpha Balance
+intentBuilders.move_gamma({ netuid: 1, origin_hotkey_ss58: 'a', destination_hotkey_ss58: 'b', amount_gamma: Balance.fromTao('1') })
+// @ts-expect-error Gamma spend entries require decimal amounts, not raw units
+intentBuilders.spend_gamma({ netuid: 1, spends: [{ hotkey_ss58: 'api-key', amount_gamma: 1n }] })
+// @ts-expect-error Every Gamma spend entry names its hotkey
+intentBuilders.spend_gamma({ netuid: 1, spends: [{ amount_gamma: '1' }] })

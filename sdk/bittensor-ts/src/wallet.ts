@@ -1,5 +1,5 @@
 import {
-  access, open, readdir, readFile,
+  access, lstat, open, readdir, readFile,
 } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
 import { homedir } from 'node:os'
@@ -13,7 +13,9 @@ import {
 } from './keys'
 import type { ByteLike } from './types'
 import { toBuffer } from './wire'
-import { WALLET_TYPES } from './wallet-types'
+import { WALLET_TYPES, accountCryptoType, isPqCrypto, isRotatingCrypto, u64 } from './wallet-types'
+import { snapshotWalletIdentity, requireWalletIdentity, type WalletRegistrationOptions, type WalletRegistrationResult } from './wallet-registration'
+import type { Balance } from './balance'
 
 export const DEFAULT_WALLET_PATH = join(homedir(), '.bittensor', 'wallets')
 
@@ -51,6 +53,7 @@ export type PrivateKeySaveOptions =
 export interface GenerateWalletKeyOptions {
   nWords?: number
   cryptoType?: number
+  accountType?: 'standard' | 'hashed'
   mnemonicPassword?: string | null
 }
 
@@ -58,6 +61,7 @@ export type CreateWalletKeyOptions = GenerateWalletKeyOptions & PrivateKeySaveOp
 
 export type RegenerateKeyOptions = PrivateKeySaveOptions & {
   cryptoType?: number
+  accountType?: 'standard' | 'hashed'
   mnemonicPassword?: string | null
 }
 
@@ -72,6 +76,22 @@ export interface CreatedWalletKey {
   mnemonic: string
 }
 
+export interface CreateWalletOptions {
+  coldkey: CreateWalletKeyOptions
+  hotkey: CreateWalletKeyOptions
+  /** One overwrite decision applies to all four files. */
+  overwrite?: boolean
+}
+export interface CreatedWallet {
+  wallet: Wallet
+  coldkey: GeneratedWalletKey
+  hotkey: GeneratedWalletKey
+}
+export interface WalletRegistrationClient {
+  registerWallet(wallet: unknown, options?: WalletRegistrationOptions & WalletPasswordOptions): Promise<WalletRegistrationResult>
+  registrationDepositForTypes(types: readonly number[]): Promise<Balance>
+}
+
 export type WalletKeySource =
   | { mnemonic: string }
   | { seed: ByteLike }
@@ -83,6 +103,7 @@ export interface PublicWalletKeyOptions {
   ss58Address?: string
   publicKey?: ByteLike
   cryptoType?: number
+  accountType?: 'standard' | 'hashed'
   overwrite?: boolean
 }
 
@@ -224,8 +245,25 @@ export class Wallet {
   }
 
   get hotkeypub(): Promise<Keypair> {
-    this.hotkeypubCache ??= this.hotkeypubFile.getKeypair()
-    return this.hotkeypubCache
+    return this.publicHotkey()
+  }
+
+  private publicHotkey(legacyPassword?: () => Promise<string | null>): Promise<Keypair> {
+    if (this.hotkeypubCache) return this.hotkeypubCache
+    const pending = (async () => {
+      try { await lstat(this.hotkeypubFile.path) }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        // Legacy wallets may have only a plaintext hotkey. Snapshot its public
+        // identity before invoking any application password provider. An encrypted
+        // legacy file needs a password already supplied by the caller/environment.
+        return (await this.hotkeyFile.getKeypair(await legacyPassword?.())).publicOnly()
+      }
+      return this.hotkeypubFile.getKeypair()
+    })()
+    this.hotkeypubCache = pending
+    void pending.catch(() => { if (this.hotkeypubCache === pending) this.hotkeypubCache = undefined })
+    return pending
   }
 
   getColdkey(password?: string | null): Promise<Keypair> {
@@ -292,6 +330,45 @@ export class Wallet {
     return { wallet: this, ...generated }
   }
 
+  /** Generate both roles, then atomically publish all four keyfiles. */
+  async create(options: CreateWalletOptions): Promise<CreatedWallet> {
+    const coldOptions = requirePrivateKeySaveOptions(options.coldkey, 'create coldkey')
+    const hotOptions = requirePrivateKeySaveOptions(options.hotkey, 'create hotkey')
+    const overwrite = options.overwrite ?? false
+    if ((coldOptions.overwrite != null && coldOptions.overwrite !== overwrite) || (hotOptions.overwrite != null && hotOptions.overwrite !== overwrite)) throw new Error('set overwrite once for the complete wallet')
+    const coldkey = Wallet.generateColdkey(options.coldkey), hotkey = Wallet.generateHotkey(options.hotkey)
+    const coldPublic = publicOnly(coldkey.keypair), hotPublic = publicOnly(hotkey.keypair)
+    await Keypair.writeWalletKeyfiles(coldkey.keypair, coldPublic, hotkey.keypair, hotPublic,
+      [this.coldkeyFile.path, this.coldkeypubFile.path, this.hotkeyFile.path, this.hotkeypubFile.path],
+      { password: keyfilePassword(coldOptions), allowPlaintext: coldOptions.allowPlaintext },
+      { password: keyfilePassword(hotOptions), allowPlaintext: hotOptions.allowPlaintext }, overwrite)
+    this.coldkeyCache = Promise.resolve(coldkey.keypair); this.coldkeypubCache = Promise.resolve(coldPublic)
+    this.hotkeyCache = Promise.resolve(hotkey.keypair); this.hotkeypubCache = Promise.resolve(hotPublic)
+    return { wallet: this, coldkey, hotkey }
+  }
+
+  register(client: WalletRegistrationClient, options: WalletRegistrationOptions & WalletPasswordOptions = {}): Promise<WalletRegistrationResult> {
+    return client.registerWallet(this, options)
+  }
+
+  /** Registration failure preserves the newly persisted keys for a later retry. */
+  async createAndRegister(client: WalletRegistrationClient, options: CreateWalletOptions, registrationOptions: WalletRegistrationOptions & WalletPasswordOptions = {}): Promise<CreatedWallet & { registration: WalletRegistrationResult }> {
+    const roles = registrationOptions.roles ?? ['coldkey', 'hotkey']
+    if (!Array.isArray(roles) || roles.some(role => role !== 'coldkey' && role !== 'hotkey')) throw new TypeError('roles must contain coldkey and/or hotkey')
+    const types = [...new Set<'coldkey' | 'hotkey'>(roles)].map(role => {
+      const key = options[role]
+      return accountCryptoType(key.cryptoType ?? CRYPTO_SR25519, key.accountType)
+    })
+    if (types.some(isRotatingCrypto)) {
+      if (registrationOptions.payer == null) throw new Error('hashed wallet creation and registration requires an existing funded payer')
+      if (registrationOptions.maxRegistrationDepositRao == null && !registrationOptions.onRegistrationSponsorship) throw new Error('wallet registration requires reserve approval')
+      const reserve = await client.registrationDepositForTypes(types)
+      if (registrationOptions.maxRegistrationDepositRao != null && reserve.rao > u64(registrationOptions.maxRegistrationDepositRao)) throw new Error('wallet registration reserve exceeds the approved maximum')
+    }
+    const created = await this.create(options)
+    return { ...created, registration: await this.register(client, registrationOptions) }
+  }
+
   async regenerateColdkey(
     source: string | WalletKeySource,
     options: RegenerateKeyOptions,
@@ -325,8 +402,34 @@ export class Wallet {
 
   async signer(role: 'coldkey' | 'hotkey', options: WalletPasswordOptions = {}): Promise<Keypair> {
     if (role !== 'coldkey' && role !== 'hotkey') throw new TypeError('signer must be coldkey or hotkey')
+    if (role === 'hotkey' && !this.hotkeypubCache) {
+      let companionMissing = false
+      try { await lstat(this.hotkeypubFile.path) }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        companionMissing = true
+      }
+      if (companionMissing) {
+        const captured = await readOriginalKeyfile(this.hotkeyFile.path)
+        try {
+          if (keyfileDataIsEncrypted(captured)) {
+            // A legacy encrypted hotkey has no public identity until unlocked.
+            // Pin its original ciphertext before the provider runs, then decrypt
+            // those bytes rather than a path the provider could have replaced.
+            const password = await resolveWalletPassword(this, options, role)
+            const key = await Keypair.fromKeyfileData(captured, password)
+            this.hotkeyCache = Promise.resolve(key)
+            this.hotkeypubCache = Promise.resolve(key.publicOnly())
+            return key
+          }
+        } finally { captured.fill(0) }
+      }
+    }
+    const expected = snapshotWalletIdentity(await (role === 'coldkey' ? this.coldkeypub : this.publicHotkey(() => resolveWalletPassword(this, { ...options, passwordProvider: undefined }, 'hotkey'))))
     const password = await resolveWalletPassword(this, options, role)
-    return role === 'coldkey' ? this.getColdkey(password) : this.getHotkey(password)
+    const key = await (role === 'coldkey' ? this.getColdkey(password) : this.getHotkey(password))
+    requireWalletIdentity(key, expected, publicKeyFromSs58)
+    return key
   }
 
   /** Drop cached handles so subsequent access must unlock the keyfiles again. */
@@ -335,15 +438,36 @@ export class Wallet {
   }
 }
 
+/** Capture one regular keyfile without following a symlink or accepting an inode swap. */
+async function readOriginalKeyfile(path: string): Promise<Buffer> {
+  const before = await lstat(path, { bigint: true })
+  if (!before.isFile() || before.isSymbolicLink()) throw new Error('wallet keyfile must be a regular file, not a symlink')
+  const handle = await open(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0))
+  try {
+    const opened = await handle.stat({ bigint: true })
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) throw new Error('wallet keyfile changed before reading')
+    const data = await handle.readFile()
+    const after = await handle.stat({ bigint: true })
+    if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs) {
+      data.fill(0)
+      throw new Error('wallet keyfile changed while reading')
+    }
+    return data
+  } finally { await handle.close() }
+}
+
 async function keyFromSource(source: string | WalletKeySource, options: RegenerateKeyOptions): Promise<Keypair> {
-  if (typeof source === 'string') return Keypair.fromMnemonic(source, options.cryptoType ?? CRYPTO_SR25519, options.mnemonicPassword)
+  const cryptoType = accountCryptoType(options.cryptoType ?? CRYPTO_SR25519, options.accountType)
+  if (typeof source === 'string') return Keypair.fromMnemonic(source, cryptoType, options.mnemonicPassword)
   const present = ['mnemonic', 'seed', 'privateKey', 'encryptedJson'].filter(key => key in source)
   if (present.length !== 1) throw new TypeError('provide exactly one mnemonic, seed, privateKey, or encryptedJson')
-  if ('mnemonic' in source) return Keypair.fromMnemonic(source.mnemonic, options.cryptoType ?? CRYPTO_SR25519, options.mnemonicPassword)
-  if ('seed' in source) return Keypair.fromSeed(source.seed, options.cryptoType ?? CRYPTO_SR25519)
-  if ('privateKey' in source) return Keypair.fromPrivateKey(source.privateKey, options.cryptoType ?? CRYPTO_SR25519)
+  if ('mnemonic' in source) return Keypair.fromMnemonic(source.mnemonic, cryptoType, options.mnemonicPassword)
+  if ('seed' in source) return Keypair.fromSeed(source.seed, cryptoType)
+  if ('privateKey' in source) return Keypair.fromPrivateKey(source.privateKey, cryptoType)
   if (!source.encryptedJson || !source.passphrase) throw new TypeError('encrypted JSON import requires data and passphrase')
-  return Keypair.fromEncryptedJson(source.encryptedJson, source.passphrase)
+  const key = await Keypair.fromEncryptedJson(source.encryptedJson, source.passphrase)
+  if ((options.cryptoType != null || options.accountType != null) && key.cryptoType !== accountCryptoType(options.cryptoType ?? key.cryptoType, options.accountType)) throw new Error('imported key identity differs from the requested crypto type or account mode')
+  return key
 }
 
 function publicKeyFromOptions(options: PublicWalletKeyOptions): Keypair {
@@ -352,11 +476,11 @@ function publicKeyFromOptions(options: PublicWalletKeyOptions): Keypair {
     const descriptor = options.descriptor == null ? decodeReceivingAddress(options.ss58Address!) : toBuffer(options.descriptor)
     if (receiving && !descriptor.equals(decodeReceivingAddress(options.ss58Address!))) throw new Error('receiving address and descriptor differ')
     const key = Keypair.fromDescriptor(descriptor)
-    if (options.cryptoType != null && key.cryptoType !== options.cryptoType || options.publicKey != null && !key.publicKey.equals(toBuffer(options.publicKey)) || options.ss58Address && !receiving && !key.publicKey.equals(publicKeyFromSs58(options.ss58Address))) throw new Error('public wallet identity differs from descriptor')
+    if ((options.cryptoType != null || options.accountType != null) && key.cryptoType !== accountCryptoType(options.cryptoType ?? key.cryptoType, options.accountType) || options.publicKey != null && !key.publicKey.equals(toBuffer(options.publicKey)) || options.ss58Address && !receiving && !key.publicKey.equals(publicKeyFromSs58(options.ss58Address))) throw new Error('public wallet identity differs from descriptor')
     return key
   }
   if (options.ss58Address == null && options.publicKey == null) throw new TypeError('provide ss58Address or publicKey')
-  return new Keypair(options.ss58Address, options.publicKey, options.cryptoType ?? CRYPTO_SR25519)
+  return new Keypair(options.ss58Address, options.publicKey, accountCryptoType(options.cryptoType ?? CRYPTO_SR25519, options.accountType))
 }
 
 export async function resolveWalletPassword(wallet: Wallet, options: WalletPasswordOptions = {}, role: 'coldkey' | 'hotkey' = 'coldkey'): Promise<string | null> {
@@ -374,10 +498,10 @@ export async function resolveWalletPassword(wallet: Wallet, options: WalletPassw
   return options.passwordProvider ? options.passwordProvider(wallet, role) : null
 }
 
-export function parseCryptoType(value: string | number): number {
+export function parseCryptoType(value: string | number, accountType?: 'standard' | 'hashed'): number {
   const text = String(value).trim().toLowerCase()
   const found = Object.entries(WALLET_TYPES).find(([name,code]) => text === name || text === String(code))
-  if (found) return found[1]
+  if (found) return accountCryptoType(found[1], accountType)
   throw new RangeError('unsupported wallet crypto type')
 }
 export function formatCryptoType(value?: number | null): string {
@@ -488,10 +612,11 @@ function requirePrivateKeySaveOptions(
 }
 
 function generateWalletKey(options: GenerateWalletKeyOptions = {}): GeneratedWalletKey {
-  const mnemonic = Keypair.generateMnemonic(options.nWords ?? 12)
+  const cryptoType = accountCryptoType(options.cryptoType ?? CRYPTO_SR25519, options.accountType)
+  const mnemonic = Keypair.generateMnemonic(options.nWords ?? (isPqCrypto(cryptoType) ? 24 : 12))
   const keypair = Keypair.fromMnemonic(
     mnemonic,
-    options.cryptoType ?? CRYPTO_SR25519,
+    cryptoType,
     options.mnemonicPassword,
   )
   return { keypair, mnemonic }

@@ -105,3 +105,9 @@ export function u256LeToDecimal(raw: ByteLike): string {
 }
 
 export * from './unsigned-transaction'
+
+export * from './gamma'
+export type { GammaDepositRecord, GammaMintQuote, TaoUsdPrice } from './reads/gamma'
+export * from './wallet-registration'
+
+export type { SubnetService } from './reads/subnets'

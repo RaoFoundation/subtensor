@@ -141,6 +141,34 @@ pub struct WriteKeypairPairKeyfileTask {
     allow_plaintext: bool,
 }
 
+pub struct WriteWalletKeyfilesTask {
+    keypairs: [Keypair; 4],
+    paths: [PathBuf; 4],
+    passwords: [Option<Zeroizing<String>>; 2],
+    overwrite: bool,
+    allow_plaintext: [bool; 2],
+}
+
+impl Task for WriteWalletKeyfilesTask {
+    type Output = ();
+    type JsValue = ();
+    fn compute(&mut self) -> napi::Result<()> {
+        keyfiles::save_wallet_keypairs_to_keyfiles(
+            self.keypairs.each_ref(),
+            self.paths.each_ref().map(|path| path.as_path()),
+            self.passwords
+                .each_ref()
+                .map(|value| value.as_ref().map(|password| password.as_str())),
+            self.overwrite,
+            self.allow_plaintext,
+        )
+        .napi()
+    }
+    fn resolve(&mut self, _env: Env, output: ()) -> napi::Result<()> {
+        Ok(output)
+    }
+}
+
 impl Task for WriteKeypairPairKeyfileTask {
     type Output = ();
     type JsValue = ();
@@ -480,6 +508,44 @@ pub fn write_keypair_pair_keyfile(
         overwrite,
         allow_plaintext,
     })
+}
+
+#[napi(js_name = "writeWalletKeyfiles")]
+// Opaque key handles and explicit persistence options mirror the pair-write FFI.
+#[allow(clippy::too_many_arguments)]
+pub fn write_wallet_keyfiles(
+    coldkey: &NativeKeypair,
+    coldkey_public: &NativeKeypair,
+    hotkey: &NativeKeypair,
+    hotkey_public: &NativeKeypair,
+    paths: Vec<String>,
+    coldkey_password: Option<String>,
+    hotkey_password: Option<String>,
+    overwrite: bool,
+    coldkey_allow_plaintext: bool,
+    hotkey_allow_plaintext: bool,
+) -> napi::Result<AsyncTask<WriteWalletKeyfilesTask>> {
+    let paths: [PathBuf; 4] = paths
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|_| napi::Error::from_reason("exactly four wallet keyfile paths are required"))?;
+    Ok(AsyncTask::new(WriteWalletKeyfilesTask {
+        keypairs: [
+            coldkey.inner.clone(),
+            coldkey_public.inner.clone(),
+            hotkey.inner.clone(),
+            hotkey_public.inner.clone(),
+        ],
+        paths,
+        passwords: [
+            coldkey_password.map(Zeroizing::new),
+            hotkey_password.map(Zeroizing::new),
+        ],
+        overwrite,
+        allow_plaintext: [coldkey_allow_plaintext, hotkey_allow_plaintext],
+    }))
 }
 
 #[napi(js_name = "encryptKeyfileData")]
