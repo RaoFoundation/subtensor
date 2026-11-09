@@ -187,6 +187,19 @@ def test_renormalize_splits_evenly_when_free_slots_are_zero():
     assert max(free) - min(free) <= 1
 
 
+def test_gamma_shares_count_toward_the_sum():
+    gamma = ew.parse_share("10%")
+    rules = ew.Rules(gamma_share=gamma)
+    out = ew.renormalize(DEFAULT, {"owner": ew.parse_share("18%")}, gamma)
+    assert sum(out) == ONE - gamma
+    assert ew.validate(out, rules) == []
+    (violation,) = ew.validate(DEFAULT, rules)
+    assert violation.error == "EmissionWeightsDoNotSumToOne"
+    assert "the five slots and the gamma shares (10.00%) sum to 110.000000%" in violation.message
+    rows = {name: why for name, _, why in rules.table()}
+    assert "all five slots and the gamma shares (10.00%) add up" in rows["sum"]
+
+
 def test_validate_accepts_default_and_names_each_rule():
     rules = ew.Rules(min_validator=ew.parse_share("2.2%"))
     assert ew.validate(DEFAULT, rules) == []
@@ -563,6 +576,47 @@ def test_intent_build_sends_full_vector_when_renormalizing():
     assert params["values"] == [1, ONE // 2]
 
 
+#: The fixture subnet after its owner gave 10% of its emission, from the validator
+#: slot, to subnet 2's gamma.
+GAMMA_SHARE = ew.parse_share("10%")
+GAMMA_WEIGHTS = ew.merge(
+    EMISSION_WEIGHTS_INFO["weights"],
+    {"validator": EMISSION_WEIGHTS_INFO["validator"] - GAMMA_SHARE},
+)
+
+
+def _seed_gamma_share(fake: FakeSubstrate) -> None:
+    info = dict(EMISSION_WEIGHTS_INFO, weights=GAMMA_WEIGHTS, validator=GAMMA_WEIGHTS[ew.VALIDATOR])
+    fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", info)
+    fake.seed("SubtensorModule", "SubnetGammaEmission", [1], [(2, GAMMA_SHARE)])
+
+
+def test_intent_counts_the_gamma_shares_in_the_sum():
+    client, fake = _client()
+    _seed_gamma_share(fake)
+    owner = SetSubnetEmissionWeights(netuid=1, slots=["owner"], values=["10%"], renormalize=True)
+    plan = asyncio.run(client.plan(owner, dev_wallet()))
+    assert plan.ok, plan.violations
+    assert sum(plan.preview["after"]["weights"]) == ONE - GAMMA_SHARE
+    params = asyncio.run(owner.build(fake, dev_wallet())).params
+    assert sum(params["values"]) == ONE - GAMMA_SHARE
+
+    # A verbatim update that keeps the sum passes; one that fills 100% alone does not.
+    moved = SetSubnetEmissionWeights(
+        netuid=1,
+        slots=["validator", "miner"],
+        values=[GAMMA_WEIGHTS[ew.VALIDATOR] + 1, GAMMA_WEIGHTS[ew.MINER] - 1],
+    )
+    plan = asyncio.run(client.plan(moved, dev_wallet()))
+    assert plan.ok, plan.violations
+    full = SetSubnetEmissionWeights(
+        netuid=1, slots=["validator"], values=[EMISSION_WEIGHTS_INFO["validator"]]
+    )
+    plan = asyncio.run(client.plan(full, dev_wallet()))
+    assert [v.split(":")[0] for v in plan.violations] == ["EmissionWeightsDoNotSumToOne"]
+    assert "and the gamma shares (10.00%)" in plan.violations[0]
+
+
 # --- read -------------------------------------------------------------------
 
 
@@ -582,6 +636,15 @@ def test_read_decodes_runtime_payload():
     assert not info.rules().created_via_lease
     assert info.block == 100 and info.last_change_block == 0
     assert info.rate_limit()["owner_can_change_now"] is True
+    assert info.gamma_share == 0
+
+
+def test_read_sums_the_gamma_shares():
+    client, fake = _client()
+    _seed_gamma_share(fake)
+    info = asyncio.run(client.read("subnet_emission_weights", netuid=1))
+    assert info.gamma_share == GAMMA_SHARE
+    assert info.rules().gamma_share == GAMMA_SHARE
 
 
 # --- CLI --------------------------------------------------------------------
@@ -592,6 +655,7 @@ SHOW_FIELDS = [
     "block",
     "weights",
     "shares",
+    "gamma_share",
     "global_tao_weight",
     "root_share",
     "baseline_root_share",
@@ -840,6 +904,46 @@ def test_cli_set_full_vector_dry_run(emission_cli):
     )
     assert off.exit_code == 2, off.output
     assert "must add up to 100%" in _stderr_json(off)["error"]
+
+
+def test_cli_counts_the_gamma_shares_in_the_sum(emission_cli):
+    _seed_gamma_share(emission_cli)
+    record = json.loads(invoke("--json", "subnets", "emission", "show", "--netuid", "1").output)
+    assert record["gamma_share"] == GAMMA_SHARE
+
+    value = invoke(
+        "--json",
+        "--dry-run",
+        "subnets",
+        "emission",
+        "set-value",
+        "--netuid",
+        "1",
+        "--slot",
+        "owner",
+        "--value",
+        "10%",
+    )
+    assert value.exit_code == 0, value.output
+    assert sum(json.loads(value.output)["preview"]["after"]["weights"]) == ONE - GAMMA_SHARE
+
+    full = invoke(
+        "--json",
+        "--dry-run",
+        "subnets",
+        "emission",
+        "set",
+        "--netuid",
+        "1",
+        "--owner",
+        "18%",
+        "--validator",
+        "31%",
+        "--miner",
+        "41%",
+    )
+    assert full.exit_code == 0, full.output
+    assert sum(json.loads(full.output)["args"]["values"]) == ONE - GAMMA_SHARE
 
 
 def test_cli_explains_rule_violations_before_submitting(emission_cli):

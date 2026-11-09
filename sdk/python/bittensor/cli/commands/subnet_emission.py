@@ -4,9 +4,9 @@ The vector is ``[burn, recycle, owner, validator, miner]``. ``show`` prints the
 vector, what root keeps, the allowed range of every slot and when the owner may
 change it next. ``set`` writes owner / validator / miner (and optionally burn /
 recycle) in one go; ``set-value``, ``increase`` and ``decrease`` move one slot
-and rescale the others so the vector still sums to 100%. Every write is checked
-against the chain's rules locally first and a rejected change names the rule and
-the allowed range, so nothing is signed that the chain would refuse.
+and rescale the others to fill the rest. Every write is checked against the
+chain's rules locally first and a rejected change names the rule and the allowed
+range, so nothing is signed that the chain would refuse.
 
 Exit codes: 0 success; 1 the subnet does not exist, the change is blocked right
 now (owner rate limit) or the chain rejected it; 2 invalid input or a vector
@@ -84,6 +84,7 @@ def _record(info: SubnetEmissionWeights) -> dict[str, Any]:
         "block": info.block,
         "weights": info.weights,
         "shares": info.shares,
+        "gamma_share": info.gamma_share,
         "global_tao_weight": info.global_tao_weight,
         "root_share": info.root_share,
         "baseline_root_share": info.baseline_root_share,
@@ -243,7 +244,7 @@ def _renormalized_submit(
     app_ctx: AppContext, info: SubnetEmissionWeights, index: int, parts: int
 ) -> None:
     try:
-        proposed = ew.renormalize(info.weights, {index: parts})
+        proposed = ew.renormalize(info.weights, {index: parts}, info.gamma_share)
     except ValueError as error:
         app_ctx.output.error(str(error), help=_SHOW_HINT.format(netuid=info.netuid))
         raise typer.Exit(2) from error
@@ -254,9 +255,9 @@ def _renormalized_submit(
     "show",
     epilog=(
         "Example: btcli subnets emission show --netuid 4\n\n"
-        "JSON fields: netuid, block, weights (u64 parts), shares (0..1), global_tao_weight, "
-        "root_share, baseline_root_share, validator_share_after_root, root_capped, root_tao, "
-        "alpha_issuance (rao), min_validator (parts), "
+        "JSON fields: netuid, block, weights (u64 parts), shares (0..1), gamma_share (parts), "
+        "global_tao_weight, root_share, baseline_root_share, validator_share_after_root, "
+        "root_capped, root_tao, alpha_issuance (rao), min_validator (parts), "
         "created_via_lease, limits{slot: min, max, min_parts, max_parts, why}, "
         "rate_limit{limit_blocks, last_change_block, next_allowed_block, "
         "blocks_until_allowed, owner_can_change_now}."
@@ -321,7 +322,7 @@ def show(
         _record(info),
         hint=(
             f"change one slot with `btcli subnets emission set-value --netuid {netuid} "
-            "--slot owner --value 10%` (the other slots rescale to fill 100%); "
+            "--slot owner --value 10%` (the other slots rescale to fill the rest); "
             "add --dry-run to preview"
         ),
     )
@@ -361,14 +362,16 @@ def set_weights(
     owner_parts = _parse_share(app_ctx, owner, "--owner")
     validator_parts = _parse_share(app_ctx, validator, "--validator")
     miner_parts = _parse_share(app_ctx, miner, "--miner")
-    total = burn_parts + recycle_parts + owner_parts + validator_parts + miner_parts
+    total = (
+        burn_parts + recycle_parts + owner_parts + validator_parts + miner_parts + info.gamma_share
+    )
     if 0 < abs(ew.ONE - total) <= 1_000:
         # Decimal shares rarely hit u64::MAX exactly; let the miner slot soak up the dust.
         miner_parts += ew.ONE - total
     elif total != ew.ONE:
         app_ctx.output.error(
-            f"burn + recycle + owner + validator + miner must add up to 100%, not "
-            f"{ew.format_share(total, 4)}",
+            f"burn + recycle + owner + validator + miner{ew.and_gamma(info.gamma_share)} must "
+            f"add up to 100%, not {ew.format_share(total, 4)}",
             help="give all shares, or use set-value to move one slot and rescale the rest",
         )
         raise typer.Exit(2)
@@ -391,7 +394,7 @@ def set_value(
     slot: str = typer.Option(..., "--slot", help=_SLOT_HELP),
     value: str = typer.Option(..., "--value", help=f"New share for the slot. {_SHARE_HELP}"),
 ):
-    """Set one slot; the other slots are rescaled so the vector still sums to 100%.
+    """Set one slot; the other slots are rescaled to fill the rest.
 
     The untouched slots keep their ratio: lowering owner from 18% to 10%
     hands the 8% to the other non-zero slots in their current proportions.
@@ -416,7 +419,7 @@ def increase(
     slot: str = typer.Option(..., "--slot", help=_SLOT_HELP),
     by: str = typer.Option(..., "--by", help=f"Amount to add to the slot. {_SHARE_HELP}"),
 ):
-    """Raise one slot by an amount; the other slots are rescaled to fill 100%."""
+    """Raise one slot by an amount; the other slots are rescaled to fill the rest."""
     app_ctx: AppContext = ctx_of(ctx)
     info = _fetch(app_ctx, netuid)
     index = _parse_slot(app_ctx, slot)
@@ -438,7 +441,7 @@ def decrease(
     slot: str = typer.Option(..., "--slot", help=_SLOT_HELP),
     by: str = typer.Option(..., "--by", help=f"Amount to take from the slot. {_SHARE_HELP}"),
 ):
-    """Lower one slot by an amount; the other slots are rescaled to fill 100%."""
+    """Lower one slot by an amount; the other slots are rescaled to fill the rest."""
     app_ctx: AppContext = ctx_of(ctx)
     info = _fetch(app_ctx, netuid)
     index = _parse_slot(app_ctx, slot)
