@@ -2,6 +2,7 @@
 //! counter: the chain selects a generation and a wallet derives it independently.
 
 use codec::{Decode, Encode};
+use ed25519_zebra::{SigningKey, VerificationKey};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use sp_core::{crypto::Pair as _, ed25519, sr25519};
@@ -77,10 +78,13 @@ pub struct HashedKeypair {
 
 impl HashedKeypair {
     pub(super) fn from_seed(seed: &[u8], crypto_type: u8) -> Result<Self, CoreError> {
-        let seed: [u8; 32] = seed
-            .try_into()
-            .map_err(|_| crypto_err("hashed master seed must be exactly 32 bytes"))?;
-        let master_seed = Zeroizing::new(seed);
+        if seed.len() != 32 {
+            return Err(crypto_err("hashed master seed must be exactly 32 bytes"));
+        }
+        // Copy straight into the wiping owner; an intermediate array would
+        // leave an unwiped copy of the master seed on the stack.
+        let mut master_seed = Zeroizing::new([0u8; 32]);
+        master_seed.copy_from_slice(seed);
         let scheme = match crypto_type {
             CRYPTO_HASHED => Scheme::Sr25519,
             CRYPTO_HASHED_ED25519 => Scheme::Ed25519,
@@ -90,7 +94,7 @@ impl HashedKeypair {
         let initial_commitment = match scheme {
             Scheme::Sr25519 => key_commitment(scheme, &Self::derive(&master_seed, 0)?.public().0),
             Scheme::Ed25519 => {
-                key_commitment(scheme, &Self::derive_ed(&master_seed, 0)?.public().0)
+                key_commitment(scheme, &ed25519_public(&Self::derive_ed(&master_seed, 0)?))
             }
         };
         Ok(Self {
@@ -115,7 +119,11 @@ impl HashedKeypair {
         Ok(sr25519::Pair::from_seed(&seed))
     }
 
-    fn derive_ed(master: &[u8; 32], generation: u64) -> Result<ed25519::Pair, CoreError> {
+    /// The derived signing key is held only by `Zeroizing`, which erases its
+    /// seed, expanded scalar and nonce prefix when dropped. A
+    /// `sp_core::ed25519::Pair` owns the same Zebra key without a wiping
+    /// destructor, so it is not used to hold a hashed-account secret.
+    fn derive_ed(master: &[u8; 32], generation: u64) -> Result<Zeroizing<SigningKey>, CoreError> {
         let kdf = Hkdf::<Sha256>::new(Some(DERIVATION_SALT), master);
         let mut seed = Zeroizing::new([0u8; 32]);
         kdf.expand(
@@ -123,10 +131,14 @@ impl HashedKeypair {
             seed.as_mut(),
         )
         .map_err(|_| crypto_err("Ed25519 signing-key derivation failed"))?;
-        Ok(ed25519::Pair::from_seed(&seed))
+        // Same key as `ed25519::Pair::from_seed`, which also builds a Zebra
+        // `SigningKey` from the 32-byte seed.
+        let secret = SigningKey::try_from(&seed[..])
+            .map_err(|_| crypto_err("Ed25519 signing-key derivation failed"))?;
+        Ok(Zeroizing::new(secret))
     }
 
-    fn ed_at(&self, generation: u64) -> Result<ed25519::Pair, CoreError> {
+    fn ed_at(&self, generation: u64) -> Result<Zeroizing<SigningKey>, CoreError> {
         let master = self
             .master_seed()
             .ok_or_else(|| crypto_err("signing requires a private wallet"))?;
@@ -246,7 +258,7 @@ impl Keypair {
     pub fn hashed_public_key(&self) -> Result<[u8; 32], CoreError> {
         let hashed = self.hashed()?;
         if hashed.descriptor.scheme == Scheme::Ed25519 {
-            return Ok(hashed.ed_at(hashed.generation)?.public().0);
+            return Ok(ed25519_public(&hashed.ed_at(hashed.generation)?));
         }
         Ok(hashed.pair_at(hashed.generation)?.public().0)
     }
@@ -261,7 +273,7 @@ impl Keypair {
                 key_commitment(Scheme::Sr25519, &hashed.pair_at(generation)?.public().0)
             }
             Scheme::Ed25519 => {
-                key_commitment(Scheme::Ed25519, &hashed.ed_at(generation)?.public().0)
+                key_commitment(Scheme::Ed25519, &ed25519_public(&hashed.ed_at(generation)?))
             }
         })
     }
@@ -294,7 +306,7 @@ impl Keypair {
         let payload = address.signing_hash(payload);
         let signature = match hashed.descriptor.scheme {
             Scheme::Sr25519 => hashed.pair_at(hashed.generation)?.sign(&payload).0,
-            Scheme::Ed25519 => hashed.ed_at(hashed.generation)?.sign(&payload).0,
+            Scheme::Ed25519 => hashed.ed_at(hashed.generation)?.sign(&payload).to_bytes(),
         };
         Ok(Proof {
             generation: hashed.generation,
@@ -309,7 +321,7 @@ impl Keypair {
         let hashed = self.hashed()?;
         Ok(match hashed.descriptor.scheme {
             Scheme::Sr25519 => hashed.pair_at(hashed.generation)?.public().0.to_vec(),
-            Scheme::Ed25519 => hashed.ed_at(hashed.generation)?.public().0.to_vec(),
+            Scheme::Ed25519 => ed25519_public(&hashed.ed_at(hashed.generation)?).to_vec(),
         })
     }
 
@@ -334,9 +346,9 @@ impl Keypair {
                 if hashed.generation == 0 {
                     return Err(crypto_err("hashed message signing requires generation zero to be retired on chain first"));
                 }
-                let pair = hashed.ed_at(0)?;
-                envelope.extend_from_slice(&pair.public().0);
-                envelope.extend_from_slice(&pair.sign(&payload).0);
+                let secret = hashed.ed_at(0)?;
+                envelope.extend_from_slice(&ed25519_public(&secret));
+                envelope.extend_from_slice(&secret.sign(&payload).to_bytes());
             }
         }
         Ok(envelope)
@@ -344,6 +356,11 @@ impl Keypair {
 }
 
 const MESSAGE_MAGIC: &[u8] = b"BTHMSG01";
+
+fn ed25519_public(secret: &Zeroizing<SigningKey>) -> [u8; 32] {
+    let secret: &SigningKey = secret;
+    VerificationKey::from(secret).into()
+}
 
 fn message_payload(account: &[u8; 32], message: &[u8]) -> Vec<u8> {
     let mut payload = b"bittensor/hashed/v1/message".to_vec();
@@ -862,5 +879,40 @@ mod tests {
         trailing.push(0);
         assert!(Keypair::from_hashed_descriptor(&trailing, DEFAULT_SS58_FORMAT).is_err());
         assert!(Keypair::from_uri("//Alice", CRYPTO_HASHED).is_err());
+    }
+
+    #[test]
+    fn hashed_ed25519_signing_key_has_a_wiping_owner_and_keeps_vectors() {
+        // Fails to compile if the derivation returns a non-wiping pair again.
+        fn owner(secret: Zeroizing<SigningKey>) -> Zeroizing<SigningKey> {
+            secret
+        }
+        let secret = owner(HashedKeypair::derive_ed(&[31; 32], 8).unwrap());
+        // Recorded with the v488 derivation through `ed25519::Pair::from_seed`
+        // (Ed25519 signing is deterministic), so keys, proofs and message
+        // envelopes are unchanged.
+        assert_eq!(
+            hex::encode(ed25519_public(&secret)),
+            "8b9c4ae043290453eb92a40d48f5074178031bc6623e60544ae4a2f5ab6542a1"
+        );
+        let key = Keypair::from_seed(&[31; 32], CRYPTO_HASHED_ED25519).unwrap();
+        assert_eq!(
+            key.ss58_address(),
+            "5EPuttWmgUjN8Wq2qKELKso6WrfRpBpgZpuNRzAwyAgQTXzo"
+        );
+        assert_eq!(
+            hex::encode(key.hashed_signing_public_key().unwrap()),
+            "87ba9efaab5ed270bf9fa5e8a4101283cd6ba1541f9166177778f1ca47aa88c7"
+        );
+        let signer = key.at_generation(8).unwrap();
+        assert_eq!(
+            hex::encode(signer.sign_hashed(b"implication").unwrap()),
+            "08000000000000008b9c4ae043290453eb92a40d48f5074178031bc6623e60544ae4a2f5ab6542a17d11decb0793d6c942bd149f0111f6e89a809b9438a355647213877069580c7952715702d31e438a3af305cf648a1ca1d376a5e371ac711d0faa883810639d3df553bbdf37044ad2b656d94d56011574b6673aab2222d22f9750780117a54f07"
+        );
+        assert_eq!(
+            hex::encode(key.at_generation(1).unwrap().sign(b"challenge").unwrap()),
+            "4254484d534730310103d49382c67690fe7a07e595daedccb680629a6102d4c8c6986a7ea0fae84548d787ba9efaab5ed270bf9fa5e8a4101283cd6ba1541f9166177778f1ca47aa88c7b0c5ac55ee389545d3086578a4f4d91119b9080d6f36e239c8bc6e8f3bc49825212c1e8f06de0a4c9386c109ca233d0b7b6dd5c82858fe3beef01ea954503404"
+        );
+        assert!(HashedKeypair::from_seed(&[31; 31], CRYPTO_HASHED_ED25519).is_err());
     }
 }
