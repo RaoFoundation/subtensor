@@ -2460,6 +2460,31 @@ fn gamma_emission_waits_while_a_price_is_past_its_bound_or_stale() {
 }
 
 #[test]
+fn gamma_emission_sells_within_the_swap_input_limit() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = gamma_emission_subnets();
+        assert_ok!(set_split(
+            source,
+            split_with_gamma(target, MAX_GAMMA_EMISSION)
+        ));
+        // The target's pool takes far more than the source's pool takes in one swap.
+        setup_reserves(target, (1_000_000 * TAO).into(), (1_000_000 * TAO).into());
+        setup_reserves(source, TAO.into(), TAO.into());
+        let unconverted = AlphaBalance::from(2_000 * TAO);
+        UnconvertedGammaEmission::<Test>::insert(source, target, unconverted);
+        SubtensorModule::mint_gamma_emission(source);
+
+        let (alpha_sold, gamma) = gamma_emission_minted().unwrap();
+        assert!(!alpha_sold.is_zero());
+        assert_eq!(
+            UnconvertedGammaEmission::<Test>::get(source, target),
+            unconverted - alpha_sold
+        );
+        assert_eq!(deposit(target, SOURCE_OWNER_HOTKEY).balance, gamma);
+    });
+}
+
+#[test]
 fn gamma_shares_leaving_the_split_return_to_miners() {
     new_test_ext(1).execute_with(|| {
         let (source, target) = gamma_emission_subnets();

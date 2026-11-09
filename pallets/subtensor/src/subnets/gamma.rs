@@ -271,10 +271,10 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Sells the alpha allotted to the subnet's share of `target`, within the sale floor and as
-    /// much as the target's pool takes within the purchase ceiling, buys and burns the
-    /// target's alpha with all of the TAO and credits the gamma to the subnet owner's deposit at
-    /// the subnet owner hotkey on the target.
+    /// Sells the alpha allotted to the subnet's share of `target`, within the sale floor, the
+    /// swap input limit and as much as the target's pool takes within the purchase ceiling, buys
+    /// and burns the target's alpha with all of the TAO and credits the gamma to the subnet
+    /// owner's deposit at the subnet owner hotkey on the target.
     fn mint_gamma_emission_share(netuid: NetUid, target: NetUid) -> DispatchResult {
         let unconverted = UnconvertedGammaEmission::<T>::get(netuid, target);
         if unconverted.is_zero() {
@@ -287,10 +287,12 @@ impl<T: Config> Pallet<T> {
         let hotkey = SubnetOwnerHotkey::<T>::get(netuid);
         let (floor, _) = Self::gamma_emission_price_limits(netuid)?;
         let (_, ceiling) = Self::gamma_emission_price_limits(target)?;
-        // A sale returns at most the spot price per alpha, so its TAO fits under the ceiling.
+        // A sale returns at most the spot price per alpha, so its TAO fits under the ceiling. The
+        // engine refuses a sale above its input limit.
         let room = U64F64::saturating_from_num(Self::get_max_amount_add(target, ceiling)?)
             .safe_div(T::SwapInterface::current_alpha_price(netuid.into()))
-            .saturating_to_num::<u64>();
+            .saturating_to_num::<u64>()
+            .min(T::SwapInterface::max_swap_input::<GetTaoForAlpha<T>>(netuid).to_u64());
         let mark = Self::gamma_mark(target);
         let sale = Self::swap_alpha_for_tao(netuid, unconverted.min(room.into()), floor, false)?;
         let alpha_sold = sale.amount_paid_in.saturating_add(sale.fee_paid);
