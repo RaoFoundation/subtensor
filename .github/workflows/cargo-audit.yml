@@ -72,6 +72,9 @@ jobs:
           #   the runtime WASM; same pin as the wasmtime entries above.
           # RUSTSEC-2026-0316: wasmtime 8.0.1 is pinned by the polkadot-sdk
           # fork; this is covered by the existing wasmtime exceptions.
+          # RUSTSEC-2026-0459: libsqlite3-sys 0.30.1 via C SQLite CVE-2026-119375.
+          #   Fix is >=0.39.0; sqlx 0.8.6 in frontier fc-db requires ^0.30.1 —
+          #   revisit when frontier moves off sqlx 0.8.
           cargo audit --ignore RUSTSEC-2023-0091 \
                       --ignore RUSTSEC-2024-0438 \
                       --ignore RUSTSEC-2025-0009 \
@@ -105,4 +108,5 @@ jobs:
                       --ignore RUSTSEC-2026-0235 \
                       --ignore RUSTSEC-2026-0258 \
                       --ignore RUSTSEC-2026-0269 \
-                      --ignore RUSTSEC-2026-0316
+                      --ignore RUSTSEC-2026-0316 \
+                      --ignore RUSTSEC-2026-0459
