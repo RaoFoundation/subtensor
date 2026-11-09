@@ -707,6 +707,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_epoch_consensus),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_mechanism_emission_split),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_weights),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_weights_v2),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_trim_to_max_allowed_uids),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_trim_null_uids_batch),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_allowed_uids),
@@ -786,6 +787,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_claim_dust),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tao_usd_price_oracle),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_gamma_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_gamma_emission_whitelisted),
     ]
 );
 
