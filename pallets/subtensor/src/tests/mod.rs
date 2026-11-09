@@ -12,6 +12,7 @@ mod consensus;
 mod delegate_info;
 mod destroy_alpha_tests;
 mod dissolution;
+mod dividend_price_gate;
 mod emission;
 mod emission_weights;
 mod ensure;
