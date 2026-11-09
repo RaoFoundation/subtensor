@@ -480,6 +480,14 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
         .map(|dest_uid| (dest_uid, u16::MAX))
         .collect::<Vec<_>>();
 
+    // Every subnet can receive gamma emission, priced by a fresh TAO/USD feed.
+    GammaEnabled::<T>::put(true);
+    TaoUsdPrice::<T>::put(TaoUsdPriceState {
+        accepted: 400_000_000_000,
+        feed: 400_000_000_000,
+        fed_at: CURRENT_BLOCK,
+    });
+
     Subtensor::<T>::init_new_network(NetUid::ROOT, TEMPO);
     Subtensor::<T>::set_network_registration_allowed(NetUid::ROOT, true);
     Subtensor::<T>::set_max_allowed_uids(NetUid::ROOT, MAINNET_NEURONS_PER_SUBNET);
@@ -554,21 +562,43 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
         Subtensor::<T>::set_max_allowed_validators(netuid, MAINNET_VALIDATORS_PER_SUBNET);
         SubtokenEnabled::<T>::insert(netuid, true);
         SubnetEmissionEnabled::<T>::insert(netuid, true);
-        // Exercise burn, recycle, and owner payout together on every emitting
-        // subnet. Production permits all three shares to be nonzero, so the
+        // Exercise burn, recycle, owner payout and gamma shares together on every
+        // emitting subnet. Production permits all of them to be nonzero, so the
         // block-step envelope must include their combined storage work.
         let burn = MAX_BURN_RECYCLE_EMISSION / 2;
         let recycle = MAX_BURN_RECYCLE_EMISSION.saturating_sub(burn);
         let owner = emission_fraction(1, 100);
         let miner = MIN_MINER_EMISSION;
+        let gamma_share = emission_fraction(1, 100);
         let validator = EMISSION_WEIGHT_ONE
             .saturating_sub(MAX_BURN_RECYCLE_EMISSION)
             .saturating_sub(owner)
-            .saturating_sub(miner);
+            .saturating_sub(miner)
+            .saturating_sub(gamma_share.saturating_mul(u64::from(MAX_GAMMA_SHARES)));
         Subtensor::<T>::set_subnet_emission_weights_unchecked(
             netuid,
             [burn, recycle, owner, validator, miner],
         );
+        // The most gamma shares a split has, to the subnets after this one.
+        let mut gamma = (1..=MAX_GAMMA_SHARES as u16)
+            .map(|offset| {
+                let target = subnet_index
+                    .saturating_add(offset)
+                    .saturating_sub(1)
+                    .checked_rem(MAINNET_SUBNETS)
+                    .unwrap_or_default()
+                    .saturating_add(1);
+                (NetUid::from(target), gamma_share)
+            })
+            .collect::<Vec<_>>();
+        gamma.sort();
+        SubnetGammaEmission::<T>::insert(netuid, GammaEmission::truncate_from(gamma));
+        SubnetGammaEmissionWhitelisted::<T>::insert(netuid, true);
+        SubnetGammaEnabled::<T>::insert(netuid, true);
+        let owner_hotkey: T::AccountId =
+            account("block_step_subnet_owner_hot", u32::from(subnet_index), 0);
+        Owner::<T>::insert(&owner_hotkey, &subnet_owner);
+        SubnetOwnerHotkey::<T>::insert(netuid, owner_hotkey);
         SubnetOwner::<T>::insert(netuid, subnet_owner);
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
         Subtensor::<T>::set_max_allowed_uids(netuid, neuron_count);
@@ -582,6 +612,9 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
         );
         SubnetAlphaOut::<T>::insert(netuid, AlphaBalance::from(SUBNET_ALPHA_RESERVE));
         FirstEmissionBlockNumber::<T>::insert(netuid, CURRENT_BLOCK);
+        let spot = T::SwapInterface::current_alpha_price(netuid.into());
+        SubnetFastMovingPrice::<T>::insert(netuid, spot);
+        SubnetGammaPrice::<T>::insert(netuid, spot);
 
         if epoch_is_due_this_block {
             PendingEpochAt::<T>::insert(netuid, CURRENT_BLOCK);
@@ -592,6 +625,17 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
             // epoch calculation and zero-valued dividend housekeeping.
             PendingServerEmission::<T>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
             PendingValidatorEmission::<T>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+            // Every gamma share converts: one alpha each, its TAO in the subnet's account.
+            PendingGammaEmission::<T>::insert(
+                netuid,
+                AlphaBalance::from(u64::from(MAX_GAMMA_SHARES).saturating_mul(1_000_000_000)),
+            );
+            if let Some(subnet_account) = Subtensor::<T>::get_subnet_account_id(netuid) {
+                add_balance_to_coldkey_account::<T>(
+                    &subnet_account,
+                    TaoBalance::from(u64::from(MAX_GAMMA_SHARES).saturating_mul(10_000_000_000)),
+                );
+            }
         } else {
             PendingEpochAt::<T>::insert(netuid, 0);
             LastEpochBlock::<T>::insert(netuid, CURRENT_BLOCK);
