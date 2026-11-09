@@ -193,6 +193,17 @@ export class EndpointValidationError extends ChainError {
   }
 }
 
+/** HTTP gateway/rate-limit failures are transport errors, not RPC rejections. */
+class HttpTransportError extends ChainError {
+  readonly retryable: boolean
+
+  constructor(readonly status: number, endpoint: string) {
+    super(`HTTP ${status} from ${endpoint}`)
+    this.name = 'HttpTransportError'
+    this.retryable = status === 408 || status === 429 || status >= 500 && status <= 599
+  }
+}
+
 export class JsonRpcTransport {
   private readonly endpoints: string[]
   private readonly retryForever: boolean
@@ -275,6 +286,7 @@ export class JsonRpcTransport {
           : await this.wsRequest(endpointAttempt, method, params, requestOptions)
       } catch (error) {
         if (error instanceof SubmissionNotSentError || error instanceof RequestAbortedError || error instanceof JsonRpcError) throw error
+        if (error instanceof HttpTransportError && !error.retryable) throw error
         if (error instanceof EndpointValidationError) {
           this.validatedEndpoints.delete(endpointAttempt.endpoint)
           if (attemptedEndpoints.size >= this.endpoints.length || !this.rotateEndpoint(endpointAttempt)) throw error
@@ -455,7 +467,12 @@ export class JsonRpcTransport {
         body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
         signal: request.signal,
       })
-      if (!response.ok) throw new JsonRpcError(`HTTP ${response.status} from ${attempt.endpoint}`)
+      if (!response.ok) {
+        // Release the failed response without waiting for an unbounded gateway
+        // body. The request loop still forbids replaying transaction submissions.
+        await response.body?.cancel().catch(() => undefined)
+        throw new HttpTransportError(response.status, attempt.endpoint)
+      }
       return jsonRpcResponseResult(await parseJsonRpcResponse(response, this.maxMessageBytes), id)
     } catch (error) {
       throw normalizeAbortError(error, request)

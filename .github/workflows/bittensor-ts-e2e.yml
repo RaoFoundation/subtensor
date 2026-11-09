@@ -13,6 +13,26 @@ permissions:
   contents: read
 
 jobs:
+  # The manifest covers Python and other sources outside E2E routing. Check it
+  # on every PR independently of the expensive package and node builds.
+  source-parity:
+    name: bittensor-ts-source-parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: ts-tests/.nvmrc
+
+      - name: Check TypeScript SDK source parity
+        run: node sdk/bittensor-ts/scripts/check-source-parity.cjs
+
   # typescript-formatting is a required merge check, so the workflow must
   # always trigger and that job always runs (it is cheap). The expensive node
   # builds and zombienet suites skip themselves when the PR touches nothing

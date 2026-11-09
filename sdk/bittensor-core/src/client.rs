@@ -2442,25 +2442,36 @@ impl Client {
             .transpose()?;
 
         if error.is_none() {
-            for (module, event_name) in [
-                ("Proxy", "ProxyExecuted"),
-                ("Sudo", "Sudid"),
-                ("Multisig", "MultisigExecuted"),
-            ] {
-                let Some(attributes) = events
-                    .iter()
-                    .find(|event| event_is(event, module, event_name))
-                    .and_then(event_attributes)
-                else {
+            for event in &events {
+                let Some((_, _, result_field)) = [
+                    ("Sudo", "Sudid", "sudo_result"),
+                    ("Sudo", "SudoAsDone", "sudo_result"),
+                    ("Proxy", "ProxyExecuted", "result"),
+                    ("Multisig", "MultisigExecuted", "result"),
+                    ("Utility", "BatchInterrupted", "error"),
+                    ("Utility", "ItemFailed", "error"),
+                ]
+                .into_iter()
+                .find(|(module, name, _)| event_is(event, module, name)) else {
                     continue;
                 };
-                let result = field(attributes, "result").unwrap_or(attributes);
-                if let Some(inner) = variant(result, "Err") {
+                let Some(attributes) = event_attributes(event) else {
+                    continue;
+                };
+                let result = field(attributes, result_field).unwrap_or(attributes);
+                let inner = if result_field == "error" {
+                    Some(result)
+                } else {
+                    variant(result, "Err")
+                };
+                if let Some(inner) = inner {
                     error = Some(dispatch_error(&runtime, inner)?);
-                    success = false;
                     break;
                 }
             }
+        }
+        if error.is_some() {
+            success = false;
         }
 
         let fee_rao = events
@@ -4626,6 +4637,139 @@ mod registered_signing_tests {
         carrier.block_number = Some(10);
         carrier.fee_rao = Some(7);
         carrier
+    }
+
+    #[test]
+    fn receipts_report_nested_dispatch_failures_after_successful_wrappers() {
+        for (pallet, name, result_field) in [
+            ("Sudo", "Sudid", "sudo_result"),
+            ("Sudo", "SudoAsDone", "sudo_result"),
+            ("Proxy", "ProxyExecuted", "result"),
+            ("Multisig", "MultisigExecuted", "result"),
+            ("Utility", "BatchInterrupted", "error"),
+            ("Utility", "ItemFailed", "error"),
+        ] {
+            for module in [false, true] {
+                let signer =
+                    Keypair::from_seed(&[34; 32], crate::keys::CRYPTO_MLDSA65_FIXED).unwrap();
+                let node = MockNode::new(&signer);
+                let runtime = node.client.runtime().unwrap();
+                let event = |pallet: &str, name: &str, attributes| {
+                    Value::record(vec![
+                        (
+                            "phase".into(),
+                            Value::record(vec![("ApplyExtrinsic".into(), Value::Uint(1))]),
+                        ),
+                        (
+                            "event".into(),
+                            Value::record(vec![(
+                                pallet.into(),
+                                Value::record(vec![(name.into(), attributes)]),
+                            )]),
+                        ),
+                        ("topics".into(), Value::List(vec![])),
+                    ])
+                };
+                let error = if module {
+                    Value::record(vec![(
+                        "Module".into(),
+                        Value::record(vec![
+                            ("index".into(), Value::Uint(5)),
+                            ("error".into(), Value::Bytes(vec![2, 0, 0, 0])),
+                        ]),
+                    )])
+                } else {
+                    Value::str("BadOrigin")
+                };
+                let attributes = |result| {
+                    let mut fields = vec![(result_field.into(), result)];
+                    if pallet == "Multisig" {
+                        fields.extend([
+                            ("approving".into(), Value::Bytes(vec![42; 32])),
+                            (
+                                "timepoint".into(),
+                                Value::record(vec![
+                                    ("height".into(), Value::Uint(1)),
+                                    ("index".into(), Value::Uint(0)),
+                                ]),
+                            ),
+                            ("multisig".into(), Value::Bytes(vec![43; 32])),
+                            ("call_hash".into(), Value::Bytes(vec![44; 32])),
+                        ]);
+                    } else if name == "BatchInterrupted" {
+                        fields.push(("index".into(), Value::Uint(1)));
+                    }
+                    Value::record(fields)
+                };
+                let mut records = Vec::new();
+                if result_field != "error" {
+                    records.push(event(
+                        pallet,
+                        name,
+                        attributes(Value::record(vec![("Ok".into(), Value::Null)])),
+                    ));
+                }
+                records.push(event(
+                    pallet,
+                    name,
+                    attributes(if result_field == "error" {
+                        error
+                    } else {
+                        Value::record(vec![("Err".into(), error)])
+                    }),
+                ));
+                records.push(event(
+                    "System",
+                    "ExtrinsicSuccess",
+                    Value::record(vec![(
+                        "dispatch_info".into(),
+                        Value::record(vec![
+                            (
+                                "weight".into(),
+                                Value::record(vec![
+                                    ("ref_time".into(), Value::Uint(1)),
+                                    ("proof_size".into(), Value::Uint(0)),
+                                ]),
+                            ),
+                            ("class".into(), Value::str("Normal")),
+                            ("pays_fee".into(), Value::str("Yes")),
+                        ]),
+                    )]),
+                ));
+                let mut encoded = Vec::new();
+                runtime
+                    .encode_id(
+                        storage_info(&runtime, "System", "Events")
+                            .unwrap()
+                            .value_type,
+                        &Value::List(records),
+                        &mut encoded,
+                    )
+                    .unwrap();
+                node.state.lock().unwrap().events = encoded;
+                let outcome = node
+                    .client
+                    .decode_outcome("nested".into(), hex_prefixed(&ADVANCED_HASH), 10, 1)
+                    .unwrap();
+                assert!(!outcome.success, "{pallet}.{name} hid a dispatch failure");
+                let error = outcome.error.unwrap();
+                assert_eq!(
+                    error.name,
+                    if module {
+                        "InsufficientBalance"
+                    } else {
+                        "BadOrigin"
+                    }
+                );
+                assert_eq!(
+                    error.pallet.as_deref(),
+                    if module { Some("Balances") } else { None }
+                );
+                let state = node.state.lock().unwrap();
+                assert_eq!(state.runtime_reads, vec![Some(hex_prefixed(&PINNED_HASH))]);
+                assert_eq!(state.event_reads, vec![hex_prefixed(&ADVANCED_HASH)]);
+            }
+        }
     }
 
     #[test]

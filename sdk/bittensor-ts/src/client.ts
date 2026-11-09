@@ -3490,27 +3490,50 @@ async function nativeOutcomeToExtrinsicResult(outcome: NativeTxOutcome, finalize
   const extrinsicIndex = outcome.extrinsicIndex ?? undefined
   const included = outcome.blockHash != null && blockNumber != null && extrinsicIndex != null
   // Error indices belong to the runtime that executed the inclusion block.
-  // Load it only when a skipped Gamma spend contains a Module dispatch error.
+  // Load it only while resolving a failure, and share it with Gamma receipts.
   let executionRuntime: Promise<Runtime> | undefined
-  const gammaData = await gammaReceiptData(outcome.events, async (pallet, error) => {
-    executionRuntime ??= (async () => {
-      if (!outcome.blockHash) throw new ChainError('Gamma receipt has no inclusion block')
-      const header = await client.rpc('chain_getHeader', [outcome.blockHash]) as { number?: string | number; parentHash?: string }
-      const at = headerNumber(header) === 0 ? outcome.blockHash : header.parentHash
-      if (!at) throw new ChainError('Gamma inclusion block has no execution parent')
-      return client.runtimeAt(at)
-    })()
-    return (await executionRuntime).moduleError(pallet, error)
-  })
+  const runtimeForReceipt = () => executionRuntime ??= (async () => {
+    if (!outcome.blockHash) throw new ChainError('receipt has no inclusion block')
+    const header = await client.rpc('chain_getHeader', [outcome.blockHash]) as { number?: string | number; parentHash?: string }
+    const rawNumber = header?.number
+    const number = typeof rawNumber === 'number' || (typeof rawNumber === 'string' && /^(?:0x[0-9a-f]+|[0-9]+)$/i.test(rawNumber)) ? Number(rawNumber) : NaN
+    if (!Number.isSafeInteger(number) || number < 0 || (blockNumber != null && number !== blockNumber)) {
+      throw new ChainError('receipt inclusion header has an invalid or inconsistent block number')
+    }
+    const at = number === 0 ? outcome.blockHash : header.parentHash
+    if (!at) throw new ChainError('inclusion block has no execution parent')
+    return client.runtimeAt(at)
+  })()
+  const gammaData = await gammaReceiptData(outcome.events, async (pallet, error) => (await runtimeForReceipt()).moduleError(pallet, error))
   const data = { ...(outcome.data ?? {}) as Record<string, unknown>, ...gammaData }
   const uncertain = data.submission_uncertain === true
+  // A successful outer dispatch can contain a failed sudo/proxy/multisig/batch.
+  // Keep definite native failures and uncertain submission reports authoritative.
+  const nested = !uncertain && outcome.success && outcome.error == null ? nestedDispatchError(outcome.events) : undefined
+  let nestedFailure: ReturnType<typeof chainErrorFromDispatch> | undefined
+  if (nested != null) {
+    let needsMetadata = false
+    nestedFailure = chainErrorFromDispatch(nested, () => {
+      needsMetadata = true
+      throw new Error('execution metadata is not loaded')
+    })
+    if (needsMetadata) {
+      try {
+        const runtime = await runtimeForReceipt()
+        nestedFailure = chainErrorFromDispatch(nested, (pallet, error) => runtime.moduleError(pallet, error))
+      } catch { /* Failure remains a failure when historical metadata is unavailable. */ }
+    }
+  }
+  const success = outcome.success && outcome.error == null && nestedFailure == null
+  const error = outcome.error ?? nested
+  const nestedName = nestedFailure?.name ? [nestedFailure.pallet, nestedFailure.name].filter(Boolean).join('.') : nestedFailure?.message
   return {
     data,
-    status: uncertain ? 'unknown' : outcome.success
+    status: uncertain ? 'unknown' : success
       ? finalized ? 'finalized' : included ? 'inBlock' : 'submitted'
       : included ? 'failed' : 'failed',
-    success: uncertain ? undefined : outcome.success,
-    message: outcome.message,
+    success: uncertain ? undefined : success,
+    message: nestedFailure ? `Extrinsic failed: ${nestedName}` : outcome.message,
     extrinsicHash: outcome.extrinsicHash,
     blockHash: outcome.blockHash ?? undefined,
     blockNumber,
@@ -3519,8 +3542,8 @@ async function nativeOutcomeToExtrinsicResult(outcome: NativeTxOutcome, finalize
     finalized: included ? finalized : undefined,
     fee: outcome.feeRao == null ? undefined : Balance.fromRao(outcome.feeRao),
     events: outcome.events,
-    error: outcome.error ?? undefined,
-    chainError: !uncertain && (outcome.error != null || outcome.success === false) ? classifyChainError(outcome.message, { payload: outcome.error }) : undefined,
+    error: error ?? undefined,
+    chainError: nestedFailure ?? (!uncertain && (outcome.error != null || outcome.success === false) ? classifyChainError(outcome.message, { payload: outcome.error }) : undefined),
   }
 }
 

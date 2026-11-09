@@ -469,6 +469,7 @@ fn lock_keyfile_directories(paths: &[&Path]) -> Result<Vec<File>, CoreError> {
         let parent = path
             .parent()
             .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+        let parent = normalize_directory_path(parent);
         ensure_private_directory(parent)?;
         directories.push(fs::canonicalize(parent).map_err(|error| key_err(error.to_string()))?);
     }
@@ -1231,7 +1232,7 @@ fn set_private_file_permissions(_path: &Path) -> Result<(), CoreError> {
 }
 
 fn fsync_directory(path: &Path) {
-    if let Ok(dir) = File::open(path) {
+    if let Ok(dir) = File::open(normalize_directory_path(path)) {
         let _ = dir.sync_all();
     }
 }
@@ -1517,6 +1518,144 @@ mod wallet_transaction_tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn bare_relative_keyfile_paths_preserve_write_guards() {
+        const CHILD: &str = "BT_CORE_BARE_RELATIVE_KEYFILE_TEST";
+        if std::env::var(CHILD).as_deref() != Ok("1") {
+            let directory = std::env::temp_dir().join(format!(
+                "bt-relative-keyfiles-{}-{}",
+                std::process::id(),
+                SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&directory).unwrap();
+            // Only the child changes its working directory; parallel Rust tests
+            // keep their original cwd and cannot write into this fixture.
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg("keyfiles::wallet_transaction_tests::bare_relative_keyfile_paths_preserve_write_guards")
+                .arg("--nocapture")
+                .env(CHILD, "1")
+                .current_dir(&directory)
+                .output()
+                .unwrap();
+            fs::remove_dir_all(directory).unwrap();
+            assert!(
+                output.status.success(),
+                "relative keyfile child failed: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let original = Keypair::from_seed(&[1; 32], CRYPTO_SR25519).unwrap();
+        let replacement = Keypair::from_seed(&[2; 32], CRYPTO_SR25519).unwrap();
+        let public = original.public_only().unwrap();
+        let replacement_public = replacement.public_only().unwrap();
+        let path = Path::new("coldkey");
+        #[cfg(unix)]
+        let directory_mode = fs::metadata(".").unwrap().permissions().mode();
+
+        assert!(save_keypair_to_keyfile(&original, path, None, false, false).is_err());
+        assert!(!path.exists());
+        save_keypair_to_keyfile(&original, path, None, false, true).unwrap();
+        let bytes = fs::read(path).unwrap();
+        assert!(save_keypair_to_keyfile(&replacement, path, None, false, true).is_err());
+        assert_eq!(fs::read(path).unwrap(), bytes);
+        save_keypair_to_keyfile(&replacement, path, None, true, true).unwrap();
+        assert_eq!(
+            read_keypair_from_keyfile(path, None)
+                .unwrap()
+                .ss58_address(),
+            replacement.ss58_address()
+        );
+
+        save_keypair_pair_to_keyfiles(
+            &original,
+            Path::new("pair"),
+            None,
+            &public,
+            Path::new("./pairpub.txt"),
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            read_keypair_from_keyfile(Path::new("pairpub.txt"), None)
+                .unwrap()
+                .ss58_address(),
+            original.ss58_address()
+        );
+        assert!(!read_keypair_from_keyfile(Path::new("pairpub.txt"), None)
+            .unwrap()
+            .has_private_key());
+
+        let paths = [
+            Path::new("walletcold"),
+            Path::new("./walletcoldpub"),
+            Path::new("wallethot"),
+            Path::new("./wallethotpub"),
+        ];
+        save_wallet_keypairs_to_keyfiles(
+            [&original, &public, &replacement, &replacement_public],
+            paths,
+            [None; 2],
+            false,
+            [true; 2],
+        )
+        .unwrap();
+        for (index, path) in paths.into_iter().enumerate() {
+            let restored = read_keypair_from_keyfile(path, None).unwrap();
+            assert_eq!(
+                restored.ss58_address(),
+                if index < 2 {
+                    original.ss58_address()
+                } else {
+                    replacement.ss58_address()
+                }
+            );
+            assert_eq!(restored.has_private_key(), index % 2 == 0);
+        }
+        #[cfg(unix)]
+        {
+            for path in [
+                "coldkey",
+                "pair",
+                "pairpub.txt",
+                "walletcold",
+                "walletcoldpub",
+                "wallethot",
+                "wallethotpub",
+            ] {
+                assert_eq!(
+                    fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+            }
+            assert_eq!(
+                fs::metadata(".").unwrap().permissions().mode(),
+                directory_mode
+            );
+            std::os::unix::fs::symlink("coldkey", "linked-key").unwrap();
+            let preserved = fs::read("coldkey").unwrap();
+            assert!(
+                save_keypair_to_keyfile(&original, Path::new("linked-key"), None, true, true)
+                    .is_err()
+            );
+            assert_eq!(fs::read("coldkey").unwrap(), preserved);
+            std::os::unix::fs::symlink(".", "linked-directory").unwrap();
+            assert!(save_keypair_to_keyfile(
+                &original,
+                Path::new("linked-directory/new-key"),
+                None,
+                false,
+                true
+            )
+            .is_err());
+            assert!(!Path::new("new-key").exists());
+        }
+    }
 
     // PROTECTED_REGRESSION: a later wallet publication failure must preserve every existing recovery keyfile; changes require explicit human approval.
     #[test]
