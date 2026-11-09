@@ -173,6 +173,18 @@ pub mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
+    /// Initial shared registration reserve, supplied by the stable metadata default.
+    #[pallet::type_value]
+    pub fn DefaultHashedAccountRegistrationDeposit<T: Config>() -> BalanceOf<T> {
+        T::RegistrationDeposit::get()
+    }
+
+    /// Permanent reserve for each new classical, PQ, or protected derived account.
+    /// Changes apply only to future registrations; existing reserves are unchanged.
+    #[pallet::storage]
+    pub type HashedAccountRegistrationDeposit<T: Config> =
+        StorageValue<_, BalanceOf<T>, ValueQuery, DefaultHashedAccountRegistrationDeposit<T>>;
+
     /// Permanent even when the balance becomes zero; never reset on re-registration.
     #[pallet::storage]
     #[pallet::getter(fn accounts)]
@@ -269,6 +281,8 @@ pub mod pallet {
         InvalidDerivedAuthority,
         /// The derived authority graph exceeds a deterministic runtime bound.
         DerivedAuthorityTooComplex,
+        /// The current registration reserve exceeds the sponsor's approved maximum.
+        RegistrationDepositTooHigh,
     }
 
     #[pallet::call]
@@ -277,11 +291,11 @@ pub mod pallet {
         /// Anyone may sponsor the permanent deposit without gaining authority.
         /// Idempotent registration never changes an existing authorization.
         #[pallet::call_index(0)]
-        #[pallet::weight(match descriptor {
+        #[pallet::weight((match descriptor {
             RegistrationDescriptor::Classical(_) => T::WeightInfo::register(),
             RegistrationDescriptor::MlDsa65(_) => T::WeightInfo::register_mldsa65(),
             RegistrationDescriptor::Falcon(_) => T::WeightInfo::register_falcon(),
-        })]
+        }).saturating_add(T::DbWeight::get().reads(1)))]
         #[transactional]
         pub fn register(
             origin: OriginFor<T>,
@@ -344,7 +358,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(2)]
-        #[pallet::weight(T::WeightInfo::register_derived())]
+        #[pallet::weight(T::WeightInfo::register_derived().saturating_add(T::DbWeight::get().reads(1)))]
         #[transactional]
         pub fn register_derived(
             origin: OriginFor<T>,
@@ -357,7 +371,7 @@ pub mod pallet {
         /// Register through the derived account's own authority while an
         /// explicitly consenting outer signer pays the permanent deposit.
         #[pallet::call_index(3)]
-        #[pallet::weight(T::WeightInfo::register_derived_sponsored())]
+        #[pallet::weight(T::WeightInfo::register_derived_sponsored().saturating_add(T::DbWeight::get().reads(1)))]
         #[transactional]
         pub fn register_derived_sponsored(
             origin: OriginFor<T>,
@@ -388,6 +402,23 @@ pub mod pallet {
             );
             Ok(())
         }
+
+        /// Reject an atomic registration batch if its approved reserve is stale.
+        /// This read-only guard remains available while registration is disabled.
+        #[pallet::call_index(5)]
+        #[pallet::weight(T::WeightInfo::check_registration_deposit().saturating_add(T::DbWeight::get().reads(1)))]
+        pub fn check_registration_deposit(
+            origin: OriginFor<T>,
+            max_deposit: BalanceOf<T>,
+        ) -> DispatchResult {
+            ensure_signed(origin)?;
+            let deposit = HashedAccountRegistrationDeposit::<T>::get();
+            ensure!(
+                deposit <= max_deposit,
+                Error::<T>::RegistrationDepositTooHigh
+            );
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -413,7 +444,7 @@ pub mod pallet {
                 Error::<T>::AliasCollision
             );
             T::OnRegister::on_register(&account, sponsor, &descriptor)?;
-            let deposit = T::RegistrationDeposit::get();
+            let deposit = HashedAccountRegistrationDeposit::<T>::get();
             T::Currency::reserve(sponsor, deposit)?;
             frame_system::Pallet::<T>::inc_providers(&account);
             // Keep the EVM-visible account nonce nonzero (EOA, never CREATE

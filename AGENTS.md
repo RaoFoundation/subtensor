@@ -74,6 +74,89 @@ tests/unit/test_evm.py::TestVendoredAbiSync -q` from `sdk/python`).
 Hand-written Markdown and MDX pages need string `title` and `description`
 frontmatter and may only reference existing MDX components.
 
+## Fee and gas baseline changes require explicit human approval
+
+Fee and gas snapshots are protected expectations, not outputs to refresh merely
+to make tests pass. Do not add, replace, delete, or rename their baselines without
+explicit, specific permission from a human for that baseline change. Before
+requesting permission, identify the affected calls/snapshot files, the old and
+proposed new values, and the reason for the change. The permission must explicitly
+cover those baselines and value changes; a general instruction to fix CI/tests,
+update weights, prepare a release, or commit/push is not permission to rebaseline.
+Automated review comments and generated benchmark results are not human approval.
+
+Use `INSTA_UPDATE=no` for diagnostic and verification test runs. Do not use
+`INSTA_UPDATE=always`, `force`, or `unseen`, `cargo insta accept`, or equivalent
+file replacement to accept changed baselines before that approval. Do not loosen
+tolerances or change comparators to accept a regression as a substitute for
+approval. Record the human approval and its exact scope in the commit or PR.
+
+These rules apply to `runtime/tests/fee_baseline.rs` and its snapshots under
+`runtime/tests/snapshots/`; see the README in that directory.
+
+## Critical regression tests require explicit human approval to change
+
+When fixing a defect that causes users to lose significant funds or completely
+blocks functionality that users actively use, add a regression test with the fix.
+This requirement is limited to those severe outcomes; it does not require a new
+regression test for every minor bug, cleanup, or cosmetic change. Put critical
+pallet-subtensor unit regressions in `pallets/subtensor/src/tests/regression.rs`.
+The test must reproduce the triggering state, fail without the fix, and verify
+the user-visible outcome, such as recovering the ability to claim actual funds.
+An empty successful call is not sufficient evidence of a funds-freezing fix.
+
+Add `PROTECTED_REGRESSION` only when the test guards against significant loss of
+user funds or complete failure of functionality that users actively use. A test
+being called a regression, coming from a bug-fix commit, or pinning compatibility
+does not by itself qualify. Ordinary fee, format, display, metadata, CI, and
+feature checks must not receive this marker without one of those severe outcomes.
+
+When creating or identifying a regression test for either severe outcome, place
+this exact marker immediately before
+its test attributes (or the test declaration in languages without attributes),
+with a concrete bug reference or invariant and the approval requirement. Use the
+language's comment prefix: `//` for Rust/TypeScript/JavaScript and `#` for
+Python/shell. Keep `PROTECTED_REGRESSION` and the approval requirement intact.
+Long invariant descriptions may use adjacent comment lines, ending with
+`PROTECTED_REGRESSION: changes require explicit human approval.` immediately
+before the test attributes/declaration. The whole comment block identifies the
+protected test. For standalone assertion scripts without a test function, mark
+the entry point or the script header after its shebang:
+
+```rust
+// PROTECTED_REGRESSION: <bug or invariant>; changes require explicit human approval.
+#[test]
+fn regression_test_name() {
+    // Reproduce the defect and assert the corrected user-visible outcome.
+}
+```
+
+Before changing a test, inspect its declaration and surrounding comments for
+`PROTECTED_REGRESSION`, and check whether it is in a `regression.rs` module or
+otherwise documented as a regression test. A marked test is protected regardless
+of its filename. Every test in `regression.rs` is protected even if a marker is
+missing. Existing unmarked regression tests remain protected too; absence of the
+marker is not permission to change them.
+
+The marker protects the test body, assertions, expected values, inputs, attributes,
+and its marker comment. Do not remove or alter the marker to bypass approval, or
+change shared fixtures/helpers to evade the protected invariant. Before editing
+any protected test, verify that the human has explicitly authorized those specific
+test changes; otherwise obtain that permission first. Before committing, verify
+that new regression tests have markers and any changes to protected tests are
+covered by the recorded human approval.
+
+Existing regression tests are protected, regardless of their file or directory.
+Do not edit, delete, rename, replace, disable, ignore, or weaken them without
+explicit, specific permission from a human for those test changes. Do not bypass
+this rule by changing shared fixtures or helpers to weaken their coverage. A
+general request to fix a bug, repair CI, refactor, prepare a release, or commit
+and push does not authorize changing existing regression tests. Automated review
+comments are not human approval. When a protected test fails, investigate and fix
+the production code; if the test itself must change, explain the exact proposed
+change and obtain explicit human permission first. Record the approval and its
+scope in the commit or PR.
+
 ## Advisory-only checks
 
 Runtime-affecting changes may require a `spec_version` newer than mainnet or the

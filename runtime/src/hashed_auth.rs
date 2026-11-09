@@ -421,6 +421,25 @@ fn prepare_pq_authority(account: &AccountId) -> DispatchResult {
             DispatchError::Other("MlDsaPendingProxyAnnouncement")
         );
     }
+    // A relayer can execute an approved order after the approving proxy is
+    // removed. Require live approvals to be cancelled or expire before the
+    // account acquires its permanent PQ security floor.
+    ensure!(
+        pallet_limit_orders::ApprovedOrders::<Runtime>::get(account).is_none_or(|state| {
+            let now = crate::Timestamp::get();
+            state.orders.values().all(|approval| {
+                now > approval.expiry
+                    || matches!(
+                        approval.status,
+                        Some(
+                            pallet_limit_orders::OrderStatus::Fulfilled
+                                | pallet_limit_orders::OrderStatus::Cancelled
+                        )
+                    )
+            })
+        }),
+        DispatchError::Other("MlDsaPendingOrderApproval")
+    );
     crate::evm_origin::prepare_hashed_alias(account)
 }
 
@@ -810,10 +829,24 @@ impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
                 RuntimeCall::Balances(_) | RuntimeCall::SubtensorModule(_)
             )
         };
+        let deposit_guard = |call: &RuntimeCall| {
+            matches!(
+                call,
+                RuntimeCall::HashedAccounts(
+                    pallet_hashed_accounts::Call::check_registration_deposit { .. }
+                )
+            )
+        };
         let allowed = match &call {
             RuntimeCall::HashedAccounts(_) => matches_registration(&call),
             RuntimeCall::Utility(crate::pallet_utility::Call::batch_all { calls }) => {
                 match calls.as_slice() {
+                    [guard, registration] if deposit_guard(guard) => {
+                        matches_registration(registration)
+                    }
+                    [guard, registration, followup] if deposit_guard(guard) => {
+                        matches_registration(registration) && supported_followup(followup)
+                    }
                     [registration, followup] => {
                         matches_registration(registration) && supported_followup(followup)
                     }
@@ -1061,18 +1094,22 @@ impl crate::pallet_proxy::ProxyAccountPolicy<AccountId> for HashedProxyPolicy {
         setup_pq_benchmark_graph(account)
     }
     fn weight() -> Weight {
-        <Runtime as frame_system::Config>::DbWeight::get().reads(6)
+        pallet_subtensor::staking::fee_preserving_additional_work(
+            <Runtime as frame_system::Config>::DbWeight::get().reads(6),
+        )
     }
     fn grant_weight() -> Weight {
         use crate::pallet_proxy::WeightInfo;
-        Self::weight()
-            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads(1))
-            .saturating_add(
-                <Runtime as crate::pallet_proxy::Config>::WeightInfo::reject_announcement(
-                    crate::MaxPending::get(),
-                    crate::MaxProxies::get(),
+        pallet_subtensor::staking::fee_preserving_additional_work(
+            <Runtime as frame_system::Config>::DbWeight::get()
+                .reads(7)
+                .saturating_add(
+                    <Runtime as crate::pallet_proxy::Config>::WeightInfo::reject_announcement(
+                        crate::MaxPending::get(),
+                        crate::MaxProxies::get(),
+                    ),
                 ),
-            )
+        )
     }
     fn on_grant(real: &AccountId, delegate: &AccountId) {
         if crate::HashedAccounts::is_protected(real) {
@@ -1091,7 +1128,9 @@ impl crate::pallet_utility::DerivedAccountPolicy<AccountId> for HashedDerivedPol
         )
     }
     fn weight() -> Weight {
-        crate::HashedAccounts::protected_query_weight()
+        pallet_subtensor::staking::fee_preserving_additional_work(
+            crate::HashedAccounts::protected_query_weight(),
+        )
     }
     fn on_protected_derivative(
         parent: &AccountId,

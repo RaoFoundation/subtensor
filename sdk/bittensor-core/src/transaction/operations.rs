@@ -194,6 +194,7 @@ impl IntentCall {
                 &["spawner", "proxy_type", "index", "height", "ext_index"]
             }
             "HashedAccounts.register" | "HashedAccounts.check_registered" => &["descriptor"],
+            "HashedAccounts.check_registration_deposit" => &["max_deposit"],
             "LimitOrders.authorize_order" | "LimitOrders.cancel_order" => &["order"],
             "LimitOrders.execute_orders" => &["orders", "should_fail"],
             "LimitOrders.execute_batched_orders" => &["netuid", "orders"],
@@ -210,6 +211,9 @@ impl IntentCall {
             _ => return owner_hyperparameter(operation, params),
         };
         validate_fields(&params, allowed)?;
+        if operation == "HashedAccounts.check_registration_deposit" {
+            number(field(&params, "max_deposit")?)?;
+        }
         let mut scope = Vec::new();
         for field in ["netuid", "origin_netuid", "destination_netuid"] {
             if let Some(value) = optional_field(&params, field)? {

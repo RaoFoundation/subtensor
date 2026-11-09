@@ -138,7 +138,7 @@ fn evm_call(wallet: &Wallet, nonce: Option<U256>) -> RuntimeCall {
         target: H160::repeat_byte(0x42),
         input: vec![],
         value: U256::zero(),
-        gas_limit: 100_000,
+        gas_limit: 21_000,
         max_fee_per_gas: gas_price(),
         max_priority_fee_per_gas: None,
         nonce,
@@ -153,7 +153,7 @@ fn simulate_call(wallet: &Wallet, nonce: Option<U256>) {
             H160::repeat_byte(0x42),
             vec![],
             U256::zero(),
-            100_000,
+            21_000,
             Some(gas_price()),
             None,
             nonce,
@@ -168,6 +168,8 @@ fn simulate_call(wallet: &Wallet, nonce: Option<U256>) {
     })
     .unwrap();
     assert!(info.exit_reason.is_succeed());
+    assert_eq!(info.used_gas.standard, U256::from(21_000));
+    assert_eq!(info.used_gas.effective, U256::from(21_000));
 }
 
 fn association_call(
@@ -498,9 +500,16 @@ fn fixed_ms_association_keeps_evm_funds_and_signing_authority_separate() {
     });
 }
 
+// PROTECTED_REGRESSION: queried nonce executes and advances independently for every wallet mode; changes require explicit human approval.
 #[test]
 fn queried_nonce_executes_and_advances_independently_for_every_wallet_mode() {
-    for mode in MODES {
+    for mode in MODES.into_iter().chain([
+        Mode::FixedMlDsa,
+        Mode::Falcon(6),
+        Mode::Falcon(7),
+        Mode::Falcon(8),
+        Mode::Falcon(9),
+    ]) {
         super::mldsa::with_profiles(|| {
             let wallet = Wallet::new(mode);
             let native = System::account_nonce(&wallet.account);
@@ -644,6 +653,7 @@ fn authorization_fee_is_not_refunded_when_gas_pays_for_execution() {
     });
 }
 
+// PROTECTED_REGRESSION: reverted and invalid evm calls keep authorization fees and reject replays; changes require explicit human approval.
 #[test]
 fn reverted_and_invalid_evm_calls_keep_authorization_fees_and_reject_replays() {
     for mode in MODES {
@@ -656,10 +666,16 @@ fn reverted_and_invalid_evm_calls_keep_authorization_fees_and_reject_replays() {
                     H160::repeat_byte(0x42),
                     hex::decode("60006000fd").unwrap(),
                 );
-                let xt = wallet.sign(evm_call(
+                let mut call = evm_call(
                     &wallet,
                     Some(nonce + U256::from(<u8 as From<bool>>::from(invalid))),
-                ));
+                );
+                // This case executes REVERT bytecode, so it needs gas beyond
+                // the plain-transfer intrinsic limit used by the helper.
+                if let RuntimeCall::EVM(pallet_evm::Call::call { gas_limit, .. }) = &mut call {
+                    *gas_limit = 100_000;
+                }
+                let xt = wallet.sign(call);
                 let replay = xt.clone();
                 let native = System::account_nonce(&wallet.account);
                 let generation = HashedAccounts::accounts(&wallet.account).map(|a| a.generation);
@@ -712,6 +728,7 @@ fn reverted_and_invalid_evm_calls_keep_authorization_fees_and_reject_replays() {
     }
 }
 
+// PROTECTED_REGRESSION: alias nonce survives balance reaping and native transactions when disabled; changes require explicit human approval.
 #[test]
 fn alias_nonce_survives_balance_reaping_and_native_transactions_when_disabled() {
     for mode in [Mode::HashedSr, Mode::HashedEd, Mode::MlDsa] {
@@ -746,6 +763,7 @@ fn alias_nonce_survives_balance_reaping_and_native_transactions_when_disabled() 
     }
 }
 
+// PROTECTED_REGRESSION: protected alias rejects create2 collision before any native evm transaction; changes require explicit human approval.
 #[test]
 fn protected_alias_rejects_create2_collision_before_any_native_evm_transaction() {
     ext().execute_with(|| {

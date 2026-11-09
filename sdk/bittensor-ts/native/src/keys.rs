@@ -378,6 +378,18 @@ pub fn ss58_from_public(public_key: Buffer, ss58_format: u16) -> NapiResult<Stri
     Ok(keys::ss58_from_public(public_key, ss58_format))
 }
 
+#[napi(js_name = "accountIdFromEcdsaPublic")]
+pub fn account_id_from_ecdsa_public(public_key: Buffer) -> NapiResult<Buffer> {
+    keys::account_id_from_ecdsa_public(public_key.as_ref())
+        .napi()
+        .map(|value| value.to_vec().into())
+}
+
+#[napi(js_name = "ss58FromEcdsaPublic")]
+pub fn ss58_from_ecdsa_public(public_key: Buffer, ss58_format: u16) -> NapiResult<String> {
+    keys::ss58_from_ecdsa_public(public_key.as_ref(), ss58_format).napi()
+}
+
 #[napi(js_name = "serializeKeypair")]
 pub fn serialize_keypair(keypair: &NativeKeypair) -> NapiResult<Buffer> {
     keyfiles::keypair_to_keyfile_data(&keypair.inner, None)

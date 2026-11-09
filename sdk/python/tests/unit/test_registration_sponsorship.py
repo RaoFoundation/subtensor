@@ -25,9 +25,11 @@ CLASSICAL_DEPOSIT = 200_000_000
 MLDSA_DEPOSIT = 200_000_000
 
 
-def make_setup(code):
+def make_setup(code, *, configurable=True):
     chain = FakeSubstrate()
     chain.seed("AdminUtils", "HashedAccountsEnabled", [], True)
+    if configurable:
+        chain.seed_default("HashedAccounts", "HashedAccountRegistrationDeposit", CLASSICAL_DEPOSIT)
     chain.seed_constant("HashedAccounts", "MldsaAccountProfiles", "0x0405")
     chain.seed_constant("HashedAccounts", "RegistrationDeposit", CLASSICAL_DEPOSIT)
     chain.seed_constant("HashedAccounts", "MlDsaRegistrationDeposit", MLDSA_DEPOSIT)
@@ -208,8 +210,7 @@ async def test_plan_and_preflight_only_quote_and_do_not_authorize(setup, monkeyp
 async def test_changed_deposit_requires_new_approval_of_actual_plan(setup):
     chain, executor, _, intent, deposit = setup
     preview = await executor.preflight(intent, dev_wallet())
-    chain.seed_constant("HashedAccounts", "RegistrationDeposit", deposit + 1)
-    chain.seed_constant("HashedAccounts", "MlDsaRegistrationDeposit", deposit + 1)
+    chain.seed("HashedAccounts", "HashedAccountRegistrationDeposit", [], deposit + 1)
     callback = Mock(return_value=True)
     with pytest.raises(RegistrationSponsorshipRequired, match="exceeds"):
         await executor.execute(
@@ -219,6 +220,51 @@ async def test_changed_deposit_requires_new_approval_of_actual_plan(setup):
             on_registration_sponsorship=callback,
         )
     callback.assert_not_called()
+
+
+@pytest.mark.parametrize("deposit", [0, 200_000_000, 350_000_000])
+async def test_sponsorship_quotes_live_shared_deposit_for_each_account_kind(setup, deposit):
+    chain, executor, _, intent, _ = setup
+    chain.seed("HashedAccounts", "HashedAccountRegistrationDeposit", [], deposit)
+    plan = await executor.plan(intent, dev_wallet())
+    assert plan.extras["hashed_registration_max_deposit_rao"] == deposit
+    guard, registration, payment = plan.call.params["calls"]
+    assert (guard.module, guard.function, guard.params) == (
+        "HashedAccounts",
+        "check_registration_deposit",
+        {"max_deposit": deposit},
+    )
+    assert registration.function == "register"
+    assert payment.module == "Balances"
+    preview = await executor.preflight(intent, dev_wallet())
+    if deposit == 0:
+        assert preview.registration_sponsorship is None
+    else:
+        assert preview.registration_sponsorship.deposit.rao == deposit
+    assert (
+        await executor.execute(
+            intent, dev_wallet(), max_registration_deposit=Balance.from_rao(deposit)
+        )
+    ).success
+
+
+async def test_rebuilt_sponsorship_call_updates_bound_without_mutating_previous_plan(setup):
+    chain, executor, _, intent, deposit = setup
+    original = await executor.plan(intent, dev_wallet())
+    chain.seed("HashedAccounts", "HashedAccountRegistrationDeposit", [], deposit + 1)
+    current = await executor.plan(intent, dev_wallet())
+    assert original.call.params["calls"][0].params == {"max_deposit": deposit}
+    assert current.call.params["calls"][0].params == {"max_deposit": deposit + 1}
+
+
+@pytest.mark.parametrize("code", [4, 6, 7])
+async def test_legacy_sponsorship_preserves_unguarded_registration_shape(code):
+    _, executor, _, intent, _ = make_setup(code, configurable=False)
+    plan = await executor.plan(intent, dev_wallet())
+    assert [call.function for call in plan.call.params["calls"]] == [
+        "register",
+        "transfer_keep_alive",
+    ]
 
 
 async def test_execute_tool_and_client_forward_the_bounded_consent(setup):

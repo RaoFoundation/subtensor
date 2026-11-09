@@ -36,7 +36,11 @@ mod tests;
 pub mod weights;
 
 extern crate alloc;
+#[cfg(feature = "try-runtime")]
+use alloc::vec::Vec;
 use alloc::{boxed::Box, vec};
+#[cfg(feature = "try-runtime")]
+use frame::try_runtime::TryRuntimeError;
 use frame::{
     prelude::*,
     traits::{Currency, InstanceFilter, ReservableCurrency},
@@ -588,6 +592,7 @@ pub mod pallet {
         #[pallet::weight({
 			let di = call.get_dispatch_info();
 			(T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get()).saturating_add(T::AccountPolicy::weight())
+				.saturating_add(T::DbWeight::get().reads(1))
 				 // AccountData for inner call origin accountdata.
 				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 				.saturating_add(di.call_weight),
@@ -607,8 +612,10 @@ pub mod pallet {
 
             let call_hash = T::CallHasher::hash_of(&call);
             let now = T::BlockNumberProvider::current_block_number();
+            let valid_from = AnnouncementValidFrom::<T>::get();
             Self::edit_announcements(&delegate, |ann| {
-                ann.real != real
+                valid_from.is_some_and(|boundary| ann.height < boundary)
+                    || ann.real != real
                     || ann.call_hash != call_hash
                     || now.saturating_sub(ann.height) < def.delay
             })
@@ -616,6 +623,7 @@ pub mod pallet {
 
             let weight = T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
                 .saturating_add(T::AccountPolicy::weight())
+                .saturating_add(T::DbWeight::get().reads(1))
                 .saturating_add(T::DbWeight::get().reads_writes(1, 1))
                 .saturating_add(Self::do_proxy(def, real, *call, origin));
 
@@ -766,7 +774,7 @@ pub mod pallet {
         /// Create a pure proxy and its permanent protection in one transaction.
         /// Its address derivation is identical to `create_pure`.
         #[pallet::call_index(12)]
-        #[pallet::weight(T::WeightInfo::create_protected_pure())]
+        #[pallet::weight(T::WeightInfo::create_protected_pure().saturating_add(T::DbWeight::get().reads(1)))]
         #[frame_support::transactional]
         pub fn create_protected_pure(
             origin: OriginFor<T>,
@@ -920,6 +928,46 @@ pub mod pallet {
 
     #[pallet::hooks]
     impl<T: Config> Hooks<SystemBlockNumberFor<T>> for Pallet<T> {
+        #[cfg(feature = "try-runtime")]
+        fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
+            let boundary = AnnouncementValidFrom::<T>::get().unwrap_or_else(|| {
+                T::BlockNumberProvider::current_block_number().saturating_add(One::one())
+            });
+            // Offline-only snapshot: invalidation must preserve the entries and their
+            // deposit records so delegates can remove them and recover reservations.
+            let announcements = Announcements::<T>::iter().collect::<Vec<_>>();
+            Ok((boundary, T::CallHasher::hash_of(&announcements)).encode())
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
+            let (boundary, announcements_hash) =
+                <(BlockNumberFor<T>, CallHashOf<T>)>::decode(&mut &state[..])
+                    .map_err(|_| "invalid proxy announcement upgrade snapshot")?;
+            ensure!(
+                AnnouncementValidFrom::<T>::get() == Some(boundary),
+                "proxy announcement validity boundary was not preserved or initialized"
+            );
+            let announcements = Announcements::<T>::iter().collect::<Vec<_>>();
+            ensure!(
+                T::CallHasher::hash_of(&announcements) == announcements_hash,
+                "proxy announcement entries or deposit records changed during invalidation"
+            );
+            Ok(())
+        }
+
+        fn on_runtime_upgrade() -> Weight {
+            if AnnouncementValidFrom::<T>::exists() {
+                return T::DbWeight::get().reads(1);
+            }
+            // Executive calls upgrades BEFORE System::initialize: the provider still
+            // exposes the last block executed by the old runtime. Exclude that block too.
+            AnnouncementValidFrom::<T>::put(
+                T::BlockNumberProvider::current_block_number().saturating_add(One::one()),
+            );
+            T::DbWeight::get().reads_writes(1, 1)
+        }
+
         fn on_finalize(_n: SystemBlockNumberFor<T>) {
             // clear this map on end of each block
             let _ = LastCallResult::<T>::clear(u32::MAX, None);
@@ -955,6 +1003,12 @@ pub mod pallet {
         ),
         ValueQuery,
     >;
+
+    /// The first block whose announcements were created under the restricted-proxy filter.
+    /// Entries from earlier blocks remain removable (and their deposits recoverable), but can
+    /// never authorize a call after the runtime upgrade.
+    #[pallet::storage]
+    pub type AnnouncementValidFrom<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
 
     /// The result of the last call made by the proxy (key).
     #[pallet::storage]
@@ -1351,6 +1405,10 @@ impl<T: Config> Pallet<T> {
                 {
                     false
                 }
+                // An announcement authorizes a future call by hash, after this origin's
+                // restrictions are gone. Since the payload is unavailable here, a restricted
+                // proxy cannot prove that the deferred call would pass its current filter.
+                Some(Call::announce { .. }) if def.proxy_type != T::ProxyType::default() => false,
                 _ => def.proxy_type.filter(c),
             }
         });

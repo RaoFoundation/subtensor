@@ -175,6 +175,15 @@ built from the dividends it earns (held on the subnets they were earned on and
 reshaped only by the validator's `swap_basket` trades), and root stakers accrue
 an entitlement to that fund in proportion to their root stake.
 
+When prices are outside the fast-price safety band, dividend conversion into
+basket shares waits. Root staking and unstaking remain available: the deferred
+alpha stays owed to the stakers who earned it, including those who fully unstake.
+`claim_root` can sell that deferred alpha directly into root stake without waiting
+for all the basket's prices to enter the band together. These sales use the
+current pool price and incur the origin pool's price impact. Existing basket
+shares are redeemed separately. If an origin subnet is dissolved, its deferred
+alpha is converted to a separate TAO balance that remains claimable by the same owners.
+
 Unlike subnet staking, moving TAO in and out of root is not a pool swap: no
 swap fee, no slippage, no MEV exposure — you add and remove root stake at
 face value. See [how money moves](/docs/concepts/money) for the swap mechanics

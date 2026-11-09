@@ -697,6 +697,19 @@ export function ss58FromPublic(
   return nativeCall(() => native.ss58FromPublic(toBuffer(publicKey, 'publicKey'), ss58Format))
 }
 
+/** AccountId32 used by the chain for a compressed secp256k1 public key. */
+export function accountIdFromEcdsaPublic(publicKey: ByteLike): Buffer {
+  return nativeCall(() => native.accountIdFromEcdsaPublic(toBuffer(publicKey, 'publicKey')))
+}
+
+/** SS58 rendering of the account id derived from a compressed secp256k1 public key. */
+export function ss58FromEcdsaPublic(
+  publicKey: ByteLike,
+  ss58Format = DEFAULT_SS58_FORMAT,
+): string {
+  return nativeCall(() => native.ss58FromEcdsaPublic(toBuffer(publicKey, 'publicKey'), ss58Format))
+}
+
 export const ss58Encode = ss58FromPublic
 export const encodeSs58 = ss58FromPublic
 export const ss58_encode = ss58FromPublic

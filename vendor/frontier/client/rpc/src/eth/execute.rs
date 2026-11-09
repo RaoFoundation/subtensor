@@ -47,8 +47,6 @@ use crate::{
 	frontier_backend_client, internal_err,
 };
 
-use crate::execution_admission::{retry_execution_capacity, PENDING_LIMIT_ERROR, PENDING_TIMEOUT};
-
 /// Allow to adapt a request for `estimate_gas`.
 /// Can be used to estimate gas of some contracts using a different function
 /// in the case the normal gas estimation doesn't work.
@@ -83,39 +81,6 @@ where
 		request: TransactionRequest,
 		number_or_hash: Option<BlockNumberOrHash>,
 		state_overrides: Option<BTreeMap<H160, CallStateOverride>>,
-	) -> RpcResult<Bytes> {
-		let timeout = if number_or_hash == Some(BlockNumberOrHash::Pending) {
-			PENDING_TIMEOUT
-		} else {
-			std::time::Duration::from_secs(5)
-		};
-		let deadline = tokio::time::Instant::now() + timeout;
-		let execution = retry_execution_capacity(
-			|| {
-				self.call_inner(
-					request.clone(),
-					number_or_hash,
-					state_overrides.clone(),
-					deadline,
-				)
-			},
-			deadline,
-		);
-		if number_or_hash == Some(BlockNumberOrHash::Pending) {
-			tokio::time::timeout_at(deadline, execution)
-				.await
-				.map_err(|_| internal_err(PENDING_LIMIT_ERROR))?
-		} else {
-			execution.await
-		}
-	}
-
-	async fn call_inner(
-		&self,
-		request: TransactionRequest,
-		number_or_hash: Option<BlockNumberOrHash>,
-		state_overrides: Option<BTreeMap<H160, CallStateOverride>>,
-		deadline: tokio::time::Instant,
 	) -> RpcResult<Bytes> {
 		let pending_request = request.clone();
 		let TransactionRequest {
@@ -159,12 +124,9 @@ where
 			None => {
 				// Not mapped in the db, assume pending.
 				is_pending = true;
-				let (hash, api) = self
-					.pending_runtime_api_until(deadline.into_std())
-					.await
-					.map_err(|err| {
-						internal_err(format!("Create pending runtime api error: {err}"))
-					})?;
+				let (hash, api) = self.pending_runtime_api().await.map_err(|err| {
+					internal_err(format!("Create pending runtime api error: {err}"))
+				})?;
 				(hash, api)
 			}
 		};
@@ -219,36 +181,42 @@ where
 			},
 		};
 
-		if is_pending {
-			if state_overrides
+		let pending_overrides = is_pending
+			&& to.is_some()
+			&& api_version >= 4
+			&& state_overrides
 				.as_ref()
-				.is_some_and(|overrides| !overrides.is_empty())
-			{
-				return Err(internal_err(
-					"state overrides are not supported with pending state",
-				));
-			}
-			let (exit_reason, output, _) = retry_execution_capacity(
-				|| {
-					std::future::ready(Self::pending_simulation(
-						&mut api,
-						substrate_hash,
-						pending_request.clone(),
-						deadline,
-						gas_limit,
-						api_version,
-						false,
-						gas_price,
-						max_fee_per_gas,
-						max_priority_fee_per_gas,
-					))
-				},
-				deadline,
-			)
-			.await?;
+				.is_some_and(|overrides| !overrides.is_empty());
+		if is_pending && !pending_overrides {
+			let (exit_reason, output, _) = Self::pending_simulation(
+				&mut api,
+				substrate_hash,
+				pending_request,
+				gas_limit,
+				api_version,
+				false,
+				gas_price,
+				max_fee_per_gas,
+				max_priority_fee_per_gas,
+			)?;
 			error_on_execution_failure(&exit_reason, &output)?;
 			return Ok(Bytes(output));
 		}
+
+		// Raw calls are needed for storage overrides. Preserve the complete
+		// reconstructed pending state underneath the caller's overrides.
+		let pending_overlay = if pending_overrides {
+			let backend = self
+				.client
+				.state_at(substrate_hash)
+				.map_err(|err| internal_err(format!("runtime error: {err}")))?;
+			let changes = api
+				.into_storage_changes(&backend, substrate_hash)
+				.map_err(|err| internal_err(format!("pending storage changes: {err}")))?;
+			Some(storage_changes_overlay::<B>(changes))
+		} else {
+			None
+		};
 
 		let data = data.into_bytes().map(|d| d.into_vec()).unwrap_or_default();
 		match to {
@@ -316,6 +284,7 @@ where
 						substrate_hash,
 						api_version,
 						state_overrides,
+						pending_overlay.unwrap_or_default(),
 					)?;
 
 					// Enable proof size recording
@@ -418,6 +387,7 @@ where
 						substrate_hash,
 						api_version,
 						state_overrides,
+						pending_overlay.unwrap_or_default(),
 					)?;
 
 					// Enable proof size recording
@@ -609,29 +579,6 @@ where
 		request: TransactionRequest,
 		number_or_hash: Option<BlockNumberOrHash>,
 	) -> RpcResult<U256> {
-		let pending = number_or_hash == Some(BlockNumberOrHash::Pending);
-		let deadline = tokio::time::Instant::now()
-			+ if pending {
-				PENDING_TIMEOUT
-			} else {
-				std::time::Duration::from_secs(5)
-			};
-		let execution = self.estimate_gas_inner(request, number_or_hash, deadline);
-		if pending {
-			tokio::time::timeout_at(deadline, execution)
-				.await
-				.map_err(|_| internal_err(PENDING_LIMIT_ERROR))?
-		} else {
-			execution.await
-		}
-	}
-
-	async fn estimate_gas_inner(
-		&self,
-		request: TransactionRequest,
-		number_or_hash: Option<BlockNumberOrHash>,
-		admission_deadline: tokio::time::Instant,
-	) -> RpcResult<U256> {
 		let mut is_pending = false;
 		let client = Arc::clone(&self.client);
 		let block_data_cache = Arc::clone(&self.block_data_cache);
@@ -653,12 +600,9 @@ where
 			None => {
 				// Not mapped in the db, assume pending.
 				is_pending = true;
-				let (hash, api) = self
-					.pending_runtime_api_until(admission_deadline.into_std())
-					.await
-					.map_err(|err| {
-						internal_err(format!("Create pending runtime api error: {err}"))
-					})?;
+				let (hash, api) = self.pending_runtime_api().await.map_err(|err| {
+					internal_err(format!("Create pending runtime api error: {err}"))
+				})?;
 				(hash, api)
 			}
 		};
@@ -1182,7 +1126,6 @@ where
 					&mut api,
 					substrate_hash,
 					request,
-					admission_deadline,
 					gas,
 					api_version,
 					estimate_mode,
@@ -1214,11 +1157,7 @@ where
 			data,
 			exit_reason,
 			used_gas,
-		} = retry_execution_capacity(
-			|| std::future::ready(probe(request.clone(), highest, api_version, estimate_mode)),
-			admission_deadline,
-		)
-		.await?;
+		} = probe(request.clone(), highest, api_version, estimate_mode)?;
 		match exit_reason {
 			ExitReason::Succeed(_) => (),
 			ExitReason::Error(ExitError::OutOfGas) => {
@@ -1239,18 +1178,7 @@ where
 						data,
 						exit_reason,
 						used_gas: _,
-					} = retry_execution_capacity(
-						|| {
-							std::future::ready(probe(
-								request.clone(),
-								max_gas_limit,
-								api_version,
-								estimate_mode,
-							))
-						},
-						admission_deadline,
-					)
-					.await?;
+					} = probe(request.clone(), max_gas_limit, api_version, estimate_mode)?;
 					match exit_reason {
 						ExitReason::Succeed(_) => {
 							return Err(internal_err(format!(
@@ -1289,11 +1217,7 @@ where
 					data,
 					exit_reason,
 					used_gas: _,
-				} = retry_execution_capacity(
-					|| std::future::ready(probe(request.clone(), mid, api_version, estimate_mode)),
-					admission_deadline,
-				)
-				.await?;
+				} = probe(request.clone(), mid, api_version, estimate_mode)?;
 				match exit_reason {
 					ExitReason::Succeed(_) => {
 						highest = mid;
@@ -1326,7 +1250,6 @@ where
 		api: &mut sp_api::ApiRef<'_, C::Api>,
 		at: B::Hash,
 		request: TransactionRequest,
-		deadline: tokio::time::Instant,
 		gas_limit: U256,
 		version: u32,
 		estimate: bool,
@@ -1334,14 +1257,11 @@ where
 		max_fee: Option<U256>,
 		priority_fee: Option<U256>,
 	) -> RpcResult<(ExitReason, Vec<u8>, U256)> {
-		if tokio::time::Instant::now() >= deadline {
-			return Err(internal_err(PENDING_LIMIT_ERROR));
-		}
 		api.record_proof();
 		if let Some(recorder) = api.proof_recorder() {
 			api.register_extension(sp_trie::proof_size_extension::ProofSizeExt::new(recorder));
 		}
-		let result = api.execute_in_transaction(|api| {
+		api.execute_in_transaction(|api| {
 			TransactionOutcome::Rollback((|| {
 				let TransactionRequest {
 					from,
@@ -1526,11 +1446,7 @@ where
 					}
 				}
 			})())
-		});
-		if tokio::time::Instant::now() >= deadline {
-			return Err(internal_err(PENDING_LIMIT_ERROR));
-		}
-		result
+		})
 	}
 
 	/// Given an address mapped `CallStateOverride`, creates `OverlayedChanges` to be used for
@@ -1540,8 +1456,8 @@ where
 		block_hash: B::Hash,
 		api_version: u32,
 		state_overrides: Option<BTreeMap<H160, CallStateOverride>>,
+		mut overlayed_changes: OverlayedChanges<HashingFor<B>>,
 	) -> RpcResult<OverlayedChanges<HashingFor<B>>> {
-		let mut overlayed_changes = OverlayedChanges::default();
 		if let Some(state_overrides) = state_overrides {
 			for (address, state_override) in state_overrides {
 				if EC::RuntimeStorageOverride::is_enabled() {
@@ -1579,6 +1495,8 @@ where
 
 				// Use `state` first. If `stateDiff` is also present, it resolves consistently
 				if let Some(state) = &state_override.state {
+					// A full override also clears slots created by pending transactions.
+					clear_overlay_prefix::<B>(&mut overlayed_changes, &account_storage_key);
 					// clear all storage
 					if let Ok(all_keys) = self.client.storage_keys(
 						block_hash,
@@ -1612,6 +1530,34 @@ where
 		}
 
 		Ok(overlayed_changes)
+	}
+}
+
+/// Transfer pending changes into the raw-call overlay without losing child storage.
+fn storage_changes_overlay<B: BlockT>(
+	changes: sp_api::StorageChanges<B>,
+) -> OverlayedChanges<HashingFor<B>> {
+	let mut overlay = OverlayedChanges::default();
+	for (key, value) in changes.main_storage_changes {
+		overlay.set_storage(key, value);
+	}
+	for (child, changes) in changes.child_storage_changes {
+		let child = sp_storage::ChildInfo::new_default(&child);
+		for (key, value) in changes {
+			overlay.set_child_storage(&child, key, value);
+		}
+	}
+	overlay
+}
+
+fn clear_overlay_prefix<B: BlockT>(overlay: &mut OverlayedChanges<HashingFor<B>>, prefix: &[u8]) {
+	let keys: Vec<_> = overlay
+		.changes()
+		.filter(|(key, _)| key.starts_with(prefix))
+		.map(|(key, _)| key.clone())
+		.collect();
+	for key in keys {
+		overlay.set_storage(key, None);
 	}
 }
 
@@ -1705,5 +1651,81 @@ fn fee_details(
 			max_priority_fee_per_gas: Some(U256::zero()),
 			fee_cap: U256::zero(),
 		}),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use sp_runtime::{
+		generic::{Block, Header},
+		traits::BlakeTwo256,
+		OpaqueExtrinsic,
+	};
+
+	type TestBlock = Block<Header<u64, BlakeTwo256>, OpaqueExtrinsic>;
+
+	#[test]
+	fn pending_override_overlay_preserves_main_and_child_changes() {
+		let changes = sp_api::StorageChanges::<TestBlock> {
+			main_storage_changes: vec![
+				(
+					b"pending-account".to_vec(),
+					Some(b"pending-balance".to_vec()),
+				),
+				(b"deleted-account".to_vec(), None),
+			],
+			child_storage_changes: vec![(
+				b"contract".to_vec(),
+				vec![
+					(b"pending-slot".to_vec(), Some(b"pending-value".to_vec())),
+					(b"deleted-slot".to_vec(), None),
+				],
+			)],
+			..Default::default()
+		};
+		let mut overlay = storage_changes_overlay::<TestBlock>(changes);
+		let child = sp_storage::ChildInfo::new_default(b"contract");
+		assert_eq!(
+			overlay.storage(b"pending-account"),
+			Some(Some(b"pending-balance".as_slice()))
+		);
+		assert_eq!(overlay.storage(b"deleted-account"), Some(None));
+		assert_eq!(
+			overlay.child_storage(&child, b"pending-slot"),
+			Some(Some(b"pending-value".as_slice()))
+		);
+		assert_eq!(overlay.child_storage(&child, b"deleted-slot"), Some(None));
+		// The explicit override wins while unrelated pending state stays present.
+		overlay.set_storage(
+			b"pending-account".to_vec(),
+			Some(b"override-balance".to_vec()),
+		);
+		assert_eq!(
+			overlay.storage(b"pending-account"),
+			Some(Some(b"override-balance".as_slice()))
+		);
+		assert_eq!(
+			overlay.child_storage(&child, b"pending-slot"),
+			Some(Some(b"pending-value".as_slice()))
+		);
+	}
+
+	#[test]
+	fn full_state_override_removes_pending_created_slots_only_for_that_account() {
+		let mut overlay = OverlayedChanges::default();
+		overlay.set_storage(b"account-a/slot".to_vec(), Some(vec![1]));
+		overlay.set_storage(b"account-b/slot".to_vec(), Some(vec![2]));
+		clear_overlay_prefix::<TestBlock>(&mut overlay, b"account-a/");
+		assert_eq!(overlay.storage(b"account-a/slot"), Some(None));
+		assert_eq!(
+			overlay.storage(b"account-b/slot"),
+			Some(Some([2].as_slice()))
+		);
+		overlay.set_storage(b"account-a/replacement".to_vec(), Some(vec![3]));
+		assert_eq!(
+			overlay.storage(b"account-a/replacement"),
+			Some(Some([3].as_slice()))
+		);
 	}
 }

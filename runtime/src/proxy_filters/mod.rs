@@ -44,12 +44,13 @@ type RegistrationAllowed = (PowRegistrationCalls, BurnedRegistrationCalls);
 /// owner-key rotation.
 type OwnerAllowed = (SubnetIdentityCalls, SubnetManagementCalls);
 
-/// `SubnetLeaseBeneficiary`: operate a leased subnet (activation, identity, and
-/// the owner-settable subnet management config).
+/// `SubnetLeaseBeneficiary`: operate a leased subnet (activation, identity, the
+/// owner-settable subnet management config, and the subnet's service).
 type SubnetLeaseAllowed = (
     SubnetActivationCalls,
     SubnetIdentityCalls,
     SubnetManagementCalls,
+    ServiceCalls,
 );
 
 /// `Weights`: submit weights for the real hotkey and nothing else. The
@@ -70,10 +71,14 @@ type ValidateAllowed = (WeightCalls, NeuronServingCalls, CommitmentCalls);
 /// Contracts, and Crowdloan calls that can move value indirectly, Multisig
 /// wrappers (they re-dispatch on a fresh origin that drops this filter),
 /// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
-/// owner-key rotation, deferred order approvals, protected-account creation, and basket trading (which needs the explicit
-/// `BasketTrading` grant). Sudo is excluded because a sudo-key principal
-/// would otherwise hand the delegate root, including forced transfers.
-/// `SudoCalls` is inventory-only: no restricted proxy grants it.
+/// owner-key rotation, deferred order approvals, protected-account creation,
+/// crediting gamma to a hotkey, changing a gamma deposit's spending authority,
+/// or naming a service's spender, and basket trading and gamma spending (which
+/// need the explicit `BasketTrading` and `GammaSpend` grants). Sudo is excluded
+/// because a sudo-key principal would otherwise hand the delegate root,
+/// including forced transfers.
+/// `SudoCalls` and `TaoUsdPriceFeedCalls` are inventory-only: no restricted
+/// proxy grants them.
 type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -117,8 +122,8 @@ type NonFungibleAllowed = (
 /// network dissolution, root/burned registration, coldkey swaps, Crowdloan
 /// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
 /// Multisig wrappers, `store_encrypted`, owner-key rotation, deferred order approvals,
-/// protected-account creation, or basket
-/// trading (which needs the explicit `BasketTrading` grant). EVM execution can
+/// protected-account creation, basket trading or gamma spending (which need the
+/// explicit `BasketTrading` and `GammaSpend` grants). EVM execution can
 /// reconstruct an unrestricted native origin through precompiles, so it requires
 /// full authority even when the requested target is an ordinary contract.
 type NonCriticalAllowed = (
@@ -140,6 +145,9 @@ type NonCriticalAllowed = (
     SubtensorValueCalls,
     WeightCalls,
     NeuronServingCalls,
+    GammaCreditCalls,
+    GammaDepositAuthorityCalls,
+    ServiceCalls,
     SubtensorCommonCalls,
 );
 
@@ -170,6 +178,7 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::Validate => ValidateAllowed::contains(call),
         ProxyType::Weights => WeightsAllowed::contains(call),
         ProxyType::Lock => LockAllowed::contains(call),
+        ProxyType::GammaSpend => GammaSpendCalls::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -191,7 +200,8 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             // Keep this positive list explicit. A future proxy type that can
             // move value must not become addable through `NonTransfer` by
             // default. `SudoUncheckedSetCode` is not listed: `NonTransfer`
-            // no longer reaches Sudo.
+            // no longer reaches Sudo. `SubnetLeaseBeneficiary` is not listed: it
+            // names the spender of the subnet's service.
             (
                 ProxyType::NonTransfer,
                 ProxyType::Owner
@@ -204,7 +214,6 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::RootWeights
                 | ProxyType::ChildKeys
                 | ProxyType::SwapHotkey
-                | ProxyType::SubnetLeaseBeneficiary
                 | ProxyType::RootClaim
                 | ProxyType::Validate
                 | ProxyType::Weights
@@ -245,6 +254,7 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::Validate => FilterMode::Allow(ValidateAllowed::call_infos()),
         ProxyType::Weights => FilterMode::Allow(WeightsAllowed::call_infos()),
         ProxyType::Lock => FilterMode::Allow(LockAllowed::call_infos()),
+        ProxyType::GammaSpend => FilterMode::Allow(GammaSpendCalls::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -355,6 +365,7 @@ mod tests {
             .iter()
             .copied()
             .chain([
+                "HashedAccounts::check_registration_deposit",
                 "HashedAccounts::check_registered",
                 "HashedAccounts::check_derived",
                 "Utility::batch_all",
@@ -393,7 +404,15 @@ mod tests {
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
-        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied
+            | &group_calls::<(
+                BasketTradingCalls,
+                GammaSpendCalls,
+                GammaCreditCalls,
+                GammaDepositAuthorityCalls,
+                ServiceCalls,
+            )>();
+        let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -402,6 +421,7 @@ mod tests {
                 LimitOrderApprovalCalls,
                 ProtectedAccountCreationCalls,
             )>();
+        let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -419,7 +439,15 @@ mod tests {
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(LockCalls, SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
-        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied
+            | &group_calls::<(
+                BasketTradingCalls,
+                GammaSpendCalls,
+                GammaCreditCalls,
+                GammaDepositAuthorityCalls,
+                ServiceCalls,
+            )>();
+        let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -428,6 +456,7 @@ mod tests {
                 LimitOrderApprovalCalls,
                 ProtectedAccountCreationCalls,
             )>();
+        let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -575,6 +604,47 @@ mod tests {
         }
     }
 
+    /// A `NonTransfer` delegate must not be able to turn itself into a direct
+    /// gamma spender and then escape the proxy filter. Removing the cap is part
+    /// of the same authority escalation and is denied with the spender change.
+    // PROTECTED_REGRESSION: non transfer cannot grant itself gamma spending authority; changes require explicit human approval.
+    #[test]
+    fn non_transfer_cannot_grant_itself_gamma_spending_authority() {
+        use subtensor_runtime_common::{AccountId, NetUid};
+
+        let delegate = AccountId::new([8; 32]);
+        let hotkey = AccountId::new([7; 32]);
+        let authority_changes = [
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::set_gamma_deposit_spender {
+                hotkey: hotkey.clone(),
+                netuid: NetUid::from(1),
+                spender: Some(delegate),
+            }),
+            RuntimeCall::SubtensorModule(
+                pallet_subtensor::Call::set_gamma_deposit_daily_spend_cap {
+                    hotkey,
+                    netuid: NetUid::from(1),
+                    daily_spend_cap: None,
+                },
+            ),
+        ];
+
+        for call in &authority_changes {
+            let metadata = call.get_call_metadata();
+            let name = format!("{}::{}", metadata.pallet_name, metadata.function_name);
+            assert!(GammaDepositAuthorityCalls::contains(call));
+            assert!(
+                !ProxyType::NonTransfer.filter(call),
+                "NonTransfer must not dispatch {name}"
+            );
+            assert!(!allowed_calls(ProxyType::NonTransfer).contains(&name));
+            assert!(
+                ProxyType::NonCritical.filter(call),
+                "NonCritical keeps {name}"
+            );
+        }
+    }
+
     /// Multisig wrappers re-dispatch the inner call on a fresh `Signed(multisig)`
     /// origin that does not carry the proxy filter. Restricted proxies must not
     /// reach them; `Any` still can.
@@ -688,7 +758,8 @@ mod tests {
             | &(&group_calls::<RootRegistrationCalls>() | &group_calls::<CriticalNetworkCalls>()))
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(EvmCalls, CrowdloanCalls, MultisigCalls)>();
-        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls)>();
+        let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
@@ -697,6 +768,7 @@ mod tests {
                 LimitOrderApprovalCalls,
                 ProtectedAccountCreationCalls,
             )>();
+        let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
@@ -846,7 +918,6 @@ mod tests {
             ProxyType::RootWeights,
             ProxyType::ChildKeys,
             ProxyType::SwapHotkey,
-            ProxyType::SubnetLeaseBeneficiary,
             ProxyType::RootClaim,
             ProxyType::Validate,
             ProxyType::Weights,
@@ -938,6 +1009,7 @@ mod tests {
         assert!(lease.contains("SubtensorModule::start_call"));
         assert!(lease.contains("SubtensorModule::set_subnet_identity"));
         assert!(lease.contains("AdminUtils::sudo_set_serving_rate_limit"));
+        assert!(lease.contains("SubtensorModule::set_service"));
         // ...but not root-only params, owner keys, authorities, or lease teardown.
         assert!(!lease.contains("AdminUtils::sudo_set_kappa"));
         assert!(!lease.contains("AdminUtils::sudo_set_total_issuance"));
@@ -1035,6 +1107,10 @@ mod tests {
             ])
         );
         assert_eq!(
+            allowed_calls(ProxyType::GammaSpend),
+            expected(&["SubtensorModule::spend_gamma"])
+        );
+        assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),
             expected(&["Sudo::sudo_unchecked_weight"])
         );
@@ -1102,6 +1178,10 @@ mod tests {
             ChildKeyCalls,
             RootClaimCalls,
             BasketTradingCalls,
+            GammaSpendCalls,
+            GammaCreditCalls,
+            GammaDepositAuthorityCalls,
+            ServiceCalls,
             LockCalls,
             SubtensorValueCalls,
             OwnerKeyCalls,
@@ -1425,6 +1505,7 @@ mod tests {
             assert!(!allowed.contains("LimitOrders::authorize_order"));
             assert!(!allowed.contains("Utility::as_protected_derivative"));
             assert!(!allowed.contains("Proxy::create_protected_pure"));
+            assert!(!allowed.contains("Proxy::announce"));
             assert!(!allowed.contains("AdminUtils::sudo_set_sn_owner_hotkey"));
         }
         // `root_dissolve_network` leaked into NonCritical specifically.
@@ -1609,6 +1690,21 @@ mod tests {
         assert_eq!(
             supersets,
             [ProxyType::Any, ProxyType::BasketTrading]
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+        );
+    }
+
+    // Only `Any` covers the gamma spending grant.
+    #[test]
+    fn gamma_spend_supersets() {
+        let supersets = all_proxy_types()
+            .into_iter()
+            .filter(|proxy_type| proxy_type.is_superset(&ProxyType::GammaSpend))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            supersets,
+            [ProxyType::Any, ProxyType::GammaSpend]
                 .into_iter()
                 .collect::<BTreeSet<_>>()
         );

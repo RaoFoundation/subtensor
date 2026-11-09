@@ -40,7 +40,6 @@ use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_limit_orders`.
 pub trait WeightInfo {
-
 	fn authorize_order() -> Weight;
 	fn execute_authenticated_orders(n: u32, p: u32, ) -> Weight;
 	fn execute_authenticated_batched_orders(n: u32, p: u32, ) -> Weight;
@@ -248,43 +247,44 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes((8_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
+
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:1 w:0)
 	/// Proof: `LimitOrders::LimitOrdersEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::ColdkeySwapDisputes` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Account` (r:1 w:0)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `System::BlockHash` (r:1 w:0)
 	/// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::OrderNonces` (r:1 w:1)
-	/// Proof: `LimitOrders::OrderNonces` (`max_values`: None, `max_size`: Some(96), added: 2571, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::Orders` (r:1 w:0)
-	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::ApprovedOrders` (r:0 w:1)
-	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(112), added: 2587, mode: `MaxEncodedLen`)
+	/// Storage: `Timestamp::Now` (r:1 w:0)
+	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::ApprovedOrders` (r:1 w:1)
+	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
 	fn authorize_order() -> Weight {
+		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
+		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
 		// Proof Size summary in bytes:
-		//  Measured:  `699`
-		//  Estimated: `4164`
-		// Minimum execution time: 33_010_000 picoseconds.
-		Weight::from_parts(33_751_000, 4164)
+		//  Measured:  `1906`
+		//  Estimated: `5371`
+		// Minimum local execution time: 34_000_000 picoseconds.
+		Weight::from_parts(61_742_250, 5371)
 			.saturating_add(T::DbWeight::get().reads(7_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `System::BlockHash` (r:1 w:0)
 	/// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::OrderNonces` (r:1 w:1)
-	/// Proof: `LimitOrders::OrderNonces` (`max_values`: None, `max_size`: Some(96), added: 2571, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::Orders` (r:1 w:1)
-	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::ApprovedOrders` (r:0 w:1)
-	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(112), added: 2587, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::ApprovedOrders` (r:1 w:1)
+	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
 	fn cancel_authenticated_order() -> Weight {
+		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
+		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
 		// Proof Size summary in bytes:
-		//  Measured:  `360`
-		//  Estimated: `3561`
-		// Minimum execution time: 22_964_000 picoseconds.
-		Weight::from_parts(23_706_000, 3561)
+		//  Measured:  `1189`
+		//  Estimated: `4499`
+		// Minimum local execution time: 16_000_000 picoseconds.
+		Weight::from_parts(37_731_375, 4499)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
@@ -308,16 +308,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `EVMChainId::ChainId` (r:1 w:0)
 	/// Proof: `EVMChainId::ChainId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::OrderNonces` (r:8 w:8)
-	/// Proof: `LimitOrders::OrderNonces` (`max_values`: None, `max_size`: Some(96), added: 2571, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::Orders` (r:100 w:100)
-	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::ApprovedOrders` (r:8 w:8)
+	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
 	/// Storage: `LimitOrders::LinkedOutputs` (r:8 w:16)
 	/// Proof: `LimitOrders::LinkedOutputs` (`max_values`: None, `max_size`: Some(131), added: 2606, mode: `MaxEncodedLen`)
-	/// Storage: `AdminUtils::HashedAccountsEnabled` (r:1 w:0)
-	/// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `HashedAccounts::MlDsaAuthorizationEnabled` (r:1 w:0)
-	/// Proof: `HashedAccounts::MlDsaAuthorizationEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:1 w:0)
@@ -366,6 +360,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `HashedAccounts::MlDsaAccounts` (`max_values`: None, `max_size`: Some(186), added: 2661, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::DerivedAuthorities` (r:92 w:0)
 	/// Proof: `HashedAccounts::DerivedAuthorities` (`max_values`: None, `max_size`: Some(6460), added: 8935, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::Orders` (r:92 w:92)
+	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::AlphaV2` (r:0 w:100)
 	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::HotkeySwapBasketCredits` (r:0 w:100)
@@ -373,22 +369,22 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `n` is `[8, 100]`.
 	/// The range of component `p` is `[1, 8]`.
 	fn execute_authenticated_orders(n: u32, p: u32, ) -> Weight {
+		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
+		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
 		// Proof Size summary in bytes:
-		//  Measured:  `1309 + n * (456 ±0) + p * (453 ±0)`
-		//  Estimated: `6148 + n * (8935 ±0) + p * (2775 ±1)`
-		// Minimum execution time: 3_818_736_000 picoseconds.
-		Weight::from_parts(1_085_022_887, 6148)
-			// Standard Error: 445_635
-			.saturating_add(Weight::from_parts(332_424_867, 0).saturating_mul(n.into()))
-			// Standard Error: 5_499_695
-			.saturating_add(Weight::from_parts(50_186_686, 0).saturating_mul(p.into()))
-			.saturating_add(T::DbWeight::get().reads(22_u64))
+		//  Measured:  `862 + n * (457 ±0) + p * (1162 ±0)`
+		//  Estimated: `6148 + n * (8935 ±0) + p * (3509 ±3)`
+		// Minimum local execution time: 1_966_000_000 picoseconds.
+		Weight::from_parts(400_434_794, 6148)
+			// Local Standard Error: 811_420
+			.saturating_add(Weight::from_parts(540_983_942, 0).saturating_mul(n.into()))
+			.saturating_add(T::DbWeight::get().reads(20_u64))
 			.saturating_add(T::DbWeight::get().reads((18_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(11_u64))
 			.saturating_add(T::DbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(p.into())))
+			.saturating_add(T::DbWeight::get().writes((2_u64).saturating_mul(p.into())))
 			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
+			.saturating_add(Weight::from_parts(0, 3509).saturating_mul(p.into()))
 	}
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:1 w:0)
 	/// Proof: `LimitOrders::LimitOrdersEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
@@ -410,22 +406,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `EVMChainId::ChainId` (r:1 w:0)
 	/// Proof: `EVMChainId::ChainId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::OrderNonces` (r:8 w:8)
-	/// Proof: `LimitOrders::OrderNonces` (`max_values`: None, `max_size`: Some(96), added: 2571, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::Orders` (r:100 w:100)
-	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::ApprovedOrders` (r:8 w:8)
+	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
 	/// Storage: `LimitOrders::LinkedOutputs` (r:8 w:16)
 	/// Proof: `LimitOrders::LinkedOutputs` (`max_values`: None, `max_size`: Some(131), added: 2606, mode: `MaxEncodedLen`)
-	/// Storage: `AdminUtils::HashedAccountsEnabled` (r:1 w:0)
-	/// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `HashedAccounts::MlDsaAuthorizationEnabled` (r:1 w:0)
-	/// Proof: `HashedAccounts::MlDsaAuthorizationEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::Accounts` (r:92 w:0)
 	/// Proof: `HashedAccounts::Accounts` (`max_values`: None, `max_size`: Some(122), added: 2597, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::MlDsaAccounts` (r:92 w:0)
 	/// Proof: `HashedAccounts::MlDsaAccounts` (`max_values`: None, `max_size`: Some(186), added: 2661, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::DerivedAuthorities` (r:92 w:0)
 	/// Proof: `HashedAccounts::DerivedAuthorities` (`max_values`: None, `max_size`: Some(6460), added: 8935, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::Orders` (r:92 w:92)
+	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:203 w:203)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -475,22 +467,22 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `n` is `[8, 100]`.
 	/// The range of component `p` is `[1, 8]`.
 	fn execute_authenticated_batched_orders(n: u32, p: u32, ) -> Weight {
+		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
+		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
 		// Proof Size summary in bytes:
-		//  Measured:  `1435 + n * (457 ±0) + p * (453 ±0)`
-		//  Estimated: `8727 + n * (8935 ±0) + p * (2775 ±1)`
-		// Minimum execution time: 3_286_892_000 picoseconds.
-		Weight::from_parts(664_894_656, 8727)
-			// Standard Error: 267_170
-			.saturating_add(Weight::from_parts(253_598_746, 0).saturating_mul(n.into()))
-			// Standard Error: 3_297_222
-			.saturating_add(Weight::from_parts(108_984_370, 0).saturating_mul(p.into()))
-			.saturating_add(T::DbWeight::get().reads(32_u64))
+		//  Measured:  `1006 + n * (458 ±0) + p * (1162 ±0)`
+		//  Estimated: `8727 + n * (8935 ±0) + p * (3509 ±3)`
+		// Minimum local execution time: 1_594_000_000 picoseconds.
+		Weight::from_parts(524_577_676, 8727)
+			// Local Standard Error: 1_446_282
+			.saturating_add(Weight::from_parts(438_849_101, 0).saturating_mul(n.into()))
+			.saturating_add(T::DbWeight::get().reads(30_u64))
 			.saturating_add(T::DbWeight::get().reads((16_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(18_u64))
 			.saturating_add(T::DbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(p.into())))
+			.saturating_add(T::DbWeight::get().writes((2_u64).saturating_mul(p.into())))
 			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
+			.saturating_add(Weight::from_parts(0, 3509).saturating_mul(p.into()))
 	}
 }
 
@@ -689,43 +681,44 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes((8_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
+
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:1 w:0)
 	/// Proof: `LimitOrders::LimitOrdersEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::ColdkeySwapDisputes` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Account` (r:1 w:0)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `System::BlockHash` (r:1 w:0)
 	/// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::OrderNonces` (r:1 w:1)
-	/// Proof: `LimitOrders::OrderNonces` (`max_values`: None, `max_size`: Some(96), added: 2571, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::Orders` (r:1 w:0)
-	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::ApprovedOrders` (r:0 w:1)
-	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(112), added: 2587, mode: `MaxEncodedLen`)
+	/// Storage: `Timestamp::Now` (r:1 w:0)
+	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::ApprovedOrders` (r:1 w:1)
+	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
 	fn authorize_order() -> Weight {
+		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
+		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
 		// Proof Size summary in bytes:
-		//  Measured:  `699`
-		//  Estimated: `4164`
-		// Minimum execution time: 33_010_000 picoseconds.
-		Weight::from_parts(33_751_000, 4164)
+		//  Measured:  `1906`
+		//  Estimated: `5371`
+		// Minimum local execution time: 34_000_000 picoseconds.
+		Weight::from_parts(61_742_250, 5371)
 			.saturating_add(RocksDbWeight::get().reads(7_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `System::BlockHash` (r:1 w:0)
 	/// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::OrderNonces` (r:1 w:1)
-	/// Proof: `LimitOrders::OrderNonces` (`max_values`: None, `max_size`: Some(96), added: 2571, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::Orders` (r:1 w:1)
-	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::ApprovedOrders` (r:0 w:1)
-	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(112), added: 2587, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::ApprovedOrders` (r:1 w:1)
+	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
 	fn cancel_authenticated_order() -> Weight {
+		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
+		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
 		// Proof Size summary in bytes:
-		//  Measured:  `360`
-		//  Estimated: `3561`
-		// Minimum execution time: 22_964_000 picoseconds.
-		Weight::from_parts(23_706_000, 3561)
+		//  Measured:  `1189`
+		//  Estimated: `4499`
+		// Minimum local execution time: 16_000_000 picoseconds.
+		Weight::from_parts(37_731_375, 4499)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
@@ -749,16 +742,10 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `EVMChainId::ChainId` (r:1 w:0)
 	/// Proof: `EVMChainId::ChainId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::OrderNonces` (r:8 w:8)
-	/// Proof: `LimitOrders::OrderNonces` (`max_values`: None, `max_size`: Some(96), added: 2571, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::Orders` (r:100 w:100)
-	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::ApprovedOrders` (r:8 w:8)
+	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
 	/// Storage: `LimitOrders::LinkedOutputs` (r:8 w:16)
 	/// Proof: `LimitOrders::LinkedOutputs` (`max_values`: None, `max_size`: Some(131), added: 2606, mode: `MaxEncodedLen`)
-	/// Storage: `AdminUtils::HashedAccountsEnabled` (r:1 w:0)
-	/// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `HashedAccounts::MlDsaAuthorizationEnabled` (r:1 w:0)
-	/// Proof: `HashedAccounts::MlDsaAuthorizationEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:1 w:0)
@@ -807,6 +794,8 @@ impl WeightInfo for () {
 	/// Proof: `HashedAccounts::MlDsaAccounts` (`max_values`: None, `max_size`: Some(186), added: 2661, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::DerivedAuthorities` (r:92 w:0)
 	/// Proof: `HashedAccounts::DerivedAuthorities` (`max_values`: None, `max_size`: Some(6460), added: 8935, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::Orders` (r:92 w:92)
+	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::AlphaV2` (r:0 w:100)
 	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::HotkeySwapBasketCredits` (r:0 w:100)
@@ -814,22 +803,22 @@ impl WeightInfo for () {
 	/// The range of component `n` is `[8, 100]`.
 	/// The range of component `p` is `[1, 8]`.
 	fn execute_authenticated_orders(n: u32, p: u32, ) -> Weight {
+		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
+		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
 		// Proof Size summary in bytes:
-		//  Measured:  `1309 + n * (456 ±0) + p * (453 ±0)`
-		//  Estimated: `6148 + n * (8935 ±0) + p * (2775 ±1)`
-		// Minimum execution time: 3_818_736_000 picoseconds.
-		Weight::from_parts(1_085_022_887, 6148)
-			// Standard Error: 445_635
-			.saturating_add(Weight::from_parts(332_424_867, 0).saturating_mul(n.into()))
-			// Standard Error: 5_499_695
-			.saturating_add(Weight::from_parts(50_186_686, 0).saturating_mul(p.into()))
-			.saturating_add(RocksDbWeight::get().reads(22_u64))
+		//  Measured:  `862 + n * (457 ±0) + p * (1162 ±0)`
+		//  Estimated: `6148 + n * (8935 ±0) + p * (3509 ±3)`
+		// Minimum local execution time: 1_966_000_000 picoseconds.
+		Weight::from_parts(400_434_794, 6148)
+			// Local Standard Error: 811_420
+			.saturating_add(Weight::from_parts(540_983_942, 0).saturating_mul(n.into()))
+			.saturating_add(RocksDbWeight::get().reads(20_u64))
 			.saturating_add(RocksDbWeight::get().reads((18_u64).saturating_mul(n.into())))
 			.saturating_add(RocksDbWeight::get().writes(11_u64))
 			.saturating_add(RocksDbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(p.into())))
+			.saturating_add(RocksDbWeight::get().writes((2_u64).saturating_mul(p.into())))
 			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
+			.saturating_add(Weight::from_parts(0, 3509).saturating_mul(p.into()))
 	}
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:1 w:0)
 	/// Proof: `LimitOrders::LimitOrdersEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
@@ -851,22 +840,18 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `EVMChainId::ChainId` (r:1 w:0)
 	/// Proof: `EVMChainId::ChainId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::OrderNonces` (r:8 w:8)
-	/// Proof: `LimitOrders::OrderNonces` (`max_values`: None, `max_size`: Some(96), added: 2571, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::Orders` (r:100 w:100)
-	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::ApprovedOrders` (r:8 w:8)
+	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
 	/// Storage: `LimitOrders::LinkedOutputs` (r:8 w:16)
 	/// Proof: `LimitOrders::LinkedOutputs` (`max_values`: None, `max_size`: Some(131), added: 2606, mode: `MaxEncodedLen`)
-	/// Storage: `AdminUtils::HashedAccountsEnabled` (r:1 w:0)
-	/// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `HashedAccounts::MlDsaAuthorizationEnabled` (r:1 w:0)
-	/// Proof: `HashedAccounts::MlDsaAuthorizationEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::Accounts` (r:92 w:0)
 	/// Proof: `HashedAccounts::Accounts` (`max_values`: None, `max_size`: Some(122), added: 2597, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::MlDsaAccounts` (r:92 w:0)
 	/// Proof: `HashedAccounts::MlDsaAccounts` (`max_values`: None, `max_size`: Some(186), added: 2661, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::DerivedAuthorities` (r:92 w:0)
 	/// Proof: `HashedAccounts::DerivedAuthorities` (`max_values`: None, `max_size`: Some(6460), added: 8935, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::Orders` (r:92 w:92)
+	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:203 w:203)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -916,21 +901,21 @@ impl WeightInfo for () {
 	/// The range of component `n` is `[8, 100]`.
 	/// The range of component `p` is `[1, 8]`.
 	fn execute_authenticated_batched_orders(n: u32, p: u32, ) -> Weight {
+		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
+		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
 		// Proof Size summary in bytes:
-		//  Measured:  `1435 + n * (457 ±0) + p * (453 ±0)`
-		//  Estimated: `8727 + n * (8935 ±0) + p * (2775 ±1)`
-		// Minimum execution time: 3_286_892_000 picoseconds.
-		Weight::from_parts(664_894_656, 8727)
-			// Standard Error: 267_170
-			.saturating_add(Weight::from_parts(253_598_746, 0).saturating_mul(n.into()))
-			// Standard Error: 3_297_222
-			.saturating_add(Weight::from_parts(108_984_370, 0).saturating_mul(p.into()))
-			.saturating_add(RocksDbWeight::get().reads(32_u64))
+		//  Measured:  `1006 + n * (458 ±0) + p * (1162 ±0)`
+		//  Estimated: `8727 + n * (8935 ±0) + p * (3509 ±3)`
+		// Minimum local execution time: 1_594_000_000 picoseconds.
+		Weight::from_parts(524_577_676, 8727)
+			// Local Standard Error: 1_446_282
+			.saturating_add(Weight::from_parts(438_849_101, 0).saturating_mul(n.into()))
+			.saturating_add(RocksDbWeight::get().reads(30_u64))
 			.saturating_add(RocksDbWeight::get().reads((16_u64).saturating_mul(n.into())))
 			.saturating_add(RocksDbWeight::get().writes(18_u64))
 			.saturating_add(RocksDbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(p.into())))
+			.saturating_add(RocksDbWeight::get().writes((2_u64).saturating_mul(p.into())))
 			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
+			.saturating_add(Weight::from_parts(0, 3509).saturating_mul(p.into()))
 	}
 }

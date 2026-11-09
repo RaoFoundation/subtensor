@@ -15,6 +15,14 @@ mod benchmarking;
 pub mod weights;
 pub use weights::WeightInfo;
 
+/// Access to the wallet pallet's shared registration reserve without coupling account types.
+pub trait RegistrationDepositInterface:
+    frame_support::traits::Get<subtensor_runtime_common::TaoBalance>
+{
+    /// Set the reserve charged for future registrations.
+    fn set(value: subtensor_runtime_common::TaoBalance);
+}
+
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -75,6 +83,9 @@ pub mod pallet {
 
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: WeightInfo;
+
+        /// Access to the wallet pallet's registration reserve.
+        type RegistrationDeposit: crate::RegistrationDepositInterface;
     }
 
     #[pallet::event]
@@ -196,6 +207,28 @@ pub mod pallet {
         HashedAccountsToggled {
             /// Whether registration and authorization are enabled.
             enabled: bool,
+        },
+        /// The TAO/USD price oracle was set.
+        TaoUsdPriceOracleSet {
+            /// The new oracle; `None` removes it.
+            oracle: Option<T::AccountId>,
+        },
+        /// Gamma minting was enabled or disabled on a subnet.
+        SubnetGammaEnabledSet {
+            /// The network identifier.
+            netuid: NetUid,
+            /// Whether gamma minting is enabled on it.
+            enabled: bool,
+        },
+        /// Gamma minting was enabled or disabled network-wide.
+        GammaEnabledSet {
+            /// Whether gamma minting is enabled.
+            enabled: bool,
+        },
+        /// The permanent reserve required for future account registrations was set.
+        HashedAccountRegistrationDepositSet {
+            /// The new reserve amount, in rao; zero disables the reserve.
+            value: TaoBalance,
         },
     }
 
@@ -2877,6 +2910,81 @@ pub mod pallet {
             ensure!(max_epochs_per_block >= 1, Error::<T>::ValueNotInBounds);
             pallet_subtensor::Pallet::<T>::set_max_epochs_per_block(max_epochs_per_block);
 
+            Ok(())
+        }
+
+        /// Sets the account that feeds the TAO/USD price; `None` removes it. The stored price
+        /// is cleared, so the next feed is accepted as it is. Root-only.
+        #[pallet::call_index(116)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_tao_usd_price_oracle())]
+        pub fn sudo_set_tao_usd_price_oracle(
+            origin: OriginFor<T>,
+            oracle: Option<T::AccountId>,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::TaoUsdPriceOracle::<T>::set(oracle.clone());
+            pallet_subtensor::TaoUsdPrice::<T>::kill();
+            log::debug!("TaoUsdPriceOracleSet( oracle: {oracle:?} )");
+            Self::deposit_event(Event::TaoUsdPriceOracleSet { oracle });
+            Ok(())
+        }
+
+        /// Enables or disables gamma minting on a subnet. Callable by the subnet owner or
+        /// root; the root subnet is refused.
+        #[pallet::call_index(117)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_subnet_gamma_enabled())]
+        pub fn sudo_set_subnet_gamma_enabled(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            enabled: bool,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::SubnetGammaEnabled.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);
+            pallet_subtensor::SubnetGammaEnabled::<T>::insert(netuid, enabled);
+
+            Self::deposit_event(Event::SubnetGammaEnabledSet { netuid, enabled });
+            log::debug!("SubnetGammaEnabledSet( netuid: {netuid:?}, enabled: {enabled:?} )");
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::SubnetGammaEnabled.into()],
+            );
+            Ok(())
+        }
+
+        /// Enables or disables gamma minting network-wide; a subnet also needs its own flag.
+        /// Root-only.
+        #[pallet::call_index(118)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_gamma_enabled())]
+        pub fn sudo_set_gamma_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::GammaEnabled::<T>::put(enabled);
+            Self::deposit_event(Event::GammaEnabledSet { enabled });
+            log::debug!("GammaEnabledSet( enabled: {enabled:?} )");
+            Ok(())
+        }
+
+        /// Sets the permanent reserve for future classical, PQ, and protected derived
+        /// account registrations. Existing reserves remain unchanged. Root-only; zero
+        /// permits registration without a reserve.
+        #[pallet::call_index(119)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_hashed_account_registration_deposit())]
+        pub fn sudo_set_hashed_account_registration_deposit(
+            origin: OriginFor<T>,
+            value: TaoBalance,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            T::RegistrationDeposit::set(value);
+            Self::deposit_event(Event::HashedAccountRegistrationDepositSet { value });
             Ok(())
         }
     }

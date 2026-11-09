@@ -23,15 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
-    tag: 'v482',
+    tag: 'v487',
     date: 'Upcoming',
-    title: 'Quantum-Resistant and Rotating Wallets',
+    title: 'Gamma Service Credits + Quantum-Resistant Wallets',
     summary:
-      'ML-DSA-65 wallets use one SS58 address without account registration or a deposit. ' +
-      'Optional key rotation keeps a permanent address for SR, ED, and MS wallets. Safe multisig, ' +
-      'proxy, and derivative modes preserve the intended authority, while the existing ' +
-      'transaction format remains decodable by metadata-aware clients.',
-    href: '/releases/v482-upgrade',
+      'Gamma adds dollar-valued service credits minted by burning subnet alpha, with ' +
+      'published service endpoints, designated spenders, and daily spending caps. Wallets ' +
+      'support Sr25519, Ed25519, ML-DSA-65, Falcon-512, and Falcon-1024, with optional key ' +
+      'rotation. The release also adds burn and recycle emission slots, proxy permissions, ' +
+      'basket dividend settlement fixes, and SDK and CLI support.',
+    href: '/releases/v487-upgrade',
   },
   {
     tag: 'v481',

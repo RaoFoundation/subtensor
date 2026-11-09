@@ -643,7 +643,9 @@ pub mod pallet {
         #[pallet::call_index(8)]
         #[pallet::weight({
             let info = call.get_dispatch_info();
-            (T::WeightInfo::as_protected_derivative().saturating_add(info.call_weight), DispatchClass::Normal)
+            (T::WeightInfo::as_protected_derivative()
+                .saturating_add(T::DbWeight::get().reads(1))
+                .saturating_add(info.call_weight), DispatchClass::Normal)
         })]
         pub fn as_protected_derivative(
             origin: OriginFor<T>,
@@ -669,6 +671,7 @@ pub mod pallet {
             let info = call.get_dispatch_info();
             let result = call.dispatch(origin);
             let weight = T::WeightInfo::as_protected_derivative()
+                .saturating_add(T::DbWeight::get().reads(1))
                 .saturating_add(extract_actual_weight(&result, &info));
             result
                 .map_err(|mut err| {

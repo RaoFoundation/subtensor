@@ -513,6 +513,7 @@ export class Client {
       composeCall: call => this.compose(call, snapshot.hash),
       parseRecipient: (address, descriptor) => parseRecipient(address, decodeReceivingAddress, Keypair.fromDescriptor, publicKeyFromSs58, descriptor),
       supportsPqProfile: async profile => (await this.runtimeAt(snapshot.hash)).supportsMldsaProfile(profile),
+      hasStorage: async (pallet, item, at) => (await this.runtimeAt(at)).metadataIr().pallets.find(entry => entry.name === pallet)?.storage.includes(item) ?? false,
       finalizedHead: () => this.finalizedHead(),
       queryMap: (p, f, a = [], limit) => this.queryMap(p, f, a as ScaleValue[], snapshot.hash, { maxResults: limit }),
       countStorageKeys: async (pallet, item, params, limit) => {
@@ -524,7 +525,7 @@ export class Client {
         if (!Array.isArray(keys)) throw new ChainError('storage key admission count unavailable')
         return keys.length
       },
-      query: (p, f, a = [], at) => this.query(p, f, a as ScaleValue[], at ?? snapshot.hash), runtimeCall: (p, f, a = []) => snapshot.runtime([p, f], a as ScaleValue[]), constant: (p, f) => snapshot.constant([p, f]),
+      query: (p, f, a = [], at) => this.query(p, f, a as ScaleValue[], at ?? snapshot.hash), runtimeCall: (p, f, a = []) => snapshot.runtime([p, f], a as ScaleValue[]), constant: (p, f, at) => this.constant(p, f, at ?? snapshot.hash),
       blockNumber: async () => snapshot.block, blockHash: n => n == null ? Promise.resolve(snapshot.hash) : this.blockHash(n), blockTime: () => snapshot.blockTime(),
       decodeAddress: publicKeyFromSs58, encodeAddress: ss58FromPublic,
       multisigAccount: (signers, threshold, safe) => { const { accountId } = multisigAccountId(signers.map(publicKeyFromSs58), threshold, safe); return { address: ss58FromPublic(accountId), publicKey: accountId } },

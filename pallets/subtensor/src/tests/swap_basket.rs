@@ -1781,6 +1781,7 @@ fn counterparty_sells_back_to(netuid: NetUid, target_price: f64) {
 /// concentration cap measures *realizable* value (bounded by the pool's TAO reserve). Now
 /// the loop stops as soon as the fund holds `BasketLiquidityCap` of the pool's alpha
 /// reserve, long before the turnover budget, and the loss is a sliver of the pool.
+// PROTECTED_REGRESSION: finding 2 1 thin pool drain is stopped by liquidity cap; changes require explicit human approval.
 #[test]
 fn finding_2_1_thin_pool_drain_is_stopped_by_liquidity_cap() {
     new_test_ext(1).execute_with(|| {
@@ -1836,6 +1837,7 @@ fn finding_2_1_thin_pool_drain_is_stopped_by_liquidity_cap() {
 /// `start + 7200`. With the bucket, spending the budget empties it, the very next block
 /// refills only `budget / 7200`, and two adjacent blocks can never move more than one
 /// budget (plus one block of refill).
+// PROTECTED_REGRESSION: finding 2 2 bucket denies a second budget in the adjacent block; changes require explicit human approval.
 #[test]
 fn finding_2_2_bucket_denies_a_second_budget_in_the_adjacent_block() {
     new_test_ext(1).execute_with(|| {
@@ -1898,6 +1900,7 @@ fn finding_2_2_bucket_denies_a_second_budget_in_the_adjacent_block() {
 /// chained buy legs in one block can no longer walk the price up toward the slow EMA
 /// (`ceiling = 1.02 × min(slow, fast, spot)` with the fast anchor at the block's opening
 /// price): the walk stops within 2% of where the pool opened.
+// PROTECTED_REGRESSION: finding 2 3 chained legs in one block stop at fast anchor; changes require explicit human approval.
 #[test]
 fn finding_2_3_chained_legs_in_one_block_stop_at_fast_anchor() {
     new_test_ext(1).execute_with(|| {
@@ -1937,6 +1940,7 @@ fn finding_2_3_chained_legs_in_one_block_stop_at_fast_anchor() {
 /// Finding §4 "crash lock": once spot sits 5% below the EMA a fund cannot sell even one
 /// unit of the holding (no stop-loss), and 5% above it cannot buy. Documents current
 /// behaviour; flip when a wider sell-side tolerance (§5.3) lands.
+// PROTECTED_REGRESSION: finding crash lock blocks selling a falling holding; changes require explicit human approval.
 #[test]
 fn finding_crash_lock_blocks_selling_a_falling_holding() {
     new_test_ext(1).execute_with(|| {

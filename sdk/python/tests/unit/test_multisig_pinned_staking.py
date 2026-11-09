@@ -178,6 +178,8 @@ async def test_nested_staking_reuses_each_approved_limit(setup, wrapper):
     assert later["multisig_call_data"] == original["multisig_call_data"]
 
 
+# Regression invariant: basket approvals consume each calls amount.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("scheme", [4, 6])
 async def test_basket_approvals_consume_each_calls_amount(setup, scheme):
     chain, _ = setup
@@ -319,6 +321,8 @@ def dynamic_state(chain, address, *, later, take_down=False):
     )
 
 
+# Regression invariant: all dynamic inputs survive subsequent approval.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("scheme", [4, 6])
 @pytest.mark.parametrize("op", DYNAMIC_OPERATIONS)
 async def test_all_dynamic_inputs_survive_subsequent_approval(setup, scheme, op):
@@ -343,6 +347,8 @@ async def test_all_dynamic_inputs_survive_subsequent_approval(setup, scheme, op)
     assert no_quote["multisig_call_data"] == original["multisig_call_data"]
 
 
+# Regression invariant: dynamic reconstruction keeps explicit inputs and call order.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("op", DYNAMIC_OPERATIONS)
 async def test_dynamic_reconstruction_keeps_explicit_inputs_and_call_order(setup, op):
     from bittensor.intents import Transfer
@@ -366,6 +372,8 @@ async def test_dynamic_reconstruction_keeps_explicit_inputs_and_call_order(setup
     adapter.wrap_call.assert_not_awaited()
 
 
+# Regression invariant: take branch order survives opposite live direction.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 async def test_take_branch_order_survives_opposite_live_direction(setup):
     from bittensor.intents.children import DecreaseTake, IncreaseTake, SetTake
     from bittensor.receiving import parse_recipient

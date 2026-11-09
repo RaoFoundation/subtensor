@@ -175,13 +175,14 @@ impl pallet_shield::Config for Runtime {
 }
 
 parameter_types! {
-    /// Flat permanent reserve for each new descriptor-based or protected derived
-    /// account: 0.2 TAO. Transaction fees are charged separately.
+    /// Stable metadata default for descriptor-based and protected derived accounts.
+    /// HashedAccounts owns the live reserve; AdminUtils provides its root setter.
     pub const AccountRegistrationDeposit: Balance = TaoBalance::new(200_000_000);
+    pub WalletRegistrationDeposit: Balance =
+        pallet_hashed_accounts::HashedAccountRegistrationDeposit::<Runtime>::get();
 }
 
-// Preserve the existing runtime names and pallet metadata constants while every
-// account registration uses the same configured amount. Existing reserves stay put.
+// Preserve the existing runtime names and stable pallet metadata defaults.
 pub type HashedRegistrationDeposit = AccountRegistrationDeposit;
 pub type MlDsaRegistrationDeposit = AccountRegistrationDeposit;
 pub type DerivedRegistrationDeposit = AccountRegistrationDeposit;
@@ -279,7 +280,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 487,
+    spec_version: 489,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1211,6 +1212,12 @@ impl pallet_admin_utils::GrandpaInterface<Runtime> for GrandpaInterfaceImpl {
     }
 }
 
+impl pallet_admin_utils::RegistrationDepositInterface for WalletRegistrationDeposit {
+    fn set(value: TaoBalance) {
+        pallet_hashed_accounts::HashedAccountRegistrationDeposit::<Runtime>::put(value);
+    }
+}
+
 impl pallet_admin_utils::Config for Runtime {
     type AuthorityId = AuraId;
     type MaxAuthorities = ConstU32<32>;
@@ -1218,6 +1225,7 @@ impl pallet_admin_utils::Config for Runtime {
     type Grandpa = GrandpaInterfaceImpl;
     type Balance = Balance;
     type WeightInfo = pallet_admin_utils::weights::SubstrateWeight<Runtime>;
+    type RegistrationDeposit = WalletRegistrationDeposit;
 }
 
 /// Define the ChainId
@@ -2767,6 +2775,21 @@ impl_runtime_apis! {
         }
         fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::basket_info::BasketClaimPreview<AccountId32>> {
             SubtensorModule::get_root_basket_claim_previews(&coldkey)
+        }
+    }
+
+    impl subtensor_custom_rpc_runtime_api::GammaRuntimeApi<Block> for Runtime {
+        fn get_gamma_deposit(netuid: NetUid, hotkey: AccountId32) -> Option<pallet_subtensor::rpc_info::gamma_info::GammaDepositInfo<AccountId32>> {
+            SubtensorModule::get_gamma_deposit(netuid, hotkey)
+        }
+        fn get_gamma_deposits_for_coldkey(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::gamma_info::GammaDepositInfo<AccountId32>> {
+            SubtensorModule::get_gamma_deposits_for_coldkey(&coldkey)
+        }
+        fn sim_mint_gamma(netuid: NetUid, amount: TaoBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), sp_runtime::DispatchError> {
+            SubtensorModule::sim_mint_gamma(netuid, amount)
+        }
+        fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), sp_runtime::DispatchError> {
+            SubtensorModule::sim_mint_gamma_with_stake(netuid, alpha_amount)
         }
     }
 

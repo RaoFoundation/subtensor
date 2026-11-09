@@ -704,6 +704,8 @@ export interface NativeBinding {
   ): boolean
   publicKeyFromSs58(ss58Address: string): Buffer
   ss58FromPublic(publicKey: Buffer, ss58Format: number): string
+  accountIdFromEcdsaPublic(publicKey: Buffer): Buffer
+  ss58FromEcdsaPublic(publicKey: Buffer, ss58Format: number): string
   serializeKeypair(keypair: NativeKeypairHandle): Buffer
   dangerouslySerializeKeypair(keypair: NativeKeypairHandle): Buffer
   keypairToKeyfileData(

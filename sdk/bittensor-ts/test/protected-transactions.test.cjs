@@ -169,6 +169,7 @@ test('receiving payments register before transfer, guard existing registration, 
   const reader = {
     query:async (p,s) => s === 'HashedAccountsEnabled' ? true : s === 'MlDsaAccounts' ? registered : {data:{free:10000000000n}},
     constant:async () => 100n, supportsPqProfile:()=>true,finalizedHead:adapter.finalizedHead,
+    hasStorage:async () => false, // This fixture covers the legacy constant-only runtime.
     decodeAddress:sdk.publicKeyFromSs58,
     parseRecipient:(address,explicit) => sdk.parseRecipient(address,sdk.decodeReceivingAddress,sdk.Keypair.fromDescriptor,sdk.publicKeyFromSs58,explicit),
   }

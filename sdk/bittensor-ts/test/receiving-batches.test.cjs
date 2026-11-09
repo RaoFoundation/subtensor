@@ -19,6 +19,7 @@ function fixture(crypto, registered = false) {
       throw new Error(`unexpected query ${pallet}.${item}`)
     },
     constant: async () => 100n,
+    hasStorage: async () => false, // Legacy runtime without the configurable reserve.
     supportsPqProfile: () => true,
     finalizedHead: async () => '0x' + '11'.repeat(32),
     decodeAddress: sdk.publicKeyFromSs58,

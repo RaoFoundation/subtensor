@@ -37,7 +37,7 @@ from .hashed import (
 )
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
-from .intents._money import UNBOUNDED
+from .intents._money import UNBOUNDED, gamma_from_units
 from .intents.base import BuiltCall, IntentPreflight
 from .intents.proxy import check_proxy_type
 from .multisig import merge_approval_metadata, multisig_deposit_rao
@@ -78,6 +78,12 @@ _TRANSIENT_SUBSTRINGS = (
 # phases bounded by the inner extrinsic's mortal era.
 _SHIELDED_POLL_ATTEMPTS_PER_BLOCK = 4
 _SHIELDED_FINALITY_RPC_RETRIES = 4
+
+
+def _require_planned_signer(keypair, address: str) -> None:
+    """Keep the submitting identity tied to the account used for the plan."""
+    if bytes(ss58_decode(keypair.ss58_address)) != bytes(ss58_decode(address)):
+        raise ValueError("signing identity does not match the planned account")
 
 
 class _FeeAddressView:
@@ -691,6 +697,60 @@ def _pure_created_data(result: ExtrinsicResult) -> dict[str, Any]:
     return data
 
 
+def _gamma_spent_data(result: ExtrinsicResult) -> dict[str, Any]:
+    """What each spend entry did, in order: ``spent`` lists the entries that spent, and
+    ``skipped`` the others with the chain error that skipped them as ``reason``.
+
+    Nothing while the spend has not run: submitted without waiting, or a multisig
+    approval short of its threshold.
+    """
+    events = {_event_parts(entry)[:2] for entry in result.events}
+    if not events or events & {("Multisig", "NewMultisig"), ("Multisig", "MultisigApproval")}:
+        return {}
+    spent: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for entry in result.events:
+        module_id, event_id, attributes, _ = _event_parts(entry)
+        if module_id != "SubtensorModule" or not isinstance(attributes, dict):
+            continue
+        if event_id not in ("GammaSpent", "GammaSpendSkipped"):
+            continue
+        entry_data = {
+            "hotkey_ss58": str(attributes["hotkey"]),
+            "amount_gamma": gamma_from_units(attributes["amount"]),
+            "reference": str(attributes["reference"]),
+        }
+        if event_id == "GammaSpent":
+            spent.append(entry_data)
+        else:
+            reason = chain_error_from_dispatch(attributes["reason"])
+            skipped.append({**entry_data, "reason": reason.name or reason.message})
+    return {"spent": spent, "skipped": skipped}
+
+
+def _gamma_minted_data(result: ExtrinsicResult) -> dict[str, Any]:
+    """What a mint credited, from its ``GammaMinted`` event.
+
+    Nothing while the mint has not run: submitted without waiting, or a multisig
+    approval short of its threshold.
+    """
+    attributes = _find_event(result.events, "SubtensorModule", "GammaMinted")
+    if not isinstance(attributes, dict):
+        return {}
+    cap = attributes["daily_spend_cap"]
+    alpha = Balance.from_rao(int(attributes["alpha"]), int(attributes["netuid"]))
+    return {
+        "minted": {
+            "hotkey_ss58": str(attributes["hotkey"]),
+            "spender_ss58": str(attributes["spender"]),
+            "daily_spend_cap_gamma": None if cap is None else gamma_from_units(cap),
+            "alpha_burned": format(alpha.decimal, "f"),
+            "tao_value": format(Balance.from_rao(int(attributes["value"])).decimal, "f"),
+            "gamma": gamma_from_units(attributes["gamma"]),
+        }
+    }
+
+
 class Executor:
     def __init__(self, substrate: Substrate, policy: Optional[Policy] = None):
         self.substrate = substrate
@@ -1247,6 +1307,7 @@ class Executor:
                 on_progress=on_progress,
                 max_registration_deposit=max_registration_deposit,
                 on_registration_sponsorship=on_registration_sponsorship,
+                expected_signer_address=plan.signer_address,
             )
 
         await authorize_registration_sponsorship(
@@ -1257,6 +1318,7 @@ class Executor:
         )
 
         keypair = resolve_signer(wallet, intent.signer)
+        _require_planned_signer(keypair, plan.signer_address)
         attempts = max(0, int(retries)) + 1
         for attempt in range(attempts):
             result = await self.substrate.submit(
@@ -1279,6 +1341,10 @@ class Executor:
             semantic_intent = await _coerce_addresses(self.substrate, intent.semantic_intent())
             if semantic_intent.op == "create_pure_proxy":
                 data.update(_pure_created_data(result))
+            if semantic_intent.op == "spend_gamma":
+                data.update(_gamma_spent_data(result))
+            if semantic_intent.op in ("mint_gamma", "mint_gamma_with_stake"):
+                data.update(_gamma_minted_data(result))
             data.update(plan.extras)
             if data != result.data:
                 result = replace(result, data=data)
@@ -1402,6 +1468,7 @@ class Executor:
         on_progress,
         max_registration_deposit,
         on_registration_sponsorship,
+        expected_signer_address=None,
     ) -> ExtrinsicResult:
         """Submit the already selected call; never rebuild after selecting its route."""
         semantic_intent = await _coerce_addresses(self.substrate, intent.semantic_intent())
@@ -1425,6 +1492,7 @@ class Executor:
         )
 
         keypair = resolve_signer(wallet, intent.signer)
+        _require_planned_signer(keypair, expected_signer_address or fee_payer)
         result = await self._submit_encrypted_call(
             call,
             keypair,
@@ -1435,6 +1503,10 @@ class Executor:
         )
         if result.success and semantic_intent.op == "create_pure_proxy":
             result = replace(result, data={**result.data, **_pure_created_data(result)})
+        if result.success and semantic_intent.op == "spend_gamma":
+            result = replace(result, data={**result.data, **_gamma_spent_data(result)})
+        if result.success and semantic_intent.op in ("mint_gamma", "mint_gamma_with_stake"):
+            result = replace(result, data={**result.data, **_gamma_minted_data(result)})
         if (
             result.success
             and semantic_intent.op == "register_subnet"

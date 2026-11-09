@@ -1061,6 +1061,8 @@ const browserWrapperExpected = allowlistedSurface(
     'sealMevShieldTransaction',
     'setDefaultBrowserWasmLoader',
     'ss58FromPublic',
+    'accountIdFromEcdsaPublic',
+    'ss58FromEcdsaPublic',
     'storagePrefixFor',
     'verifySignature',
   ],

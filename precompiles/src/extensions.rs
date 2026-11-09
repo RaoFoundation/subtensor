@@ -3,6 +3,7 @@ extern crate alloc;
 use alloc::format;
 
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
+use frame_support::traits::Get;
 use frame_system::RawOrigin;
 use pallet_admin_utils::{PrecompileEnable, PrecompileEnum};
 use pallet_evm::{
@@ -25,7 +26,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         self.mapped_account_id::<R>(self.context().caller)
     }
 
-    /// Reserve gas and external weight before the infallible mapping reads storage.
+    /// Reserve external weight before the infallible mapping reads storage.
     fn mapped_account_id<R>(&mut self, address: H160) -> EvmResult<R::AccountId>
     where
         R: pallet_evm::Config,
@@ -118,7 +119,10 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         let mut info = GetDispatchInfo::get_dispatch_info(&call);
 
         if walks > 0 {
-            self.record_db_reads::<R>(1)?;
+            // Account for the immediate list-length read in the external resource
+            // meter without adding an opcode gas surcharge to legacy stake exits.
+            let read = <R as frame_system::Config>::DbWeight::get().reads(1);
+            self.record_external_cost(Some(read.ref_time()), Some(read.proof_size()), None)?;
             info.call_weight = info.call_weight.saturating_sub(
                 pallet_subtensor::Pallet::<R>::staking_hotkeys_walk_unused(&coldkey, walks),
             );

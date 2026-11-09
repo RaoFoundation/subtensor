@@ -451,6 +451,7 @@ fn execute_orders_price_not_met_skipped() {
 // Regression tests: with the ×10⁹ scale fix, sub-unity prices can be meaningfully
 // expressed as limit_price values.  A price of 0.5 TAO/alpha is represented as
 // 500_000_000 in ×10⁹ scale, enabling fine-grained TakeProfit thresholds below 1.0.
+// PROTECTED_REGRESSION: take profit sub unity price executes when limit met; changes require explicit human approval.
 #[test]
 fn take_profit_sub_unity_price_executes_when_limit_met() {
     new_test_ext().execute_with(|| {
@@ -1228,6 +1229,7 @@ fn execute_batched_orders_buy_only_fulfills_orders_and_distributes_alpha() {
 /// the mock and is not rolled back here. The balance refund is a property of the
 /// real `frame_system` balances under the dispatch storage layer (exercised by the
 /// L2/integration PoC), not something this mock can model.
+// PROTECTED_REGRESSION: execute batched orders zero share buyer hard fails; changes require explicit human approval.
 #[test]
 fn execute_batched_orders_zero_share_buyer_hard_fails() {
     new_test_ext().execute_with(|| {
@@ -1355,6 +1357,7 @@ fn execute_batched_orders_all_nonzero_shares_still_succeeds() {
 /// seller's collected alpha is not refunded *in the mock* (MockSwap balances are
 /// thread_local, outside the storage overlay); the refund is a real-balance
 /// property under the dispatch storage layer, not modelled here.
+// PROTECTED_REGRESSION: execute batched orders zero share seller hard fails; changes require explicit human approval.
 #[test]
 fn execute_batched_orders_zero_share_seller_hard_fails() {
     new_test_ext().execute_with(|| {
@@ -2110,6 +2113,7 @@ fn execute_batched_orders_four_orders_two_fee_recipients() {
 /// `apply_limits: true` flag set the rate-limit on `to_coldkey` (pallet)
 /// during collection, then the distribution step checked `from_coldkey`
 /// (pallet) and failed with `StakingOperationRateLimitExceeded`.
+// PROTECTED_REGRESSION: execute batched orders mixed batch does not rate limit pallet intermediary; changes require explicit human approval.
 #[test]
 fn execute_batched_orders_mixed_batch_does_not_rate_limit_pallet_intermediary() {
     new_test_ext().execute_with(|| {
@@ -3267,6 +3271,7 @@ fn execute_batched_orders_second_partial_fill_completes_order() {
 /// thread-local RefCell maps, not substrate storage, so we do not assert on
 /// them here — see `mock.rs`.) We additionally assert `Orders::get` was never
 /// written.
+// PROTECTED_REGRESSION: execute batched orders full fill duplicate rejected; changes require explicit human approval.
 #[test]
 fn execute_batched_orders_full_fill_duplicate_rejected() {
     new_test_ext().execute_with(|| {
@@ -3310,6 +3315,7 @@ fn execute_batched_orders_full_fill_duplicate_rejected() {
 /// signature) but carry *different* `partial_fill` values must still collide
 /// and be caught by the in-batch dedup. This exercises the partial-fill path
 /// (partial_fills_enabled = true, relayer set).
+// PROTECTED_REGRESSION: execute batched orders partial fill duplicate rejected; changes require explicit human approval.
 #[test]
 fn execute_batched_orders_partial_fill_duplicate_rejected() {
     new_test_ext().execute_with(|| {

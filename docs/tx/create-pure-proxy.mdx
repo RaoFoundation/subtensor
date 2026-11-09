@@ -15,13 +15,13 @@ the pure proxy and anything it holds.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.create_pure`](/code/pallets/proxy/src/lib.rs#L397-L411), [`Proxy.create_protected_pure`](/code/pallets/proxy/src/lib.rs#L768-L783), [`Proxy.create_safe_pure`](/code/pallets/proxy/src/lib.rs#L789-L800) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.create_pure`](/code/pallets/proxy/src/lib.rs#L401-L415), [`Proxy.create_protected_pure`](/code/pallets/proxy/src/lib.rs#L776-L791), [`Proxy.create_safe_pure`](/code/pallets/proxy/src/lib.rs#L797-L808) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `proxy_type` | string | no | Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers. |
+| `proxy_type` | string | no | Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers. |
 | `delay` | integer | no | Announcement delay in blocks: the delegate must announce each call and wait this long before executing it, giving you time to veto. 0 executes immediately. |
 | `index` | integer | no | Disambiguator so one signer can create several pure proxies in one block; also part of the derived address. Keep 0 unless batching. |
 | `account_mode` | string | no | Account derivation: legacy or safe; MS wallets default to safe. |
@@ -65,7 +65,7 @@ result = sub.execute_tool("create_pure_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.create_pure` — [`pallets/proxy/src/lib.rs#L399`](/code/pallets/proxy/src/lib.rs#L397-L411):
+`Proxy.create_pure` — [`pallets/proxy/src/lib.rs#L403`](/code/pallets/proxy/src/lib.rs#L401-L415):
 
 ```rust
 #[pallet::call_index(4)]
@@ -85,11 +85,11 @@ pub fn create_pure(
 }
 ```
 
-`Proxy.create_protected_pure` — [`pallets/proxy/src/lib.rs#L771`](/code/pallets/proxy/src/lib.rs#L768-L783):
+`Proxy.create_protected_pure` — [`pallets/proxy/src/lib.rs#L779`](/code/pallets/proxy/src/lib.rs#L776-L791):
 
 ```rust
 #[pallet::call_index(12)]
-#[pallet::weight(T::WeightInfo::create_protected_pure())]
+#[pallet::weight(T::WeightInfo::create_protected_pure().saturating_add(T::DbWeight::get().reads(1)))]
 #[frame_support::transactional]
 pub fn create_protected_pure(
     origin: OriginFor<T>,
@@ -106,7 +106,7 @@ pub fn create_protected_pure(
 }
 ```
 
-`Proxy.create_safe_pure` — [`pallets/proxy/src/lib.rs#L792`](/code/pallets/proxy/src/lib.rs#L789-L800):
+`Proxy.create_safe_pure` — [`pallets/proxy/src/lib.rs#L800`](/code/pallets/proxy/src/lib.rs#L797-L808):
 
 ```rust
 #[pallet::call_index(13)]

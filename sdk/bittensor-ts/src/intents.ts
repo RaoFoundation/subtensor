@@ -1,6 +1,7 @@
 import { Balance, RAO_PER_TAO, UnitMismatchError } from './balance'
 import { prepareOrderIntent } from './limit-orders'
 import { prepareRecipients, registrationShieldDefault, type Recipient } from './receiving'
+import { quoteRegistrationDeposit, registrationDepositGuard } from './registration-deposit'
 import { INTENT_CATALOG } from './intent-catalog'
 import * as emission from './emission-weights'
 import { prepareWeights, type EncryptWeightsV2Options } from './intent-weights'
@@ -36,11 +37,13 @@ export interface IntentReader {
   finalizedHead?(): Promise<string>
   composeCall?(call: IntentDescriptor): Promise<Uint8Array>
   query(pallet: string, item: string, params?: unknown[], block?: number | string | null): Promise<unknown>
+  /** Inspect the selected block's metadata before using legacy registration constants. */
+  hasStorage?(pallet: string, item: string, block: string): boolean | Promise<boolean>
   queryMap?(pallet: string, item: string, params?: unknown[], limit?: number): Promise<Array<[unknown, unknown]>>
   /** Count physical keys, including retired Alpha rows not present in runtime metadata. */
   countStorageKeys?(pallet: string, item: string, params: unknown[], limit: number): Promise<number>
   runtimeCall(api: string, method: string, params?: unknown[], block?: number | string | null): Promise<unknown>
-  constant?(pallet: string, name: string): unknown | Promise<unknown>
+  constant?(pallet: string, name: string, block?: string): unknown | Promise<unknown>
   blockNumber?(): Promise<number>
   blockHash?(number?: number): Promise<string>
   /** Seconds per block, including fractional seconds on fast-block chains. */
@@ -430,17 +433,21 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
       const mode = a.account_mode ?? context.accountMode ?? 'legacy'
       if (!['legacy', 'safe'].includes(mode)) throw new RangeError('account_mode must be legacy or safe')
       let fn = op === 'create_pure_proxy' ? mode === 'safe' ? 'create_safe_pure' : 'create_pure' : op === 'kill_pure_proxy' ? mode === 'safe' ? 'kill_safe_pure' : 'kill_pure' : op
+      let depositGuard: IntentDescriptor | undefined
       if (fn === 'create_pure' && reader.supportsPqProfile && (await reader.query('HashedAccounts','MlDsaAccounts',[context.coldkey]) || await reader.query('HashedAccounts','DerivedAuthorities',[context.coldkey]))) {
         fn = 'create_protected_pure'
-        let reserve = 0n
-        for (const [pallet, item] of [['HashedAccounts','DerivedRegistrationDeposit'],['Proxy','ProxyDepositBase'],['Proxy','ProxyDepositFactor']]) {
+        const quote = await quoteRegistrationDeposit(reader, 'DerivedRegistrationDeposit')
+        if (quote.configurable) depositGuard = registrationDepositGuard(quote)
+        let reserve = quote.amountRao
+        for (const [pallet, item] of [['Proxy','ProxyDepositBase'],['Proxy','ProxyDepositFactor']]) {
           const value = await reader.constant?.(pallet, item)
           if (value == null) throw new Error('pure proxy registration deposit unavailable')
           reserve += BigInt(value as any)
         }
         plan.requiredFreeByAccount = [{address:context.coldkey,requiredRao:reserve,availableRao:await freeBalance(reader,context.coldkey)}]
       }
-      plan.call = descriptor('Proxy', fn, params); break
+      const call = descriptor('Proxy', fn, params)
+      plan.call = depositGuard ? batchCall([depositGuard, call]) : call; break
     }
     case 'remove_proxies': plan.call = descriptor('Proxy', op); break
     case 'execute_proxy_announced': {

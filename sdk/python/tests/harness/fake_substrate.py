@@ -14,6 +14,7 @@ Storage model:
 - unseeded items fall back to ``DEFAULT_STORAGE`` (permissive values chosen so
   intent pre-flight checks pass: the hotkey is registered, no rate limits,
   commit-reveal off), then to ``None`` — exactly what a miss decodes to.
+- unseeded entries in ``missing_storage`` model absent runtime metadata.
 
 Writes are recorded, never applied: ``submit`` appends to ``submissions`` and
 returns the next queued :class:`ExtrinsicResult` (default: success). Chain
@@ -28,6 +29,7 @@ from typing import Any, AsyncIterator, Optional
 
 from bittensor._transport import codec as codec_mod
 from bittensor._transport.contract import HashedSigningSnapshot, MultisigAccount
+from bittensor._transport.errors import StorageFunctionNotFound
 from bittensor.balance import Balance
 from bittensor.result import ExtrinsicResult
 from bittensor.settings import DEFAULT_ERA_PERIOD
@@ -74,6 +76,11 @@ DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
     ("SwapRuntimeApi", "current_alpha_price"): 10**9,  # 1 TAO per alpha
     ("SubnetRegistrationRuntimeApi", "get_network_registration_cost"): 10**9,
     ("BetaBasketRuntimeApi", "get_validator_basket"): [],
+    # 1 TAO buys 1 alpha worth 1 TAO, minting 400 gamma.
+    ("GammaRuntimeApi", "sim_mint_gamma"): {"Ok": (10**9, 10**9, 400 * 10**9)},
+    ("GammaRuntimeApi", "sim_mint_gamma_with_stake"): {"Ok": (10**9, 10**9, 400 * 10**9)},
+    # 1 alpha staked, for the mint_gamma_with_stake sample.
+    ("StakeInfoRuntimeApi", "get_stake_info_for_hotkey_coldkey_netuid"): {"stake": 10**9},
 }
 
 GENESIS_HASH = "0x" + "00" * 32
@@ -150,6 +157,9 @@ class FakeSubstrate:
         self._storage: dict[tuple[str, str], dict[tuple, Any]] = defaultdict(dict)
         # (module, item) -> value answering any key
         self._storage_defaults: dict[tuple[str, str], Any] = {}
+        # Default fixtures model the legacy deposit constants; seeding this
+        # storage item opts into the configurable runtime's metadata.
+        self.missing_storage = {("HashedAccounts", "HashedAccountRegistrationDeposit")}
         # (module, item) -> [(key, value)] for query_map
         self._maps: dict[tuple[str, str], list[tuple[Any, Any]]] = {}
         self._constants: dict[tuple[str, str], Any] = dict(DEFAULT_CONSTANTS)
@@ -256,6 +266,8 @@ class FakeSubstrate:
             return entries[key]
         if item in self._storage_defaults:
             return self._storage_defaults[item]
+        if item in self.missing_storage:
+            raise StorageFunctionNotFound(f"{module}.{storage_function}")
         return DEFAULT_STORAGE.get(item)
 
     async def map_has_entries(
@@ -302,7 +314,7 @@ class FakeSubstrate:
         value = self._runtime.get((api, method))
         return value(params) if callable(value) else value
 
-    async def constant(self, module: str, name: str) -> Any:
+    async def constant(self, module: str, name: str, block_hash: Optional[str] = None) -> Any:
         return self._constants.get((module, name))
 
     async def decode_scale(self, type_string: str, data: Any) -> Any:

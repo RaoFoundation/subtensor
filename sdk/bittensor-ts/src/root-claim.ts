@@ -28,7 +28,10 @@ const weightFee = (refTime: bigint) => refTime / 4000n + (refTime % 4000n * 2n >
 
 export function rootClaimChargedFeeRao(limit = 256): bigint {
   const units = BigInt(Math.min(count(limit), 4))
-  const weight = claim(units) + scan(units) + (10_000_000n + 4n * read) * 6n * units + (units === 0n ? 0n : claim(units))
+  // The runtime combines claim and queued-credit units before applying the
+  // benchmark, so its fixed base cost is charged once.
+  const quotes = 6n * units
+  const weight = claim(2n * units) + scan(units) + (10_000_000n + 4n * read) * (quotes > 0n ? quotes : 1n)
   return weightFee(weight < 249_856_000_000n ? weight : 249_856_000_000n)
 }
 

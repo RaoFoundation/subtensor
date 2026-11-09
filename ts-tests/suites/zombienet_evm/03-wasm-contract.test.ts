@@ -729,6 +729,7 @@ describeSuite({
             },
         });
 
+        // PROTECTED_REGRESSION: Legacy contracts cannot stake, transfer stake, or add proxies as their caller; changes require explicit human approval.
         it({
             id: "T21",
             title: "Legacy contracts cannot stake, transfer stake, or add proxies as their caller",

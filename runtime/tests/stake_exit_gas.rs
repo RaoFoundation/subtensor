@@ -130,6 +130,7 @@ fn new_test_ext(caller: H160, hotkey: &AccountId) -> sp_io::TestExternalities {
     ext
 }
 
+// PROTECTED_REGRESSION: stake exits fit a normal gas limit for a short list; changes require explicit human approval.
 #[test]
 fn stake_exits_fit_a_normal_gas_limit_for_a_short_list() {
     let caller = H160::from_low_u64_be(0x5a01);
@@ -181,6 +182,7 @@ fn stake_exits_fit_a_normal_gas_limit_for_a_short_list() {
     });
 }
 
+// PROTECTED_REGRESSION: moving to a new hotkey fits the reserved walk; changes require explicit human approval.
 #[test]
 fn moving_to_a_new_hotkey_fits_the_reserved_walk() {
     let caller = H160::from_low_u64_be(0x5a02);
@@ -238,7 +240,8 @@ fn a_capped_list_still_needs_the_full_walk_allowance() {
 }
 
 /// `unstakeAll` and `unstakeAllAlpha` declare a walk at the cap on each of their 16 envelope
-/// slots (~37M gas); sized to the caller's list they fit a few million.
+/// slots (~37M gas); sized to the caller's list they fit the pre-487 three-million
+/// gas limit, independently of pending-root-dividend work.
 #[test]
 fn unstake_all_reserves_every_slot_walk_for_the_callers_list() {
     const UNSTAKE_ALL_GAS_LIMIT: u64 = 3_000_000;
@@ -259,13 +262,14 @@ fn unstake_all_reserves_every_slot_walk_for_the_callers_list() {
             } else {
                 Subtensor::unstake_all_declared_weight()
             };
+            let gas_limit = UNSTAKE_ALL_GAS_LIMIT;
             assert!(gas(declared) > 10 * UNSTAKE_ALL_GAS_LIMIT);
             let input = || encode_with_selector(selector(signature), (h256(&hotkey),));
 
             // At the cap every slot still needs its full walk.
             let short_list = pallet_subtensor::StakingHotkeys::<Runtime>::get(&coldkey);
             fill_staking_hotkeys(&coldkey);
-            let (result, _) = call(caller, input(), UNSTAKE_ALL_GAS_LIMIT);
+            let (result, _) = call(caller, input(), gas_limit);
             assert_eq!(
                 result,
                 Err(PrecompileFailure::Error {
@@ -275,7 +279,7 @@ fn unstake_all_reserves_every_slot_walk_for_the_callers_list() {
             );
             pallet_subtensor::StakingHotkeys::<Runtime>::insert(&coldkey, short_list);
 
-            let (result, used) = call(caller, input(), UNSTAKE_ALL_GAS_LIMIT);
+            let (result, used) = call(caller, input(), gas_limit);
             assert_eq!(result, Ok(()), "{signature}");
             assert!(
                 Subtensor::get_stake_for_hotkey_and_coldkey_on_subnet(
@@ -291,6 +295,9 @@ fn unstake_all_reserves_every_slot_walk_for_the_callers_list() {
                 scanned: 1,
                 legs: 1,
                 validated: 1,
+                // Only unstakeAllAlpha stakes the proceeds into root in this fixture.
+                root_checked: alpha,
+                flush: Default::default(),
             };
             let actual = if alpha {
                 Subtensor::unstake_all_alpha_actual_weight(&coldkey, work)

@@ -14,6 +14,7 @@ use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
+// PROTECTED_REGRESSION: coldkey swap migrates lease shares beneficiary and proxy; changes require explicit human approval.
 #[test]
 fn test_coldkey_swap_migrates_lease_shares_beneficiary_and_proxy() {
     new_test_ext(1).execute_with(|| {
@@ -86,6 +87,7 @@ fn test_coldkey_swap_migrates_lease_shares_beneficiary_and_proxy() {
     });
 }
 
+// PROTECTED_REGRESSION: lease payouts require funded debits and roll back; changes require explicit human approval.
 #[test]
 fn lease_payouts_require_funded_debits_and_roll_back() {
     let dividends = 1_500_000_000u64;
@@ -175,6 +177,7 @@ fn lease_payouts_require_funded_debits_and_roll_back() {
     }
 }
 
+// PROTECTED_REGRESSION: underfunded lease dividends remain pending after owner changes; changes require explicit human approval.
 #[test]
 fn underfunded_lease_dividends_remain_pending_after_owner_changes() {
     new_test_ext(1).execute_with(|| {
@@ -204,6 +207,7 @@ fn underfunded_lease_dividends_remain_pending_after_owner_changes() {
     });
 }
 
+// PROTECTED_REGRESSION: coldkey swap migrates lease awaiting dissolution cleanup; changes require explicit human approval.
 #[test]
 fn test_coldkey_swap_migrates_lease_awaiting_dissolution_cleanup() {
     new_test_ext(1).execute_with(|| {
@@ -251,6 +255,7 @@ fn test_coldkey_swap_migrates_lease_awaiting_dissolution_cleanup() {
     });
 }
 
+// PROTECTED_REGRESSION: coldkey swap rolls back if lease shares overflow; changes require explicit human approval.
 #[test]
 fn test_coldkey_swap_rolls_back_if_lease_shares_overflow() {
     new_test_ext(1).execute_with(|| {
@@ -275,6 +280,7 @@ fn test_coldkey_swap_rolls_back_if_lease_shares_overflow() {
     });
 }
 
+// PROTECTED_REGRESSION: crowdloan batch filter failure rolls back unsettled finalization; changes require explicit human approval.
 #[test]
 fn test_crowdloan_batch_filter_failure_rolls_back_unsettled_finalization() {
     use frame_support::traits::OriginTrait;
@@ -337,6 +343,7 @@ fn test_crowdloan_batch_filter_failure_rolls_back_unsettled_finalization() {
     });
 }
 
+// PROTECTED_REGRESSION: crowdloan lease finalization settles raised funds; changes require explicit human approval.
 #[test]
 fn test_crowdloan_lease_finalization_settles_raised_funds() {
     new_test_ext(1).execute_with(|| {
@@ -703,6 +710,7 @@ fn test_terminate_lease_works() {
 // transferred. A debt that still cannot be transferred keeps its row, the lease record and
 // the subnet mapping, and is paid by the owner-cut hook once the obstruction clears; only
 // then is the record removed.
+// PROTECTED_REGRESSION: terminate lease settles deferred dividends; changes require explicit human approval.
 #[test]
 fn test_terminate_lease_settles_deferred_dividends() {
     new_test_ext(1).execute_with(|| {
@@ -1153,6 +1161,7 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
 // must not block the other contributors or the beneficiary. The slice is recorded against
 // that contributor only: at the next interval nobody else receives it, and it is paid to the
 // contributor as soon as the owed total clears the minimum.
+// PROTECTED_REGRESSION: distribute lease network dividends isolates unpayable contributor; changes require explicit human approval.
 #[test]
 fn test_distribute_lease_network_dividends_isolates_unpayable_contributor() {
     new_test_ext(1).execute_with(|| {
@@ -1786,7 +1795,7 @@ fn test_distribute_lease_network_dividends_accumulates_if_insufficient_liquidity
     });
 }
 
-fn setup_crowdloan(
+pub(crate) fn setup_crowdloan(
     id: u32,
     deposit: u64,
     cap: u64,
@@ -1827,7 +1836,7 @@ fn setup_crowdloan(
     pallet_crowdloan::CurrentCrowdloanId::<Test>::set(Some(0));
 }
 
-fn setup_leased_network(
+pub(crate) fn setup_leased_network(
     beneficiary: U256,
     emissions_share: Percent,
     end_block: Option<u64>,

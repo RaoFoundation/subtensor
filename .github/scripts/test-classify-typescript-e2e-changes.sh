@@ -286,11 +286,11 @@ fi
 grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.shield_matrix) }}' "$workflow"
 grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.fast_state_matrix) }}' "$workflow"
 grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.release_state_matrix) }}' "$workflow"
-grep -Fq 'needs: [trusted-pr, changes, build-fast, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
-grep -Fq 'needs: [trusted-pr, changes, build-release, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
-grep -Fq 'needs: [trusted-pr, changes, select-release-artifact]' "$workflow"
-grep -Fq 'needs: [trusted-pr, changes, build-fast, run-fast-e2e-tests, sharding-audit-fast]' "$workflow"
-grep -Fq 'needs: [trusted-pr, changes, build-release, run-shield-tests, sharding-audit-release]' "$workflow"
+grep -Fq 'needs: [changes, build-fast, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
+grep -Fq 'needs: [changes, build-release, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
+grep -Fq 'needs: [changes, select-release-artifact]' "$workflow"
+grep -Fq 'needs: [changes, build-fast, run-fast-e2e-tests, sharding-audit-fast]' "$workflow"
+grep -Fq 'needs: [changes, build-release, run-shield-tests, sharding-audit-release]' "$workflow"
 grep -Fq 'fast_build: ${{ steps.lanes.outputs.fast_build }}' "$workflow"
 grep -Fq 'release_build: ${{ steps.lanes.outputs.release_build }}' "$workflow"
 grep -Fq 'name: Audit canonical unsharded ${{ matrix.test }}' "$workflow"
@@ -298,8 +298,8 @@ grep -Fq 'EVM_SELECTED: ${{ needs.changes.outputs.evm }}' "$workflow"
 grep -Fq 'SHIELD_SELECTED: ${{ needs.changes.outputs.shield }}' "$workflow"
 # Hash-enabled lanes must wait for both their WASM and matching ordinary node,
 # without waiting for the other runtime variant or rebuilding native nodes.
-grep -Fq 'needs: [trusted-pr, changes, build-fast, build-fast-metadata-hash, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
-grep -Fq 'needs: [trusted-pr, changes, build-release, build-release-metadata-hash, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
+grep -Fq 'needs: [changes, build-fast, build-fast-metadata-hash, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
+grep -Fq 'needs: [changes, build-release, build-release-metadata-hash, build-bittensor-ts, prepare-typescript-e2e]' "$workflow"
 for features in metadata-hash fast-runtime,metadata-hash; do
   grep -Fq "run: cargo build --profile release --features $features -p node-subtensor-runtime" "$workflow"
   if grep -Fxq "        run: cargo build --profile release --features $features -p node-subtensor" "$workflow"; then

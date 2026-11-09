@@ -38,7 +38,7 @@ members = [
 	"support/*",
 	"chain-extensions",
 ]
-exclude = ["eco-tests", "vendor/w3f-bls", "vendor/frontier", "vendor/sc-informant", "vendor/fips204", "vendor/sc-transaction-pool"]
+exclude = ["eco-tests", "vendor/w3f-bls", "vendor/frontier", "vendor/sc-informant", "vendor/fips204"]
 resolver = "2"
 
 [workspace.package]
@@ -342,7 +342,6 @@ zstd-sys = { git = "https://github.com/gztensor/zstd-sys" }
 zstd-safe = { git = "https://github.com/gztensor/zstd-safe", rev = "42cc34ef6abe5d35d982f6afefb5d7e4e69f5f18" }
 
 [patch."https://github.com/RaoFoundation/polkadot-sdk.git"]
-sc-transaction-pool = { path = "vendor/sc-transaction-pool" }
 sc-informant = { path = "vendor/sc-informant" }
 
 # The RaoFoundation/frontier fork still pins polkadot-sdk to the
@@ -403,7 +402,7 @@ sc-sysinfo = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = 
 sc-telemetry = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a" }
 sc-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a" }
 sc-tracing-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a" }
-sc-transaction-pool = { path = "vendor/sc-transaction-pool" }
+sc-transaction-pool = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a" }
 sc-transaction-pool-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a" }
 sc-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a" }
 sp-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a" }

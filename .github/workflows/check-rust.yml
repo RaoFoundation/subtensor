@@ -19,15 +19,6 @@ env:
   RUST_BACKTRACE: full
 
 jobs:
-  # Fork PRs must not run on self-hosted runners — checkout executes untrusted
-  # code from the fork head (RCE risk on persistent org hardware).
-  trusted-pr:
-    name: Trusted PR source (non-fork)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
-
   # Every check in this workflow is a required merge check, so the workflow
   # itself must always trigger (a required check whose workflow never runs is
   # stuck "Expected" and blocks the merge). Instead, jobs skip themselves when
@@ -115,7 +106,7 @@ jobs:
 
   fmt:
     name: cargo fmt
-    needs: [trusted-pr, changes]
+    needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     steps:
@@ -137,7 +128,7 @@ jobs:
 
   clippy:
     name: cargo clippy (${{ matrix.features.name }})
-    needs: [trusted-pr, changes]
+    needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     # Compile-bound; the shared 8-core pool avoids the legacy 2-core cold-cache
     # path without consuming the 16-core critical-path lane.
@@ -195,7 +186,7 @@ jobs:
 
   warnings:
     name: no cargo check warnings
-    needs: [trusted-pr, changes]
+    needs: changes
     # Clippy already denies warnings across the workspace and all targets on
     # PRs. Retain this narrower cargo-check policy gate on main and manual runs.
     if: github.event_name != 'pull_request'
@@ -225,7 +216,7 @@ jobs:
 
   test:
     name: cargo test
-    needs: [trusted-pr, changes]
+    needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     # Longest job in this workflow; retain the reserved 16-core turbo lane.
     runs-on: [self-hosted, fireactions-turbo-16]
@@ -273,7 +264,7 @@ jobs:
   # toolchain fails here instead of surfacing when the wasm binding lands.
   core-wasm:
     name: bittensor-core wasm32 seam
-    needs: [trusted-pr, changes]
+    needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
@@ -339,7 +330,7 @@ jobs:
   # longer `cargo test` lane: no added wall time.
   sdk-linux-arm64:
     name: bittensor-core linux arm64
-    needs: [trusted-pr, changes]
+    needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04-arm
     env:
@@ -352,7 +343,7 @@ jobs:
 
   fix:
     name: cargo fix leaves no diff
-    needs: [trusted-pr, changes]
+    needs: changes
     # This is a mechanical cleanup policy, not test coverage. Keep it as a
     # post-merge/manual guard without spending PR critical-path capacity.
     if: github.event_name != 'pull_request'
@@ -380,7 +371,7 @@ jobs:
 
   zepter:
     name: zepter feature propagation
-    needs: [trusted-pr, changes]
+    needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:

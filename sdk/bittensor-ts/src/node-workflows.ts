@@ -359,6 +359,7 @@ export async function createNodeIntentReader(client: Client, native: NativeChain
     composeCall: compose,
     parseRecipient: (address, descriptor) => parseRecipient(address, decodeReceivingAddress, Keypair.fromDescriptor, publicKeyFromSs58, descriptor),
     supportsPqProfile: profile => runtime.supportsMldsaProfile(profile),
+    hasStorage: async (pallet, item, at) => (await client.runtimeAt(at)).pallet(pallet)?.storage.some(entry => entry.name === item) ?? false,
     finalizedHead: () => client.finalizedHead(),
     query: (pallet, item, params = [], at) => client.query(pallet, item, params as ScaleValue[], at ?? blockHash),
     queryMap: (pallet, item, params = [], limit) => client.queryMap(pallet, item, params as ScaleValue[], blockHash, { maxResults: limit }),
@@ -373,7 +374,7 @@ export async function createNodeIntentReader(client: Client, native: NativeChain
       return keys.length
     },
     runtimeCall: (api, method, params = []) => client.runtimeCall(api, method, params as ScaleValue[], blockHash),
-    constant: (pallet, name) => client.constant(pallet, name, blockHash),
+    constant: (pallet, name, at) => client.constant(pallet, name, at ?? blockHash),
     blockNumber: async () => block,
     blockHash: async () => blockHash,
     blockTime: () => client.blockTime(blockHash),

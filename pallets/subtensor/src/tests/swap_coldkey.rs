@@ -24,7 +24,7 @@ use sp_runtime::traits::{DispatchInfoOf, DispatchTransaction, TransactionExtensi
 use sp_runtime::{DispatchError, traits::TxBaseImplication};
 use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::{
-    AlphaBalance, CustomTransactionError, NetUid, SubnetInfo, TaoBalance, Token,
+    AlphaBalance, CustomTransactionError, GammaBalance, NetUid, SubnetInfo, TaoBalance, Token,
 };
 use subtensor_swap_interface::{SwapEngine, SwapHandler};
 
@@ -352,6 +352,7 @@ fn test_swap_coldkey_bounded_and_priced_per_position() {
                     pending_registrations: 0,
                     dest_locks: 0,
                     registration_queue_scan: 0,
+                    gamma_deposits: 0,
                 }
             )
         );
@@ -2177,8 +2178,156 @@ fn seed_collateral_row(netuid: NetUid, hotkey: U256, coldkey: U256, state: Miner
     });
 }
 
+/// Opens deposits at `hotkeys` for `coldkey` on `netuid`, each with its hotkey as balance.
+fn seed_gamma_deposits(netuid: NetUid, coldkey: U256, hotkeys: core::ops::Range<u64>) {
+    for hotkey in hotkeys {
+        GammaDeposits::<Test>::insert(
+            netuid,
+            U256::from(hotkey),
+            GammaDeposit {
+                coldkey,
+                spender: U256::from(77),
+                balance: GammaBalance::from(hotkey),
+                daily_spend_cap: Some(GammaDailySpendCap {
+                    cap: GammaBalance::from(5u64),
+                    bucket: (GammaBalance::from(3u64), 9),
+                }),
+            },
+        );
+        ColdkeyGammaHotkeys::<Test>::mutate(netuid, coldkey, |index| {
+            index.try_push(U256::from(hotkey)).unwrap()
+        });
+    }
+}
+
+// A coldkey swap moves the coldkey's gamma deposits with their terms.
+#[test]
+fn test_do_swap_coldkey_migrates_gamma_deposits() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1002), &U256::from(1001));
+        let (old_coldkey, new_coldkey) = (U256::from(1), U256::from(2));
+        seed_gamma_deposits(netuid, old_coldkey, 100..102);
+
+        let work = SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey).unwrap();
+        assert_eq!(work.gamma_deposits, 2);
+        assert!(!ColdkeyGammaHotkeys::<Test>::contains_key(
+            netuid,
+            old_coldkey
+        ));
+        assert_eq!(
+            ColdkeyGammaHotkeys::<Test>::get(netuid, new_coldkey).into_inner(),
+            vec![U256::from(100), U256::from(101)]
+        );
+        for hotkey in [100, 101] {
+            assert_eq!(
+                GammaDeposits::<Test>::get(netuid, U256::from(hotkey)),
+                Some(GammaDeposit {
+                    coldkey: new_coldkey,
+                    spender: U256::from(77),
+                    balance: GammaBalance::from(hotkey),
+                    daily_spend_cap: Some(GammaDailySpendCap {
+                        cap: GammaBalance::from(5u64),
+                        bucket: (GammaBalance::from(3u64), 9),
+                    }),
+                })
+            );
+        }
+    });
+}
+
+// Gamma deposits merge into the new coldkey's, up to `MAX_GAMMA_DEPOSITS` per subnet.
+#[test]
+fn test_do_swap_coldkey_merges_gamma_deposits() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1002), &U256::from(1001));
+        let (old_coldkey, new_coldkey) = (U256::from(1), U256::from(2));
+        let held = 200..200 + u64::from(MAX_GAMMA_DEPOSITS) - 1;
+        seed_gamma_deposits(netuid, old_coldkey, 100..102);
+        seed_gamma_deposits(netuid, new_coldkey, held.clone());
+        assert_noop!(
+            SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey),
+            Error::<Test>::TooManyGammaDeposits
+        );
+
+        let closed = U256::from(held.end - 1);
+        GammaDeposits::<Test>::remove(netuid, closed);
+        ColdkeyGammaHotkeys::<Test>::mutate(netuid, new_coldkey, |index| {
+            index.retain(|hotkey| *hotkey != closed)
+        });
+        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
+        assert_eq!(
+            ColdkeyGammaHotkeys::<Test>::get(netuid, new_coldkey).into_inner(),
+            (held.start..held.end - 1)
+                .chain(100..102)
+                .map(U256::from)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            GammaDeposits::<Test>::get(netuid, U256::from(100)).map(|deposit| deposit.coldkey),
+            Some(new_coldkey)
+        );
+    });
+}
+
+// More gamma deposits than one swap moves: refused before any write.
+#[test]
+fn test_do_swap_coldkey_refuses_too_many_gamma_deposits() {
+    new_test_ext(1).execute_with(|| {
+        let (heavy, target) = (U256::from(3), U256::from(4));
+        let per_subnet = MAX_GAMMA_DEPOSITS as usize;
+        let subnets = (MAX_COLDKEY_SWAP_GAMMA_DEPOSITS as usize).div_ceil(per_subnet) + 1;
+        for index in 0..subnets {
+            let netuid = NetUid::from(100 + index as u16);
+            NetworksAdded::<Test>::insert(netuid, true);
+            ColdkeyGammaHotkeys::<Test>::insert(
+                netuid,
+                heavy,
+                BoundedVec::truncate_from(
+                    (0..per_subnet as u64)
+                        .map(|hotkey| U256::from(10_000 + hotkey))
+                        .collect(),
+                ),
+            );
+        }
+        assert_noop!(
+            SubtensorModule::do_swap_coldkey(&heavy, &target),
+            Error::<Test>::ColdkeySwapTooHeavy
+        );
+    });
+}
+
+// A swap that would leave the destination with more gamma deposits than one swap moves is
+// refused, so no one can make a coldkey too heavy to swap away.
+#[test]
+fn test_do_swap_coldkey_refuses_a_destination_left_too_heavy_to_swap() {
+    new_test_ext(1).execute_with(|| {
+        let (source, destination) = (U256::from(3), U256::from(4));
+        let per_subnet = u64::from(MAX_GAMMA_DEPOSITS);
+        let first = add_dynamic_network(&U256::from(1002), &U256::from(1001));
+        let second = add_dynamic_network(&U256::from(1004), &U256::from(1003));
+        let third = add_dynamic_network(&U256::from(1006), &U256::from(1005));
+        seed_gamma_deposits(first, source, 100..100 + per_subnet);
+        seed_gamma_deposits(second, source, 200..200 + per_subnet);
+        seed_gamma_deposits(third, destination, 300..301);
+        assert_noop!(
+            SubtensorModule::do_swap_coldkey(&source, &destination),
+            Error::<Test>::ColdkeySwapTooHeavy
+        );
+
+        GammaDeposits::<Test>::remove(third, U256::from(300));
+        ColdkeyGammaHotkeys::<Test>::remove(third, destination);
+        assert_eq!(
+            SubtensorModule::do_swap_coldkey(&source, &destination)
+                .unwrap()
+                .gamma_deposits,
+            MAX_COLDKEY_SWAP_GAMMA_DEPOSITS
+        );
+    });
+}
+
 // Regression: coldkey swap must migrate miner collateral with the stake so the
 // new coldkey cannot withdraw the locked bond.
+// PROTECTED_REGRESSION: do swap coldkey migrates miner collateral; changes require explicit human approval.
 #[test]
 fn test_do_swap_coldkey_migrates_miner_collateral() {
     new_test_ext(1).execute_with(|| {
@@ -2336,6 +2485,7 @@ fn test_do_swap_coldkey_migrates_zero_locked_min_collateral_floor() {
 
 // Regression: a late failure inside do_swap_coldkey must roll back collateral
 // migration together with the stake move (storage transaction).
+// PROTECTED_REGRESSION: do swap coldkey rolls back collateral on failure; changes require explicit human approval.
 #[test]
 fn test_do_swap_coldkey_rolls_back_collateral_on_failure() {
     new_test_ext(1).execute_with(|| {
@@ -2717,6 +2867,7 @@ fn test_merge_swap_moves_subnet_ownership_and_keeps_dest_auto_stake() {
 
 /// Merge into a used destination that has no auto-stake setting must keep the
 /// unset/default reward route — source policy is dropped (Skeptic fid:5f22d507).
+// PROTECTED_REGRESSION: merge swap does not import source auto stake onto unset dest; changes require explicit human approval.
 #[test]
 fn test_merge_swap_does_not_import_source_auto_stake_onto_unset_dest() {
     new_test_ext(1).execute_with(|| {
@@ -2745,6 +2896,7 @@ fn test_merge_swap_does_not_import_source_auto_stake_onto_unset_dest() {
 
 /// Funded destination without staking associations also keeps unset auto-stake
 /// (Skeptic fid:a2c90852) — free balance alone is prior presence.
+// PROTECTED_REGRESSION: funded dest without staking does not import source auto stake; changes require explicit human approval.
 #[test]
 fn test_funded_dest_without_staking_does_not_import_source_auto_stake() {
     new_test_ext(1).execute_with(|| {
@@ -2856,6 +3008,7 @@ fn test_v2_announcement_snapshot_preserves_funded_destination_default() {
 
 /// A legacy caller cannot opt into V2 snapshot semantics merely by submitting
 /// a correctly formed V2 commitment: the dedicated V2 marker is also required.
+// PROTECTED_REGRESSION: legacy announcement cannot forge v2 policy snapshot; changes require explicit human approval.
 #[test]
 fn test_legacy_announcement_cannot_forge_v2_policy_snapshot() {
     new_test_ext(1).execute_with(|| {
@@ -3856,6 +4009,7 @@ fn test_legacy_announced_swap_cannot_merge_into_reserved_destination() {
 
 /// Third parties must not grow a reserved destination's stake associations
 /// during the announce delay (would trip TooHeavy / dest opt-outs at execute).
+// PROTECTED_REGRESSION: reserved destination blocks third party stake transfer; changes require explicit human approval.
 #[test]
 fn test_reserved_destination_blocks_third_party_stake_transfer() {
     new_test_ext(1).execute_with(|| {

@@ -1,7 +1,6 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 mod grandpa_warp_sync;
-mod transaction_admission;
 mod warp_sync_checkpoint;
 
 use crate::consensus::ConsensusMechanism;
@@ -126,9 +125,7 @@ pub fn new_partial(
         })
         .transpose()?;
 
-    let executor = RuntimeExecutor::new(sc_service::new_wasm_executor::<HostFunctions>(
-        &config.executor,
-    ));
+    let executor = sc_service::new_wasm_executor::<HostFunctions>(&config.executor);
     let (client, backend, keystore_container, task_manager) =
         sc_service::new_full_parts::<Block, RuntimeApi, RuntimeExecutor>(
             config,
@@ -217,7 +214,7 @@ pub fn new_partial(
         }
     };
 
-    let transaction_pool = Arc::from(transaction_admission::wrap(
+    let transaction_pool = Arc::from(
         sc_transaction_pool::Builder::new(
             task_manager.spawn_essential_handle(),
             client.clone(),
@@ -226,7 +223,7 @@ pub fn new_partial(
         .with_options(config.transaction_pool.clone())
         .with_prometheus(config.prometheus_registry())
         .build(),
-    ));
+    );
 
     let (import_queue, block_import) = build_import_queue(
         client.clone(),

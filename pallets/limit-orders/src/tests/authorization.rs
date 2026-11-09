@@ -94,6 +94,7 @@ fn prepare() {
     ProtectedOrderSigner::set(Some(alice()));
 }
 
+// PROTECTED_REGRESSION: batched stop loss floor applies to every authorization and netting side; changes require explicit human approval.
 #[test]
 fn batched_stop_loss_floor_applies_to_every_authorization_and_netting_side() {
     for mode in 0..2 {
@@ -240,6 +241,7 @@ fn approved_order_uses_owner_authority_and_keeps_legacy_protection() {
     });
 }
 
+// PROTECTED_REGRESSION: failed swap preserves approval and nonce and batch is atomic; changes require explicit human approval.
 #[test]
 fn failed_swap_preserves_approval_and_nonce_and_batch_is_atomic() {
     new_test_ext().execute_with(|| {
@@ -786,6 +788,7 @@ fn repeated_cancellation_and_execution_leave_no_per_order_tombstones() {
     }
 }
 
+// PROTECTED_REGRESSION: expiry reclaims capacity without restoring old nonces or partial fills; changes require explicit human approval.
 #[test]
 fn expiry_reclaims_capacity_without_restoring_old_nonces_or_partial_fills() {
     new_test_ext().execute_with(|| {
@@ -827,6 +830,7 @@ fn expiry_reclaims_capacity_without_restoring_old_nonces_or_partial_fills() {
     });
 }
 
+// PROTECTED_REGRESSION: reaping cleans all approval state and refunding does not reactivate orders; changes require explicit human approval.
 #[test]
 fn reaping_cleans_all_approval_state_and_refunding_does_not_reactivate_orders() {
     new_test_ext().execute_with(|| {
@@ -862,6 +866,7 @@ fn reaping_cleans_all_approval_state_and_refunding_does_not_reactivate_orders() 
     });
 }
 
+// PROTECTED_REGRESSION: nonce watermark never wraps and cannot be reset by cancellation; changes require explicit human approval.
 #[test]
 fn nonce_watermark_never_wraps_and_cannot_be_reset_by_cancellation() {
     new_test_ext().execute_with(|| {
@@ -891,6 +896,7 @@ fn nonce_watermark_never_wraps_and_cannot_be_reset_by_cancellation() {
     });
 }
 
+// PROTECTED_REGRESSION: execution cannot recreate state after the swap reaps its owner; changes require explicit human approval.
 #[test]
 fn execution_cannot_recreate_state_after_the_swap_reaps_its_owner() {
     for netted in [false, true] {
@@ -978,6 +984,7 @@ fn full_approval_record_preserves_other_orders_through_partial_fill_and_cancel()
     }
 }
 
+// PROTECTED_REGRESSION: failure after reaping rolls back full approval record and system account; changes require explicit human approval.
 #[test]
 fn failure_after_reaping_rolls_back_full_approval_record_and_system_account() {
     for netted in [false, true] {

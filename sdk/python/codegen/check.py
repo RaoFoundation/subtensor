@@ -79,6 +79,7 @@ RAW_ONLY: dict[str, set[str]] = {
     "HashedAccounts": {
         "register",
         "check_registered",
+        "check_registration_deposit",
         # Composite protection is composed by MultisigGroup and derivative
         # helpers, with the exact call approved by its actual authority.
         "register_derived",
@@ -134,6 +135,8 @@ RAW_ONLY: dict[str, set[str]] = {
         # updates go through AdminUtils.sudo_set_tempo / sudo_set_activity_cutoff_factor.
         "set_tempo",
         "set_activity_cutoff_factor",
+        # TAO/USD price feed — signed by the oracle only, not agent-executable
+        "feed_tao_usd_price",
     },
     "Balances": {
         # force_* are root-origin; burn/upgrade are niche
@@ -249,6 +252,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_emission_bar_rank",
         "sudo_set_emission_gate_exponent",
         "sudo_set_evm_chain_id",
+        "sudo_set_gamma_enabled",
         "sudo_set_kappa",
         "sudo_set_liquid_alpha_consensus_mode",
         "sudo_set_lock_reduction_interval",
@@ -276,6 +280,7 @@ RAW_ONLY: dict[str, set[str]] = {
         # validator basket trading gates and budget — root-only governance toggles
         "sudo_set_basket_trading_enabled",
         "sudo_set_hashed_accounts_enabled",
+        "sudo_set_hashed_account_registration_deposit",
         "sudo_set_basket_trading_frozen",
         "sudo_set_basket_daily_turnover_cap",
         "sudo_set_basket_liquidity_cap",
@@ -294,6 +299,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_tao_flow_cutoff",
         "sudo_set_tao_flow_normalization_exponent",
         "sudo_set_tao_flow_smoothing_factor",
+        "sudo_set_tao_usd_price_oracle",
         "sudo_set_target_registrations_per_interval",
         "sudo_set_total_issuance",
         "sudo_set_tx_delegate_take_rate_limit",

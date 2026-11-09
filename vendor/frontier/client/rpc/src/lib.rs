@@ -30,8 +30,6 @@ mod cache;
 mod debug;
 mod eth;
 mod eth_pubsub;
-#[doc(hidden)]
-pub mod execution_admission;
 mod net;
 mod signer;
 #[cfg(feature = "txpool")]
@@ -110,9 +108,26 @@ pub mod frontier_backend_client {
 			key.extend(blake2_128(&account_id));
 			key.extend(&account_id);
 
-			if let Ok(Some(item)) = client.storage(block, &StorageKey(key.clone())) {
-				let mut new_item = item.0;
-
+			// Pending calls already carry account changes. Override only the requested
+			// fields and preserve the rest of that account's pending state.
+			let item = match overlayed_changes.storage(&key) {
+				Some(Some(value)) => Some(value.to_owned()),
+				// These generic overrides know only the nonce/free offsets, not the
+				// runtime's historical AccountData layout. Keep its encoded length,
+				// but never restore fields from an account reaped in pending state.
+				Some(None) if balance.is_some() || nonce.is_some() => client
+					.storage(block, &StorageKey(key.clone()))
+					.ok()
+					.flatten()
+					.map(|item| vec![0; item.0.len()]),
+				Some(None) => None,
+				None => client
+					.storage(block, &StorageKey(key.clone()))
+					.ok()
+					.flatten()
+					.map(|item| item.0),
+			};
+			if let Some(mut new_item) = item {
 				if let Some(nonce) = nonce {
 					new_item.splice(0..4, nonce.low_u32().encode());
 				}
@@ -163,9 +178,26 @@ pub mod frontier_backend_client {
 			key.extend(blake2_128(&account_id));
 			key.extend(&account_id);
 
-			if let Ok(Some(item)) = client.storage(block, &StorageKey(key.clone())) {
-				let mut new_item = item.0;
-
+			// Pending calls already carry account changes. Override only the requested
+			// fields and preserve the rest of that account's pending state.
+			let item = match overlayed_changes.storage(&key) {
+				Some(Some(value)) => Some(value.to_owned()),
+				// These generic overrides know only the nonce/free offsets, not the
+				// runtime's historical AccountData layout. Keep its encoded length,
+				// but never restore fields from an account reaped in pending state.
+				Some(None) if balance.is_some() || nonce.is_some() => client
+					.storage(block, &StorageKey(key.clone()))
+					.ok()
+					.flatten()
+					.map(|item| vec![0; item.0.len()]),
+				Some(None) => None,
+				None => client
+					.storage(block, &StorageKey(key.clone()))
+					.ok()
+					.flatten()
+					.map(|item| item.0),
+			};
+			if let Some(mut new_item) = item {
 				if let Some(nonce) = nonce {
 					new_item.splice(0..4, nonce.low_u32().encode());
 				}
@@ -373,6 +405,110 @@ mod tests {
 
 	type OpaqueBlock =
 		Block<Header<u64, BlakeTwo256>, substrate_test_runtime_client::runtime::Extrinsic>;
+
+	#[test]
+	fn account_overrides_preserve_pending_fields_and_deletions() {
+		use super::frontier_backend_client::{
+			SystemAccountId20StorageOverride, SystemAccountId32StorageOverride,
+		};
+		use fp_rpc::RuntimeStorageOverride;
+		use sp_core::{H160, U256};
+		use sp_io::hashing::{blake2_128, twox_128};
+
+		let address = H160::repeat_byte(7);
+
+		macro_rules! check {
+			($override:ident) => {{
+				type Override =
+					$override<OpaqueBlock, TestClient, substrate_test_runtime_client::Backend>;
+				let account = Override::into_account_id_bytes(address);
+				let key = [
+					twox_128(b"System").as_slice(),
+					twox_128(b"Account").as_slice(),
+					blake2_128(&account).as_slice(),
+					account.as_slice(),
+				]
+				.concat();
+				let (client, _) = TestClientBuilder::new()
+					.add_extra_storage(key.clone(), vec![9; 80])
+					.build_with_native_executor::<substrate_test_runtime_client::runtime::RuntimeApi, _>(
+						None,
+					);
+				let at = client.info().best_hash;
+				let mut overlay = sp_state_machine::OverlayedChanges::default();
+				let pending = vec![7; 80];
+				overlay.set_storage(key.clone(), Some(pending.clone()));
+				Override::set_overlayed_changes(
+					&client,
+					&mut overlay,
+					at,
+					6,
+					address,
+					Some(U256::from(123)),
+					None,
+				);
+				let value = overlay.storage(&key).unwrap().unwrap();
+				assert_eq!(&value[..16], &pending[..16]);
+				assert_eq!(&value[16..32], &123u128.to_le_bytes());
+				assert_eq!(&value[32..], &pending[32..]);
+				Override::set_overlayed_changes(
+					&client,
+					&mut overlay,
+					at,
+					6,
+					address,
+					None,
+					Some(U256::from(42)),
+				);
+				let value = overlay.storage(&key).unwrap().unwrap();
+				assert_eq!(&value[..4], &42u32.to_le_bytes());
+				assert_eq!(&value[16..32], &123u128.to_le_bytes());
+				overlay.set_storage(key.clone(), None);
+				Override::set_overlayed_changes(&client, &mut overlay, at, 6, address, None, None);
+				assert_eq!(overlay.storage(&key), Some(None));
+				Override::set_overlayed_changes(
+					&client,
+					&mut overlay,
+					at,
+					6,
+					address,
+					Some(U256::from(456)),
+					None,
+				);
+				let mut expected = vec![0; 80];
+				expected[16..32].copy_from_slice(&456u128.to_le_bytes());
+				assert_eq!(overlay.storage(&key), Some(Some(expected.as_slice())));
+				overlay.set_storage(key.clone(), None);
+				Override::set_overlayed_changes(
+					&client,
+					&mut overlay,
+					at,
+					6,
+					address,
+					None,
+					Some(U256::from(42)),
+				);
+				let mut expected = vec![0; 80];
+				expected[..4].copy_from_slice(&42u32.to_le_bytes());
+				assert_eq!(overlay.storage(&key), Some(Some(expected.as_slice())));
+
+				// An account absent from parent and overlay keeps the base behavior.
+				let mut absent = sp_state_machine::OverlayedChanges::default();
+				Override::set_overlayed_changes(
+					&client,
+					&mut absent,
+					at,
+					6,
+					H160::repeat_byte(8),
+					Some(U256::from(456)),
+					Some(U256::from(42)),
+				);
+				assert_eq!(absent.changes().count(), 0);
+			}};
+		}
+		check!(SystemAccountId20StorageOverride);
+		check!(SystemAccountId32StorageOverride);
+	}
 
 	fn open_frontier_backend<Block: BlockT, C: HeaderBackend<Block>>(
 		client: Arc<C>,

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional, TypedDict
@@ -27,8 +29,10 @@ from ...keyfiles import KeyfileError, WrongPasswordError
 from ...masked_input import masked_input
 from ...receiving import parse_recipient
 from ...settings import BLOCKTIME, DOCS_URL, query_docs_url, resolve_endpoint
+from ...signing import WalletSigner
 from ...sp_core import keyfile_data_is_encrypted
 from ...timelock import format_duration
+from ...wallet_registration import registration_deposit_for_types
 from .. import multisig_helpers as ms_helpers
 from .. import wallet_addresses
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
@@ -331,8 +335,181 @@ def _report_unlock_error(app_ctx: AppContext, error: BaseException) -> None:
     raise typer.Exit(1)
 
 
+@dataclass(frozen=True)
+class _PreparedRegistration:
+    payer: Any
+    payer_name: str
+    roles: tuple[str, ...]
+    deposit: Balance
+
+
+def _prepare_hashed_creation(
+    app_ctx: AppContext,
+    crypto_types: dict[str, int],
+    registration_payer: str | None,
+    *,
+    use_existing_coldkey: bool = False,
+    creating: bool = True,
+) -> _PreparedRegistration | None:
+    """Approve the live reserve before generating or replacing any key material."""
+    roles = tuple(
+        role for role, kind in crypto_types.items() if kind in wallets.HASHED_CRYPTO_TYPES
+    )
+    if not roles:
+        return None
+    if app_ctx.dry_run:
+        app_ctx.output.error(
+            "--dry-run is not supported for hashed account creation or registration",
+            help="no keys were created and no transaction was submitted",
+        )
+        raise typer.Exit(1)
+    if not interactive(app_ctx):
+        app_ctx.output.error(
+            "hashed account creation or registration requires an explicit "
+            "y/n registration confirmation",
+            help="run interactively without --json or --quiet; --yes does not approve the deposit",
+        )
+        raise typer.Exit(1)
+    if not registration_payer and use_existing_coldkey:
+        registration_payer = app_ctx.wallet_name
+    if not registration_payer:
+        values: dict[str, Any] = {}
+        fill_missing(
+            app_ctx,
+            [
+                PromptSpec(
+                    field="registration_payer",
+                    flag="--registration-payer",
+                    help="Existing funded wallet whose coldkey pays the deposit and fees.",
+                    parse=lambda _ctx, value: value.strip(),
+                )
+            ],
+            values,
+        )
+        registration_payer = values["registration_payer"]
+    payer_wallet = wallets.open_wallet(name=registration_payer, path=app_ctx.wallet_path)
+    target_wallet = app_ctx.wallet()
+    if not use_existing_coldkey and (
+        Path(payer_wallet.coldkey_file.path).resolve()
+        == Path(target_wallet.coldkey_file.path).resolve()
+    ):
+        app_ctx.output.error(
+            "the registration payer must be a different existing wallet",
+            help="the new coldkey has no funds and cannot pay its own registration deposit",
+        )
+        raise typer.Exit(1)
+    try:
+        payer_signer = WalletSigner(payer_wallet, "coldkey", **_unlock_options(app_ctx))
+        payer_account = payer_signer.ss58_address
+        if not payer_wallet.coldkey_file.exists_on_device():
+            raise ValueError("registration payer has no local signing key")
+    except (KeyfileError, ValueError, OSError) as error:
+        _report_unlock_error(app_ctx, error)
+
+    async def quote(client):
+        return await registration_deposit_for_types(
+            client, tuple(crypto_types[role] for role in roles)
+        )
+
+    deposit = app_ctx.run(quote)
+    app_ctx.output.message(
+        "WARNING: Hashed accounts must be registered and finalized before receiving funds "
+        "or publicly sharing either address. Third parties can otherwise block registration, "
+        "potentially making funds inaccessible. Registration is sent through MEV Shield."
+    )
+    reserve_action = "permanently lock" if creating else "authorize up to"
+    app_ctx.output.message(
+        f"Register {', '.join(roles)} on {app_ctx.network}: {reserve_action} "
+        f"{deposit.decimal:f} TAO total from wallet {registration_payer!r} "
+        f"({payer_account}), plus transaction fees. The deposit cannot be withdrawn."
+    )
+    if not creating:
+        app_ctx.output.message(
+            "Only missing registrations lock a new deposit; "
+            "already registered keys are not charged."
+        )
+    try:
+        accepted = app_ctx.output.confirm(
+            "Create and register these hashed accounts and pay the deposit?"
+            if creating
+            else "Register these hashed accounts and pay the deposit?"
+        )
+    except (EOFError, KeyboardInterrupt):
+        app_ctx.output.message(
+            "Cancelled; no wallet keys were created or replaced and no transaction submitted."
+        )
+        raise typer.Exit(130) from None
+    if not accepted:
+        app_ctx.output.message(
+            "Cancelled; no wallet keys were created or replaced and no transaction submitted."
+        )
+        raise typer.Exit(1)
+    # Unlock only after explicit deposit consent, and before writing new keys.
+    try:
+        payer = payer_signer._unlock()
+    except (KeyfileError, ValueError, OSError) as error:
+        _report_unlock_error(app_ctx, error)
+    return _PreparedRegistration(payer, registration_payer, roles, deposit)
+
+
+def _finish_hashed_creation(app_ctx: AppContext, wallet, prepared: _PreparedRegistration | None):
+    if prepared is None:
+        return None
+
+    async def register(client):
+        return await client.register_wallet(
+            wallet,
+            payer=prepared.payer,
+            roles=prepared.roles,
+            max_registration_deposit=prepared.deposit,
+        )
+
+    try:
+        with app_ctx.output.activity(
+            "registering through MEV Shield and waiting for finalization…"
+        ):
+            return app_ctx.run(register)
+    except BaseException:
+        # Submission can succeed even if the connection is lost. Never delete
+        # persisted recovery material or generate replacement keys on retry.
+        retry = shlex.join(
+            [
+                "btcli",
+                "wallet",
+                "register",
+                "--wallet",
+                app_ctx.wallet_name,
+                "--wallet-hotkey",
+                app_ctx.hotkey_name,
+                "--wallet-path",
+                app_ctx.wallet_path,
+                "--network",
+                app_ctx.network,
+                "--registration-payer",
+                prepared.payer_name,
+                "--key",
+                "both" if len(prepared.roles) == 2 else prepared.roles[0],
+            ]
+        )
+        app_ctx.output.message(
+            "Registration was not confirmed finalized. Your key files are saved; "
+            "keep the recovery phrases. Do not use or publicly share either address. "
+            "Retry with the same keys:\n" + retry
+        )
+        raise
+
+
+def _creation_address_fields(app_ctx: AppContext, public, registration, *, role: str = ""):
+    fields = _address_fields(app_ctx, public, role=role)
+    if registration is not None and public.ss58_address in registration.accounts:
+        prefix = f"{role}_" if role else ""
+        fields[prefix + "registration"] = "registered"
+        fields[prefix + "registration_block_hash"] = registration.finalized_block_hash
+    return fields
+
+
 @app.command(rich_help_panel=PANEL_MANAGE)
-@with_globals
+@with_unlock_globals
 def create(
     ctx: typer.Context,
     n_words: Optional[int] = typer.Option(None, "--n-words", help=_N_WORDS_HELP + " Default: 12."),
@@ -348,6 +525,11 @@ def create(
         "--hotkey-crypto-type",
         help="Hotkey type; defaults to --crypto-type. Override to use a different scheme.",
     ),
+    registration_payer: Optional[str] = typer.Option(
+        None,
+        "--registration-payer",
+        help="Existing funded wallet paying hashed registration deposits and fees.",
+    ),
 ):
     """Create a new coldkey and hotkey.
 
@@ -355,6 +537,10 @@ def create(
     the terminal — record them somewhere safe, they are the only way to
     recover the keys. Prompts for a coldkey encryption password unless
     --no-password is given; the hotkey is always stored unencrypted.
+
+    Hashed keys require y/n approval of registration and the live deposit before
+    key creation. No cancels creation. Yes registers through MEV Shield and waits
+    for finalization; --yes does not bypass this deposit confirmation.
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(
@@ -378,6 +564,9 @@ def create(
             creating=True,
         )
     )
+    prepared = _prepare_hashed_creation(
+        app_ctx, {"coldkey": coldkey_crypto, "hotkey": hotkey_crypto}, registration_payer
+    )
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(role: str, mnemonic: str) -> None:
@@ -399,6 +588,7 @@ def create(
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
+    registration = _finish_hashed_creation(app_ctx, wallet, prepared)
     fields = {
         "coldkey": app_ctx.wallet_name,
         "hotkey": app_ctx.hotkey_name,
@@ -408,11 +598,13 @@ def create(
         "hotkey_crypto_type": wallets.format_crypto_type(hotkey_crypto),
         "hotkey_account_type": wallets.account_type_name(hotkey_crypto),
         "hotkey_signing_scheme": wallets.signing_scheme_name(hotkey_crypto),
-        **_address_fields(app_ctx, wallet.coldkeypub, role="coldkey"),
+        **_creation_address_fields(app_ctx, wallet.coldkeypub, registration, role="coldkey"),
         "path": app_ctx.wallet_path,
     }
     if hotkey_crypto in wallets.REGISTERED_CRYPTO_TYPES:
-        fields.update(_address_fields(app_ctx, wallet.hotkeypub, role="hotkey"))
+        fields.update(
+            _creation_address_fields(app_ctx, wallet.hotkeypub, registration, role="hotkey")
+        )
     # Human mode already showed the mnemonics above; JSON carries them in the
     # payload so scripted consumers can capture them.
     app_ctx.output.wallet_detail("created wallet", fields, json_fields={**fields, **mnemonics})
@@ -421,7 +613,7 @@ def create(
 
 
 @app.command("new-coldkey", rich_help_panel=PANEL_MANAGE)
-@with_globals
+@with_unlock_globals
 def new_coldkey(
     ctx: typer.Context,
     n_words: Optional[int] = typer.Option(None, "--n-words", help=_N_WORDS_HELP + " Default: 12."),
@@ -429,16 +621,24 @@ def new_coldkey(
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
     crypto_type: str = typer.Option("sr25519", "--crypto-type", help=_CRYPTO_TYPE_HELP),
     account_type: Optional[str] = typer.Option(None, "--type", help=_ACCOUNT_TYPE_HELP),
+    registration_payer: Optional[str] = typer.Option(
+        None,
+        "--registration-payer",
+        help="Existing funded wallet paying hashed registration deposits and fees.",
+    ),
 ):
     """Create a new coldkey in the configured wallet.
 
     Writes coldkey files under the wallet path and prints the mnemonic to the
     terminal — record it somewhere safe, it is the only way to recover the
     key. Prompts for an encryption password unless --no-password is given.
+    Hashed keys require y/n approval before creation, then register through MEV
+    Shield and wait for finalization. No cancels without changing key files.
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(app_ctx, help_text="Wallet to create the coldkey in.", must_exist=False)
     crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type, creating=True)
+    prepared = _prepare_hashed_creation(app_ctx, {"coldkey": crypto}, registration_payer)
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(mnemonic: str) -> None:
@@ -458,12 +658,13 @@ def new_coldkey(
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
+    registration = _finish_hashed_creation(app_ctx, wallet, prepared)
     fields = {
         "wallet": app_ctx.wallet_name,
         "crypto_type": wallets.format_crypto_type(crypto),
         "account_type": wallets.account_type_name(crypto),
         "signing_scheme": wallets.signing_scheme_name(crypto),
-        **_address_fields(app_ctx, wallet.coldkeypub),
+        **_creation_address_fields(app_ctx, wallet.coldkeypub, registration),
     }
     app_ctx.output.wallet_detail("created coldkey", fields, json_fields={**fields, **mnemonics})
     _hashed_recovery_hint(app_ctx, crypto)
@@ -471,19 +672,26 @@ def new_coldkey(
 
 
 @app.command("new-hotkey", rich_help_panel=PANEL_MANAGE)
-@with_globals
+@with_unlock_globals
 def new_hotkey(
     ctx: typer.Context,
     n_words: Optional[int] = typer.Option(None, "--n-words", help=_N_WORDS_HELP + " Default: 12."),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
     crypto_type: str = typer.Option("sr25519", "--crypto-type", help=_CRYPTO_TYPE_HELP),
     account_type: Optional[str] = typer.Option(None, "--type", help=_ACCOUNT_TYPE_HELP),
+    registration_payer: Optional[str] = typer.Option(
+        None,
+        "--registration-payer",
+        help="Wallet paying hashed registration; defaults to this wallet's coldkey.",
+    ),
 ):
     """Create a new hotkey in the configured wallet.
 
     Writes the hotkey file (stored unencrypted) under the wallet path and
     prints its mnemonic to the terminal — record it if you need to
-    regenerate the hotkey later.
+    regenerate the hotkey later. Hashed keys require y/n approval before creation,
+    then register through MEV Shield and wait for finalization. No cancels without
+    changing key files.
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(
@@ -494,6 +702,9 @@ def new_hotkey(
         hotkey_must_exist=False,
     )
     crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type, creating=True)
+    prepared = _prepare_hashed_creation(
+        app_ctx, {"hotkey": crypto}, registration_payer, use_existing_coldkey=True
+    )
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(mnemonic: str) -> None:
@@ -509,17 +720,58 @@ def new_hotkey(
         crypto_type=crypto,
         on_mnemonic=_on_mnemonic,
     )
+    registration = _finish_hashed_creation(app_ctx, wallet, prepared)
     fields = {
         "wallet": app_ctx.wallet_name,
         "hotkey": app_ctx.hotkey_name,
         "crypto_type": wallets.format_crypto_type(crypto),
         "account_type": wallets.account_type_name(crypto),
         "signing_scheme": wallets.signing_scheme_name(crypto),
-        **_address_fields(app_ctx, wallet.hotkeypub),
+        **_creation_address_fields(app_ctx, wallet.hotkeypub, registration),
     }
     app_ctx.output.wallet_detail("created hotkey", fields, json_fields={**fields, **mnemonics})
     _hashed_recovery_hint(app_ctx, crypto)
     app_ctx.output.mnemonic_clear_hint()
+
+
+@app.command("register", rich_help_panel=PANEL_MANAGE)
+@with_unlock_globals
+def register_wallet(
+    ctx: typer.Context,
+    registration_payer: Optional[str] = typer.Option(
+        None,
+        "--registration-payer",
+        help="Existing funded wallet paying the registration deposits and fees.",
+    ),
+    key: str = typer.Option("both", "--key", help="Keys to register: coldkey, hotkey, or both."),
+):
+    """Register saved hashed keys through MEV Shield without generating new keys.
+
+    Use this to retry after creation's registration could not be confirmed.
+    Already registered keys are verified and are not charged again.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    if key not in ("coldkey", "hotkey", "both"):
+        raise typer.BadParameter("choose coldkey, hotkey, or both", param_hint="--key")
+    wallet = app_ctx.wallet()
+    roles = ("coldkey", "hotkey") if key == "both" else (key,)
+    try:
+        crypto_types = {role: getattr(wallet, role + "pub").crypto_type for role in roles}
+    except (KeyfileError, ValueError, OSError) as error:
+        _report_unlock_error(app_ctx, error)
+    prepared = _prepare_hashed_creation(
+        app_ctx, crypto_types, registration_payer, use_existing_coldkey=True, creating=False
+    )
+    result = _finish_hashed_creation(app_ctx, wallet, prepared)
+    if result is None:
+        app_ctx.output.message("These standard keys do not require hashed-account registration.")
+        return
+    fields: dict[str, Any] = {"wallet": app_ctx.wallet_name}
+    for role in result.roles:
+        fields.update(
+            _creation_address_fields(app_ctx, getattr(wallet, role + "pub"), result, role=role)
+        )
+    app_ctx.output.wallet_detail("registered wallet", fields)
 
 
 @app.command("regen-coldkey", rich_help_panel=PANEL_SECURITY)

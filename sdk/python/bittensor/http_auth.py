@@ -20,13 +20,19 @@ Client side::
 
 Server side::
 
+    # Once per server process, from trusted configuration or registry state.
+    bt.http_auth.configure_verifier(
+        my_hotkey, trusted_sender_schemes=trusted_sender_schemes,
+    )
     caller = bt.http_auth.verify(
         request_headers, raw_body,
         method="POST", path="/generate",
         self_hotkey_ss58=my_hotkey,
-        expected_crypto_type=trusted_sender_crypto_type,
     )
     caller.hotkey_ss58   # the authenticated sender
+
+Alternatively, supply ``expected_crypto_type`` from trusted configuration on
+each call. Missing trusted sender information always fails authentication.
 
 ``verify`` raises an :class:`AuthError` subclass on failure (map it to
 HTTP 401/403 in your framework). Replay protection is a freshness window on
@@ -154,6 +160,57 @@ class InMemoryNonceStore:
 
 
 _default_nonce_store = InMemoryNonceStore()
+_verifier_lock = threading.Lock()
+_trusted_sender_schemes: dict[str, dict[str, int]] = {}
+
+
+def _validate_trusted_crypto_type(crypto_type: int) -> None:
+    if (
+        not isinstance(crypto_type, int)
+        or isinstance(crypto_type, bool)
+        or crypto_type not in CRYPTO_TYPE_NAMES
+    ):
+        raise ValueError("unsupported trusted sender crypto type")
+    if crypto_type in PQ_CRYPTO_TYPES:
+        raise ValueError("post-quantum HTTP authentication is not supported")
+
+
+def configure_verifier(self_hotkey_ss58: str, *, trusted_sender_schemes: Mapping[str, int]) -> None:
+    """Configure trusted sender schemes for calls omitting ``expected_crypto_type``.
+
+    Call once at server startup in each worker process with a mapping from exact
+    sender SS58 strings to crypto-type codes, obtained from trusted configuration
+    or a registry. Never build this policy from request crypto headers. Only
+    ordinary and hashed SR/ED HTTP authentication is supported.
+
+    The mapping is copied and fully validated before replacing this receiver's
+    configuration atomically. Call again to publish a refreshed registry snapshot;
+    mutating the original mapping does not change the active policy. Configuration
+    is process-local and shared by applications using the same receiver hotkey.
+    Explicit per-call ``expected_crypto_type`` arguments take precedence.
+    """
+    if not isinstance(self_hotkey_ss58, str) or not self_hotkey_ss58:
+        raise ValueError("receiver hotkey must be a nonempty SS58 string")
+    schemes = dict(trusted_sender_schemes)
+    for sender, crypto_type in schemes.items():
+        if not isinstance(sender, str) or not sender:
+            raise ValueError("sender hotkey must be a nonempty SS58 string")
+        _validate_trusted_crypto_type(crypto_type)
+    with _verifier_lock:
+        _trusted_sender_schemes[self_hotkey_ss58] = schemes
+
+
+def clear_verifier(self_hotkey_ss58: str) -> None:
+    """Remove this receiver's process-local trusted sender configuration.
+
+    Subsequent calls without ``expected_crypto_type`` fail closed until the
+    receiver is configured again. Verification already in progress retains the
+    trusted scheme it resolved when it started.
+    """
+    if not isinstance(self_hotkey_ss58, str) or not self_hotkey_ss58:
+        raise ValueError("receiver hotkey must be a nonempty SS58 string")
+    with _verifier_lock:
+        _trusted_sender_schemes.pop(self_hotkey_ss58, None)
 
 
 def build_payload(
@@ -297,7 +354,7 @@ def verify(
     method: str,
     path: str,
     self_hotkey_ss58: str,
-    expected_crypto_type: int,
+    expected_crypto_type: Optional[int] = None,
     max_age: float = DEFAULT_MAX_AGE,
     allowed_skew: float = DEFAULT_ALLOWED_SKEW,
     require_receiver: bool = True,
@@ -319,13 +376,17 @@ def verify(
     store is written only after the signature verifies, so unauthenticated
     traffic cannot poison it against a legitimate sender.
 
-    ``expected_crypto_type`` must come from trusted configuration or a registry
-    lookup for the claimed sender, never from the request's crypto header. Bare
-    SS58 identities do not encode a scheme; accepting the header alone would
-    allow classical signatures to impersonate a hashed identity.
+    ``expected_crypto_type`` may be omitted after :func:`configure_verifier`
+    supplies trusted sender schemes for this receiver. Missing configuration or
+    an unknown sender raises :class:`BadSignature`; there is no implicit SR25519
+    fallback. An explicit argument takes precedence over the configured registry.
+    Either source must come from trusted configuration or a registry, never from
+    the request's crypto header. Bare SS58 identities do not encode a scheme;
+    accepting the header alone would allow classical signatures to impersonate
+    a hashed identity.
     """
-    if expected_crypto_type in PQ_CRYPTO_TYPES:
-        raise ValueError("post-quantum HTTP authentication is not supported")
+    if expected_crypto_type is not None:
+        _validate_trusted_crypto_type(expected_crypto_type)
     lowered = {key.lower(): value for key, value in headers.items()}
 
     version = lowered.get(HEADER_VERSION.lower())
@@ -348,8 +409,11 @@ def verify(
     # Rebuild the canonical scheme name rather than echoing the header value,
     # so the signed bytes are never client-influenced beyond the scheme choice.
     scheme = CRYPTO_TYPE_NAMES[crypto_type]
-    if expected_crypto_type not in CRYPTO_TYPE_NAMES:
-        raise ValueError("unsupported trusted sender crypto type")
+    if expected_crypto_type is None:
+        with _verifier_lock:
+            expected_crypto_type = _trusted_sender_schemes.get(self_hotkey_ss58, {}).get(sender)
+        if expected_crypto_type is None:
+            raise BadSignature("no trusted signature scheme configured for sender")
     if crypto_type != expected_crypto_type:
         raise BadSignature("declared signature scheme does not match the trusted sender scheme")
     raw_signature = lowered.get(HEADER_SIGNATURE.lower())
@@ -427,6 +491,8 @@ __all__ = [
     "StaleRequest",
     "WrongReceiver",
     "build_payload",
+    "clear_verifier",
+    "configure_verifier",
     "sign",
     "verify",
 ]

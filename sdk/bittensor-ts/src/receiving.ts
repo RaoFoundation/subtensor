@@ -1,6 +1,7 @@
 import { bytesHex as hex } from './portable'
 import { descriptorBytes, rawBytes, registrationDescriptor } from './protected-accounts'
 import type { IntentDescriptor, IntentReader } from './intents'
+import { quoteRegistrationDeposit, registrationDepositGuard } from './registration-deposit'
 
 export interface Recipient { account: string; descriptor?: Uint8Array }
 export function containsAccountRegistration(call: IntentDescriptor): boolean {
@@ -73,10 +74,10 @@ export async function prepareRecipients(op: string, args: Record<string, any>, r
     }
     if (!record) {
       if (direct || name !== target || op === 'associate_hotkey') throw new Error('recipient must be registered and finalized first')
-      const amount = await reader.constant?.('HashedAccounts', descriptor[0] === 2 ? 'MlDsaRegistrationDeposit' : 'RegistrationDeposit')
-      if (amount == null) throw new Error('registration deposit unavailable')
-      deposit += BigInt(amount as any)
-      sponsorships.push({recipient:recipient.account,depositRao:BigInt(amount as any)})
+      const quote = await quoteRegistrationDeposit(reader, descriptor[0] === 2 ? 'MlDsaRegistrationDeposit' : 'RegistrationDeposit')
+      deposit += quote.amountRao
+      sponsorships.push({recipient:recipient.account,depositRao:quote.amountRao})
+      if (quote.configurable) guards.push(registrationDepositGuard(quote))
     }
     if (!direct && !(op === 'announce_coldkey_swap' && record)) guards.push({ pallet: 'HashedAccounts', call: record ? 'check_registered' : 'register', params: { descriptor: registrationDescriptor(descriptor) } })
   }

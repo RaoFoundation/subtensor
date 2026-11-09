@@ -186,7 +186,7 @@ class Substrate(Protocol):
         """Call a runtime API, returning its plain decoded value."""
         ...
 
-    async def constant(self, module: str, name: str) -> Any:
+    async def constant(self, module: str, name: str, block_hash: Optional[str] = None) -> Any:
         """Read a pallet constant."""
         ...
 
@@ -567,8 +567,8 @@ class RpcSubstrate:
     ) -> Any:
         return await self._read(lambda raw: raw.runtime_call(api, method, params, block_hash))
 
-    async def constant(self, module: str, name: str) -> Any:
-        return await self._read(lambda raw: raw.get_constant(module, name))
+    async def constant(self, module: str, name: str, block_hash: Optional[str] = None) -> Any:
+        return await self._read(lambda raw: raw.get_constant(module, name, block_hash))
 
     async def decode_scale(self, type_string: str, data: Any) -> Any:
         """Decode SCALE-encoded bytes (or 0x-hex) against the connected runtime's types.

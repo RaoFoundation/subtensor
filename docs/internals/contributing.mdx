@@ -31,6 +31,15 @@ description: PR lifecycle, review requirements, labels, and how a merge rides th
 New to the codebase? Start with the
 [repository layout](/docs/internals/repo-layout).
 
+### Pull requests from forks
+
+CI on a fork PR waits until a maintainer opens the PR's merge status panel and
+clicks **Approve workflows to run**. Approval is needed again for every new
+push. The runs use the PR's own workflow files, on self-hosted runners, with
+no repository secrets and a read-only token. Before approving, check every
+change under `.github/`: a modified workflow can choose its own runners or
+report a required check as passed without running it.
+
 ## The release train
 
 Merging to `main` triggers `release-train.yml`, a build-once promotion

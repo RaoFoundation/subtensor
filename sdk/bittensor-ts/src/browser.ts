@@ -75,6 +75,8 @@ export interface BrowserWasmModule {
   ): boolean
   ss58Decode(ss58Address: string): Uint8Array
   ss58Encode(publicKey: Uint8Array, ss58Format?: number): string
+  accountIdFromEcdsaPublic(publicKey: Uint8Array): Uint8Array
+  ss58FromEcdsaPublic(publicKey: Uint8Array, ss58Format?: number): string
   metadataDigest(
     metadataBytes: Uint8Array,
     specVersion: number,
@@ -932,6 +934,19 @@ export function ss58FromPublic(
   ss58Format = DEFAULT_SS58_FORMAT,
 ): string {
   return wasmSync().ss58Encode(toBytes(publicKey, 'publicKey'), ss58Format)
+}
+
+/** AccountId32 used by the chain for a compressed secp256k1 public key. */
+export function accountIdFromEcdsaPublic(publicKey: BrowserByteLike): Uint8Array {
+  return copyBytes(wasmSync().accountIdFromEcdsaPublic(toBytes(publicKey, 'publicKey')))
+}
+
+/** SS58 rendering of the account id derived from a compressed secp256k1 public key. */
+export function ss58FromEcdsaPublic(
+  publicKey: BrowserByteLike,
+  ss58Format = DEFAULT_SS58_FORMAT,
+): string {
+  return wasmSync().ss58FromEcdsaPublic(toBytes(publicKey, 'publicKey'), ss58Format)
 }
 
 export function metadataDigest(

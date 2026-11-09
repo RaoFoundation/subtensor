@@ -16,18 +16,27 @@ from bittensor.cli.context import AppContext
 from bittensor.cli.main import app
 from bittensor.cli.output import Output
 from bittensor.cli.stake_picker import _dest_choices
+from bittensor.cli.wallet_addresses import check_registration
 from bittensor.client import Client
 from bittensor.executor import Executor
 from bittensor.hashed import descriptor_value, registration_descriptor_value
 from bittensor.keyfiles import Keyfile
 from bittensor.receiving import parse_recipient, receiving_address
 from bittensor.settings import FINNEY_GENESIS_HASH
-from bittensor.sp_core import CRYPTO_HASHED, CRYPTO_SR25519, Keypair
+from bittensor.sp_core import (
+    CRYPTO_HASHED,
+    CRYPTO_HASHED_ED25519,
+    CRYPTO_MLDSA65,
+    CRYPTO_MLDSA65_FIXED,
+    CRYPTO_SR25519,
+    Keypair,
+)
 from bittensor.wallet import Wallet
 from tests.harness.fake_substrate import FakeSubstrate
 from tests.harness.receiving import descriptor_receiving_address
 
 MNEMONIC = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
+HOTKEY_MNEMONIC = "legal winner thank year wave sausage worth useful legal winner thank yellow"
 OTHER_GENESIS = "0x" + "17" * 32
 runner = CliRunner()
 
@@ -67,13 +76,24 @@ def _public(seed=1):
     return Keypair.create_from_seed(bytes([seed]) * 32, CRYPTO_HASHED).public_only()
 
 
-def test_create_contact_transfer_preserves_complete_receiving_address(wallet_path, monkeypatch):
-    created = _invoke("wallet", "create", "--type", "hashed", "--no-password")
-    assert created.exit_code == 0, created.output
-    details = json.loads(created.output)
+def _restore_wallet(path, crypto_type=CRYPTO_HASHED):
+    # Address consumers need existing keys; new hashed creation has a separate
+    # live-deposit/consent suite in test_wallet_creation_registration_cli.py.
+    wallet = Wallet("recipient", path=str(path))
+    wallet.regenerate_coldkey(
+        mnemonic=MNEMONIC, crypto_type=crypto_type, use_password=False, suppress=True
+    )
+    wallet.regenerate_hotkey(mnemonic=HOTKEY_MNEMONIC, crypto_type=crypto_type, suppress=True)
+    return wallet
+
+
+def test_restored_contact_transfer_preserves_complete_receiving_address(wallet_path, monkeypatch):
+    wallet = _restore_wallet(wallet_path)
+    shown = _invoke("wallet", "show", "--offline")
+    assert shown.exit_code == 0, shown.output
+    details = json.loads(shown.output)
     address = details["coldkey_address"]
     recipient = parse_recipient(address)
-    wallet = Wallet("recipient", path=str(wallet_path))
     assert recipient.account == wallet.coldkeypub.ss58_address
     assert recipient.descriptor == bytes(wallet.coldkeypub.hashed_descriptor)
     assert details["coldkey_ss58"] == recipient.account
@@ -86,7 +106,8 @@ def test_create_contact_transfer_preserves_complete_receiving_address(wallet_pat
     saved = _invoke("addr", "add", "friend", address)
     assert saved.exit_code == 0, saved.output
     assert config.get_address("friend") == address
-    assert details["coldkey_mnemonic"] not in saved.output
+    assert MNEMONIC not in saved.output
+    assert HOTKEY_MNEMONIC not in saved.output
     submitted = []
     monkeypatch.setattr(AppContext, "submit", lambda self, intent: submitted.append(intent))
     sent = _invoke("wallet", "transfer", "--dest", "friend", "--amount", "1")
@@ -126,18 +147,19 @@ def test_same_name_contact_wins_without_using_local_wallet_descriptor(wallet_pat
 
 
 def test_local_picker_and_wallet_list_share_complete_public_addresses(wallet_path):
-    created = _invoke("wallet", "create", "--type", "hashed", "--no-password")
-    assert created.exit_code == 0, created.output
-    details = json.loads(created.output)
+    wallet = _restore_wallet(wallet_path)
+    coldkey_address = receiving_address(wallet.coldkeypub)
+    hotkey_address = receiving_address(wallet.hotkeypub)
     context = _context(wallet_path)
     context.wallet_name = "sender"
     choice = next(row for row in _dest_choices(context) if row.name == "recipient")
-    assert choice.ss58 == details["coldkey_address"]
+    assert choice.ss58 == coldkey_address
     listed = _invoke("wallet", "list")
     assert listed.exit_code == 0, listed.output
-    assert details["coldkey_address"] in listed.output
-    assert details["hotkey_address"] in listed.output
-    assert details["coldkey_mnemonic"] not in listed.output
+    assert coldkey_address in listed.output
+    assert hotkey_address in listed.output
+    assert MNEMONIC not in listed.output
+    assert HOTKEY_MNEMONIC not in listed.output
 
 
 @pytest.mark.parametrize("code", [0, 1, 4, 6, 7, 8, 9, 10, 11, 12])
@@ -428,17 +450,19 @@ def test_malformed_receiving_addresses_never_become_wallet_names(
 def test_ms_address_prefixes_support_contacts_public_recovery_and_transfers(
     wallet_path, monkeypatch, mode, legacy_prefix
 ):
-    created = _invoke("wallet", "create", "--crypto-type", "ms", "--type", mode, "--no-password")
-    assert created.exit_code == 0, created.output
-    fields = json.loads(created.output)
-    address = fields["coldkey_address" if mode == "hashed" else "coldkey_ss58"]
+    code = CRYPTO_MLDSA65 if mode == "hashed" else CRYPTO_MLDSA65_FIXED
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_coldkey(
+        seed=bytes([9]) * 32, crypto_type=code, use_password=False, suppress=True
+    )
+    address = receiving_address(wallet.coldkeypub)
     assert address.startswith("tao_") is (mode == "hashed")
     supplied = address.replace("tao_", "bth2_", 1) if legacy_prefix else address
     saved = _invoke("addr", "add", "friend", supplied)
     assert saved.exit_code == 0, saved.output
     assert config.get_address("friend") == supplied
     resolved = _context(wallet_path).resolve_address_ref("dest_ss58", "friend")
-    assert resolved.account == Wallet("recipient", path=str(wallet_path)).coldkeypub.ss58_address
+    assert resolved.account == wallet.coldkeypub.ss58_address
     restored = _invoke(
         "wallet",
         "regen-coldkeypub",
@@ -459,9 +483,9 @@ def test_ms_address_prefixes_support_contacts_public_recovery_and_transfers(
 
 
 def test_show_and_local_resolution_use_only_public_metadata(wallet_path, monkeypatch):
-    created = _invoke("wallet", "create", "--type", "hashed", "--no-password")
-    assert created.exit_code == 0, created.output
-    details = json.loads(created.output)
+    wallet = _restore_wallet(wallet_path)
+    coldkey_address = receiving_address(wallet.coldkeypub)
+    hotkey_address = receiving_address(wallet.hotkeypub)
 
     def fail_private(self):
         pytest.fail("private key accessed while displaying receiving information")
@@ -471,23 +495,15 @@ def test_show_and_local_resolution_use_only_public_metadata(wallet_path, monkeyp
     shown = _invoke("wallet", "show")
     assert shown.exit_code == 0, shown.output
     display = json.loads(shown.output)
-    assert display["coldkey_address"] == details["coldkey_address"]
-    assert display["hotkey_address"] == details["hotkey_address"]
-    assert details["coldkey_mnemonic"] not in shown.output
-    assert details["hotkey_mnemonic"] not in shown.output
-    assert (
-        display["coldkey_ss58"]
-        == Wallet("recipient", path=str(wallet_path)).coldkeypub.ss58_address
-    )
-    assert display["coldkey_receiving_address"] == details["coldkey_address"]
+    assert display["coldkey_address"] == coldkey_address
+    assert display["hotkey_address"] == hotkey_address
+    assert MNEMONIC not in shown.output
+    assert HOTKEY_MNEMONIC not in shown.output
+    assert display["coldkey_ss58"] == wallet.coldkeypub.ss58_address
+    assert display["coldkey_receiving_address"] == coldkey_address
     context = _context(wallet_path)
-    assert (
-        context.resolve_address_ref("dest_ss58", "recipient").address == details["coldkey_address"]
-    )
-    assert (
-        context.resolve_address_ref("hotkey_ss58", "recipient/default").address
-        == details["hotkey_address"]
-    )
+    assert context.resolve_address_ref("dest_ss58", "recipient").address == coldkey_address
+    assert context.resolve_address_ref("hotkey_ss58", "recipient/default").address == hotkey_address
 
 
 @pytest.mark.parametrize("code", [0, 1, 4, 6, 7, 8])
@@ -625,18 +641,36 @@ def test_hashed_public_restore_rejects_incomplete_address(wallet_path):
     assert not (wallet_path / "recipient").exists()
 
 
-@pytest.mark.parametrize("scheme", ["sr", "ed", "hashed", "hashed-ed25519"])
-def test_wallet_creation_and_listing_need_no_network(wallet_path, monkeypatch, scheme):
+@pytest.mark.parametrize("scheme", ["sr", "ed"])
+def test_standard_wallet_creation_and_offline_listing_need_no_network(
+    wallet_path, monkeypatch, scheme
+):
     monkeypatch.setattr(AppContext, "run", lambda *_: pytest.fail("unexpected network access"))
+    monkeypatch.setattr(wallet_addresses, "check_registration", check_registration)
     result = _invoke("--network", "test", "wallet", "create", "--type", scheme, "--no-password")
     assert result.exit_code == 0, result.output
     wallet = Wallet("recipient", path=str(wallet_path))
     addresses = [receiving_address(wallet.coldkeypub), receiving_address(wallet.hotkeypub)]
     for network in ("finney", "ws://127.0.0.1:1"):
-        shown = _invoke("--network", network, "wallet", "list")
+        shown = _invoke("--network", network, "wallet", "list", "--offline")
         assert shown.exit_code == 0, shown.output
         for address in addresses:
             assert address in shown.output
+
+
+@pytest.mark.parametrize("code", [CRYPTO_HASHED, CRYPTO_HASHED_ED25519])
+def test_existing_hashed_wallet_offline_listing_needs_no_network(wallet_path, monkeypatch, code):
+    wallet = _restore_wallet(wallet_path, code)
+    addresses = [receiving_address(wallet.coldkeypub), receiving_address(wallet.hotkeypub)]
+    monkeypatch.setattr(AppContext, "run", lambda *_: pytest.fail("unexpected network access"))
+    monkeypatch.setattr(wallet_addresses, "check_registration", check_registration)
+    for network in ("finney", "ws://127.0.0.1:1"):
+        shown = _invoke("--network", network, "wallet", "list", "--offline")
+        assert shown.exit_code == 0, shown.output
+        for address in addresses:
+            assert address in shown.output
+        assert MNEMONIC not in shown.output
+        assert HOTKEY_MNEMONIC not in shown.output
 
 
 def test_legacy_creation_and_contact_outputs_keep_ss58(wallet_path):
@@ -1029,6 +1063,8 @@ def test_root_list_receiving_selector_matches_position(wallet_path, monkeypatch,
     assert rendered == [position]
 
 
+# Regression invariant: root operations select position owner not configured wallet.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("crypto_type", [4, 6, 7, 8])
 @pytest.mark.parametrize("selector", ["local", "receiving", "canonical"])
 @pytest.mark.parametrize("operation", ["claim", "move"])
@@ -1101,6 +1137,8 @@ def test_root_operations_select_position_owner_not_configured_wallet(
     assert len(submitted) == 1
 
 
+# Regression invariant: root position wallet never falls back to unrelated local wallet.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_root_position_wallet_never_falls_back_to_unrelated_local_wallet(wallet_path):
     from bittensor.cli.root_helpers import resolve_position_wallet
     from tests.harness.samples import BOB
@@ -1112,6 +1150,8 @@ def test_root_position_wallet_never_falls_back_to_unrelated_local_wallet(wallet_
     assert error.value.exit_code == 2
 
 
+# Regression invariant: root position wallet checks explicit dispatch routes.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("route", ["proxy", "multisig", "external"])
 @pytest.mark.parametrize("matches", [False, True])
 def test_root_position_wallet_checks_explicit_dispatch_routes(
@@ -1140,6 +1180,8 @@ def test_root_position_wallet_checks_explicit_dispatch_routes(
             resolve_position_wallet(context, BOB)
 
 
+# Regression invariant: root proxy positions default to dispatch account.
+# PROTECTED_REGRESSION: changes require explicit human approval.
 def test_root_proxy_positions_default_to_dispatch_account(wallet_path):
     from bittensor.cli.root_helpers import resolve_position_wallet
     from tests.harness.samples import BOB

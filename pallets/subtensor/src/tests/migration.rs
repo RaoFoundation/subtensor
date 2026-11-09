@@ -106,6 +106,7 @@ fn test_restore_staking_hotkeys_is_bounded_and_preserves_live_changes() {
     });
 }
 
+// PROTECTED_REGRESSION: restore staking hotkeys repairs positions at admission cap; changes require explicit human approval.
 #[test]
 fn test_restore_staking_hotkeys_repairs_positions_at_admission_cap() {
     use crate::migrations::migrate_restore_staking_hotkeys::{
@@ -154,6 +155,7 @@ fn test_restore_staking_hotkeys_waits_for_destructive_cleanup() {
     });
 }
 
+// PROTECTED_REGRESSION: staking hotkeys retains zero quote that later receives dividends; changes require explicit human approval.
 #[test]
 fn test_staking_hotkeys_retains_zero_quote_that_later_receives_dividends() {
     new_test_ext(1).execute_with(|| {
@@ -1778,6 +1780,7 @@ fn test_migrate_populate_locking_coldkeys_removes_dust_from_aggregate() {
     });
 }
 
+// PROTECTED_REGRESSION: migrate fix staking hot keys; changes require explicit human approval.
 #[test]
 fn test_migrate_fix_staking_hot_keys() {
     new_test_ext(1).execute_with(|| {
@@ -1858,6 +1861,7 @@ fn test_migrate_fix_root_subnet_tao() {
 // account) by a legacy dividend that skipped the counters. The last root unstaker is stuck
 // until the migration mints the exact shortfall into the pot and lifts the counters.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::migration::test_migrate_fix_root_pot_shortfall --exact --show-output
+// PROTECTED_REGRESSION: migrate fix root pot shortfall; changes require explicit human approval.
 #[test]
 fn test_migrate_fix_root_pot_shortfall() {
     use crate::migrations::migrate_fix_root_pot_shortfall::{
@@ -2048,6 +2052,7 @@ fn test_migrate_fix_root_pot_shortfall() {
 // Failure path: when the issuance cap allows only part of the shortfall to be minted, the
 // migration credits what it could, leaves its marker unset and finishes on the next run.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::migration::test_migrate_fix_root_pot_shortfall_partial_mint_stays_pending --exact --show-output
+// PROTECTED_REGRESSION: migrate fix root pot shortfall partial mint stays pending; changes require explicit human approval.
 #[test]
 fn test_migrate_fix_root_pot_shortfall_partial_mint_stays_pending() {
     use crate::coinbase::tao::MAX_TAO_ISSUANCE;
@@ -5284,6 +5289,7 @@ fn decode_account_id32_test(ss58_string: &str) -> U256 {
 }
 
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::migration::test_migrate_fix_root_claimed_overclaim --exact --nocapture
+// PROTECTED_REGRESSION: migrate fix root claimed overclaim; changes require explicit human approval.
 #[test]
 fn test_migrate_fix_root_claimed_overclaim() {
     use crate::migrations::migrate_fix_root_claimed_overclaim::*;
@@ -7644,6 +7650,7 @@ fn test_storage_bloat_cleanup_preserves_root_age_when_hold_is_enabled() {
     });
 }
 
+// PROTECTED_REGRESSION: staking hotkeys removal follows last alpha key; changes require explicit human approval.
 #[test]
 fn test_staking_hotkeys_removal_follows_last_alpha_key() {
     new_test_ext(1).execute_with(|| {

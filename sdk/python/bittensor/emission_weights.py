@@ -5,10 +5,9 @@ A subnet's alpha emission is divided by a five-slot vector
 ``u64::MAX`` (so the slots sum to exactly one). The owner or root sets it with
 ``AdminUtils.sudo_set_subnet_emission_weights(netuid, uids, values)`` — a
 *sparse* update: every ``uids[i]`` names a slot and ``values[i]`` its new share.
-Omitted owner/validator/miner slots keep their current value; omitted burn and
-recycle are treated as zero. The chain then checks the v1 rules:
+Omitted slots keep their current value. The chain then checks the v1 rules:
 
-* burn (0) and recycle (1) must be zero — reserved for a later runtime;
+* ``burn + recycle <= 0.33`` (combined cap);
 * ``0 <= owner <= 0.33``; lease-created subnets may not drop below the launch
   default (18% on mainnet);
 * ``validator <= 0.50``, and it must stay *above* root's baseline share:
@@ -23,6 +22,9 @@ recycle are treated as zero. The chain then checks the v1 rules:
   ``V`` — see :func:`baseline_root_share` and :func:`validator_floor`;
 * ``miner >= 0.33``;
 * the five slots sum to exactly one.
+
+Burn destroys alpha but still counts toward issuance; recycle removes alpha
+from ``SubnetAlphaOut`` and ``TotalAlphaIssuance``.
 
 Everything in this module is pure (no chain access) so the CLI can preview and
 explain a change before submitting it; :func:`validate` mirrors the on-chain
@@ -45,8 +47,8 @@ ONE = U64_MAX
 SLOT_NAMES: tuple[str, ...] = ("burn", "recycle", "owner", "validator", "miner")
 BURN, RECYCLE, OWNER, VALIDATOR, MINER = range(len(SLOT_NAMES))
 
-#: Slots the v1 rules let an owner move (burn/recycle are pinned to zero).
-ADJUSTABLE_SLOTS: tuple[int, ...] = (OWNER, VALIDATOR, MINER)
+#: Slots an owner may change (all five; burn+recycle share a combined cap).
+ADJUSTABLE_SLOTS: tuple[int, ...] = (BURN, RECYCLE, OWNER, VALIDATOR, MINER)
 
 
 def fraction(numerator: int, denominator: int) -> int:
@@ -55,6 +57,7 @@ def fraction(numerator: int, denominator: int) -> int:
 
 
 MAX_OWNER = fraction(33, 100)
+MAX_BURN_RECYCLE = fraction(33, 100)
 MAX_VALIDATOR = fraction(50, 100)
 MIN_MINER = fraction(33, 100)
 
@@ -182,9 +185,13 @@ class Rules:
         live floor (just above root's baseline share), ``None`` when unknown.
         """
         owner_min = self.min_owner if self.created_via_lease else 0
+        burn_recycle_why = (
+            "burn + recycle together may be at most 33%; burn destroys alpha "
+            "(still counts toward issuance), recycle removes it from issuance"
+        )
         return {
-            "burn": _limit(0, 0, "reserved for a future runtime; must stay 0"),
-            "recycle": _limit(0, 0, "reserved for a future runtime; must stay 0"),
+            "burn": _limit(0, MAX_BURN_RECYCLE, burn_recycle_why),
+            "recycle": _limit(0, MAX_BURN_RECYCLE, burn_recycle_why),
             "owner": _limit(
                 owner_min,
                 MAX_OWNER,
@@ -217,6 +224,13 @@ class Rules:
             else:
                 rule = f"{format_share(int(low), places)} to {format_share(int(high), places)}"
             rows.append((name, rule, str(limit["why"])))
+        rows.append(
+            (
+                "burn+recycle",
+                f"<= {format_share(MAX_BURN_RECYCLE)}",
+                "combined cap on slots 0 and 1",
+            )
+        )
         rows.append(("sum", "= 100%", f"all five slots add up to exactly {ONE} parts"))
         return rows
 
@@ -260,11 +274,8 @@ def normalize_weights(weights: Iterable[int]) -> list[int]:
 
 def merge(current: Iterable[int], updates: Mapping[Union[int, str], int]) -> list[int]:
     """Apply a sparse update exactly as the chain does: named slots are
-    replaced, omitted owner/validator/miner keep their value, omitted
-    burn/recycle become zero."""
+    replaced; omitted slots keep their current value."""
     merged = normalize_weights(current)
-    merged[BURN] = 0
-    merged[RECYCLE] = 0
     for slot, value in updates.items():
         merged[slot_index(slot)] = int(value)
     return merged
@@ -277,17 +288,12 @@ def renormalize(
     """Pin the ``fixed`` slots and rescale the other adjustable slots so the
     vector sums to one again.
 
-    The untouched owner/validator/miner slots keep their relative proportions
-    (split evenly when they are all zero); the last of them in slot order —
-    normally the miner — absorbs the rounding remainder. Raises if the pinned
-    shares alone exceed one, or if every adjustable slot is pinned but the
-    total is not one.
+    The untouched slots keep their relative proportions (split evenly when
+    they are all zero); the last of them in slot order — normally the miner —
+    absorbs the rounding remainder. Raises if the pinned shares alone exceed
+    one, or if every adjustable slot is pinned but the total is not one.
     """
     pinned = {slot_index(slot): int(value) for slot, value in fixed.items()}
-    for slot in (BURN, RECYCLE):
-        if pinned.get(slot, 0) != 0:
-            raise ValueError(f"{SLOT_NAMES[slot]} (slot {slot}) must stay 0 in this runtime")
-        pinned.setdefault(slot, 0)
     base = normalize_weights(current)
     free = [slot for slot in ADJUSTABLE_SLOTS if slot not in pinned]
     remaining = ONE - sum(pinned.values())
@@ -323,20 +329,13 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
     rules = rules or Rules()
     w = normalize_weights(weights)
     found: list[Violation] = []
-    if w[BURN] != 0:
+    if w[BURN] + w[RECYCLE] > MAX_BURN_RECYCLE:
         found.append(
             Violation(
-                "BurnEmissionMustBeZero",
-                f"burn (slot 0) is {format_share(w[BURN])}; burning emission is reserved for a "
-                "future runtime, so it must be 0 (or omitted)",
-            )
-        )
-    if w[RECYCLE] != 0:
-        found.append(
-            Violation(
-                "RecycleEmissionMustBeZero",
-                f"recycle (slot 1) is {format_share(w[RECYCLE])}; recycling emission is reserved "
-                "for a future runtime, so it must be 0 (or omitted)",
+                "BurnRecycleEmissionAboveMaximum",
+                f"burn (slot 0) is {format_share(w[BURN])} and recycle (slot 1) is "
+                f"{format_share(w[RECYCLE])} ({format_share(w[BURN] + w[RECYCLE])} combined); "
+                f"burn + recycle may be at most {format_share(MAX_BURN_RECYCLE)}",
             )
         )
     if w[OWNER] > MAX_OWNER:

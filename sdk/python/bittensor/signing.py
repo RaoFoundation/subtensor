@@ -39,6 +39,7 @@ from __future__ import annotations
 from typing import Any, Optional, Protocol, Union, runtime_checkable
 
 from .ledger import LedgerSigner  # noqa: F401  (re-export: hardware signing backend)
+from .sp_core import REGISTERED_CRYPTO_TYPES, is_stateless_pq, ss58_decode
 from .wallet import Wallet
 from .wallets import signing_keypair
 
@@ -140,6 +141,32 @@ def coerce_address(value: Any, param: str) -> Any:
     return as_ss58(value, param)
 
 
+def _signer_identity(signer) -> tuple[bytes, bytes, int, Optional[bytes]]:
+    """Snapshot public authority before an unlock or generation-selection hook."""
+    crypto_type = signer.crypto_type
+    descriptor = None
+    if crypto_type in REGISTERED_CRYPTO_TYPES:
+        try:
+            descriptor = bytes(signer.hashed_descriptor)
+        except (AttributeError, ValueError):
+            # Fixed PQ public companions can be restored from their bare SS58.
+            # Their account and scheme still pin the key that may be unlocked.
+            if not is_stateless_pq(signer):
+                raise
+    return (
+        bytes(ss58_decode(signer.ss58_address)),
+        bytes(signer.public_key),
+        crypto_type,
+        descriptor,
+    )
+
+
+def _check_signer_identity(signer, expected) -> None:
+    actual = _signer_identity(signer)
+    if actual[:3] != expected[:3] or (expected[3] is not None and actual[3] != expected[3]):
+        raise ValueError("unlocked signing identity does not match the public wallet")
+
+
 class WalletSigner:
     """A :class:`Signer` backed by a native Bittensor keyfile.
 
@@ -170,23 +197,29 @@ class WalletSigner:
         self._macos_prompt = macos_prompt
         self._keychain = keychain
         self._keypair: Any = None
+        self._public_keypair: Any = None
 
     def _public(self) -> Any:
         """A public-only keypair — never triggers an unlock."""
         if self._keypair is not None:
             return self._keypair
+        if self._public_keypair is not None:
+            return self._public_keypair
         if self._role == "coldkey":
-            return self._wallet.coldkeypub
+            self._public_keypair = self._wallet.coldkeypub
+            return self._public_keypair
         try:
-            return self._wallet.hotkeypub
+            self._public_keypair = self._wallet.hotkeypub
         except FileNotFoundError:
             # Legacy wallets may lack hotkeypub.txt; fall back to the hotkey
             # file (usually plaintext, but an encrypted one would unlock here).
-            return self._wallet.hotkey
+            self._public_keypair = self._wallet.hotkey
+        return self._public_keypair
 
     def _unlock(self) -> Any:
         if self._keypair is None:
-            self._keypair = signing_keypair(
+            expected = _signer_identity(self._public())
+            keypair = signing_keypair(
                 self._wallet,
                 self._role,
                 password=self._password,
@@ -194,6 +227,8 @@ class WalletSigner:
                 macos_prompt=self._macos_prompt,
                 keychain=self._keychain,
             )
+            _check_signer_identity(keypair, expected)
+            self._keypair = keypair
         return self._keypair
 
     @property
@@ -263,7 +298,10 @@ def resolve_signer(
     if getattr(wallet, "uses_extension_signing", False):
         return wallet
     if isinstance(wallet, KeyedWallet):
-        return wallet.coldkey if role == "coldkey" else wallet.hotkey
+        expected = _signer_identity(public_view(wallet, role))
+        keypair = wallet.coldkey if role == "coldkey" else wallet.hotkey
+        _check_signer_identity(keypair, expected)
+        return keypair
     raise TypeError(
         f"cannot sign with {type(wallet).__name__}: expected a Wallet, "
         "a wallet-shaped object (coldkey/coldkeypub/hotkey), or an object implementing "

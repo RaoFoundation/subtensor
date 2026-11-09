@@ -818,6 +818,7 @@ fn device_v2_signatures_are_over_the_blake2_256_digest_only() {
 
 /// These messages name the signing device as `signer`, so the recorded
 /// signatures go through `verify_readable` itself.
+// PROTECTED_REGRESSION: device v2 signatures are accepted by verify readable; changes require explicit human approval.
 #[test]
 fn device_v2_signatures_are_accepted_by_verify_readable() {
     new_test_ext().execute_with(|| {
@@ -939,6 +940,7 @@ fn defect_rendering_is_unreachable_from_an_h256_provider() {
 
 /// A signature the right key produced over the buggy rendering is rejected,
 /// while the same key over the pallet's rendering of the same order is accepted.
+// PROTECTED_REGRESSION: defect rendering is rejected by verify readable; changes require explicit human approval.
 #[test]
 fn defect_rendering_is_rejected_by_verify_readable() {
     new_test_ext().execute_with(|| {

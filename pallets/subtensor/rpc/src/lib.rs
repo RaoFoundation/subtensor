@@ -9,6 +9,7 @@ use jsonrpsee::{
 use sp_blockchain::HeaderBackend;
 use sp_runtime::{AccountId32, traits::Block as BlockT};
 use std::sync::Arc;
+use subtensor_custom_rpc_runtime_api::normalize_metagraph_indices;
 use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
 
 use sp_api::ProvideRuntimeApi;
@@ -17,19 +18,6 @@ pub use subtensor_custom_rpc_runtime_api::{
     BetaBasketRuntimeApi, DelegateInfoRuntimeApi, NeuronInfoRuntimeApi, StakeInfoRuntimeApi,
     SubnetInfoRuntimeApi, SubnetRegistrationRuntimeApi,
 };
-
-fn checked_metagraph_indices(indices: Vec<u16>) -> RpcResult<Vec<u16>> {
-    use subtensor_custom_rpc_runtime_api::{
-        MAX_SELECTIVE_METAGRAPH_INDICES, normalize_metagraph_indices,
-    };
-    normalize_metagraph_indices(indices).ok_or_else(|| {
-        ErrorObjectOwned::owned(
-            jsonrpsee::types::error::INVALID_PARAMS_CODE,
-            format!("at most {MAX_SELECTIVE_METAGRAPH_INDICES} metagraph indices are allowed"),
-            None::<()>,
-        )
-    })
-}
 
 #[rpc(client, server)]
 pub trait SubtensorCustomApi<BlockHash> {
@@ -565,7 +553,7 @@ where
         metagraph_index: Vec<u16>,
         at: Option<<Block as BlockT>::Hash>,
     ) -> RpcResult<Vec<u8>> {
-        let metagraph_index = checked_metagraph_indices(metagraph_index)?;
+        let metagraph_index = normalize_metagraph_indices(metagraph_index);
         let api = self.client.runtime_api();
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
 
@@ -619,7 +607,7 @@ where
         metagraph_index: Vec<u16>,
         at: Option<<Block as BlockT>::Hash>,
     ) -> RpcResult<Vec<u8>> {
-        let metagraph_index = checked_metagraph_indices(metagraph_index)?;
+        let metagraph_index = normalize_metagraph_indices(metagraph_index);
         let api = self.client.runtime_api();
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
 
@@ -808,22 +796,14 @@ where
 #[cfg(test)]
 mod selective_graph_tests {
     use super::*;
-    use subtensor_custom_rpc_runtime_api::MAX_SELECTIVE_METAGRAPH_INDICES;
 
     #[test]
-    fn oversized_selection_is_invalid_params_even_when_all_indices_repeat() {
+    fn long_selections_are_deduplicated_without_rejecting_or_dropping_unknown_fields() {
+        assert_eq!(normalize_metagraph_indices(vec![54; 1_024]), vec![54]);
+        assert_eq!(normalize_metagraph_indices(vec![54, 1, 54, 1]), vec![1, 54]);
         assert_eq!(
-            checked_metagraph_indices(vec![54; MAX_SELECTIVE_METAGRAPH_INDICES + 1])
-                .map_err(|error| error.code()),
-            Err(jsonrpsee::types::error::INVALID_PARAMS_CODE)
-        );
-        assert_eq!(
-            checked_metagraph_indices(vec![54; MAX_SELECTIVE_METAGRAPH_INDICES]),
-            Ok(vec![54])
-        );
-        assert_eq!(
-            checked_metagraph_indices(vec![54, 1, 54, 1]),
-            Ok(vec![1, 54])
+            normalize_metagraph_indices(vec![u16::MAX; 1_024]),
+            vec![u16::MAX]
         );
     }
 }

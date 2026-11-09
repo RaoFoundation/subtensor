@@ -685,6 +685,7 @@ fn bounded_sell_entries(
     BoundedVec::try_from(v).unwrap()
 }
 
+// PROTECTED_REGRESSION: rounded allocations enforce each price limit before fees and partial fill bookkeeping; changes require explicit human approval.
 #[test]
 fn rounded_allocations_enforce_each_price_limit_before_fees_and_partial_fill_bookkeeping() {
     for buy in [false, true] {

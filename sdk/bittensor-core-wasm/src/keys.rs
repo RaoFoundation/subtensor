@@ -291,3 +291,21 @@ pub fn ss58_encode(public_key: &[u8], ss58_format: Option<u16>) -> Result<String
         ss58_format.unwrap_or(DEFAULT_SS58_FORMAT),
     ))
 }
+
+/// Map a compressed secp256k1 public key to the chain's 32-byte account id.
+#[wasm_bindgen(js_name = accountIdFromEcdsaPublic)]
+pub fn account_id_from_ecdsa_public(public_key: &[u8]) -> Result<Vec<u8>, JsValue> {
+    keys::account_id_from_ecdsa_public(public_key)
+        .map(|account| account.to_vec())
+        .map_err(to_js_err)
+}
+
+/// Encode the account id of a compressed secp256k1 public key as SS58.
+#[wasm_bindgen(js_name = ss58FromEcdsaPublic)]
+pub fn ss58_from_ecdsa_public(
+    public_key: &[u8],
+    ss58_format: Option<u16>,
+) -> Result<String, JsValue> {
+    keys::ss58_from_ecdsa_public(public_key, ss58_format.unwrap_or(DEFAULT_SS58_FORMAT))
+        .map_err(to_js_err)
+}

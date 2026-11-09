@@ -2,11 +2,14 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { rootClaimChargedFeeRao, rootClaimSpentFeeRao, quoteRootClaimPreviews } = require('../dist/root-claim.js')
 
-test('claim fee arithmetic agrees with independent Python SDK vectors', () => {
-  assert.equal(rootClaimChargedFeeRao(130), 8209263n)
-  assert.equal(rootClaimChargedFeeRao(256), 8209263n)
+test('claim fee arithmetic agrees with the runtime combined-unit fee model', () => {
+  // Independently evaluated from runtime/src/staking_fee.rs::root_claim_fee_weight
+  // and the benchmarked claim_root/claim_root_scan functions, including DB weights.
+  for (const [limit, expected] of [[0, 877912n], [1, 2506222n], [2, 4162033n], [3, 5817843n], [4, 7473653n], [130, 7473653n], [256, 7473653n]]) {
+    assert.equal(rootClaimChargedFeeRao(limit), expected)
+  }
   for (const [work, expected] of [
-    [[1, 0, 0, 0], 3287979n], [[1, 1, 0, 0], 3287979n],
+    [[1, 0, 0, 0], 4023589n], [[1, 1, 0, 0], 4023589n],
     [[1, 0, 100, 0], 10000000n], [[10, 2, 10, 15], 10000000n],
   ]) assert.equal(rootClaimSpentFeeRao(10000000n, ...work, 130), expected)
 })

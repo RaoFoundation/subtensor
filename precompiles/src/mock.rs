@@ -388,6 +388,16 @@ mod test_crypto {
 
 impl pallet_evm_chain_id::Config for Runtime {}
 
+parameter_types! {
+    pub storage MockRegistrationDeposit: TaoBalance = TaoBalance::new(200_000_000);
+}
+
+impl pallet_admin_utils::RegistrationDepositInterface for MockRegistrationDeposit {
+    fn set(value: TaoBalance) {
+        MockRegistrationDeposit::set(&value);
+    }
+}
+
 impl pallet_admin_utils::Config for Runtime {
     type Aura = ();
     type Grandpa = ();
@@ -395,6 +405,7 @@ impl pallet_admin_utils::Config for Runtime {
     type MaxAuthorities = MaxAuthorities;
     type Balance = TaoBalance;
     type WeightInfo = ();
+    type RegistrationDeposit = MockRegistrationDeposit;
 }
 
 impl pallet_drand::Config for Runtime {

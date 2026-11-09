@@ -18,6 +18,9 @@ overrides:
   esbuild@>=0.27.3 <0.28.1: 0.28.1
 
 patchedDependencies:
+  '@moonwall/cli@5.18.3':
+    hash: db003cc453eea15b7c6eb0e9420f76fd5f091bae116e30502e22b1e632379302
+    path: patches/@moonwall__cli@5.18.3.patch
   '@polkadot-api/observable-client@0.17.3':
     hash: 95d610d3203aef8be0fb05d5e4bb45c073aae2c65a1e9c44462e015fec52a4e2
     path: patches/@polkadot-api__observable-client@0.17.3.patch
@@ -71,7 +74,7 @@ importers:
         version: 1.9.4
       '@moonwall/cli':
         specifier: 5.18.3
-        version: 5.18.3(@polkadot/api-base@16.5.6)(@polkadot/api-derive@16.5.6)(@polkadot/api@16.5.6)(@polkadot/keyring@14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@13.5.9))(@polkadot/util@13.5.9))(@polkadot/rpc-provider@16.5.6)(@polkadot/types-codec@16.5.6)(@polkadot/types@16.5.6)(@polkadot/util-crypto@14.0.3(@polkadot/util@13.5.9))(@polkadot/util@13.5.9)(@types/debug@4.1.12)(@types/node@25.9.2)(chokidar@3.6.0)(debug@4.3.7)(encoding@0.1.13)(jsdom@23.2.0)(postcss@8.5.15)(rxjs@7.8.2)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))(tsx@4.22.4)(typescript@5.8.3)(zod@3.25.76)
+        version: 5.18.3(patch_hash=db003cc453eea15b7c6eb0e9420f76fd5f091bae116e30502e22b1e632379302)(@polkadot/api-base@16.5.6)(@polkadot/api-derive@16.5.6)(@polkadot/api@16.5.6)(@polkadot/keyring@14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@13.5.9))(@polkadot/util@13.5.9))(@polkadot/rpc-provider@16.5.6)(@polkadot/types-codec@16.5.6)(@polkadot/types@16.5.6)(@polkadot/util-crypto@14.0.3(@polkadot/util@13.5.9))(@polkadot/util@13.5.9)(@types/debug@4.1.12)(@types/node@25.9.2)(chokidar@3.6.0)(debug@4.3.7)(encoding@0.1.13)(jsdom@23.2.0)(postcss@8.5.15)(rxjs@7.8.2)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))(tsx@4.22.4)(typescript@5.8.3)(zod@3.25.76)
       '@moonwall/util':
         specifier: 5.18.3
         version: 5.18.3(@polkadot/api-base@16.5.6)(@polkadot/api-derive@16.5.6)(@polkadot/api@16.5.6)(@polkadot/keyring@14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@13.5.9))(@polkadot/util@13.5.9))(@polkadot/rpc-provider@16.5.6)(@polkadot/types-codec@16.5.6)(@polkadot/types@16.5.6)(@polkadot/util-crypto@14.0.3(@polkadot/util@13.5.9))(@polkadot/util@13.5.9)(@types/debug@4.1.12)(@types/node@25.9.2)(chokidar@3.6.0)(encoding@0.1.13)(jsdom@23.2.0)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(typescript@5.8.3)(yaml@2.8.3)(zod@3.25.76)
@@ -5856,7 +5859,7 @@ snapshots:
 
   '@js-sdsl/ordered-map@4.4.2': {}
 
-  '@moonwall/cli@5.18.3(@polkadot/api-base@16.5.6)(@polkadot/api-derive@16.5.6)(@polkadot/api@16.5.6)(@polkadot/keyring@14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@13.5.9))(@polkadot/util@13.5.9))(@polkadot/rpc-provider@16.5.6)(@polkadot/types-codec@16.5.6)(@polkadot/types@16.5.6)(@polkadot/util-crypto@14.0.3(@polkadot/util@13.5.9))(@polkadot/util@13.5.9)(@types/debug@4.1.12)(@types/node@25.9.2)(chokidar@3.6.0)(debug@4.3.7)(encoding@0.1.13)(jsdom@23.2.0)(postcss@8.5.15)(rxjs@7.8.2)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))(tsx@4.22.4)(typescript@5.8.3)(zod@3.25.76)':
+  '@moonwall/cli@5.18.3(patch_hash=db003cc453eea15b7c6eb0e9420f76fd5f091bae116e30502e22b1e632379302)(@polkadot/api-base@16.5.6)(@polkadot/api-derive@16.5.6)(@polkadot/api@16.5.6)(@polkadot/keyring@14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@13.5.9))(@polkadot/util@13.5.9))(@polkadot/rpc-provider@16.5.6)(@polkadot/types-codec@16.5.6)(@polkadot/types@16.5.6)(@polkadot/util-crypto@14.0.3(@polkadot/util@13.5.9))(@polkadot/util@13.5.9)(@types/debug@4.1.12)(@types/node@25.9.2)(chokidar@3.6.0)(debug@4.3.7)(encoding@0.1.13)(jsdom@23.2.0)(postcss@8.5.15)(rxjs@7.8.2)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))(tsx@4.22.4)(typescript@5.8.3)(zod@3.25.76)':
     dependencies:
       '@acala-network/chopsticks': 1.4.2(debug@4.3.7)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))
       '@ast-grep/napi': 0.40.5

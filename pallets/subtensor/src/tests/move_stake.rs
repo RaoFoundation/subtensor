@@ -586,6 +586,7 @@ fn inexact_pool_position() -> (NetUid, U256, U256, AlphaBalance, AlphaBalance) {
 
 /// Replaying the credited amount into `transfer_stake` fails by one rao (the v468
 /// symptom); `AlphaBalance::MAX` resolves the whole position at execution and succeeds.
+// PROTECTED_REGRESSION: transfer max caps to live origin in inexact pool; changes require explicit human approval.
 #[test]
 fn test_transfer_max_caps_to_live_origin_in_inexact_pool() {
     new_test_ext(1).execute_with(|| {
@@ -633,6 +634,7 @@ fn test_transfer_max_caps_to_live_origin_in_inexact_pool() {
     });
 }
 
+// PROTECTED_REGRESSION: transfer stake and hotkey max caps to live origin; changes require explicit human approval.
 #[test]
 fn test_transfer_stake_and_hotkey_max_caps_to_live_origin() {
     new_test_ext(1).execute_with(|| {
@@ -666,6 +668,7 @@ fn test_transfer_stake_and_hotkey_max_caps_to_live_origin() {
     });
 }
 
+// PROTECTED_REGRESSION: swap stake max caps to live origin; changes require explicit human approval.
 #[test]
 fn test_swap_stake_max_caps_to_live_origin() {
     new_test_ext(1).execute_with(|| {
@@ -696,6 +699,7 @@ fn test_swap_stake_max_caps_to_live_origin() {
     });
 }
 
+// PROTECTED_REGRESSION: swap stake limit max caps to live origin; changes require explicit human approval.
 #[test]
 fn test_swap_stake_limit_max_caps_to_live_origin() {
     new_test_ext(1).execute_with(|| {
@@ -1683,6 +1687,7 @@ fn test_do_transfer_stake_and_hotkey_success() {
 // ownership-changing transfer to a second coldkey. The collateral lock does not
 // follow the stake on this path (unlike conviction), so the origin coldkey must
 // be blocked from transferring away alpha it needs to cover its collateral.
+// PROTECTED_REGRESSION: do transfer stake and hotkey same subnet respects collateral; changes require explicit human approval.
 #[test]
 fn test_do_transfer_stake_and_hotkey_same_subnet_respects_collateral() {
     new_test_ext(1).execute_with(|| {
@@ -2578,6 +2583,7 @@ fn test_transfer_stake_same_netuid_not_rate_limited() {
 // destination with more alpha than the origin pool actually lost. Total alpha across both
 // positions is conserved, and an oversize request is refused instead of minting.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::move_stake::test_move_stake_conserves_alpha_when_origin_quote_is_inflated --exact
+// PROTECTED_REGRESSION: Moving an inflated position must conserve backed alpha; changes require explicit human approval.
 #[test]
 fn test_move_stake_conserves_alpha_when_origin_quote_is_inflated() {
     new_test_ext(1).execute_with(|| {
@@ -2676,6 +2682,7 @@ fn test_move_stake_conserves_alpha_when_origin_quote_is_inflated() {
 // Regression: the internal same-subnet transfer used to credit the destination with the full
 // requested amount even when the debit silently did nothing. It must now refuse instead.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::move_stake::test_transfer_stake_within_subnet_refuses_to_credit_undebited_alpha --exact
+// PROTECTED_REGRESSION: A transfer must not credit alpha that was not debited; changes require explicit human approval.
 #[test]
 fn test_transfer_stake_within_subnet_refuses_to_credit_undebited_alpha() {
     new_test_ext(1).execute_with(|| {
@@ -2837,6 +2844,7 @@ fn system_account_state(who: &U256) -> (bool, u64, u32, u32) {
 // A TAO-less coldkey that transfers stake across subnets to another coldkey must not have
 // its own system account created and reaped by the dispatch: the nonce written by the
 // nonce extension before dispatch has to survive, so the same signed call replays as Stale.
+// PROTECTED_REGRESSION: cross subnet transfer stake keeps signer account and nonce; changes require explicit human approval.
 #[test]
 fn test_cross_subnet_transfer_stake_keeps_signer_account_and_nonce() {
     new_test_ext(1).execute_with(|| {
@@ -2948,6 +2956,7 @@ fn third_party_transfer_new_hotkey(
 
 // Third parties can grow a coldkey's `StakingHotkeys` only up to a fixed bound; the coldkey
 // itself is not limited, and its coldkey-wide root claim stays admissible.
+// PROTECTED_REGRESSION: third party transfers cannot grow staking hotkeys without bound; changes require explicit human approval.
 #[test]
 fn test_third_party_transfers_cannot_grow_staking_hotkeys_without_bound() {
     new_test_ext(1).execute_with(|| {
