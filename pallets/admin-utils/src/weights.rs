@@ -108,6 +108,12 @@ pub trait WeightInfo {
     fn sudo_set_gamma_enabled() -> Weight {
         Self::sudo_set_basket_trading_enabled()
     }
+    fn sudo_set_subnet_emission_weights_v2() -> Weight {
+        Self::sudo_set_subnet_emission_weights()
+    }
+    fn sudo_set_subnet_gamma_emission_whitelisted() -> Weight {
+        Self::sudo_set_gamma_enabled()
+    }
     fn sudo_trim_null_uids_batch() -> Weight {
         Self::sudo_trim_to_max_allowed_uids()
     }

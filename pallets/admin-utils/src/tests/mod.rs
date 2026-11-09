@@ -4716,3 +4716,145 @@ fn test_sudo_set_gamma_enabled() {
         assert!(!pallet_subtensor::GammaEnabled::<Test>::get());
     });
 }
+
+#[test]
+fn test_sudo_set_subnet_emission_weights_v2() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(1324);
+        emission_weights_call_setup(netuid, owner);
+        let target = NetUid::from(2);
+        add_network(target, 10);
+        pallet_subtensor::SubnetGammaEnabled::<Test>::insert(target, true);
+        assert_ok!(AdminUtils::sudo_set_subnet_gamma_emission_whitelisted(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            target,
+            true
+        ));
+
+        let owner_share = emission_fraction(10, 100);
+        let validator = emission_fraction(40, 100);
+        let gamma = emission_fraction(5, 100);
+        let split = EmissionSplit::truncate_from(vec![
+            (EmissionSlot::Owner, owner_share),
+            (EmissionSlot::Validator, validator),
+            (
+                EmissionSlot::Miner,
+                EMISSION_WEIGHT_ONE
+                    .saturating_sub(owner_share)
+                    .saturating_sub(validator)
+                    .saturating_sub(gamma),
+            ),
+            (EmissionSlot::Gamma { netuid: target }, gamma),
+        ]);
+
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights_v2(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(99)),
+                netuid,
+                split.clone()
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_ok!(AdminUtils::sudo_set_subnet_emission_weights_v2(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            split.clone()
+        ));
+        assert_eq!(
+            SubnetGammaEmission::<Test>::get(netuid).into_inner(),
+            vec![(target, gamma)]
+        );
+
+        // The owner shares the weekly limit with the fixed-slot setter; root is not limited.
+        let (uids, values) = emission_weights_full(owner_share, validator);
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                uids,
+                values
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+        assert_ok!(AdminUtils::sudo_set_subnet_emission_weights_v2(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            split
+        ));
+
+        // Removing the target from the whitelist returns its share to the miners.
+        assert_ok!(AdminUtils::sudo_set_subnet_gamma_emission_whitelisted(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            target,
+            false
+        ));
+        assert!(SubnetGammaEmission::<Test>::get(netuid).is_empty());
+        assert_eq!(
+            SubtensorModule::get_subnet_emission_weights(netuid),
+            [
+                0,
+                0,
+                owner_share,
+                validator,
+                EMISSION_WEIGHT_ONE
+                    .saturating_sub(owner_share)
+                    .saturating_sub(validator)
+            ]
+        );
+    });
+}
+
+#[test]
+fn test_sudo_set_subnet_gamma_emission_whitelisted() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_emission_whitelisted(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                netuid,
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+
+        assert_ok!(AdminUtils::sudo_set_subnet_gamma_emission_whitelisted(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            true
+        ));
+        assert!(SubnetGammaEmissionWhitelisted::<Test>::get(netuid));
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::SubnetGammaEmissionWhitelistedSet {
+                netuid,
+                whitelisted: true,
+            },
+        ));
+        assert_ok!(AdminUtils::sudo_set_subnet_gamma_emission_whitelisted(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            false
+        ));
+        assert!(!SubnetGammaEmissionWhitelisted::<Test>::get(netuid));
+
+        // The root subnet and missing subnets are refused.
+        add_network(NetUid::ROOT, 10);
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_emission_whitelisted(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                NetUid::ROOT,
+                true
+            ),
+            Error::<Test>::NotPermittedOnRootSubnet
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_gamma_emission_whitelisted(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                NetUid::from(99),
+                true
+            ),
+            Error::<Test>::SubnetDoesNotExist
+        );
+    });
+}
