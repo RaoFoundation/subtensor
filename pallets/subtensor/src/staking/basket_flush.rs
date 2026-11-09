@@ -645,6 +645,10 @@ impl<T: Config> Pallet<T> {
                 else {
                     return Ok(None);
                 };
+                // Equal positive holding quotes can hide a recoverable credit through
+                // rounding or a price-limit clamp. Preserve its historical alpha
+                // rights rather than treating it like terminal `None` recycling.
+                ensure!(!deferred || delta > 0, Error::<T>::AmountTooLow);
                 let reference = Self::basket_dividend_reference_value(*origin_netuid, delta, true)?;
                 if deferred {
                     Self::ensure_basket_dividend_price_impact(

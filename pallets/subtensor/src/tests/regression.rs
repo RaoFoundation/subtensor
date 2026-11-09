@@ -174,6 +174,175 @@ fn deferred_origin_cannot_use_another_claimant_groups_price_budget() {
     });
 }
 
+// PROTECTED_REGRESSION: PR #3319 must retain deferred alpha rights when positive holding quotes round to the same value; changes require explicit human approval.
+#[test]
+fn deferred_zero_marginal_credit_survives_until_actual_claim() {
+    // Integer rounding and a price-limit-clamped quote both have this failure
+    // mode. The latter can strand a large credit rather than just atomic dust.
+    for (held, alice_alpha, depressed_tao) in [
+        (1_500_000_000_000u64, 10_000_000_000u64, 4_000_000u64),
+        (1_500_000_000u64, 10_000u64, 10_000_000u64),
+    ] {
+        new_test_ext(1).execute_with(|| {
+            let hot = U256::from(4_501);
+            let alice = U256::from(4_502);
+            let bob = U256::from(4_503);
+            let owner = U256::from(4_504);
+            let depressed = add_dynamic_network(&U256::from(4_505), &owner);
+            let healthy = add_dynamic_network(&U256::from(4_506), &owner);
+            for netuid in [depressed, healthy] {
+                remove_owner_registration_stake(netuid);
+                fund_pool(netuid);
+            }
+            register_on_root(&hot, 0);
+            SubtensorModule::set_tao_weight(u64::MAX);
+            super::claim_root::zero_claim_threshold();
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &alice,
+                NetUid::ROOT,
+                ROOT_STAKE.into(),
+            );
+            let escrow = SubtensorModule::get_beta_escrow_account_id();
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &escrow,
+                depressed,
+                held.into(),
+            );
+            let original_tao = crate::SubnetTAO::<Test>::get(depressed);
+            crate::SubnetTAO::<Test>::insert(depressed, original_tao.saturating_div(2u64.into()));
+            SubnetAlphaOut::<Test>::mutate(depressed, |alpha| {
+                *alpha = alpha.saturating_add(alice_alpha.into());
+            });
+            SubtensorModule::enqueue_root_dividend(&hot, depressed, alice_alpha.into());
+            let (_, _, ready) = SubtensorModule::flush_basket_deposits_for_hotkey(&hot);
+            assert!(ready);
+            assert!(crate::DeferredBasketRates::<Test>::contains_key(
+                hot, depressed
+            ));
+
+            let removed = SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &alice,
+                NetUid::ROOT,
+                ROOT_STAKE.into(),
+            );
+            assert_ok!(
+                SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                    &hot, &alice, removed,
+                )
+            );
+            SubtensorModule::maybe_remove_staking_hotkey(&hot, &alice);
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &bob,
+                NetUid::ROOT,
+                ROOT_STAKE.into(),
+            );
+            assert_ok!(
+                SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                    &hot, &bob, ROOT_STAKE,
+                )
+            );
+
+            // Bob owns the existing basket. Cash keeps the held-price impact below
+            // 0.1% even after a further price drop; Alice owns only her deferred alpha.
+            let cash = 1_000_000_000_000_000u64;
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &escrow,
+                NetUid::ROOT,
+                cash.into(),
+            );
+            let Some(root_account) = SubtensorModule::get_subnet_account_id(NetUid::ROOT) else {
+                panic!("root subnet must have a funding account");
+            };
+            add_balance_to_coldkey_account(&root_account, cash.into());
+            BasketShares::<Test>::insert(hot, cash);
+            BasketRate::<Test>::insert(hot, I96F32::from_num(1_000_000));
+            crate::SubnetTAO::<Test>::insert(
+                depressed,
+                subtensor_runtime_common::TaoBalance::from(depressed_tao),
+            );
+            let before = SubtensorModule::try_realizable_tao_for_alpha(depressed, held);
+            let after =
+                SubtensorModule::try_realizable_tao_for_alpha(depressed, held + alice_alpha);
+            assert!(matches!(before, Ok(Some(value)) if value > 0));
+            assert_eq!(
+                before, after,
+                "nonterminal marginal quote must round to zero"
+            );
+
+            let bob_payout_before = SubtensorModule::get_basket_payout_tao(&hot, &bob);
+            let bob_alpha = 1_000_000_000u64;
+            SubnetAlphaOut::<Test>::mutate(healthy, |alpha| {
+                *alpha = alpha.saturating_add(bob_alpha.into());
+            });
+            SubtensorModule::enqueue_root_dividend(&hot, healthy, bob_alpha.into());
+            SubtensorModule::settle_basket_deposits_for_test(&hot);
+            assert_eq!(
+                PendingBasketDeposits::<Test>::get(hot, depressed),
+                alice_alpha.into()
+            );
+            assert!(crate::DeferredBasketRates::<Test>::contains_key(
+                hot, depressed
+            ));
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hot, &escrow, depressed,
+                )
+                .to_u64(),
+                held
+            );
+            assert!(!PendingBasketDeposits::<Test>::contains_key(hot, healthy));
+            assert!(
+                SubtensorModule::get_basket_payout_tao(&hot, &bob)
+                    > bob_payout_before + bob_alpha * 98 / 100
+            );
+            assert_eq!(SubtensorModule::get_basket_owed_shares(&hot, &alice), 0);
+
+            // Recovery must turn the preserved alpha into a real payout to Alice.
+            crate::SubnetTAO::<Test>::insert(depressed, original_tao);
+            let restored_value =
+                SubtensorModule::realizable_tao_for_alpha(depressed, held + alice_alpha)
+                    - SubtensorModule::realizable_tao_for_alpha(depressed, held);
+            assert!(restored_value > 0);
+            assert_ok!(SubtensorModule::claim_root(
+                RuntimeOrigin::signed(alice),
+                BTreeSet::new()
+            ));
+            let paid = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &alice,
+                NetUid::ROOT,
+            )
+            .to_u64();
+            assert!(
+                paid >= restored_value * 99 / 100,
+                "Alice recovered only {paid} of {restored_value}"
+            );
+            assert!(!PendingBasketDeposits::<Test>::contains_key(hot, depressed));
+            assert!(!crate::DeferredBasketRates::<Test>::contains_key(
+                hot, depressed
+            ));
+            assert_ok!(SubtensorModule::claim_root(
+                RuntimeOrigin::signed(alice),
+                BTreeSet::new()
+            ));
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hot,
+                    &alice,
+                    NetUid::ROOT,
+                )
+                .to_u64(),
+                paid
+            );
+        });
+    }
+}
+
 const ROOT_STAKE: u64 = 1_000_000_000;
 const FUND_CASH: u64 = 1_000_000_000;
 const PENDING_DUST: u64 = 1_000;

@@ -105,6 +105,12 @@ inside the existing isolated credit transaction and reused by the batch checks.
 Consequently, the point example's aggregate incoming figures do not establish
 that every deferred origin would settle.
 
+A deferred credit with zero realizable marginal value is also requeued inside
+its isolated transaction. Equal positive before/after quotes can result from
+integer rounding or a price-limit-clamped quote; they do not establish that the
+alpha is worthless. Terminal `None` quotes retain their existing recycling
+behavior. This check adds no price reads or swap simulations.
+
 The third condition also bounds the ordinary mint with unminted escrow yield:
 adding a nonnegative yield term to the denominator dampens the relative ratio
 error. The initial par mint is covered by the incoming-value check. Empty/zero
@@ -137,10 +143,16 @@ mint replay. Public archive availability and rate limits can vary.
 
 ## Verification
 
-Workspace nextest: **4,275 passed**, 16 skipped (one test reported a leaked
-subprocess); full pallet unit suite: **1,940 passed**, 9 ignored. Workspace
-all-features Clippy, Zepter, Rust CI path checks, generated-doc drift, SDK
-coverage/name checks, and formatting pass.
+The full local preflight passes with the zero-marginal-credit guard: **2,061
+pallet tests passed**, 9 ignored, plus 7 ignored documentation tests. It includes
+both workspace Clippy modes, runtime fee/claim-root tests, a release node build,
+SDK metadata drift and coverage/name checks, Zepter, Rust CI path checks,
+generated-doc drift, and formatting. The final run disables incremental
+compilation after clearing a stale pallet build cache that caused a local
+linker failure; no source or baseline change was needed for that failure.
+
+The initial weighted-gate implementation also passed workspace nextest:
+**4,275 passed**, 16 skipped (one test reported a leaked subprocess).
 
 The new protected regression reproduces a tiny volatile holding blocking an
 otherwise healthy dividend, and verifies settlement followed by a claim that
@@ -155,8 +167,13 @@ error less than 1%. It fails without the individual-origin guard. With the guard
 the healthy dividend settles, the depressed origin remains pending, and its
 original claimant recovers at least 99% of the dividend's restored value as actual
 root stake after price recovery, without a second payout on a repeated claim.
-The individual-origin follow-up passes the full pallet suite with all features:
-**2,060 passed**, 9 ignored (plus 7 ignored documentation tests).
+
+A third protected regression covers both rounded and price-limit-clamped zero
+marginal credits against a positive existing holding, alongside a healthy origin.
+Both variants reproduce loss of the deferred entitlement before the guard. With
+the guard, the healthy origin settles while the original alpha remains pending;
+after price recovery its historical claimant receives at least 99% of the
+restored marginal value as actual root stake, with no duplicate payout.
 
 The current RustSec database also reports **RUSTSEC-2026-0459** for Frontier's
 `sqlx -> libsqlite3-sys 0.30.1`, which is present on release-489 independently of
