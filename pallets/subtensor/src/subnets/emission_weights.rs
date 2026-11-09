@@ -216,7 +216,8 @@ pub enum EmissionSlot {
     Validator,
     /// [`EmissionIndex::Miner`].
     Miner,
-    /// Alpha converted at each epoch into this subnet's gamma for the subnet owner hotkey.
+    /// A share of the alpha emission, converted at each epoch into the gamma of subnet `netuid`
+    /// for the subnet owner hotkey.
     Gamma { netuid: NetUid },
 }
 
@@ -634,7 +635,7 @@ impl<T: Config> Pallet<T> {
                     if share > 0 {
                         gamma
                             .try_push((target, share))
-                            .map_err(|_| Error::<T>::TooManyGammaEmissionShares)?;
+                            .map_err(|_| Error::<T>::TooManyGammaShares)?;
                     }
                     continue;
                 }
@@ -687,7 +688,7 @@ impl<T: Config> Pallet<T> {
         });
         Self::deposit_event(Event::SubnetGammaEmissionSet {
             netuid,
-            gamma: gamma.into_inner(),
+            shares: gamma.into_inner(),
         });
     }
 

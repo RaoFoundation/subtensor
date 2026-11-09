@@ -6399,11 +6399,11 @@
         }
       ]
     },
-    "TooManyGammaEmissionShares": {
+    "TooManyGammaShares": {
       "code": "limit_exceeded",
-      "description": "The emission split has more than 16 gamma shares. Drop or merge targets.",
-      "docs_url": "/docs/errors/chain/TooManyGammaEmissionShares",
-      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyGammaEmissionShares/content.md",
+      "description": "The emission split has more than 16 gamma shares. Drop gamma shares to at most 16.",
+      "docs_url": "/docs/errors/chain/TooManyGammaShares",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyGammaShares/content.md",
       "pallets": [
         "SubtensorModule"
       ],

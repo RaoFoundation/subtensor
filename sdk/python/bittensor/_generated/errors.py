@@ -245,7 +245,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 202): ErrorInfo('SubtensorModule', 'EmissionSlotsNotAscending', "`set_subnet_emission_weights_v2`: the split's slots are not in strictly ascending order."),
     (7, 203): ErrorInfo('SubtensorModule', 'GammaEmissionAboveMaximum', '`set_subnet_emission_weights_v2`: a gamma share may be at most 10% of emission.'),
     (7, 204): ErrorInfo('SubtensorModule', 'GammaEmissionTargetNotWhitelisted', '`set_subnet_emission_weights_v2`: a gamma share names a subnet that is not whitelisted for gamma emission.'),
-    (7, 205): ErrorInfo('SubtensorModule', 'TooManyGammaEmissionShares', '`set_subnet_emission_weights_v2`: a split may have at most 16 gamma shares.'),
+    (7, 205): ErrorInfo('SubtensorModule', 'TooManyGammaShares', '`set_subnet_emission_weights_v2`: a split may have at most 16 gamma shares.'),
     (7, 206): ErrorInfo('SubtensorModule', 'GammaEmissionNotSettableOnLeasedSubnet', '`set_subnet_emission_weights_v2`: a subnet under a lease may not have gamma shares.'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),

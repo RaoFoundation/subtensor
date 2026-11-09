@@ -187,7 +187,7 @@ impl<T: Config> Pallet<T> {
 
         // Just remove the network from the added networks, it is used to check if the network is existed.
         NetworksAdded::<T>::remove(netuid);
-        // No split may add it while its cleanup removes it from every split, and only live
+        // No split may name it while its cleanup removes it from every split, and only live
         // subnets have splits.
         SubnetGammaEmissionWhitelisted::<T>::remove(netuid);
         SubnetGammaEmission::<T>::remove(netuid);

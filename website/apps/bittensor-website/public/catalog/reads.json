@@ -2508,9 +2508,9 @@
         "container": "SubnetInfoRuntimeApi",
         "name": "get_subnet_emission_weights",
         "path": "pallets/subtensor/src/subnets/emission_weights.rs",
-        "line": 283,
-        "end_line": 290,
-        "url": "/code/pallets/subtensor/src/subnets/emission_weights.rs#L283-L290",
+        "line": 284,
+        "end_line": 291,
+        "url": "/code/pallets/subtensor/src/subnets/emission_weights.rs#L284-L291",
         "raw_url": "/code/raw/pallets/subtensor/src/subnets/emission_weights.rs"
       }
     ]

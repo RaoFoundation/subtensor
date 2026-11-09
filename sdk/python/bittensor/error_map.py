@@ -289,7 +289,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "EmissionSlotsNotAscending": _C.INVALID_ARGUMENT,
     "GammaEmissionAboveMaximum": _C.POLICY_VIOLATION,
     "GammaEmissionTargetNotWhitelisted": _C.POLICY_VIOLATION,
-    "TooManyGammaEmissionShares": _C.LIMIT_EXCEEDED,
+    "TooManyGammaShares": _C.LIMIT_EXCEEDED,
     "GammaEmissionNotSettableOnLeasedSubnet": _C.POLICY_VIOLATION,
     "UnlockAmountTooHigh": _C.INSUFFICIENT_BALANCE,
     "TempoOutOfBounds": _C.INVALID_ARGUMENT,

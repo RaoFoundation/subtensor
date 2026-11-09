@@ -237,18 +237,18 @@ impl<T: Config> Pallet<T> {
         ))
     }
 
-    /// Allots the subnet's pending gamma emission to `gamma`, its gamma shares, in proportion
+    /// Allots the subnet's pending gamma emission to `shares`, its gamma shares, in proportion
     /// to their size. The rounding remainder stays pending.
-    pub(crate) fn allot_gamma_emission(netuid: NetUid, gamma: &[(NetUid, u64)]) {
+    pub(crate) fn allot_gamma_emission(netuid: NetUid, shares: &[(NetUid, u64)]) {
         let pending = PendingGammaEmission::<T>::get(netuid).to_u64();
-        let total = gamma
+        let total = shares
             .iter()
             .fold(0u64, |total, (_, share)| total.saturating_add(*share));
         if pending == 0 || total == 0 {
             return;
         }
         let mut allotted = 0u64;
-        for (target, share) in gamma {
+        for (target, share) in shares {
             let alpha = Self::mul_div_u64(pending, *share, total);
             UnconvertedGammaEmission::<T>::mutate(netuid, target, |unconverted| {
                 *unconverted = unconverted.saturating_add(alpha.into());
@@ -264,9 +264,9 @@ impl<T: Config> Pallet<T> {
     /// Allots the subnet's pending gamma emission at its epoch and converts each gamma share on
     /// its own. A share that cannot convert keeps its alpha for the next epoch.
     pub(crate) fn mint_gamma_emission(netuid: NetUid) {
-        let gamma = SubnetGammaEmission::<T>::get(netuid);
-        Self::allot_gamma_emission(netuid, &gamma);
-        for (target, _) in gamma {
+        let shares = SubnetGammaEmission::<T>::get(netuid);
+        Self::allot_gamma_emission(netuid, &shares);
+        for (target, _) in shares {
             let _ = with_storage_layer(|| Self::mint_gamma_emission_share(netuid, target));
         }
     }
@@ -276,8 +276,8 @@ impl<T: Config> Pallet<T> {
     /// target's alpha with all of the TAO and credits the gamma to the subnet owner's deposit at
     /// the subnet owner hotkey on the target.
     fn mint_gamma_emission_share(netuid: NetUid, target: NetUid) -> DispatchResult {
-        let pending = UnconvertedGammaEmission::<T>::get(netuid, target);
-        if pending.is_zero() {
+        let unconverted = UnconvertedGammaEmission::<T>::get(netuid, target);
+        if unconverted.is_zero() {
             return Ok(());
         }
         Self::ensure_subtoken_enabled(netuid)?;
@@ -292,7 +292,7 @@ impl<T: Config> Pallet<T> {
             .safe_div(T::SwapInterface::current_alpha_price(netuid.into()))
             .saturating_to_num::<u64>();
         let mark = Self::gamma_mark(target);
-        let sale = Self::swap_alpha_for_tao(netuid, pending.min(room.into()), floor, false)?;
+        let sale = Self::swap_alpha_for_tao(netuid, unconverted.min(room.into()), floor, false)?;
         let alpha_sold = sale.amount_paid_in.saturating_add(sale.fee_paid);
         let fee = Self::settle_alpha_fee_to_author(netuid, sale.fee_to_block_author)?;
         Self::record_tao_outflow(netuid, sale.amount_paid_out.saturating_add(fee));
@@ -301,15 +301,15 @@ impl<T: Config> Pallet<T> {
         ensure!(tao == sale.amount_paid_out, Error::<T>::SlippageTooHigh);
         let (value, gamma) = Self::gamma_for_alpha(alpha, mark)?;
         let (spender, _) = Self::credit_gamma(target, &coldkey, &hotkey, gamma, None, None)?;
-        let rest = pending.saturating_sub(alpha_sold);
+        let rest = unconverted.saturating_sub(alpha_sold);
         if rest.is_zero() {
             UnconvertedGammaEmission::<T>::remove(netuid, target);
         } else {
             UnconvertedGammaEmission::<T>::insert(netuid, target, rest);
         }
         Self::deposit_event(Event::GammaEmissionMinted {
-            netuid: target,
-            source_netuid: netuid,
+            netuid,
+            target,
             coldkey,
             hotkey,
             spender,

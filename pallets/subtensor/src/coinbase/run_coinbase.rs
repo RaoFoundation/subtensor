@@ -356,12 +356,12 @@ impl<T: Config> Pallet<T> {
                 *total = total.saturating_add(tou64!(pending_server_alpha).into());
             });
             // Accumulate the gamma shares together, allotted and converted at the subnet's epoch.
-            let gamma_weight = SubnetGammaEmission::<T>::get(*netuid_i)
+            let gamma_share = SubnetGammaEmission::<T>::get(*netuid_i)
                 .iter()
                 .fold(0u64, |total, (_, share)| total.saturating_add(*share));
-            if gamma_weight > 0 {
+            if gamma_share > 0 {
                 let gamma_alpha =
-                    alpha_out_i.saturating_mul(Self::emission_weight_to_fixed(gamma_weight));
+                    alpha_out_i.saturating_mul(Self::emission_weight_to_fixed(gamma_share));
                 PendingGammaEmission::<T>::mutate(*netuid_i, |total| {
                     *total = total.saturating_add(tou64!(gamma_alpha).into());
                 });

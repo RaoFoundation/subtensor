@@ -397,7 +397,7 @@
     "TooManyFieldsInCommitmentInfo",
     "TooManyFreezes",
     "TooManyGammaDeposits",
-    "TooManyGammaEmissionShares",
+    "TooManyGammaShares",
     "TooManyHolds",
     "TooManyPendingExtrinsics",
     "TooManyRegistrationsThisBlock",

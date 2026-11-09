@@ -498,7 +498,7 @@ mod errors {
         /// for gamma emission.
         GammaEmissionTargetNotWhitelisted,
         /// `set_subnet_emission_weights_v2`: a split may have at most 16 gamma shares.
-        TooManyGammaEmissionShares,
+        TooManyGammaShares,
         /// `set_subnet_emission_weights_v2`: a subnet under a lease may not have gamma shares.
         GammaEmissionNotSettableOnLeasedSubnet,
     }

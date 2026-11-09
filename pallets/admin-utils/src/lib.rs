@@ -3014,7 +3014,7 @@ pub mod pallet {
         pub fn sudo_set_subnet_emission_weights_v2(
             origin: OriginFor<T>,
             netuid: NetUid,
-            weights: pallet_subtensor::EmissionSplit,
+            split: pallet_subtensor::EmissionSplit,
         ) -> DispatchResult {
             let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
                 origin,
@@ -3023,7 +3023,7 @@ pub mod pallet {
             )?;
             pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
 
-            pallet_subtensor::Pallet::<T>::do_set_subnet_emission_weights_v2(netuid, weights)?;
+            pallet_subtensor::Pallet::<T>::do_set_subnet_emission_weights_v2(netuid, split)?;
 
             pallet_subtensor::Pallet::<T>::record_owner_rl(
                 maybe_owner,

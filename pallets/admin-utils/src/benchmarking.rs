@@ -1377,14 +1377,14 @@ mod benchmarks {
         let miner = pallet_subtensor::EMISSION_WEIGHT_ONE
             .saturating_sub(owner_share)
             .saturating_sub(validator);
-        let weights = pallet_subtensor::EmissionSplit::truncate_from(vec![
+        let split = pallet_subtensor::EmissionSplit::truncate_from(vec![
             (pallet_subtensor::EmissionSlot::Owner, owner_share),
             (pallet_subtensor::EmissionSlot::Validator, validator),
             (pallet_subtensor::EmissionSlot::Miner, miner),
         ]);
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(owner), netuid, weights);
+        _(RawOrigin::Signed(owner), netuid, split);
 
         assert_eq!(
             pallet_subtensor::Pallet::<T>::get_subnet_emission_weights(netuid),

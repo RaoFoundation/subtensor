@@ -902,8 +902,8 @@ DESCRIPTIONS: dict[str, str] = {
         "A gamma share in the emission split names a subnet root has not whitelisted for "
         "gamma emission. Only whitelisted subnets can be targets."
     ),
-    "TooManyGammaEmissionShares": (
-        "The emission split has more than 16 gamma shares. Drop or merge targets."
+    "TooManyGammaShares": (
+        "The emission split has more than 16 gamma shares. Drop gamma shares to at most 16."
     ),
     "GammaEmissionNotSettableOnLeasedSubnet": (
         "The subnet is under a lease, and a leased subnet cannot set gamma shares in its "

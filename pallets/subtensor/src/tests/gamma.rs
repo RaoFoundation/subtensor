@@ -2325,7 +2325,7 @@ fn emission_split_v2_sets_gamma_shares_and_refuses_bad_splits() {
         }
         assert_noop!(
             set_split(source, too_many),
-            Error::<Test>::TooManyGammaEmissionShares
+            Error::<Test>::TooManyGammaShares
         );
         // A subnet under a lease has no owner key to receive the gamma.
         SubnetUidToLeaseId::<Test>::insert(source, 0);
