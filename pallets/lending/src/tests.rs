@@ -2927,6 +2927,172 @@ fn ema_band_migration_try_runtime_noop_when_already_stamped() {
     });
 }
 
+fn short_sold_migration_key() -> BoundedVec<u8, ConstU32<128>> {
+    BoundedVec::truncate_from(b"migrate_lift_book_short_sold_v1".to_vec())
+}
+
+fn pre_short_sold_book() -> migrations::LiftBookBeforeShortSold {
+    migrations::LiftBookBeforeShortSold {
+        l_s: 11,
+        l_l: 22,
+        b_l: 33,
+        held_tao: 44,
+        held_alpha: 55,
+        escrow_tao: 66,
+        escrow_alpha: 77,
+        long_collateral_alpha: 88,
+        g_ema: 99,
+        last: 111,
+    }
+}
+
+#[test]
+fn short_sold_migration_rewrites_pre_v58_books_and_preserves_fields() {
+    // Auditor fid:bfff60c5 — seed raw pre-v5.8 bytes; every prior field survives
+    // and short_sold_alpha initializes to 0. Current-layout rows with a nonzero
+    // counter stay untouched across a re-run.
+    new_test_ext().execute_with(|| {
+        HasMigrationRun::<Test>::remove(short_sold_migration_key());
+        let net_old = netuid();
+        let net_cur: NetUid = 65.into();
+        let before = pre_short_sold_book();
+        frame_support::storage::unhashed::put_raw(
+            &Lifts::<Test>::hashed_key_for(net_old),
+            &before.encode(),
+        );
+        let current = LiftBook {
+            l_s: 1,
+            l_l: 2,
+            b_l: 3,
+            held_tao: 4,
+            held_alpha: 5,
+            escrow_tao: 6,
+            escrow_alpha: 7,
+            long_collateral_alpha: 8,
+            g_ema: 9,
+            last: 10,
+            short_sold_alpha: 1_234_567,
+        };
+        Lifts::<Test>::insert(net_cur, current.clone());
+
+        let _ = migrations::migrate_lift_book_short_sold::<Test>();
+        assert!(HasMigrationRun::<Test>::get(short_sold_migration_key()));
+        let after = Lifts::<Test>::get(net_old);
+        assert_eq!(after.l_s, before.l_s);
+        assert_eq!(after.l_l, before.l_l);
+        assert_eq!(after.b_l, before.b_l);
+        assert_eq!(after.held_tao, before.held_tao);
+        assert_eq!(after.held_alpha, before.held_alpha);
+        assert_eq!(after.escrow_tao, before.escrow_tao);
+        assert_eq!(after.escrow_alpha, before.escrow_alpha);
+        assert_eq!(after.long_collateral_alpha, before.long_collateral_alpha);
+        assert_eq!(after.g_ema, before.g_ema);
+        assert_eq!(after.last, before.last);
+        assert_eq!(after.short_sold_alpha, 0);
+        assert_eq!(
+            Lifts::<Test>::get(net_cur),
+            current,
+            "current-layout rows and nonzero short_sold_alpha survive"
+        );
+
+        // Idempotent: clearing the stamp and re-running must not zero the
+        // already-migrated / current-layout counters.
+        HasMigrationRun::<Test>::remove(short_sold_migration_key());
+        let _ = migrations::migrate_lift_book_short_sold::<Test>();
+        assert_eq!(Lifts::<Test>::get(net_old), after);
+        assert_eq!(Lifts::<Test>::get(net_cur), current);
+        assert!(HasMigrationRun::<Test>::get(short_sold_migration_key()));
+    });
+}
+
+#[test]
+fn short_sold_migration_keeps_undecodable_rows_and_retries() {
+    new_test_ext().execute_with(|| {
+        HasMigrationRun::<Test>::remove(short_sold_migration_key());
+        let key = Lifts::<Test>::hashed_key_for(netuid());
+        frame_support::storage::unhashed::put_raw(&key, &[0xff, 0x01]);
+
+        let _ = migrations::migrate_lift_book_short_sold::<Test>();
+        assert!(!HasMigrationRun::<Test>::get(short_sold_migration_key()));
+        assert_eq!(
+            frame_support::storage::unhashed::get_raw(&key),
+            Some(vec![0xff, 0x01])
+        );
+    });
+}
+
+#[test]
+fn lift_book_current_layout_rejects_prefix_decode_as_pre_short_sold() {
+    // SCALE Decode accepts trailing bytes; DecodeAll must reject current
+    // layout when read as LiftBookBeforeShortSold so the migration does not
+    // wipe a live short_sold_alpha counter.
+    use codec::DecodeAll;
+    let book = LiftBook {
+        short_sold_alpha: 42,
+        ..LiftBook::default()
+    };
+    let bytes = book.encode();
+    assert!(
+        migrations::LiftBookBeforeShortSold::decode(&mut &bytes[..]).is_ok(),
+        "plain Decode must accept current layout as a pre-short-sold prefix"
+    );
+    assert!(
+        migrations::LiftBookBeforeShortSold::decode_all(&mut &bytes[..]).is_err(),
+        "DecodeAll must reject trailing short_sold_alpha"
+    );
+    assert!(LiftBook::decode_all(&mut &bytes[..]).is_ok());
+}
+
+#[cfg(feature = "try-runtime")]
+#[test]
+fn short_sold_migration_try_runtime_checks_pass() {
+    new_test_ext().execute_with(|| {
+        HasMigrationRun::<Test>::remove(short_sold_migration_key());
+        frame_support::storage::unhashed::put_raw(
+            &Lifts::<Test>::hashed_key_for(netuid()),
+            &pre_short_sold_book().encode(),
+        );
+        let state =
+            <migrations::LiftBookShortSoldMigration<Test> as OnRuntimeUpgrade>::pre_upgrade()
+                .expect("pre_upgrade must accept the pre-short-sold layout");
+        let _ =
+            <migrations::LiftBookShortSoldMigration<Test> as OnRuntimeUpgrade>::on_runtime_upgrade(
+            );
+        assert_ok!(
+            <migrations::LiftBookShortSoldMigration<Test> as OnRuntimeUpgrade>::post_upgrade(state)
+        );
+        let after = Lifts::<Test>::get(netuid());
+        assert_eq!(after.short_sold_alpha, 0);
+        assert_eq!(after.held_alpha, 55);
+        assert!(HasMigrationRun::<Test>::get(short_sold_migration_key()));
+    });
+}
+
+#[cfg(feature = "try-runtime")]
+#[test]
+fn short_sold_migration_try_runtime_noop_when_already_stamped() {
+    new_test_ext().execute_with(|| {
+        let book = LiftBook {
+            held_alpha: 7,
+            short_sold_alpha: 9,
+            ..LiftBook::default()
+        };
+        Lifts::<Test>::insert(netuid(), book.clone());
+        HasMigrationRun::<Test>::insert(short_sold_migration_key(), true);
+
+        let state =
+            <migrations::LiftBookShortSoldMigration<Test> as OnRuntimeUpgrade>::pre_upgrade()
+                .expect("pre_upgrade must accept current layout");
+        let _ =
+            <migrations::LiftBookShortSoldMigration<Test> as OnRuntimeUpgrade>::on_runtime_upgrade(
+            );
+        assert_ok!(
+            <migrations::LiftBookShortSoldMigration<Test> as OnRuntimeUpgrade>::post_upgrade(state)
+        );
+        assert_eq!(Lifts::<Test>::get(netuid()), book);
+    });
+}
+
 fn drop_hotkey_migration_key() -> BoundedVec<u8, ConstU32<128>> {
     BoundedVec::truncate_from(b"migrate_drop_position_hotkey_v1".to_vec())
 }

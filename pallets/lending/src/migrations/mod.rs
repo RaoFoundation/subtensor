@@ -16,6 +16,8 @@ pub use migrate_drop_position_hotkey::{
 };
 #[cfg(test)]
 pub(crate) use migrate_drop_position_hotkey::{PositionBeforeHotkeyDrop, RETIRED_HOTKEY_INDEXES};
+#[cfg(test)]
+pub(crate) use migrate_lift_book_short_sold::LiftBookBeforeShortSold;
 #[allow(unused_imports)]
 pub use migrate_lift_book_short_sold::{
     Migration as LiftBookShortSoldMigration, migrate_lift_book_short_sold,
