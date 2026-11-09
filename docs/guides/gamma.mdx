@@ -6,7 +6,8 @@ description: Dollar-valued service credits minted by burning a subnet's alpha, h
 Gamma is a credit a subnet can accept as payment for its service, valued in US
 dollars. Once gamma is enabled network-wide and on a subnet, a coldkey mints
 that subnet's gamma by burning its alpha, bought with TAO or taken from stake.
-One gamma is minted for each dollar the burned alpha is worth.
+One gamma is minted for each dollar the burned alpha is worth. Other subnets
+can also buy it with [shares of their emission](/docs/concepts/emission-weights#gamma-shares).
 
 Gamma is held in **deposits**. Each deposit belongs to a coldkey and is keyed by
 a hotkey, which signs the customer's requests to the service, so the hotkey
@@ -26,9 +27,9 @@ TAO. Amounts are in gamma, with 10^9 units per gamma.
 | Hotkey | nothing on chain; it signs requests to the service |
 | Validator or subnet owner hotkey | publish a [service](/docs/guides/services) and its spender on its subnet, signed by its coldkey |
 | Spender | spend the deposits that name it, directly or through a `GammaSpend` proxy |
-| Subnet owner | enable gamma on its subnet with [`gamma_enabled`](/docs/hyperparameters/gamma-enabled); spender of the deposits a mint opens while it owns the subnet, unless its hotkey's service names another or a lease owns it |
+| Subnet owner | enable gamma on its subnet with [`gamma_enabled`](/docs/hyperparameters/gamma-enabled); pay shares of its subnet's emission into other subnets' gamma; spender of the deposits a mint opens while it owns the subnet, unless its hotkey's service names another or a lease owns it |
 | Lease beneficiary | enable gamma through its `SubnetLeaseBeneficiary` proxy; spender of the deposits a mint opens while its lease owns the subnet, unless the subnet owner hotkey's service, which it publishes through that proxy, names another |
-| Root | enable gamma network-wide and on any subnet but root, and set the TAO/USD price oracle |
+| Root | enable gamma network-wide and on any subnet but root, whitelist subnets for gamma emission, and set the TAO/USD price oracle |
 | Oracle | feed the TAO/USD price |
 
 ## Minting
@@ -92,9 +93,9 @@ hold. Once the mint runs, `result.data["minted"]` holds the deposit's
 `alpha_burned`, `tao_value` and `gamma` minted, as exact decimal strings.
 
 A mint fails with [`GammaDisabled`](/docs/errors/chain/GammaDisabled) while
-gamma is off network-wide or on the subnet. No other call checks these
-switches, so turning one off stops new mints only, and existing deposits can
-still be spent, moved and closed. A mint also fails with
+gamma is off network-wide or on the subnet. Turning one off stops new mints,
+and gamma emission to the subnet waits until it is on again. Existing deposits
+can still be spent, moved and closed. A mint also fails with
 [`AmountTooLow`](/docs/errors/chain/AmountTooLow) below 0.1 gamma, with
 [`SubtokenDisabled`](/docs/errors/chain/SubtokenDisabled) on a subnet whose
 subtoken is not enabled, and with

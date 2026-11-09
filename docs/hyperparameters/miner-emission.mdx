@@ -14,7 +14,9 @@ Per block, `alpha_out × miner_emission` goes to the miner bucket and is paid
 to miners by incentive at the epoch. If an epoch ends with zero total miner
 incentive, that tempo's miner alpha is paid to validators instead of being
 withheld. When a change to another slot leaves a rounding remainder, the
-miner slot absorbs it so the vector sums to exactly one.
+miner slot absorbs it so the vector and the gamma shares sum to exactly one.
+A [gamma share](/docs/concepts/emission-weights#gamma-shares) whose target
+leaves the gamma emission whitelist or is dissolved is added to this slot.
 
 ## Bounds
 
