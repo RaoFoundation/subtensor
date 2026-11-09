@@ -253,6 +253,10 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_emission_gate_exponent",
         "sudo_set_evm_chain_id",
         "sudo_set_gamma_enabled",
+        "sudo_set_subnet_gamma_emission_whitelisted",
+        # whole-split setter with gamma shares; the SetSubnetEmissionWeights
+        # intent covers the fixed slots
+        "sudo_set_subnet_emission_weights_v2",
         "sudo_set_kappa",
         "sudo_set_liquid_alpha_consensus_mode",
         "sudo_set_lock_reduction_interval",
