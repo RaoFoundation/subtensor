@@ -9,7 +9,7 @@ Fails with `GammaDepositNotEmpty` while the deposit holds gamma.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.close_gamma_deposit`](/code/pallets/subtensor/src/macros/dispatches.rs#L3284-L3292) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.close_gamma_deposit`](/code/pallets/subtensor/src/macros/dispatches.rs#L3225-L3233) |
 
 ## Parameters
 
@@ -61,7 +61,7 @@ result = sub.execute_tool("close_gamma_deposit", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.close_gamma_deposit` — [`pallets/subtensor/src/macros/dispatches.rs#L3286`](/code/pallets/subtensor/src/macros/dispatches.rs#L3284-L3292):
+`SubtensorModule.close_gamma_deposit` — [`pallets/subtensor/src/macros/dispatches.rs#L3227`](/code/pallets/subtensor/src/macros/dispatches.rs#L3225-L3233):
 
 ```rust
 #[pallet::call_index(161)]
@@ -75,6 +75,6 @@ pub fn close_gamma_deposit(
 }
 ```
 
-Delegates to [`do_close_gamma_deposit`](/code/pallets/subtensor/src/subnets/gamma.rs#L366).
+Delegates to [`do_close_gamma_deposit`](/code/pallets/subtensor/src/subnets/gamma.rs#L481).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

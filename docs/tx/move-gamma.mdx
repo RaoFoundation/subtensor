@@ -13,7 +13,7 @@ origin closes it.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3271-L3281) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3212-L3222) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("move_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.move_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3273`](/code/pallets/subtensor/src/macros/dispatches.rs#L3271-L3281):
+`SubtensorModule.move_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3214`](/code/pallets/subtensor/src/macros/dispatches.rs#L3212-L3222):
 
 ```rust
 #[pallet::call_index(160)]
@@ -87,6 +87,6 @@ pub fn move_gamma(
 }
 ```
 
-Delegates to [`do_move_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L293).
+Delegates to [`do_move_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L408).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
