@@ -222,7 +222,7 @@ pub fn public_key_from_ss58(ss58_address: &str) -> Result<[u8; 32], CoreError> {
     let decoded = base58::base58_decode(ss58_address)
         .ok_or_else(|| crypto_err("invalid ss58 address: invalid base58"))?;
     if decoded.len() != 35 && decoded.len() != 36 {
-        return Err(crypto_err("invalid ss58 address length"));
+        return Err(crypto_err("invalid ss58 address: Length is bad"));
     }
     let (prefix_len, ident) = match decoded[0] {
         0..=63 => (1, decoded[0] as u16),
@@ -1009,6 +1009,15 @@ mod tests {
         let error = public_key_from_ss58(&long_address).expect_err("long ss58 must reject");
         assert!(
             error.to_string().contains("invalid ss58 address length"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn public_key_from_ss58_preserves_legacy_error_for_local_wallet_names() {
+        let error = public_key_from_ss58("hotkey1").expect_err("wallet names are not addresses");
+        assert!(
+            matches!(error, CoreError::Crypto(ref message) if message == "invalid ss58 address: Length is bad"),
             "unexpected error: {error}"
         );
     }

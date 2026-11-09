@@ -6,8 +6,8 @@
 //! full-NAV share mint for all queued origins ([`Pallet::deposit_root_alpha_batch`], the
 //! deposit engine at the bottom of this module) — by the one-hotkey-per-block round-robin
 //! drain or synchronously before a user call changes the claimant base or fund. Dividend
-//! valuation uses the same live quotes as redemption, and waits while any relevant
-//! price is outside the immutable-in-block fast-price band. Deferred alpha rights
+//! valuation uses the same live quotes as redemption. Out-of-band prices defer a batch
+//! only when their weighted impact exceeds the dividend mint's budget. Deferred alpha rights
 //! preserve the original claimant base while stake and fund changes proceed. The existing dust policy remains:
 //! sub-threshold credits merge until worth depositing and may cross staker sets, but
 //! eligibility uses the fast mark, never live spot.
@@ -596,8 +596,9 @@ impl<T: Config> Pallet<T> {
     /// Each credit is valued as the realizable delta on its origin holding alone: crediting
     /// stake moves no pool, so every other holding's quote is unchanged and a full-fund
     /// `nav_after` sweep collapses to one extra quote per origin. NAV and added value use
-    /// live realizable quotes, matching redemption. Out-of-band prices defer the batch
-    /// rather than repricing individual assets against different valuation bases.
+    /// live realizable quotes, matching redemption. Quotes rebased to the fast anchor
+    /// measure out-of-band price impact solely for admission; accepted batches keep live
+    /// pricing on both sides. Exceeding the budget rolls back every tentative credit.
     /// The origins are distinct pools, so the per-origin deltas are independent and sum to
     /// exactly the value the batch added against the shared `nav_before` snapshot.
     /// Realizable valuation keeps deposit pricing honest on thin pools exactly as it does for
@@ -610,15 +611,24 @@ impl<T: Config> Pallet<T> {
         escrow_root: u64,
     ) -> DispatchResult {
         let escrow = Self::get_beta_escrow_account_id();
-        Self::ensure_basket_dividend_prices_stable(hotkey, batch)?;
-        let nav_before: u64 = Self::try_get_validator_basket_nav_tao(hotkey)?;
+        let mut nav_before = 0u64;
+        let mut reference_nav = 0u128;
+        for (netuid, _, value) in Self::try_valued_basket_holdings(hotkey)? {
+            nav_before = nav_before.saturating_add(value);
+            reference_nav = reference_nav
+                .checked_add(Self::basket_dividend_reference_value(netuid, value, false)?)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+        }
         let deferred = DeferredBasketRates::<T>::iter_prefix(hotkey)
             .next()
             .is_some();
 
-        // Each credit's accumulation is isolated: an unknown valuation failure re-queues
-        // that credit alone and the batch goes on with the others.
+        // Each credit's accumulation and admission are isolated. Deferred origins may
+        // belong to different historical claimant groups, so each must independently
+        // satisfy the incoming price budget before its alpha rights become shares.
         let mut value_added: u64 = 0;
+        let mut reference_added = 0u128;
+        let mut origin_error = 0u128;
         let mut accumulated_any = false;
         let mut converted = Vec::new();
         for (origin_netuid, root_alpha) in batch {
@@ -626,9 +636,40 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
             let delta = Self::isolate_basket_credit(hotkey, *origin_netuid, *root_alpha, || {
-                Self::try_accumulate_basket_credit(hotkey, &escrow, *origin_netuid, *root_alpha)
+                let Some(delta) = Self::try_accumulate_basket_credit(
+                    hotkey,
+                    &escrow,
+                    *origin_netuid,
+                    *root_alpha,
+                )?
+                else {
+                    return Ok(None);
+                };
+                // Equal positive holding quotes can hide a recoverable credit through
+                // rounding or a price-limit clamp. Preserve its historical alpha
+                // rights rather than treating it like terminal `None` recycling.
+                ensure!(!deferred || delta > 0, Error::<T>::AmountTooLow);
+                let reference = Self::basket_dividend_reference_value(*origin_netuid, delta, true)?;
+                if deferred {
+                    Self::ensure_basket_dividend_price_impact(
+                        0,
+                        0,
+                        delta,
+                        reference,
+                        reference.abs_diff(u128::from(delta)),
+                    )?;
+                }
+                Ok(Some((delta, reference)))
             });
-            if let Some(Some(delta)) = delta {
+            if let Some(Some((delta, reference))) = delta {
+                reference_added = reference_added
+                    .checked_add(reference)
+                    .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+                // Bound aggregate incoming distortion without allowing opposing
+                // origin moves to cancel each other out.
+                origin_error = origin_error
+                    .checked_add(reference.abs_diff(u128::from(delta)))
+                    .ok_or(sp_runtime::ArithmeticError::Overflow)?;
                 accumulated_any = true;
                 value_added = value_added.saturating_add(delta);
                 converted.push((*origin_netuid, root_alpha.to_u64(), delta));
@@ -640,6 +681,14 @@ impl<T: Config> Pallet<T> {
         if !accumulated_any {
             return Ok(());
         }
+
+        Self::ensure_basket_dividend_price_impact(
+            nav_before,
+            reference_nav,
+            value_added,
+            reference_added,
+            origin_error,
+        )?;
 
         if !deferred {
             return Self::mint_basket_dividend_shares(
@@ -732,53 +781,34 @@ impl<T: Config> Pallet<T> {
         Ok(Some(origin_after.saturating_sub(origin_before)))
     }
 
-    /// Dividend minting uses live realizable marks on both sides. Refuse to take that snapshot
-    /// while any relevant pool is outside the same fast-price band used to protect basket
-    /// trades: an extrinsic in this block can move spot, but cannot move the fast EMA.
-    fn ensure_basket_dividend_prices_stable(
-        hotkey: &T::AccountId,
-        batch: &[(NetUid, AlphaBalance)],
-    ) -> DispatchResult {
-        let holdings = Self::get_basket_holdings(hotkey);
-        for (netuid, _) in holdings.iter() {
-            ensure!(
-                Self::basket_dividend_price_is_stable(*netuid),
-                Error::<T>::SlippageTooHigh
-            );
+    /// Rebase an already computed realizable quote to the fast-price anchor. Holdings
+    /// inside the existing 2% band keep their live mark; incoming credits always use the
+    /// anchor so their aggregate 2% budget includes in-band errors too. This is never the
+    /// price used to mint or redeem shares. Keep liquidity/slippage discounts from the
+    /// live quote; no extra swap simulation or pool mutation is needed.
+    fn basket_dividend_reference_value(
+        netuid: NetUid,
+        value: u64,
+        incoming: bool,
+    ) -> Result<u128, DispatchError> {
+        if value == 0 {
+            return Ok(0);
         }
-        for (netuid, alpha) in batch {
-            if holdings.iter().any(|(held, _)| held == netuid)
-                || Self::basket_dividend_price_is_stable(*netuid)
-            {
-                continue;
-            }
-            // A new holding which is terminally untradeable cannot affect NAV: let the
-            // ordinary credit path recycle it instead of pinning the whole queue. A
-            // priceable origin outside the band is a pump/dump and must wait.
-            if Self::try_realizable_tao_for_alpha(*netuid, alpha.to_u64())?.is_none() {
-                continue;
-            }
-            return Err(Error::<T>::SlippageTooHigh.into());
-        }
-        Ok(())
-    }
-
-    fn basket_dividend_price_is_stable(netuid: NetUid) -> bool {
         // Dissolving pools no longer admit user trades or update their EMA. Their retained
         // reserves remain realizable until basket conversion, which itself waits for the
         // dividend drain; requiring the frozen EMA here would deadlock that conversion.
         if !Self::if_subnet_exist(netuid) {
-            return true;
+            return Ok(u128::from(value));
         }
         if netuid.is_root() || SubnetMechanism::<T>::get(netuid) != 1 {
-            return true;
+            return Ok(u128::from(value));
         }
         let Some(fast) = SubnetFastMovingPrice::<T>::get(netuid) else {
-            return false;
+            return Err(Error::<T>::SlippageTooHigh.into());
         };
         let spot = T::SwapInterface::current_alpha_price(netuid.into());
         if fast == U64F64::saturating_from_num(0) || spot == U64F64::saturating_from_num(0) {
-            return false;
+            return Err(Error::<T>::SlippageTooHigh.into());
         }
 
         let denominator = U64F64::saturating_from_num(10_000u64);
@@ -792,6 +822,54 @@ impl<T: Config> Pallet<T> {
                 10_000u64.saturating_add(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
             ))
             .safe_div(denominator);
-        spot >= lower && spot <= upper
+        if !incoming && spot >= lower && spot <= upper {
+            return Ok(u128::from(value));
+        }
+        let reference = sp_core::U256::from(value)
+            .saturating_mul(sp_core::U256::from(fast.to_bits()))
+            .checked_div(sp_core::U256::from(spot.to_bits()))
+            .ok_or(sp_runtime::ArithmeticError::DivisionByZero)?;
+        reference
+            .try_into()
+            .map_err(|_| sp_runtime::ArithmeticError::Overflow.into())
+    }
+
+    /// Bound denominator distortion, gross origin distortion, and their combined effect
+    /// on B/N. A shared failure rolls back every tentative credit and requeues the batch.
+    /// Holding prices inside the stable band keep the pre-existing 2% tolerance.
+    /// Out-of-band NAV exposure is capped at 10 bps; gross incoming exposure (including
+    /// in-band errors) and the combined mint ratio are capped at 200 bps. These are
+    /// admission references, not fair-market guarantees.
+    pub(crate) fn ensure_basket_dividend_price_impact(
+        nav: u64,
+        reference_nav: u128,
+        added: u64,
+        reference_added: u128,
+        origin_error: u128,
+    ) -> DispatchResult {
+        use sp_core::U256;
+        let scale = U256::from(10_000u64);
+        let limit = U256::from(crate::BASKET_DIVIDEND_PRICE_IMPACT_BPS);
+        let mint_limit = U256::from(crate::BASKET_DIVIDEND_MINT_IMPACT_BPS);
+        ensure!(
+            U256::from(reference_nav.abs_diff(u128::from(nav))).saturating_mul(scale)
+                <= U256::from(reference_nav).saturating_mul(limit),
+            Error::<T>::SlippageTooHigh
+        );
+        ensure!(
+            U256::from(origin_error).saturating_mul(scale)
+                <= U256::from(reference_added).saturating_mul(mint_limit),
+            Error::<T>::SlippageTooHigh
+        );
+        if nav != 0 && reference_nav != 0 && reference_added != 0 {
+            let live = U256::from(added).saturating_mul(U256::from(reference_nav));
+            let reference = U256::from(reference_added).saturating_mul(U256::from(nav));
+            let difference = live.max(reference).saturating_sub(live.min(reference));
+            ensure!(
+                difference.saturating_mul(scale) <= reference.saturating_mul(mint_limit),
+                Error::<T>::SlippageTooHigh
+            );
+        }
+        Ok(())
     }
 }
