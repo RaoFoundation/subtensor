@@ -218,6 +218,14 @@ pub const DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO: u64 = 10_000_000;
 /// `price_limit`; a leg that cannot fill fully within the bound fails.
 pub const BASKET_TRADE_MAX_SLIPPAGE_BPS: u64 = 200;
 
+/// Maximum basket NAV impact of out-of-band prices on dividend share minting (0.1%).
+/// The per-pool 2% band still defines which prices require an anchored comparison.
+pub const BASKET_DIVIDEND_PRICE_IMPACT_BPS: u64 = 10;
+
+/// Gross incoming-dividend and combined mint-ratio impact budget (2%). This preserves
+/// the existing price-band tolerance at the batch level while allowing small outliers.
+pub const BASKET_DIVIDEND_MINT_IMPACT_BPS: u64 = 200;
+
 /// Half-life, in blocks, of the fast subnet price EMA ([`SubnetFastMovingPrice`]) that
 /// anchors `swap_basket` price bounds: 600 blocks (about two hours at 12s blocks). Short
 /// enough that honest trading self-heals after a real price move within hours; long enough

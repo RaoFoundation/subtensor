@@ -13,6 +13,52 @@ use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, Token};
 
+// PROTECTED_REGRESSION: a tiny volatile holding must not strand earned root dividends; changes require explicit human approval.
+#[test]
+fn small_out_of_band_holding_allows_dividend_settlement_and_actual_claim() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(4_301);
+        let coldkey = U256::from(4_302);
+        let owner = U256::from(4_303);
+        let held = add_dynamic_network(&U256::from(4_304), &owner);
+        let origin = add_dynamic_network(&U256::from(4_305), &owner);
+        for netuid in [held, origin] {
+            remove_owner_registration_stake(netuid);
+            fund_pool(netuid);
+        }
+        SubtensorModule::set_tao_weight(u64::MAX);
+        super::claim_root::zero_claim_threshold();
+        fund_with_claimable_dividends(hotkey, coldkey, 0, &[held], &[]);
+        // This position is 0.1% of the cash-backed fund. A 10% spot move
+        // breaches the old per-pool gate but shifts the fund by only ~0.01%.
+        crate::SubnetTAO::<Test>::mutate(held, |tao| {
+            *tao = tao.saturating_add(tao.saturating_div(10u64.into()));
+        });
+        let credit = 1_000_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(origin, |alpha| {
+            *alpha = alpha.saturating_add(credit.into());
+        });
+        SubtensorModule::enqueue_basket_deposit(&hotkey, origin, credit.into());
+        let (_, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        assert!(completed);
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
+        assert!(BasketRate::<Test>::get(hotkey) > I96F32::from_num(1));
+        assert_ok!(SubtensorModule::claim_root(
+            RuntimeOrigin::signed(coldkey),
+            BTreeSet::new(),
+        ));
+        let paid_root = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        )
+        .to_u64();
+        // Existing cash alone is insufficient: this asserts the earned dividend
+        // actually became claimable root stake, not just an empty successful call.
+        assert!(paid_root > ROOT_STAKE + FUND_CASH + credit / 2);
+    });
+}
+
 const ROOT_STAKE: u64 = 1_000_000_000;
 const FUND_CASH: u64 = 1_000_000_000;
 const PENDING_DUST: u64 = 1_000;
