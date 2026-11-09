@@ -59,6 +59,121 @@ fn small_out_of_band_holding_allows_dividend_settlement_and_actual_claim() {
     });
 }
 
+// PROTECTED_REGRESSION: PR #3319 must not extinguish an exited claimant's alpha rights at a depressed origin price; changes require explicit human approval.
+#[test]
+fn deferred_origin_cannot_use_another_claimant_groups_price_budget() {
+    new_test_ext(1).execute_with(|| {
+        let hot = U256::from(4_401);
+        let alice = U256::from(4_402);
+        let bob = U256::from(4_403);
+        let owner = U256::from(4_404);
+        let depressed = add_dynamic_network(&U256::from(4_405), &owner);
+        let healthy = add_dynamic_network(&U256::from(4_406), &owner);
+        for netuid in [depressed, healthy] {
+            remove_owner_registration_stake(netuid);
+            fund_pool(netuid);
+        }
+        register_on_root(&hot, 0);
+        SubtensorModule::set_tao_weight(u64::MAX);
+        super::claim_root::zero_claim_threshold();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &alice,
+            NetUid::ROOT,
+            ROOT_STAKE.into(),
+        );
+
+        let alice_alpha = 100_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(depressed, |alpha| {
+            *alpha = alpha.saturating_add(alice_alpha.into());
+        });
+        SubtensorModule::enqueue_root_dividend(&hot, depressed, alice_alpha.into());
+        let original_tao = crate::SubnetTAO::<Test>::get(depressed);
+        crate::SubnetTAO::<Test>::insert(depressed, original_tao.saturating_div(100u64.into()));
+        let (_, _, ready) = SubtensorModule::flush_basket_deposits_for_hotkey(&hot);
+        assert!(ready);
+        assert!(crate::DeferredBasketRates::<Test>::contains_key(
+            hot, depressed
+        ));
+
+        // Alice fully exits before Bob joins. Their dividend rights must not mix.
+        let removed = SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &alice,
+            NetUid::ROOT,
+            ROOT_STAKE.into(),
+        );
+        assert_ok!(
+            SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hot, &alice, removed,
+            )
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&hot, &alice);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &bob,
+            NetUid::ROOT,
+            ROOT_STAKE.into(),
+        );
+        assert_ok!(
+            SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hot, &bob, ROOT_STAKE,
+            )
+        );
+        let bob_alpha = 10_000_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(healthy, |alpha| {
+            *alpha = alpha.saturating_add(bob_alpha.into());
+        });
+        SubtensorModule::enqueue_root_dividend(&hot, healthy, bob_alpha.into());
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert_eq!(SubtensorModule::get_basket_holdings(&hot).len(), 0);
+
+        // The bad origin is down 99%, but contributes under 1% batch error.
+        // Bob's healthy dividend can settle without closing Alice's alpha rights.
+        SubtensorModule::settle_basket_deposits_for_test(&hot);
+        assert_eq!(
+            PendingBasketDeposits::<Test>::get(hot, depressed),
+            alice_alpha.into()
+        );
+        assert!(crate::DeferredBasketRates::<Test>::contains_key(
+            hot, depressed
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &escrow, depressed),
+            AlphaBalance::ZERO,
+        );
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hot, healthy));
+        assert!(SubtensorModule::get_basket_owed_shares(&hot, &bob) > bob_alpha * 98 / 100);
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&hot, &alice), 0);
+
+        // The price recovers. Alice must receive her original dividend's value,
+        // not the ~1% share allocation permanently fixed at the depressed price.
+        crate::SubnetTAO::<Test>::insert(depressed, original_tao);
+        assert_ok!(SubtensorModule::claim_root(
+            RuntimeOrigin::signed(alice),
+            BTreeSet::new()
+        ));
+        let paid =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &alice, NetUid::ROOT)
+                .to_u64();
+        assert!(
+            paid >= alice_alpha * 99 / 100,
+            "Alice recovered only {paid}"
+        );
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hot, depressed));
+        assert!(!crate::DeferredBasketRates::<Test>::contains_key(
+            hot, depressed
+        ));
+        assert_ok!(SubtensorModule::claim_root(
+            RuntimeOrigin::signed(alice),
+            BTreeSet::new()
+        ));
+        assert_eq!(SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot, &alice, NetUid::ROOT,
+        ).to_u64(), paid);
+    });
+}
+
 const ROOT_STAKE: u64 = 1_000_000_000;
 const FUND_CASH: u64 = 1_000_000_000;
 const PENDING_DUST: u64 = 1_000;

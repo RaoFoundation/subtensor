@@ -11,7 +11,9 @@ Replace the requirement that every held subnet is within 2% of its fast EMA with
 a **0.1% basket NAV impact budget** for out-of-band holdings. Keep a separate
 **2% gross incoming-value budget** and **2% combined mint-ratio budget**. The
 incoming-value check anchors all origins, including those inside the 2% band;
-opposing origin moves cannot cancel away changes between deferred claimant groups.
+opposing origin moves cannot cancel each other out. Deferred payouts additionally
+require each origin independently to satisfy the 2% incoming-value budget, so a
+large healthy payout cannot conceal another claimant group's mispriced payout.
 
 This implements the basket-weighted proposal without claiming that a 0.1% NAV
 limit guarantees a 0.1% limit on the number of newly minted shares. The latter
@@ -95,6 +97,14 @@ Admission requires:
 3. When pricing outstanding shares, the deviation of `B_live / N_live` from
    `B_ref / N_ref` is at most 2%.
 
+Before these batch checks, each deferred origin must independently satisfy
+`abs(B_i_live - B_i_ref) / B_i_ref <= 2%`. Failure rolls back and requeues that
+origin alone, preserving its historical claimants' alpha rights; other origins
+can still settle subject to the batch checks. The reference is computed once
+inside the existing isolated credit transaction and reused by the batch checks.
+Consequently, the point example's aggregate incoming figures do not establish
+that every deferred origin would settle.
+
 The third condition also bounds the ordinary mint with unminted escrow yield:
 adding a nonnegative yield term to the denominator dampens the relative ratio
 error. The initial par mint is covered by the incoming-value check. Empty/zero
@@ -138,6 +148,15 @@ increases actual root stake by the earned dividend. It fails with the original
 all-holdings price gate restored and passes with the weighted gate. Existing
 protected tests are unchanged. Arithmetic tests cover limits, large values,
 opposing origin moves, and the combined numerator/denominator check.
+
+A second protected regression reproduces an exited claimant's origin losing
+99% of its price while a different claimant's healthy dividend makes the batch
+error less than 1%. It fails without the individual-origin guard. With the guard,
+the healthy dividend settles, the depressed origin remains pending, and its
+original claimant recovers at least 99% of the dividend's restored value as actual
+root stake after price recovery, without a second payout on a repeated claim.
+The individual-origin follow-up passes the full pallet suite with all features:
+**2,060 passed**, 9 ignored (plus 7 ignored documentation tests).
 
 The current RustSec database also reports **RUSTSEC-2026-0459** for Frontier's
 `sqlx -> libsqlite3-sys 0.30.1`, which is present on release-489 independently of

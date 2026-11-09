@@ -623,8 +623,9 @@ impl<T: Config> Pallet<T> {
             .next()
             .is_some();
 
-        // Each credit's accumulation is isolated: an unknown valuation failure re-queues
-        // that credit alone and the batch goes on with the others.
+        // Each credit's accumulation and admission are isolated. Deferred origins may
+        // belong to different historical claimant groups, so each must independently
+        // satisfy the incoming price budget before its alpha rights become shares.
         let mut value_added: u64 = 0;
         let mut reference_added = 0u128;
         let mut origin_error = 0u128;
@@ -635,15 +636,33 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
             let delta = Self::isolate_basket_credit(hotkey, *origin_netuid, *root_alpha, || {
-                Self::try_accumulate_basket_credit(hotkey, &escrow, *origin_netuid, *root_alpha)
-            });
-            if let Some(Some(delta)) = delta {
+                let Some(delta) = Self::try_accumulate_basket_credit(
+                    hotkey,
+                    &escrow,
+                    *origin_netuid,
+                    *root_alpha,
+                )?
+                else {
+                    return Ok(None);
+                };
                 let reference = Self::basket_dividend_reference_value(*origin_netuid, delta, true)?;
+                if deferred {
+                    Self::ensure_basket_dividend_price_impact(
+                        0,
+                        0,
+                        delta,
+                        reference,
+                        reference.abs_diff(u128::from(delta)),
+                    )?;
+                }
+                Ok(Some((delta, reference)))
+            });
+            if let Some(Some((delta, reference))) = delta {
                 reference_added = reference_added
                     .checked_add(reference)
                     .ok_or(sp_runtime::ArithmeticError::Overflow)?;
-                // Do not let opposing origin moves hide a redistribution between deferred
-                // claimant groups: bound the sum of absolute origin errors as well.
+                // Bound aggregate incoming distortion without allowing opposing
+                // origin moves to cancel each other out.
                 origin_error = origin_error
                     .checked_add(reference.abs_diff(u128::from(delta)))
                     .ok_or(sp_runtime::ArithmeticError::Overflow)?;
