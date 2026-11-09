@@ -12,6 +12,11 @@
 //! | 3    | validator | `≤ 50%`, and above root's baseline share  |
 //! | 4    | miner     | `≥ 33%`                                   |
 //!
+//! A subnet may also give shares of at most 10% each to the gamma of whitelisted subnets with gamma
+//! enabled
+//! ([`EmissionSlot::Gamma`], stored in [`SubnetGammaEmission`]); the five slots and the gamma
+//! shares together sum to exactly one.
+//!
 //! Root holders are paid **off the top** of the validator slot. Every block,
 //! root's alpha on a subnet is `min(V, r) · alpha_out` where `r` is root's
 //! *baseline* share ([`Pallet::baseline_root_emission_share`]): what root
@@ -70,6 +75,18 @@ pub const MAX_BURN_RECYCLE_EMISSION: u64 = emission_fraction(33, 100);
 pub const MAX_VALIDATOR_EMISSION: u64 = emission_fraction(50, 100);
 /// Miner slot must be at least 33% of emission.
 pub const MIN_MINER_EMISSION: u64 = emission_fraction(33, 100);
+/// Each gamma share may be at most 10% of emission.
+pub const MAX_GAMMA_EMISSION: u64 = emission_fraction(10, 100);
+/// Most gamma shares a split has, as many as a subnet's mechanisms.
+pub const MAX_GAMMA_SHARES: u32 = 16;
+/// Most slots a split has: the five fixed slots and the gamma shares.
+pub const MAX_EMISSION_SLOTS: u32 = EMISSION_WEIGHT_SLOTS + MAX_GAMMA_SHARES;
+
+/// A subnet's gamma shares, `(target, share)` in ascending target order.
+pub type GammaEmission = BoundedVec<(NetUid, u64), ConstU32<MAX_GAMMA_SHARES>>;
+
+/// A whole emission split, its slots in strictly ascending order.
+pub type EmissionSplit = BoundedVec<(EmissionSlot, u64), ConstU32<MAX_EMISSION_SLOTS>>;
 
 /// Distinct storage items [`Pallet::read_subnet_emission_weights_view`] reads:
 /// `SubnetEmissionWeights` and `SubnetCreatedViaLease`.
@@ -143,6 +160,36 @@ pub enum EmissionIndex {
     Validator = 3,
     /// Miner incentive (split across mechanisms by `MechanismEmissionSplit`).
     Miner = 4,
+}
+
+/// A slot of a subnet's emission split: a fixed slot or a share of a subnet's gamma.
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+)]
+pub enum EmissionSlot {
+    /// [`EmissionIndex::Burn`].
+    Burn,
+    /// [`EmissionIndex::Recycle`].
+    Recycle,
+    /// [`EmissionIndex::Owner`].
+    Owner,
+    /// [`EmissionIndex::Validator`].
+    Validator,
+    /// [`EmissionIndex::Miner`].
+    Miner,
+    /// Alpha converted at each epoch into this subnet's gamma for the subnet owner hotkey.
+    Gamma { netuid: NetUid },
 }
 
 impl EmissionIndex {
@@ -440,6 +487,7 @@ impl<T: Config> Pallet<T> {
     pub fn validate_subnet_emission_weights(
         netuid: NetUid,
         weights: &EmissionWeights,
+        gamma: &[(NetUid, u64)],
     ) -> DispatchResult {
         let slot = |index: EmissionIndex| weights.get(index.position()).copied().unwrap_or(0);
 
@@ -473,7 +521,11 @@ impl<T: Config> Pallet<T> {
             Error::<T>::MinerEmissionBelowMinimum
         );
 
-        let total: u128 = weights.iter().map(|w| *w as u128).sum();
+        let total: u128 = weights
+            .iter()
+            .chain(gamma.iter().map(|(_, share)| share))
+            .map(|w| *w as u128)
+            .sum();
         ensure!(
             total == EMISSION_WEIGHT_ONE as u128,
             Error::<T>::EmissionWeightsDoNotSumToOne
@@ -518,7 +570,11 @@ impl<T: Config> Pallet<T> {
 
         let current = Self::get_subnet_emission_weights(netuid);
         let merged = Self::merge_emission_weight_updates(current, &uids, &values)?;
-        Self::validate_subnet_emission_weights(netuid, &merged)?;
+        Self::validate_subnet_emission_weights(
+            netuid,
+            &merged,
+            &SubnetGammaEmission::<T>::get(netuid),
+        )?;
 
         let new_validator = merged
             .get(EmissionIndex::Validator.position())
@@ -533,5 +589,138 @@ impl<T: Config> Pallet<T> {
             weights: merged.to_vec(),
         });
         Ok(())
+    }
+
+    /// Replace the subnet's whole emission split with `split`, after checking every rule and
+    /// that the new validator slot clears root's live baseline share. A slot left out is zero,
+    /// and a gamma slot of zero is no share.
+    pub fn do_set_subnet_emission_weights_v2(
+        netuid: NetUid,
+        split: EmissionSplit,
+    ) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(
+            !netuid.is_root(),
+            Error::<T>::EmissionWeightsNotSettableOnRoot
+        );
+        ensure!(
+            split.is_sorted_by(|(slot, _), (next, _)| slot < next),
+            Error::<T>::EmissionSlotsNotAscending
+        );
+
+        let mut weights = [0u64; EMISSION_WEIGHT_SLOTS as usize];
+        let mut gamma = GammaEmission::default();
+        for (slot, share) in split {
+            let index = match slot {
+                EmissionSlot::Burn => EmissionIndex::Burn,
+                EmissionSlot::Recycle => EmissionIndex::Recycle,
+                EmissionSlot::Owner => EmissionIndex::Owner,
+                EmissionSlot::Validator => EmissionIndex::Validator,
+                EmissionSlot::Miner => EmissionIndex::Miner,
+                EmissionSlot::Gamma { netuid: target } => {
+                    ensure!(target != netuid, Error::<T>::InvalidValue);
+                    ensure!(
+                        SubnetGammaEmissionWhitelisted::<T>::get(target),
+                        Error::<T>::GammaEmissionTargetNotWhitelisted
+                    );
+                    ensure!(
+                        SubnetGammaEnabled::<T>::get(target),
+                        Error::<T>::GammaDisabled
+                    );
+                    ensure!(
+                        share <= MAX_GAMMA_EMISSION,
+                        Error::<T>::GammaEmissionAboveMaximum
+                    );
+                    if share > 0 {
+                        gamma
+                            .try_push((target, share))
+                            .map_err(|_| Error::<T>::TooManyGammaEmissionShares)?;
+                    }
+                    continue;
+                }
+            };
+            if let Some(weight) = weights.get_mut(index.position()) {
+                *weight = share;
+            }
+        }
+        ensure!(
+            gamma.is_empty() || !SubnetUidToLeaseId::<T>::contains_key(netuid),
+            Error::<T>::GammaEmissionNotSettableOnLeasedSubnet
+        );
+        Self::validate_subnet_emission_weights(netuid, &weights, &gamma)?;
+        Self::ensure_validator_share_above_root_baseline(
+            netuid,
+            weights
+                .get(EmissionIndex::Validator.position())
+                .copied()
+                .unwrap_or(0),
+        )?;
+
+        Self::set_subnet_emission_split(netuid, weights, gamma);
+        Ok(())
+    }
+
+    /// Store a subnet's split and emit it, after allotting the gamma emission accrued under the
+    /// old split. A gamma share that leaves the split moves its unconverted alpha to the
+    /// subnet's pending miner emission.
+    fn set_subnet_emission_split(netuid: NetUid, weights: EmissionWeights, gamma: GammaEmission) {
+        let old = SubnetGammaEmission::<T>::get(netuid);
+        Self::allot_gamma_emission(netuid, &old);
+        let returned = old
+            .iter()
+            .filter(|(target, _)| !gamma.iter().any(|(kept, _)| kept == target))
+            .fold(AlphaBalance::ZERO, |total, (target, _)| {
+                total.saturating_add(UnconvertedGammaEmission::<T>::take(netuid, target))
+            });
+        PendingServerEmission::<T>::mutate(netuid, |total| {
+            *total = total.saturating_add(returned);
+        });
+        SubnetEmissionWeights::<T>::insert(netuid, Self::emission_weights_to_vec(weights));
+        if gamma.is_empty() {
+            SubnetGammaEmission::<T>::remove(netuid);
+        } else {
+            SubnetGammaEmission::<T>::insert(netuid, gamma.clone());
+        }
+        Self::deposit_event(Event::SubnetEmissionWeightsSet {
+            netuid,
+            weights: weights.to_vec(),
+        });
+        Self::deposit_event(Event::SubnetGammaEmissionSet {
+            netuid,
+            gamma: gamma.into_inner(),
+        });
+    }
+
+    /// Take `target` off the gamma emission whitelist and out of every subnet's split: each
+    /// share joins that subnet's miner slot, and its unconverted alpha the pending miner emission.
+    pub fn remove_gamma_emission_target(target: NetUid) {
+        SubnetGammaEmissionWhitelisted::<T>::remove(target);
+        let splits: Vec<(NetUid, GammaEmission)> = SubnetGammaEmission::<T>::iter()
+            .filter(|(_, gamma)| gamma.iter().any(|(listed, _)| *listed == target))
+            .collect();
+        for (netuid, gamma) in splits {
+            let (removed, kept): (Vec<_>, Vec<_>) =
+                gamma.into_iter().partition(|(listed, _)| *listed == target);
+            let mut weights = Self::get_subnet_emission_weights(netuid);
+            if let Some(miner) = weights.get_mut(EmissionIndex::Miner.position()) {
+                *miner = removed
+                    .iter()
+                    .fold(*miner, |miner, (_, share)| miner.saturating_add(*share));
+            }
+            Self::set_subnet_emission_split(netuid, weights, GammaEmission::truncate_from(kept));
+        }
+    }
+
+    /// Worst-case weight of [`Self::remove_gamma_emission_target`]: every subnet's split read,
+    /// allotted and rewritten. Only live subnets have splits.
+    pub fn remove_gamma_emission_target_weight() -> Weight {
+        let subnets = u64::from(TotalNetworks::<T>::get());
+        let shares = u64::from(MAX_GAMMA_SHARES);
+        T::DbWeight::get().reads_writes(
+            subnets.saturating_mul(shares.saturating_add(6)),
+            subnets
+                .saturating_mul(shares.saturating_add(5))
+                .saturating_add(1),
+        )
     }
 }

@@ -1,11 +1,13 @@
 #![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
 
 use frame_support::traits::ExtendedDispatchable;
+use frame_support::weights::Weight;
 use frame_support::{BoundedVec, assert_noop, assert_ok};
 use sp_core::U256;
+use sp_runtime::DispatchResult;
 use sp_runtime::traits::Dispatchable;
 use sp_std::collections::btree_map::BTreeMap;
-use substrate_fixed::types::U64F64;
+use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, GammaBalance, NetUid, ProxyType, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
@@ -2190,5 +2192,322 @@ fn sim_mint_gamma_equals_mint_gamma() {
             SubtensorModule::sim_mint_gamma_with_stake(netuid, stake),
             disabled
         );
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Gamma emission
+// ---------------------------------------------------------------------------
+
+const SOURCE_OWNER_HOTKEY: u64 = 20;
+const SOURCE_OWNER_COLDKEY: u64 = 21;
+
+/// A gamma subnet whitelisted for gamma emission and a source subnet, both with pools whose
+/// fast moving price is at spot. Returns `(source, target)`.
+fn gamma_emission_subnets() -> (NetUid, NetUid) {
+    let target = gamma_subnet();
+    let source = add_dynamic_network(
+        &U256::from(SOURCE_OWNER_HOTKEY),
+        &U256::from(SOURCE_OWNER_COLDKEY),
+    );
+    setup_reserves(source, (1_000 * TAO).into(), (1_000 * TAO).into());
+    for netuid in [source, target] {
+        let spot = <Test as Config>::SwapInterface::current_alpha_price(netuid);
+        SubnetFastMovingPrice::<Test>::insert(netuid, spot);
+    }
+    SubnetGammaEmissionWhitelisted::<Test>::insert(target, true);
+    (source, target)
+}
+
+/// Owner 18%, validator 31%, `gamma` to `target` and the rest to miners.
+fn split_with_gamma(target: NetUid, gamma: u64) -> Vec<(EmissionSlot, u64)> {
+    let owner = emission_fraction(18, 100);
+    let validator = emission_fraction(31, 100);
+    vec![
+        (EmissionSlot::Owner, owner),
+        (EmissionSlot::Validator, validator),
+        (
+            EmissionSlot::Miner,
+            EMISSION_WEIGHT_ONE - owner - validator - gamma,
+        ),
+        (EmissionSlot::Gamma { netuid: target }, gamma),
+    ]
+}
+
+fn set_split(netuid: NetUid, split: Vec<(EmissionSlot, u64)>) -> DispatchResult {
+    SubtensorModule::do_set_subnet_emission_weights_v2(netuid, EmissionSplit::truncate_from(split))
+}
+
+fn gamma_emission_minted() -> Option<(AlphaBalance, GammaBalance)> {
+    System::events()
+        .into_iter()
+        .find_map(|record| match record.event {
+            RuntimeEvent::SubtensorModule(Event::GammaEmissionMinted {
+                alpha_sold, gamma, ..
+            }) => Some((alpha_sold, gamma)),
+            _ => None,
+        })
+}
+
+#[test]
+fn emission_split_v2_sets_gamma_shares_and_refuses_bad_splits() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = gamma_emission_subnets();
+        let share = MAX_GAMMA_EMISSION;
+        assert_ok!(set_split(source, split_with_gamma(target, share)));
+        assert_eq!(
+            SubnetGammaEmission::<Test>::get(source).into_inner(),
+            vec![(target, share)]
+        );
+        let miner = SubtensorModule::get_subnet_miner_emission_cut(source);
+        assert_eq!(
+            miner,
+            EMISSION_WEIGHT_ONE - emission_fraction(18, 100) - emission_fraction(31, 100) - share
+        );
+
+        let mut reversed = split_with_gamma(target, share);
+        reversed.reverse();
+        assert_noop!(
+            set_split(source, reversed),
+            Error::<Test>::EmissionSlotsNotAscending
+        );
+        assert_noop!(
+            set_split(source, split_with_gamma(target, share + 1)),
+            Error::<Test>::GammaEmissionAboveMaximum
+        );
+        let other = add_dynamic_network(&U256::from(30), &U256::from(31));
+        assert_noop!(
+            set_split(source, split_with_gamma(other, share)),
+            Error::<Test>::GammaEmissionTargetNotWhitelisted
+        );
+        SubnetGammaEmissionWhitelisted::<Test>::insert(other, true);
+        assert_noop!(
+            set_split(source, split_with_gamma(other, share)),
+            Error::<Test>::GammaDisabled
+        );
+        SubnetGammaEmissionWhitelisted::<Test>::insert(source, true);
+        SubnetGammaEnabled::<Test>::insert(source, true);
+        assert_noop!(
+            set_split(source, split_with_gamma(source, share)),
+            Error::<Test>::InvalidValue
+        );
+        // The gamma share comes out of the miner slot's 33% minimum like any other.
+        let tenth = emission_fraction(10, 100);
+        let low_miner = split_with_gamma(target, share)
+            .into_iter()
+            .map(|(slot, value)| match slot {
+                EmissionSlot::Validator => (slot, value + tenth),
+                EmissionSlot::Miner => (slot, value - tenth),
+                _ => (slot, value),
+            })
+            .collect();
+        assert_noop!(
+            set_split(source, low_miner),
+            Error::<Test>::MinerEmissionBelowMinimum
+        );
+        // A split has at most `MAX_GAMMA_SHARES` gamma shares.
+        let mut too_many = vec![
+            (EmissionSlot::Owner, emission_fraction(18, 100)),
+            (EmissionSlot::Validator, emission_fraction(31, 100)),
+            (
+                EmissionSlot::Miner,
+                EMISSION_WEIGHT_ONE
+                    - emission_fraction(18, 100)
+                    - emission_fraction(31, 100)
+                    - (MAX_GAMMA_SHARES as u64 + 1),
+            ),
+        ];
+        for index in 0..=MAX_GAMMA_SHARES {
+            let netuid = NetUid::from(100 + index as u16);
+            SubnetGammaEmissionWhitelisted::<Test>::insert(netuid, true);
+            SubnetGammaEnabled::<Test>::insert(netuid, true);
+            too_many.push((EmissionSlot::Gamma { netuid }, 1));
+        }
+        assert_noop!(
+            set_split(source, too_many),
+            Error::<Test>::TooManyGammaEmissionShares
+        );
+        // A subnet under a lease has no owner key to receive the gamma.
+        SubnetUidToLeaseId::<Test>::insert(source, 0);
+        assert_noop!(
+            set_split(source, split_with_gamma(target, share)),
+            Error::<Test>::GammaEmissionNotSettableOnLeasedSubnet
+        );
+        SubnetUidToLeaseId::<Test>::remove(source);
+        // The fixed-slot setter counts the gamma shares in its sum.
+        assert_noop!(
+            SubtensorModule::do_set_subnet_emission_weights(
+                source,
+                vec![EmissionIndex::Miner as u16],
+                vec![miner + share]
+            ),
+            Error::<Test>::EmissionWeightsDoNotSumToOne
+        );
+
+        // A gamma share of zero is no share.
+        assert_ok!(set_split(source, split_with_gamma(target, 0)));
+        assert!(SubnetGammaEmission::<Test>::get(source).is_empty());
+    });
+}
+
+#[test]
+fn gamma_emission_accrues_each_block_and_mints_at_the_epoch() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = gamma_emission_subnets();
+        assert_ok!(set_split(
+            source,
+            split_with_gamma(target, MAX_GAMMA_EMISSION)
+        ));
+
+        let credit = SubtensorModule::mint_tao(12_345_678.into());
+        SubtensorModule::emit_to_subnets(
+            &[source],
+            &BTreeMap::from([(source, U96F32::from_num(12_345_678))]),
+            credit,
+            true,
+        );
+        let alpha_out = SubnetAlphaOutEmission::<Test>::get(source).to_u64();
+        let pending = PendingGammaEmission::<Test>::get(source).to_u64();
+        assert!(alpha_out > 0);
+        assert!(pending.abs_diff(alpha_out / 10) <= 2);
+
+        PendingGammaEmission::<Test>::insert(source, AlphaBalance::from(TAO));
+        System::reset_events();
+        SubtensorModule::mint_gamma_emission(source);
+
+        let (alpha_sold, gamma) = gamma_emission_minted().unwrap();
+        assert_eq!(alpha_sold, AlphaBalance::from(TAO));
+        assert!(PendingGammaEmission::<Test>::get(source).is_zero());
+        assert!(UnconvertedGammaEmission::<Test>::get(source, target).is_zero());
+        let deposit = deposit(target, SOURCE_OWNER_HOTKEY);
+        assert_eq!(deposit.coldkey, U256::from(SOURCE_OWNER_COLDKEY));
+        assert_eq!(deposit.balance, gamma);
+        // About one alpha at a price of one TAO and 400 dollars per TAO, less slippage and fees.
+        assert!(gamma.to_u64() > 390 * GAMMA && gamma.to_u64() < 400 * GAMMA);
+        assert_gamma_invariants(target);
+    });
+}
+
+#[test]
+fn gamma_emission_is_allotted_by_share_size() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target, other) = (NetUid::from(1), NetUid::from(2), NetUid::from(3));
+        PendingGammaEmission::<Test>::insert(source, AlphaBalance::from(10));
+        SubtensorModule::allot_gamma_emission(source, &[(target, 1), (other, 2)]);
+        assert_eq!(
+            UnconvertedGammaEmission::<Test>::get(source, target),
+            AlphaBalance::from(3)
+        );
+        assert_eq!(
+            UnconvertedGammaEmission::<Test>::get(source, other),
+            AlphaBalance::from(6)
+        );
+        // The rounding remainder stays pending.
+        assert_eq!(
+            PendingGammaEmission::<Test>::get(source),
+            AlphaBalance::from(1)
+        );
+    });
+}
+
+#[test]
+fn gamma_emission_waits_while_a_price_is_past_its_bound_or_stale() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = gamma_emission_subnets();
+        assert_ok!(set_split(
+            source,
+            split_with_gamma(target, MAX_GAMMA_EMISSION)
+        ));
+        PendingGammaEmission::<Test>::insert(source, AlphaBalance::from(TAO));
+        let waits = || {
+            SubtensorModule::mint_gamma_emission(source);
+            assert_eq!(
+                UnconvertedGammaEmission::<Test>::get(source, target),
+                AlphaBalance::from(TAO)
+            );
+            assert!(GammaDeposits::<Test>::get(target, U256::from(SOURCE_OWNER_HOTKEY)).is_none());
+        };
+        let fast = |netuid: NetUid| SubnetFastMovingPrice::<Test>::get(netuid).unwrap();
+        let (source_fast, target_fast) = (fast(source), fast(target));
+
+        // The target's spot is more than 2% above its fast moving price.
+        SubnetFastMovingPrice::<Test>::insert(target, target_fast * U64F64::from_num(0.97));
+        waits();
+        SubnetFastMovingPrice::<Test>::insert(target, target_fast);
+        // The source's spot is more than 2% below its fast moving price.
+        SubnetFastMovingPrice::<Test>::insert(source, source_fast * U64F64::from_num(1.03));
+        waits();
+        SubnetFastMovingPrice::<Test>::insert(source, source_fast);
+        // The subnet owner coldkey does not own the owner hotkey.
+        SubnetOwner::<Test>::insert(source, U256::from(99));
+        waits();
+        SubnetOwner::<Test>::insert(source, U256::from(SOURCE_OWNER_COLDKEY));
+        // Gamma is disabled on the target.
+        SubnetGammaEnabled::<Test>::insert(target, false);
+        waits();
+        SubnetGammaEnabled::<Test>::insert(target, true);
+        // The TAO/USD price is stale.
+        System::set_block_number(System::block_number() + TAO_USD_PRICE_MAX_AGE + 1);
+        waits();
+
+        assert_ok!(SubtensorModule::feed_tao_usd_price(
+            RuntimeOrigin::signed(U256::from(ORACLE)),
+            PRICE
+        ));
+        SubtensorModule::mint_gamma_emission(source);
+        assert!(UnconvertedGammaEmission::<Test>::get(source, target).is_zero());
+    });
+}
+
+#[test]
+fn gamma_shares_leaving_the_split_return_to_miners() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = gamma_emission_subnets();
+        let pending = AlphaBalance::from(5 * TAO);
+        let set_with_pending = || {
+            assert_ok!(set_split(
+                source,
+                split_with_gamma(target, MAX_GAMMA_EMISSION)
+            ));
+            PendingGammaEmission::<Test>::insert(source, pending);
+            (
+                SubtensorModule::get_subnet_miner_emission_cut(source),
+                PendingServerEmission::<Test>::get(source),
+            )
+        };
+        let returned = |(miner, server): (u64, AlphaBalance)| {
+            assert!(SubnetGammaEmission::<Test>::get(source).is_empty());
+            assert!(PendingGammaEmission::<Test>::get(source).is_zero());
+            assert!(UnconvertedGammaEmission::<Test>::get(source, target).is_zero());
+            assert_eq!(PendingServerEmission::<Test>::get(source), server + pending);
+            assert_eq!(
+                SubtensorModule::get_subnet_miner_emission_cut(source),
+                miner + MAX_GAMMA_EMISSION
+            );
+        };
+
+        // The owner drops the share.
+        let before = set_with_pending();
+        assert_ok!(set_split(source, split_with_gamma(target, 0)));
+        returned(before);
+
+        // Root removes the target from the whitelist.
+        let before = set_with_pending();
+        SubtensorModule::remove_gamma_emission_target(target);
+        assert!(!SubnetGammaEmissionWhitelisted::<Test>::get(target));
+        returned(before);
+
+        // The target is dissolved.
+        SubnetGammaEmissionWhitelisted::<Test>::insert(target, true);
+        let before = set_with_pending();
+        assert_ok!(SubtensorModule::do_dissolve_network(target));
+        for _ in 0..100 {
+            if DissolveCleanupQueue::<Test>::get().is_empty() {
+                break;
+            }
+            SubtensorModule::remove_data_for_dissolved_networks(Weight::MAX);
+        }
+        assert!(DissolveCleanupQueue::<Test>::get().is_empty());
+        returned(before);
     });
 }

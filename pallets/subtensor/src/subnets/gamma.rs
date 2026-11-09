@@ -6,6 +6,8 @@
 //! coldkey sets another. [`ColdkeyGammaHotkeys`] indexes a
 //! coldkey's deposits per subnet so coldkey swaps move them in a bounded walk.
 
+use frame_support::storage::with_storage_layer;
+use safe_math::*;
 use sp_runtime::ArithmeticError;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, GammaBalance, NetUid, TaoBalance};
@@ -210,6 +212,114 @@ impl<T: Config> Pallet<T> {
                 Ok((spender, daily_spend_cap))
             }
         }
+    }
+
+    /// The AMM price limits of gamma emission trades on `netuid`: a sale floor
+    /// [`crate::GAMMA_EMISSION_MAX_SLIPPAGE_BPS`] below the higher of its fast moving and spot
+    /// prices, and a purchase ceiling as far above the lower.
+    fn gamma_emission_price_limits(
+        netuid: NetUid,
+    ) -> Result<(TaoBalance, TaoBalance), DispatchError> {
+        let fast = SubnetFastMovingPrice::<T>::get(netuid).ok_or(Error::<T>::SlippageTooHigh)?;
+        let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
+        let limit = |price: U64F64, bps: u64| -> TaoBalance {
+            price
+                .saturating_mul(U64F64::saturating_from_num(bps))
+                .safe_div(U64F64::saturating_from_num(10_000u64))
+                .saturating_mul(U64F64::saturating_from_num(1_000_000_000u64))
+                .saturating_to_num::<u64>()
+                .into()
+        };
+        let bps = crate::GAMMA_EMISSION_MAX_SLIPPAGE_BPS;
+        Ok((
+            limit(fast.max(spot), 10_000u64.saturating_sub(bps)),
+            limit(fast.min(spot), 10_000u64.saturating_add(bps)),
+        ))
+    }
+
+    /// Allots the subnet's pending gamma emission to `gamma`, its gamma shares, in proportion
+    /// to their size. The rounding remainder stays pending.
+    pub(crate) fn allot_gamma_emission(netuid: NetUid, gamma: &[(NetUid, u64)]) {
+        let pending = PendingGammaEmission::<T>::get(netuid).to_u64();
+        let total = gamma
+            .iter()
+            .fold(0u64, |total, (_, share)| total.saturating_add(*share));
+        if pending == 0 || total == 0 {
+            return;
+        }
+        let mut allotted = 0u64;
+        for (target, share) in gamma {
+            let alpha = Self::mul_div_u64(pending, *share, total);
+            UnconvertedGammaEmission::<T>::mutate(netuid, target, |unconverted| {
+                *unconverted = unconverted.saturating_add(alpha.into());
+            });
+            allotted = allotted.saturating_add(alpha);
+        }
+        PendingGammaEmission::<T>::insert(
+            netuid,
+            AlphaBalance::from(pending.saturating_sub(allotted)),
+        );
+    }
+
+    /// Allots the subnet's pending gamma emission at its epoch and converts each gamma share on
+    /// its own. A share that cannot convert keeps its alpha for the next epoch.
+    pub(crate) fn mint_gamma_emission(netuid: NetUid) {
+        let gamma = SubnetGammaEmission::<T>::get(netuid);
+        Self::allot_gamma_emission(netuid, &gamma);
+        for (target, _) in gamma {
+            let _ = with_storage_layer(|| Self::mint_gamma_emission_share(netuid, target));
+        }
+    }
+
+    /// Sells the alpha allotted to the subnet's share of `target`, within the sale floor and as
+    /// much as the target's pool takes within the purchase ceiling, buys and burns the
+    /// target's alpha with all of the TAO and credits the gamma to the subnet owner's deposit at
+    /// the subnet owner hotkey on the target.
+    fn mint_gamma_emission_share(netuid: NetUid, target: NetUid) -> DispatchResult {
+        let pending = UnconvertedGammaEmission::<T>::get(netuid, target);
+        if pending.is_zero() {
+            return Ok(());
+        }
+        Self::ensure_subtoken_enabled(netuid)?;
+        Self::ensure_gamma_mintable(target)?;
+        // Paid like the owner cut; crediting fails while the owner coldkey does not own the hotkey.
+        let coldkey = SubnetOwner::<T>::get(netuid);
+        let hotkey = SubnetOwnerHotkey::<T>::get(netuid);
+        let (floor, _) = Self::gamma_emission_price_limits(netuid)?;
+        let (_, ceiling) = Self::gamma_emission_price_limits(target)?;
+        // A sale returns at most the spot price per alpha, so its TAO fits under the ceiling.
+        let room = U64F64::saturating_from_num(Self::get_max_amount_add(target, ceiling)?)
+            .safe_div(T::SwapInterface::current_alpha_price(netuid.into()))
+            .saturating_to_num::<u64>();
+        let mark = Self::gamma_mark(target);
+        let sale = Self::swap_alpha_for_tao(netuid, pending.min(room.into()), floor, false)?;
+        let alpha_sold = sale.amount_paid_in.saturating_add(sale.fee_paid);
+        let fee = Self::settle_alpha_fee_to_author(netuid, sale.fee_to_block_author)?;
+        Self::record_tao_outflow(netuid, sale.amount_paid_out.saturating_add(fee));
+        let account = Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
+        let (tao, alpha) = Self::buy_and_burn_alpha(target, &account, sale.amount_paid_out)?;
+        ensure!(tao == sale.amount_paid_out, Error::<T>::SlippageTooHigh);
+        let (value, gamma) = Self::gamma_for_alpha(alpha, mark)?;
+        let (spender, _) = Self::credit_gamma(target, &coldkey, &hotkey, gamma, None, None)?;
+        let rest = pending.saturating_sub(alpha_sold);
+        if rest.is_zero() {
+            UnconvertedGammaEmission::<T>::remove(netuid, target);
+        } else {
+            UnconvertedGammaEmission::<T>::insert(netuid, target, rest);
+        }
+        Self::deposit_event(Event::GammaEmissionMinted {
+            netuid: target,
+            source_netuid: netuid,
+            coldkey,
+            hotkey,
+            spender,
+            alpha_sold,
+            tao,
+            alpha,
+            value,
+            gamma,
+        });
+        Ok(())
     }
 
     /// Buys alpha with `amount` TAO, burns it and credits its gamma to the signer's deposit
