@@ -37,6 +37,11 @@ else
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
     case "$path" in
+      # Moonwall submits through the shared native TypeScript SDK.
+      sdk/bittensor-ts/*|sdk/bittensor-core/*|sdk/bittensor-core-wasm/*)
+        enable_all
+        ;;
+
       # These surfaces cannot alter the node binaries or TypeScript harness.
       # Keep them explicit so the default below remains fail-closed.
       *.md|LICENSE|docs/*|website/*|sdk/*|eco-tests/*|ink-contract/*|clones/*|.maintain/*|.vscode/*|.agents/*|.claude/*)
@@ -65,7 +70,7 @@ else
       # Shard topology is proposed as data and expanded by a trusted generic
       # builder. When that contract changes, run the canonical unsharded
       # environments as an equivalence audit in addition to the fast shards.
-      ts-tests/e2e-shards.json|ts-tests/e2e-suite-ownership.json|ts-tests/moonwall.config.json|ts-tests/configs/zombie_single_node.json|ts-tests/configs/zombie_extended.json|ts-tests/scripts/e2e-shard-plan.mjs|ts-tests/scripts/test-e2e-shard-plan.mjs|ts-tests/scripts/validate-e2e-config.mjs|.github/workflows/typescript-e2e.yml|.github/actions/run-typescript-e2e/*|.github/scripts/classify-typescript-e2e-changes.sh|.github/scripts/test-classify-typescript-e2e-changes.sh)
+      ts-tests/e2e-shards.json|ts-tests/e2e-suite-ownership.json|ts-tests/moonwall.config.json|ts-tests/configs/zombie_single_node.json|ts-tests/configs/zombie_extended.json|ts-tests/scripts/e2e-shard-plan.mjs|ts-tests/scripts/test-e2e-shard-plan.mjs|ts-tests/scripts/validate-e2e-config.mjs|.github/workflows/bittensor-ts-e2e.yml|.github/actions/run-typescript-e2e/*|.github/scripts/classify-typescript-e2e-changes.sh|.github/scripts/test-classify-typescript-e2e-changes.sh)
         enable_all
         topology_audit=true
         ;;

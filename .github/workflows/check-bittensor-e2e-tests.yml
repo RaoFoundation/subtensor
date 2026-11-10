@@ -301,9 +301,9 @@ jobs:
     name: Build and publish PR localnet image
     needs: [trusted-pr, plan]
     if: needs.plan.outputs.build_image == 'true'
-    # Swap lanes with the short E2E harness build instead of consuming an
-    # additional turbo-16 slot. A full PR still needs four 16-core runners, so
-    # the eight-runner lane retains capacity for two simultaneous PRs.
+    # Reserve a turbo-16 lane for the image producer; the short test harness
+    # build stays on turbo-8. Together with the three TypeScript producers,
+    # a full PR can use seven of the eight turbo-16 slots during compilation.
     runs-on: [self-hosted, fireactions-turbo-16]
     # Same credential boundary as build-rust-e2e-test-binary: PR code runs here.
     environment:

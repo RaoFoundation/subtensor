@@ -6,6 +6,11 @@
 #![allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
 use std::collections::HashMap;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::{Component, Path, PathBuf};
 
 use base64::{engine::general_purpose, Engine as _};
 use fernet::Fernet;
@@ -28,6 +33,13 @@ const LEGACY_SALT: &[u8] = b"Iguesscyborgslikemyselfhaveatendencytobeparanoidabo
 
 fn key_err(msg: impl Into<String>) -> CoreError {
     CoreError::Keyfile(msg.into())
+}
+
+fn require_non_empty_password(password: &str) -> Result<&str, CoreError> {
+    if password.is_empty() {
+        return Err(key_err("keyfile password must not be empty"));
+    }
+    Ok(password)
 }
 
 pub fn keyfile_data_is_encrypted_nacl(keyfile_data: &[u8]) -> bool {
@@ -89,6 +101,7 @@ fn nacl_decrypt(keyfile_data: &[u8], key: &secretbox::Key) -> Result<Vec<u8>, Co
 
 pub fn encrypt_keyfile_data(keyfile_data: &[u8], password: &str) -> Result<Vec<u8>, CoreError> {
     ensure_sodium()?;
+    let password = require_non_empty_password(password)?;
     let key = derive_key(password.as_bytes())?;
     let nonce = secretbox::gen_nonce();
     let encrypted_data = secretbox::seal(keyfile_data, &nonce, &key);
@@ -214,6 +227,1005 @@ pub fn serialized_keypair_to_keyfile_data(keypair: &Keypair) -> Result<Vec<u8>, 
     serde_json::to_string(&data)
         .map(|json_data| json_data.into_bytes())
         .map_err(|error| key_err(format!("serialization error: {error}")))
+}
+
+pub fn keypair_to_keyfile_data(
+    keypair: &Keypair,
+    password: Option<&str>,
+) -> Result<Vec<u8>, CoreError> {
+    let plaintext = Zeroizing::new(serialized_keypair_to_keyfile_data(keypair)?);
+    if let Some(password) = password {
+        return encrypt_keyfile_data(&plaintext, password);
+    }
+    if keypair.has_private_key() {
+        return Err(key_err(
+            "plaintext private key serialization is disabled; provide a password or write through save_keypair_to_keyfile",
+        ));
+    }
+    Ok(plaintext.to_vec())
+}
+
+pub fn deserialize_keypair_from_keyfile(
+    keyfile_data: &[u8],
+    password: Option<&str>,
+) -> Result<Keypair, CoreError> {
+    if keyfile_data_is_encrypted(keyfile_data) {
+        let plaintext = Zeroizing::new(decrypt_keyfile_data(keyfile_data, password)?);
+        return deserialize_keypair_from_keyfile_data(&plaintext);
+    }
+    deserialize_keypair_from_keyfile_data(keyfile_data)
+}
+
+pub fn read_keypair_from_keyfile(
+    path: &Path,
+    password: Option<&str>,
+) -> Result<Keypair, CoreError> {
+    let keyfile_data = read_keyfile_bytes(path)?;
+    deserialize_keypair_from_keyfile(&keyfile_data, password)
+}
+
+fn read_keyfile_bytes(path: &Path) -> Result<Zeroizing<Vec<u8>>, CoreError> {
+    let mut file = open_keyfile_for_read(path)?;
+    let mut keyfile_data = Zeroizing::new(Vec::new());
+    file.read_to_end(&mut keyfile_data).map_err(|error| {
+        key_err(format!(
+            "failed to read keyfile {}: {error}",
+            path.display()
+        ))
+    })?;
+    Ok(keyfile_data)
+}
+
+#[cfg(unix)]
+fn open_keyfile_for_read(path: &Path) -> Result<File, CoreError> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|error| {
+            key_err(format!(
+                "failed to open keyfile {} without following symlinks: {error}",
+                path.display()
+            ))
+        })?;
+    let metadata = file.metadata().map_err(|error| {
+        key_err(format!(
+            "failed to inspect opened keyfile {}: {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.is_file() {
+        return Err(key_err(format!(
+            "keyfile path {} is not a regular file",
+            path.display()
+        )));
+    }
+    Ok(file)
+}
+
+#[cfg(not(unix))]
+fn open_keyfile_for_read(path: &Path) -> Result<File, CoreError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        key_err(format!(
+            "failed to inspect keyfile {}: {error}",
+            path.display()
+        ))
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(key_err(format!(
+            "refusing to read keyfile through symlink {}",
+            path.display()
+        )));
+    }
+    if !metadata.is_file() {
+        return Err(key_err(format!(
+            "keyfile path {} is not a regular file",
+            path.display()
+        )));
+    }
+    File::open(path).map_err(|error| {
+        key_err(format!(
+            "failed to open keyfile {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+pub fn save_keypair_to_keyfile(
+    keypair: &Keypair,
+    path: &Path,
+    password: Option<&str>,
+    overwrite: bool,
+    allow_plaintext: bool,
+) -> Result<(), CoreError> {
+    if keypair.has_private_key() && password.is_none() && !allow_plaintext {
+        return Err(key_err(
+            "plaintext private keyfile writes are disabled; provide a password or set allow_plaintext",
+        ));
+    }
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    ensure_private_directory(parent)?;
+    let _locks = lock_keyfile_directories(&[path])?;
+    validate_keyfile_target(path, overwrite)?;
+
+    let plaintext = Zeroizing::new(serialized_keypair_to_keyfile_data(keypair)?);
+    let data = if let Some(password) = password {
+        encrypt_keyfile_data(&plaintext, password)?
+    } else {
+        plaintext.to_vec()
+    };
+    atomic_write_keyfile(path, &data, overwrite)
+}
+
+pub fn save_keypair_pair_to_keyfiles(
+    private_keypair: &Keypair,
+    private_path: &Path,
+    private_password: Option<&str>,
+    public_keypair: &Keypair,
+    public_path: &Path,
+    overwrite: bool,
+    allow_plaintext: bool,
+) -> Result<(), CoreError> {
+    if private_path == public_path {
+        return Err(key_err("private and public keyfile paths must be distinct"));
+    }
+    if private_keypair.has_private_key() && private_password.is_none() && !allow_plaintext {
+        return Err(key_err(
+            "plaintext private keyfile writes are disabled; provide a password or set allow_plaintext",
+        ));
+    }
+    if public_keypair.has_private_key() {
+        return Err(key_err(
+            "public keyfile pair member must not contain a private key",
+        ));
+    }
+
+    prepare_keyfile_target(private_path, overwrite)?;
+    prepare_keyfile_target(public_path, overwrite)?;
+    let _locks = lock_keyfile_directories(&[private_path, public_path])?;
+    validate_keyfile_target(private_path, overwrite)?;
+    validate_keyfile_target(public_path, overwrite)?;
+
+    let private_plaintext = Zeroizing::new(serialized_keypair_to_keyfile_data(private_keypair)?);
+    let private_data = if let Some(password) = private_password {
+        encrypt_keyfile_data(&private_plaintext, password)?
+    } else {
+        private_plaintext.to_vec()
+    };
+    let public_data = serialized_keypair_to_keyfile_data(public_keypair)?;
+    atomic_write_keyfile_pair(
+        private_path,
+        &private_data,
+        public_path,
+        &public_data,
+        overwrite,
+    )
+}
+
+/// Persist a complete coldkey/hotkey wallet as one rollback-capable transaction.
+/// All encryption and validation finish before replacing any existing keyfile.
+pub fn save_wallet_keypairs_to_keyfiles(
+    keypairs: [&Keypair; 4],
+    paths: [&Path; 4],
+    passwords: [Option<&str>; 2],
+    overwrite: bool,
+    allow_plaintext: [bool; 2],
+) -> Result<(), CoreError> {
+    for index in [0, 2] {
+        if keypairs[index].public_key_bytes() != keypairs[index + 1].public_key_bytes()
+            || keypairs[index].crypto_type() != keypairs[index + 1].crypto_type()
+        {
+            return Err(key_err("private and public wallet identities differ"));
+        }
+    }
+    for (index, path) in paths.iter().enumerate() {
+        if paths[..index].contains(path) {
+            return Err(key_err("wallet keyfile paths must be distinct"));
+        }
+        prepare_keyfile_target(path, overwrite)?;
+    }
+    let _locks = lock_keyfile_directories(&paths)?;
+    let mut data = Vec::new();
+    for (index, keypair) in keypairs.iter().enumerate() {
+        validate_keyfile_target(paths[index], overwrite)?;
+        if index % 2 == 1 && keypair.has_private_key() {
+            return Err(key_err("public keyfile must not contain a private key"));
+        }
+        let password = if index % 2 == 0 {
+            passwords[index / 2]
+        } else {
+            None
+        };
+        if keypair.has_private_key() && password.is_none() && !allow_plaintext[index / 2] {
+            return Err(key_err("plaintext private keyfile writes are disabled"));
+        }
+        let plaintext = Zeroizing::new(serialized_keypair_to_keyfile_data(keypair)?);
+        data.push(Zeroizing::new(if let Some(password) = password {
+            encrypt_keyfile_data(&plaintext, password)?
+        } else {
+            plaintext.to_vec()
+        }));
+    }
+    atomic_write_wallet(&paths, &data, overwrite)
+}
+
+/// Unix directory locks also coordinate with the Python wallet's directory flock.
+/// Windows uses persistent lock files, which must not be unlinked while in use.
+fn lock_keyfile_directories(paths: &[&Path]) -> Result<Vec<File>, CoreError> {
+    let mut directories = Vec::new();
+    for path in paths {
+        let parent = path
+            .parent()
+            .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+        let parent = normalize_directory_path(parent);
+        ensure_private_directory(parent)?;
+        directories.push(fs::canonicalize(parent).map_err(|error| key_err(error.to_string()))?);
+    }
+    directories.sort();
+    directories.dedup();
+    let mut locks = Vec::new();
+    for directory in directories {
+        ensure_private_directory(&directory)?;
+        #[cfg(unix)]
+        let path = directory.clone();
+        #[cfg(unix)]
+        let lock = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+            .open(&path)
+            .map_err(|error| key_err(format!("could not open wallet directory: {error}")))?;
+        #[cfg(not(unix))]
+        let path = directory.join(".bittensor-wallet.lock");
+        #[cfg(not(unix))]
+        let lock = {
+            if let Ok(metadata) = fs::symlink_metadata(&path) {
+                if !metadata.is_file() || metadata.file_type().is_symlink() {
+                    return Err(key_err("wallet lock must be a regular file"));
+                }
+            }
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&path)
+                .map_err(|error| key_err(format!("could not open wallet lock: {error}")))?
+        };
+        lock.lock()
+            .map_err(|error| key_err(format!("could not lock wallet directory: {error}")))?;
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| key_err(format!("could not inspect wallet lock: {error}")))?;
+        if metadata.file_type().is_symlink() {
+            return Err(key_err("wallet lock changed while waiting"));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let opened = lock
+                .metadata()
+                .map_err(|error| key_err(error.to_string()))?;
+            if (metadata.dev(), metadata.ino()) != (opened.dev(), opened.ino()) {
+                return Err(key_err("wallet lock changed while waiting"));
+            }
+        }
+        locks.push(lock);
+    }
+    Ok(locks)
+}
+
+fn atomic_write_wallet(
+    paths: &[&Path],
+    data: &[Zeroizing<Vec<u8>>],
+    overwrite: bool,
+) -> Result<(), CoreError> {
+    publish_wallet(paths, data, overwrite, |temporary, destination| {
+        fs::hard_link(temporary, destination)
+    })
+}
+
+fn publish_wallet(
+    paths: &[&Path],
+    data: &[Zeroizing<Vec<u8>>],
+    overwrite: bool,
+    mut publish: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), CoreError> {
+    let mut temporary = Vec::new();
+    let mut backups = Vec::new();
+    let mut installed = 0;
+    let result = (|| {
+        for (path, data) in paths.iter().zip(data) {
+            temporary.push(write_temp_keyfile(path, data)?);
+        }
+        for path in paths {
+            validate_keyfile_target(path, overwrite)?;
+            backups.push(if overwrite {
+                move_existing_to_backup(path)?
+            } else {
+                None
+            });
+        }
+        for (path, temp) in paths.iter().zip(&temporary) {
+            publish(temp, path).map_err(|error| {
+                key_err(format!(
+                    "could not publish wallet keyfile {}: {error}",
+                    path.display()
+                ))
+            })?;
+            installed += 1;
+            fsync_parent(path);
+        }
+        Ok(())
+    })();
+    let mut rollback_errors = Vec::new();
+    if result.is_err() {
+        for (index, backup) in backups.iter().enumerate().rev() {
+            let path = paths[index];
+            if index < installed {
+                // Do not erase a different file installed by an uncooperative writer.
+                if same_keyfile(path, &temporary[index]) {
+                    if let Err(error) = fs::remove_file(path) {
+                        rollback_errors.push(error.to_string());
+                    }
+                } else {
+                    rollback_errors.push(format!("{} changed during rollback", path.display()));
+                }
+            }
+            if let Some(backup) = backup {
+                // A hard link never overwrites a concurrent writer; keep the backup on failure.
+                match fs::hard_link(backup, path) {
+                    Ok(()) => {
+                        let _ = fs::remove_file(backup);
+                    }
+                    Err(error) => rollback_errors.push(format!(
+                        "original retained at {}: {error}",
+                        backup.display()
+                    )),
+                }
+            }
+            fsync_parent(path);
+        }
+    } else {
+        for backup in backups.iter().flatten() {
+            let _ = fs::remove_file(backup);
+        }
+    }
+    for temp in temporary {
+        let _ = fs::remove_file(temp);
+    }
+    if !rollback_errors.is_empty() {
+        return Err(key_err(format!(
+            "wallet write failed; rollback incomplete: {}",
+            rollback_errors.join("; ")
+        )));
+    }
+    result
+}
+
+fn same_keyfile(left: &Path, right: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (fs::symlink_metadata(left), fs::symlink_metadata(right)) {
+            (Ok(a), Ok(b)) => a.is_file() && (a.dev(), a.ino()) == (b.dev(), b.ino()),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        matches!((fs::read(left), fs::read(right)), (Ok(a), Ok(b)) if a == b)
+    }
+}
+
+fn prepare_keyfile_target(path: &Path, overwrite: bool) -> Result<(), CoreError> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    ensure_private_directory(parent)?;
+    validate_keyfile_target(path, overwrite)
+}
+
+fn ensure_private_directory(path: &Path) -> Result<(), CoreError> {
+    let path = normalize_directory_path(path);
+    reject_symlink_ancestors(path)?;
+    create_missing_private_directories(path)?;
+    reject_symlink_ancestors(path)?;
+    validate_wallet_directory(path)
+}
+
+fn normalize_directory_path(path: &Path) -> &Path {
+    if path.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        path
+    }
+}
+
+fn create_missing_private_directories(path: &Path) -> Result<(), CoreError> {
+    let mut current = PathBuf::new();
+    let mut saw_component = false;
+
+    for component in path.components() {
+        match component {
+            Component::CurDir => continue,
+            Component::ParentDir => {
+                return Err(key_err(format!(
+                    "wallet path {} must not contain parent directory components",
+                    path.display()
+                )));
+            }
+            Component::Prefix(prefix) => current.push(prefix.as_os_str()),
+            Component::RootDir | Component::Normal(_) => current.push(component.as_os_str()),
+        }
+        saw_component = true;
+        if current.as_os_str().is_empty() {
+            continue;
+        }
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => validate_wallet_directory_metadata(path, &current, &metadata)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match fs::create_dir(&current) {
+                    Ok(()) => set_private_directory_permissions(&current)?,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let metadata = fs::symlink_metadata(&current).map_err(|error| {
+                            key_err(format!(
+                                "failed to inspect wallet directory {}: {error}",
+                                current.display()
+                            ))
+                        })?;
+                        validate_wallet_directory_metadata(path, &current, &metadata)?;
+                    }
+                    Err(error) => {
+                        return Err(key_err(format!(
+                            "failed to create wallet directory {}: {error}",
+                            current.display()
+                        )));
+                    }
+                }
+            }
+            Err(error) => {
+                return Err(key_err(format!(
+                    "failed to inspect wallet path ancestor {}: {error}",
+                    current.display()
+                )));
+            }
+        }
+    }
+
+    if !saw_component {
+        validate_wallet_directory(Path::new("."))?;
+    }
+    Ok(())
+}
+
+fn validate_wallet_directory(path: &Path) -> Result<(), CoreError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        key_err(format!(
+            "failed to inspect wallet directory {}: {error}",
+            path.display()
+        ))
+    })?;
+    validate_wallet_directory_metadata(path, path, &metadata)
+}
+
+fn validate_wallet_directory_metadata(
+    path: &Path,
+    current: &Path,
+    metadata: &fs::Metadata,
+) -> Result<(), CoreError> {
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(key_err(format!(
+            "wallet path {} must be a real directory",
+            if current == path {
+                path.display().to_string()
+            } else {
+                current.display().to_string()
+            }
+        )));
+    }
+    Ok(())
+}
+
+fn reject_symlink_ancestors(path: &Path) -> Result<(), CoreError> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => continue,
+            Component::ParentDir => {
+                return Err(key_err(format!(
+                    "wallet path {} must not contain parent directory components",
+                    path.display()
+                )));
+            }
+            Component::Prefix(prefix) => current.push(prefix.as_os_str()),
+            Component::RootDir | Component::Normal(_) => current.push(component.as_os_str()),
+        }
+        if current.as_os_str().is_empty() {
+            continue;
+        }
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(key_err(format!(
+                        "wallet path {} must not contain symlink ancestor {}",
+                        path.display(),
+                        current.display()
+                    )));
+                }
+                if !metadata.is_dir() {
+                    return Err(key_err(format!(
+                        "wallet path ancestor {} must be a directory",
+                        current.display()
+                    )));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => {
+                return Err(key_err(format!(
+                    "failed to inspect wallet path ancestor {}: {error}",
+                    current.display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_directory_permissions(path: &Path) -> Result<(), CoreError> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(|error| {
+        key_err(format!(
+            "failed to set wallet directory permissions on {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+#[cfg(not(unix))]
+fn set_private_directory_permissions(_path: &Path) -> Result<(), CoreError> {
+    Ok(())
+}
+
+fn validate_keyfile_target(path: &Path, overwrite: bool) -> Result<(), CoreError> {
+    if path
+        .file_name()
+        .is_some_and(|name| name == ".bittensor-wallet.lock")
+    {
+        return Err(key_err("wallet lock filename is reserved"));
+    }
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(key_err(format!(
+                    "refusing to write keyfile through symlink {}",
+                    path.display()
+                )));
+            }
+            if !metadata.is_file() {
+                return Err(key_err(format!(
+                    "refusing to overwrite non-file keyfile path {}",
+                    path.display()
+                )));
+            }
+            if !overwrite {
+                return Err(key_err(format!(
+                    "keyfile {} already exists",
+                    path.display()
+                )));
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(key_err(format!(
+            "failed to inspect keyfile {}: {error}",
+            path.display()
+        ))),
+    }
+}
+
+fn atomic_write_keyfile(path: &Path, data: &[u8], overwrite: bool) -> Result<(), CoreError> {
+    let temp_path = write_temp_keyfile(path, data)?;
+    let write_result = commit_one_keyfile(path, &temp_path, overwrite);
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    write_result
+}
+
+fn write_temp_keyfile(path: &Path, data: &[u8]) -> Result<PathBuf, CoreError> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| key_err("keyfile path must be valid UTF-8"))?;
+    let mut temp_file = None;
+    let mut temp_path = None;
+
+    for attempt in 0..128u32 {
+        let candidate = dir.join(format!(
+            ".{file_name}.{}.{}.tmp",
+            std::process::id(),
+            attempt
+        ));
+        match private_create_new(&candidate) {
+            Ok(file) => {
+                temp_path = Some(candidate);
+                temp_file = Some(file);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(key_err(format!(
+                    "failed to create temporary keyfile {}: {error}",
+                    candidate.display()
+                )))
+            }
+        }
+    }
+
+    let temp_path = temp_path.ok_or_else(|| {
+        key_err(format!(
+            "failed to allocate temporary keyfile for {}",
+            path.display()
+        ))
+    })?;
+    let mut file = temp_file.ok_or_else(|| {
+        key_err(format!(
+            "failed to allocate temporary keyfile for {}",
+            path.display()
+        ))
+    })?;
+
+    let write_result = (|| -> Result<(), CoreError> {
+        file.write_all(data).map_err(|error| {
+            key_err(format!(
+                "failed to write temporary keyfile {}: {error}",
+                temp_path.display()
+            ))
+        })?;
+        file.sync_all().map_err(|error| {
+            key_err(format!(
+                "failed to fsync temporary keyfile {}: {error}",
+                temp_path.display()
+            ))
+        })?;
+        Ok(())
+    })();
+    drop(file);
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    write_result.map(|()| temp_path)
+}
+
+fn commit_one_keyfile(path: &Path, temp_path: &Path, overwrite: bool) -> Result<(), CoreError> {
+    if overwrite {
+        return commit_overwrite_keyfile(path, temp_path);
+    }
+    commit_new_keyfile(path, temp_path)
+}
+
+fn commit_overwrite_keyfile(path: &Path, temp_path: &Path) -> Result<(), CoreError> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    let mut backup = None;
+    let mut committed = false;
+    let result = (|| -> Result<(), CoreError> {
+        backup = move_existing_to_backup(path)?;
+        fs::rename(temp_path, path).map_err(|error| {
+            key_err(format!(
+                "failed to atomically replace keyfile {}: {error}",
+                path.display()
+            ))
+        })?;
+        committed = true;
+        set_private_file_permissions(path)?;
+        fsync_directory(dir);
+        Ok(())
+    })();
+
+    if result.is_err() {
+        if committed {
+            remove_file_if_exists(path);
+        }
+        restore_backup(path, backup.as_deref());
+        fsync_directory(dir);
+    } else if let Some(path) = backup {
+        let _ = fs::remove_file(path);
+    }
+    result
+}
+
+fn commit_new_keyfile(path: &Path, temp_path: &Path) -> Result<(), CoreError> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    let mut created = false;
+    let result = (|| -> Result<(), CoreError> {
+        fs::hard_link(temp_path, path).map_err(|error| {
+            key_err(format!(
+                "failed to atomically create keyfile {}: {error}",
+                path.display()
+            ))
+        })?;
+        created = true;
+        fs::remove_file(temp_path).map_err(|error| {
+            key_err(format!(
+                "failed to remove temporary keyfile {}: {error}",
+                temp_path.display()
+            ))
+        })?;
+        set_private_file_permissions(path)?;
+        fsync_directory(dir);
+        Ok(())
+    })();
+    if result.is_err() && created {
+        remove_file_if_exists(path);
+        fsync_directory(dir);
+    }
+    result
+}
+
+fn atomic_write_keyfile_pair(
+    private_path: &Path,
+    private_data: &[u8],
+    public_path: &Path,
+    public_data: &[u8],
+    overwrite: bool,
+) -> Result<(), CoreError> {
+    let private_temp = write_temp_keyfile(private_path, private_data)?;
+    let public_temp = match write_temp_keyfile(public_path, public_data) {
+        Ok(path) => path,
+        Err(error) => {
+            let _ = fs::remove_file(&private_temp);
+            return Err(error);
+        }
+    };
+
+    let result = if overwrite {
+        commit_overwrite_keyfile_pair(private_path, &private_temp, public_path, &public_temp)
+    } else {
+        commit_create_keyfile_pair(private_path, &private_temp, public_path, &public_temp)
+    };
+    if result.is_err() {
+        let _ = fs::remove_file(&private_temp);
+        let _ = fs::remove_file(&public_temp);
+    }
+    result
+}
+
+fn commit_create_keyfile_pair(
+    private_path: &Path,
+    private_temp: &Path,
+    public_path: &Path,
+    public_temp: &Path,
+) -> Result<(), CoreError> {
+    let mut private_created = false;
+    let mut public_created = false;
+    let result = (|| -> Result<(), CoreError> {
+        fs::hard_link(private_temp, private_path).map_err(|error| {
+            key_err(format!(
+                "failed to atomically create private keyfile {}: {error}",
+                private_path.display()
+            ))
+        })?;
+        private_created = true;
+        fs::remove_file(private_temp).map_err(|error| {
+            key_err(format!(
+                "failed to remove temporary keyfile {}: {error}",
+                private_temp.display()
+            ))
+        })?;
+        set_private_file_permissions(private_path)?;
+
+        fs::hard_link(public_temp, public_path).map_err(|error| {
+            key_err(format!(
+                "failed to atomically create public keyfile {}: {error}",
+                public_path.display()
+            ))
+        })?;
+        public_created = true;
+        fs::remove_file(public_temp).map_err(|error| {
+            key_err(format!(
+                "failed to remove temporary keyfile {}: {error}",
+                public_temp.display()
+            ))
+        })?;
+        set_private_file_permissions(public_path)?;
+        fsync_parent(private_path);
+        fsync_parent(public_path);
+        Ok(())
+    })();
+
+    if result.is_err() {
+        if public_created {
+            remove_file_if_exists(public_path);
+        }
+        if private_created {
+            remove_file_if_exists(private_path);
+        }
+        fsync_parent(private_path);
+        fsync_parent(public_path);
+    }
+    result
+}
+
+fn commit_overwrite_keyfile_pair(
+    private_path: &Path,
+    private_temp: &Path,
+    public_path: &Path,
+    public_temp: &Path,
+) -> Result<(), CoreError> {
+    let mut private_backup = None;
+    let mut public_backup = None;
+    let mut private_committed = false;
+    let mut public_committed = false;
+    let result = (|| -> Result<(), CoreError> {
+        private_backup = move_existing_to_backup(private_path)?;
+        public_backup = move_existing_to_backup(public_path)?;
+
+        fs::rename(private_temp, private_path).map_err(|error| {
+            key_err(format!(
+                "failed to commit private keyfile {}: {error}",
+                private_path.display()
+            ))
+        })?;
+        private_committed = true;
+        set_private_file_permissions(private_path)?;
+
+        fs::rename(public_temp, public_path).map_err(|error| {
+            key_err(format!(
+                "failed to commit public keyfile {}: {error}",
+                public_path.display()
+            ))
+        })?;
+        public_committed = true;
+        set_private_file_permissions(public_path)?;
+
+        fsync_parent(private_path);
+        fsync_parent(public_path);
+        Ok(())
+    })();
+
+    if result.is_err() {
+        if public_committed {
+            remove_file_if_exists(public_path);
+        }
+        if private_committed {
+            remove_file_if_exists(private_path);
+        }
+        restore_backup(private_path, private_backup.as_deref());
+        restore_backup(public_path, public_backup.as_deref());
+        fsync_parent(private_path);
+        fsync_parent(public_path);
+    } else {
+        if let Some(path) = private_backup {
+            let _ = fs::remove_file(path);
+        }
+        if let Some(path) = public_backup {
+            let _ = fs::remove_file(path);
+        }
+    }
+    result
+}
+
+fn move_existing_to_backup(path: &Path) -> Result<Option<PathBuf>, CoreError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(key_err(format!(
+                    "refusing to overwrite keyfile symlink {}",
+                    path.display()
+                )));
+            }
+            if !metadata.is_file() {
+                return Err(key_err(format!(
+                    "refusing to overwrite non-file keyfile path {}",
+                    path.display()
+                )));
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(key_err(format!(
+                "failed to inspect keyfile {}: {error}",
+                path.display()
+            )))
+        }
+    }
+
+    let dir = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| key_err("keyfile path must be valid UTF-8"))?;
+    for attempt in 0..128u32 {
+        let backup = dir.join(format!(
+            ".{file_name}.{}.{}.rollback",
+            std::process::id(),
+            attempt
+        ));
+        if backup.exists() {
+            continue;
+        }
+        match fs::rename(path, &backup) {
+            Ok(()) => return Ok(Some(backup)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(key_err(format!(
+                    "failed to stage existing keyfile {} for rollback: {error}",
+                    path.display()
+                )))
+            }
+        }
+    }
+    Err(key_err(format!(
+        "failed to allocate rollback path for {}",
+        path.display()
+    )))
+}
+
+fn restore_backup(path: &Path, backup: Option<&Path>) {
+    if let Some(backup) = backup {
+        remove_file_if_exists(path);
+        let _ = fs::rename(backup, path);
+    }
+}
+
+fn remove_file_if_exists(path: &Path) {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => {}
+    }
+}
+
+fn fsync_parent(path: &Path) {
+    if let Some(parent) = path.parent() {
+        fsync_directory(parent);
+    }
+}
+
+#[cfg(unix)]
+fn private_create_new(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn private_create_new(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new().write(true).create_new(true).open(path)
+}
+
+#[cfg(unix)]
+fn set_private_file_permissions(path: &Path) -> Result<(), CoreError> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
+        key_err(format!(
+            "failed to set keyfile permissions on {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+#[cfg(not(unix))]
+fn set_private_file_permissions(_path: &Path) -> Result<(), CoreError> {
+    Ok(())
+}
+
+fn fsync_directory(path: &Path) {
+    if let Ok(dir) = File::open(normalize_directory_path(path)) {
+        let _ = dir.sync_all();
+    }
 }
 
 /// Stored ss58Address, including the legacy leading-space `" ss58Address"`
@@ -492,6 +1504,224 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keyp
 }
 
 #[cfg(test)]
+mod wallet_transaction_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn bare_relative_keyfile_paths_preserve_write_guards() {
+        const CHILD: &str = "BT_CORE_BARE_RELATIVE_KEYFILE_TEST";
+        if std::env::var(CHILD).as_deref() != Ok("1") {
+            let directory = std::env::temp_dir().join(format!(
+                "bt-relative-keyfiles-{}-{}",
+                std::process::id(),
+                SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&directory).unwrap();
+            // Only the child changes its working directory; parallel Rust tests
+            // keep their original cwd and cannot write into this fixture.
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg("keyfiles::wallet_transaction_tests::bare_relative_keyfile_paths_preserve_write_guards")
+                .arg("--nocapture")
+                .env(CHILD, "1")
+                .current_dir(&directory)
+                .output()
+                .unwrap();
+            fs::remove_dir_all(directory).unwrap();
+            assert!(
+                output.status.success(),
+                "relative keyfile child failed: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let original = Keypair::from_seed(&[1; 32], CRYPTO_SR25519).unwrap();
+        let replacement = Keypair::from_seed(&[2; 32], CRYPTO_SR25519).unwrap();
+        let public = original.public_only().unwrap();
+        let replacement_public = replacement.public_only().unwrap();
+        let path = Path::new("coldkey");
+        #[cfg(unix)]
+        let directory_mode = fs::metadata(".").unwrap().permissions().mode();
+
+        assert!(save_keypair_to_keyfile(&original, path, None, false, false).is_err());
+        assert!(!path.exists());
+        save_keypair_to_keyfile(&original, path, None, false, true).unwrap();
+        let bytes = fs::read(path).unwrap();
+        assert!(save_keypair_to_keyfile(&replacement, path, None, false, true).is_err());
+        assert_eq!(fs::read(path).unwrap(), bytes);
+        save_keypair_to_keyfile(&replacement, path, None, true, true).unwrap();
+        assert_eq!(
+            read_keypair_from_keyfile(path, None)
+                .unwrap()
+                .ss58_address(),
+            replacement.ss58_address()
+        );
+
+        save_keypair_pair_to_keyfiles(
+            &original,
+            Path::new("pair"),
+            None,
+            &public,
+            Path::new("./pairpub.txt"),
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            read_keypair_from_keyfile(Path::new("pairpub.txt"), None)
+                .unwrap()
+                .ss58_address(),
+            original.ss58_address()
+        );
+        assert!(!read_keypair_from_keyfile(Path::new("pairpub.txt"), None)
+            .unwrap()
+            .has_private_key());
+
+        let paths = [
+            Path::new("walletcold"),
+            Path::new("./walletcoldpub"),
+            Path::new("wallethot"),
+            Path::new("./wallethotpub"),
+        ];
+        save_wallet_keypairs_to_keyfiles(
+            [&original, &public, &replacement, &replacement_public],
+            paths,
+            [None; 2],
+            false,
+            [true; 2],
+        )
+        .unwrap();
+        for (index, path) in paths.into_iter().enumerate() {
+            let restored = read_keypair_from_keyfile(path, None).unwrap();
+            assert_eq!(
+                restored.ss58_address(),
+                if index < 2 {
+                    original.ss58_address()
+                } else {
+                    replacement.ss58_address()
+                }
+            );
+            assert_eq!(restored.has_private_key(), index % 2 == 0);
+        }
+        #[cfg(unix)]
+        {
+            for path in [
+                "coldkey",
+                "pair",
+                "pairpub.txt",
+                "walletcold",
+                "walletcoldpub",
+                "wallethot",
+                "wallethotpub",
+            ] {
+                assert_eq!(
+                    fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+            }
+            assert_eq!(
+                fs::metadata(".").unwrap().permissions().mode(),
+                directory_mode
+            );
+            std::os::unix::fs::symlink("coldkey", "linked-key").unwrap();
+            let preserved = fs::read("coldkey").unwrap();
+            assert!(
+                save_keypair_to_keyfile(&original, Path::new("linked-key"), None, true, true)
+                    .is_err()
+            );
+            assert_eq!(fs::read("coldkey").unwrap(), preserved);
+            std::os::unix::fs::symlink(".", "linked-directory").unwrap();
+            assert!(save_keypair_to_keyfile(
+                &original,
+                Path::new("linked-directory/new-key"),
+                None,
+                false,
+                true
+            )
+            .is_err());
+            assert!(!Path::new("new-key").exists());
+        }
+    }
+
+    // PROTECTED_REGRESSION: a later wallet publication failure must preserve every existing recovery keyfile; changes require explicit human approval.
+    #[test]
+    fn full_wallet_failure_restores_all_original_keyfiles() {
+        for overwrite in [false, true] {
+            let dir = std::env::temp_dir().join(format!(
+                "bt-wallet-atomic-{}-{}",
+                std::process::id(),
+                SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&dir).unwrap();
+            let paths = [
+                dir.join("coldkey"),
+                dir.join("coldkeypub"),
+                dir.join("hotkey"),
+                dir.join("hotkeypub"),
+            ];
+            if overwrite {
+                for path in &paths {
+                    fs::write(path, b"original recovery material").unwrap();
+                }
+            }
+            let data = (0..4)
+                .map(|_| Zeroizing::new(b"new recovery material".to_vec()))
+                .collect::<Vec<_>>();
+            let mut published = 0;
+            let error = publish_wallet(
+                &paths.each_ref().map(|path| path.as_path()),
+                &data,
+                overwrite,
+                |temp, path| {
+                    published += 1;
+                    if published == 3 {
+                        return Err(std::io::Error::other("injected hotkey publication failure"));
+                    }
+                    fs::hard_link(temp, path)
+                },
+            )
+            .unwrap_err();
+            assert!(error
+                .to_string()
+                .contains("injected hotkey publication failure"));
+            for path in &paths {
+                if overwrite {
+                    assert_eq!(fs::read(path).unwrap(), b"original recovery material");
+                } else {
+                    assert!(!path.exists());
+                }
+            }
+            assert_eq!(
+                fs::read_dir(&dir).unwrap().count(),
+                if overwrite { 4 } else { 0 }
+            );
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn complete_wallet_validates_public_identity_before_writing() {
+        let cold = Keypair::from_seed(&[1; 32], CRYPTO_SR25519).unwrap();
+        let hot = Keypair::from_seed(&[2; 32], CRYPTO_SR25519).unwrap();
+        let public = hot.public_only().unwrap();
+        let error = save_wallet_keypairs_to_keyfiles(
+            [&cold, &public, &hot, &public],
+            [Path::new("unused"); 4],
+            [None; 2],
+            false,
+            [true; 2],
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("identities differ"));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -535,6 +1765,16 @@ mod tests {
     fn test_mnemonic() -> String {
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
             .to_string()
+    }
+
+    fn temp_test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "bittensor-core-keyfiles-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
     }
 
     #[test]
@@ -586,6 +1826,92 @@ mod tests {
         let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
         assert_eq!(restored.crypto_type(), CRYPTO_SR25519);
         assert_eq!(restored.ss58_address(), original.ss58_address());
+    }
+
+    #[test]
+    fn protected_private_seeds_obey_public_export_and_keyfile_guards() {
+        use crate::keys::{
+            CRYPTO_FALCON1024, CRYPTO_FALCON1024_HASHED, CRYPTO_FALCON512, CRYPTO_FALCON512_HASHED,
+            CRYPTO_HASHED_ED25519, CRYPTO_MLDSA65, CRYPTO_MLDSA65_FIXED,
+        };
+        let mnemonic = Keypair::generate_mnemonic(24).unwrap();
+        for code in [
+            CRYPTO_HASHED,
+            CRYPTO_HASHED_ED25519,
+            CRYPTO_MLDSA65,
+            CRYPTO_MLDSA65_FIXED,
+            CRYPTO_FALCON512,
+            CRYPTO_FALCON512_HASHED,
+            CRYPTO_FALCON1024,
+            CRYPTO_FALCON1024_HASHED,
+        ] {
+            let private = Keypair::from_mnemonic(&mnemonic, code, None).unwrap();
+            assert!(private.has_private_key(), "private key type {code}");
+            assert!(keypair_to_keyfile_data(&private, None).is_err());
+            let public = private.public_only().unwrap();
+            assert!(!public.has_private_key());
+            assert!(public.private_key_bytes().is_none());
+            let data = keypair_to_keyfile_data(&public, None).unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&data).unwrap();
+            for field in ["privateKey", "secretSeed", "secretPhrase"] {
+                assert!(json.get(field).is_none(), "public export contains {field}");
+            }
+            let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
+            assert!(!restored.has_private_key());
+            assert_eq!(
+                restored.authorization_descriptor().unwrap(),
+                private.authorization_descriptor().unwrap()
+            );
+            assert!(restored.sign_authorization(b"watch-only").is_err());
+            let backup = serialized_keypair_to_keyfile_data(&private).unwrap();
+            assert!(deserialize_keypair_from_keyfile_data(&backup)
+                .unwrap()
+                .has_private_key());
+
+            let dir = temp_test_dir(&format!("protected-private-{code}"));
+            let private_path = dir.join("private");
+            let public_path = dir.join("public");
+            assert!(save_keypair_to_keyfile(&private, &private_path, None, false, false).is_err());
+            assert!(save_keypair_pair_to_keyfiles(
+                &private,
+                &private_path,
+                None,
+                &public,
+                &public_path,
+                false,
+                false
+            )
+            .is_err());
+            // Even explicit private plaintext opt-in cannot allow a private public member.
+            assert!(save_keypair_pair_to_keyfiles(
+                &private,
+                &private_path,
+                None,
+                &private,
+                &public_path,
+                false,
+                true
+            )
+            .is_err());
+            assert!(!private_path.exists() && !public_path.exists());
+            save_keypair_pair_to_keyfiles(
+                &private,
+                &private_path,
+                None,
+                &public,
+                &public_path,
+                false,
+                true,
+            )
+            .unwrap();
+            assert!(read_keypair_from_keyfile(&private_path, None)
+                .unwrap()
+                .has_private_key());
+            assert!(!read_keypair_from_keyfile(&public_path, None)
+                .unwrap()
+                .has_private_key());
+            fs::remove_dir_all(dir).unwrap();
+        }
     }
 
     #[test]
@@ -784,6 +2110,142 @@ mod tests {
     }
 
     #[test]
+    fn keypair_pair_keyfile_roundtrip() {
+        let dir = temp_test_dir("pair-roundtrip");
+        let private_path = dir.join("hotkey");
+        let public_path = dir.join("hotkeypub.txt");
+        let original = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+        let public = Keypair::new(
+            Some(&original.ss58_address()),
+            None,
+            original.crypto_type(),
+            original.ss58_format(),
+        )
+        .unwrap();
+
+        save_keypair_pair_to_keyfiles(
+            &original,
+            &private_path,
+            Some("test-password"),
+            &public,
+            &public_path,
+            false,
+            false,
+        )
+        .unwrap();
+
+        let restored_private =
+            read_keypair_from_keyfile(&private_path, Some("test-password")).unwrap();
+        let restored_public = read_keypair_from_keyfile(&public_path, None).unwrap();
+        assert_eq!(restored_private.ss58_address(), original.ss58_address());
+        assert_eq!(restored_public.ss58_address(), original.ss58_address());
+        assert!(!restored_public.has_private_key());
+        assert!(keyfile_data_is_encrypted(&fs::read(&private_path).unwrap()));
+        assert!(!keyfile_data_is_encrypted(&fs::read(&public_path).unwrap()));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn empty_passwords_are_rejected_by_low_level_keyfile_apis() {
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+        let public_keypair = Keypair::new(
+            Some(&keypair.ss58_address()),
+            None,
+            keypair.crypto_type(),
+            keypair.ss58_format(),
+        )
+        .unwrap();
+        let dir = temp_test_dir("empty-password");
+
+        assert!(encrypt_keyfile_data(b"{}", "").is_err());
+        assert!(keypair_to_keyfile_data(&keypair, Some("")).is_err());
+        assert!(
+            save_keypair_to_keyfile(&keypair, &dir.join("hotkey"), Some(""), false, false,)
+                .is_err()
+        );
+        assert!(save_keypair_pair_to_keyfiles(
+            &keypair,
+            &dir.join("hotkey-pair"),
+            Some(""),
+            &public_keypair,
+            &dir.join("hotkeypub.txt"),
+            false,
+            false,
+        )
+        .is_err());
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn writing_keyfile_does_not_chmod_existing_parent_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_test_dir("existing-parent-permissions");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        let nested = dir.join("wallet");
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+
+        save_keypair_to_keyfile(
+            &keypair,
+            &nested.join("hotkey"),
+            Some("test-password"),
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        assert_eq!(
+            fs::metadata(&nested).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(nested.join("hotkey"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn rejects_symlink_wallet_directory_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let dir = temp_test_dir("symlink-ancestor");
+        let real = dir.join("real");
+        let link = dir.join("link");
+        fs::create_dir(&real).unwrap();
+        symlink(&real, &link).unwrap();
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+
+        let err = save_keypair_to_keyfile(
+            &keypair,
+            &link.join("wallet").join("hotkey"),
+            Some("test-password"),
+            false,
+            false,
+        )
+        .expect_err("symlink ancestors must be rejected");
+        assert!(
+            err.to_string().contains("symlink ancestor"),
+            "unexpected error: {err}"
+        );
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn mnemonic_keypair_writes_legacy_secret_fields() {
         let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
         let data = serialized_keypair_to_keyfile_data(&keypair).unwrap();
@@ -816,6 +2278,26 @@ mod tests {
         assert!(parsed.get("secretSeed").is_some());
         let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
         assert_eq!(restored.ss58_address(), keypair.ss58_address());
+    }
+
+    #[test]
+    fn derived_keyfile_does_not_restore_parent_mnemonic_or_seed() {
+        for crypto_type in [CRYPTO_SR25519, CRYPTO_ED25519] {
+            let parent = Keypair::from_mnemonic(&test_mnemonic(), crypto_type, None).unwrap();
+            let child = parent.derive("//child").unwrap();
+            assert_ne!(child.ss58_address(), parent.ss58_address());
+
+            let data = serialized_keypair_to_keyfile_data(&child).unwrap();
+            let parsed: serde_json::Value = serde_json::from_slice(&data).unwrap();
+            assert!(parsed.get("secretPhrase").is_none());
+            assert!(parsed.get("secretSeed").is_none());
+            let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
+            assert_eq!(restored.ss58_address(), child.ss58_address());
+            let signature = restored.sign(b"derived keyfile roundtrip").unwrap();
+            assert!(child
+                .verify(b"derived keyfile roundtrip", &signature)
+                .unwrap());
+        }
     }
 
     #[test]

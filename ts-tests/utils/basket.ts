@@ -1,7 +1,7 @@
 import type { subtensor } from "@polkadot-api/descriptors";
-import { Keyring } from "@polkadot/keyring";
 import { Binary, type TypedApi } from "polkadot-api";
 import { expect } from "vitest";
+import { keyringPairFromUri } from "./account.ts";
 import { sudoSetTempo } from "./staking.js";
 import { waitForTransactionWithRetry } from "./transactions.js";
 
@@ -25,7 +25,7 @@ export async function settleBasketDividends(
         )
     );
     const reset = api.tx.System.kill_storage({ keys });
-    const alice = new Keyring({ type: "sr25519" }).addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     await waitForTransactionWithRetry(
         api,
         api.tx.Sudo.sudo({ call: reset.decodedCall }),

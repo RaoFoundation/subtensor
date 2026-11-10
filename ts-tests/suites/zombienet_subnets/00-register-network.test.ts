@@ -1,13 +1,14 @@
-import { beforeAll, expect } from "vitest";
 import { describeSuite } from "@moonwall/cli";
 import { subtensor } from "@polkadot-api/descriptors";
 import type { TypedApi } from "polkadot-api";
+import { beforeAll, expect } from "vitest";
 import {
     addNewSubnetwork,
     addStake,
     burnedRegister,
     forceSetBalance,
     generateKeyringPair,
+    keyringPairFromUri,
     rootRegister,
     sudoSetAdminFreezeWindow,
     sudoSetLockReductionInterval,

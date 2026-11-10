@@ -14,16 +14,30 @@ use crate::errors::{to_js_err, value_err};
 pub enum CryptoType {
     Ed25519 = 0,
     Sr25519 = 1,
+    Ecdsa = 2,
     Hashed = 4,
     HashedEd25519 = 6,
+    MlDsa65 = 7,
+    MlDsa65Fixed = 8,
+    Falcon512 = 9,
+    Falcon512Hashed = 10,
+    Falcon1024 = 11,
+    Falcon1024Hashed = 12,
 }
 
 fn crypto_code(crypto_type: Option<CryptoType>) -> u8 {
     match crypto_type.unwrap_or(CryptoType::Sr25519) {
         CryptoType::Ed25519 => keys::CRYPTO_ED25519,
         CryptoType::Sr25519 => keys::CRYPTO_SR25519,
+        CryptoType::Ecdsa => keys::CRYPTO_ECDSA,
         CryptoType::Hashed => keys::CRYPTO_HASHED,
         CryptoType::HashedEd25519 => keys::CRYPTO_HASHED_ED25519,
+        CryptoType::MlDsa65 => keys::CRYPTO_MLDSA65,
+        CryptoType::MlDsa65Fixed => keys::CRYPTO_MLDSA65_FIXED,
+        CryptoType::Falcon512 => keys::CRYPTO_FALCON512,
+        CryptoType::Falcon512Hashed => keys::CRYPTO_FALCON512_HASHED,
+        CryptoType::Falcon1024 => keys::CRYPTO_FALCON1024,
+        CryptoType::Falcon1024Hashed => keys::CRYPTO_FALCON1024_HASHED,
     }
 }
 
@@ -46,7 +60,7 @@ fn coerce_message_bytes(message: &JsValue) -> Result<Vec<u8>, JsValue> {
 /// An sr25519 or ed25519 keypair backed by the workspace's sp-core.
 #[wasm_bindgen]
 pub struct Keypair {
-    inner: keys::Keypair,
+    pub(crate) inner: keys::Keypair,
 }
 
 #[wasm_bindgen]
@@ -137,6 +151,15 @@ impl Keypair {
         Ok(Self { inner })
     }
 
+    /// Derive a child without exposing or reconstructing its secret URI
+    /// outside Rust/WASM.
+    pub fn derive(&self, path: &str) -> Result<Keypair, JsValue> {
+        self.inner
+            .derive(path)
+            .map(|inner| Self { inner })
+            .map_err(to_js_err)
+    }
+
     /// Restore a watch-only rotating account, including its stable identity.
     #[wasm_bindgen(js_name = fromHashedDescriptor)]
     pub fn from_hashed_descriptor(
@@ -195,6 +218,22 @@ impl Keypair {
         self.inner.crypto_type()
     }
 
+    #[wasm_bindgen(getter)]
+    pub fn kind(&self) -> String {
+        if !self.inner.has_private_key() {
+            return "PublicOnly".to_owned();
+        }
+        match self.inner.crypto_type() {
+            keys::CRYPTO_ED25519 => "Ed25519".to_owned(),
+            keys::CRYPTO_SR25519 => "Sr25519".to_owned(),
+            keys::CRYPTO_HASHED | keys::CRYPTO_HASHED_ED25519 => "Hashed".to_owned(),
+            keys::CRYPTO_MLDSA65 | keys::CRYPTO_MLDSA65_FIXED => "MlDsa65".to_owned(),
+            keys::CRYPTO_FALCON512 | keys::CRYPTO_FALCON512_HASHED => "Falcon512".to_owned(),
+            keys::CRYPTO_FALCON1024 | keys::CRYPTO_FALCON1024_HASHED => "Falcon1024".to_owned(),
+            _ => "PublicOnly".to_owned(),
+        }
+    }
+
     #[wasm_bindgen(getter, js_name = publicKey)]
     pub fn public_key(&self) -> Vec<u8> {
         self.inner.public_key_bytes().to_vec()
@@ -236,6 +275,36 @@ pub fn verify_signature(
     keys::verify(&message, signature, ss58_address, crypto_code(crypto_type)).map_err(to_js_err)
 }
 
+/// Verify exactly the supplied bytes without a `<Bytes>` wrapper retry.
+#[wasm_bindgen(js_name = verifyStrict)]
+pub fn verify_strict(
+    message: &JsValue,
+    signature: &[u8],
+    ss58_address: &str,
+    crypto_type: Option<u8>,
+) -> Result<bool, JsValue> {
+    let message = coerce_message_bytes(message)?;
+    keys::verify_strict(
+        &message,
+        signature,
+        ss58_address,
+        crypto_type.unwrap_or(keys::CRYPTO_SR25519),
+    )
+    .map_err(to_js_err)
+}
+
+/// Encode a password value without reading or changing the process environment.
+#[wasm_bindgen(js_name = encodePasswordForEnvironment)]
+pub fn encode_password_for_environment(name: &str, password: &str) -> Result<String, JsValue> {
+    bittensor_core::keyfile_env::encode_password_for_environment(name, password).map_err(to_js_err)
+}
+
+/// Decode a supplied password value without consulting process state.
+#[wasm_bindgen(js_name = decodePasswordFromEnvironment)]
+pub fn decode_password_from_environment(name: &str, value: &str) -> Result<String, JsValue> {
+    bittensor_core::keyfile_env::decode_password_from_environment(name, value).map_err(to_js_err)
+}
+
 /// Decode an SS58 address to its raw 32-byte public key.
 #[wasm_bindgen(js_name = ss58Decode)]
 pub fn ss58_decode(ss58_address: &str) -> Result<Vec<u8>, JsValue> {
@@ -253,4 +322,22 @@ pub fn ss58_encode(public_key: &[u8], ss58_format: Option<u16>) -> Result<String
         public_key,
         ss58_format.unwrap_or(DEFAULT_SS58_FORMAT),
     ))
+}
+
+/// Map a compressed secp256k1 public key to the chain's 32-byte account id.
+#[wasm_bindgen(js_name = accountIdFromEcdsaPublic)]
+pub fn account_id_from_ecdsa_public(public_key: &[u8]) -> Result<Vec<u8>, JsValue> {
+    keys::account_id_from_ecdsa_public(public_key)
+        .map(|account| account.to_vec())
+        .map_err(to_js_err)
+}
+
+/// Encode the account id of a compressed secp256k1 public key as SS58.
+#[wasm_bindgen(js_name = ss58FromEcdsaPublic)]
+pub fn ss58_from_ecdsa_public(
+    public_key: &[u8],
+    ss58_format: Option<u16>,
+) -> Result<String, JsValue> {
+    keys::ss58_from_ecdsa_public(public_key, ss58_format.unwrap_or(DEFAULT_SS58_FORMAT))
+        .map_err(to_js_err)
 }

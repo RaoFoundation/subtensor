@@ -48,7 +48,7 @@ assert_reuse false rust-toolchain.toml
 assert_reuse false .cargo/config.toml
 
 # CI, packaging, and unknown roots fail closed.
-assert_reuse false .github/workflows/typescript-e2e.yml
+assert_reuse false .github/workflows/bittensor-ts-e2e.yml
 assert_reuse false scripts/localnet.sh
 assert_reuse false Dockerfile
 assert_reuse false some-new-root/file.rs

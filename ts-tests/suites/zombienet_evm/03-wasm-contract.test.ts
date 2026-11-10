@@ -1,13 +1,13 @@
-import { beforeAll, beforeEach, describeSuite, expect } from "@moonwall/cli";
-import { contracts, MultiAddress, subtensor } from "@polkadot-api/descriptors";
-import { getInkClient, type InkClient } from "@polkadot-api/ink-contracts";
-import type { KeyringPair } from "@polkadot/keyring/types";
 import fs from "node:fs";
+import { beforeAll, beforeEach, describeSuite, expect } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
+import { MultiAddress, contracts, subtensor } from "@polkadot-api/descriptors";
+import { type InkClient, getInkClient } from "@polkadot-api/ink-contracts";
 import { Binary, type TypedApi } from "polkadot-api";
 import {
+    BITTENSOR_WASM_PATH,
     addNewSubnetwork,
     addStake,
-    BITTENSOR_WASM_PATH,
     burnedRegister,
     convertPublicKeyToSs58,
     forceSetBalance,
@@ -27,6 +27,13 @@ import {
 
 // Retain pre-fix WASM and metadata to test rejection of legacy Caller* calls.
 const bittensorBytecode = fs.readFileSync(BITTENSOR_WASM_PATH);
+
+function requireDefined<T>(value: T | undefined | null, name: string): T {
+    if (value === undefined || value === null) {
+        throw new Error(`${name} is not defined`);
+    }
+    return value;
+}
 
 async function fundAccount(
     api: TypedApi<typeof subtensor>,
@@ -387,7 +394,7 @@ describeSuite({
 
                 if (stakeAfterDest == null) throw new Error("Destination stake is missing after transfer");
                 expect(stakeAfterOrigin < stakeBeforeOrigin).toBeTruthy();
-                expect(stakeAfterDest > stakeBeforeDest).toBeTruthy();
+                expect(stakeAfterDest > requireDefined(stakeBeforeDest, "stakeBeforeDest")).toBeTruthy();
             },
         });
 
