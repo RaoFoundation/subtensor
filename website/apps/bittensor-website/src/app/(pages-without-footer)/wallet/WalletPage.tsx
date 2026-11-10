@@ -119,10 +119,7 @@ function WalletCard({card}: {card: WalletCardConfig}) {
         <h3 className={styles.cardTitle}>{card.title}</h3>
         <div className={styles.iconRail}>
           {card.platforms.map((p, index) => (
-            <span
-              key={`${card.title}-${p.kind}-${index}`}
-              className={styles.iconDecor}
-              aria-hidden>
+            <span key={`${card.title}-${p.kind}-${index}`} className={styles.iconDecor} aria-hidden>
               <PlatformIcon kind={p.kind} />
             </span>
           ))}
@@ -134,14 +131,15 @@ function WalletCard({card}: {card: WalletCardConfig}) {
           <div className={styles.taostatsActions}>
             <Link
               href={taostatsActions.mobileHref}
-              target="_blank"
-              rel="noreferrer noopener"
+              target='_blank'
+              rel='noreferrer noopener'
               className={`${styles.taostatsLink} ${styles.taostatsLinkMobile}`}
-              aria-label="Taostats Wallet — open mobile app">
+              aria-label='Taostats Wallet — open mobile app'
+            >
               <span className={styles.taostatsLabelWrap}>
                 <img
                   src={TAOSTATS_MOBILE_ART}
-                  alt=""
+                  alt=''
                   width={44}
                   height={9}
                   draggable={false}
@@ -152,14 +150,15 @@ function WalletCard({card}: {card: WalletCardConfig}) {
             </Link>
             <Link
               href={taostatsActions.browserHref}
-              target="_blank"
-              rel="noreferrer noopener"
+              target='_blank'
+              rel='noreferrer noopener'
               className={`${styles.taostatsLink} ${styles.taostatsLinkBrowser}`}
-              aria-label="Taostats Wallet — open browser extension">
+              aria-label='Taostats Wallet — open browser extension'
+            >
               <span className={styles.taostatsLabelWrap}>
                 <img
                   src={TAOSTATS_BROWSER_ART}
-                  alt=""
+                  alt=''
                   width={51}
                   height={9}
                   draggable={false}
@@ -173,10 +172,11 @@ function WalletCard({card}: {card: WalletCardConfig}) {
       </div>
       {isTaostatsCard ? (
         <button
-          type="button"
+          type='button'
           className={styles.cardHitArea}
-          aria-label="Taostats Wallet — choose Mobile app or Browser extension"
-          onClick={onTaostatsCardHitClick}>
+          aria-label='Taostats Wallet — choose Mobile app or Browser extension'
+          onClick={onTaostatsCardHitClick}
+        >
           <span className={styles.visuallyHidden}>{card.title}</span>
         </button>
       ) : (
@@ -187,7 +187,8 @@ function WalletCard({card}: {card: WalletCardConfig}) {
             : {target: '_blank', rel: 'noreferrer noopener'})}
           className={styles.cardHitArea}
           aria-label={(card as StandardWalletCard).primaryAriaLabel}
-          onClick={triggerCardBorderAccent}>
+          onClick={triggerCardBorderAccent}
+        >
           <span className={styles.visuallyHidden}>{card.title}</span>
         </Link>
       )}
@@ -207,8 +208,7 @@ const walletsSectionCards: WalletCardConfig[] = [
     title: 'Crucible Wallet',
     primaryHref: 'https://cruciblelabs.com/',
     primaryAriaLabel: 'Crucible Wallet — open website',
-    description:
-      'Chrome extension wallet for Bittensor, with staking tools and Ledger support',
+    description: 'Chrome extension wallet for Bittensor, with staking tools and Ledger support',
     platforms: [{kind: 'chrome'}, {kind: 'external'}],
   },
   {
@@ -226,6 +226,13 @@ const walletsSectionCards: WalletCardConfig[] = [
       mobileHref: 'https://taostats.io/app',
       browserHref: 'https://taostats.io/bittensor-chrome-wallet',
     },
+  },
+  {
+    title: 'TAOApp Wallet',
+    primaryHref: 'https://wallet.tao.app',
+    primaryAriaLabel: 'TAOApp Wallet — open website',
+    description: 'Browser extension for Bittensor. Staking, multisig, proxies, Ledger and Vault',
+    platforms: [{kind: 'chrome'}, {kind: 'ledger'}, {kind: 'polkadotVault'}],
   },
   {
     title: 'Talisman Wallet',
@@ -246,7 +253,13 @@ const walletsSectionCards: WalletCardConfig[] = [
     primaryHref: 'https://www.subwallet.app/',
     primaryAriaLabel: 'Subwallet — open website',
     description: 'Flexible wallet for managing TAO on mobile and browser for staking and transfers',
-    platforms: [{kind: 'apple'}, {kind: 'googlePlay'}, {kind: 'chrome'}, {kind: 'firefox'}, {kind: 'ledger'}],
+    platforms: [
+      {kind: 'apple'},
+      {kind: 'googlePlay'},
+      {kind: 'chrome'},
+      {kind: 'firefox'},
+      {kind: 'ledger'},
+    ],
   },
   {
     title: 'Polkadot.js',
@@ -268,14 +281,16 @@ const coldStorageSectionCards: WalletCardConfig[] = [
     title: 'Ledger',
     primaryHref: 'https://support.ledger.com/article/11228984669085-zd',
     primaryAriaLabel: 'Ledger — TAO support article on Ledger Help',
-    description: 'Hardware wallet for secure TAO storage, supported via compatible Bittensor wallets',
+    description:
+      'Hardware wallet for secure TAO storage, supported via compatible Bittensor wallets',
     platforms: [{kind: 'ledger'}],
   },
   {
     title: 'Polkadot Vault',
     primaryHref: 'https://signer.parity.io/#about',
     primaryAriaLabel: 'Polkadot Vault — open website',
-    description: 'Offline, air-gapped signer for cold storage using an old phone and QR-based signing',
+    description:
+      'Offline, air-gapped signer for cold storage using an old phone and QR-based signing',
     platforms: [{kind: 'polkadotVault'}],
   },
   {
@@ -291,15 +306,15 @@ export default function WalletPage() {
   return (
     <FadeInWrapper className={styles.page}>
       <div className={styles.mainStack}>
-        <section className={styles.section} aria-labelledby="wallets-heading">
+        <section className={styles.section} aria-labelledby='wallets-heading'>
           <div className={styles.titleBlock}>
-            <p id="wallets-heading" className={styles.title}>
+            <p id='wallets-heading' className={styles.title}>
               Wallets
             </p>
             <p className={styles.subtitle}>
-              THESE ARE COMMONLY USED THIRD-PARTY WALLET OPTIONS FOR THE BITTENSOR ECOSYSTEM. AS WITH ALL
-              DECENTRALIZED TOOLS, WE REMIND YOU TO PERFORM YOUR OWN RESEARCH AND PRACTICE VIGILANT SECURITY
-              WHEN MANAGING YOUR ASSETS.
+              THESE ARE COMMONLY USED THIRD-PARTY WALLET OPTIONS FOR THE BITTENSOR ECOSYSTEM. AS
+              WITH ALL DECENTRALIZED TOOLS, WE REMIND YOU TO PERFORM YOUR OWN RESEARCH AND PRACTICE
+              VIGILANT SECURITY WHEN MANAGING YOUR ASSETS.
             </p>
           </div>
           <div className={styles.cardGrid}>
@@ -309,15 +324,15 @@ export default function WalletPage() {
           </div>
         </section>
 
-        <section className={styles.section} aria-labelledby="cold-storage-heading">
+        <section className={styles.section} aria-labelledby='cold-storage-heading'>
           <div className={styles.titleBlock}>
-            <p id="cold-storage-heading" className={styles.title}>
+            <p id='cold-storage-heading' className={styles.title}>
               Cold Storage
             </p>
             <p className={styles.subtitle}>
-              These are commonly used third-party cold storage options for keeping your keys separate from your
-              primary device. We do not control, audit, or guarantee their security, compatibility, or suitability
-              for your use case.
+              These are commonly used third-party cold storage options for keeping your keys
+              separate from your primary device. We do not control, audit, or guarantee their
+              security, compatibility, or suitability for your use case.
             </p>
           </div>
           <div className={styles.cardGrid}>
