@@ -26,7 +26,7 @@ All arithmetic is integer arithmetic on rao. Floats only appear at the edges
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 from .settings import ALPHA_SYMBOL, RAO_PER_TAO, TAO_SYMBOL
 
@@ -87,7 +87,12 @@ class Balance:
         Use this only where the netuid is genuinely variable; otherwise prefer
         the unit-named :meth:`from_tao` / :meth:`from_alpha`.
         """
-        return cls(int((Decimal(str(amount)) * RAO_PER_TAO).to_integral_value()), netuid)
+        value = Decimal(str(amount))
+        with localcontext() as ctx:
+            # Scaling by 1e9 must be exact before rounding fractional rao.
+            # Retain the caller's rounding mode, but not a lossy precision.
+            ctx.prec = max(ctx.prec, len(value.as_tuple().digits) + 9)
+            return cls(int((value * RAO_PER_TAO).to_integral_value()), netuid)
 
     @property
     def tao(self) -> float:
@@ -122,7 +127,10 @@ class Balance:
         Unlike ``amount`` this never loses precision (rao is an integer and the
         divisor is a power of ten), so it is the form to use when serializing.
         """
-        return Decimal(self.rao) / RAO_PER_TAO
+        value = Decimal(self.rao)
+        with localcontext() as ctx:
+            ctx.prec = max(ctx.prec, len(value.as_tuple().digits))
+            return value / RAO_PER_TAO
 
     @property
     def unit(self) -> str:
@@ -145,9 +153,13 @@ class Balance:
             )
 
     def __repr__(self) -> str:
+        # Formatting the float amount can lose rao for large balances.
+        whole, fractional = divmod(abs(self.rao), RAO_PER_TAO)
+        sign = "-" if self.rao < 0 else ""
+        amount = f"{sign}{whole:,}.{fractional:09d}"
         if self.netuid == 0:
-            return f"{TAO_SYMBOL}{self.amount:,.9f}"
-        return f"{self.amount:,.9f}{self.unit}"
+            return f"{TAO_SYMBOL}{amount}"
+        return f"{amount}{self.unit}"
 
     __str__ = __repr__
 
