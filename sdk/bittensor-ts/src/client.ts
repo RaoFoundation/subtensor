@@ -1825,7 +1825,7 @@ export class Client extends BrowserChainClient {
     throwIfAborted(options.signal)
     try { const result = await (await this.requireNativeClient()).rpcValue(method, params); throwIfAborted(options.signal); return result }
     catch (error) {
-      if (!this.nodeArchiveEndpoints.length || !isPrunedState(error) || !/^(?:state_(?:call|getStorage|queryStorageAt|getKeysPaged|getMetadata|getRuntimeVersion)|chain_get(?:Block|Header))$/.test(method)) throw error
+      if (!this.nodeArchiveEndpoints.length || !isPrunedState(error) || !/^(?:state_(?:call|getStorage|getStorageHash|queryStorageAt|getKeysPaged|getMetadata|getRuntimeVersion)|chain_get(?:Block|Header))$/.test(method)) throw error
       const expected = await this.genesisHash()
       this.nodeArchiveTransport ??= new JsonRpcTransport(this.nodeArchiveEndpoints[0], this.nodeArchiveEndpoints.slice(1), this.nodeOptions.retryForever, {
         ...this.nodeOptions,

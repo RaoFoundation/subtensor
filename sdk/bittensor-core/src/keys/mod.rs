@@ -876,6 +876,23 @@ impl Keypair {
     }
 }
 
+/// Verify exactly the supplied message bytes against an SS58 address.
+///
+/// Uses the same per-scheme verifier as [`verify`] (pinned Substrate
+/// sr25519/ed25519 and the hashed-account message envelopes), without its
+/// legacy `<Bytes>` wrapper retry. Invalid SS58 addresses, unsupported crypto
+/// types and incorrect sr25519/ed25519 signature lengths return errors; other
+/// signatures that do not verify return `Ok(false)`.
+pub fn verify_strict(
+    message: &[u8],
+    signature: &[u8],
+    ss58_address: &str,
+    crypto_type: u8,
+) -> Result<bool, CoreError> {
+    let public_key = public_key_from_ss58(ss58_address)?;
+    verify_with_crypto(crypto_type, &public_key, message, signature)
+}
+
 /// Verify a signature against an SS58 address without holding the secret key.
 pub fn verify(
     message: &[u8],

@@ -1067,6 +1067,12 @@ const browserWrapperExpected = allowlistedSurface(
     'ss58FromEcdsaPublic',
     'storagePrefixFor',
     'verifySignature',
+    'verifyStrict',
+    'verify_strict',
+    'encodePasswordForEnvironment',
+    'encode_password_for_environment',
+    'decodePasswordFromEnvironment',
+    'decode_password_from_environment',
   ],
   {
     Runtime: {

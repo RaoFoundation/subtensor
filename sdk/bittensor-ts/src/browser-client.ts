@@ -130,7 +130,7 @@ export class Client {
     try { return await this.transport.request(method, params, options) as T }
     catch (error) {
       // Only replay historical reads, never a submission, against the archive pool.
-      if (!this.archiveEndpoints.length || !/^(?:state_(?:call|getStorage|queryStorageAt|getKeysPaged|getMetadata|getRuntimeVersion)|chain_get(?:Block|Header))$/.test(method) || !/state.*(?:discarded|pruned)|pruned.*state|unknown block|state unavailable/i.test(String(error))) throw error
+      if (!this.archiveEndpoints.length || !/^(?:state_(?:call|getStorage|getStorageHash|queryStorageAt|getKeysPaged|getMetadata|getRuntimeVersion)|chain_get(?:Block|Header))$/.test(method) || !/state.*(?:discarded|pruned)|pruned.*state|unknown block|state unavailable/i.test(String(error))) throw error
       const expected = await this.genesisHash()
       this.archiveTransport ??= new JsonRpcTransport(this.archiveEndpoints[0], this.archiveEndpoints.slice(1), this.options.retryForever, {
         ...this.options, validateEndpoint: async (url, request) => {
@@ -545,6 +545,10 @@ export class Client {
       parseRecipient: (address, descriptor) => parseRecipient(address, decodeReceivingAddress, Keypair.fromDescriptor, publicKeyFromSs58, descriptor),
       supportsPqProfile: async profile => (await this.runtimeAt(snapshot.hash)).supportsMldsaProfile(profile),
       hasStorage: async (pallet, item, at) => (await this.runtimeAt(at)).metadataIr().pallets.find(entry => entry.name === pallet)?.storage.includes(item) ?? false,
+      storageExists: async (pallet, item, params, at) => {
+        const runtime = await this.runtimeAt(at)
+        return await this.rpc('state_getStorageHash', [hex(runtime.storageKey(pallet, item, params as ScaleValue[])), at]) != null
+      },
       moduleError: async (pallet, error, at) => (await this.runtimeAt(at ?? snapshot.hash)).moduleError(pallet, error),
       finalizedHead: () => this.finalizedHead(),
       queryMap: (p, f, a = [], limit) => this.queryMap(p, f, a as ScaleValue[], snapshot.hash, { maxResults: limit }),

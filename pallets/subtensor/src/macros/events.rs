@@ -1052,5 +1052,35 @@ mod events {
             /// Hotkey of the service.
             hotkey: T::AccountId,
         },
+        /// A subnet's gamma shares were set.
+        SubnetGammaEmissionSet {
+            /// Subnet whose split changed.
+            netuid: NetUid,
+            /// `(target, share)` in `u64::MAX` parts, in ascending target order.
+            shares: Vec<(NetUid, u64)>,
+        },
+        /// A subnet's gamma share minted gamma on its target.
+        GammaEmissionMinted {
+            /// Subnet whose emission paid for the gamma.
+            netuid: NetUid,
+            /// Subnet of the gamma.
+            target: NetUid,
+            /// Coldkey that owns the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit credited.
+            hotkey: T::AccountId,
+            /// The deposit's spender.
+            spender: T::AccountId,
+            /// Alpha of `netuid` the sale took.
+            alpha_sold: AlphaBalance,
+            /// TAO the sale returned and the purchase spent.
+            tao: TaoBalance,
+            /// Alpha burned.
+            alpha: AlphaBalance,
+            /// TAO value of the alpha burned.
+            value: TaoBalance,
+            /// Gamma credited.
+            gamma: GammaBalance,
+        },
     }
 }

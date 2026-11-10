@@ -275,6 +275,36 @@ pub fn verify_signature(
     keys::verify(&message, signature, ss58_address, crypto_code(crypto_type)).map_err(to_js_err)
 }
 
+/// Verify exactly the supplied bytes without a `<Bytes>` wrapper retry.
+#[wasm_bindgen(js_name = verifyStrict)]
+pub fn verify_strict(
+    message: &JsValue,
+    signature: &[u8],
+    ss58_address: &str,
+    crypto_type: Option<u8>,
+) -> Result<bool, JsValue> {
+    let message = coerce_message_bytes(message)?;
+    keys::verify_strict(
+        &message,
+        signature,
+        ss58_address,
+        crypto_type.unwrap_or(keys::CRYPTO_SR25519),
+    )
+    .map_err(to_js_err)
+}
+
+/// Encode a password value without reading or changing the process environment.
+#[wasm_bindgen(js_name = encodePasswordForEnvironment)]
+pub fn encode_password_for_environment(name: &str, password: &str) -> Result<String, JsValue> {
+    bittensor_core::keyfile_env::encode_password_for_environment(name, password).map_err(to_js_err)
+}
+
+/// Decode a supplied password value without consulting process state.
+#[wasm_bindgen(js_name = decodePasswordFromEnvironment)]
+pub fn decode_password_from_environment(name: &str, value: &str) -> Result<String, JsValue> {
+    bittensor_core::keyfile_env::decode_password_from_environment(name, value).map_err(to_js_err)
+}
+
 /// Decode an SS58 address to its raw 32-byte public key.
 #[wasm_bindgen(js_name = ss58Decode)]
 pub fn ss58_decode(ss58_address: &str) -> Result<Vec<u8>, JsValue> {

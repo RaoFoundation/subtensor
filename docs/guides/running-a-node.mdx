@@ -100,6 +100,7 @@ Then run it with the same flags the compose services use. Mainnet lite:
   --chain ./chainspecs/raw_spec_finney.json \
   --sync warp \
   --database paritydb \
+  --frontier-backend-type key-value \
   --db-cache 4096 \
   --trie-cache-size 2048 \
   --rpc-cors all \
@@ -126,6 +127,27 @@ default:
 node's telemetry/network name), `--rpc-max-connections`, `--rpc-rate-limit`,
 and `--log <target>=<level>`.
 
+### Recommended Frontier database backend
+
+Use `--frontier-backend-type key-value` for normal mainnet and testnet operation.
+This is already the default; the source and systemd examples make it explicit.
+The Docker Compose services also retain the default. `--database paritydb`
+selects the Substrate database, while `--frontier-backend-type` selects Frontier's
+Ethereum indexing backend.
+
+The key-value backend does not open SQLite. SQL support is compiled into the
+node, but SQLite is opened only when an operator explicitly selects
+`--frontier-backend-type sql`. SQLite is host-side indexing code and is not part
+of the runtime WASM.
+
+[RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
+therefore does not apply to the recommended key-value configuration. Operators
+who intentionally use SQL must keep the node's data directory private and use
+only trusted database and companion WAL files: the advisory requires opening a
+crafted pair of files with mismatched page sizes. Changing this flag on an
+existing SQL deployment selects a different index backend; it does not migrate
+the existing SQL index.
+
 ### As a systemd service
 
 ```ini
@@ -139,6 +161,7 @@ ExecStart=/usr/local/bin/node-subtensor \
   --base-path /var/lib/subtensor \
   --chain /opt/subtensor/chainspecs/raw_spec_finney.json \
   --sync warp --database paritydb \
+  --frontier-backend-type key-value \
   --db-cache 4096 --trie-cache-size 2048 \
   --rpc-cors all --no-mdns \
   --bootnodes /dns/bootnode.finney.chain.opentensor.ai/tcp/30333/ws/p2p/12D3KooWRwbMb85RWnT8DSXSYMWQtuDwh4LJzndoRrTDotTR5gDC

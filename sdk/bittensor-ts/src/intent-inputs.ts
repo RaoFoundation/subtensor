@@ -695,9 +695,9 @@ export interface SetSubnetEmissionWeightsInput {
   netuid: number | bigint | `${bigint}`
   /** Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted slots keep their current share. */
   slots: readonly (number | bigint | `${bigint}` | string)[]
-  /** New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage ("41%"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five sum to exactly 1. */
+  /** New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage ("41%"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five and the subnet's gamma shares sum to exactly 1. */
   values: readonly (number | bigint | `${bigint}` | number | string)[]
-  /** Keep the named slots as given and rescale the other slots proportionally so the vector sums to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1. */
+  /** Keep the named slots as given and rescale the other slots proportionally so the vector and the subnet's gamma shares sum to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1 with them. */
   renormalize?: boolean
 }
 /** Publish identity metadata for a subnet (signer must be the subnet owner). */

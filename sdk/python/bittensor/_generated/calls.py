@@ -1416,6 +1416,16 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_subnet_emission_weights', {'netuid': netuid, 'uids': uids, 'values': values})
 
     @staticmethod
+    def sudo_set_subnet_emission_weights_v2(netuid: 'NetUid', split: 'BoundedVec') -> Call:
+        "Replaces a subnet's whole emission split: the burn, recycle, owner, validator and miner shares and the shares of whitelisted subnets' gamma, each a `u64` share of `u64::MAX`, slots in strictly ascending order. A slot left out is zero.  Every rule of [`Call::sudo_set_subnet_emission_weights`] applies, with the gamma shares counted in the sum. There are at most 16 gamma shares, each at most 10% to a whitelisted subnet with gamma enabled, other than this one. A gamma share that leaves the split moves its unconverted alpha to the subnet's miners. Callable by the subnet owner, under the same rate limit as [`Call::sudo_set_subnet_emission_weights`], or root; both respect the admin freeze window."
+        return Call('AdminUtils', 'sudo_set_subnet_emission_weights_v2', {'netuid': netuid, 'split': split})
+
+    @staticmethod
+    def sudo_set_subnet_gamma_emission_whitelisted(netuid: 'NetUid', whitelisted: 'bool') -> Call:
+        "Whitelists a subnet for gamma emission, so subnets may give it gamma shares, or removes it, which moves every share of it to its subnet's miner slot. Root-only."
+        return Call('AdminUtils', 'sudo_set_subnet_gamma_emission_whitelisted', {'netuid': netuid, 'whitelisted': whitelisted})
+
+    @staticmethod
     def sudo_set_subnet_gamma_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
         'Enables or disables gamma minting on a subnet. Callable by the subnet owner or root; the root subnet is refused.'
         return Call('AdminUtils', 'sudo_set_subnet_gamma_enabled', {'netuid': netuid, 'enabled': enabled})

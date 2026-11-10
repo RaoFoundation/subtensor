@@ -175,6 +175,38 @@ the guard, the healthy origin settles while the original alpha remains pending;
 after price recovery its historical claimant receives at least 99% of the
 restored marginal value as actual root stake, with no duplicate payout.
 
-The current RustSec database also reports **RUSTSEC-2026-0459** for Frontier's
-`sqlx -> libsqlite3-sys 0.30.1`, which is present on release-489 independently of
-this change. The finding remains visible and is not waived by this report.
+The RustSec database also reports **RUSTSEC-2026-0459** for Frontier's
+`sqlx -> libsqlite3-sys 0.30.1`, present on release-489 independently of this change.
+The advisory does not apply to the default key-value backend or the runtime WASM;
+the node's optional SQL backend and its narrower exposure are described below.
+
+
+### Applicability of the SQLite advisory
+
+[RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
+is **not applicable to Subtensor's default key-value backend**. In
+`node/src/ethereum.rs`, `BackendType::KeyValue` is the default and the CLI uses
+that default. In `node/src/service.rs`, only the separate `BackendType::Sql`
+branch opens SQLite. The dependency is host-side Frontier indexing code, not
+part of the runtime WASM. Compiling SQL support explains the audit finding;
+it does not mean that SQLite is used by the running node.
+
+The advisory requires opening a crafted database together with a companion WAL
+file whose page size differs. Exposure is conditional on an operator explicitly
+selecting `--frontier-backend-type sql` and opening database/WAL files supplied
+by a less trusted party. That path opens `sql/frontier.db3` under the node's data
+directory. The default key-value path never opens that SQLite database. The
+[node operation guide](/docs/guides/running-a-node) recommends explicitly
+selecting `--frontier-backend-type key-value`.
+
+Release 489 retains `skip-cargo-audit` under the maintainer's explicit policy in
+`../AGENTS-subtensor.md`. No dependency update or additional advisory ignore is
+needed for the default deployment. The SQL dependency remains unpatched for
+operators who opt into that backend; its eventual upgrade is separate work.
+A SQLite-only version update is not compatible with the current dependency
+constraints: `sqlx-sqlite 0.8.6` requires `libsqlite3-sys ^0.30.1`, while the
+advisory is patched in `libsqlite3-sys >=0.39.0`. The newer `sqlx-sqlite 0.9.0`
+still requires a version below 0.38.0 and also raises the Rust requirement to
+1.94, above this repository's pinned 1.89 toolchain.
+The audit job is skipped, not passed, and this applicability analysis does not
+claim that every optional configuration is unaffected.

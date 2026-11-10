@@ -2,7 +2,8 @@
 
 A subnet's alpha emission is divided by a five-slot vector
 ``[burn, recycle, owner, validator, miner]`` whose entries are ``u64`` parts of
-``u64::MAX`` (so the slots sum to exactly one). The owner or root sets it with
+``u64::MAX`` (so they sum to exactly one with the subnet's gamma shares). The
+owner or root sets it with
 ``AdminUtils.sudo_set_subnet_emission_weights(netuid, uids, values)`` — a
 *sparse* update: every ``uids[i]`` names a slot and ``values[i]`` its new share.
 Omitted slots keep their current value. The chain then checks the v1 rules:
@@ -21,7 +22,7 @@ Omitted slots keep their current value. The chain then checks the v1 rules:
   past ``V``, root's cut is capped at the whole slot until the owner raises
   ``V`` — see :func:`baseline_root_share` and :func:`validator_floor`;
 * ``miner >= 0.33``;
-* the five slots sum to exactly one.
+* the five slots and the subnet's gamma shares sum to exactly one.
 
 Burn destroys alpha but still counts toward issuance; recycle removes alpha
 from ``SubnetAlphaOut`` and ``TotalAlphaIssuance``.
@@ -170,12 +171,14 @@ class Rules:
     at this block: one part above root's baseline share, since the chain
     rejects ``V <= r`` (see :func:`validator_floor`); ``None`` when it is
     unknown (no chain state at hand). ``min_owner`` is the lease floor, zero
-    for subnets not created through a lease.
+    for subnets not created through a lease. ``gamma_share`` is the sum of
+    the subnet's gamma shares; the five slots sum to one less it.
     """
 
     min_validator: Optional[int] = None
     min_owner: int = 0
     created_via_lease: bool = False
+    gamma_share: int = 0
 
     def limits(self) -> dict[str, dict[str, object]]:
         """Allowed range per slot, by slot name, as the machine-readable shape.
@@ -231,8 +234,19 @@ class Rules:
                 "combined cap on slots 0 and 1",
             )
         )
-        rows.append(("sum", "= 100%", f"all five slots add up to exactly {ONE} parts"))
+        rows.append(
+            (
+                "sum",
+                "= 100%",
+                f"all five slots{and_gamma(self.gamma_share)} add up to exactly {ONE} parts",
+            )
+        )
         return rows
+
+
+def and_gamma(gamma_share: int) -> str:
+    """`` and the gamma shares (10.00%)`` when the subnet has any, for messages on the sum."""
+    return f" and the gamma shares ({format_share(gamma_share)})" if gamma_share else ""
 
 
 def _limit(low: Optional[int], high: int, why: str) -> dict[str, object]:
@@ -284,22 +298,24 @@ def merge(current: Iterable[int], updates: Mapping[Union[int, str], int]) -> lis
 def renormalize(
     current: Iterable[int],
     fixed: Mapping[Union[int, str], int],
+    gamma_share: int = 0,
 ) -> list[int]:
     """Pin the ``fixed`` slots and rescale the other adjustable slots so the
-    vector sums to one again.
+    vector and ``gamma_share``, the subnet's gamma shares, sum to one again.
 
     The untouched slots keep their relative proportions (split evenly when
     they are all zero); the last of them in slot order — normally the miner —
-    absorbs the rounding remainder. Raises if the pinned shares alone exceed
-    one, or if every adjustable slot is pinned but the total is not one.
+    absorbs the rounding remainder. Raises if the pinned shares and the gamma
+    shares exceed one, or if every adjustable slot is pinned but the total is
+    not one.
     """
     pinned = {slot_index(slot): int(value) for slot, value in fixed.items()}
     base = normalize_weights(current)
     free = [slot for slot in ADJUSTABLE_SLOTS if slot not in pinned]
-    remaining = ONE - sum(pinned.values())
+    remaining = ONE - gamma_share - sum(pinned.values())
     if remaining < 0:
         raise ValueError(
-            "the pinned shares alone exceed 100%: "
+            f"the pinned shares{and_gamma(gamma_share)} alone exceed 100%: "
             + ", ".join(f"{SLOT_NAMES[s]}={format_share(v)}" for s, v in pinned.items() if v)
         )
     out = base[:]
@@ -308,8 +324,8 @@ def renormalize(
     if not free:
         if remaining != 0:
             raise ValueError(
-                f"all adjustable slots are pinned but they sum to {format_share(ONE - remaining)}, "
-                "not 100%"
+                f"all adjustable slots are pinned but they{and_gamma(gamma_share)} sum to "
+                f"{format_share(ONE - remaining)}, not 100%"
             )
         return out
     free_total = sum(base[slot] for slot in free)
@@ -381,14 +397,14 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
                 f"least {format_share(MIN_MINER)}",
             )
         )
-    total = sum(w)
+    total = sum(w) + rules.gamma_share
     if total != ONE:
         found.append(
             Violation(
                 "EmissionWeightsDoNotSumToOne",
-                f"the five slots sum to {format_share(total, 6)} ({total} parts), not exactly "
-                f"100% ({ONE} parts); renormalise another slot in the same call "
-                "(`btcli subnets emission set-value` does this for you)",
+                f"the five slots{and_gamma(rules.gamma_share)} sum to {format_share(total, 6)} "
+                f"({total} parts), not exactly 100% ({ONE} parts); renormalise another slot in "
+                "the same call (`btcli subnets emission set-value` does this for you)",
             )
         )
     return found

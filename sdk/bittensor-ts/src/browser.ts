@@ -76,6 +76,9 @@ export interface BrowserWasmModule {
     cryptoType?: number,
   ): boolean
   ss58Decode(ss58Address: string): Uint8Array
+  verifyStrict(message: BrowserMessage, signature: Uint8Array, ss58Address: string, cryptoType?: number): boolean
+  encodePasswordForEnvironment(name: string, password: string): string
+  decodePasswordFromEnvironment(name: string, value: string): string
   ss58Encode(publicKey: Uint8Array, ss58Format?: number): string
   accountIdFromEcdsaPublic(publicKey: Uint8Array): Uint8Array
   ss58FromEcdsaPublic(publicKey: Uint8Array, ss58Format?: number): string
@@ -946,6 +949,25 @@ export function verifySignature(
 export function publicKeyFromSs58(ss58Address: string): Uint8Array {
   return copyBytes(wasmSync().ss58Decode(ss58Address))
 }
+
+/** Verify exactly these message bytes, without the legacy `<Bytes>` wrapper retry. */
+export function verifyStrict(message: BrowserMessage, signature: BrowserByteLike, ss58Address: string, cryptoType = CRYPTO_SR25519): boolean {
+  if (!Number.isInteger(cryptoType) || cryptoType < 0 || cryptoType > 255) throw new RangeError('cryptoType must be a u8')
+  return wasmSync().verifyStrict(typeof message === 'string' ? message : toBytes(message, 'message'), toBytes(signature, 'signature'), ss58Address, cryptoType)
+}
+export const verify_strict = verifyStrict
+
+/** Encode a wallet-compatible value without reading or changing process state. */
+export function encodePasswordForEnvironment(name: string, password: string): string {
+  return wasmSync().encodePasswordForEnvironment(name, password)
+}
+export const encode_password_for_environment = encodePasswordForEnvironment
+
+/** Decode a caller-supplied wallet password value without consulting process state. */
+export function decodePasswordFromEnvironment(name: string, value: string): string {
+  return wasmSync().decodePasswordFromEnvironment(name, value)
+}
+export const decode_password_from_environment = decodePasswordFromEnvironment
 
 export function ss58FromPublic(
   publicKey: BrowserByteLike,

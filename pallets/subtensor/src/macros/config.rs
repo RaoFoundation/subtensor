@@ -79,6 +79,11 @@ mod config {
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: crate::weights::WeightInfo;
 
+        /// Transitional access to the retired Alpha share maps. Production runtimes set
+        /// this to false once the bounded AlphaV2 migration is complete; migration test
+        /// runtimes keep it enabled to verify upgrades from historical state.
+        type LegacyAlphaCompatibility: Get<bool>;
+
         // Initial Value Constants
 
         /// Initial currency issuance.

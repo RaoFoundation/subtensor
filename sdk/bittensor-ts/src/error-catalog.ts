@@ -241,6 +241,11 @@ export const CHAIN_ERROR_CODES = {
   "ValidatorEmissionTooLowToPreserveRoot": "policy_violation",
   "MinerEmissionBelowMinimum": "policy_violation",
   "EmissionWeightsNotSettableOnRoot": "invalid_argument",
+  "EmissionSlotsNotAscending": "invalid_argument",
+  "GammaEmissionAboveMaximum": "policy_violation",
+  "GammaEmissionTargetNotWhitelisted": "policy_violation",
+  "TooManyGammaShares": "limit_exceeded",
+  "GammaEmissionNotSettableOnLeasedSubnet": "policy_violation",
   "UnlockAmountTooHigh": "insufficient_balance",
   "TempoOutOfBounds": "invalid_argument",
   "ActivityCutoffFactorMilliOutOfBounds": "invalid_argument",
@@ -2228,6 +2233,41 @@ export const CHAIN_ERROR_CATALOG = [
     "pallet": "SubtensorModule",
     "name": "BurnRecycleEmissionAboveMaximum",
     "docs": "`set_subnet_emission_weights`: burn (slot 0) and recycle (slot 1) together may be at most 33% of emission."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 202,
+    "pallet": "SubtensorModule",
+    "name": "EmissionSlotsNotAscending",
+    "docs": "`set_subnet_emission_weights_v2`: the split's slots are not in strictly ascending order."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 203,
+    "pallet": "SubtensorModule",
+    "name": "GammaEmissionAboveMaximum",
+    "docs": "`set_subnet_emission_weights_v2`: a gamma share may be at most 10% of emission."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 204,
+    "pallet": "SubtensorModule",
+    "name": "GammaEmissionTargetNotWhitelisted",
+    "docs": "`set_subnet_emission_weights_v2`: a gamma share names a subnet that is not whitelisted for gamma emission."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 205,
+    "pallet": "SubtensorModule",
+    "name": "TooManyGammaShares",
+    "docs": "`set_subnet_emission_weights_v2`: a split may have at most 16 gamma shares."
+  },
+  {
+    "palletIndex": 7,
+    "errorIndex": 206,
+    "pallet": "SubtensorModule",
+    "name": "GammaEmissionNotSettableOnLeasedSubnet",
+    "docs": "`set_subnet_emission_weights_v2`: a subnet under a lease may not have gamma shares."
   },
   {
     "palletIndex": 11,

@@ -204,9 +204,17 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn flush_basket_deposits_for_hotkey(
         hotkey: &T::AccountId,
     ) -> (BasketFlushWork, Option<Vec<u8>>, bool) {
-        let (work, key, completed) = Self::process_basket_deposits_for_hotkey(hotkey);
+        let (work, key, completed, overflowed) =
+            Self::process_basket_deposits_for_hotkey(hotkey, None);
         if completed {
             return (work, key, true);
+        }
+        // The first bounded chunk made progress. Do not also snapshot the next chunk in
+        // this call: every synchronous caller only reserves one hotkey's existing flush
+        // envelope. The per-block drain commits and resumes the remaining rows for an
+        // oversized queue; a dispatch that returns this error remains transactional.
+        if overflowed {
+            return (work, key, false);
         }
         let snapshotted = with_transaction(|| match Self::snapshot_deferred_dividends(hotkey) {
             Ok(()) => TransactionOutcome::Commit(Ok(())),
@@ -221,17 +229,21 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn settle_basket_deposits_for_test(
         hotkey: &T::AccountId,
     ) -> (BasketFlushWork, Option<Vec<u8>>, bool) {
-        Self::process_basket_deposits_for_hotkey(hotkey)
+        let (work, key, completed, _) = Self::process_basket_deposits_for_hotkey(hotkey, None);
+        (work, key, completed)
     }
 
     /// Deposit all of a hotkey's flushable queued credits into its basket as one batch.
     ///
     /// A credit is flushable when its origin subnet still exists and its fast-mark value is
-    /// at or above `RootClaimableThreshold[ROOT]` (or the anchor is unavailable).
-    /// This mark decides only dust eligibility, NOT the share mint price. Sub-threshold credits stay
-    /// queued and keep merging with future dividends until they are worth a deposit — this
-    /// is what keeps dust from ever becoming a basket holding row (and what lets dust
-    /// consolidation run without fighting next epoch's accrual).
+    /// at or above `RootClaimableThreshold[ROOT]` (or the anchor is unavailable). An
+    /// oversized queue is the recovery exception: once bounded look-ahead proves that more
+    /// than [`MAX_BASKET_ROWS`] exist, the whole selected chunk settles so even a dust-only
+    /// queue shrinks back below the synchronous admission cap.
+    /// This mark decides only dust eligibility, NOT the share mint price. Outside oversized
+    /// recovery, sub-threshold credits stay queued and keep merging with future dividends
+    /// until they are worth a deposit — this is what keeps dust from ever becoming a basket
+    /// holding row (and what lets dust consolidation run without fighting next epoch's accrual).
     /// Credits from dissolved subnets are recycled (issuance conservation) then dropped.
     /// `NetworksAdded` is cleared at dissolve start, so this path covers the in-progress
     /// window; the durable guarantee against netuid reuse is the
@@ -242,15 +254,19 @@ impl<T: Config> Pallet<T> {
     /// earnings, so that dust is recycled. Snapshotted credits retain their owners after
     /// root eviction and remain available for conversion or direct redemption.
     ///
-    /// Returns `(work, last_key, completed)`: the approximate work done (quotes and executed
+    /// Returns `(work, last_key, completed, overflowed)`: the approximate work done (quotes and executed
     /// rows, never above [`Self::basket_flush_work_bound`]; priced by
     /// [`Self::basket_flush_weight`] into the post-dispatch weight of every extrinsic that
     /// flushes), the raw storage key of the hotkey's last queue entry, and whether every
     /// credit selected for this flush was settled. The drain stores `last_key` as its cursor so a hotkey whose credits are all
-    /// deferred dust still gets skipped past instead of pinning the queue head.
+    /// deferred dust still gets skipped past instead of pinning the queue head. `overflowed`
+    /// means another bounded chunk remains after `last_key`; the rows selected in this chunk
+    /// are still settled, so committed block-drain calls monotonically reduce a large
+    /// flushable queue.
     fn process_basket_deposits_for_hotkey(
         hotkey: &T::AccountId,
-    ) -> (BasketFlushWork, Option<Vec<u8>>, bool) {
+        start_after: Option<Vec<u8>>,
+    ) -> (BasketFlushWork, Option<Vec<u8>>, bool, bool) {
         let threshold: u64 =
             RootClaimableThreshold::<T>::get(NetUid::ROOT).saturating_to_num::<u64>();
         let on_root = Self::is_hotkey_registered_on_network(NetUid::ROOT, hotkey);
@@ -258,18 +274,25 @@ impl<T: Config> Pallet<T> {
         let mut work = BasketFlushWork::default();
         let mut last_netuid: Option<NetUid> = None;
         let mut batch: Vec<(NetUid, AlphaBalance)> = Vec::new();
-        for (netuid, alpha) in PendingBasketDeposits::<T>::iter_prefix(hotkey) {
+        let mut dust: Vec<(NetUid, AlphaBalance)> = Vec::new();
+        let mut pending = match start_after {
+            Some(raw) => PendingBasketDeposits::<T>::iter_prefix_from(hotkey, raw),
+            None => PendingBasketDeposits::<T>::iter_prefix(hotkey),
+        };
+        let mut overflowed = false;
+        for (netuid, alpha) in pending.by_ref() {
+            // Read one extra key only as a bounded look-ahead. It performs no price quote or
+            // write and is not part of this chunk; `last_key` remains the last processed row.
+            if work.quotes >= MAX_BASKET_ROWS {
+                overflowed = true;
+                break;
+            }
             last_netuid = Some(netuid);
             work.quotes = work.quotes.saturating_add(1);
-            // Governance/network churn must not make any caller walk an arbitrarily long
-            // queue. The extra row only detects overflow; no further price or write follows.
-            if work.quotes > MAX_BASKET_ROWS {
-                return (work, None, false);
-            }
             if !Self::if_subnet_exist(netuid) {
                 if DeferredBasketRates::<T>::contains_key(hotkey, netuid) {
                     if Self::dissolve_deferred_dividend(hotkey, netuid, alpha).is_err() {
-                        return (work, None, false);
+                        return (work, None, false, overflowed);
                     }
                 } else {
                     Self::drop_pending_basket_deposit(hotkey, netuid, alpha);
@@ -300,16 +323,24 @@ impl<T: Config> Pallet<T> {
                     .saturating_to_num::<u64>()
             });
             if value < threshold {
+                dust.push((netuid, alpha));
                 continue;
             }
             batch.push((netuid, alpha));
+        }
+
+        // A queue above the cap cannot rely on the ordinary dust-merging policy: retained
+        // rows would keep every root-stake operation over the cap forever. Settling the
+        // selected dust rows uses no more work than an ordinary 256-credit full batch.
+        if overflowed {
+            batch.extend(dust);
         }
 
         let last_key =
             last_netuid.map(|netuid| PendingBasketDeposits::<T>::hashed_key_for(hotkey, netuid));
 
         if batch.is_empty() {
-            return (work, last_key, true);
+            return (work, last_key, !overflowed, overflowed);
         }
         for (netuid, _) in batch.iter() {
             PendingBasketDeposits::<T>::remove(hotkey, netuid);
@@ -318,10 +349,11 @@ impl<T: Config> Pallet<T> {
         }
 
         work = work.saturating_add(Self::deposit_root_alpha_batch(hotkey, &batch));
-        let completed = batch
-            .iter()
-            .all(|(netuid, _)| !PendingBasketDeposits::<T>::contains_key(hotkey, netuid));
-        (work, last_key, completed)
+        let completed = !overflowed
+            && batch
+                .iter()
+                .all(|(netuid, _)| !PendingBasketDeposits::<T>::contains_key(hotkey, netuid));
+        (work, last_key, completed, overflowed)
     }
 
     /// The per-block queue drain: flush exactly one queued hotkey per block, round-robin
@@ -338,8 +370,8 @@ impl<T: Config> Pallet<T> {
         }
 
         let cursor = PendingBasketFlushCursor::<T>::get();
-        let mut keys = match cursor {
-            Some(raw) => PendingBasketDeposits::<T>::iter_keys_from(raw),
+        let mut keys = match cursor.as_ref() {
+            Some(raw) => PendingBasketDeposits::<T>::iter_keys_from(raw.clone()),
             None => PendingBasketDeposits::<T>::iter_keys(),
         };
         let Some((hotkey, _)) = keys.next() else {
@@ -351,7 +383,7 @@ impl<T: Config> Pallet<T> {
         };
         drop(keys);
 
-        let (work, last_key, _) = Self::process_basket_deposits_for_hotkey(&hotkey);
+        let (work, last_key, _, _) = Self::process_basket_deposits_for_hotkey(&hotkey, cursor);
         match last_key {
             Some(last_key) => {
                 PendingBasketFlushCursor::<T>::put(last_key);

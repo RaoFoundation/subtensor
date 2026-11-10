@@ -40,8 +40,10 @@ export interface IntentReader {
   query(pallet: string, item: string, params?: unknown[], block?: number | string | null): Promise<unknown>
   /** Inspect the selected block's metadata before using legacy registration constants. */
   hasStorage?(pallet: string, item: string, block: string): boolean | Promise<boolean>
+  /** Test physical presence at the selected block, without applying a storage default. */
+  storageExists?(pallet: string, item: string, params: unknown[], block: string): Promise<boolean>
   queryMap?(pallet: string, item: string, params?: unknown[], limit?: number): Promise<Array<[unknown, unknown]>>
-  /** Count physical keys, including retired Alpha rows not present in runtime metadata. */
+  /** Count physical storage keys, including rows whose stored value is zero. */
   countStorageKeys?(pallet: string, item: string, params: unknown[], limit: number): Promise<number>
   runtimeCall(api: string, method: string, params?: unknown[], block?: number | string | null): Promise<unknown>
   moduleError?(pallet: number, error: number, block?: string): Promise<{ name: string; docs: readonly string[] }>
@@ -775,12 +777,12 @@ async function claimPreflight(plan: MutablePlan, reader: IntentReader, context: 
   // Bound concurrency even for legacy oversize staking-hotkey lists.
   for (let index = 0; index < selected.length; index += 16) {
     const baskets = await Promise.all(selected.slice(index, index + 16).map(async key => {
-      const [legacy, current, queued] = await Promise.all([
-        countKeys('SubtensorModule', 'Alpha', [key, escrow], 257),
+      // The current runtime disables LegacyAlphaCompatibility and counts AlphaV2 only.
+      const [current, queued] = await Promise.all([
         countKeys('SubtensorModule', 'AlphaV2', [key, escrow], 257),
         countKeys('SubtensorModule', 'PendingBasketDeposits', [key], 513),
       ])
-      return { holdings: small(legacy, 257, 'legacy holding count') + small(current, 257, 'holding count'), queued: small(queued, 513, 'pending deposit count') }
+      return { holdings: small(current, 257, 'holding count'), queued: small(queued, 513, 'pending deposit count') }
     }))
     holdingCounts.push(...baskets.map(basket => basket.holdings))
     holdings += baskets.reduce((sum, basket) => sum + basket.holdings, 0)
@@ -831,9 +833,10 @@ async function emissionWeights(plan: MutablePlan, reader: IntentReader, context:
   const current = rec(await reader.runtimeCall('SubnetInfoRuntimeApi', 'get_subnet_emission_weights', [a.netuid]))
   if (!Array.isArray(current.weights)) throw new Error('subnet emission vector unavailable; root has no emission vector')
   const before = current.weights.map((value: unknown) => unsigned(value, 'emission share'))
-  const after = a.renormalize ? emission.renormalize(before, updates) : emission.mergeWeights(before, updates)
+  const gammaShare = emission.gammaEmissionShare(await reader.query('SubtensorModule', 'SubnetGammaEmission', [a.netuid]))
+  const after = a.renormalize ? emission.renormalize(before, updates, gammaShare) : emission.mergeWeights(before, updates)
   const baseline = unsigned(current.root_baseline_share, 'root baseline share')
-  const violations = emission.validate(after, { min_validator: emission.minValidatorParts(baseline), min_owner: emission.DEFAULT_OWNER, created_via_lease: Boolean(current.created_via_lease) })
+  const violations = emission.validate(after, { min_validator: emission.minValidatorParts(baseline), min_owner: emission.DEFAULT_OWNER, created_via_lease: Boolean(current.created_via_lease), gamma_share: gammaShare })
   plan.violations = [...plan.violations, ...violations.map(violation => `${violation.error}: ${violation.message}`)]
   const [owner, last, block] = await Promise.all([
     reader.query('SubtensorModule', 'SubnetOwner', [a.netuid]),
@@ -846,7 +849,7 @@ async function emissionWeights(plan: MutablePlan, reader: IntentReader, context:
   if (!rateLimit.owner_can_change_now) plan.violations = [...plan.violations, `owner emission update rate-limited until block ${rateLimit.next_allowed_block}`]
   const ids: number[] = a.renormalize ? [0, 1, 2, 3, 4] : slots.slice().sort((left: number, right: number) => left - right)
   plan.call = descriptor('AdminUtils', 'sudo_set_subnet_emission_weights', { netuid: a.netuid, uids: ids, values: ids.map(id => a.renormalize ? after[id] : updates[id]) })
-  plan.preview = { before, after, baselineRootShare: baseline, rateLimit, changed: emission.SLOT_NAMES.filter((_, index) => before[index] !== after[index]) }
+  plan.preview = { before, after, gamma_share: gammaShare, baselineRootShare: baseline, rateLimit, changed: emission.SLOT_NAMES.filter((_, index) => before[index] !== after[index]) }
 }
 
 async function multisig(plan: MutablePlan, reader: IntentReader, context: IntentContext, a: Record<string, any>): Promise<void> {

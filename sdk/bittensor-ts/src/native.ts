@@ -703,6 +703,9 @@ export interface NativeBinding {
     cryptoType: number,
   ): boolean
   publicKeyFromSs58(ss58Address: string): Buffer
+  verifyStrict(message: Buffer, signature: Buffer, ss58Address: string, cryptoType: number): boolean
+  encodePasswordForEnvironment(name: string, password: string): string
+  decodePasswordFromEnvironment(name: string, value: string): string
   ss58FromPublic(publicKey: Buffer, ss58Format: number): string
   accountIdFromEcdsaPublic(publicKey: Buffer): Buffer
   ss58FromEcdsaPublic(publicKey: Buffer, ss58Format: number): string

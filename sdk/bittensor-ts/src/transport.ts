@@ -26,6 +26,7 @@ export const IDEMPOTENT_RPC_METHODS = new Set([
   'state_getMetadata',
   'state_getRuntimeVersion',
   'state_getStorage',
+  'state_getStorageHash',
   'state_queryStorageAt',
   'state_subscribeRuntimeVersion',
   'state_subscribeStorage',

@@ -694,6 +694,13 @@ export function verifySignature(
 export const verify = verifySignature
 export const verify_signature = verifySignature
 
+/** Verify exactly these message bytes, without the legacy `<Bytes>` wrapper retry. */
+export function verifyStrict(message: string | ByteLike, signature: ByteLike, ss58Address: string, cryptoType = CRYPTO_SR25519): boolean {
+  if (!Number.isInteger(cryptoType) || cryptoType < 0 || cryptoType > 255) throw new RangeError('cryptoType must be a u8')
+  return nativeCall(() => native.verifyStrict(coerceMessage(message), toBuffer(signature, 'signature'), ss58Address, cryptoType))
+}
+export const verify_strict = verifyStrict
+
 export function publicKeyFromSs58(ss58Address: string): Buffer {
   return nativeCall(() => native.publicKeyFromSs58(ss58Address))
 }
@@ -847,6 +854,18 @@ export function keyfileDataEncryptionMethod(keyfileData: ByteLike): string {
 }
 
 export const keyfile_data_encryption_method = keyfileDataEncryptionMethod
+
+/** Encode a wallet-compatible value without reading or changing process.env. */
+export function encodePasswordForEnvironment(name: string, password: string): string {
+  return nativeCall(() => native.encodePasswordForEnvironment(name, password))
+}
+export const encode_password_for_environment = encodePasswordForEnvironment
+
+/** Decode a caller-supplied wallet password value without consulting process.env. */
+export function decodePasswordFromEnvironment(name: string, value: string): string {
+  return nativeCall(() => native.decodePasswordFromEnvironment(name, value))
+}
+export const decode_password_from_environment = decodePasswordFromEnvironment
 
 export function legacyGetPasswordFromEnvironment(name: string): string | null {
   return nativeCall(() => native.getPasswordFromEnvironment(name) ?? null)

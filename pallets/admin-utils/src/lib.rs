@@ -230,6 +230,13 @@ pub mod pallet {
             /// The new reserve amount, in rao; zero disables the reserve.
             value: TaoBalance,
         },
+        /// A subnet was whitelisted for gamma emission or removed from the whitelist.
+        SubnetGammaEmissionWhitelistedSet {
+            /// The network identifier.
+            netuid: NetUid,
+            /// Whether subnets may give it gamma shares.
+            whitelisted: bool,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2985,6 +2992,72 @@ pub mod pallet {
             ensure_root(origin)?;
             T::RegistrationDeposit::set(value);
             Self::deposit_event(Event::HashedAccountRegistrationDepositSet { value });
+            Ok(())
+        }
+
+        /// Replaces a subnet's whole emission split: the burn, recycle, owner, validator and
+        /// miner shares and the shares of whitelisted subnets' gamma, each a `u64` share of
+        /// `u64::MAX`, slots in strictly ascending order. A slot left out is zero.
+        ///
+        /// Every rule of [`Call::sudo_set_subnet_emission_weights`] applies, with the gamma
+        /// shares counted in the sum. There are at most 16 gamma shares, each at most 10% to a
+        /// whitelisted subnet with gamma enabled, other than this one. A gamma share that leaves
+        /// the split moves its unconverted alpha to the subnet's miners. Callable by the subnet
+        /// owner, under the same rate limit as [`Call::sudo_set_subnet_emission_weights`], or
+        /// root; both respect the admin freeze window.
+        #[pallet::call_index(120)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_subnet_emission_weights_v2()
+            .saturating_add(T::DbWeight::get().reads_writes(
+                u64::from(pallet_subtensor::MAX_EMISSION_SLOTS).saturating_mul(4),
+                u64::from(pallet_subtensor::MAX_EMISSION_SLOTS).saturating_mul(2).saturating_add(1),
+            )))]
+        pub fn sudo_set_subnet_emission_weights_v2(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            split: pallet_subtensor::EmissionSplit,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::EmissionWeights.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+
+            pallet_subtensor::Pallet::<T>::do_set_subnet_emission_weights_v2(netuid, split)?;
+
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::EmissionWeights.into()],
+            );
+            Ok(())
+        }
+
+        /// Whitelists a subnet for gamma emission, so subnets may give it gamma shares, or
+        /// removes it, which moves every share of it to its subnet's miner slot. Root-only.
+        #[pallet::call_index(121)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_subnet_gamma_emission_whitelisted()
+            .saturating_add(pallet_subtensor::Pallet::<T>::remove_gamma_emission_target_weight()))]
+        pub fn sudo_set_subnet_gamma_emission_whitelisted(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            whitelisted: bool,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);
+            if whitelisted {
+                pallet_subtensor::SubnetGammaEmissionWhitelisted::<T>::insert(netuid, true);
+            } else {
+                pallet_subtensor::Pallet::<T>::remove_gamma_emission_target(netuid);
+            }
+            Self::deposit_event(Event::SubnetGammaEmissionWhitelistedSet {
+                netuid,
+                whitelisted,
+            });
             Ok(())
         }
     }

@@ -271,12 +271,17 @@ test('Node and snapshot namespaces expose snake and camel methods at the origina
 test('generated catalogs expose every metadata category and exact call parameter names', () => {
   const descriptors = require('../dist/descriptors')
   const count = catalog => Object.values(catalog).reduce((sum, value) => sum + Object.keys(value).length, 0)
-  assert.equal(count(descriptors.storage), 434)
+  assert.equal(count(descriptors.storage), 438)
   assert.deepEqual(descriptors.storage.LimitOrders.ApprovedOrders, ['LimitOrders', 'ApprovedOrders'])
   assert.equal(descriptors.storage.LimitOrders.OrderNonces, undefined)
+  for (const name of ['SubnetGammaEmission', 'PendingGammaEmission', 'UnconvertedGammaEmission', 'SubnetGammaEmissionWhitelisted']) {
+    assert.deepEqual(descriptors.storage.SubtensorModule[name], ['SubtensorModule', name])
+  }
   assert.equal(count(descriptors.constants), 142)
   assert.equal(count(descriptors.runtimeApi), 129)
-  assert.equal(count(descriptors.calls), 348)
+  assert.equal(count(descriptors.calls), 350)
+  assert.deepEqual(descriptors.calls.AdminUtils.sudo_set_subnet_emission_weights_v2(1, []), ['AdminUtils', 'sudo_set_subnet_emission_weights_v2', { netuid: 1, split: [] }])
+  assert.deepEqual(descriptors.calls.AdminUtils.sudo_set_subnet_gamma_emission_whitelisted(2, true), ['AdminUtils', 'sudo_set_subnet_gamma_emission_whitelisted', { netuid: 2, whitelisted: true }])
   assert.deepEqual(descriptors.calls.SubtensorModule.announce_coldkey_swap('0x1234'), ['SubtensorModule', 'announce_coldkey_swap', { new_coldkey_hash: '0x1234' }])
 })
 

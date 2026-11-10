@@ -11,7 +11,7 @@ export const MIN_MINER = ONE * 33n / 100n
 export const OWNER_RATE_LIMIT_BLOCKS = 50400
 export type EmissionSlot = typeof SLOT_NAMES[number] | number
 export type ShareLike = bigint | number | string
-export interface EmissionRules { min_validator?: bigint | null; min_owner?: bigint; created_via_lease?: boolean }
+export interface EmissionRules { min_validator?: bigint | null; min_owner?: bigint; created_via_lease?: boolean; gamma_share?: bigint }
 export interface EmissionViolation { error: string; message: string }
 export function slotIndex(slot: EmissionSlot | string): number {
   const value = typeof slot === 'string' && !/^\d+$/.test(slot.trim()) ? SLOT_NAMES.indexOf(slot.trim().toLowerCase() as typeof SLOT_NAMES[number]) : Number(slot)
@@ -65,11 +65,29 @@ export function mergeWeights(current: Iterable<bigint>, updates: Record<string, 
   for (const [slot, value] of Object.entries(updates)) result[slotIndex(slot)] = value
   return result
 }
-export function renormalize(current: Iterable<bigint>, fixed: Record<string, bigint>): bigint[] {
+/** Total reserved for Gamma targets; the five fixed slots share the remainder. */
+export function gammaEmissionShare(rows: unknown): bigint {
+  if (rows == null) return 0n
+  if (!Array.isArray(rows)) throw new TypeError('invalid Gamma emission shares')
+  let total = 0n
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length !== 2) throw new TypeError('invalid Gamma emission share entry')
+    const value = row[1]
+    if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new RangeError('Gamma emission share requires exact integer parts')
+    if (typeof value !== 'bigint' && typeof value !== 'number' && !(typeof value === 'string' && /^\d+$/.test(value))) throw new TypeError('invalid Gamma emission share parts')
+    const share = BigInt(value)
+    if (share < 0n || share > ONE) throw new RangeError('Gamma emission share outside u64 range')
+    total += share
+  }
+  if (total > ONE) throw new RangeError('Gamma emission shares exceed 100%')
+  return total
+}
+export function renormalize(current: Iterable<bigint>, fixed: Record<string, bigint>, gammaShare = 0n): bigint[] {
+  if (gammaShare < 0n || gammaShare > ONE) throw new RangeError('Gamma emission share outside u64 range')
   const result = normalizeWeights(current)
   const pinned = new Map(Object.entries(fixed).map(([slot, value]) => [slotIndex(slot), value]))
   for (const value of pinned.values()) if (value < 0n || value > ONE) throw new RangeError('invalid pinned share')
-  let remaining = ONE - [...pinned.values()].reduce((a, b) => a + b, 0n)
+  let remaining = ONE - gammaShare - [...pinned.values()].reduce((a, b) => a + b, 0n)
   if (remaining < 0n) throw new RangeError('pinned shares exceed 100%')
   const free = ADJUSTABLE_SLOTS.filter(i => !pinned.has(i))
   if (!free.length && remaining !== 0n) throw new RangeError('pinned shares do not sum to 100%')
@@ -82,6 +100,7 @@ export function renormalize(current: Iterable<bigint>, fixed: Record<string, big
 }
 export function validate(weights: Iterable<bigint>, rules: EmissionRules = {}): EmissionViolation[] {
   const w = normalizeWeights(weights), found: EmissionViolation[] = []
+  const gammaShare = rules.gamma_share ?? 0n
   const check = (fails: boolean, error: string, message: string) => { if (fails) found.push({ error, message }) }
   check(w.some(v => v < 0n || v > ONE), 'InvalidEmissionWeight', 'weights must be u64 parts')
   check(w[0] + w[1] > MAX_BURN_RECYCLE, 'BurnRecycleEmissionAboveMaximum', 'burn and recycle together exceed 33%')
@@ -90,7 +109,8 @@ export function validate(weights: Iterable<bigint>, rules: EmissionRules = {}): 
   check(w[3] > MAX_VALIDATOR, 'ValidatorEmissionAboveMaximum', 'validator share exceeds 50%')
   check(rules.min_validator != null && w[3] < rules.min_validator, 'ValidatorEmissionTooLowToPreserveRoot', 'validator share must exceed the root baseline')
   check(w[4] < MIN_MINER, 'MinerEmissionBelowMinimum', 'miner share is below 33%')
-  check(w.reduce((a, b) => a + b, 0n) !== ONE, 'EmissionWeightsDoNotSumToOne', 'shares must sum exactly to u64::MAX')
+  check(gammaShare < 0n || gammaShare > ONE, 'InvalidEmissionWeight', 'Gamma shares must be u64 parts')
+  check(w.reduce((a, b) => a + b, 0n) + gammaShare !== ONE, 'EmissionWeightsDoNotSumToOne', 'fixed slots and Gamma shares must sum exactly to u64::MAX')
   return found
 }
 export const minValidatorParts = (baseline: bigint): bigint => baseline < ONE ? baseline + 1n : ONE

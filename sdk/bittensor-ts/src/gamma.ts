@@ -207,7 +207,7 @@ export async function prepareGammaIntent(op: string, args: Record<string, any>, 
     if (left == null) return false
     if (!reader.decodeAddress) return String(left) === right
     const a = reader.decodeAddress(String(left)), b = reader.decodeAddress(right)
-    return a.length === b.length && a.some(byte => byte !== 0) && a.every((byte, i) => byte === b[i])
+    return a.length === b.length && a.every((byte, i) => byte === b[i])
   }
   const deposit = async (hotkey: string): Promise<Deposit | null> => (await query('GammaDeposits', [args.netuid, hotkey])) as Deposit | null
   const plan: GammaPlan = { call: { pallet: 'SubtensorModule', call: op, params: {} }, spendRao: null, warnings: [], violations: [], preview: {} }
@@ -217,7 +217,14 @@ export async function prepareGammaIntent(op: string, args: Record<string, any>, 
     else if (!own(value.coldkey, context.coldkey)) plan.violations.push(`the gamma deposit at ${hotkey} belongs to another coldkey`)
   }
   const newDeposit = async (hotkey: string, closesOrigin = false): Promise<void> => {
-    if (!own(await query('Owner', [hotkey]), context.coldkey)) plan.violations.push(`associate ${hotkey} with ${context.coldkey} before opening a gamma deposit`)
+    // Owner is ValueQuery: absence and an explicitly stored zero account decode
+    // identically. Only a physical-key lookup can admit an unassociated hotkey.
+    const exists = reader.storageExists ? await reader.storageExists('SubtensorModule', 'Owner', [hotkey], block) : undefined
+    if (exists !== false && !own(await query('Owner', [hotkey]), context.coldkey)) {
+      plan.violations.push(exists === undefined
+        ? `cannot verify that ${hotkey} is unassociated or owned by ${context.coldkey}; use a reader with storageExists`
+        : `the hotkey ${hotkey} belongs to another coldkey; use your own or an unassociated hotkey`)
+    }
     const deposits = await query('ColdkeyGammaHotkeys', [args.netuid, context.coldkey])
     if (Array.isArray(deposits) && deposits.length - Number(closesOrigin) >= MAX_GAMMA_DEPOSITS) plan.violations.push(`at most ${MAX_GAMMA_DEPOSITS} gamma deposits per subnet are allowed`)
   }

@@ -397,6 +397,22 @@ pub fn public_key_from_ss58(ss58_address: String) -> NapiResult<Buffer> {
         .map(|value| value.to_vec().into())
 }
 
+#[napi(js_name = "verifyStrict")]
+pub fn verify_strict(
+    message: Buffer,
+    signature: Buffer,
+    ss58_address: String,
+    crypto_type: u8,
+) -> NapiResult<bool> {
+    keys::verify_strict(
+        message.as_ref(),
+        signature.as_ref(),
+        &ss58_address,
+        crypto_type,
+    )
+    .napi()
+}
+
 #[napi(js_name = "ss58FromPublic")]
 pub fn ss58_from_public(public_key: Buffer, ss58_format: u16) -> NapiResult<String> {
     let public_key: [u8; 32] = public_key
@@ -598,6 +614,18 @@ pub fn keyfile_data_encryption_method(keyfile_data: Buffer) -> String {
 #[napi(js_name = "getPasswordFromEnvironment")]
 pub fn get_password_from_environment(env_var_name: String) -> NapiResult<Option<String>> {
     keyfiles::get_password_from_environment(&env_var_name).napi()
+}
+
+#[napi(js_name = "encodePasswordForEnvironment")]
+pub fn encode_password_for_environment(name: String, password: String) -> NapiResult<String> {
+    let password = Zeroizing::new(password);
+    bittensor_core::keyfile_env::encode_password_for_environment(&name, &password).napi()
+}
+
+#[napi(js_name = "decodePasswordFromEnvironment")]
+pub fn decode_password_from_environment(name: String, value: String) -> NapiResult<String> {
+    let value = Zeroizing::new(value);
+    bittensor_core::keyfile_env::decode_password_from_environment(&name, &value).napi()
 }
 
 #[napi(js_name = "savePasswordToEnvironment")]

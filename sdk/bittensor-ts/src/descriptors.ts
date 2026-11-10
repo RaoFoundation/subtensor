@@ -352,6 +352,10 @@ export const storage = Object.freeze({
     GammaDeposits: ["SubtensorModule", "GammaDeposits"] as const,
     ColdkeyGammaHotkeys: ["SubtensorModule", "ColdkeyGammaHotkeys"] as const,
     SubnetGammaPrice: ["SubtensorModule", "SubnetGammaPrice"] as const,
+    SubnetGammaEmission: ["SubtensorModule", "SubnetGammaEmission"] as const,
+    PendingGammaEmission: ["SubtensorModule", "PendingGammaEmission"] as const,
+    UnconvertedGammaEmission: ["SubtensorModule", "UnconvertedGammaEmission"] as const,
+    SubnetGammaEmissionWhitelisted: ["SubtensorModule", "SubnetGammaEmissionWhitelisted"] as const,
     TaoUsdPriceOracle: ["SubtensorModule", "TaoUsdPriceOracle"] as const,
     TaoUsdPrice: ["SubtensorModule", "TaoUsdPrice"] as const,
     AutoParentDelegationEnabled: ["SubtensorModule", "AutoParentDelegationEnabled"] as const,
@@ -1152,6 +1156,8 @@ export const calls = Object.freeze({
     sudo_set_start_call_delay(delay: bigint | number | string): GeneratedCall { return ["AdminUtils", "sudo_set_start_call_delay", { "delay": delay }] },
     sudo_set_subnet_emission_enabled(netuid: number, enabled: boolean): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_emission_enabled", { "netuid": netuid, "enabled": enabled }] },
     sudo_set_subnet_emission_weights(netuid: number, uids: ScaleValue, values: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_emission_weights", { "netuid": netuid, "uids": uids, "values": values }] },
+    sudo_set_subnet_emission_weights_v2(netuid: number, split: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_emission_weights_v2", { "netuid": netuid, "split": split }] },
+    sudo_set_subnet_gamma_emission_whitelisted(netuid: number, whitelisted: boolean): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_gamma_emission_whitelisted", { "netuid": netuid, "whitelisted": whitelisted }] },
     sudo_set_subnet_gamma_enabled(netuid: number, enabled: boolean): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_gamma_enabled", { "netuid": netuid, "enabled": enabled }] },
     sudo_set_subnet_limit(max_subnets: number): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_limit", { "max_subnets": max_subnets }] },
     sudo_set_subnet_moving_alpha(alpha: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_subnet_moving_alpha", { "alpha": alpha }] },
@@ -3418,6 +3424,22 @@ export const callDescriptors = [
       "netuid",
       "uids",
       "values"
+    ]
+  },
+  {
+    "pallet": "AdminUtils",
+    "function": "sudo_set_subnet_emission_weights_v2",
+    "args": [
+      "netuid",
+      "split"
+    ]
+  },
+  {
+    "pallet": "AdminUtils",
+    "function": "sudo_set_subnet_gamma_emission_whitelisted",
+    "args": [
+      "netuid",
+      "whitelisted"
     ]
   },
   {

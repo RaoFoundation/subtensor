@@ -22,6 +22,7 @@ function reader(overrides = {}) {
         case 'RootClaimableThreshold': return 500000n << 32n
         case 'SubnetOwner': return 'coldkey'
         case 'LastRateLimitedBlock': return 0
+        case 'SubnetGammaEmission': return []
         case 'AlphaValues': return [1000, 50000]
         case 'Uids': return 0
         case 'GammaDeposits': return { coldkey: 'coldkey', spender: 'coldkey', balance: 0n, daily_spend_cap: null }
@@ -202,11 +203,12 @@ test('root claim admission blocks the 130-unit envelope and failed state cannot 
   await assert.rejects(buildIntent('claim_root_with_hotkey', { hotkey_ss58: 'hotkey' }).prepare(reader({ countStorageKeys: async () => -1 }), context), /count/)
 })
 
-test('root claim admission includes claim-only swap credits, retired rows and queued flush work', async () => {
+test('root claim admission includes claim-only swap credits and queued flush work but ignores retired rows', async () => {
   const claims = await buildIntent('claim_root').prepare(reader({ queryMap: async (_, item) => item === 'HotkeySwapBasketCredits' ? Array.from({ length: 257 }, (_, index) => [`credit${index}`, null]) : [] }), context)
   assert.match(claims.violations.join(), /selection scans/)
   const retired = await buildIntent('claim_root_with_hotkey', { hotkey_ss58: 'hotkey' }).prepare(reader({ countStorageKeys: async (_, item) => item === 'Alpha' ? 129 : item === 'AlphaV2' ? 1 : 0 }), context)
-  assert.match(retired.violations.join(), /130-unit/)
+  assert.deepEqual(retired.violations, [])
+  assert.equal(retired.preview.rootClaim.holdings, 1)
   const flush = await buildIntent('claim_root_with_hotkey', { hotkey_ss58: 'hotkey' }).prepare(reader({ countStorageKeys: async (_, item) => item === 'PendingBasketDeposits' ? 513 : 0 }), context)
   assert.match(flush.violations.join(), /512-row/)
 })

@@ -3850,7 +3850,7 @@ export const INTENT_CATALOG = [
   {
     "name": "set_subnet_emission_weights",
     "summary": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).",
-    "description": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).\n\nDispatches `AdminUtils.sudo_set_subnet_emission_weights` for the named\nslots. The signer must be the subnet's owner coldkey (root may also call\nit). With `renormalize` the untouched slots are rescaled so the vector\nstill sums to one; without it the merged vector is submitted as given.\nRoot stakers are paid their baseline share of emission (what they earn\nwith the default validator share and the global TaoWeight) off the top of\nthe validator slot every block, whatever the subnet sets — the pre-sign\nplan shows that share and what alpha validators are left with, and lists\nevery rule the chain would reject (including a validator share at or below\nthe baseline), so a bad vector is caught before signing. Owners may change\nthe vector once per week per subnet.",
+    "description": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).\n\nDispatches `AdminUtils.sudo_set_subnet_emission_weights` for the named\nslots. The signer must be the subnet's owner coldkey (root may also call\nit). With `renormalize` the untouched slots are rescaled so the vector\nand the subnet's gamma shares still sum to one; without it the merged\nvector is submitted as given.\nRoot stakers are paid their baseline share of emission (what they earn\nwith the default validator share and the global TaoWeight) off the top of\nthe validator slot every block, whatever the subnet sets — the pre-sign\nplan shows that share and what alpha validators are left with, and lists\nevery rule the chain would reject (including a validator share at or below\nthe baseline), so a bad vector is caught before signing. Owners may change\nthe vector once per week per subnet.",
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": "subnet_emission_weights",
@@ -3887,11 +3887,11 @@ export const INTENT_CATALOG = [
               "string"
             ]
           },
-          "description": "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage (\"41%\"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five sum to exactly 1."
+          "description": "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage (\"41%\"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five and the subnet's gamma shares sum to exactly 1."
         },
         "renormalize": {
           "type": "boolean",
-          "description": "Keep the named slots as given and rescale the other slots proportionally so the vector sums to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1."
+          "description": "Keep the named slots as given and rescale the other slots proportionally so the vector and the subnet's gamma shares sum to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1 with them."
         }
       },
       "required": [

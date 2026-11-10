@@ -360,6 +360,11 @@ export async function createNodeIntentReader(client: Client, native: NativeChain
     parseRecipient: (address, descriptor) => parseRecipient(address, decodeReceivingAddress, Keypair.fromDescriptor, publicKeyFromSs58, descriptor),
     supportsPqProfile: profile => runtime.supportsMldsaProfile(profile),
     hasStorage: async (pallet, item, at) => (await client.runtimeAt(at)).pallet(pallet)?.storage.some(entry => entry.name === item) ?? false,
+    storageExists: async (pallet, item, params, at) => {
+      const selected = at === blockHash ? runtime : await client.runtimeAt(at)
+      const key = selected.storageKey(pallet, item, params as ScaleValue[])
+      return await client.rpc('state_getStorageHash', ['0x' + key.toString('hex'), at]) != null
+    },
     moduleError: async (pallet, error, at) => (await client.runtimeAt(at ?? blockHash)).moduleError(pallet, error),
     finalizedHead: () => client.finalizedHead(),
     query: (pallet, item, params = [], at) => client.query(pallet, item, params as ScaleValue[], at ?? blockHash),

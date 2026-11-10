@@ -289,6 +289,10 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",
+        # whole-split setter with gamma shares; the SetSubnetEmissionWeights
+        # intent covers the fixed slots
+        "sudo_set_subnet_emission_weights_v2",
+        "sudo_set_subnet_gamma_emission_whitelisted",
         "sudo_set_subnet_limit",
         "sudo_set_subnet_moving_alpha",
         # owner-cut setters deprecated by the emission weight vector (both always

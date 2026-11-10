@@ -844,8 +844,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Credit a Null owner reward using an existing sole-owner pool when possible.
-    /// Shared pools, first deposits, legacy rows and missing staking associations
-    /// retain the general deposit path. Yuma accounting is unchanged.
+    /// Shared pools, first deposits and missing staking associations retain the
+    /// general deposit path. Yuma accounting is unchanged.
     pub(crate) fn credit_epoch_owner_emission(
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
@@ -856,8 +856,9 @@ impl<T: Config> Pallet<T> {
             return;
         }
         if Self::get_epoch_consensus(netuid) == EpochConsensus::Null
-            && !TotalHotkeyShares::<T>::contains_key(hotkey, netuid)
-            && !Alpha::<T>::contains_key((hotkey, coldkey, netuid))
+            && (!T::LegacyAlphaCompatibility::get()
+                || (!TotalHotkeyShares::<T>::contains_key(hotkey, netuid)
+                    && !Alpha::<T>::contains_key((hotkey, coldkey, netuid))))
             && StakingHotkeys::<T>::get(coldkey).contains(hotkey)
         {
             let mut pool = Self::get_alpha_share_pool(hotkey.clone(), netuid);
@@ -938,15 +939,15 @@ impl<T: Config> Pallet<T> {
         amount
     }
 
-    /// Keep the index until all alpha keys have been removed, across both share formats
-    /// and every subnet. Even a zero-valued share can grow with pool-wide dividends,
-    /// which do not recreate the index. Exact-zero rows are removed by storage GC.
+    /// Keep the index until all AlphaV2 keys have been removed across every subnet.
+    /// Even a zero-valued share can grow with pool-wide dividends, which do not recreate
+    /// the index. Exact-zero rows are removed by storage GC.
     /// Each prefix probe visits at most one key; no relationship-wide scan is needed.
     pub(crate) fn staking_hotkey_must_remain(
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
     ) -> bool {
-        Alpha::<T>::contains_prefix((hotkey, coldkey))
+        (T::LegacyAlphaCompatibility::get() && Alpha::<T>::contains_prefix((hotkey, coldkey)))
             || AlphaV2::<T>::contains_prefix((hotkey, coldkey))
             || BasketClaimed::<T>::get(hotkey, coldkey) != 0
             || DeferredBasketDebts::<T>::contains_key(hotkey, coldkey)
@@ -1435,6 +1436,48 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {
+        Self::transfer_stake_within_subnet_impl(
+            origin_coldkey,
+            origin_hotkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            alpha,
+            false,
+        )
+    }
+
+    /// Protocol hand-over of a former subnet owner's position. The signed lease beneficiary
+    /// consents to receiving its lock, and the source lock still belongs to the aggregate owner
+    /// bucket that existed before `terminate_lease` changed the subnet owner.
+    pub(crate) fn transfer_former_owner_stake_within_subnet(
+        origin_coldkey: &T::AccountId,
+        origin_hotkey: &T::AccountId,
+        destination_coldkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
+        netuid: NetUid,
+        alpha: AlphaBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        Self::transfer_stake_within_subnet_impl(
+            origin_coldkey,
+            origin_hotkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            alpha,
+            true,
+        )
+    }
+
+    fn transfer_stake_within_subnet_impl(
+        origin_coldkey: &T::AccountId,
+        origin_hotkey: &T::AccountId,
+        destination_coldkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
+        netuid: NetUid,
+        alpha: AlphaBalance,
+        former_owner_handover: bool,
+    ) -> Result<TaoBalance, DispatchError> {
         // Root stake moves claimant base on both hotkeys: settle queued basket deposits
         // on each side first (see `stake_into_subnet` / `unstake_from_subnet`).
         if netuid.is_root() {
@@ -1451,13 +1494,23 @@ impl<T: Config> Pallet<T> {
         // The lock must follow the stake to the destination hotkey, otherwise a
         // hotkey-changing transfer would leave the recipient's lock and conviction
         // stranded on the origin hotkey.
-        Self::transfer_lock(
-            origin_coldkey,
-            destination_coldkey,
-            destination_hotkey,
-            netuid,
-            alpha,
-        )?;
+        if former_owner_handover {
+            Self::transfer_former_owner_lock_with_consent(
+                origin_coldkey,
+                destination_coldkey,
+                destination_hotkey,
+                netuid,
+                alpha,
+            )?;
+        } else {
+            Self::transfer_lock(
+                origin_coldkey,
+                destination_coldkey,
+                destination_hotkey,
+                netuid,
+                alpha,
+            )?;
+        }
 
         // Decrease alpha on origin keys. The destination is credited only with what was
         // really debited; a transfer that cannot debit the full amount is refused so that
@@ -2163,11 +2216,12 @@ impl<T: Config> HotkeyAlphaSharePoolDataOperations<T> {
         }
     }
 
-    /// Raw stored share for `key`, reading the deprecated `Alpha` map first and then `AlphaV2`.
-    /// Does not apply the pool-epoch check.
+    /// Raw stored AlphaV2 share for `key`. Does not apply the pool-epoch check.
     fn raw_share(&self, key: &AlphaShareKey<T>) -> Result<SafeFloat, ()> {
-        if let Ok(share_v1) = Alpha::<T>::try_get((&(self.hotkey), key, self.netuid)) {
-            return Ok(SafeFloat::from(share_v1));
+        if T::LegacyAlphaCompatibility::get()
+            && let Ok(share) = Alpha::<T>::try_get((&self.hotkey, key, self.netuid))
+        {
+            return Ok(SafeFloat::from(share));
         }
         AlphaV2::<T>::try_get((&(self.hotkey), key, self.netuid))
     }
@@ -2205,12 +2259,11 @@ impl<T: Config> SharePoolDataOperations<AlphaShareKey<T>>
     }
 
     fn get_denominator(&self) -> SafeFloat {
-        // Read the deprecated TotalHotkeyShares map first and, if value is not available, try new TotalHotkeySharesV2
-        let maybe_denomnator_v1 = TotalHotkeyShares::<T>::try_get(&(self.hotkey), self.netuid);
-        if let Ok(denomnator_v1) = maybe_denomnator_v1 {
-            return SafeFloat::from(denomnator_v1);
+        if T::LegacyAlphaCompatibility::get()
+            && let Ok(denominator) = TotalHotkeyShares::<T>::try_get(&self.hotkey, self.netuid)
+        {
+            return SafeFloat::from(denominator);
         }
-
         TotalHotkeySharesV2::<T>::get(&(self.hotkey), self.netuid)
     }
 
@@ -2232,13 +2285,9 @@ impl<T: Config> SharePoolDataOperations<AlphaShareKey<T>>
     }
 
     fn set_share(&mut self, key: &AlphaShareKey<T>, share: SafeFloat) {
-        // Lazy Alpha -> AlphaV2 migration happens right here
-        // Delete the Alpha entry, insert into AlphaV2
-        let maybe_share_v1 = Alpha::<T>::try_get((&(self.hotkey), key, self.netuid));
-        if maybe_share_v1.is_ok() {
+        if T::LegacyAlphaCompatibility::get() {
             Alpha::<T>::remove((&self.hotkey, key, self.netuid));
         }
-
         let pool_epoch = AlphaSharePoolEpoch::<T>::get(&self.hotkey, self.netuid);
         if !share.is_zero() {
             AlphaV2::<T>::insert((&self.hotkey, key, self.netuid), share);
@@ -2259,13 +2308,10 @@ impl<T: Config> SharePoolDataOperations<AlphaShareKey<T>>
     }
 
     fn set_denominator(&mut self, update: SafeFloat) {
-        // Lazy TotalHotkeyShares -> TotalHotkeySharesV2 migration happens right here
-        // Delete the TotalHotkeyShares entry, insert into TotalHotkeySharesV2
         let previous = self.get_denominator();
-        if TotalHotkeyShares::<T>::contains_key(&(self.hotkey), self.netuid) {
+        if T::LegacyAlphaCompatibility::get() {
             TotalHotkeyShares::<T>::remove(&self.hotkey, self.netuid);
         }
-
         // Both denominator transitions start a new epoch, so every share row written
         // before the transition reads as absent. Closing retires the leftovers at once (a
         // dividend can give a closed pool value again before anyone re-opens it); opening
