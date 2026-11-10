@@ -203,9 +203,11 @@ async def pending_children(view, hotkey_ss58: str, netuid: int) -> dict:
     `set_children` normally does not take effect immediately: the proposal is
     parked here until `cooldown_block`, then promoted to the finalized set
     that the `children` read returns. On subnets whose subtoken is not yet
-    enabled the cooldown is skipped and children apply immediately, so
-    nothing lingers here. `children` is (proportion, child_ss58) pairs with
-    u64-normalized proportions, matching the `children` read.
+    enabled the cooldown is skipped and children apply immediately. Eligible
+    reassignments away from unavailable child validators also apply
+    immediately, so neither case lingers here. `children` is (proportion,
+    child_ss58) pairs with u64-normalized proportions, matching the
+    `children` read.
     """
     value = await view.query(st.SubtensorModule.PendingChildKeys, [netuid, hotkey_ss58])
     entries, cooldown_block = value or ([], 0)
