@@ -13,12 +13,14 @@ a hotkey, which signs the customer's requests to the service, so the hotkey
 works as an API key. The deposit's **spender** spends it as it serves those
 requests.
 
-The API-key hotkey does not need to be associated with the funding coldkey: it
-can be unassociated or belong to another coldkey. This lets the funder provide
-prepaid service to another key holder while retaining control of the deposit's
-spender, daily cap, and balance. The key holder signs service requests; the
-configured spender charges gamma on chain. Moving the balance to another API
-key revokes access to those credits through the old key.
+The API-key hotkey can be unassociated. If it is already associated with a
+coldkey, only that coldkey can open a deposit at it, including by moving gamma
+into a new deposit. This prevents someone else from reserving an owned hotkey's
+deposit slot, including a subnet owner's hotkey used to receive gamma emission.
+The funding coldkey controls the deposit's spender, daily cap, and balance.
+The key holder signs service requests; the configured spender charges gamma
+on chain. Moving the balance to another API key revokes access to those credits
+through the old key.
 
 There is only one deposit per `(netuid, hotkey)`. If another coldkey has already
 opened that slot, use another API key; staking ownership does not grant control

@@ -303,12 +303,16 @@ fn gamma_price_falls_to_spot_and_rises_at_the_fast_rate() {
 // =============================================================================
 
 #[test]
-fn opening_a_gamma_deposit_is_independent_of_staking_hotkey_ownership() {
+fn opening_a_gamma_deposit_allows_owned_and_unassociated_hotkeys() {
     for api_key in [HOTKEY, 99_999] {
         for opening_path in 0..3 {
             new_test_ext(1).execute_with(|| {
                 let netuid = gamma_subnet();
-                let funder = COLDKEY + 100;
+                let funder = if api_key == HOTKEY {
+                    COLDKEY
+                } else {
+                    COLDKEY + 100
+                };
                 let funding_hotkey = HOTKEY + 100;
                 let gamma = mint(netuid, funder, funding_hotkey, TAO);
                 let signed = || RuntimeOrigin::signed(U256::from(funder));
@@ -322,7 +326,7 @@ fn opening_a_gamma_deposit_is_independent_of_staking_hotkey_ownership() {
 
                 let hotkey = U256::from(api_key);
                 let staking_owner = Owner::<Test>::try_get(hotkey).ok();
-                assert_ne!(staking_owner, Some(U256::from(funder)));
+                assert!(staking_owner.is_none_or(|owner| owner == U256::from(funder)));
                 match opening_path {
                     0 => {
                         assert_ok!(SubtensorModule::mint_gamma(
@@ -366,8 +370,8 @@ fn opening_a_gamma_deposit_is_independent_of_staking_hotkey_ownership() {
                 assert!(!funded.balance.is_zero());
                 assert_eq!(Owner::<Test>::try_get(hotkey).ok(), staking_owner);
 
-                // Administration belongs to the funding coldkey, not the API key's
-                // staking owner. Neither creating nor modifying this deposit changes Owner.
+                // Administration belongs to the funding coldkey. Neither creating
+                // nor modifying this deposit changes the hotkey association.
                 assert_ok!(SubtensorModule::set_gamma_deposit_spender(
                     signed(),
                     hotkey,
@@ -380,7 +384,7 @@ fn opening_a_gamma_deposit_is_independent_of_staking_hotkey_ownership() {
                     netuid,
                     Some(GAMMA.into()),
                 ));
-                let other = || RuntimeOrigin::signed(U256::from(COLDKEY));
+                let other = || RuntimeOrigin::signed(U256::from(funder + 100));
                 assert_noop!(
                     SubtensorModule::set_gamma_deposit_spender(
                         other(),
@@ -432,6 +436,87 @@ fn opening_a_gamma_deposit_is_independent_of_staking_hotkey_ownership() {
                     destination_balance + funded.balance
                 );
                 assert_eq!(Owner::<Test>::try_get(hotkey).ok(), staking_owner);
+                assert_gamma_invariants(netuid);
+            });
+        }
+    }
+}
+
+#[test]
+fn gamma_deposit_opening_respects_existing_hotkey_ownership() {
+    for api_key in [HOTKEY, OWNER_HOTKEY, 99_999] {
+        for opening_path in 0..3 {
+            new_test_ext(1).execute_with(|| {
+                let netuid = gamma_subnet();
+                let funder = COLDKEY + 100;
+                let funding_hotkey = HOTKEY + 100;
+                let gamma = mint(netuid, funder, funding_hotkey, TAO);
+                let signed = || RuntimeOrigin::signed(U256::from(funder));
+                add_balance_to_coldkey_account(&U256::from(funder), (10 * TAO).into());
+                assert_ok!(SubtensorModule::add_stake(
+                    signed(),
+                    U256::from(OWNER_HOTKEY),
+                    netuid,
+                    (2 * TAO).into()
+                ));
+                let hotkey = U256::from(api_key);
+                let owner = Owner::<Test>::try_get(hotkey).ok();
+                let before_balance = SubtensorModule::get_coldkey_balance(&U256::from(funder));
+                let open = || match opening_path {
+                    0 => SubtensorModule::mint_gamma(
+                        signed(),
+                        hotkey,
+                        netuid,
+                        TAO.into(),
+                        GammaBalance::ZERO,
+                        None,
+                        None,
+                    ),
+                    1 => SubtensorModule::mint_gamma_with_stake(
+                        signed(),
+                        U256::from(OWNER_HOTKEY),
+                        hotkey,
+                        netuid,
+                        (TAO / 2).into(),
+                        GammaBalance::ZERO,
+                        None,
+                        None,
+                    ),
+                    _ => SubtensorModule::move_gamma(
+                        signed(),
+                        U256::from(funding_hotkey),
+                        hotkey,
+                        netuid,
+                        gamma,
+                    ),
+                };
+                if let Some(owner) = owner {
+                    assert_noop!(open(), Error::<Test>::NonAssociatedColdKey);
+                    assert!(!GammaDeposits::<Test>::contains_key(netuid, hotkey));
+                    assert_eq!(deposit(netuid, funding_hotkey).balance, gamma);
+                    assert_eq!(
+                        SubtensorModule::get_coldkey_balance(&U256::from(funder)),
+                        before_balance
+                    );
+                    // Rejection must leave the owner's slot available for legitimate funding.
+                    add_balance_to_coldkey_account(&owner, (2 * TAO).into());
+                    assert_ok!(SubtensorModule::mint_gamma(
+                        RuntimeOrigin::signed(owner),
+                        hotkey,
+                        netuid,
+                        TAO.into(),
+                        GammaBalance::ZERO,
+                        None,
+                        None,
+                    ));
+                    assert_eq!(deposit(netuid, api_key).coldkey, owner);
+                    assert!(!deposit(netuid, api_key).balance.is_zero());
+                } else {
+                    assert_ok!(open());
+                    assert_eq!(deposit(netuid, api_key).coldkey, U256::from(funder));
+                    assert!(!deposit(netuid, api_key).balance.is_zero());
+                }
+                assert_eq!(Owner::<Test>::try_get(hotkey).ok(), owner);
                 assert_gamma_invariants(netuid);
             });
         }
