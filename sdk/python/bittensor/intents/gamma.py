@@ -14,7 +14,6 @@ from ..balance import Balance
 from ..hyperparams import U64_MAX
 from ..result import BittensorError, chain_error_from_dispatch
 from ..signing import coerce_address
-from ..sp_core import ss58_decode
 from ._money import (
     ALL,
     UNBOUNDED,
@@ -114,15 +113,6 @@ def _check_spender_or_service(intent) -> None:
         raise BittensorError(f"{intent.op}: name a spender or a service, not both")
 
 
-async def _staking_owner(substrate, hotkey_ss58: str) -> Optional[str]:
-    """The coldkey owning ``hotkey_ss58`` as a staking hotkey, or None."""
-    owner = await substrate.query(*st.SubtensorModule.Owner, [hotkey_ss58])
-    # A hotkey no coldkey owns reads as the all-zero account.
-    if not owner or not any(ss58_decode(str(owner))):
-        return None
-    return str(owner)
-
-
 def _own_deposit_blocks(deposit: Optional[dict], signer: str, hotkey_ss58: str) -> list[str]:
     """What stops the signer acting on the deposit at ``hotkey_ss58`` as its owner."""
     if deposit is None:
@@ -171,12 +161,6 @@ async def _mint_preflight(
                 f"the gamma deposit at {intent.hotkey_ss58} has "
                 f"{_cap_text(_cap(deposit))}; mint without a cap, or set its cap "
                 "first"
-            )
-    else:
-        owner = await _staking_owner(substrate, intent.hotkey_ss58)
-        if owner != signer:
-            preview.blocks.append(
-                f"associate {intent.hotkey_ss58} with {signer} before opening a gamma deposit"
             )
     spender = str(deposit["spender"]) if deposit is not None and named is None else named
     if deposit is not None:
@@ -439,11 +423,6 @@ class MoveGamma(Intent):
             blocks.append(f"the gamma deposit at {self.origin_hotkey_ss58} holds no gamma")
         if destination is not None:
             blocks += _own_deposit_blocks(destination, signer_address, self.destination_hotkey_ss58)
-        elif await _staking_owner(substrate, self.destination_hotkey_ss58) != signer_address:
-            blocks.append(
-                f"associate {self.destination_hotkey_ss58} with {signer_address} "
-                "before opening a gamma deposit"
-            )
         return blocks
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
