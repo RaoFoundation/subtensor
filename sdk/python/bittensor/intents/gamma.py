@@ -14,6 +14,7 @@ from ..balance import Balance
 from ..hyperparams import U64_MAX
 from ..result import BittensorError, chain_error_from_dispatch
 from ..signing import coerce_address
+from ..sp_core import ss58_decode
 from ._money import (
     ALL,
     UNBOUNDED,
@@ -93,6 +94,22 @@ async def _deposit(substrate, netuid: int, hotkey_ss58: str) -> Optional[dict]:
     return await substrate.query(*st.SubtensorModule.GammaDeposits, [netuid, hotkey_ss58])
 
 
+async def _new_deposit_blocks(substrate, hotkey_ss58: str, signer: str) -> list[str]:
+    """Match runtime Owner.try_get: a stored zero account is still an owner."""
+    block_hash = await substrate.block_hash()
+    if not await substrate.storage_exists(
+        *st.SubtensorModule.Owner, [hotkey_ss58], block_hash=block_hash
+    ):
+        return []
+    owner = await substrate.query(*st.SubtensorModule.Owner, [hotkey_ss58], block_hash=block_hash)
+    if bytes(ss58_decode(str(owner))) != bytes(ss58_decode(signer)):
+        return [
+            f"the hotkey {hotkey_ss58} belongs to another coldkey; "
+            "use your own or an unassociated hotkey"
+        ]
+    return []
+
+
 async def _service_spender(substrate, netuid: int, hotkey_ss58: str) -> str:
     """The spender a service published on the subnet names."""
     service = await substrate.query(*st.SubtensorModule.Services, [netuid, hotkey_ss58])
@@ -162,6 +179,8 @@ async def _mint_preflight(
                 f"{_cap_text(_cap(deposit))}; mint without a cap, or set its cap "
                 "first"
             )
+    if deposit is None:
+        preview.blocks += await _new_deposit_blocks(substrate, intent.hotkey_ss58, signer)
     spender = str(deposit["spender"]) if deposit is not None and named is None else named
     if deposit is not None:
         cap = _cap(deposit)
@@ -423,6 +442,10 @@ class MoveGamma(Intent):
             blocks.append(f"the gamma deposit at {self.origin_hotkey_ss58} holds no gamma")
         if destination is not None:
             blocks += _own_deposit_blocks(destination, signer_address, self.destination_hotkey_ss58)
+        else:
+            blocks += await _new_deposit_blocks(
+                substrate, self.destination_hotkey_ss58, signer_address
+            )
         return blocks
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:

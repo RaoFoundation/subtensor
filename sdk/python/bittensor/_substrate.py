@@ -152,6 +152,16 @@ class Substrate(Protocol):
         """Read one storage item, returning its plain decoded value."""
         ...
 
+    async def storage_exists(
+        self,
+        module: str,
+        storage_function: str,
+        params: Optional[list] = None,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        """Whether a storage key is present, without applying its default value."""
+        ...
+
     async def map_has_entries(
         self,
         module: str,
@@ -511,6 +521,17 @@ class RpcSubstrate:
     ) -> Any:
         return await self._read(
             lambda raw: raw.query(module, storage_function, params or [], block_hash)
+        )
+
+    async def storage_exists(
+        self,
+        module: str,
+        storage_function: str,
+        params: Optional[list] = None,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        return await self._read(
+            lambda raw: raw.storage_exists(module, storage_function, params or [], block_hash)
         )
 
     async def map_has_entries(

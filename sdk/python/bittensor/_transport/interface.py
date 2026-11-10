@@ -335,6 +335,28 @@ class SubstrateConnection:
         raws = [by_key.get(key_hex) for key_hex in key_hexes]
         return decode_storage_values(codec, entry, raws)
 
+    async def storage_exists(
+        self,
+        module: str,
+        storage_function: str,
+        params: Optional[list] = None,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        """Check an exact storage key, distinguishing absence from a stored default."""
+        codec = await self._runtimes.codec_at(block_hash)
+        entry = codec.storage_entry(module, storage_function)
+        params = params or []
+        if len(params) != len(entry.param_types):
+            raise ValueError(
+                f"Storage function requires {len(entry.param_types)} parameters, "
+                f"{len(params)} given"
+            )
+        key = codec.storage_key(entry, params)
+        value_hash = await self._session.request(
+            "state_getStorageHash", ["0x" + key.hex(), block_hash]
+        )
+        return value_hash is not None
+
     async def map_has_entries(
         self,
         module: str,
