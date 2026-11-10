@@ -206,14 +206,15 @@ def test_error_descriptions_slippage_and_capacity_guidance():
 def test_open_help_matches_runtime_minimum_loan_value():
     import inspect
 
-    assert lending_cli.MINIMUM_LOAN_VALUE_TAO == "0.001"
+    assert lending_cli.MINIMUM_LOAN_VALUE_TAO == "1"
     # Decorators may clear __doc__; the source (and error text) must match runtime.
     source = inspect.getsource(lending_cli.open_loan)
-    assert "MINIMUM_LOAN_VALUE_TAO" in source or "0.001" in source
+    assert "1 TAO" in source
+    assert "0.001" not in source
     assert "0.1 TAO" not in source
     assert "``CloseLoan``" not in inspect.getsource(lending_cli.close_loan)
-    # Human AmountTooSmall copy uses τ (F12); still names the ~0.001 minimum.
-    assert "~0.001 τ" in LENDING_DESCRIPTIONS["AmountTooSmall"]
+    # Human AmountTooSmall copy uses τ (F12); names the 1 τ minimum.
+    assert "1 τ" in LENDING_DESCRIPTIONS["AmountTooSmall"]
 
 
 def test_proceeds_docstring_no_longer_claims_zero_for_new_shorts():

@@ -39,8 +39,8 @@ Side = Enum("Side", [("short", "short"), ("long", "long")], type=str)
 # Intent default / "no deadline" sentinel (u32::MAX).
 VALID_UNTIL_NONE = 2**32 - 1
 
-# Runtime LendingMinimumLoanValue (1_000_000 rao = 0.001 τ).
-MINIMUM_LOAN_VALUE_TAO = "0.001"
+# Runtime LendingMinimumLoanValue (1_000_000_000 rao = 1 τ).
+MINIMUM_LOAN_VALUE_TAO = "1"
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -452,7 +452,7 @@ def open_loan(
     Pass --amount for the additional quantity to borrow (alpha for a short,
     TAO for a long) and btcli finds the minimum required collateral. Pass
     --collateral instead to borrow its quoted limit. The minimum opening
-    value is about 0.001 TAO (runtime MinimumLoanValue).
+    value is 1 TAO (runtime MinimumLoanValue).
 
     Amount mode adds collateral headroom via --max-slippage (default 1%)
     plus accrued-interest reserve for the inclusion window; borrowed

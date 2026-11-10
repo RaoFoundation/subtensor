@@ -839,7 +839,7 @@ async def lending_required_collateral(
     other positions' uncovered debt remain hard refusals. For longs, probes
     are capped by unlocked alpha on ``hotkey_ss58`` so the owner-aware stake
     gate cannot abort an otherwise affordable search. The requested opening
-    value must meet the runtime's minimum, currently 0.1 TAO.
+    value must meet the runtime's minimum, currently 1 TAO.
 
     Returns collateral and its opening quote. The exact-principal transaction
     rechecks admission without borrowing extra if state changes.

@@ -307,7 +307,7 @@ _SUBSTRING_FALLBACK: tuple[tuple[str, ErrorCode], ...] = (
 # than the per-code defaults above.
 _NAME_HELP_OVERRIDES: dict[str, str] = {
     "AmountTooSmall": (
-        "raise collateral / principal above the ~0.001 τ minimum, or close the "
+        "raise collateral / principal above the 1 τ minimum, or close the "
         "remaining dust fully; if the side is full, expect SideCapacity instead"
     ),
     "SideCapacity": (

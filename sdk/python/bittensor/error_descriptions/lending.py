@@ -23,7 +23,7 @@ DESCRIPTIONS: dict[str, str] = {
         "account."
     ),
     "AmountTooSmall": (
-        "Borrow or remaining dust is below the runtime minimum (~0.001 τ). "
+        "Borrow, repay slice, or remaining dust is below the runtime minimum (1 τ). "
         "Increase collateral or principal, or close the remainder fully. "
         "If the side cap is what blocks a minimum loan, the chain returns SideCapacity instead."
     ),

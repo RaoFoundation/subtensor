@@ -17,7 +17,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.repay`](/code/pallets/lending/src/lib.rs#L1650-L1676) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.repay`](/code/pallets/lending/src/lib.rs#L1665-L1691) |
 
 ## Parameters
 
@@ -76,7 +76,7 @@ result = sub.execute_tool("repay_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.repay` — [`pallets/lending/src/lib.rs#L1655`](/code/pallets/lending/src/lib.rs#L1650-L1676):
+`Lending.repay` — [`pallets/lending/src/lib.rs#L1670`](/code/pallets/lending/src/lib.rs#L1665-L1691):
 
 ```rust
 #[pallet::call_index(6)]

@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 3028,
-        "end_line": 3038,
-        "url": "/code/runtime/src/lib.rs#L3028-L3038",
+        "line": 3037,
+        "end_line": 3047,
+        "url": "/code/runtime/src/lib.rs#L3037-L3047",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -988,9 +988,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2759,
-        "end_line": 2761,
-        "url": "/code/runtime/src/lib.rs#L2759-L2761",
+        "line": 2768,
+        "end_line": 2770,
+        "url": "/code/runtime/src/lib.rs#L2768-L2770",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1334,7 +1334,7 @@
   {
     "name": "lending_required_collateral",
     "summary": "Minimum additional collateral for exactly the requested borrowed amount.",
-    "description": "Minimum additional collateral for exactly the requested borrowed amount.\n\nThe search uses exact-principal runtime quotes at one block. It includes\nexisting principal, accrued interest, market depth and funded-redemption\nguards. Only the owner's `InsufficientCollateral` response means to\nsearch higher; unavailable references, inventory, borrowing caps and\nother positions' uncovered debt remain hard refusals. For longs, probes\nare capped by unlocked alpha on `hotkey_ss58` so the owner-aware stake\ngate cannot abort an otherwise affordable search. The requested opening\nvalue must meet the runtime's minimum, currently 0.1 TAO.\n\nReturns collateral and its opening quote. The exact-principal transaction\nrechecks admission without borrowing extra if state changes.",
+    "description": "Minimum additional collateral for exactly the requested borrowed amount.\n\nThe search uses exact-principal runtime quotes at one block. It includes\nexisting principal, accrued interest, market depth and funded-redemption\nguards. Only the owner's `InsufficientCollateral` response means to\nsearch higher; unavailable references, inventory, borrowing caps and\nother positions' uncovered debt remain hard refusals. For longs, probes\nare capped by unlocked alpha on `hotkey_ss58` so the owner-aware stake\ngate cannot abort an otherwise affordable search. The requested opening\nvalue must meet the runtime's minimum, currently 1 TAO.\n\nReturns collateral and its opening quote. The exact-principal transaction\nrechecks admission without borrowing extra if state changes.",
     "params": {
       "netuid": "integer",
       "side": "string",
@@ -1651,9 +1651,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2763,
-        "end_line": 2765,
-        "url": "/code/runtime/src/lib.rs#L2763-L2765",
+        "line": 2772,
+        "end_line": 2774,
+        "url": "/code/runtime/src/lib.rs#L2772-L2774",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1962,9 +1962,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 3040,
-        "end_line": 3068,
-        "url": "/code/runtime/src/lib.rs#L3040-L3068",
+        "line": 3049,
+        "end_line": 3077,
+        "url": "/code/runtime/src/lib.rs#L3049-L3077",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1991,9 +1991,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 3070,
-        "end_line": 3098,
-        "url": "/code/runtime/src/lib.rs#L3070-L3098",
+        "line": 3079,
+        "end_line": 3107,
+        "url": "/code/runtime/src/lib.rs#L3079-L3107",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2072,9 +2072,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2776,
-        "end_line": 2778,
-        "url": "/code/runtime/src/lib.rs#L2776-L2778",
+        "line": 2785,
+        "end_line": 2787,
+        "url": "/code/runtime/src/lib.rs#L2785-L2787",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2137,9 +2137,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2788,
-        "end_line": 2790,
-        "url": "/code/runtime/src/lib.rs#L2788-L2790",
+        "line": 2797,
+        "end_line": 2799,
+        "url": "/code/runtime/src/lib.rs#L2797-L2799",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2807,9 +2807,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2769,
-        "end_line": 2771,
-        "url": "/code/runtime/src/lib.rs#L2769-L2771",
+        "line": 2778,
+        "end_line": 2780,
+        "url": "/code/runtime/src/lib.rs#L2778-L2780",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -3210,9 +3210,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2782,
-        "end_line": 2784,
-        "url": "/code/runtime/src/lib.rs#L2782-L2784",
+        "line": 2791,
+        "end_line": 2793,
+        "url": "/code/runtime/src/lib.rs#L2791-L2793",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
