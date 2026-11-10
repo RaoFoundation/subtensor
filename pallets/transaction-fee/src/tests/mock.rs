@@ -337,6 +337,9 @@ impl pallet_subtensor::Config for Test {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    // This mock exercises both the historical Alpha map and AlphaV2. Keep the
+    // compatibility path enabled just like the pallet-subtensor migration mocks.
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<true>;
 }
 
 parameter_types! {

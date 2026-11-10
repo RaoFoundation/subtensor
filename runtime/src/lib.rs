@@ -1146,6 +1146,7 @@ impl pallet_subtensor::Config for Runtime {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = SubtensorMaxEpochsPerBlock;
     type WeightInfo = pallet_subtensor::weights::SubstrateWeight<Runtime>;
+    type LegacyAlphaCompatibility = ConstBool<false>;
 }
 
 parameter_types! {
