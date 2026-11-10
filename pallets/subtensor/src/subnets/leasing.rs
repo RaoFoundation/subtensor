@@ -213,59 +213,83 @@ impl<T: Config> Pallet<T> {
             Self::fail_with_weight(Error::<T>::LeaseHasNotEnded, precheck)
         );
 
-        // Transfer ownership to the beneficiary
+        // Transfer ownership to the beneficiary. Keep every mutation below in one storage
+        // layer: a failed residual-position hand-over or proxy removal must not leave a
+        // half-terminated lease.
         ensure!(
             Self::coldkey_owns_hotkey(&lease.beneficiary, &hotkey),
             Self::fail_with_weight(Error::<T>::BeneficiaryDoesNotOwnHotkey, precheck)
         );
-        // A lease whose deferred dividends could not all be paid keeps its record (see
-        // below) and may be terminated again to retry; the one-time hand-over steps run
-        // only the first time, which is when the subnet is not yet owned by the beneficiary.
-        let first_termination = SubnetOwner::<T>::get(lease.netuid) != lease.beneficiary;
-        SubnetOwner::<T>::insert(lease.netuid, lease.beneficiary.clone());
-        Self::set_subnet_owner_hotkey(lease.netuid, &hotkey)?;
+        let (contributors_count, settled) =
+            frame_support::storage::with_storage_layer(|| -> Result<(u32, u32), DispatchError> {
+                // Settle deferred contributor dividends before handing over the residual
+                // lease position. Failed individual payments keep their rows and reserve
+                // the whole position until a later retry; this avoids moving contributor
+                // backing to the beneficiary.
+                let settled = Self::settle_unpaid_lease_dividends(lease_id, &lease);
 
-        // Settle deferred contributor dividends before the lease state goes away. Each
-        // payment runs in its own storage layer; a debt that still cannot be transferred
-        // (below the minimum transfer, or blocked by a lock) keeps its row so the amount is
-        // never silently dropped. The alpha stays in the lease position.
-        let settled = Self::settle_unpaid_lease_dividends(lease_id, &lease);
+                // A lease whose deferred dividends could not all be paid keeps its record
+                // and may be terminated again to retry. One-time provider/proxy cleanup
+                // runs only while the subnet is still owned by the synthetic lease key.
+                let first_termination = SubnetOwner::<T>::get(lease.netuid) != lease.beneficiary;
+                SubnetOwner::<T>::insert(lease.netuid, lease.beneficiary.clone());
+                Self::set_subnet_owner_hotkey(lease.netuid, &hotkey)?;
 
-        // Remove the contributors and accumulated dividends from storage
-        let clear_result =
-            SubnetLeaseShares::<T>::clear_prefix(lease_id, T::MaxContributors::get(), None);
-        AccumulatedLeaseDividends::<T>::remove(lease_id);
+                // Once contributors are fully settled, transfer every remaining unit of
+                // the synthetic lease position to the beneficiary. The specialized helper
+                // moves the lock out of the former owner aggregate and treats this signed
+                // termination call as consent to receive locked alpha.
+                Self::transfer_lease_residual_if_settled(lease_id, &lease, &hotkey)?;
 
-        if first_termination {
-            // Stop tracking the lease coldkey and hotkey
-            let _ = frame_system::Pallet::<T>::dec_providers(&lease.coldkey).defensive();
-            let _ = frame_system::Pallet::<T>::dec_providers(&lease.hotkey).defensive();
+                // Remove the contributors and accumulated dividends from storage.
+                let clear_result =
+                    SubnetLeaseShares::<T>::clear_prefix(lease_id, T::MaxContributors::get(), None);
+                AccumulatedLeaseDividends::<T>::remove(lease_id);
 
-            // Remove the beneficiary proxy
-            T::ProxyInterface::remove_lease_beneficiary_proxy(&lease.coldkey, &lease.beneficiary)?;
-        }
+                if first_termination {
+                    // Stop tracking the lease coldkey and hotkey.
+                    let _ = frame_system::Pallet::<T>::dec_providers(&lease.coldkey).defensive();
+                    let _ = frame_system::Pallet::<T>::dec_providers(&lease.hotkey).defensive();
 
-        // The lease record and the subnet mapping stay while any deferred dividend is
-        // still owed, so the debt remains claimable: the owner-cut hook retries it every
-        // epoch and removes the record once everything is paid. An ended lease no longer
-        // distributes anything, so keeping the record has no other effect.
-        Self::finish_lease_cleanup_if_settled(lease_id, lease.netuid);
+                    // Remove the beneficiary proxy.
+                    T::ProxyInterface::remove_lease_beneficiary_proxy(
+                        &lease.coldkey,
+                        &lease.beneficiary,
+                    )?;
+                }
 
-        Self::deposit_event(Event::SubnetLeaseTerminated {
-            beneficiary: lease.beneficiary,
-            netuid: lease.netuid,
-        });
+                // Keep the lease record while a contributor claim or any residual
+                // position remains. A beneficiary can retry termination after a deferred
+                // dividend clears; the record is removed only once the synthetic position
+                // is empty.
+                Self::finish_lease_cleanup_if_settled(lease_id, lease.netuid);
 
-        // Lease shares exclude the beneficiary, while the benchmark's `k` includes them.
-        let contributors_count = clear_result
-            .unique
-            .saturating_add(1)
-            .min(T::MaxContributors::get());
+                Self::deposit_event(Event::SubnetLeaseTerminated {
+                    beneficiary: lease.beneficiary.clone(),
+                    netuid: lease.netuid,
+                });
+
+                // Lease shares exclude the beneficiary, while the benchmark's `k`
+                // includes them.
+                let contributors_count = clear_result
+                    .unique
+                    .saturating_add(1)
+                    .min(T::MaxContributors::get());
+                Ok((contributors_count, settled))
+            })
+            .map_err(|error| {
+                Self::fail_with_weight(error, Self::terminate_lease_declared_weight())
+            })?;
+
         let settlement =
             <T as Config>::WeightInfo::transfer_stake().saturating_mul(u64::from(settled));
         Ok(Some(
             <T as Config>::WeightInfo::terminate_lease(contributors_count)
-                .saturating_add(settlement),
+                .saturating_add(settlement)
+                // Reserve the residual-position hand-over slot even when an unpaid
+                // dividend defers it. The same slot covers the extra position/cleanup
+                // reads and prevents a post-dispatch refund from under-reporting work.
+                .saturating_add(<T as Config>::WeightInfo::transfer_stake()),
         )
         .into())
     }
@@ -276,7 +300,7 @@ impl<T: Config> Pallet<T> {
     pub fn terminate_lease_declared_weight() -> Weight {
         <T as Config>::WeightInfo::terminate_lease(T::MaxContributors::get()).saturating_add(
             <T as Config>::WeightInfo::transfer_stake()
-                .saturating_mul(u64::from(T::MaxContributors::get())),
+                .saturating_mul(u64::from(T::MaxContributors::get()).saturating_add(1)),
         )
     }
 
@@ -288,8 +312,53 @@ impl<T: Config> Pallet<T> {
         {
             return;
         }
+        let Some(lease) = SubnetLeases::<T>::get(lease_id) else {
+            return;
+        };
+        if !Self::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey,
+            &lease.coldkey,
+            lease.netuid,
+        )
+        .is_zero()
+        {
+            return;
+        }
         SubnetLeases::<T>::remove(lease_id);
         SubnetUidToLeaseId::<T>::remove(netuid);
+    }
+
+    /// Move a fully settled lease's remaining synthetic position to its beneficiary. An
+    /// unpaid contributor row keeps the entire position in place so its unlocked backing
+    /// cannot be consumed by a partial move.
+    fn transfer_lease_residual_if_settled(
+        lease_id: LeaseId,
+        lease: &SubnetLeaseOf<T>,
+        destination_hotkey: &T::AccountId,
+    ) -> DispatchResult {
+        if SubnetLeaseUnpaidDividends::<T>::iter_prefix(lease_id)
+            .next()
+            .is_some()
+        {
+            return Ok(());
+        }
+        let residual = Self::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey,
+            &lease.coldkey,
+            lease.netuid,
+        );
+        if residual.is_zero() {
+            return Ok(());
+        }
+        Self::transfer_former_owner_stake_within_subnet(
+            &lease.coldkey,
+            &lease.hotkey,
+            &lease.beneficiary,
+            destination_hotkey,
+            lease.netuid,
+            residual,
+        )?;
+        Ok(())
     }
 
     /// Pay every deferred contributor dividend of `lease_id` that can be transferred now.
@@ -365,6 +434,15 @@ impl<T: Config> Pallet<T> {
         if lease.end_block.is_some_and(|end_block| end_block <= now) {
             if SubnetOwner::<T>::get(lease.netuid) == lease.beneficiary {
                 Self::settle_unpaid_lease_dividends(lease_id, &lease);
+                let owner_hotkey = SubnetOwnerHotkey::<T>::get(lease.netuid);
+                let transfer_result = frame_support::storage::with_storage_layer(|| {
+                    Self::transfer_lease_residual_if_settled(lease_id, &lease, &owner_hotkey)
+                });
+                if let Err(err) = transfer_result {
+                    log::debug!(
+                        "Ended lease {lease_id} residual still cannot be transferred: {err:?}"
+                    );
+                }
                 Self::finish_lease_cleanup_if_settled(lease_id, lease.netuid);
             }
             return;

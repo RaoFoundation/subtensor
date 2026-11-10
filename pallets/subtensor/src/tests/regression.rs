@@ -489,3 +489,109 @@ fn f0033_coldkey_wide_claim_pays_both_large_funds_with_pending_dust() {
         }
     });
 }
+
+// PROTECTED_REGRESSION: oversized pending baskets must make bounded progress and cannot permanently freeze root principal; changes require explicit human approval.
+#[test]
+fn oversized_pending_basket_recovers_root_stake_without_a_larger_transaction_weight() {
+    new_test_ext(1).execute_with(|| {
+        let row_count = crate::MAX_ROOT_CLAIM_WORK.saturating_add(44);
+        SubnetLimit::<Test>::put(row_count as u16);
+        let subnets = priced_subnets();
+        assert_eq!(subnets.len(), row_count as usize);
+
+        let hotkey = U256::from(4_301);
+        let incumbent = U256::from(4_302);
+        let newcomer = U256::from(4_303);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &incumbent, &hotkey
+        ));
+        register_on_root(&hotkey, 0);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &incumbent,
+            NetUid::ROOT,
+            ROOT_STAKE.into(),
+        );
+        for netuid in &subnets {
+            SubnetAlphaOut::<Test>::mutate(netuid, |alpha| {
+                *alpha = alpha.saturating_add(1_000_000u64.into())
+            });
+            SubtensorModule::enqueue_basket_deposit(
+                &hotkey,
+                *netuid,
+                AlphaBalance::from(1_000_000u64),
+            );
+        }
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(0));
+        SubtokenEnabled::<Test>::insert(NetUid::ROOT, true);
+        crate::SubnetAlphaIn::<Test>::insert(NetUid::ROOT, AlphaBalance::from(10_000_000_000u64));
+        add_balance_to_coldkey_account(&newcomer, 2_000_000_000u64.into());
+
+        let shares_before = BasketShares::<Test>::get(hotkey);
+        let first = SubtensorModule::add_stake(
+            RuntimeOrigin::signed(newcomer),
+            hotkey,
+            NetUid::ROOT,
+            1_000_000_000u64.into(),
+        );
+        assert_eq!(
+            first,
+            Err(crate::Error::<Test>::BasketDepositPending.into())
+        );
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_prefix(hotkey).count(),
+            row_count as usize,
+            "a failed dispatch is transactional and must not partially settle dividends"
+        );
+
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_prefix(hotkey).count(),
+            44,
+            "the free block drain must commit one bounded recovery chunk"
+        );
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_prefix(hotkey).count(),
+            0
+        );
+        assert!(BasketShares::<Test>::get(hotkey) > shares_before);
+
+        let stake_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &newcomer,
+            NetUid::ROOT,
+        );
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(newcomer),
+            hotkey,
+            NetUid::ROOT,
+            1_000_000_000u64.into(),
+        ));
+        let stake_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &newcomer,
+            NetUid::ROOT,
+        );
+        let added = stake_after.saturating_sub(stake_before);
+        assert!(
+            added.to_u64() > 0,
+            "the recovered add_stake must move principal"
+        );
+
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(newcomer),
+            hotkey,
+            NetUid::ROOT,
+            added,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &newcomer,
+                NetUid::ROOT,
+            ),
+            stake_before
+        );
+    });
+}
