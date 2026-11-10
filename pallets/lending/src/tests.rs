@@ -103,6 +103,10 @@ fn set_pool(tao_r: u64, alpha_r: u64) {
     write(&key(b"test/pool_tao", netuid()), tao_r);
     write(&key(b"test/pool_alpha", netuid()), alpha_r);
 }
+fn mock_tao_flow() -> i128 {
+    read(&key(b"test/tao_flow", netuid()))
+}
+
 /// Production-like fillable sell bound as a multiple of the alpha reserve.
 /// `max_sell_input` is reserve×1000; quotes above this multiple refuse like
 /// `SlippageTooHigh` on a real Balancer sim_swap partial fill.
@@ -576,16 +580,25 @@ impl LendingPoolInterface<Account> for MockPool {
         custody_hot: &Account,
         netuid: NetUid,
         tao_in: TaoBalance,
-        _exclude_emission_flow: bool,
+        exclude_emission_flow: bool,
     ) -> Result<AlphaBalance, DispatchError> {
-        Self::buy_alpha(
+        let a = Self::buy_alpha(
             custody_cold,
             custody_hot,
             netuid,
             tao_in,
             u64::MAX.into(),
             false,
-        )
+        )?;
+        // Mirror SubnetTaoFlow: inflows when the skip flag is clear.
+        if !exclude_emission_flow {
+            let prev: i128 = read(&key(b"test/tao_flow", netuid));
+            write(
+                &key(b"test/tao_flow", netuid),
+                prev.saturating_add(i128::from(tao_in.to_u64())),
+            );
+        }
+        Ok(a)
     }
 
     fn forced_sell_into_escrow(
@@ -595,7 +608,7 @@ impl LendingPoolInterface<Account> for MockPool {
         netuid: NetUid,
         alpha_in: AlphaBalance,
         min_tao_out: TaoBalance,
-        _exclude_emission_flow: bool,
+        exclude_emission_flow: bool,
     ) -> Result<TaoBalance, DispatchError> {
         let t = Self::sell_alpha(
             custody_cold,
@@ -606,6 +619,13 @@ impl LendingPoolInterface<Account> for MockPool {
             false,
         )?;
         ensure!(t >= min_tao_out, "slippage");
+        if !exclude_emission_flow {
+            let prev: i128 = read(&key(b"test/tao_flow", netuid));
+            write(
+                &key(b"test/tao_flow", netuid),
+                prev.saturating_sub(i128::from(t.to_u64())),
+            );
+        }
         if custody_cold != escrow_cold {
             Self::transfer_tao(custody_cold, escrow_cold, t)?;
         }
@@ -10372,6 +10392,121 @@ fn partial_repay_cannot_leave_below_minimum_loan() {
         ));
         let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
         assert_eq!(pos.principal, 1_000_000_000);
+        MinLoanValue::set(1);
+    });
+}
+
+#[test]
+fn partial_repay_one_rao_is_amount_too_small_not_reserves() {
+    // Clone retest: a 1-rao repay previously bubbled swap ReservesTooLow;
+    // dust / min-loan gate must reject with AmountTooSmall first.
+    new_test_ext().execute_with(|| {
+        MinLoanValue::set(1_000_000_000); // 1 τ
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 1);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            50_000_000_000,
+            Some(hotkey.clone()),
+            5_000_000_000, // 5 τ
+            1,
+            0,
+            deadline(),
+        ));
+        assert_err!(
+            Lending::repay(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                hotkey.clone(),
+                1, // 1 rao
+                false,
+                u64::MAX,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::AmountTooSmall
+        );
+        assert_err!(
+            Lending::quote_repay(&owner, netuid(), Some(&hotkey), 1, false),
+            Error::<Test>::AmountTooSmall
+        );
+        MinLoanValue::set(1);
+    });
+}
+
+/// Long open/close while a tiny short is open must leave mock TaoFlow ≈
+/// unchanged (±AMM round-trip). Without symmetric exit recording, each long
+/// open dumps +τ into flow and the hard-skipped exit never cancels it.
+#[test]
+fn long_round_trip_with_tiny_short_leaves_tao_flow_unchanged() {
+    new_test_ext().execute_with(|| {
+        MinLoanValue::set(1_000_000_000);
+        let short_owner = account(1);
+        let long_owner = account(3);
+        let hotkey = account(2);
+        mint_tao(&short_owner, 50_000_000_000_000);
+        mint_tao(&long_owner, 50_000_000_000_000);
+        mint_alpha(&long_owner, &hotkey, netuid(), 50_000_000_000_000);
+
+        // Tiny short so short_sold_alpha > 0 (opens always record flow).
+        let price = MockPool::price().to_num::<f64>();
+        let tiny_short_alpha = ((1.5 / price) as u64).max(2_000_000_000);
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(short_owner.clone()),
+            netuid(),
+            Side::Short,
+            50_000_000_000_000,
+            None,
+            tiny_short_alpha,
+            1,
+            0,
+            deadline(),
+        ));
+        assert!(
+            Lifts::<Test>::get(netuid()).short_sold_alpha > 0,
+            "short must seed short_sold_alpha"
+        );
+        let flow_after_short = mock_tao_flow();
+
+        for _ in 0..2 {
+            assert_ok!(Lending::open_exact(
+                RuntimeOrigin::signed(long_owner.clone()),
+                netuid(),
+                Side::Long,
+                40_000_000_000,
+                Some(hotkey.clone()),
+                8_000_000_000, // 8 τ
+                1,
+                0,
+                deadline(),
+            ));
+            assert_ok!(Lending::close(
+                RuntimeOrigin::signed(long_owner.clone()),
+                netuid(),
+                hotkey.clone(),
+                false,
+                u64::MAX,
+                0,
+                deadline(),
+            ));
+        }
+
+        let flow_after = mock_tao_flow();
+        let drift = (flow_after - flow_after_short).abs();
+        // Fee-free mock: buy τ in and sell τ out should nearly cancel. Allow a
+        // few rao of AMM rounding; the pre-fix bug drifted by ~tens of τ.
+        assert!(
+            drift < 10_000_000, // 0.01 τ
+            "long open/close with open short must net TaoFlow (~0); after_short={flow_after_short} after={flow_after} drift={drift}"
+        );
+        assert!(
+            Positions::<Test>::contains_key(&short_owner, netuid()),
+            "tiny short must remain open through the long loop"
+        );
         MinLoanValue::set(1);
     });
 }

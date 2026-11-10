@@ -244,10 +244,10 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
 
     /// Forced buy: spend custody TAO into the pool, credit alpha to custody stake.
     ///
-    /// `exclude_emission_flow`: when true (lone-long books), skip dormant
-    /// `SubnetTaoFlow`; when false (shorts already offset on the book), record
-    /// so long buys can cancel short dumps in the flow accumulator. Short
-    /// buybacks use [`Self::buy_alpha`] and always record.
+    /// `exclude_emission_flow`: when true (lone-long books: `short_sold_alpha
+    /// == 0`), skip dormant `SubnetTaoFlow`; when false (shorts already offset
+    /// on the book), record so long buys can cancel short dumps in the flow
+    /// accumulator. Short buybacks use [`Self::buy_alpha`] and always record.
     fn forced_buy_into_custody(
         custody_cold: &AccountId,
         custody_hot: &AccountId,
@@ -259,10 +259,10 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     /// Forced sell of custody alpha into escrow TAO on `escrow_cold`.
     /// Fails if the realised TAO is below `min_tao_out` (pass zero to disable).
     ///
-    /// `exclude_emission_flow`: when true (long close / interest / forfeit on a
-    /// book with no open short sold-alpha), skip `SubnetTaoFlow`; when false
-    /// (short open, or long trade while shorts offset), record like a normal
-    /// trade so shorts still move dormant flow and hedges can cancel.
+    /// `exclude_emission_flow`: long open **and** long exit paths (close /
+    /// repay / interest / forfeit / expiry) use the same gate —
+    /// `short_sold_alpha == 0` skips, otherwise record — so a hedged long
+    /// round trip nets ~0 dormant flow. Short opens always record (`false`).
     fn forced_sell_into_escrow(
         custody_cold: &AccountId,
         custody_hot: &AccountId,
@@ -2158,6 +2158,47 @@ pub mod pallet {
             }
         }
 
+        /// Skip dormant `SubnetTaoFlow` for long forced trades iff the book has
+        /// no offsetting short sold-alpha. Shared by long opens and every long
+        /// exit (close / repay / interest / forfeit / expiry) so a round trip
+        /// while shorts are open nets ~0 flow (Jacob v5.8 clone fix).
+        fn skip_long_tao_flow(netuid: NetUid) -> bool {
+            Lifts::<T>::get(netuid).short_sold_alpha == 0
+        }
+
+        /// Opening-value (TAO) of a principal amount for dust / min-loan gates.
+        fn opening_value_of(
+            side: Side,
+            principal: u64,
+            price: U64F64,
+        ) -> Result<u64, DispatchError> {
+            match side {
+                Side::Long => Ok(principal),
+                Side::Short => Self::tao_for_alpha(principal, price, true),
+            }
+        }
+
+        /// Partial-repay dust gates: both the repaid slice and any nonzero
+        /// remainder must have opening value ≥ [`Config::MinimumLoanValue`],
+        /// else [`Error::AmountTooSmall`] (never surface swap `ReservesTooLow`
+        /// from a 1-rao / sub-min slice).
+        fn ensure_partial_repay_sizes(
+            side: Side,
+            principal: u64,
+            principal_part: u64,
+            price: U64F64,
+        ) -> DispatchResult {
+            let min = T::MinimumLoanValue::get();
+            let part_value = Self::opening_value_of(side, principal_part, price)?;
+            ensure!(part_value >= min, Error::<T>::AmountTooSmall);
+            let remainder = principal.saturating_sub(principal_part);
+            if remainder > 0 {
+                let rem_value = Self::opening_value_of(side, remainder, price)?;
+                ensure!(rem_value >= min, Error::<T>::AmountTooSmall);
+            }
+            Ok(())
+        }
+
         /// When live (ramped) Cap_side rejects `used + delta_l`, prefer
         /// [`SideCapacityRamping`] if full Cap would still fit — else
         /// [`SideCapacity`].
@@ -2993,9 +3034,8 @@ pub mod pallet {
                     ensure!(buy_tao == principal, Error::<T>::InvalidQuote);
                     // Move buy TAO from reserve custody free balance into escrow, then buy.
                     T::Pool::transfer_tao(&reserve, &escrow, buy_tao.into())?;
-                    // Skip TaoFlow only while the book has no offsetting short
-                    // sold-alpha (net-long consistency with emission_alpha_price).
-                    let skip_flow = Lifts::<T>::get(netuid).short_sold_alpha == 0;
+                    // Same short_sold_alpha gate as long exits (net-long flow).
+                    let skip_flow = Self::skip_long_tao_flow(netuid);
                     let a = T::Pool::forced_buy_into_custody(
                         &escrow,
                         &custody,
@@ -3378,6 +3418,7 @@ pub mod pallet {
                         // Sell A, then the minimal collateral needed to cover P;
                         // leftover collateral returns as alpha (min_refund is alpha).
                         let mut raised = 0u64;
+                        let skip_flow = Self::skip_long_tao_flow(netuid);
                         if position.escrow_alpha > 0 {
                             let out = T::Pool::forced_sell_into_escrow(
                                 &escrow,
@@ -3386,7 +3427,7 @@ pub mod pallet {
                                 netuid,
                                 position.escrow_alpha.into(),
                                 0u64.into(),
-                                true,
+                                skip_flow,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                         }
@@ -3406,7 +3447,7 @@ pub mod pallet {
                                 netuid,
                                 sell.into(),
                                 floor.into(),
-                                true,
+                                skip_flow,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             coll_left = coll_left.saturating_sub(sell);
@@ -3552,6 +3593,14 @@ pub mod pallet {
                     valid_until,
                 );
             }
+            // Reject dust-sized slices / remainders before any pool trade so a
+            // 1-rao repay surfaces AmountTooSmall instead of swap ReservesTooLow.
+            Self::ensure_partial_repay_sizes(
+                existing.side,
+                existing.principal,
+                principal_part,
+                T::Pool::current_alpha_price(netuid),
+            )?;
             let mut position = existing;
             // Interest first on the whole position (§4.4).
             Self::charge_interest(&owner, netuid, &mut position, now, true, false)?;
@@ -3749,6 +3798,7 @@ pub mod pallet {
                         (alpha_out, slice_a)
                     } else {
                         let mut raised = 0u64;
+                        let skip_flow = Self::skip_long_tao_flow(netuid);
                         if slice_a > 0 {
                             let out = T::Pool::forced_sell_into_escrow(
                                 &escrow,
@@ -3757,7 +3807,7 @@ pub mod pallet {
                                 netuid,
                                 slice_a.into(),
                                 0u64.into(),
-                                true,
+                                skip_flow,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                         }
@@ -3775,7 +3825,7 @@ pub mod pallet {
                                 netuid,
                                 sell.into(),
                                 floor.into(),
-                                true,
+                                skip_flow,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             coll_left = coll_left.saturating_sub(sell);
@@ -3839,13 +3889,14 @@ pub mod pallet {
             position.annual_interest =
                 Self::scale_part(position.annual_interest, position.principal, p);
 
-            // Dust: remainder 0 or opening value ≥ MinimumLoanValue.
+            // Dust remainder already gated pre-trade via ensure_partial_repay_sizes;
+            // keep a post-trade assert for defence in depth after interest/scale.
             if position.principal > 0 {
-                let price = T::Pool::current_alpha_price(netuid);
-                let opening_value = match side {
-                    Side::Short => Self::tao_for_alpha(position.principal, price, true)?,
-                    Side::Long => position.principal,
-                };
+                let opening_value = Self::opening_value_of(
+                    side,
+                    position.principal,
+                    T::Pool::current_alpha_price(netuid),
+                )?;
                 ensure!(
                     opening_value >= T::MinimumLoanValue::get(),
                     Error::<T>::AmountTooSmall
@@ -4597,6 +4648,7 @@ pub mod pallet {
                         // min(raised, P); burn leftover TAO and leftover alpha C.
                         let mut raised = 0u64;
                         let mut sold_alpha = 0u64;
+                        let skip_flow = Self::skip_long_tao_flow(netuid);
                         if position.escrow_alpha > 0 {
                             let out = T::Pool::forced_sell_into_escrow(
                                 &escrow,
@@ -4605,7 +4657,7 @@ pub mod pallet {
                                 netuid,
                                 position.escrow_alpha.into(),
                                 0u64.into(),
-                                true,
+                                skip_flow,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             sold_alpha = Self::add(sold_alpha, position.escrow_alpha)?;
@@ -4625,7 +4677,7 @@ pub mod pallet {
                                     netuid,
                                     sell.into(),
                                     0u64.into(),
-                                    true,
+                                    skip_flow,
                                 ) {
                                     Ok(out) => {
                                         raised = Self::add(raised, out.to_u64())?;
@@ -5823,7 +5875,7 @@ pub mod pallet {
                     netuid,
                     slice.into(),
                     min_out.into(),
-                    true,
+                    Self::skip_long_tao_flow(netuid),
                 ) {
                     Ok(t) => t,
                     Err(_) => {
@@ -6313,6 +6365,7 @@ pub mod pallet {
                 let probe = (|| -> Result<(u64, u64), DispatchError> {
                     let custody = Self::custody_hotkey()?;
                     let mut raised = 0u64;
+                    let skip_flow = Self::skip_long_tao_flow(netuid);
                     if escrow_alpha > 0 {
                         let out = T::Pool::forced_sell_into_escrow(
                             escrow,
@@ -6321,7 +6374,7 @@ pub mod pallet {
                             netuid,
                             escrow_alpha.into(),
                             0u64.into(),
-                            true,
+                            skip_flow,
                         )?;
                         raised = Self::add(raised, out.to_u64())?;
                     }
@@ -6340,7 +6393,7 @@ pub mod pallet {
                                 netuid,
                                 sell.into(),
                                 0u64.into(),
-                                true,
+                                skip_flow,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             coll_left = coll_left.saturating_sub(sell);
@@ -6490,6 +6543,7 @@ pub mod pallet {
                 }
                 Side::Long => {
                     let mut raised = 0u64;
+                    let skip_flow = Self::skip_long_tao_flow(netuid);
                     if position.escrow_alpha > 0 {
                         let out = T::Pool::forced_sell_into_escrow(
                             &escrow,
@@ -6498,7 +6552,7 @@ pub mod pallet {
                             netuid,
                             position.escrow_alpha.into(),
                             0u64.into(),
-                            true,
+                            skip_flow,
                         )?;
                         raised = Self::add(raised, out.to_u64())?;
                     }
@@ -6515,7 +6569,7 @@ pub mod pallet {
                             netuid,
                             sell.into(),
                             0u64.into(),
-                            true,
+                            skip_flow,
                         )?;
                         raised = Self::add(raised, out.to_u64())?;
                         coll_left = coll_left.saturating_sub(sell);
@@ -6577,7 +6631,7 @@ pub mod pallet {
                     netuid,
                     leftover_collateral.into(),
                     0u64.into(),
-                    true,
+                    Self::skip_long_tao_flow(netuid),
                 ) {
                     Ok(out) => {
                         refund = refund.saturating_add(out.to_u64());
@@ -6986,6 +7040,12 @@ pub mod pallet {
             if principal_part == position.principal {
                 return Self::quote_close(owner, netuid, hotkey, repay_from_wallet);
             }
+            Self::ensure_partial_repay_sizes(
+                position.side,
+                position.principal,
+                principal_part,
+                T::Pool::current_alpha_price(netuid),
+            )?;
             let (interest, _) =
                 Self::interest_due(&position, frame_system::Pallet::<T>::block_number(), true)?;
             let remaining = position.collateral.saturating_sub(interest);
