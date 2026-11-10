@@ -1,0 +1,2620 @@
+{
+  "points": [
+    {
+      "endpoint": "https://archive.sub.latent.to",
+      "block": 9448000,
+      "hash": "0x386f3e2fba2778091871a1c4a2c932b724e3c7db5dba7a033f8f3ee48812746f",
+      "methodology": "Frozen end-block basket alpha quantities (large baskets >=100 holdings), historical spot prices and fast EMA; out-of-band holding contributions only, all incoming origins anchored. Spot valuation proxy, not a historical replay of realizable share mints. Missing anchors excluded, never counted as passing.",
+      "basket": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "nav_tao": 5201946135239,
+        "spot_nav_tao": 5283044542893,
+        "shares": 6178568439438,
+        "deposited_tao": 7289963040922,
+        "redeemed_tao": 1723838345308,
+        "holdings": [
+          {
+            "netuid": 0,
+            "alpha": 42406360453,
+            "spot_tao": 42406360453,
+            "realizable_tao": 42406360453
+          },
+          {
+            "netuid": 1,
+            "alpha": 1245821520385,
+            "spot_tao": 7538541746,
+            "realizable_tao": 7535973856
+          },
+          {
+            "netuid": 2,
+            "alpha": 2418802647937,
+            "spot_tao": 9559957039,
+            "realizable_tao": 9549567222
+          },
+          {
+            "netuid": 3,
+            "alpha": 1861272216965,
+            "spot_tao": 41165398587,
+            "realizable_tao": 41141638062
+          },
+          {
+            "netuid": 4,
+            "alpha": 3008595492242,
+            "spot_tao": 174182388161,
+            "realizable_tao": 173970337893
+          },
+          {
+            "netuid": 5,
+            "alpha": 1388654022296,
+            "spot_tao": 16882953056,
+            "realizable_tao": 16874383846
+          },
+          {
+            "netuid": 6,
+            "alpha": 2341730761662,
+            "spot_tao": 5106217866,
+            "realizable_tao": 5102631292
+          },
+          {
+            "netuid": 7,
+            "alpha": 2543588482785,
+            "spot_tao": 5938167855,
+            "realizable_tao": 5931698573
+          },
+          {
+            "netuid": 8,
+            "alpha": 1090411721776,
+            "spot_tao": 36637430599,
+            "realizable_tao": 36622302148
+          },
+          {
+            "netuid": 9,
+            "alpha": 1055196651352,
+            "spot_tao": 24539515345,
+            "realizable_tao": 24528102733
+          },
+          {
+            "netuid": 10,
+            "alpha": 1243473333783,
+            "spot_tao": 5303444863,
+            "realizable_tao": 5301356486
+          },
+          {
+            "netuid": 11,
+            "alpha": 1331579626496,
+            "spot_tao": 8979045795,
+            "realizable_tao": 8974844535
+          },
+          {
+            "netuid": 12,
+            "alpha": 2130283771735,
+            "spot_tao": 9998902500,
+            "realizable_tao": 9990939363
+          },
+          {
+            "netuid": 13,
+            "alpha": 1161852368951,
+            "spot_tao": 4552971028,
+            "realizable_tao": 4551732091
+          },
+          {
+            "netuid": 14,
+            "alpha": 1332919061306,
+            "spot_tao": 12348201840,
+            "realizable_tao": 12342247991
+          },
+          {
+            "netuid": 15,
+            "alpha": 2796784572704,
+            "spot_tao": 50701124909,
+            "realizable_tao": 50511400446
+          },
+          {
+            "netuid": 16,
+            "alpha": 530445315709,
+            "spot_tao": 1729414046,
+            "realizable_tao": 1714540604
+          },
+          {
+            "netuid": 17,
+            "alpha": 19876270783940,
+            "spot_tao": 128747360849,
+            "realizable_tao": 128001937860
+          },
+          {
+            "netuid": 18,
+            "alpha": 2363392451491,
+            "spot_tao": 8370089574,
+            "realizable_tao": 8362796545
+          },
+          {
+            "netuid": 19,
+            "alpha": 3688808155795,
+            "spot_tao": 31954688927,
+            "realizable_tao": 31921074149
+          },
+          {
+            "netuid": 20,
+            "alpha": 2310476289280,
+            "spot_tao": 5271219854,
+            "realizable_tao": 5266882755
+          },
+          {
+            "netuid": 21,
+            "alpha": 2337844635141,
+            "spot_tao": 11236439437,
+            "realizable_tao": 11222465746
+          },
+          {
+            "netuid": 22,
+            "alpha": 2337278734179,
+            "spot_tao": 6445629021,
+            "realizable_tao": 6439871459
+          },
+          {
+            "netuid": 23,
+            "alpha": 1243065718685,
+            "spot_tao": 8462054035,
+            "realizable_tao": 8454469441
+          },
+          {
+            "netuid": 24,
+            "alpha": 1976708043414,
+            "spot_tao": 23072193680,
+            "realizable_tao": 23036345353
+          },
+          {
+            "netuid": 25,
+            "alpha": 2724230694040,
+            "spot_tao": 11316917239,
+            "realizable_tao": 11304785753
+          },
+          {
+            "netuid": 26,
+            "alpha": 4072303052076,
+            "spot_tao": 6036264913,
+            "realizable_tao": 6008856735
+          },
+          {
+            "netuid": 27,
+            "alpha": 2197842424231,
+            "spot_tao": 4881298735,
+            "realizable_tao": 4877381260
+          },
+          {
+            "netuid": 28,
+            "alpha": 11247368216975,
+            "spot_tao": 297154695299,
+            "realizable_tao": 293827897315
+          },
+          {
+            "netuid": 29,
+            "alpha": 2537265804712,
+            "spot_tao": 6354847270,
+            "realizable_tao": 6349740500
+          },
+          {
+            "netuid": 30,
+            "alpha": 2303453347666,
+            "spot_tao": 8214751409,
+            "realizable_tao": 8207011206
+          },
+          {
+            "netuid": 31,
+            "alpha": 3026619852854,
+            "spot_tao": 11102005089,
+            "realizable_tao": 11031376526
+          },
+          {
+            "netuid": 32,
+            "alpha": 2354110779898,
+            "spot_tao": 5824007856,
+            "realizable_tao": 5818847977
+          },
+          {
+            "netuid": 33,
+            "alpha": 1865354648921,
+            "spot_tao": 5702185498,
+            "realizable_tao": 5699449283
+          },
+          {
+            "netuid": 34,
+            "alpha": 1367052399691,
+            "spot_tao": 16525145137,
+            "realizable_tao": 16517510934
+          },
+          {
+            "netuid": 35,
+            "alpha": 7770142210062,
+            "spot_tao": 4412920811,
+            "realizable_tao": 4318611230
+          },
+          {
+            "netuid": 36,
+            "alpha": 332375164879,
+            "spot_tao": 3605994429,
+            "realizable_tao": 3571878366
+          },
+          {
+            "netuid": 37,
+            "alpha": 2416084447615,
+            "spot_tao": 6372450760,
+            "realizable_tao": 6366723861
+          },
+          {
+            "netuid": 38,
+            "alpha": 9721882534688,
+            "spot_tao": 50966833910,
+            "realizable_tao": 50448113055
+          },
+          {
+            "netuid": 39,
+            "alpha": 1243232363720,
+            "spot_tao": 8786692447,
+            "realizable_tao": 8782344138
+          },
+          {
+            "netuid": 40,
+            "alpha": 5800956072541,
+            "spot_tao": 9787841662,
+            "realizable_tao": 9708456653
+          },
+          {
+            "netuid": 41,
+            "alpha": 23703059621047,
+            "spot_tao": 226359946858,
+            "realizable_tao": 223507613659
+          },
+          {
+            "netuid": 42,
+            "alpha": 2377948884631,
+            "spot_tao": 5447830339,
+            "realizable_tao": 5443639953
+          },
+          {
+            "netuid": 43,
+            "alpha": 2537907105556,
+            "spot_tao": 10037646723,
+            "realizable_tao": 10029454822
+          },
+          {
+            "netuid": 44,
+            "alpha": 4013678333812,
+            "spot_tao": 131072143266,
+            "realizable_tao": 130805569642
+          },
+          {
+            "netuid": 45,
+            "alpha": 2334805791792,
+            "spot_tao": 5122594691,
+            "realizable_tao": 5118177890
+          },
+          {
+            "netuid": 46,
+            "alpha": 2525794758258,
+            "spot_tao": 8219136327,
+            "realizable_tao": 8210843948
+          },
+          {
+            "netuid": 47,
+            "alpha": 3620001757577,
+            "spot_tao": 5588285141,
+            "realizable_tao": 5555263687
+          },
+          {
+            "netuid": 48,
+            "alpha": 2432131014024,
+            "spot_tao": 20438896252,
+            "realizable_tao": 20411826117
+          },
+          {
+            "netuid": 49,
+            "alpha": 4504250645071,
+            "spot_tao": 24043777054,
+            "realizable_tao": 23898299389
+          },
+          {
+            "netuid": 50,
+            "alpha": 13615926318834,
+            "spot_tao": 48267786559,
+            "realizable_tao": 48027757018
+          },
+          {
+            "netuid": 51,
+            "alpha": 3225249658573,
+            "spot_tao": 402291011136,
+            "realizable_tao": 401455244940
+          },
+          {
+            "netuid": 52,
+            "alpha": 1829077545037,
+            "spot_tao": 10985501790,
+            "realizable_tao": 10978594040
+          },
+          {
+            "netuid": 53,
+            "alpha": 7225170993344,
+            "spot_tao": 194693637150,
+            "realizable_tao": 193609806367
+          },
+          {
+            "netuid": 54,
+            "alpha": 17301402983034,
+            "spot_tao": 93270056221,
+            "realizable_tao": 92351526438
+          },
+          {
+            "netuid": 55,
+            "alpha": 2582150471582,
+            "spot_tao": 5649569608,
+            "realizable_tao": 5644209320
+          },
+          {
+            "netuid": 56,
+            "alpha": 2786324024834,
+            "spot_tao": 40471074035,
+            "realizable_tao": 40437886138
+          },
+          {
+            "netuid": 57,
+            "alpha": 4961849493092,
+            "spot_tao": 10011649628,
+            "realizable_tao": 9924943384
+          },
+          {
+            "netuid": 58,
+            "alpha": 7818970433898,
+            "spot_tao": 79009429438,
+            "realizable_tao": 74499719919
+          },
+          {
+            "netuid": 59,
+            "alpha": 3459060269403,
+            "spot_tao": 24264732020,
+            "realizable_tao": 23505605976
+          },
+          {
+            "netuid": 60,
+            "alpha": 2386414773351,
+            "spot_tao": 7070733313,
+            "realizable_tao": 7062423221
+          },
+          {
+            "netuid": 61,
+            "alpha": 15878145211479,
+            "spot_tao": 83524942143,
+            "realizable_tao": 82820522582
+          },
+          {
+            "netuid": 62,
+            "alpha": 1396650559783,
+            "spot_tao": 11383456441,
+            "realizable_tao": 11378582307
+          },
+          {
+            "netuid": 63,
+            "alpha": 2454407773594,
+            "spot_tao": 10348282917,
+            "realizable_tao": 10338747723
+          },
+          {
+            "netuid": 64,
+            "alpha": 1109728165345,
+            "spot_tao": 75159883813,
+            "realizable_tao": 75131839468
+          },
+          {
+            "netuid": 65,
+            "alpha": 2275211027349,
+            "spot_tao": 6338196528,
+            "realizable_tao": 6331922017
+          },
+          {
+            "netuid": 66,
+            "alpha": 1318403572193,
+            "spot_tao": 3102942839,
+            "realizable_tao": 3101333714
+          },
+          {
+            "netuid": 67,
+            "alpha": 4091025765358,
+            "spot_tao": 11237213623,
+            "realizable_tao": 11184632099
+          },
+          {
+            "netuid": 68,
+            "alpha": 6428099931305,
+            "spot_tao": 112546672298,
+            "realizable_tao": 112237028523
+          },
+          {
+            "netuid": 69,
+            "alpha": 2549806094909,
+            "spot_tao": 12727517992,
+            "realizable_tao": 12681028222
+          },
+          {
+            "netuid": 70,
+            "alpha": 637093232312,
+            "spot_tao": 4458171489,
+            "realizable_tao": 4391094951
+          },
+          {
+            "netuid": 71,
+            "alpha": 2276773242370,
+            "spot_tao": 8887787669,
+            "realizable_tao": 8871939053
+          },
+          {
+            "netuid": 72,
+            "alpha": 2765451647339,
+            "spot_tao": 5783613696,
+            "realizable_tao": 5778164931
+          },
+          {
+            "netuid": 73,
+            "alpha": 2421717155501,
+            "spot_tao": 5986483678,
+            "realizable_tao": 5980629648
+          },
+          {
+            "netuid": 74,
+            "alpha": 2666866559979,
+            "spot_tao": 9804301795,
+            "realizable_tao": 9789213619
+          },
+          {
+            "netuid": 75,
+            "alpha": 14185205892904,
+            "spot_tao": 242777026521,
+            "realizable_tao": 241052778162
+          },
+          {
+            "netuid": 76,
+            "alpha": 8191633346090,
+            "spot_tao": 24611548748,
+            "realizable_tao": 23038947587
+          },
+          {
+            "netuid": 77,
+            "alpha": 1202908818510,
+            "spot_tao": 5526359595,
+            "realizable_tao": 5523646588
+          },
+          {
+            "netuid": 78,
+            "alpha": 4140857366700,
+            "spot_tao": 5554635856,
+            "realizable_tao": 5519703943
+          },
+          {
+            "netuid": 79,
+            "alpha": 2543125368114,
+            "spot_tao": 7487272194,
+            "realizable_tao": 7479088027
+          },
+          {
+            "netuid": 80,
+            "alpha": 6370196522811,
+            "spot_tao": 88089030557,
+            "realizable_tao": 86591639479
+          },
+          {
+            "netuid": 81,
+            "alpha": 1304059411367,
+            "spot_tao": 6710175491,
+            "realizable_tao": 6707441538
+          },
+          {
+            "netuid": 82,
+            "alpha": 4638033365533,
+            "spot_tao": 174670491866,
+            "realizable_tao": 162920984954
+          },
+          {
+            "netuid": 83,
+            "alpha": 1915977943785,
+            "spot_tao": 13355803310,
+            "realizable_tao": 13333179928
+          },
+          {
+            "netuid": 84,
+            "alpha": 385446851337,
+            "spot_tao": 791097373,
+            "realizable_tao": 790633893
+          },
+          {
+            "netuid": 85,
+            "alpha": 16947076244959,
+            "spot_tao": 71298432750,
+            "realizable_tao": 70865352681
+          },
+          {
+            "netuid": 86,
+            "alpha": 4641798174207,
+            "spot_tao": 7186828120,
+            "realizable_tao": 7017368574
+          },
+          {
+            "netuid": 87,
+            "alpha": 2361457073765,
+            "spot_tao": 6466549072,
+            "realizable_tao": 6436163581
+          },
+          {
+            "netuid": 88,
+            "alpha": 2477497477584,
+            "spot_tao": 5776850856,
+            "realizable_tao": 5770711768
+          },
+          {
+            "netuid": 89,
+            "alpha": 2855261682049,
+            "spot_tao": 8303390985,
+            "realizable_tao": 8292027251
+          },
+          {
+            "netuid": 90,
+            "alpha": 9380450479068,
+            "spot_tao": 147337130368,
+            "realizable_tao": 143460404418
+          },
+          {
+            "netuid": 91,
+            "alpha": 3051054525402,
+            "spot_tao": 11033014379,
+            "realizable_tao": 10991154510
+          },
+          {
+            "netuid": 92,
+            "alpha": 3979122341229,
+            "spot_tao": 85423248275,
+            "realizable_tao": 83531011805
+          },
+          {
+            "netuid": 93,
+            "alpha": 9521230894681,
+            "spot_tao": 140244223843,
+            "realizable_tao": 139349030075
+          },
+          {
+            "netuid": 94,
+            "alpha": 1518529963704,
+            "spot_tao": 5754816508,
+            "realizable_tao": 5739137694
+          },
+          {
+            "netuid": 95,
+            "alpha": 1625388759327,
+            "spot_tao": 47448297794,
+            "realizable_tao": 47349321677
+          },
+          {
+            "netuid": 96,
+            "alpha": 3239258431237,
+            "spot_tao": 9559368490,
+            "realizable_tao": 9517009247
+          },
+          {
+            "netuid": 97,
+            "alpha": 2611262047589,
+            "spot_tao": 29918539666,
+            "realizable_tao": 29835135891
+          },
+          {
+            "netuid": 98,
+            "alpha": 2824977802693,
+            "spot_tao": 6031420298,
+            "realizable_tao": 6023441865
+          },
+          {
+            "netuid": 100,
+            "alpha": 2501813690262,
+            "spot_tao": 7487444853,
+            "realizable_tao": 7462071291
+          },
+          {
+            "netuid": 101,
+            "alpha": 1844786967916,
+            "spot_tao": 6089095040,
+            "realizable_tao": 6078259156
+          },
+          {
+            "netuid": 102,
+            "alpha": 2902483665004,
+            "spot_tao": 13819243585,
+            "realizable_tao": 13759735435
+          },
+          {
+            "netuid": 103,
+            "alpha": 2867346326512,
+            "spot_tao": 11254865412,
+            "realizable_tao": 10998615833
+          },
+          {
+            "netuid": 104,
+            "alpha": 164418402799,
+            "spot_tao": 656358609,
+            "realizable_tao": 656284729
+          },
+          {
+            "netuid": 105,
+            "alpha": 2187465256810,
+            "spot_tao": 11285540330,
+            "realizable_tao": 11259178124
+          },
+          {
+            "netuid": 106,
+            "alpha": 2814825368232,
+            "spot_tao": 6025983830,
+            "realizable_tao": 6019559042
+          },
+          {
+            "netuid": 107,
+            "alpha": 3417712240519,
+            "spot_tao": 94531762970,
+            "realizable_tao": 94074207048
+          },
+          {
+            "netuid": 108,
+            "alpha": 6266055680352,
+            "spot_tao": 29757275581,
+            "realizable_tao": 28166949342
+          },
+          {
+            "netuid": 109,
+            "alpha": 2844609057523,
+            "spot_tao": 6600544393,
+            "realizable_tao": 6566144488
+          },
+          {
+            "netuid": 110,
+            "alpha": 13052766656302,
+            "spot_tao": 349881552048,
+            "realizable_tao": 340351247216
+          },
+          {
+            "netuid": 111,
+            "alpha": 1739546329575,
+            "spot_tao": 7029954289,
+            "realizable_tao": 7020932459
+          },
+          {
+            "netuid": 112,
+            "alpha": 2311842374435,
+            "spot_tao": 19374286973,
+            "realizable_tao": 19319282326
+          },
+          {
+            "netuid": 113,
+            "alpha": 5109365396384,
+            "spot_tao": 11050384463,
+            "realizable_tao": 10978660839
+          },
+          {
+            "netuid": 114,
+            "alpha": 6256349088287,
+            "spot_tao": 102419395388,
+            "realizable_tao": 101293483305
+          },
+          {
+            "netuid": 115,
+            "alpha": 1915888415804,
+            "spot_tao": 4157757813,
+            "realizable_tao": 4152427565
+          },
+          {
+            "netuid": 116,
+            "alpha": 5970506036064,
+            "spot_tao": 198053130258,
+            "realizable_tao": 178215654818
+          },
+          {
+            "netuid": 117,
+            "alpha": 3541650854427,
+            "spot_tao": 23318862807,
+            "realizable_tao": 23202996200
+          },
+          {
+            "netuid": 118,
+            "alpha": 26826594627114,
+            "spot_tao": 94150071302,
+            "realizable_tao": 92200621967
+          },
+          {
+            "netuid": 119,
+            "alpha": 2577001351877,
+            "spot_tao": 5612311885,
+            "realizable_tao": 5601879544
+          },
+          {
+            "netuid": 120,
+            "alpha": 2107019848883,
+            "spot_tao": 89209508711,
+            "realizable_tao": 89104192969
+          },
+          {
+            "netuid": 121,
+            "alpha": 1585224556718,
+            "spot_tao": 5346732190,
+            "realizable_tao": 5341443297
+          },
+          {
+            "netuid": 122,
+            "alpha": 5397399776697,
+            "spot_tao": 14290438485,
+            "realizable_tao": 14108644738
+          },
+          {
+            "netuid": 123,
+            "alpha": 2084706675161,
+            "spot_tao": 4743345627,
+            "realizable_tao": 4739334034
+          },
+          {
+            "netuid": 124,
+            "alpha": 7214307375404,
+            "spot_tao": 61357376466,
+            "realizable_tao": 61041598356
+          },
+          {
+            "netuid": 125,
+            "alpha": 3185671344142,
+            "spot_tao": 7481529408,
+            "realizable_tao": 7470436982
+          },
+          {
+            "netuid": 126,
+            "alpha": 17970216635885,
+            "spot_tao": 76491069786,
+            "realizable_tao": 74148734217
+          },
+          {
+            "netuid": 127,
+            "alpha": 3076787848238,
+            "spot_tao": 10421595914,
+            "realizable_tao": 10392005920
+          },
+          {
+            "netuid": 128,
+            "alpha": 2871685187111,
+            "spot_tao": 8012103563,
+            "realizable_tao": 7996268444
+          }
+        ]
+      },
+      "pending": {
+        "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1": [
+          {
+            "netuid": 1,
+            "alpha": 24482390647
+          },
+          {
+            "netuid": 2,
+            "alpha": 23476883248
+          },
+          {
+            "netuid": 3,
+            "alpha": 24039348396
+          },
+          {
+            "netuid": 4,
+            "alpha": 23277603839
+          },
+          {
+            "netuid": 5,
+            "alpha": 25938840336
+          },
+          {
+            "netuid": 6,
+            "alpha": 25618629263
+          },
+          {
+            "netuid": 7,
+            "alpha": 27417065177
+          },
+          {
+            "netuid": 8,
+            "alpha": 29547807875
+          },
+          {
+            "netuid": 9,
+            "alpha": 24052934749
+          },
+          {
+            "netuid": 10,
+            "alpha": 24991389803
+          },
+          {
+            "netuid": 11,
+            "alpha": 29610105615
+          },
+          {
+            "netuid": 12,
+            "alpha": 24533640790
+          },
+          {
+            "netuid": 13,
+            "alpha": 24502857653
+          },
+          {
+            "netuid": 14,
+            "alpha": 24482939754
+          },
+          {
+            "netuid": 15,
+            "alpha": 58503783384
+          },
+          {
+            "netuid": 16,
+            "alpha": 168651052953
+          },
+          {
+            "netuid": 17,
+            "alpha": 24405055973
+          },
+          {
+            "netuid": 18,
+            "alpha": 25048962905
+          },
+          {
+            "netuid": 20,
+            "alpha": 26457063207
+          },
+          {
+            "netuid": 21,
+            "alpha": 24686252322
+          },
+          {
+            "netuid": 22,
+            "alpha": 24956233011
+          },
+          {
+            "netuid": 23,
+            "alpha": 24047230533
+          },
+          {
+            "netuid": 24,
+            "alpha": 24871078027
+          },
+          {
+            "netuid": 25,
+            "alpha": 26713171205
+          },
+          {
+            "netuid": 26,
+            "alpha": 61299434753
+          },
+          {
+            "netuid": 27,
+            "alpha": 24127711765
+          },
+          {
+            "netuid": 28,
+            "alpha": 24955255373
+          },
+          {
+            "netuid": 29,
+            "alpha": 24950180917
+          },
+          {
+            "netuid": 30,
+            "alpha": 24491466019
+          },
+          {
+            "netuid": 31,
+            "alpha": 51913351699
+          },
+          {
+            "netuid": 32,
+            "alpha": 29263414984
+          },
+          {
+            "netuid": 33,
+            "alpha": 27598829104
+          },
+          {
+            "netuid": 34,
+            "alpha": 25448556083
+          },
+          {
+            "netuid": 35,
+            "alpha": 110635340475
+          },
+          {
+            "netuid": 36,
+            "alpha": 175946480247
+          },
+          {
+            "netuid": 37,
+            "alpha": 24195429498
+          },
+          {
+            "netuid": 38,
+            "alpha": 51130615688
+          },
+          {
+            "netuid": 39,
+            "alpha": 24315131146
+          },
+          {
+            "netuid": 40,
+            "alpha": 78014048642
+          },
+          {
+            "netuid": 41,
+            "alpha": 24549804926
+          },
+          {
+            "netuid": 42,
+            "alpha": 25581934128
+          },
+          {
+            "netuid": 43,
+            "alpha": 29304957693
+          },
+          {
+            "netuid": 44,
+            "alpha": 26505162211
+          },
+          {
+            "netuid": 45,
+            "alpha": 25616950826
+          },
+          {
+            "netuid": 46,
+            "alpha": 30288662828
+          },
+          {
+            "netuid": 47,
+            "alpha": 54347267497
+          },
+          {
+            "netuid": 48,
+            "alpha": 25071931775
+          },
+          {
+            "netuid": 49,
+            "alpha": 42490285244
+          },
+          {
+            "netuid": 50,
+            "alpha": 25091120271
+          },
+          {
+            "netuid": 51,
+            "alpha": 24891702696
+          },
+          {
+            "netuid": 52,
+            "alpha": 24633233548
+          },
+          {
+            "netuid": 53,
+            "alpha": 24344428760
+          },
+          {
+            "netuid": 54,
+            "alpha": 29739131471
+          },
+          {
+            "netuid": 55,
+            "alpha": 26564033911
+          },
+          {
+            "netuid": 56,
+            "alpha": 23852167541
+          },
+          {
+            "netuid": 57,
+            "alpha": 64297831028
+          },
+          {
+            "netuid": 58,
+            "alpha": 84219506342
+          },
+          {
+            "netuid": 59,
+            "alpha": 149041115741
+          },
+          {
+            "netuid": 60,
+            "alpha": 26057826710
+          },
+          {
+            "netuid": 61,
+            "alpha": 24673137209
+          },
+          {
+            "netuid": 62,
+            "alpha": 31564358131
+          },
+          {
+            "netuid": 63,
+            "alpha": 26177782295
+          },
+          {
+            "netuid": 64,
+            "alpha": 28388932533
+          },
+          {
+            "netuid": 65,
+            "alpha": 24875858820
+          },
+          {
+            "netuid": 66,
+            "alpha": 25614296638
+          },
+          {
+            "netuid": 67,
+            "alpha": 65073454007
+          },
+          {
+            "netuid": 68,
+            "alpha": 24976107803
+          },
+          {
+            "netuid": 69,
+            "alpha": 55375313211
+          },
+          {
+            "netuid": 70,
+            "alpha": 169210940840
+          },
+          {
+            "netuid": 71,
+            "alpha": 25290581051
+          },
+          {
+            "netuid": 72,
+            "alpha": 28059976203
+          },
+          {
+            "netuid": 73,
+            "alpha": 31800206507
+          },
+          {
+            "netuid": 74,
+            "alpha": 27889370536
+          },
+          {
+            "netuid": 75,
+            "alpha": 25869686546
+          },
+          {
+            "netuid": 76,
+            "alpha": 116912506468
+          },
+          {
+            "netuid": 77,
+            "alpha": 25887854963
+          },
+          {
+            "netuid": 78,
+            "alpha": 78489154764
+          },
+          {
+            "netuid": 79,
+            "alpha": 27775406435
+          },
+          {
+            "netuid": 80,
+            "alpha": 50628522056
+          },
+          {
+            "netuid": 81,
+            "alpha": 26354760059
+          },
+          {
+            "netuid": 82,
+            "alpha": 136109106285
+          },
+          {
+            "netuid": 83,
+            "alpha": 34729545541
+          },
+          {
+            "netuid": 84,
+            "alpha": 109545035319
+          },
+          {
+            "netuid": 85,
+            "alpha": 27136986827
+          },
+          {
+            "netuid": 86,
+            "alpha": 142187705851
+          },
+          {
+            "netuid": 87,
+            "alpha": 51360664937
+          },
+          {
+            "netuid": 88,
+            "alpha": 27141960418
+          },
+          {
+            "netuid": 89,
+            "alpha": 28818801715
+          },
+          {
+            "netuid": 90,
+            "alpha": 86590193765
+          },
+          {
+            "netuid": 91,
+            "alpha": 61370191366
+          },
+          {
+            "netuid": 92,
+            "alpha": 126503873233
+          },
+          {
+            "netuid": 93,
+            "alpha": 27841012063
+          },
+          {
+            "netuid": 94,
+            "alpha": 49735529486
+          },
+          {
+            "netuid": 95,
+            "alpha": 36425393792
+          },
+          {
+            "netuid": 96,
+            "alpha": 79364200393
+          },
+          {
+            "netuid": 97,
+            "alpha": 56157001509
+          },
+          {
+            "netuid": 98,
+            "alpha": 28996410915
+          },
+          {
+            "netuid": 100,
+            "alpha": 46230410527
+          },
+          {
+            "netuid": 101,
+            "alpha": 38951696358
+          },
+          {
+            "netuid": 102,
+            "alpha": 62676495224
+          },
+          {
+            "netuid": 103,
+            "alpha": 147272017536
+          },
+          {
+            "netuid": 104,
+            "alpha": 48013288444
+          },
+          {
+            "netuid": 105,
+            "alpha": 42855371414
+          },
+          {
+            "netuid": 106,
+            "alpha": 29880772987
+          },
+          {
+            "netuid": 107,
+            "alpha": 61758642749
+          },
+          {
+            "netuid": 108,
+            "alpha": 134686393991
+          },
+          {
+            "netuid": 109,
+            "alpha": 51803294737
+          },
+          {
+            "netuid": 110,
+            "alpha": 36283404501
+          },
+          {
+            "netuid": 111,
+            "alpha": 34899355000
+          },
+          {
+            "netuid": 112,
+            "alpha": 38956315613
+          },
+          {
+            "netuid": 113,
+            "alpha": 49738342476
+          },
+          {
+            "netuid": 114,
+            "alpha": 49573489369
+          },
+          {
+            "netuid": 115,
+            "alpha": 41652754011
+          },
+          {
+            "netuid": 116,
+            "alpha": 132143248849
+          },
+          {
+            "netuid": 117,
+            "alpha": 81557986039
+          },
+          {
+            "netuid": 118,
+            "alpha": 49812021782
+          },
+          {
+            "netuid": 119,
+            "alpha": 42038956538
+          },
+          {
+            "netuid": 120,
+            "alpha": 31751858355
+          },
+          {
+            "netuid": 121,
+            "alpha": 31583248535
+          },
+          {
+            "netuid": 122,
+            "alpha": 74789552071
+          },
+          {
+            "netuid": 123,
+            "alpha": 26285457743
+          },
+          {
+            "netuid": 124,
+            "alpha": 35481794762
+          },
+          {
+            "netuid": 125,
+            "alpha": 32570029970
+          },
+          {
+            "netuid": 126,
+            "alpha": 56487917434
+          },
+          {
+            "netuid": 127,
+            "alpha": 32781924511
+          },
+          {
+            "netuid": 128,
+            "alpha": 38164610578
+          }
+        ]
+      },
+      "analysis": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 15,
+        "missing": 0,
+        "netBps": 7.995003416876312,
+        "grossBps": 51.64814269573558,
+        "realizableNavTao": 5201.946135239,
+        "realizableNetBps": 7.826743292054239,
+        "pendingRows": 126,
+        "addedTao": 54.63827340593455,
+        "originGrossBps": 169.10246642646547,
+        "mintBps": -16.455777364268176
+      }
+    },
+    {
+      "endpoint": "https://archive.sub.latent.to",
+      "block": 9468000,
+      "hash": "0x028d7a95c74db86331fbf21201adf50151ee8451ab3b63ea32328dbe85bc36ce",
+      "methodology": "Frozen end-block basket alpha quantities (large baskets >=100 holdings), historical spot prices and fast EMA; out-of-band holding contributions only, all incoming origins anchored. Spot valuation proxy, not a historical replay of realizable share mints. Missing anchors excluded, never counted as passing.",
+      "basket": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "nav_tao": 5160139181854,
+        "spot_nav_tao": 5236723278804,
+        "shares": 6073925152760,
+        "deposited_tao": 7289963040922,
+        "redeemed_tao": 1838835094714,
+        "holdings": [
+          {
+            "netuid": 0,
+            "alpha": 43051575135,
+            "spot_tao": 43051575135,
+            "realizable_tao": 43051575135
+          },
+          {
+            "netuid": 1,
+            "alpha": 1229754389398,
+            "spot_tao": 7398743096,
+            "realizable_tao": 7396262542
+          },
+          {
+            "netuid": 2,
+            "alpha": 2383502272273,
+            "spot_tao": 9087132303,
+            "realizable_tao": 9077573863
+          },
+          {
+            "netuid": 3,
+            "alpha": 1835669977851,
+            "spot_tao": 38951384894,
+            "realizable_tao": 38929683221
+          },
+          {
+            "netuid": 4,
+            "alpha": 2963964772210,
+            "spot_tao": 176659503363,
+            "realizable_tao": 176444751460
+          },
+          {
+            "netuid": 5,
+            "alpha": 1370536742511,
+            "spot_tao": 16784436555,
+            "realizable_tao": 16776006311
+          },
+          {
+            "netuid": 6,
+            "alpha": 2308537556106,
+            "spot_tao": 4948045307,
+            "realizable_tao": 4944648609
+          },
+          {
+            "netuid": 7,
+            "alpha": 2505906447575,
+            "spot_tao": 5714999513,
+            "realizable_tao": 5708936715
+          },
+          {
+            "netuid": 8,
+            "alpha": 1075428136502,
+            "spot_tao": 37107760365,
+            "realizable_tao": 37092461350
+          },
+          {
+            "netuid": 9,
+            "alpha": 1039893397977,
+            "spot_tao": 24190779980,
+            "realizable_tao": 24179703873
+          },
+          {
+            "netuid": 10,
+            "alpha": 1226183139597,
+            "spot_tao": 5320332245,
+            "realizable_tao": 5318248541
+          },
+          {
+            "netuid": 11,
+            "alpha": 1313261792353,
+            "spot_tao": 9211068133,
+            "realizable_tao": 9206735845
+          },
+          {
+            "netuid": 12,
+            "alpha": 2099766253253,
+            "spot_tao": 9844773440,
+            "realizable_tao": 9837049548
+          },
+          {
+            "netuid": 13,
+            "alpha": 1147879091637,
+            "spot_tao": 4487971573,
+            "realizable_tao": 4486766384
+          },
+          {
+            "netuid": 14,
+            "alpha": 1314898484388,
+            "spot_tao": 12252196685,
+            "realizable_tao": 12246357718
+          },
+          {
+            "netuid": 15,
+            "alpha": 2763263937387,
+            "spot_tao": 50101437308,
+            "realizable_tao": 49917575158
+          },
+          {
+            "netuid": 16,
+            "alpha": 544635060308,
+            "spot_tao": 1306354603,
+            "realizable_tao": 1296460000
+          },
+          {
+            "netuid": 17,
+            "alpha": 19592671250311,
+            "spot_tao": 126289478902,
+            "realizable_tao": 125570972769
+          },
+          {
+            "netuid": 18,
+            "alpha": 2327652404247,
+            "spot_tao": 8308030762,
+            "realizable_tao": 8300875688
+          },
+          {
+            "netuid": 19,
+            "alpha": 3642560984338,
+            "spot_tao": 29886447881,
+            "realizable_tao": 29856255659
+          },
+          {
+            "netuid": 20,
+            "alpha": 2272177560002,
+            "spot_tao": 5179687549,
+            "realizable_tao": 5175498446
+          },
+          {
+            "netuid": 21,
+            "alpha": 2302662733644,
+            "spot_tao": 10350694916,
+            "realizable_tao": 10338445062
+          },
+          {
+            "netuid": 22,
+            "alpha": 2307206943822,
+            "spot_tao": 6410751358,
+            "realizable_tao": 6405077535
+          },
+          {
+            "netuid": 23,
+            "alpha": 1224406993324,
+            "spot_tao": 8318676587,
+            "realizable_tao": 8311339599
+          },
+          {
+            "netuid": 24,
+            "alpha": 1946321495000,
+            "spot_tao": 23281084986,
+            "realizable_tao": 23245106672
+          },
+          {
+            "netuid": 25,
+            "alpha": 2684664480936,
+            "spot_tao": 11011786120,
+            "realizable_tao": 11000233546
+          },
+          {
+            "netuid": 26,
+            "alpha": 4027372770762,
+            "spot_tao": 5666838341,
+            "realizable_tao": 5642041195
+          },
+          {
+            "netuid": 27,
+            "alpha": 2167614883389,
+            "spot_tao": 4849902117,
+            "realizable_tao": 4846049119
+          },
+          {
+            "netuid": 28,
+            "alpha": 11076348640897,
+            "spot_tao": 290606532579,
+            "realizable_tao": 287421415720
+          },
+          {
+            "netuid": 29,
+            "alpha": 2501274239245,
+            "spot_tao": 6262290285,
+            "realizable_tao": 6257330755
+          },
+          {
+            "netuid": 30,
+            "alpha": 2270277462969,
+            "spot_tao": 8086283128,
+            "realizable_tao": 8078778312
+          },
+          {
+            "netuid": 31,
+            "alpha": 2979519304854,
+            "spot_tao": 10056453084,
+            "realizable_tao": 9996147573
+          },
+          {
+            "netuid": 32,
+            "alpha": 2318774938742,
+            "spot_tao": 5706835878,
+            "realizable_tao": 5701869209
+          },
+          {
+            "netuid": 33,
+            "alpha": 1847547102635,
+            "spot_tao": 5540566898,
+            "realizable_tao": 5537958839
+          },
+          {
+            "netuid": 34,
+            "alpha": 1347269400779,
+            "spot_tao": 16306203407,
+            "realizable_tao": 16298781729
+          },
+          {
+            "netuid": 35,
+            "alpha": 7668090729545,
+            "spot_tao": 4042994249,
+            "realizable_tao": 3960750827
+          },
+          {
+            "netuid": 36,
+            "alpha": 333006635613,
+            "spot_tao": 3748754175,
+            "realizable_tao": 3713282784
+          },
+          {
+            "netuid": 37,
+            "alpha": 2382171891401,
+            "spot_tao": 6219216897,
+            "realizable_tao": 6213734556
+          },
+          {
+            "netuid": 38,
+            "alpha": 9606270424230,
+            "spot_tao": 47544056395,
+            "realizable_tao": 47080635199
+          },
+          {
+            "netuid": 39,
+            "alpha": 1225920719399,
+            "spot_tao": 8691709510,
+            "realizable_tao": 8687461381
+          },
+          {
+            "netuid": 40,
+            "alpha": 5758190530852,
+            "spot_tao": 9716305943,
+            "realizable_tao": 9638074931
+          },
+          {
+            "netuid": 41,
+            "alpha": 23346757385428,
+            "spot_tao": 228950474890,
+            "realizable_tao": 226075223204
+          },
+          {
+            "netuid": 42,
+            "alpha": 2344754855064,
+            "spot_tao": 5100282761,
+            "realizable_tao": 5096513374
+          },
+          {
+            "netuid": 43,
+            "alpha": 2502661049752,
+            "spot_tao": 9899545389,
+            "realizable_tao": 9891577791
+          },
+          {
+            "netuid": 44,
+            "alpha": 3955031205340,
+            "spot_tao": 125587717831,
+            "realizable_tao": 125339850370
+          },
+          {
+            "netuid": 45,
+            "alpha": 2302347451997,
+            "spot_tao": 5044190301,
+            "realizable_tao": 5039904579
+          },
+          {
+            "netuid": 46,
+            "alpha": 2489941955576,
+            "spot_tao": 8444959900,
+            "realizable_tao": 8436385231
+          },
+          {
+            "netuid": 47,
+            "alpha": 3559640967034,
+            "spot_tao": 5467838464,
+            "realizable_tao": 5436147336
+          },
+          {
+            "netuid": 48,
+            "alpha": 2395650629604,
+            "spot_tao": 20114564195,
+            "realizable_tao": 20088373101
+          },
+          {
+            "netuid": 49,
+            "alpha": 4444384962649,
+            "spot_tao": 23356979034,
+            "realizable_tao": 23219019781
+          },
+          {
+            "netuid": 50,
+            "alpha": 13421603573080,
+            "spot_tao": 41503708213,
+            "realizable_tao": 41313639230
+          },
+          {
+            "netuid": 51,
+            "alpha": 3177492001356,
+            "spot_tao": 391581090341,
+            "realizable_tao": 390785784988
+          },
+          {
+            "netuid": 52,
+            "alpha": 1804082150434,
+            "spot_tao": 10834977459,
+            "realizable_tao": 10828257531
+          },
+          {
+            "netuid": 53,
+            "alpha": 7113715898904,
+            "spot_tao": 191802710924,
+            "realizable_tao": 190753289154
+          },
+          {
+            "netuid": 54,
+            "alpha": 17043165988822,
+            "spot_tao": 96074419287,
+            "realizable_tao": 95122894011
+          },
+          {
+            "netuid": 55,
+            "alpha": 2545965578007,
+            "spot_tao": 5315904383,
+            "realizable_tao": 5311046532
+          },
+          {
+            "netuid": 56,
+            "alpha": 2748454600595,
+            "spot_tao": 39419007301,
+            "realizable_tao": 39387346815
+          },
+          {
+            "netuid": 57,
+            "alpha": 4917617848299,
+            "spot_tao": 9865853727,
+            "realizable_tao": 9781404888
+          },
+          {
+            "netuid": 58,
+            "alpha": 7728225319415,
+            "spot_tao": 87418093282,
+            "realizable_tao": 82559900789
+          },
+          {
+            "netuid": 59,
+            "alpha": 3413678512241,
+            "spot_tao": 23581601836,
+            "realizable_tao": 22891433386
+          },
+          {
+            "netuid": 60,
+            "alpha": 2351262726567,
+            "spot_tao": 6649722268,
+            "realizable_tao": 6642199060
+          },
+          {
+            "netuid": 61,
+            "alpha": 15648592358793,
+            "spot_tao": 102970518218,
+            "realizable_tao": 102015484837
+          },
+          {
+            "netuid": 62,
+            "alpha": 1377792439045,
+            "spot_tao": 10351668782,
+            "realizable_tao": 10347474146
+          },
+          {
+            "netuid": 63,
+            "alpha": 2415411138832,
+            "spot_tao": 10019255319,
+            "realizable_tao": 10010249120
+          },
+          {
+            "netuid": 64,
+            "alpha": 1093451299909,
+            "spot_tao": 74547122668,
+            "realizable_tao": 74519648314
+          },
+          {
+            "netuid": 65,
+            "alpha": 2242306359038,
+            "spot_tao": 5984923714,
+            "realizable_tao": 5979207997
+          },
+          {
+            "netuid": 66,
+            "alpha": 1300063345507,
+            "spot_tao": 2994697679,
+            "realizable_tao": 2993182817
+          },
+          {
+            "netuid": 67,
+            "alpha": 4051119044759,
+            "spot_tao": 10914894547,
+            "realizable_tao": 10864822693
+          },
+          {
+            "netuid": 68,
+            "alpha": 6334193050407,
+            "spot_tao": 109212592252,
+            "realizable_tao": 108919102044
+          },
+          {
+            "netuid": 69,
+            "alpha": 2519847134816,
+            "spot_tao": 12523776215,
+            "realizable_tao": 12478663360
+          },
+          {
+            "netuid": 70,
+            "alpha": 635853911054,
+            "spot_tao": 6751353361,
+            "realizable_tao": 6631544552
+          },
+          {
+            "netuid": 71,
+            "alpha": 2242382573321,
+            "spot_tao": 8782992521,
+            "realizable_tao": 8767542042
+          },
+          {
+            "netuid": 72,
+            "alpha": 2724616773441,
+            "spot_tao": 5665992108,
+            "realizable_tao": 5660747778
+          },
+          {
+            "netuid": 73,
+            "alpha": 2381150701233,
+            "spot_tao": 5821906590,
+            "realizable_tao": 5816340191
+          },
+          {
+            "netuid": 74,
+            "alpha": 2628593447852,
+            "spot_tao": 10744579640,
+            "realizable_tao": 10727395386
+          },
+          {
+            "netuid": 75,
+            "alpha": 13975740882311,
+            "spot_tao": 241915960248,
+            "realizable_tao": 240215850978
+          },
+          {
+            "netuid": 76,
+            "alpha": 8214194525354,
+            "spot_tao": 27174032368,
+            "realizable_tao": 25353107747
+          },
+          {
+            "netuid": 77,
+            "alpha": 1185431925264,
+            "spot_tao": 5392854782,
+            "realizable_tao": 5390260638
+          },
+          {
+            "netuid": 78,
+            "alpha": 4072275881648,
+            "spot_tao": 3244465016,
+            "realizable_tao": 3228978303
+          },
+          {
+            "netuid": 79,
+            "alpha": 2506532895429,
+            "spot_tao": 7560077006,
+            "realizable_tao": 7551835252
+          },
+          {
+            "netuid": 80,
+            "alpha": 6283837682318,
+            "spot_tao": 89743045661,
+            "realizable_tao": 88234932392
+          },
+          {
+            "netuid": 81,
+            "alpha": 1287486829335,
+            "spot_tao": 6594791861,
+            "realizable_tao": 6592145085
+          },
+          {
+            "netuid": 82,
+            "alpha": 4605572018170,
+            "spot_tao": 166403843052,
+            "realizable_tao": 155496710779
+          },
+          {
+            "netuid": 83,
+            "alpha": 1889393665316,
+            "spot_tao": 12969145471,
+            "realizable_tao": 12947719061
+          },
+          {
+            "netuid": 84,
+            "alpha": 387714314534,
+            "spot_tao": 798952142,
+            "realizable_tao": 798480364
+          },
+          {
+            "netuid": 85,
+            "alpha": 16706965424554,
+            "spot_tao": 73650838143,
+            "realizable_tao": 73199676478
+          },
+          {
+            "netuid": 86,
+            "alpha": 4656654308540,
+            "spot_tao": 6575758925,
+            "realizable_tao": 6427128478
+          },
+          {
+            "netuid": 87,
+            "alpha": 2332923095680,
+            "spot_tao": 6251377132,
+            "realizable_tao": 6222667507
+          },
+          {
+            "netuid": 88,
+            "alpha": 2441018912566,
+            "spot_tao": 5960137976,
+            "realizable_tao": 5953752935
+          },
+          {
+            "netuid": 89,
+            "alpha": 2814683011522,
+            "spot_tao": 8121867685,
+            "realizable_tao": 8110952910
+          },
+          {
+            "netuid": 90,
+            "alpha": 9279076515201,
+            "spot_tao": 144275231249,
+            "realizable_tao": 140640290292
+          },
+          {
+            "netuid": 91,
+            "alpha": 3016963007950,
+            "spot_tao": 11739290068,
+            "realizable_tao": 11693615490
+          },
+          {
+            "netuid": 92,
+            "alpha": 3944924827111,
+            "spot_tao": 108748061564,
+            "realizable_tao": 106099949103
+          },
+          {
+            "netuid": 93,
+            "alpha": 9382463801399,
+            "spot_tao": 135021390381,
+            "realizable_tao": 134183486018
+          },
+          {
+            "netuid": 94,
+            "alpha": 1502412908588,
+            "spot_tao": 5856773248,
+            "realizable_tao": 5840761730
+          },
+          {
+            "netuid": 95,
+            "alpha": 1604963612910,
+            "spot_tao": 46753817625,
+            "realizable_tao": 46657614016
+          },
+          {
+            "netuid": 96,
+            "alpha": 3211776264466,
+            "spot_tao": 9525310673,
+            "realizable_tao": 9483355612
+          },
+          {
+            "netuid": 97,
+            "alpha": 2583813941873,
+            "spot_tao": 29073695308,
+            "realizable_tao": 28994626952
+          },
+          {
+            "netuid": 98,
+            "alpha": 2777669847177,
+            "spot_tao": 5925578208,
+            "realizable_tao": 5917874849
+          },
+          {
+            "netuid": 100,
+            "alpha": 2469943834224,
+            "spot_tao": 8200958350,
+            "realizable_tao": 8172062514
+          },
+          {
+            "netuid": 101,
+            "alpha": 1821013453164,
+            "spot_tao": 6043258136,
+            "realizable_tao": 6032621797
+          },
+          {
+            "netuid": 102,
+            "alpha": 2869564697271,
+            "spot_tao": 13050187552,
+            "realizable_tao": 12995934404
+          },
+          {
+            "netuid": 103,
+            "alpha": 2857142643510,
+            "spot_tao": 11584107377,
+            "realizable_tao": 11320698959
+          },
+          {
+            "netuid": 104,
+            "alpha": 164972352644,
+            "spot_tao": 658420595,
+            "realizable_tao": 658346312
+          },
+          {
+            "netuid": 105,
+            "alpha": 2157991713733,
+            "spot_tao": 10777773830,
+            "realizable_tao": 10753401352
+          },
+          {
+            "netuid": 106,
+            "alpha": 2774605602535,
+            "spot_tao": 5882620946,
+            "realizable_tao": 5876468910
+          },
+          {
+            "netuid": 107,
+            "alpha": 3378588144403,
+            "spot_tao": 97318151026,
+            "realizable_tao": 96846796495
+          },
+          {
+            "netuid": 108,
+            "alpha": 6240418434865,
+            "spot_tao": 27349277215,
+            "realizable_tao": 25947656137
+          },
+          {
+            "netuid": 109,
+            "alpha": 2817956795745,
+            "spot_tao": 5223635479,
+            "realizable_tao": 5199516319
+          },
+          {
+            "netuid": 110,
+            "alpha": 12865865781598,
+            "spot_tao": 356689872678,
+            "realizable_tao": 347033568086
+          },
+          {
+            "netuid": 111,
+            "alpha": 1714336094393,
+            "spot_tao": 7120257768,
+            "realizable_tao": 7111138455
+          },
+          {
+            "netuid": 112,
+            "alpha": 2279993451308,
+            "spot_tao": 19629054046,
+            "realizable_tao": 19573623891
+          },
+          {
+            "netuid": 113,
+            "alpha": 5051225807892,
+            "spot_tao": 10187952296,
+            "realizable_tao": 10124802914
+          },
+          {
+            "netuid": 114,
+            "alpha": 6175412983726,
+            "spot_tao": 107707342815,
+            "realizable_tao": 106512989069
+          },
+          {
+            "netuid": 115,
+            "alpha": 1899938341643,
+            "spot_tao": 4172383896,
+            "realizable_tao": 4167047832
+          },
+          {
+            "netuid": 116,
+            "alpha": 5923443021172,
+            "spot_tao": 169233192338,
+            "realizable_tao": 153501132484
+          },
+          {
+            "netuid": 117,
+            "alpha": 3494174036802,
+            "spot_tao": 21868756024,
+            "realizable_tao": 21764834336
+          },
+          {
+            "netuid": 118,
+            "alpha": 26496327634812,
+            "spot_tao": 86864514602,
+            "realizable_tao": 85147268663
+          },
+          {
+            "netuid": 119,
+            "alpha": 2551376428559,
+            "spot_tao": 5545874610,
+            "realizable_tao": 5535677834
+          },
+          {
+            "netuid": 120,
+            "alpha": 2077145365716,
+            "spot_tao": 88236012697,
+            "realizable_tao": 88133352588
+          },
+          {
+            "netuid": 121,
+            "alpha": 1564493209246,
+            "spot_tao": 5185162407,
+            "realizable_tao": 5180144484
+          },
+          {
+            "netuid": 122,
+            "alpha": 5308715061854,
+            "spot_tao": 14028938341,
+            "realizable_tao": 13853622675
+          },
+          {
+            "netuid": 123,
+            "alpha": 2055593079752,
+            "spot_tao": 4577190697,
+            "realizable_tao": 4573414626
+          },
+          {
+            "netuid": 124,
+            "alpha": 7110490487579,
+            "spot_tao": 59893482536,
+            "realizable_tao": 59591795376
+          },
+          {
+            "netuid": 125,
+            "alpha": 3148409614059,
+            "spot_tao": 7285231120,
+            "realizable_tao": 7274634661
+          },
+          {
+            "netuid": 126,
+            "alpha": 17772063160350,
+            "spot_tao": 73369202507,
+            "realizable_tao": 71179211447
+          },
+          {
+            "netuid": 127,
+            "alpha": 3034059505264,
+            "spot_tao": 9710153945,
+            "realizable_tao": 9683723956
+          },
+          {
+            "netuid": 128,
+            "alpha": 2893074040843,
+            "spot_tao": 8254025338,
+            "realizable_tao": 8237412503
+          }
+        ]
+      },
+      "pending": {
+        "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1": [
+          {
+            "netuid": 1,
+            "alpha": 105897027059
+          },
+          {
+            "netuid": 2,
+            "alpha": 104682145605
+          },
+          {
+            "netuid": 3,
+            "alpha": 101227654936
+          },
+          {
+            "netuid": 4,
+            "alpha": 97922301257
+          },
+          {
+            "netuid": 5,
+            "alpha": 109757000665
+          },
+          {
+            "netuid": 6,
+            "alpha": 107527301940
+          },
+          {
+            "netuid": 7,
+            "alpha": 115526875774
+          },
+          {
+            "netuid": 8,
+            "alpha": 123432898794
+          },
+          {
+            "netuid": 9,
+            "alpha": 101495503335
+          },
+          {
+            "netuid": 10,
+            "alpha": 105015142164
+          },
+          {
+            "netuid": 11,
+            "alpha": 124979641343
+          },
+          {
+            "netuid": 12,
+            "alpha": 103676643850
+          },
+          {
+            "netuid": 13,
+            "alpha": 103674069572
+          },
+          {
+            "netuid": 14,
+            "alpha": 103238768842
+          },
+          {
+            "netuid": 15,
+            "alpha": 245799619192
+          },
+          {
+            "netuid": 16,
+            "alpha": 703718970016
+          },
+          {
+            "netuid": 17,
+            "alpha": 106409563923
+          },
+          {
+            "netuid": 18,
+            "alpha": 103562191755
+          },
+          {
+            "netuid": 19,
+            "alpha": 89846997174
+          },
+          {
+            "netuid": 20,
+            "alpha": 111594822141
+          },
+          {
+            "netuid": 21,
+            "alpha": 103504288407
+          },
+          {
+            "netuid": 22,
+            "alpha": 104085994930
+          },
+          {
+            "netuid": 23,
+            "alpha": 102109815186
+          },
+          {
+            "netuid": 24,
+            "alpha": 104793603899
+          },
+          {
+            "netuid": 25,
+            "alpha": 113081873095
+          },
+          {
+            "netuid": 26,
+            "alpha": 257823228327
+          },
+          {
+            "netuid": 27,
+            "alpha": 101993877209
+          },
+          {
+            "netuid": 28,
+            "alpha": 106643330403
+          },
+          {
+            "netuid": 29,
+            "alpha": 105273651900
+          },
+          {
+            "netuid": 30,
+            "alpha": 103757607182
+          },
+          {
+            "netuid": 31,
+            "alpha": 218397892547
+          },
+          {
+            "netuid": 32,
+            "alpha": 123214392234
+          },
+          {
+            "netuid": 33,
+            "alpha": 115611375685
+          },
+          {
+            "netuid": 34,
+            "alpha": 107216656363
+          },
+          {
+            "netuid": 35,
+            "alpha": 497137565978
+          },
+          {
+            "netuid": 36,
+            "alpha": 717926554991
+          },
+          {
+            "netuid": 37,
+            "alpha": 102102958904
+          },
+          {
+            "netuid": 38,
+            "alpha": 194682755187
+          },
+          {
+            "netuid": 39,
+            "alpha": 103394092974
+          },
+          {
+            "netuid": 40,
+            "alpha": 327947673777
+          },
+          {
+            "netuid": 41,
+            "alpha": 103818486650
+          },
+          {
+            "netuid": 42,
+            "alpha": 107937762674
+          },
+          {
+            "netuid": 43,
+            "alpha": 123916475143
+          },
+          {
+            "netuid": 44,
+            "alpha": 112539658189
+          },
+          {
+            "netuid": 45,
+            "alpha": 107792444758
+          },
+          {
+            "netuid": 46,
+            "alpha": 127850953605
+          },
+          {
+            "netuid": 47,
+            "alpha": 228953140557
+          },
+          {
+            "netuid": 48,
+            "alpha": 106355953271
+          },
+          {
+            "netuid": 49,
+            "alpha": 183428390146
+          },
+          {
+            "netuid": 50,
+            "alpha": 105903624929
+          },
+          {
+            "netuid": 51,
+            "alpha": 119716606394
+          },
+          {
+            "netuid": 52,
+            "alpha": 104094588700
+          },
+          {
+            "netuid": 53,
+            "alpha": 102161403173
+          },
+          {
+            "netuid": 54,
+            "alpha": 125330571025
+          },
+          {
+            "netuid": 55,
+            "alpha": 118942096636
+          },
+          {
+            "netuid": 56,
+            "alpha": 103961721948
+          },
+          {
+            "netuid": 57,
+            "alpha": 270638896690
+          },
+          {
+            "netuid": 58,
+            "alpha": 373620087580
+          },
+          {
+            "netuid": 59,
+            "alpha": 629483090450
+          },
+          {
+            "netuid": 60,
+            "alpha": 108524186929
+          },
+          {
+            "netuid": 61,
+            "alpha": 109585949380
+          },
+          {
+            "netuid": 62,
+            "alpha": 133912032248
+          },
+          {
+            "netuid": 63,
+            "alpha": 46607937154
+          },
+          {
+            "netuid": 64,
+            "alpha": 119419018722
+          },
+          {
+            "netuid": 65,
+            "alpha": 104872892465
+          },
+          {
+            "netuid": 66,
+            "alpha": 106324534325
+          },
+          {
+            "netuid": 67,
+            "alpha": 268106289490
+          },
+          {
+            "netuid": 68,
+            "alpha": 105163575383
+          },
+          {
+            "netuid": 69,
+            "alpha": 233085850553
+          },
+          {
+            "netuid": 70,
+            "alpha": 715101182446
+          },
+          {
+            "netuid": 71,
+            "alpha": 106677674297
+          },
+          {
+            "netuid": 72,
+            "alpha": 119481332415
+          },
+          {
+            "netuid": 73,
+            "alpha": 132885943703
+          },
+          {
+            "netuid": 74,
+            "alpha": 117436357933
+          },
+          {
+            "netuid": 75,
+            "alpha": 108205291915
+          },
+          {
+            "netuid": 76,
+            "alpha": 524534025219
+          },
+          {
+            "netuid": 77,
+            "alpha": 109069190372
+          },
+          {
+            "netuid": 78,
+            "alpha": 275232383796
+          },
+          {
+            "netuid": 79,
+            "alpha": 117234282474
+          },
+          {
+            "netuid": 80,
+            "alpha": 203586380335
+          },
+          {
+            "netuid": 81,
+            "alpha": 112196637324
+          },
+          {
+            "netuid": 82,
+            "alpha": 568175716805
+          },
+          {
+            "netuid": 83,
+            "alpha": 146310801286
+          },
+          {
+            "netuid": 84,
+            "alpha": 460854751465
+          },
+          {
+            "netuid": 85,
+            "alpha": 114451043215
+          },
+          {
+            "netuid": 86,
+            "alpha": 595460884152
+          },
+          {
+            "netuid": 87,
+            "alpha": 215266415238
+          },
+          {
+            "netuid": 88,
+            "alpha": 115047496459
+          },
+          {
+            "netuid": 89,
+            "alpha": 122670111065
+          },
+          {
+            "netuid": 90,
+            "alpha": 386014380351
+          },
+          {
+            "netuid": 91,
+            "alpha": 247817400476
+          },
+          {
+            "netuid": 92,
+            "alpha": 527935393758
+          },
+          {
+            "netuid": 93,
+            "alpha": 116538528163
+          },
+          {
+            "netuid": 94,
+            "alpha": 207657455243
+          },
+          {
+            "netuid": 95,
+            "alpha": 152965154527
+          },
+          {
+            "netuid": 96,
+            "alpha": 333980828615
+          },
+          {
+            "netuid": 97,
+            "alpha": 235601837975
+          },
+          {
+            "netuid": 98,
+            "alpha": 123834299759
+          },
+          {
+            "netuid": 100,
+            "alpha": 194591724242
+          },
+          {
+            "netuid": 101,
+            "alpha": 164186266336
+          },
+          {
+            "netuid": 102,
+            "alpha": 263737308966
+          },
+          {
+            "netuid": 103,
+            "alpha": 614109641629
+          },
+          {
+            "netuid": 104,
+            "alpha": 202947812256
+          },
+          {
+            "netuid": 105,
+            "alpha": 178686070410
+          },
+          {
+            "netuid": 106,
+            "alpha": 125305895427
+          },
+          {
+            "netuid": 107,
+            "alpha": 263111061921
+          },
+          {
+            "netuid": 108,
+            "alpha": 565012293865
+          },
+          {
+            "netuid": 109,
+            "alpha": 234419634744
+          },
+          {
+            "netuid": 110,
+            "alpha": 155052146741
+          },
+          {
+            "netuid": 111,
+            "alpha": 149852816671
+          },
+          {
+            "netuid": 112,
+            "alpha": 166535401281
+          },
+          {
+            "netuid": 113,
+            "alpha": 209273901450
+          },
+          {
+            "netuid": 114,
+            "alpha": 210219052993
+          },
+          {
+            "netuid": 115,
+            "alpha": 178025987449
+          },
+          {
+            "netuid": 116,
+            "alpha": 559509486055
+          },
+          {
+            "netuid": 117,
+            "alpha": 287072615328
+          },
+          {
+            "netuid": 118,
+            "alpha": 213871408415
+          },
+          {
+            "netuid": 119,
+            "alpha": 179660565982
+          },
+          {
+            "netuid": 120,
+            "alpha": 135370985167
+          },
+          {
+            "netuid": 121,
+            "alpha": 134994928141
+          },
+          {
+            "netuid": 122,
+            "alpha": 320899114141
+          },
+          {
+            "netuid": 123,
+            "alpha": 110767653982
+          },
+          {
+            "netuid": 124,
+            "alpha": 151226512572
+          },
+          {
+            "netuid": 125,
+            "alpha": 139666967911
+          },
+          {
+            "netuid": 126,
+            "alpha": 241028105293
+          },
+          {
+            "netuid": 127,
+            "alpha": 138528150508
+          },
+          {
+            "netuid": 128,
+            "alpha": 163329750923
+          }
+        ]
+      },
+      "analysis": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 7,
+        "missing": 0,
+        "netBps": -19.87762864616993,
+        "grossBps": 55.05684342479371,
+        "realizableNavTao": 5160.139181854,
+        "realizableNetBps": -19.065814475021092,
+        "pendingRows": 127,
+        "addedTao": 234.8670360907393,
+        "originGrossBps": 87.37552724979663,
+        "mintBps": -9.906374262238504
+      }
+    }
+  ]
+}

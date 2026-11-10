@@ -13,8 +13,9 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::{Order, SwapHandler};
 
 /// Storage reads spent on a subnet that `unstake_all` visits but does not unstake from: the
-/// subtoken flag, the position quote (legacy and current share rows, pool value, both
-/// denominator maps) and the subnet-existence check in `validate_remove_stake`.
+/// subtoken flag, the position quote, pool value, denominator and the subnet-existence
+/// check in `validate_remove_stake`. Keep the historical conservative allowance used
+/// by migration test runtimes.
 const UNSTAKE_ALL_SKIPPED_SUBNET_READS: u64 = 8;
 
 /// Work done by one `unstake_all` / `unstake_all_alpha` dispatch, reported so the call can
@@ -1054,7 +1055,8 @@ impl<T: Config> Pallet<T> {
                 coldkeys.push(cold.clone());
             }
 
-            // Alpha, AlphaV2 and AlphaShareEpoch removals per coldkey.
+            // AlphaV2 and AlphaShareEpoch removals per coldkey. The third write
+            // covers legacy migration test runtimes.
             let weight_for_all_remove = w
                 .saturating_mul(3_u64)
                 .saturating_mul(coldkeys.len() as u64);
@@ -1067,7 +1069,9 @@ impl<T: Config> Pallet<T> {
             last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
 
             for cold in coldkeys {
-                Alpha::<T>::remove((&hot, &cold, netuid));
+                if T::LegacyAlphaCompatibility::get() {
+                    Alpha::<T>::remove((&hot, &cold, netuid));
+                }
                 AlphaV2::<T>::remove((&hot, &cold, netuid));
                 AlphaShareEpoch::<T>::remove((&hot, &cold, netuid));
             }
@@ -1088,8 +1092,9 @@ impl<T: Config> Pallet<T> {
     ) -> (bool, Option<Vec<u8>>) {
         let iter_read = T::DbWeight::get().reads(1);
         // Updating TotalAlphaStaked reads and writes the aggregate; clearing a
-        // hotkey also removes TotalHotkeyAlpha, both share-denominator maps and
-        // the share-pool epoch.
+        // hotkey also removes TotalHotkeyAlpha, the AlphaV2 share denominator and
+        // the share-pool epoch. One legacy-denominator write remains in the
+        // conservative allowance for migration test runtimes.
         let removal_weight = T::DbWeight::get().reads_writes(1, 5);
         let iter = match last_key {
             Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
@@ -1126,7 +1131,9 @@ impl<T: Config> Pallet<T> {
                 AlphaBalance::ZERO,
             );
             TotalHotkeyAlpha::<T>::remove(&hotkey, netuid);
-            TotalHotkeyShares::<T>::remove(&hotkey, netuid);
+            if T::LegacyAlphaCompatibility::get() {
+                TotalHotkeyShares::<T>::remove(&hotkey, netuid);
+            }
             TotalHotkeySharesV2::<T>::remove(&hotkey, netuid);
             AlphaSharePoolEpoch::<T>::remove(&hotkey, netuid);
         }

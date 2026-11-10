@@ -12,13 +12,13 @@ signs it, names the spender, and pays a normal fee. Publishing an empty url remo
 service.
 
 ```bash
-btcli tx set-service --netuid 51 --url https://example.com/services.json -w my_coldkey -H my_hotkey
-btcli query services --netuid 51
+btcli tx set-service --netuid 1 --url https://example.com/services.json -w my_coldkey -H my_hotkey
+btcli query services --netuid 1
 ```
 
 ```python
-await client.execute(bt.SetService(netuid=51, url="https://example.com/services.json"), wallet)
-services = await client.subnets.services(netuid=51)  # {hotkey: {url, spender, owner}}
+await client.execute(bt.SetService(netuid=1, url="https://example.com/services.json"), wallet)
+services = await client.subnets.services(netuid=1)  # {hotkey: {url, spender, owner}}
 ```
 
 The permit is checked when the service is published. A service follows a hotkey
@@ -38,22 +38,43 @@ are, how to reach them, and how they are paid for:
 ```json
 {
   "version": 1,
+  "name": "Example Inference",
+  "description": "Pay-per-call inference for open models over an OpenAI-compatible API.",
+  "publishers": [{ "netuid": 1, "hotkey": "5…" }],
   "services": [
     { "type": "openapi", "endpoint": "https://…", "spec": "https://…/openapi.json" },
     { "type": "mcp", "endpoint": "https://…/mcp" }
   ],
   "payments": [
-    { "type": "gamma" },
+    { "type": "gamma", "max_spend": "2", "signature": "btauth/1" },
     { "type": "x402" }
   ]
 }
 ```
 
+- `name` and `description` say what is sold. Who sells it is the subnet's or
+  the coldkey's on-chain identity.
+- `publishers` lists, by netuid and hotkey, the published services whose url
+  may point to the document. Readers ignore one that is not listed. Without
+  `publishers`, any may point to it.
 - A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma), from
   deposits that name the service's spender.
+  `max_spend`, a decimal string in gamma, is the most the service spends at
+  once, so a customer keeps at least that much spendable in its deposit.
 - An [`x402`](https://www.x402.org) payment states its price and payee in each
   HTTP 402 response.
 - Readers skip service and payment types they do not know.
+- `name`, `description`, `publishers`, `max_spend` and `signature` are
+  optional, and readers skip fields they do not know.
+
+Serve the document with `Access-Control-Allow-Origin: *`, so that web apps can
+read it.
+
+A `gamma` payment with `"signature": "btauth/1"` accepts
+[signed requests](/docs/guides/signed-requests). The deposit's hotkey signs
+each request, with the service's hotkey as the receiver, and the service
+charges that deposit. Without `signature`, the service's own interface says
+how a request names its deposit.
 
 A service can name any spender, and that spender can spend the deposits that
 name it without serving, so prefer the service marked `owner`.

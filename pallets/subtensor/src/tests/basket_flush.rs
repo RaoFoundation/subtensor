@@ -524,6 +524,71 @@ fn test_flush_drain_dust_advances_cursor_without_deposit() {
     });
 }
 
+/// An oversized dust-only hotkey is recovered in bounded chunks and cannot starve the next
+/// hotkey. The emergency chunk settles dust so the hotkey itself also returns below the cap.
+#[test]
+fn test_flush_drain_advances_through_oversized_dust_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let hot_a = U256::from(7_001);
+        let hot_b = U256::from(7_002);
+        register_on_root(&hot_a, 1);
+        register_on_root(&hot_b, 2);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot_a,
+            &U256::from(7_101),
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot_b,
+            &U256::from(7_102),
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        for raw in 1..=MAX_BASKET_ROWS.saturating_add(1) {
+            let netuid = NetUid::from(raw as u16);
+            crate::NetworksAdded::<Test>::insert(netuid, true);
+            crate::SubnetMechanism::<Test>::insert(netuid, 1);
+            crate::SubnetFastMovingPrice::<Test>::insert(
+                netuid,
+                substrate_fixed::types::U64F64::from_num(1),
+            );
+            fund_pool(netuid);
+        }
+        queue_credit(&hot_a, NetUid::from(1), 1_000_000);
+        queue_credit(&hot_b, NetUid::from(1), 1_000_000);
+        let order = pending_hotkey_order();
+        let oversized = *order.first().expect("oversized hotkey in queue");
+        let follower = *order.get(1).expect("follower hotkey in queue");
+        for raw in 2..=MAX_BASKET_ROWS.saturating_add(1) {
+            queue_credit(&oversized, NetUid::from(raw as u16), 1_000_000);
+        }
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(u64::MAX));
+
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert!(PendingBasketFlushCursor::<Test>::get().is_some());
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_prefix(oversized).count(),
+            1
+        );
+        assert!(PendingBasketDeposits::<Test>::contains_key(
+            follower,
+            NetUid::from(1)
+        ));
+
+        // The second chunk reaches the oversized hotkey's last row. The following block
+        // must start at the next hotkey rather than rescanning this one's first 256 rows.
+        SubtensorModule::flush_pending_basket_deposits_block();
+        zero_claim_threshold();
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert!(!PendingBasketDeposits::<Test>::contains_key(
+            follower,
+            NetUid::from(1)
+        ));
+    });
+}
+
 /// Root replacement settles flushable pending credits into the basket before membership
 /// drops, so already-earned dividends are not recycled away.
 #[test]
@@ -1174,7 +1239,7 @@ fn test_root_register_failed_flush_refunds_unused_work_without_losing_credits() 
             crate::Error::<Test>::BasketDepositPending.into()
         );
         let actual = base.saturating_add(SubtensorModule::basket_flush_weight(
-            BasketFlushWork::new(MAX_BASKET_ROWS + 1, 0),
+            BasketFlushWork::new(MAX_BASKET_ROWS, 0),
         ));
         assert_eq!(error.post_info.actual_weight, Some(actual));
         assert!(actual.all_lte(declared) && actual != declared);
@@ -1188,7 +1253,7 @@ fn test_root_register_failed_flush_refunds_unused_work_without_losing_credits() 
 }
 
 #[test]
-fn test_dispatch_pending_check_refuses_oversized_dust_queue_with_bounded_work() {
+fn test_dispatch_pending_check_processes_oversized_dust_queue_with_bounded_work() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(3991);
         register_on_root(&hotkey, 1);
@@ -1200,8 +1265,12 @@ fn test_dispatch_pending_check_refuses_oversized_dust_queue_with_bounded_work() 
         }
         let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
         assert!(!completed);
-        assert_eq!(work.quotes, MAX_BASKET_ROWS + 1);
+        assert_eq!(work.quotes, MAX_BASKET_ROWS);
         assert_eq!(work.rows, 0);
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_prefix(hotkey).count(),
+            MAX_BASKET_ROWS as usize
+        );
         assert!(
             SubtensorModule::basket_flush_weight(work)
                 .all_lte(SubtensorModule::root_pending_dividend_weight(true))

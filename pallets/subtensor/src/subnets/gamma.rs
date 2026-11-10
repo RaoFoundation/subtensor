@@ -44,15 +44,31 @@ impl<T: Config> Pallet<T> {
         Ok(deposit)
     }
 
-    /// Opens a deposit only for the hotkey's associated coldkey, so another
-    /// account cannot reserve a customer's API key by minting first.
+    /// Opens a deposit and indexes it under the coldkey that funds and controls it.
+    ///
+    /// An unassociated hotkey can be used as an API credential without registering
+    /// a staking owner. If it already has an owner, only that coldkey can open the
+    /// deposit, preventing another funder from reserving an owned hotkey's slot.
+    /// This also protects subnet-owner hotkeys used to receive gamma emission.
+    ///
+    /// Only `deposit.coldkey` controls the deposit's spender and daily cap, moves its
+    /// balance between API keys, and closes it when empty. The funding coldkey can
+    /// revoke an API key's access by moving the balance away. Neither holding that
+    /// hotkey's private key nor being its staking owner grants deposit administration
+    /// or on-chain spending authority; spending requires the named spender (or its
+    /// authorized proxy). Service request authorization remains off-chain.
+    ///
+    /// There is one deposit per `(netuid, hotkey)`: the first opener occupies that
+    /// slot until it is closed. Existing-deposit paths must still enforce
+    /// `deposit.coldkey`; staking ownership does not grant control over a deposit
+    /// that was opened before the hotkey became associated.
     fn insert_gamma_deposit(
         netuid: NetUid,
         hotkey: &T::AccountId,
         deposit: GammaDeposit<T::AccountId>,
     ) -> DispatchResult {
         ensure!(
-            Owner::<T>::try_get(hotkey).is_ok_and(|owner| owner == deposit.coldkey),
+            Owner::<T>::try_get(hotkey).map_or(true, |owner| owner == deposit.coldkey),
             Error::<T>::NonAssociatedColdKey
         );
         ColdkeyGammaHotkeys::<T>::try_mutate(netuid, &deposit.coldkey, |hotkeys| {

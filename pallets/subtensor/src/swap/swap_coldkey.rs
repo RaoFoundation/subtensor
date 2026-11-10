@@ -351,20 +351,32 @@ impl<T: Config> Pallet<T> {
         };
 
         for hotkey in &old_hotkeys {
-            // Walk legacy + v2 share maps directly so we can stop at the admission
-            // sentinel without `alpha_iter_prefix`'s full-prefix materialization.
-            let mut seen: BTreeSet<NetUid> = BTreeSet::new();
-            for (netuid, share) in Alpha::<T>::iter_prefix((hotkey, old_coldkey)) {
-                if share == substrate_fixed::types::U64F64::from_num(0) || !seen.insert(netuid) {
-                    continue;
+            if T::LegacyAlphaCompatibility::get() {
+                let mut seen = BTreeSet::new();
+                for (netuid, share) in Alpha::<T>::iter_prefix((hotkey, old_coldkey)) {
+                    if share == substrate_fixed::types::U64F64::from_num(0) || !seen.insert(netuid)
+                    {
+                        continue;
+                    }
+                    work.positions = work.positions.saturating_add(1);
+                    if work.positions >= position_limit {
+                        return work;
+                    }
                 }
-                work.positions = work.positions.saturating_add(1);
-                if work.positions >= position_limit {
-                    return work;
+                for (netuid, share) in AlphaV2::<T>::iter_prefix((hotkey, old_coldkey)) {
+                    if share.is_zero() || !seen.insert(netuid) {
+                        continue;
+                    }
+                    work.positions = work.positions.saturating_add(1);
+                    if work.positions >= position_limit {
+                        return work;
+                    }
                 }
+                continue;
             }
-            for (netuid, share) in AlphaV2::<T>::iter_prefix((hotkey, old_coldkey)) {
-                if share.is_zero() || !seen.insert(netuid) {
+            // Production runtimes walk AlphaV2 directly.
+            for (_, share) in AlphaV2::<T>::iter_prefix((hotkey, old_coldkey)) {
+                if share.is_zero() {
                     continue;
                 }
                 work.positions = work.positions.saturating_add(1);

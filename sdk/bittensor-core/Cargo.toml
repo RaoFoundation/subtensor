@@ -24,6 +24,7 @@ test = false
 ansible-vault = { version = "0.2.1", optional = true }
 base64 = "0.22.1"
 bip39 = { version = "2.0", default-features = false, features = ["std", "rand"] }
+ed25519-zebra = { version = "4.0", default-features = false }
 fernet = { version = "=0.2.1", optional = true }
 # Not used directly: fernet needs openssl, and "vendored" makes openssl-sys
 # compile and statically link its own OpenSSL. Without it the wheel links the

@@ -335,19 +335,19 @@ class TestMintPreview:
         assert any("belongs to another coldkey" in block for block in preview.blocks)
 
     @pytest.mark.parametrize(
-        ("owner", "deposit", "blocked"),
-        [(SIGNER, None, False), (ALICE, None, True),
-         (ss58_encode(bytes(32), 42), None, True), (None, None, True),
-         (ALICE, _deposit(), False)],
+        ("owner", "deposit"),
+        [(SIGNER, None), (ALICE, None),
+         (ss58_encode(bytes(32), 42), None), (None, None),
+         (ALICE, _deposit())],
         ids=["owned", "foreign", "unowned", "unread", "top-up"],
     )  # fmt: skip
     @pytest.mark.asyncio
-    async def test_a_new_deposit_requires_the_hotkey_owner(self, owner, deposit, blocked):
+    async def test_a_new_deposit_does_not_require_the_hotkey_owner(self, owner, deposit):
         sub = FakeSubstrate()
         sub.seed("SubtensorModule", "Owner", [BOB_HOT], owner)
         sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], deposit)
         preview = await build("mint_gamma", MINT).preflight(sub, SIGNER, SIGNER)
-        assert any("associate" in block for block in preview.blocks) is blocked
+        assert not preview.blocks
 
     @pytest.mark.parametrize(
         ("amount", "staked", "warned"),
@@ -493,6 +493,15 @@ class TestDepositPreviews:
         sub.seed("SubtensorModule", "Owner", [BOB_HOT], SIGNER)
         blocks = await build("move_gamma", {**MOVE, "amount_gamma": "all"}).blocks(sub, SIGNER)
         assert [faulty in block for block in blocks] == ([True] if faulty else [])
+
+    @pytest.mark.parametrize("owner", [ALICE, None, ss58_encode(bytes(32), 42)])
+    @pytest.mark.asyncio
+    async def test_move_opens_an_api_key_without_staking_ownership(self, owner):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaDeposits", [1, ALICE_HOT], _deposit(balance=RAO))
+        sub.seed("SubtensorModule", "Owner", [BOB_HOT], owner)
+        blocks = await build("move_gamma", {**MOVE, "amount_gamma": "all"}).blocks(sub, SIGNER)
+        assert not blocks
 
     @pytest.mark.parametrize(
         "args",
