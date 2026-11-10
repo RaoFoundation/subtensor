@@ -21,6 +21,7 @@ use std::sync::Mutex;
 use hidapi::{DeviceInfo, HidApi, HidDevice};
 
 use crate::error::CoreError;
+use crate::signers::ApduTransport;
 
 const LEDGER_VID: u16 = 0x2c97;
 const LEDGER_USAGE_PAGE: u16 = 0xFFA0;
@@ -70,10 +71,12 @@ impl Transport {
             device: Mutex::new(device),
         })
     }
+}
 
+impl ApduTransport for Transport {
     /// One APDU round-trip. Returns the raw answer including the trailing
     /// two-byte return code; blocks until the device responds.
-    pub fn exchange(&self, apdu: &[u8]) -> Result<Vec<u8>, CoreError> {
+    fn exchange(&self, apdu: &[u8]) -> Result<Vec<u8>, CoreError> {
         let device = self
             .device
             .lock()
@@ -81,7 +84,9 @@ impl Transport {
         Self::write_apdu(&device, apdu)?;
         Self::read_apdu(&device)
     }
+}
 
+impl Transport {
     fn write_apdu(device: &HidDevice, apdu: &[u8]) -> Result<(), CoreError> {
         let total = u16::try_from(apdu.len())
             .map_err(|_| CoreError::Device("APDU exceeds the 64 KiB framing limit".into()))?;

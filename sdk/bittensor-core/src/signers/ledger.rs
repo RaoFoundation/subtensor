@@ -1,4 +1,4 @@
-//! The Ledger Polkadot generic app over USB HID.
+//! The Ledger Polkadot generic app over an APDU transport.
 //!
 //! Speaks the Zondax APDU protocol (CLA `0xF9`): `GET_VERSION`, `GET_ADDR`,
 //! and the chunked `SIGN` whose message is the signature payload followed by
@@ -11,6 +11,10 @@
 //! `m/44'/354'/account'/0'/index'` — the same keys Ledger Live and every
 //! generic-app wallet derive, so one device shows one set of addresses
 //! everywhere.
+//!
+//! [`LedgerDevice::open`] reaches the device over USB HID;
+//! [`LedgerDevice::with_transport`] sends the same requests over another
+//! [`ApduTransport`], such as Ledger's Speculos emulator.
 
 // Client-side device I/O, not runtime code: bounds are checked with explicit
 // length guards before slicing.
@@ -20,6 +24,7 @@ use ledger_apdu::{APDUAnswer, APDUCommand};
 
 use crate::error::CoreError;
 use crate::signers::hid::Transport;
+use crate::signers::ApduTransport;
 
 const CLA: u8 = 0xF9;
 const INS_GET_VERSION: u8 = 0x00;
@@ -50,7 +55,7 @@ pub struct LedgerAddress {
 
 /// One connected Ledger running the Polkadot generic app.
 pub struct LedgerDevice {
-    transport: Transport,
+    transport: Box<dyn ApduTransport>,
 }
 
 impl LedgerDevice {
@@ -60,8 +65,18 @@ impl LedgerDevice {
     /// when the OS denies HID access.
     pub fn open() -> Result<Self, CoreError> {
         Ok(Self {
-            transport: Transport::open()?,
+            transport: Box::new(Transport::open()?),
         })
+    }
+
+    /// Drive the generic app over `transport` instead of USB HID.
+    ///
+    /// Requests are built and answers parsed exactly as for a device from
+    /// [`LedgerDevice::open`]; only the channel differs.
+    pub fn with_transport(transport: impl ApduTransport + 'static) -> Self {
+        Self {
+            transport: Box::new(transport),
+        }
     }
 
     /// The generic app's version, as `(major, minor, patch)`.
@@ -165,7 +180,7 @@ impl LedgerDevice {
         };
         let raw = self.transport.exchange(&command.serialize())?;
         let answer = APDUAnswer::from_answer(raw)
-            .map_err(|_| CoreError::Device("HID response was too short".into()))?;
+            .map_err(|_| CoreError::Device("APDU response was too short".into()))?;
         match answer.retcode() {
             RETCODE_OK => Ok(answer.data().to_vec()),
             RETCODE_USER_REFUSED => Err(CoreError::Device(
@@ -223,6 +238,74 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
     use super::*;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    struct ScriptedTransport {
+        exchanges: Arc<Mutex<VecDeque<(Vec<u8>, Vec<u8>)>>>,
+    }
+
+    impl ApduTransport for ScriptedTransport {
+        fn exchange(&self, apdu: &[u8]) -> Result<Vec<u8>, CoreError> {
+            let (expected, response) = self
+                .exchanges
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("unexpected APDU");
+            assert_eq!(apdu, expected);
+            Ok(response)
+        }
+    }
+
+    #[test]
+    fn ledger_device_is_send_and_sync() {
+        fn assert_send_and_sync<T: Send + Sync>() {}
+        assert_send_and_sync::<LedgerDevice>();
+    }
+
+    #[test]
+    fn with_transport_carries_the_chunked_sign() {
+        let payload = vec![0xab; 300];
+        let proof = vec![0xcd; 200];
+        let mut init = vec![0xf9, 0x02, 0x00, 0x00, 22];
+        init.extend_from_slice(&[
+            44, 0, 0, 0x80, 0x62, 0x01, 0, 0x80, 2, 0, 0, 0x80, 0, 0, 0, 0x80, 7, 0, 0, 0x80, 0x2c,
+            0x01,
+        ]);
+        let mut add = vec![0xf9, 0x02, 0x01, 0x00, 250];
+        add.extend_from_slice(&payload[..250]);
+        let mut last = vec![0xf9, 0x02, 0x02, 0x00, 250];
+        last.extend_from_slice(&payload[250..]);
+        last.extend_from_slice(&proof);
+        let mut signature = vec![0];
+        signature.extend_from_slice(&[0xef; 64]);
+        let mut reply = signature.clone();
+        reply.extend_from_slice(&[0x90, 0x00]);
+        let exchanges = Arc::new(Mutex::new(VecDeque::from([
+            (init, vec![0x90, 0x00]),
+            (add, vec![0x90, 0x00]),
+            (last, reply),
+        ])));
+        let device = LedgerDevice::with_transport(ScriptedTransport {
+            exchanges: Arc::clone(&exchanges),
+        });
+        assert_eq!(device.sign(2, 7, &payload, &proof).unwrap(), signature);
+        assert!(exchanges.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn with_transport_maps_user_refusal() {
+        let exchanges = Arc::new(Mutex::new(VecDeque::from([(
+            vec![0xf9, 0x00, 0x00, 0x00, 0x00],
+            vec![0x69, 0x86],
+        )])));
+        let device = LedgerDevice::with_transport(ScriptedTransport { exchanges });
+        assert_eq!(
+            device.app_version().unwrap_err().to_string(),
+            "device error: the request was rejected on the device"
+        );
+    }
 
     #[test]
     fn bip44_path_matches_generic_app_layout() {
