@@ -24,8 +24,9 @@ historical `SubnetOwnerCut`).
 ## Bounds
 
 `0 ≤ owner_emission ≤ 0.33`, and `≥ 0.18` on lease-created subnets. The
-five slots must still sum to one, so raising the owner share lowers the
-others. Errors: `OwnerEmissionAboveMaximum`,
+five slots and the subnet's
+[gamma shares](/docs/concepts/emission-weights#gamma-shares) must still sum to
+one, so raising the owner share lowers the others. Errors: `OwnerEmissionAboveMaximum`,
 `LeasedSubnetOwnerCutBelowMinimum`, `EmissionWeightsDoNotSumToOne`.
 
 ## Reading and setting
@@ -38,7 +39,7 @@ btcli subnets emission set-value --netuid 12 --slot owner --value 0.10
 Settable by the subnet owner (once per week per subnet) or root through
 [`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights); not
 available on the root subnet. `set-value` rescales the validator and miner
-slots proportionally so the vector still sums to one.
+slots proportionally to fill the rest.
 
 ## Related
 

@@ -26,7 +26,7 @@ and the `alpha_burned`, `tao_value` and `gamma` minted.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3218-L3238) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3159-L3179) |
 
 ## Parameters
 
@@ -85,7 +85,7 @@ result = sub.execute_tool("mint_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.mint_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3220`](/code/pallets/subtensor/src/macros/dispatches.rs#L3218-L3238):
+`SubtensorModule.mint_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3161`](/code/pallets/subtensor/src/macros/dispatches.rs#L3159-L3179):
 
 ```rust
 #[pallet::call_index(158)]
@@ -111,6 +111,6 @@ pub fn mint_gamma(
 }
 ```
 
-Delegates to [`do_mint_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L213).
+Delegates to [`do_mint_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L330).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

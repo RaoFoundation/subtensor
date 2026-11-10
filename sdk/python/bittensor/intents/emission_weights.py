@@ -22,7 +22,11 @@ from .. import emission_weights as ew
 from .._generated import calls
 from .._generated import runtime_apis as api
 from .._generated import storage as st
-from ..reads.subnets import emission_weights_rate_limit_key, root_preservation_inputs
+from ..reads.subnets import (
+    emission_weights_rate_limit_key,
+    gamma_emission_share,
+    root_preservation_inputs,
+)
 from .base import Intent, IntentPreflight
 from .registry import register
 
@@ -35,12 +39,13 @@ VALUES_HELP = (
     '("41%"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% '
     "(>= 18% on lease-created subnets); validator <= 50% and above root's baseline "
     "share of emission, which is paid off the top of the validator slot (see `btcli "
-    "subnets emission show`); miner >= 33%; all five sum to exactly 1."
+    "subnets emission show`); miner >= 33%; all five and the subnet's gamma shares sum to "
+    "exactly 1."
 )
 RENORMALIZE_HELP = (
     "Keep the named slots as given and rescale the other slots proportionally so the "
-    "vector sums to 1 (the last free slot absorbs rounding). Without it, the update is "
-    "applied verbatim and must already sum to 1."
+    "vector and the subnet's gamma shares sum to 1 (the last free slot absorbs rounding). "
+    "Without it, the update is applied verbatim and must already sum to 1 with them."
 )
 
 
@@ -88,7 +93,8 @@ class SetSubnetEmissionWeights(Intent):
     Dispatches ``AdminUtils.sudo_set_subnet_emission_weights`` for the named
     slots. The signer must be the subnet's owner coldkey (root may also call
     it). With ``renormalize`` the untouched slots are rescaled so the vector
-    still sums to one; without it the merged vector is submitted as given.
+    and the subnet's gamma shares still sum to one; without it the merged
+    vector is submitted as given.
     Root stakers are paid their baseline share of emission (what they earn
     with the default validator share and the global TaoWeight) off the top of
     the validator slot every block, whatever the subnet sets — the pre-sign
@@ -130,15 +136,23 @@ class SetSubnetEmissionWeights(Intent):
             *api.SubnetInfoRuntimeApi.get_subnet_emission_weights, [self.netuid]
         )
 
-    def _merged(self, current: Optional[dict]) -> list[int]:
+    async def _gamma_share(self, substrate) -> int:
+        return await gamma_emission_share(
+            lambda item, keys: substrate.query(*item, keys), self.netuid
+        )
+
+    def _merged(self, current: Optional[dict], gamma_share: int) -> list[int]:
         base = ew.normalize_weights(current["weights"]) if current else ew.default_weights()
         if self.renormalize:
-            return ew.renormalize(base, self.updates())
+            return ew.renormalize(base, self.updates(), gamma_share)
         return ew.merge(base, self.updates())
 
     async def build(self, substrate, wallet: Any):
         if self.renormalize:
-            merged = self._merged(await self._current(substrate))
+            current, gamma_share = await asyncio.gather(
+                self._current(substrate), self._gamma_share(substrate)
+            )
+            merged = self._merged(current, gamma_share)
             uids, values = list(range(len(merged))), merged
         else:
             uids = sorted(self.updates())
@@ -149,8 +163,8 @@ class SetSubnetEmissionWeights(Intent):
 
     async def _inputs(self, substrate) -> Optional[dict]:
         """Everything the preview needs, read once: the current vector and
-        root's baseline share, root TAO, alpha issuance, the global TaoWeight
-        and the owner's last change block."""
+        root's baseline share, root TAO, alpha issuance, the global TaoWeight,
+        the owner's last change block and the subnet's gamma shares."""
         current = await self._current(substrate)
         if current is None:
             return None
@@ -160,6 +174,7 @@ class SetSubnetEmissionWeights(Intent):
             last_change,
             block,
             owner,
+            gamma_share,
         ) = await asyncio.gather(
             root_preservation_inputs(query, self.netuid),
             substrate.query(
@@ -168,6 +183,7 @@ class SetSubnetEmissionWeights(Intent):
             ),
             substrate.block_number(),
             substrate.query(*st.SubtensorModule.SubnetOwner, [self.netuid]),
+            self._gamma_share(substrate),
         )
         return {
             "current": current,
@@ -179,6 +195,7 @@ class SetSubnetEmissionWeights(Intent):
             "last_change_block": int(last_change or 0),
             "block": int(block),
             "owner": None if owner is None else str(owner),
+            "gamma_share": gamma_share,
         }
 
     def _preview(self, inputs: dict, after: list[int]) -> dict[str, Any]:
@@ -196,6 +213,7 @@ class SetSubnetEmissionWeights(Intent):
             min_validator=ew.min_validator_parts(inputs["baseline_parts"]),
             min_owner=ew.DEFAULT_OWNER,
             created_via_lease=bool(inputs["current"]["created_via_lease"]),
+            gamma_share=inputs["gamma_share"],
         )
 
     async def preflight(self, substrate, dispatch_origin: str, fee_payer: str, *, call=None):
@@ -210,7 +228,7 @@ class SetSubnetEmissionWeights(Intent):
                 ],
             )
         try:
-            after = self._merged(inputs["current"])
+            after = self._merged(inputs["current"], inputs["gamma_share"])
         except ValueError as error:
             return IntentPreflight(effects=[self.summary()], warnings=[], blocks=[str(error)])
         preview = self._preview(inputs, after)

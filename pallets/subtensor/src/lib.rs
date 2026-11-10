@@ -52,9 +52,10 @@ pub use extensions::*;
 pub use guards::*;
 pub use subnets::emission_weights::{
     EMISSION_WEIGHT_ONE, EMISSION_WEIGHT_SLOTS, EMISSION_WEIGHTS_VIEW_READS, EmissionIndex,
-    EmissionWeights, EmissionWeightsVec, EmissionWeightsView, MAX_BURN_RECYCLE_EMISSION,
-    MAX_OWNER_EMISSION, MAX_VALIDATOR_EMISSION, MIN_MINER_EMISSION, emission_fraction,
-    emission_share_to_parts, normalize_tao_weight, root_emission_share,
+    EmissionSlot, EmissionSplit, EmissionWeights, EmissionWeightsVec, EmissionWeightsView,
+    GammaEmission, MAX_BURN_RECYCLE_EMISSION, MAX_EMISSION_SLOTS, MAX_GAMMA_EMISSION,
+    MAX_GAMMA_SHARES, MAX_OWNER_EMISSION, MAX_VALIDATOR_EMISSION, MIN_MINER_EMISSION,
+    emission_fraction, emission_share_to_parts, normalize_tao_weight, root_emission_share,
 };
 
 /// Prevent an owner relationship from weakening a hotkey's authorization.
@@ -280,6 +281,9 @@ pub const GAMMA_REFILL_BLOCKS: u64 = 7200;
 /// Smallest gamma a mint credits: 0.1 gamma.
 pub const MIN_GAMMA_AMOUNT: u64 = 100_000_000;
 
+/// How far a gamma emission trade may fill from its pool's fast moving and spot prices: 2%.
+pub const GAMMA_EMISSION_MAX_SLIPPAGE_BPS: u64 = 200;
+
 /// Oldest TAO/USD feed, in blocks, a mint accepts: one hour.
 pub const TAO_USD_PRICE_MAX_AGE: u64 = 300;
 
@@ -308,7 +312,7 @@ pub mod pallet {
     use crate::migrations;
     use crate::staking::lock::LockState;
     use crate::subnets::dissolution::DissolveCleanupStatus;
-    use crate::subnets::emission_weights::EmissionWeightsVec;
+    use crate::subnets::emission_weights::{EmissionWeightsVec, GammaEmission};
     use crate::subnets::leasing::{LeaseId, SubnetLeaseOf};
     use crate::subnets::subnet::NetworkRegistrationInfo;
     use crate::weights::WeightInfo;
@@ -4030,6 +4034,37 @@ pub mod pallet {
     /// and rises toward it by [`SubnetFastMovingPrice`]'s weight of the gap, at most of itself.
     #[pallet::storage]
     pub type SubnetGammaPrice<T: Config> = StorageMap<_, Identity, NetUid, U64F64, ValueQuery>;
+
+    /// MAP ( netuid ) --> gamma shares | The subnet's shares of its alpha emission to other
+    /// subnets' gamma, in `u64::MAX` parts, in ascending target order.
+    #[pallet::storage]
+    pub type SubnetGammaEmission<T: Config> =
+        StorageMap<_, Identity, NetUid, GammaEmission, ValueQuery>;
+
+    /// MAP ( netuid ) --> alpha | The subnet's emission accrued to its gamma shares since they
+    /// were last allotted it.
+    #[pallet::storage]
+    pub type PendingGammaEmission<T> =
+        StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
+
+    /// DMAP ( netuid, target ) --> alpha | Alpha allotted to the subnet's gamma share of the
+    /// target and not yet converted.
+    #[pallet::storage]
+    pub type UnconvertedGammaEmission<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Identity,
+        NetUid,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
+
+    /// MAP ( netuid ) --> whitelisted | Whether subnets may give the subnet gamma shares.
+    #[pallet::storage]
+    pub type SubnetGammaEmissionWhitelisted<T: Config> =
+        StorageMap<_, Identity, NetUid, bool, ValueQuery>;
 
     /// ITEM ( oracle ) | The account that feeds the TAO/USD price.
     #[pallet::storage]

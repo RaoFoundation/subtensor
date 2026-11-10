@@ -889,6 +889,26 @@ DESCRIPTIONS: dict[str, str] = {
         "alpha emission to divide, so it carries no emission weight vector; pass a subnet "
         "netuid."
     ),
+    "EmissionSlotsNotAscending": (
+        "`sudo_set_subnet_emission_weights_v2` got a split whose slots are out of order or "
+        "repeated. List each slot at most once, in declared order (burn, recycle, owner, "
+        "validator, miner, then gamma slots by netuid)."
+    ),
+    "GammaEmissionAboveMaximum": (
+        "A gamma share in the emission split is above the 10% maximum per target subnet. "
+        "Lower the share."
+    ),
+    "GammaEmissionTargetNotWhitelisted": (
+        "A gamma share in the emission split names a subnet root has not whitelisted for "
+        "gamma emission. Only whitelisted subnets can be targets."
+    ),
+    "TooManyGammaShares": (
+        "The emission split has more than 16 gamma shares. Drop gamma shares to at most 16."
+    ),
+    "GammaEmissionNotSettableOnLeasedSubnet": (
+        "The subnet is under a lease, and a leased subnet cannot set gamma shares in its "
+        "emission split until the lease ends."
+    ),
     "SubnetNotExists": (
         "The netuid passed to the call does not correspond to a registered subnet. Verify the "
         "netuid argument against `NetworksAdded` or `btcli subnets list`; the subnet may also "

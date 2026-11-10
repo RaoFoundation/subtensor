@@ -310,6 +310,13 @@ async def root_preservation_inputs(query, netuid: int) -> tuple[int, int, float]
     return int(root_tao or 0), issuance, share_to_float(int(tao_weight or 0))
 
 
+async def gamma_emission_share(query, netuid: int) -> int:
+    """The sum of the subnet's gamma shares in u64 parts; its five emission
+    slots sum to one less it. ``query(item, keys)`` is an async storage read."""
+    shares = await query(st.SubtensorModule.SubnetGammaEmission, [netuid])
+    return sum(int(share) for _, share in shares or [])
+
+
 @dataclass
 class SubnetEmissionWeights:
     """A subnet's emission weight vector and the rule inputs that bound it.
@@ -326,7 +333,8 @@ class SubnetEmissionWeights:
     ``baseline_root_parts`` is the baseline in exact u64 parts (what the
     runtime API reports); ``min_validator`` is the lowest validator share
     (parts) the chain accepts at this block: one part above it.
-    ``last_change_block`` is when
+    ``gamma_share`` is the sum of the subnet's gamma shares (parts); the five
+    slots sum to one less it. ``last_change_block`` is when
     the owner last changed the vector (0 = never); :meth:`rate_limit` turns it
     into when the owner may change it next.
     """
@@ -339,6 +347,7 @@ class SubnetEmissionWeights:
     owner: int
     validator: int
     miner: int
+    gamma_share: int
     global_tao_weight: float
     created_via_lease: bool
     root_tao: int
@@ -357,6 +366,7 @@ class SubnetEmissionWeights:
             min_validator=self.min_validator,
             min_owner=DEFAULT_OWNER,
             created_via_lease=self.created_via_lease,
+            gamma_share=self.gamma_share,
         )
 
     def rate_limit(self) -> dict[str, object]:
@@ -386,9 +396,14 @@ async def subnet_emission_weights(view, netuid: int) -> Optional[SubnetEmissionW
         return None
     weights = normalize_weights(info["weights"])
     rate_limit_key = emission_weights_rate_limit_key(netuid)
-    (root_tao, alpha_issuance, global_tao_weight), last_change = await asyncio.gather(
+    (
+        (root_tao, alpha_issuance, global_tao_weight),
+        last_change,
+        gamma_share,
+    ) = await asyncio.gather(
         root_preservation_inputs(view.query, netuid),
         view.query(st.SubtensorModule.LastRateLimitedBlock, [rate_limit_key]),
+        gamma_emission_share(view.query, netuid),
     )
     baseline_parts = int(info["root_baseline_share"])
     root_parts = min(int(info["root_share"]), weights[3])
@@ -401,6 +416,7 @@ async def subnet_emission_weights(view, netuid: int) -> Optional[SubnetEmissionW
         owner=int(info["owner"]),
         validator=int(info["validator"]),
         miner=int(info["miner"]),
+        gamma_share=gamma_share,
         global_tao_weight=global_tao_weight,
         created_via_lease=bool(info["created_via_lease"]),
         root_tao=root_tao,
