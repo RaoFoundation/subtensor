@@ -234,13 +234,24 @@ jobs:
             exit 0
           fi
 
+          # Same "What's Changed" notes as train releases, compared with the
+          # nearest older v<N> tag so backfilled releases list only their own
+          # changes, followed by how this release was verified.
+          prev=$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" --jq '.[].ref' \
+            | sed -n 's#^refs/tags/v\([0-9][0-9]*\)$#\1#p' | awk -v s="$SPEC" '$1 < s' | sort -n | tail -n 1)
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$tag" -f target_commitish="$COMMIT" \
+            ${prev:+-f previous_tag_name="v$prev"} --jq '.body' > notes.md
+          printf '\nRuntime %s, built from %s and finalized on mainnet from block %s.\n' \
+            "$SPEC" "$COMMIT" "$FIRST_BLOCK" >> notes.md
+
           latest=false
           [ "$CURRENT_SPEC" = "$SPEC" ] && latest=true
           gh release create "$tag" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$COMMIT" \
             --title "Runtime ${SPEC}" \
-            --notes "Runtime ${SPEC}, built from ${COMMIT} and finalized on mainnet from block ${FIRST_BLOCK}." \
+            --notes-file notes.md \
             --latest="$latest" \
             wasm/subtensor.wasm wasm/subtensor-digest.json wasm/deployment.json
 
