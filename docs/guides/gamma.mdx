@@ -9,7 +9,7 @@ that subnet's gamma by burning its alpha, bought with TAO or taken from stake.
 One gamma is minted for each dollar the burned alpha is worth.
 
 Gamma is held in **deposits**. Each deposit belongs to a coldkey and is keyed by
-a hotkey, which signs the customer's requests to the service, so the hotkey
+a hotkey, which [signs](/docs/guides/signed-requests) the customer's requests to the service, so the hotkey
 works as an API key. The deposit's **spender** spends it as it serves those
 requests.
 
@@ -48,14 +48,14 @@ hotkey, for a service the subnet lists with [`services`](/docs/query/services):
 
 ```bash
 btcli wallet new-hotkey -H API_KEY
-btcli query services --netuid 51
-btcli gamma mint --netuid 51 --hotkey API_KEY --amount-tao 10 --service-hotkey SERVICE_HOTKEY
+btcli query services --netuid 1
+btcli gamma mint --netuid 1 --hotkey API_KEY --amount-tao 10 --service-hotkey SERVICE_HOTKEY
 ```
 
 ```python
-quote = await client.gamma.quote_mint_gamma(netuid=51, amount_tao=10)
+quote = await client.gamma.quote_mint_gamma(netuid=1, amount_tao=10)
 await client.execute(
-    bt.MintGamma(netuid=51, hotkey_ss58=api_key, amount_tao=10, service_hotkey_ss58=service), wallet
+    bt.MintGamma(netuid=1, hotkey_ss58=api_key, amount_tao=10, service_hotkey_ss58=service), wallet
 )
 ```
 
@@ -69,7 +69,7 @@ creates no stake position.
 already hold instead:
 
 ```bash
-btcli gamma mint-with-stake --netuid 51 --hotkey API_KEY --origin-hotkey VALIDATOR --amount-alpha 100 --service-hotkey SERVICE_HOTKEY
+btcli gamma mint-with-stake --netuid 1 --hotkey API_KEY --origin-hotkey VALIDATOR --amount-alpha 100 --service-hotkey SERVICE_HOTKEY
 ```
 
 `--amount-alpha all` burns the whole stake.
@@ -125,14 +125,14 @@ most 64 deposits per subnet.
 
 ```bash
 btcli gamma list
-btcli gamma show --netuid 51 --hotkey API_KEY
+btcli gamma show --netuid 1 --hotkey API_KEY
 ```
 
 To give someone gamma, open a deposit with their hotkey. The deposit stays
 yours: move the gamma back at any time.
 
 ```bash
-btcli gamma move --netuid 51 --origin-hotkey THEIR_KEY --destination-hotkey API_KEY --amount-gamma all
+btcli gamma move --netuid 1 --origin-hotkey THEIR_KEY --destination-hotkey API_KEY --amount-gamma all
 ```
 
 [`move-gamma`](/docs/tx/move-gamma) to a hotkey with no deposit opens one with
@@ -141,7 +141,7 @@ it. A deposit spent to zero stays open with its terms, so it can be refilled,
 until it is closed with [`close-gamma-deposit`](/docs/tx/close-gamma-deposit):
 
 ```bash
-btcli gamma close --netuid 51 --hotkey API_KEY
+btcli gamma close --netuid 1 --hotkey API_KEY
 ```
 
 ## Spenders and daily spend caps
@@ -153,7 +153,7 @@ or `--default-spender` for the spender of the subnet owner's service, otherwise
 the subnet's current owner, or its lease's beneficiary:
 
 ```bash
-btcli gamma set-spender --netuid 51 --hotkey API_KEY --service-hotkey SERVICE_HOTKEY
+btcli gamma set-spender --netuid 1 --hotkey API_KEY --service-hotkey SERVICE_HOTKEY
 ```
 
 A daily spend cap, set with
@@ -168,7 +168,7 @@ While a deposit has a cap, a spender takes at most the highest cap plus its
 refill over any period. A deposit opened with a cap starts full.
 
 ```bash
-btcli gamma set-cap --netuid 51 --hotkey API_KEY --daily-spend-cap-gamma 20
+btcli gamma set-cap --netuid 1 --hotkey API_KEY --daily-spend-cap-gamma 20
 ```
 
 A mint can name a new deposit's terms with `--spender SPENDER` or
@@ -185,13 +185,13 @@ The spender spends many deposits in one [`spend-gamma`](/docs/tx/spend-gamma)
 call, up to 512 entries of a hotkey, an amount and a reference:
 
 ```bash
-btcli gamma spend --netuid 51 --spend API_KEY=0.25:0xREFERENCE --spend OTHER_KEY=1.5
+btcli gamma spend --netuid 1 --spend API_KEY=0.25:0xREFERENCE --spend OTHER_KEY=1.5
 ```
 
 ```python
 result = await client.execute(
     bt.SpendGamma(
-        netuid=51,
+        netuid=1,
         spends=[{"hotkey_ss58": api_key, "amount_gamma": 0.25, "reference": reference}],
     ),
     spender,
@@ -222,7 +222,7 @@ make no other call and spends with `--proxy-for` (`proxy_for=` in Python):
 
 ```bash
 btcli proxy add --delegate BILLING_KEY --proxy-type GammaSpend -w SERVICE
-btcli gamma spend --netuid 51 --spend API_KEY=0.25 -w BILLING_KEY --proxy-for SERVICE
+btcli gamma spend --netuid 1 --spend API_KEY=0.25 -w BILLING_KEY --proxy-for SERVICE
 ```
 
 ## The TAO/USD price
