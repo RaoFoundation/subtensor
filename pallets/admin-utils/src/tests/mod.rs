@@ -4734,7 +4734,7 @@ fn test_sudo_set_subnet_emission_weights_v2() {
 
         let owner_share = emission_fraction(10, 100);
         let validator = emission_fraction(40, 100);
-        let gamma = emission_fraction(5, 100);
+        let share = emission_fraction(5, 100);
         let split = EmissionSplit::truncate_from(vec![
             (EmissionSlot::Owner, owner_share),
             (EmissionSlot::Validator, validator),
@@ -4743,9 +4743,9 @@ fn test_sudo_set_subnet_emission_weights_v2() {
                 EMISSION_WEIGHT_ONE
                     .saturating_sub(owner_share)
                     .saturating_sub(validator)
-                    .saturating_sub(gamma),
+                    .saturating_sub(share),
             ),
-            (EmissionSlot::Gamma { netuid: target }, gamma),
+            (EmissionSlot::Gamma { netuid: target }, share),
         ]);
 
         assert_noop!(
@@ -4763,7 +4763,7 @@ fn test_sudo_set_subnet_emission_weights_v2() {
         ));
         assert_eq!(
             SubnetGammaEmission::<Test>::get(netuid).into_inner(),
-            vec![(target, gamma)]
+            vec![(target, share)]
         );
 
         // The owner shares the weekly limit with the fixed-slot setter; root is not limited.

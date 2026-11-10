@@ -580,7 +580,7 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
             [burn, recycle, owner, validator, miner],
         );
         // The most gamma shares a split has, to the subnets after this one.
-        let mut gamma = (1..=MAX_GAMMA_SHARES as u16)
+        let mut shares = (1..=MAX_GAMMA_SHARES as u16)
             .map(|offset| {
                 let target = subnet_index
                     .saturating_add(offset)
@@ -591,8 +591,8 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
                 (NetUid::from(target), gamma_share)
             })
             .collect::<Vec<_>>();
-        gamma.sort();
-        SubnetGammaEmission::<T>::insert(netuid, GammaEmission::truncate_from(gamma));
+        shares.sort();
+        SubnetGammaEmission::<T>::insert(netuid, GammaEmission::truncate_from(shares));
         SubnetGammaEmissionWhitelisted::<T>::insert(netuid, true);
         SubnetGammaEnabled::<T>::insert(netuid, true);
         let owner_hotkey: T::AccountId =

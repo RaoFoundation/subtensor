@@ -2219,8 +2219,8 @@ fn gamma_emission_subnets() -> (NetUid, NetUid) {
     (source, target)
 }
 
-/// Owner 18%, validator 31%, `gamma` to `target` and the rest to miners.
-fn split_with_gamma(target: NetUid, gamma: u64) -> Vec<(EmissionSlot, u64)> {
+/// Owner 18%, validator 31%, `share` to `target` and the rest to miners.
+fn split_with_gamma(target: NetUid, share: u64) -> Vec<(EmissionSlot, u64)> {
     let owner = emission_fraction(18, 100);
     let validator = emission_fraction(31, 100);
     vec![
@@ -2228,9 +2228,9 @@ fn split_with_gamma(target: NetUid, gamma: u64) -> Vec<(EmissionSlot, u64)> {
         (EmissionSlot::Validator, validator),
         (
             EmissionSlot::Miner,
-            EMISSION_WEIGHT_ONE - owner - validator - gamma,
+            EMISSION_WEIGHT_ONE - owner - validator - share,
         ),
-        (EmissionSlot::Gamma { netuid: target }, gamma),
+        (EmissionSlot::Gamma { netuid: target }, share),
     ]
 }
 
