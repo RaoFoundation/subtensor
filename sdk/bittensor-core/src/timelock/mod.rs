@@ -154,9 +154,10 @@ pub fn decrypt_and_decompress(
         .map_err(|e| tl_err(format!("Error decrypting ciphertext: {e:?}")))
 }
 
-/// Stateful epoch model commit (v2): simulate the chain's `block_step`
-/// pipeline to find the exact reveal block, then encrypt the weights payload
-/// to the drand round covering it. Returns `(ciphertext, reveal_round)`.
+/// Stateful epoch model commit using the system Unix clock.
+///
+/// Captures the clock once and delegates to [`generate_commit_v2_at`].
+/// Prediction assumes successful future epochs and does not model deferrals.
 pub fn generate_commit_v2(
     uids: Vec<u16>,
     values: Vec<u16>,
@@ -166,32 +167,92 @@ pub fn generate_commit_v2(
     block_time: f64,
     hotkey: Vec<u8>,
 ) -> Result<(Vec<u8>, u64), CoreError> {
-    let first_reveal_blk =
-        epoch_schedule::predict_first_reveal_block(&state, subnet_reveal_period_epochs)
-            .map_err(|e| tl_err(e.to_string()))?;
+    generate_commit_v2_at(
+        now_unix()?.as_secs_f64(),
+        uids,
+        values,
+        version_key,
+        state,
+        subnet_reveal_period_epochs,
+        block_time,
+        hotkey,
+    )
+}
 
-    let target_ingest_blk = first_reveal_blk.saturating_add(SECURITY_BLOCK_OFFSET);
-    let blocks_until_ingest = target_ingest_blk.saturating_sub(state.current_block);
-    let secs_until_ingest = blocks_until_ingest as f64 * block_time;
-
-    let now_secs = now_unix()?.as_secs_f64();
-
-    let target_secs = now_secs + secs_until_ingest;
-    let mut reveal_round =
-        ((target_secs - GENESIS_TIME as f64) / DRAND_PERIOD as f64).floor() as u64;
-    if reveal_round < 1 {
-        reveal_round = 1;
-    }
-
-    let payload = WeightsTlockPayload {
+/// Encode the core's canonical timelocked weight payload without duplicating its format.
+pub fn commit_payload(
+    hotkey: Vec<u8>,
+    uids: Vec<u16>,
+    values: Vec<u16>,
+    version_key: u64,
+) -> Vec<u8> {
+    WeightsTlockPayload {
         hotkey,
         uids,
         values,
         version_key,
-    };
+    }
+    .encode()
+}
 
-    let ct_bytes = encrypt_and_compress(&payload.encode(), reveal_round)?;
-    Ok((ct_bytes, reveal_round))
+/// Calculate the core-compatible drand round using an injected Unix clock.
+///
+/// Schedule prediction uses the pallet safety net and commit/reveal processing
+/// phases. The cryptographic target retains the core's three-block offset.
+#[allow(clippy::arithmetic_side_effects)] // Finite float math; checked integer positions.
+pub fn reveal_round_at(
+    now: f64,
+    state: &epoch_schedule::EpochScheduleState,
+    reveal_period_epochs: u64,
+    block_time: f64,
+) -> Result<u64, CoreError> {
+    if !now.is_finite() || now < 0.0 || !block_time.is_finite() || block_time <= 0.0 {
+        return Err(CoreError::Crypto("timelock clock and block time must be finite and non-negative; block time must be positive".into()));
+    }
+    let first_reveal = epoch_schedule::predict_first_reveal_block(state, reveal_period_epochs)
+        .map_err(|error| CoreError::Crypto(error.to_string()))?;
+    let ingest = first_reveal
+        .checked_add(SECURITY_BLOCK_OFFSET)
+        .ok_or_else(|| CoreError::Crypto("target ingestion block exceeds u64".into()))?;
+    let until_ingest = ingest.saturating_sub(state.current_block);
+    let target = now + until_ingest as f64 * block_time;
+    if !target.is_finite() {
+        return Err(CoreError::Crypto(
+            "timelock target timestamp overflow".into(),
+        ));
+    }
+    let round = ((target - GENESIS_TIME as f64) / DRAND_PERIOD as f64).floor();
+    if round >= u64::MAX as f64 {
+        return Err(CoreError::Crypto(
+            "timelock reveal round exceeds u64".into(),
+        ));
+    }
+    Ok((round as u64).max(1))
+}
+
+/// Encrypt a canonical weight payload at the round calculated from `now`.
+///
+/// This performs CPU work and no I/O. Async callers run it through their
+/// blocking-work adapter.
+#[allow(clippy::too_many_arguments)]
+pub fn generate_commit_v2_at(
+    now: f64,
+    uids: Vec<u16>,
+    values: Vec<u16>,
+    version_key: u64,
+    state: epoch_schedule::EpochScheduleState,
+    reveal_period_epochs: u64,
+    block_time: f64,
+    hotkey: Vec<u8>,
+) -> Result<(Vec<u8>, u64), CoreError> {
+    if uids.len() != values.len() {
+        return Err(CoreError::Crypto(
+            "uids and values must have equal lengths".into(),
+        ));
+    }
+    let round = reveal_round_at(now, &state, reveal_period_epochs, block_time)?;
+    let payload = commit_payload(hotkey, uids, values, version_key);
+    Ok((encrypt_and_compress(&payload, round)?, round))
 }
 
 /// Encrypt a string commitment to the round `blocks_until_reveal` blocks from
