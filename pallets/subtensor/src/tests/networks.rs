@@ -4389,3 +4389,73 @@ fn process_network_registration_queue_consumes_prepaid_escrow() {
         assert_eq!(SubnetLocked::<Test>::get(new_netuid), queued_lock);
     });
 }
+
+#[test]
+fn get_lock_reduction_interval_is_invariant_across_emission_halvings() {
+    new_test_ext(1).execute_with(|| {
+        const FOUR_DAYS: u64 = 28_800;
+        SubtensorModule::set_lock_reduction_interval(FOUR_DAYS);
+
+        let total_supply: u64 = TotalSupply::<Test>::get();
+        let issuance_checkpoints: [u64; 4] = [
+            0,                      // pre-halving (1.0 TAO/block)
+            10_500_000_000_000_000, // 1st halving (0.5 TAO/block)
+            15_750_000_000_000_000, // 2nd halving (0.25 TAO/block)
+            total_supply,           // max supply (0.0 TAO/block)
+        ];
+
+        for issuance in issuance_checkpoints {
+            TotalIssuance::<Test>::put(TaoBalance::from(issuance));
+            assert_eq!(
+                SubtensorModule::get_lock_reduction_interval(),
+                FOUR_DAYS,
+                "lock reduction interval must not shrink or zero out across emission halvings (issuance={issuance})"
+            );
+        }
+    });
+}
+
+#[test]
+fn network_lock_cost_preserves_upward_discovery_after_cooldown_post_halving() {
+    new_test_ext(1).execute_with(|| {
+        const TWO_DAYS: u64 = 14_400;
+        const FOUR_DAYS: u64 = 28_800;
+        const EIGHT_DAYS: u64 = 57_600;
+        const LAST_LOCK_RAO: u64 = 288_000_000_000; // 288 TAO
+        const MIN_LOCK_RAO: u64 = 1_000_000_000; // 1 TAO
+        const START_BLOCK: u64 = 1_000;
+
+        // Post-first-halving issuance (0.5 TAO/block) and post-max-supply (0 TAO/block)
+        for issuance in [10_500_000_000_000_000_u64, TotalSupply::<Test>::get()] {
+            TotalIssuance::<Test>::put(TaoBalance::from(issuance));
+            SubtensorModule::set_lock_reduction_interval(FOUR_DAYS);
+            SubtensorModule::set_network_rate_limit(TWO_DAYS);
+            SubtensorModule::set_network_min_lock(TaoBalance::from(MIN_LOCK_RAO));
+            SubtensorModule::set_network_last_lock(TaoBalance::from(LAST_LOCK_RAO));
+            SubtensorModule::set_network_last_lock_block(START_BLOCK);
+
+            // Immediately when the 2-day cooldown expires, lock cost opens at 1.5x (432 TAO),
+            // preserving upward price discovery rather than ratcheting down from <= 1.0x.
+            System::set_block_number(START_BLOCK + TWO_DAYS);
+            assert_eq!(
+                SubtensorModule::get_network_lock_cost(),
+                TaoBalance::from(432_000_000_000),
+            );
+
+            // After one full 4-day reduction interval, lock cost returns to 1.0x (288 TAO).
+            System::set_block_number(START_BLOCK + FOUR_DAYS);
+            assert_eq!(
+                SubtensorModule::get_network_lock_cost(),
+                TaoBalance::from(LAST_LOCK_RAO),
+            );
+
+            // After two reduction intervals (8 days), lock cost decays cleanly to min_lock (1 TAO),
+            // even when block emission reaches zero at max supply.
+            System::set_block_number(START_BLOCK + EIGHT_DAYS);
+            assert_eq!(
+                SubtensorModule::get_network_lock_cost(),
+                TaoBalance::from(MIN_LOCK_RAO),
+            );
+        }
+    });
+}
