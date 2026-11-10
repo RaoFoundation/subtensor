@@ -2,7 +2,7 @@ name: Runtime Checks
 
 # Build-artifacts-once, fan-out gate for every PR: independent jobs compile the
 # runtime wasm and release node in parallel, then try-runtime
-# (devnet/testnet/mainnet), the spec-version comparison, and the mainnet
+# (devnet/testnet/mainnet), the version checks, and the mainnet
 # clone-upgrade suite consume the artifacts instead of rebuilding. Consolidates the former try-runtime.yml,
 # check-spec-version.yml, and check-clone-upgrade.yml (artifacts are scoped to
 # a single workflow run, so the fan-out jobs must live in one file).
@@ -495,6 +495,30 @@ jobs:
             echo "spec_version must be bumped above mainnet's, or label the PR 'no-spec-version-bump'."
             exit 1
           fi
+
+  # The release train publishes both Python packages, even for runtime-only
+  # changes. Catch reused stable versions before deployment, using the same
+  # guard as rc-versions. Label `no-client-version-bump` explicitly waives
+  # this PR check, but never the deployment guard. `no-spec-version-bump`
+  # does not exempt client versions because it does not skip SDK publication.
+  client-version:
+    name: client versions available on PyPI
+    needs: changes
+    if: >-
+      !contains(github.event.pull_request.labels.*.name, 'no-client-version-bump') &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true') &&
+      !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test client version guard
+        run: python3 .github/scripts/test_release_python_versions.py
+      - name: Check stable client versions against PyPI
+        run: |
+          python3 .github/scripts/release-python-versions.py --check-unpublished \
+            sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml
 
   # Ruff, ty, pytest, and the codegen checks need no chain and no Rust
   # artifact; running them inside clone-upgrade serialized minutes of Python
