@@ -1239,9 +1239,9 @@ impl<T: Config> Pallet<T> {
     }
 
     /// True when hotkeys and basket storage rows fit the holdings envelope and
-    /// queued credits fit their separate flush allowance. Count raw Alpha/AlphaV2 rows
-    /// so legacy duplicates and malformed zero rows are charged conservatively, and
-    /// stop as soon as the bound is exceeded.
+    /// queued credits fit their separate flush allowance. Count raw AlphaV2 rows so
+    /// malformed zero rows are charged conservatively, and stop as soon as the bound
+    /// is exceeded.
     pub(crate) fn root_claim_fits_budget(hotkeys: &[T::AccountId], budget: u32) -> bool {
         let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
         if work > budget {
@@ -1250,10 +1250,12 @@ impl<T: Config> Pallet<T> {
 
         let escrow = Self::get_beta_escrow_account_id();
         for hotkey in hotkeys {
-            for _ in Alpha::<T>::iter_prefix((hotkey, &escrow)) {
-                work = work.saturating_add(1);
-                if work > budget {
-                    return false;
+            if T::LegacyAlphaCompatibility::get() {
+                for _ in Alpha::<T>::iter_prefix((hotkey, &escrow)) {
+                    work = work.saturating_add(1);
+                    if work > budget {
+                        return false;
+                    }
                 }
             }
             for _ in AlphaV2::<T>::iter_prefix((hotkey, &escrow)) {

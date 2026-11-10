@@ -37,6 +37,13 @@ mod encrypted_json;
 /// Crypto type codes, matching the py-substrate-interface / btwallet convention.
 pub const CRYPTO_ED25519: u8 = 0;
 pub const CRYPTO_SR25519: u8 = 1;
+pub const CRYPTO_ECDSA: u8 = 2;
+/// Length of a compressed secp256k1 public key.
+pub const ECDSA_PUBLIC_KEY_LEN: usize = sp_core::ecdsa::PUBLIC_KEY_SERIALIZED_SIZE;
+/// Raw signature lengths per crypto type (without a MultiSignature variant byte).
+pub const ED25519_SIGNATURE_LEN: usize = ed25519::SIGNATURE_SERIALIZED_SIZE;
+pub const SR25519_SIGNATURE_LEN: usize = sr25519::SIGNATURE_SERIALIZED_SIZE;
+pub const ECDSA_SIGNATURE_LEN: usize = sp_core::ecdsa::SIGNATURE_SERIALIZED_SIZE;
 /// Versioned rotating commitment wrapper; initially wraps sr25519.
 pub const CRYPTO_HASHED: u8 = 4;
 pub const CRYPTO_HASHED_ED25519: u8 = 6;
@@ -189,6 +196,30 @@ pub fn ss58_from_public(public_key: [u8; 32], ss58_format: u16) -> String {
     buf[body_end] = checksum[0];
     buf[body_end + 1] = checksum[1];
     base58::base58_encode(&buf[7..body_end + 2])
+}
+
+/// Account id of a secp256k1 public key: `blake2_256(compressed_pubkey)`,
+/// the `MultiSigner::Ecdsa` -> `AccountId32` mapping the chain uses.
+pub fn account_id_from_ecdsa_public(public_key: &[u8]) -> Result<[u8; 32], CoreError> {
+    let compressed = <[u8; ECDSA_PUBLIC_KEY_LEN]>::try_from(public_key).map_err(|_| {
+        crypto_err(format!(
+            "ecdsa public key must be {ECDSA_PUBLIC_KEY_LEN} bytes (compressed secp256k1)"
+        ))
+    })?;
+    if !matches!(compressed[0], 0x02 | 0x03) {
+        return Err(crypto_err(
+            "ecdsa public key must be compressed (0x02/0x03 prefix)",
+        ));
+    }
+    Ok(sp_core::hashing::blake2_256(&compressed))
+}
+
+/// SS58 address of a compressed secp256k1 public key.
+pub fn ss58_from_ecdsa_public(public_key: &[u8], ss58_format: u16) -> Result<String, CoreError> {
+    Ok(ss58_from_public(
+        account_id_from_ecdsa_public(public_key)?,
+        ss58_format,
+    ))
 }
 
 fn verify_with_crypto(
@@ -661,6 +692,23 @@ impl Keypair {
     }
 }
 
+/// Verify exactly the supplied message bytes against an SS58 address.
+///
+/// Uses the same per-scheme verifier as [`verify`] (pinned Substrate
+/// sr25519/ed25519 and the hashed-account message envelopes), without its
+/// legacy `<Bytes>` wrapper retry. Invalid SS58 addresses, unsupported crypto
+/// types and incorrect sr25519/ed25519 signature lengths return errors; other
+/// signatures that do not verify return `Ok(false)`.
+pub fn verify_strict(
+    message: &[u8],
+    signature: &[u8],
+    ss58_address: &str,
+    crypto_type: u8,
+) -> Result<bool, CoreError> {
+    let public_key = public_key_from_ss58(ss58_address)?;
+    verify_with_crypto(crypto_type, &public_key, message, signature)
+}
+
 /// Verify a signature against an SS58 address without holding the secret key.
 pub fn verify(
     message: &[u8],
@@ -728,6 +776,34 @@ mod tests {
         let message = b"hello";
         let sig = kp.sign(message).unwrap();
         assert!(kp.verify(message, &sig).unwrap());
+    }
+
+    #[test]
+    fn ecdsa_ss58_matches_sp_core() {
+        use sp_core::ecdsa;
+
+        // sp-runtime's `MultiSigner::Ecdsa(pk).into_account()` is
+        // `blake2_256(pk.as_ref())` over the 33-byte compressed key.
+        let pair = ecdsa::Pair::from_string("//Alice", None).unwrap();
+        let public = pair.public();
+        let compressed: &[u8] = public.as_ref();
+        assert_eq!(compressed.len(), ECDSA_PUBLIC_KEY_LEN);
+        let expected = AccountId32::from(sp_core::hashing::blake2_256(compressed));
+        let account = account_id_from_ecdsa_public(compressed).unwrap();
+        assert_eq!(account, <[u8; 32]>::from(expected.clone()));
+        for format in [0u16, 42, 4096] {
+            assert_eq!(
+                ss58_from_ecdsa_public(compressed, format).unwrap(),
+                expected.to_ss58check_with_version(Ss58AddressFormat::custom(format))
+            );
+        }
+    }
+
+    #[test]
+    fn ecdsa_ss58_rejects_non_compressed_keys() {
+        assert!(account_id_from_ecdsa_public(&[0x02; 32]).is_err());
+        assert!(account_id_from_ecdsa_public(&[0x04; 33]).is_err());
+        assert!(account_id_from_ecdsa_public(&[0x04; 65]).is_err());
     }
 
     #[test]

@@ -340,6 +340,7 @@ impl pallet_subtensor::Config for Test {
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
     type AlphaAssets = AlphaAssets;
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<false>;
 }
 
 // Swap-related parameter types
@@ -444,9 +445,13 @@ impl ProxyInterface<U256> for FakeProxier {
         lease: &AccountId,
     ) -> DispatchResult {
         PROXIES.with_borrow_mut(|proxies| {
-            proxies.0.retain(|(b, l)| b != beneficiary && l != lease);
+            proxies.0.retain(|(b, l)| b != beneficiary || l != lease);
         });
         Ok(())
+    }
+
+    fn has_lease_beneficiary_proxy(lease: &AccountId, beneficiary: &AccountId) -> bool {
+        PROXIES.with_borrow(|proxies| proxies.0.contains(&(*lease, *beneficiary)))
     }
 
     fn has_delegator_proxies(_delegator: &AccountId) -> bool {

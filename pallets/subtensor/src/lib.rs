@@ -52,9 +52,10 @@ pub use extensions::*;
 pub use guards::*;
 pub use subnets::emission_weights::{
     EMISSION_WEIGHT_ONE, EMISSION_WEIGHT_SLOTS, EMISSION_WEIGHTS_VIEW_READS, EmissionIndex,
-    EmissionWeights, EmissionWeightsVec, EmissionWeightsView, MAX_BURN_RECYCLE_EMISSION,
-    MAX_OWNER_EMISSION, MAX_VALIDATOR_EMISSION, MIN_MINER_EMISSION, emission_fraction,
-    emission_share_to_parts, normalize_tao_weight, root_emission_share,
+    EmissionSlot, EmissionSplit, EmissionWeights, EmissionWeightsVec, EmissionWeightsView,
+    GammaEmission, MAX_BURN_RECYCLE_EMISSION, MAX_EMISSION_SLOTS, MAX_GAMMA_EMISSION,
+    MAX_GAMMA_SHARES, MAX_OWNER_EMISSION, MAX_VALIDATOR_EMISSION, MIN_MINER_EMISSION,
+    emission_fraction, emission_share_to_parts, normalize_tao_weight, root_emission_share,
 };
 
 /// Prevent an owner relationship from weakening a hotkey's authorization.
@@ -218,6 +219,14 @@ pub const DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO: u64 = 10_000_000;
 /// `price_limit`; a leg that cannot fill fully within the bound fails.
 pub const BASKET_TRADE_MAX_SLIPPAGE_BPS: u64 = 200;
 
+/// Maximum basket NAV impact of out-of-band prices on dividend share minting (0.1%).
+/// The per-pool 2% band still defines which prices require an anchored comparison.
+pub const BASKET_DIVIDEND_PRICE_IMPACT_BPS: u64 = 10;
+
+/// Gross incoming-dividend and combined mint-ratio impact budget (2%). This preserves
+/// the existing price-band tolerance at the batch level while allowing small outliers.
+pub const BASKET_DIVIDEND_MINT_IMPACT_BPS: u64 = 200;
+
 /// Half-life, in blocks, of the fast subnet price EMA ([`SubnetFastMovingPrice`]) that
 /// anchors `swap_basket` price bounds: 600 blocks (about two hours at 12s blocks). Short
 /// enough that honest trading self-heals after a real price move within hours; long enough
@@ -272,6 +281,9 @@ pub const GAMMA_REFILL_BLOCKS: u64 = 7200;
 /// Smallest gamma a mint credits: 0.1 gamma.
 pub const MIN_GAMMA_AMOUNT: u64 = 100_000_000;
 
+/// How far a gamma emission trade may fill from its pool's fast moving and spot prices: 2%.
+pub const GAMMA_EMISSION_MAX_SLIPPAGE_BPS: u64 = 200;
+
 /// Oldest TAO/USD feed, in blocks, a mint accepts: one hour.
 pub const TAO_USD_PRICE_MAX_AGE: u64 = 300;
 
@@ -300,7 +312,7 @@ pub mod pallet {
     use crate::migrations;
     use crate::staking::lock::LockState;
     use crate::subnets::dissolution::DissolveCleanupStatus;
-    use crate::subnets::emission_weights::EmissionWeightsVec;
+    use crate::subnets::emission_weights::{EmissionWeightsVec, GammaEmission};
     use crate::subnets::leasing::{LeaseId, SubnetLeaseOf};
     use crate::subnets::subnet::NetworkRegistrationInfo;
     use crate::weights::WeightInfo;
@@ -3800,6 +3812,12 @@ pub mod pallet {
     pub type SubnetLeases<T: Config> =
         StorageMap<_, Twox64Concat, LeaseId, SubnetLeaseOf<T>, OptionQuery>;
 
+    /// Internal settlement marker: a formally terminated lease's residual payout hotkey.
+    /// Kept only while a contributor debt or residual stake remains; the frozen lease layout is unchanged.
+    #[pallet::storage]
+    pub type SubnetLeaseTerminationHotkey<T: Config> =
+        StorageMap<_, Twox64Concat, LeaseId, T::AccountId, OptionQuery>;
+
     /// DMAP ( lease_id, contributor ) --> shares | The shares of a contributor for a given lease.
     #[pallet::storage]
     pub type SubnetLeaseShares<T: Config> =
@@ -4022,6 +4040,37 @@ pub mod pallet {
     /// and rises toward it by [`SubnetFastMovingPrice`]'s weight of the gap, at most of itself.
     #[pallet::storage]
     pub type SubnetGammaPrice<T: Config> = StorageMap<_, Identity, NetUid, U64F64, ValueQuery>;
+
+    /// MAP ( netuid ) --> gamma shares | The subnet's shares of its alpha emission to other
+    /// subnets' gamma, in `u64::MAX` parts, in ascending target order.
+    #[pallet::storage]
+    pub type SubnetGammaEmission<T: Config> =
+        StorageMap<_, Identity, NetUid, GammaEmission, ValueQuery>;
+
+    /// MAP ( netuid ) --> alpha | The subnet's emission accrued to its gamma shares since they
+    /// were last allotted it.
+    #[pallet::storage]
+    pub type PendingGammaEmission<T> =
+        StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
+
+    /// DMAP ( netuid, target ) --> alpha | Alpha allotted to the subnet's gamma share of the
+    /// target and not yet converted.
+    #[pallet::storage]
+    pub type UnconvertedGammaEmission<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Identity,
+        NetUid,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
+
+    /// MAP ( netuid ) --> whitelisted | Whether subnets may give the subnet gamma shares.
+    #[pallet::storage]
+    pub type SubnetGammaEmissionWhitelisted<T: Config> =
+        StorageMap<_, Identity, NetUid, bool, ValueQuery>;
 
     /// ITEM ( oracle ) | The account that feeds the TAO/USD price.
     #[pallet::storage]
@@ -4326,6 +4375,8 @@ pub trait ProxyInterface<AccountId> {
     -> DispatchResult;
     /// Whether `delegator` already holds any proxy grants (including reserved deposit).
     fn has_delegator_proxies(delegator: &AccountId) -> bool;
+    /// Whether the exact zero-delay lease-beneficiary grant is still installed.
+    fn has_lease_beneficiary_proxy(lease: &AccountId, beneficiary: &AccountId) -> bool;
 }
 
 impl<T> ProxyInterface<T> for () {
@@ -4335,6 +4386,11 @@ impl<T> ProxyInterface<T> for () {
 
     fn remove_lease_beneficiary_proxy(_: &T, _: &T) -> DispatchResult {
         Ok(())
+    }
+
+    fn has_lease_beneficiary_proxy(_: &T, _: &T) -> bool {
+        // No-op backends accept grants without storing them; the explicit marker tracks termination.
+        true
     }
 
     fn has_delegator_proxies(_: &T) -> bool {

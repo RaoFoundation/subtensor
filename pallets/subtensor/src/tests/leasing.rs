@@ -677,6 +677,9 @@ fn test_terminate_lease_works() {
             Some(
                 <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::terminate_lease(
                     contributors_count,
+                )
+                .saturating_add(
+                    <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::transfer_stake(),
                 ),
             )
         );
@@ -706,10 +709,94 @@ fn test_terminate_lease_works() {
     });
 }
 
-// A contributor dividend deferred during the lease is paid at termination when it can be
-// transferred. A debt that still cannot be transferred keeps its row, the lease record and
-// the subnet mapping, and is paid by the owner-cut hook once the obstruction clears; only
-// then is the record removed.
+// Lease termination must hand retained owner-cut stake and its lock to the beneficiary.
+// PROTECTED_REGRESSION: synthetic lease keys must not strand funds; changes require explicit human approval.
+#[test]
+fn regression_terminate_lease_transfers_retained_owner_cut_and_lock() {
+    new_test_ext(1).execute_with(|| {
+        let beneficiary = U256::from(1);
+        setup_crowdloan(
+            0,
+            10_000_000_000,
+            1_000_000_000_000,
+            beneficiary,
+            &[(U256::from(2), 990_000_000_000)],
+        );
+        let end_block = 500;
+        let (lease_id, lease) = setup_leased_network(
+            beneficiary,
+            Percent::from_percent(30),
+            Some(end_block),
+            Some(100_000_000_000),
+        );
+
+        run_to_block(end_block + 1);
+        OwnerCutAutoLockEnabled::<Test>::insert(lease.netuid, true);
+        let owner_cut = AlphaBalance::from(5_000_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey,
+            &lease.coldkey,
+            lease.netuid,
+            owner_cut,
+        );
+        SubtensorModule::auto_lock_owner_cut(lease.netuid, owner_cut);
+
+        let stranded = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey,
+            &lease.coldkey,
+            lease.netuid,
+        );
+        let Some(source_lock) = Lock::<Test>::get((lease.coldkey, lease.netuid, lease.hotkey))
+        else {
+            panic!("retained owner cut should be locked on the lease position");
+        };
+        assert!(stranded >= owner_cut);
+
+        let owner_hotkey = U256::from(3);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &beneficiary,
+            &owner_hotkey,
+        ));
+        assert!(SubtensorModule::account_rejects_locked_alpha(&beneficiary));
+        assert_ok!(SubtensorModule::terminate_lease(
+            RuntimeOrigin::signed(beneficiary),
+            lease_id,
+            owner_hotkey,
+        ));
+
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                &lease.coldkey,
+                lease.netuid,
+            ),
+            AlphaBalance::ZERO,
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &owner_hotkey,
+                &beneficiary,
+                lease.netuid,
+            ),
+            stranded,
+        );
+        assert!(!Lock::<Test>::contains_key((
+            lease.coldkey,
+            lease.netuid,
+            lease.hotkey,
+        )));
+        let Some(beneficiary_lock) = Lock::<Test>::get((beneficiary, lease.netuid, owner_hotkey))
+        else {
+            panic!("the retained owner-cut lock should follow the transferred stake");
+        };
+        assert_eq!(beneficiary_lock.locked_mass, source_lock.locked_mass);
+        assert_eq!(SubnetLeases::<Test>::get(lease_id), None);
+        assert!(!SubnetUidToLeaseId::<Test>::contains_key(lease.netuid));
+    });
+}
+
+// Final lease settlement pays funded contributor debts even below the user transfer minimum.
+// Retrying the hook or raising the price afterward must not duplicate those payments.
 // PROTECTED_REGRESSION: terminate lease settles deferred dividends; changes require explicit human approval.
 #[test]
 fn test_terminate_lease_settles_deferred_dividends() {
@@ -772,6 +859,8 @@ fn test_terminate_lease_settles_deferred_dividends() {
         run_to_block(end_block);
         let hotkey = U256::from(3);
         let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
+        let source_before = stake(&lease.coldkey);
+        let dust_before = stake(&dust_contributor);
         assert_ok!(SubtensorModule::terminate_lease(
             RuntimeOrigin::signed(beneficiary),
             lease_id,
@@ -785,33 +874,42 @@ fn test_terminate_lease_settles_deferred_dividends() {
             contributor
         ));
         assert_eq!(stake(&beneficiary), AlphaBalance::ZERO);
-        // Ownership moved, but the dust debt keeps its row, the lease record and the mapping.
+        // Ownership and the full residual move now; no price increase is needed to pay dust.
         assert_eq!(SubnetOwner::<Test>::get(lease.netuid), beneficiary);
-        assert_eq!(
-            SubnetLeaseUnpaidDividends::<Test>::get(lease_id, dust_contributor),
-            dust
-        );
-        assert!(SubnetLeases::<Test>::get(lease_id).is_some());
-        assert_eq!(
-            SubnetUidToLeaseId::<Test>::get(lease.netuid),
-            Some(lease_id)
-        );
+        assert_eq!(stake(&dust_contributor) - dust_before, dust);
+        assert!(!SubnetLeaseUnpaidDividends::<Test>::contains_prefix(
+            lease_id
+        ));
+        assert!(SubnetLeases::<Test>::get(lease_id).is_none());
+        assert_eq!(SubnetUidToLeaseId::<Test>::get(lease.netuid), None);
         assert!(!SubnetLeaseShares::<Test>::contains_prefix(lease_id));
-
-        // The owner-cut hook retries but the debt is still below the minimum transfer.
+        let recovered = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &beneficiary,
+            lease.netuid,
+        );
+        assert_eq!(recovered, source_before - deferred - dust);
         SubtensorModule::distribute_leased_network_dividends(lease_id, AlphaBalance::ZERO);
-        assert_eq!(stake(&dust_contributor), AlphaBalance::ZERO);
-        assert!(SubnetLeases::<Test>::get(lease_id).is_some());
+        assert_eq!(stake(&dust_contributor) - dust_before, dust);
+        assert_eq!(stake(&contributor) - contributor_before, deferred);
 
-        // The obstruction clears (alpha is worth more), the next hook pays the debt and the
-        // record is removed.
+        // Even a later 40x price rise cannot pay either entitlement a second time.
         mock::setup_reserves(
             lease.netuid,
             TaoBalance::from(4_000_000_000_000_u64),
             AlphaBalance::from(1_000_000_000_000_u64),
         );
         SubtensorModule::distribute_leased_network_dividends(lease_id, AlphaBalance::ZERO);
-        assert_eq!(stake(&dust_contributor), dust);
+        assert_eq!(stake(&dust_contributor) - dust_before, dust);
+        assert_eq!(stake(&contributor) - contributor_before, deferred);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &beneficiary,
+                lease.netuid,
+            ),
+            recovered
+        );
         assert!(!SubnetLeaseUnpaidDividends::<Test>::contains_prefix(
             lease_id
         ));

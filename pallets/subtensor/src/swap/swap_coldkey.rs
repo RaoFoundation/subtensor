@@ -351,20 +351,32 @@ impl<T: Config> Pallet<T> {
         };
 
         for hotkey in &old_hotkeys {
-            // Walk legacy + v2 share maps directly so we can stop at the admission
-            // sentinel without `alpha_iter_prefix`'s full-prefix materialization.
-            let mut seen: BTreeSet<NetUid> = BTreeSet::new();
-            for (netuid, share) in Alpha::<T>::iter_prefix((hotkey, old_coldkey)) {
-                if share == substrate_fixed::types::U64F64::from_num(0) || !seen.insert(netuid) {
-                    continue;
+            if T::LegacyAlphaCompatibility::get() {
+                let mut seen = BTreeSet::new();
+                for (netuid, share) in Alpha::<T>::iter_prefix((hotkey, old_coldkey)) {
+                    if share == substrate_fixed::types::U64F64::from_num(0) || !seen.insert(netuid)
+                    {
+                        continue;
+                    }
+                    work.positions = work.positions.saturating_add(1);
+                    if work.positions >= position_limit {
+                        return work;
+                    }
                 }
-                work.positions = work.positions.saturating_add(1);
-                if work.positions >= position_limit {
-                    return work;
+                for (netuid, share) in AlphaV2::<T>::iter_prefix((hotkey, old_coldkey)) {
+                    if share.is_zero() || !seen.insert(netuid) {
+                        continue;
+                    }
+                    work.positions = work.positions.saturating_add(1);
+                    if work.positions >= position_limit {
+                        return work;
+                    }
                 }
+                continue;
             }
-            for (netuid, share) in AlphaV2::<T>::iter_prefix((hotkey, old_coldkey)) {
-                if share.is_zero() || !seen.insert(netuid) {
+            // Production runtimes walk AlphaV2 directly.
+            for (_, share) in AlphaV2::<T>::iter_prefix((hotkey, old_coldkey)) {
+                if share.is_zero() {
                     continue;
                 }
                 work.positions = work.positions.saturating_add(1);
@@ -924,7 +936,7 @@ impl<T: Config> Pallet<T> {
 
         // A lease already handed over (terminated with deferred dividends still owed) has
         // no beneficiary proxy any more; only the record's beneficiary follows the coldkey.
-        let handed_over = SubnetOwner::<T>::get(lease.netuid) == lease.beneficiary;
+        let handed_over = Self::lease_has_terminated(lease_id, &lease);
         if !handed_over {
             T::ProxyInterface::remove_lease_beneficiary_proxy(&lease.coldkey, old_coldkey)?;
             T::ProxyInterface::add_lease_beneficiary_proxy(&lease.coldkey, new_coldkey)?;

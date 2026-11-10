@@ -8,6 +8,11 @@ BACKEND = "bittensor_core"
 
 CRYPTO_ED25519 = _backend.CRYPTO_ED25519
 CRYPTO_SR25519 = _backend.CRYPTO_SR25519
+CRYPTO_ECDSA = _backend.CRYPTO_ECDSA
+ECDSA_PUBLIC_KEY_LEN = _backend.ECDSA_PUBLIC_KEY_LEN
+ED25519_SIGNATURE_LEN = _backend.ED25519_SIGNATURE_LEN
+SR25519_SIGNATURE_LEN = _backend.SR25519_SIGNATURE_LEN
+ECDSA_SIGNATURE_LEN = _backend.ECDSA_SIGNATURE_LEN
 CRYPTO_HASHED = _backend.CRYPTO_HASHED
 try:
     CRYPTO_HASHED_ED25519 = _backend.CRYPTO_HASHED_ED25519
@@ -119,6 +124,8 @@ WrongPasswordError = _backend.WrongPasswordError
 verify = _backend.verify
 ss58_decode = _backend.ss58_decode
 ss58_encode = _backend.ss58_encode
+ecdsa_account_id = _backend.ecdsa_account_id
+ecdsa_ss58_encode = _backend.ecdsa_ss58_encode
 decode_hashed_receiving_address = _backend.decode_hashed_receiving_address
 decode_mldsa_receiving_address = _backend.decode_mldsa_receiving_address
 encode_mldsa_receiving_address = _backend.encode_mldsa_receiving_address
@@ -133,6 +140,34 @@ keyfile_data_is_encrypted_legacy = _backend.keyfile_data_is_encrypted_legacy
 keyfile_data_is_encrypted_nacl = _backend.keyfile_data_is_encrypted_nacl
 save_password_to_environment = _backend.save_password_to_environment
 serialized_keypair_to_keyfile_data = _backend.serialized_keypair_to_keyfile_data
+
+# Native names newer than some installable cores, mapped to the first
+# bittensor-core that exports them. A mismatched older core still imports;
+# only calling the missing helper fails.
+_CORE_HELPERS_SINCE = {
+    "verify_strict": "0.1.10",
+    "encode_password_for_environment": "0.1.10",
+}
+
+
+def _core_helper(name: str):
+    native = getattr(_backend, name, None)
+    if native is not None:
+        return native
+    version = _CORE_HELPERS_SINCE[name]
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError(
+            f"bittensor.sp_core.{name} requires bittensor-core>={version}; "
+            "rebuild or upgrade bittensor-core together with bittensor."
+        )
+
+    unavailable.__name__ = unavailable.__qualname__ = name
+    return unavailable
+
+
+verify_strict = _core_helper("verify_strict")
+encode_password_for_environment = _core_helper("encode_password_for_environment")
 
 # Backwards-compatible aliases (pre-migration bittensor.sp_core API)
 verify_signature = verify

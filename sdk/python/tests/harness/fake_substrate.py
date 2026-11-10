@@ -270,6 +270,18 @@ class FakeSubstrate:
             raise StorageFunctionNotFound(f"{module}.{storage_function}")
         return DEFAULT_STORAGE.get(item)
 
+    async def storage_exists(
+        self,
+        module: str,
+        storage_function: str,
+        params: Optional[list] = None,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        item = (module, storage_function)
+        if item in self.missing_storage:
+            raise StorageFunctionNotFound(f"{module}.{storage_function}")
+        return self._storage.get(item, {}).get(_key(params)) is not None
+
     async def map_has_entries(
         self,
         module: str,

@@ -825,8 +825,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 245,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L245",
+          "line": 252,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L252",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1410,8 +1410,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 269,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L269",
+          "line": 276,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L276",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1428,8 +1428,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 267,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L267",
+          "line": 274,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L274",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1779,8 +1779,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 265,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L265",
+          "line": 272,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L272",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -1986,6 +1986,24 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 329,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L329",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "EmissionSlotsNotAscending": {
+      "code": "invalid_argument",
+      "description": "`sudo_set_subnet_emission_weights_v2` got a split whose slots are out of order or repeated. List each slot at most once, in declared order (burn, recycle, owner, validator, miner, then gamma slots by netuid).",
+      "docs_url": "/docs/errors/chain/EmissionSlotsNotAscending",
+      "markdown_url": "/llms.mdx/docs/errors/chain/EmissionSlotsNotAscending/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 494,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L494",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2422,6 +2440,60 @@
         }
       ]
     },
+    "GammaEmissionAboveMaximum": {
+      "code": "policy_violation",
+      "description": "A gamma share in the emission split is above the 10% maximum per target subnet. Lower the share.",
+      "docs_url": "/docs/errors/chain/GammaEmissionAboveMaximum",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaEmissionAboveMaximum/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 496,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L496",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaEmissionNotSettableOnLeasedSubnet": {
+      "code": "policy_violation",
+      "description": "The subnet is under a lease, and a leased subnet cannot set gamma shares in its emission split until the lease ends.",
+      "docs_url": "/docs/errors/chain/GammaEmissionNotSettableOnLeasedSubnet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaEmissionNotSettableOnLeasedSubnet/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 503,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L503",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaEmissionTargetNotWhitelisted": {
+      "code": "policy_violation",
+      "description": "A gamma share in the emission split names a subnet root has not whitelisted for gamma emission. Only whitelisted subnets can be targets.",
+      "docs_url": "/docs/errors/chain/GammaEmissionTargetNotWhitelisted",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaEmissionTargetNotWhitelisted/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 499,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L499",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "GasLimitTooHigh": {
       "code": "invalid_argument",
       "description": "The transaction's `gas_limit` exceeds the block gas limit configured for the EVM. Compare the `gas_limit` argument against the chain's block gas limit and lower it.",
@@ -2479,8 +2551,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 271,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L271",
+          "line": 278,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L278",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3432,8 +3504,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 259,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L259",
+          "line": 266,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L266",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3792,8 +3864,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 243,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L243",
+          "line": 250,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L250",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3810,8 +3882,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 257,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L257",
+          "line": 264,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L264",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3828,8 +3900,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 255,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L255",
+          "line": 262,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L262",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3900,8 +3972,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 241,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L241",
+          "line": 248,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L248",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3998,8 +4070,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 251,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L251",
+          "line": 258,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L258",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4016,8 +4088,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 253,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L253",
+          "line": 260,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L260",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4133,8 +4205,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 247,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L247",
+          "line": 254,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L254",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4711,8 +4783,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 261,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L261",
+          "line": 268,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L268",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5079,8 +5151,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 263,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L263",
+          "line": 270,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L270",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5952,8 +6024,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 239,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L239",
+          "line": 246,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L246",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -6323,6 +6395,24 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 475,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L475",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "TooManyGammaShares": {
+      "code": "limit_exceeded",
+      "description": "The emission split has more than 16 gamma shares. Drop gamma shares to at most 16.",
+      "docs_url": "/docs/errors/chain/TooManyGammaShares",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyGammaShares/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 501,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L501",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -6889,8 +6979,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 249,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L249",
+          "line": 256,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L256",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

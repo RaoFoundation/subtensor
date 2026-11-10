@@ -613,8 +613,24 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         now: u64,
     ) -> ConvictionModel {
-        ConvictionModel::new(
+        Self::read_conviction_model_for_hotkey_with_owner_status(
+            coldkey,
+            netuid,
+            hotkey,
+            now,
             Self::is_subnet_owner_hotkey(netuid, hotkey),
+        )
+    }
+
+    fn read_conviction_model_for_hotkey_with_owner_status(
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        now: u64,
+        owner_lock: bool,
+    ) -> ConvictionModel {
+        ConvictionModel::new(
+            owner_lock,
             Self::is_perpetual_lock(coldkey, netuid),
             Lock::<T>::get((coldkey, netuid, hotkey)).unwrap_or_else(|| Self::empty_lock(now)),
             HotkeyLock::<T>::get(netuid, hotkey).unwrap_or_else(|| Self::empty_lock(now)),
@@ -624,7 +640,7 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    fn read_conviction_model(
+    pub(crate) fn read_conviction_model(
         coldkey: &T::AccountId,
         netuid: NetUid,
         now: u64,
@@ -942,8 +958,28 @@ impl<T: Config> Pallet<T> {
         amount: AlphaBalance,
         conviction: U64F64,
     ) {
+        Self::reduce_aggregate_lock_with_owner_status(
+            coldkey,
+            hotkey,
+            netuid,
+            amount,
+            conviction,
+            Self::is_subnet_owner_hotkey(netuid, hotkey),
+        );
+    }
+
+    fn reduce_aggregate_lock_with_owner_status(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+        conviction: U64F64,
+        owner_lock: bool,
+    ) {
         let now = Self::get_current_block_as_u64();
-        let mut model = Self::read_conviction_model_for_hotkey(coldkey, netuid, hotkey, now);
+        let mut model = Self::read_conviction_model_for_hotkey_with_owner_status(
+            coldkey, netuid, hotkey, now, owner_lock,
+        );
         model.roll_forward_aggregate(now, UnlockRate::<T>::get(), MaturityRate::<T>::get());
         model.reduce_aggregate(amount, conviction);
         Self::save_conviction_model(coldkey, netuid, hotkey, model);
@@ -1171,6 +1207,180 @@ impl<T: Config> Pallet<T> {
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal))
     }
 
+    /// Reclassify aggregate lock buckets before changing a subnet's owner hotkey.
+    /// Shared by conviction takeovers and the one-time lease handover.
+    pub(crate) fn move_subnet_owner_lock_buckets(
+        netuid: NetUid,
+        old_owner_hotkey: &T::AccountId,
+        new_owner_hotkey: &T::AccountId,
+    ) {
+        if old_owner_hotkey == new_owner_hotkey {
+            return;
+        }
+        let now = Self::get_current_block_as_u64();
+        let unlock_rate = UnlockRate::<T>::get();
+        let maturity_rate = MaturityRate::<T>::get();
+        // Move aggregate buckets using the hotkey's new role.
+        if let Some(owner_lock) = OwnerLock::<T>::take(netuid) {
+            let moved_owner_lock = ConvictionModel::roll_forward_lock(
+                owner_lock,
+                now,
+                unlock_rate,
+                maturity_rate,
+                true,
+                true,
+            );
+            let current = HotkeyLock::<T>::get(netuid, old_owner_hotkey)
+                .map(|lock| {
+                    ConvictionModel::roll_forward_lock(
+                        lock,
+                        now,
+                        unlock_rate,
+                        maturity_rate,
+                        false,
+                        true,
+                    )
+                    .0
+                })
+                .unwrap_or_else(|| Self::empty_lock(now));
+            Self::insert_hotkey_lock_state(
+                netuid,
+                old_owner_hotkey,
+                LockState {
+                    locked_mass: current
+                        .locked_mass
+                        .saturating_add(moved_owner_lock.0.locked_mass),
+                    conviction: current
+                        .conviction
+                        .saturating_add(moved_owner_lock.0.conviction),
+                    last_update: now,
+                },
+            );
+        }
+        if let Some(owner_lock) = DecayingOwnerLock::<T>::take(netuid) {
+            let moved_owner_lock = ConvictionModel::roll_forward_lock(
+                owner_lock,
+                now,
+                unlock_rate,
+                maturity_rate,
+                true,
+                false,
+            );
+            let current = DecayingHotkeyLock::<T>::get(netuid, old_owner_hotkey)
+                .map(|lock| {
+                    ConvictionModel::roll_forward_lock(
+                        lock,
+                        now,
+                        unlock_rate,
+                        maturity_rate,
+                        false,
+                        false,
+                    )
+                    .0
+                })
+                .unwrap_or_else(|| Self::empty_lock(now));
+            Self::insert_decaying_hotkey_lock_state(
+                netuid,
+                old_owner_hotkey,
+                LockState {
+                    locked_mass: current
+                        .locked_mass
+                        .saturating_add(moved_owner_lock.0.locked_mass),
+                    conviction: current
+                        .conviction
+                        .saturating_add(moved_owner_lock.0.conviction),
+                    last_update: now,
+                },
+            );
+        }
+        if let Some(king_lock) = HotkeyLock::<T>::take(netuid, new_owner_hotkey) {
+            let moved_king_lock = ConvictionModel::roll_forward_lock(
+                king_lock,
+                now,
+                unlock_rate,
+                maturity_rate,
+                false,
+                true,
+            );
+            let current = OwnerLock::<T>::get(netuid)
+                .map(|lock| {
+                    ConvictionModel::roll_forward_lock(
+                        lock,
+                        now,
+                        unlock_rate,
+                        maturity_rate,
+                        true,
+                        true,
+                    )
+                    .0
+                })
+                .unwrap_or_else(|| Self::empty_lock(now));
+            Self::insert_owner_lock_state(
+                netuid,
+                ConvictionModel::roll_forward_lock(
+                    LockState {
+                        locked_mass: current
+                            .locked_mass
+                            .saturating_add(moved_king_lock.0.locked_mass),
+                        conviction: current
+                            .conviction
+                            .saturating_add(moved_king_lock.0.conviction),
+                        last_update: now,
+                    },
+                    now,
+                    unlock_rate,
+                    maturity_rate,
+                    true,
+                    true,
+                )
+                .0,
+            );
+        }
+        if let Some(king_lock) = DecayingHotkeyLock::<T>::take(netuid, new_owner_hotkey) {
+            let moved_king_lock = ConvictionModel::roll_forward_lock(
+                king_lock,
+                now,
+                unlock_rate,
+                maturity_rate,
+                false,
+                false,
+            );
+            let current = DecayingOwnerLock::<T>::get(netuid)
+                .map(|lock| {
+                    ConvictionModel::roll_forward_lock(
+                        lock,
+                        now,
+                        unlock_rate,
+                        maturity_rate,
+                        true,
+                        false,
+                    )
+                    .0
+                })
+                .unwrap_or_else(|| Self::empty_lock(now));
+            Self::insert_decaying_owner_lock_state(
+                netuid,
+                ConvictionModel::roll_forward_lock(
+                    LockState {
+                        locked_mass: current
+                            .locked_mass
+                            .saturating_add(moved_king_lock.0.locked_mass),
+                        conviction: current
+                            .conviction
+                            .saturating_add(moved_king_lock.0.conviction),
+                        last_update: now,
+                    },
+                    now,
+                    unlock_rate,
+                    maturity_rate,
+                    true,
+                    false,
+                )
+                .0,
+            );
+        }
+    }
+
     /// Reassigns subnet ownership to the current lock-conviction leader when the subnet
     /// is mature enough and that leader has accumulated enough conviction on its own.
     ///
@@ -1243,8 +1453,6 @@ impl<T: Config> Pallet<T> {
             return;
         }
         let old_owner_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
-        let unlock_rate = UnlockRate::<T>::get();
-        let maturity_rate = MaturityRate::<T>::get();
 
         // Register new owner as a neuron if not yet registered.
         if Self::get_uid_for_net_and_hotkey(netuid, &king_hotkey).is_err()
@@ -1253,165 +1461,7 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        // Move aggregate buckets using the hotkey's new role.
-        if let Some(owner_lock) = OwnerLock::<T>::take(netuid) {
-            let moved_owner_lock = ConvictionModel::roll_forward_lock(
-                owner_lock,
-                now,
-                unlock_rate,
-                maturity_rate,
-                true,
-                true,
-            );
-            let current = HotkeyLock::<T>::get(netuid, &old_owner_hotkey)
-                .map(|lock| {
-                    ConvictionModel::roll_forward_lock(
-                        lock,
-                        now,
-                        unlock_rate,
-                        maturity_rate,
-                        false,
-                        true,
-                    )
-                    .0
-                })
-                .unwrap_or_else(|| Self::empty_lock(now));
-            Self::insert_hotkey_lock_state(
-                netuid,
-                &old_owner_hotkey,
-                LockState {
-                    locked_mass: current
-                        .locked_mass
-                        .saturating_add(moved_owner_lock.0.locked_mass),
-                    conviction: current
-                        .conviction
-                        .saturating_add(moved_owner_lock.0.conviction),
-                    last_update: now,
-                },
-            );
-        }
-        if let Some(owner_lock) = DecayingOwnerLock::<T>::take(netuid) {
-            let moved_owner_lock = ConvictionModel::roll_forward_lock(
-                owner_lock,
-                now,
-                unlock_rate,
-                maturity_rate,
-                true,
-                false,
-            );
-            let current = DecayingHotkeyLock::<T>::get(netuid, &old_owner_hotkey)
-                .map(|lock| {
-                    ConvictionModel::roll_forward_lock(
-                        lock,
-                        now,
-                        unlock_rate,
-                        maturity_rate,
-                        false,
-                        false,
-                    )
-                    .0
-                })
-                .unwrap_or_else(|| Self::empty_lock(now));
-            Self::insert_decaying_hotkey_lock_state(
-                netuid,
-                &old_owner_hotkey,
-                LockState {
-                    locked_mass: current
-                        .locked_mass
-                        .saturating_add(moved_owner_lock.0.locked_mass),
-                    conviction: current
-                        .conviction
-                        .saturating_add(moved_owner_lock.0.conviction),
-                    last_update: now,
-                },
-            );
-        }
-        if let Some(king_lock) = HotkeyLock::<T>::take(netuid, &king_hotkey) {
-            let moved_king_lock = ConvictionModel::roll_forward_lock(
-                king_lock,
-                now,
-                unlock_rate,
-                maturity_rate,
-                false,
-                true,
-            );
-            let current = OwnerLock::<T>::get(netuid)
-                .map(|lock| {
-                    ConvictionModel::roll_forward_lock(
-                        lock,
-                        now,
-                        unlock_rate,
-                        maturity_rate,
-                        true,
-                        true,
-                    )
-                    .0
-                })
-                .unwrap_or_else(|| Self::empty_lock(now));
-            Self::insert_owner_lock_state(
-                netuid,
-                ConvictionModel::roll_forward_lock(
-                    LockState {
-                        locked_mass: current
-                            .locked_mass
-                            .saturating_add(moved_king_lock.0.locked_mass),
-                        conviction: current
-                            .conviction
-                            .saturating_add(moved_king_lock.0.conviction),
-                        last_update: now,
-                    },
-                    now,
-                    unlock_rate,
-                    maturity_rate,
-                    true,
-                    true,
-                )
-                .0,
-            );
-        }
-        if let Some(king_lock) = DecayingHotkeyLock::<T>::take(netuid, &king_hotkey) {
-            let moved_king_lock = ConvictionModel::roll_forward_lock(
-                king_lock,
-                now,
-                unlock_rate,
-                maturity_rate,
-                false,
-                false,
-            );
-            let current = DecayingOwnerLock::<T>::get(netuid)
-                .map(|lock| {
-                    ConvictionModel::roll_forward_lock(
-                        lock,
-                        now,
-                        unlock_rate,
-                        maturity_rate,
-                        true,
-                        false,
-                    )
-                    .0
-                })
-                .unwrap_or_else(|| Self::empty_lock(now));
-            Self::insert_decaying_owner_lock_state(
-                netuid,
-                ConvictionModel::roll_forward_lock(
-                    LockState {
-                        locked_mass: current
-                            .locked_mass
-                            .saturating_add(moved_king_lock.0.locked_mass),
-                        conviction: current
-                            .conviction
-                            .saturating_add(moved_king_lock.0.conviction),
-                        last_update: now,
-                    },
-                    now,
-                    unlock_rate,
-                    maturity_rate,
-                    true,
-                    false,
-                )
-                .0,
-            );
-        }
+        Self::move_subnet_owner_lock_buckets(netuid, &old_owner_hotkey, &king_hotkey);
 
         // Reassign subnet owner coldkey and owner hotkey.
         SubnetOwner::<T>::insert(netuid, new_owner_coldkey.clone());
@@ -2028,6 +2078,49 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         amount: AlphaBalance,
     ) -> DispatchResult {
+        Self::transfer_lock_with_policy(
+            origin_coldkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            amount,
+            None,
+            false,
+        )
+    }
+
+    /// Transfer a lease's lock after subnet ownership has moved away from its synthetic
+    /// coldkey. The owner transition has already reclassified the aggregate buckets, so
+    /// derive the source bucket from its actual current role. The beneficiary consents to receive
+    /// locked alpha by signing `terminate_lease`, so the account-level unsolicited-transfer
+    /// preference does not apply to this protocol hand-over.
+    pub(crate) fn transfer_former_owner_lock_with_consent(
+        origin_coldkey: &T::AccountId,
+        destination_coldkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> DispatchResult {
+        Self::transfer_lock_with_policy(
+            origin_coldkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            amount,
+            None,
+            true,
+        )
+    }
+
+    fn transfer_lock_with_policy(
+        origin_coldkey: &T::AccountId,
+        destination_coldkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+        source_owner_lock: Option<bool>,
+        destination_consented_to_locked_alpha: bool,
+    ) -> DispatchResult {
         let now = Self::get_current_block_as_u64();
 
         // If no actual transfer happens, this is ok
@@ -2048,11 +2141,19 @@ impl<T: Config> Pallet<T> {
         let mut remaining_to_transfer = amount;
 
         // Read the locks for source and destination coldkey (if exist) and roll forward
-        let Some((source_hotkey, mut source_model)) =
-            Self::read_conviction_model(origin_coldkey, netuid, now)
+        let Some((source_hotkey, _)) = Lock::<T>::iter_prefix((origin_coldkey, netuid)).next()
         else {
             return Ok(());
         };
+        let source_owner_lock = source_owner_lock
+            .unwrap_or_else(|| Self::is_subnet_owner_hotkey(netuid, &source_hotkey));
+        let mut source_model = Self::read_conviction_model_for_hotkey_with_owner_status(
+            origin_coldkey,
+            netuid,
+            &source_hotkey,
+            now,
+            source_owner_lock,
+        );
 
         let unlock_rate = UnlockRate::<T>::get();
         let maturity_rate = MaturityRate::<T>::get();
@@ -2135,14 +2236,16 @@ impl<T: Config> Pallet<T> {
                 .conviction
                 .saturating_add(received_conviction);
         }
-        Self::ensure_can_receive_locked_alpha(destination_coldkey, locked_transfer)?;
+        if !destination_consented_to_locked_alpha {
+            Self::ensure_can_receive_locked_alpha(destination_coldkey, locked_transfer)?;
+        }
 
         source_lock = ConvictionModel::roll_forward_lock(
             source_lock,
             now,
             unlock_rate,
             maturity_rate,
-            Self::is_subnet_owner_hotkey(netuid, &source_hotkey),
+            source_owner_lock,
             Self::is_perpetual_lock(origin_coldkey, netuid),
         )
         .0;
@@ -2166,12 +2269,13 @@ impl<T: Config> Pallet<T> {
             destination_lock,
         );
         if !locked_transfer.is_zero() {
-            Self::reduce_aggregate_lock(
+            Self::reduce_aggregate_lock_with_owner_status(
                 origin_coldkey,
                 &source_hotkey,
                 netuid,
                 locked_transfer,
                 conviction_transfer,
+                source_owner_lock,
             );
             Self::add_aggregate_lock(
                 destination_coldkey,

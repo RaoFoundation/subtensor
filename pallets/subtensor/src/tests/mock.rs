@@ -466,6 +466,7 @@ impl crate::Config for Test {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<true>;
 }
 
 // Swap-related parameter types
@@ -621,9 +622,17 @@ impl ProxyInterface<U256> for FakeProxier {
         lease: &AccountId,
     ) -> DispatchResult {
         PROXIES.with_borrow_mut(|proxies| {
+            let before = proxies.0.len();
             proxies.0.retain(|(b, l)| b != beneficiary || l != lease);
-        });
-        Ok(())
+            if proxies.0.len() == before {
+                return Err(sp_runtime::DispatchError::Other("NotFound"));
+            }
+            Ok(())
+        })
+    }
+
+    fn has_lease_beneficiary_proxy(lease: &AccountId, beneficiary: &AccountId) -> bool {
+        PROXIES.with_borrow(|proxies| proxies.0.contains(&(*lease, *beneficiary)))
     }
 
     fn has_delegator_proxies(_delegator: &AccountId) -> bool {

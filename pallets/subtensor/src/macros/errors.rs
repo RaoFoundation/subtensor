@@ -490,5 +490,16 @@ mod errors {
         /// `set_subnet_emission_weights`: burn (slot 0) and recycle (slot 1) together may be
         /// at most 33% of emission.
         BurnRecycleEmissionAboveMaximum,
+        /// `set_subnet_emission_weights_v2`: the split's slots are not in strictly ascending order.
+        EmissionSlotsNotAscending,
+        /// `set_subnet_emission_weights_v2`: a gamma share may be at most 10% of emission.
+        GammaEmissionAboveMaximum,
+        /// `set_subnet_emission_weights_v2`: a gamma share names a subnet that is not whitelisted
+        /// for gamma emission.
+        GammaEmissionTargetNotWhitelisted,
+        /// `set_subnet_emission_weights_v2`: a split may have at most 16 gamma shares.
+        TooManyGammaShares,
+        /// `set_subnet_emission_weights_v2`: a subnet under a lease may not have gamma shares.
+        GammaEmissionNotSettableOnLeasedSubnet,
     }
 }

@@ -25,4 +25,9 @@ functionality belongs on [Staking V2](./staking-v2).
 | `removeProxy(bytes32)` | nonpayable |
 | `getStake(bytes32,bytes32,uint256)` | `view` |
 
+`getTotalColdkeyStake` charges gas incrementally for the hotkeys and stake
+positions actually scanned. It does not require a budget for every possible
+hotkey/subnet combination. A call with insufficient gas stops before an unpaid
+iterator step; the released selector and return units remain unchanged.
+
 Source: [`staking.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/staking.sol)
