@@ -2536,3 +2536,269 @@ fn gamma_shares_leaving_the_split_return_to_miners() {
         returned(before);
     });
 }
+
+/// Every `GammaEmissionMinted` as `(alpha_sold, tao, gamma)`.
+fn gamma_emission_mints() -> Vec<(AlphaBalance, TaoBalance, GammaBalance)> {
+    System::events()
+        .into_iter()
+        .filter_map(|record| match record.event {
+            RuntimeEvent::SubtensorModule(Event::GammaEmissionMinted {
+                alpha_sold,
+                tao,
+                gamma,
+                ..
+            }) => Some((alpha_sold, tao, gamma)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn subnet_account(netuid: NetUid) -> U256 {
+    SubtensorModule::get_subnet_account_id(netuid).unwrap()
+}
+
+fn balance(who: U256) -> u64 {
+    SubtensorModule::get_coldkey_balance(&who).to_u64()
+}
+
+fn spot_rao(netuid: NetUid) -> u64 {
+    (<Test as Config>::SwapInterface::current_alpha_price(netuid)
+        * U64F64::from_num(1_000_000_000u64))
+    .to_num()
+}
+
+/// The TAO held by the two subnet accounts and the block author, which a conversion only moves
+/// between them.
+fn conversion_tao(source: NetUid, target: NetUid) -> u64 {
+    balance(subnet_account(source))
+        + balance(subnet_account(target))
+        + balance(U256::from(MOCK_BLOCK_BUILDER))
+}
+
+/// Everything a conversion from `source` to `target` changes.
+fn conversion_state(source: NetUid, target: NetUid) -> impl PartialEq + core::fmt::Debug {
+    (
+        [source, target].map(|netuid| {
+            (
+                SubnetTAO::<Test>::get(netuid),
+                SubnetAlphaIn::<Test>::get(netuid),
+                SubnetAlphaOut::<Test>::get(netuid),
+                balance(subnet_account(netuid)),
+            )
+        }),
+        balance(U256::from(MOCK_BLOCK_BUILDER)),
+        (TotalIssuance::<Test>::get(), TotalStake::<Test>::get()),
+        GammaDeposits::<Test>::get(target, U256::from(SOURCE_OWNER_HOTKEY)),
+        (
+            PendingGammaEmission::<Test>::get(source),
+            UnconvertedGammaEmission::<Test>::get(source, target),
+        ),
+        System::events().len(),
+    )
+}
+
+/// A source with `alpha` allotted to its share of `target` and nothing converted yet.
+fn allotted_gamma_emission(alpha: u64) -> (NetUid, NetUid) {
+    let (source, target) = gamma_emission_subnets();
+    assert_ok!(set_split(
+        source,
+        split_with_gamma(target, MAX_GAMMA_EMISSION)
+    ));
+    PendingGammaEmission::<Test>::insert(source, AlphaBalance::from(alpha));
+    SubtensorModule::allot_gamma_emission(source, &SubnetGammaEmission::<Test>::get(source));
+    assert_eq!(
+        UnconvertedGammaEmission::<Test>::get(source, target),
+        AlphaBalance::from(alpha)
+    );
+    (source, target)
+}
+
+fn convert(source: NetUid, target: NetUid) -> DispatchResult {
+    frame_support::storage::with_storage_layer(|| {
+        SubtensorModule::mint_gamma_emission_share(source, target)
+    })
+}
+
+/// The TAO the conversion's sale returns and its fee to the block author out of the source's
+/// account, read from a conversion that is rolled back.
+fn sale_of_conversion(source: NetUid, target: NetUid) -> (u64, u64) {
+    let author = U256::from(MOCK_BLOCK_BUILDER);
+    let before = (balance(subnet_account(source)), balance(author));
+    let mut sale = (0, 0);
+    let _ = frame_support::storage::with_storage_layer(|| -> DispatchResult {
+        SubtensorModule::mint_gamma_emission_share(source, target)?;
+        let (_, tao, _) = gamma_emission_mints().pop().unwrap();
+        let paid = before.0 - balance(subnet_account(source));
+        sale = (tao.to_u64(), paid - tao.to_u64());
+        Err(DispatchError::Other("rolled back"))
+    });
+    assert!(sale.0 > 0);
+    sale
+}
+
+fn set_balance(who: U256, amount: u64) {
+    assert_ok!(Balances::force_set_balance(
+        RuntimeOrigin::root(),
+        who,
+        amount.into()
+    ));
+}
+
+fn existential_deposit() -> u64 {
+    <Balances as frame_support::traits::fungible::Inspect<U256>>::minimum_balance().to_u64()
+}
+
+#[test]
+fn gamma_emission_purchase_ceiling_boundary() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = allotted_gamma_emission(TAO);
+        let spot = spot_rao(target);
+        let ceiling = |fast: U64F64| {
+            SubnetFastMovingPrice::<Test>::insert(target, fast);
+            SubtensorModule::gamma_emission_price_limits(target)
+                .unwrap()
+                .1
+                .to_u64()
+        };
+        // The fast moving price whose ceiling, 2% above it, is exactly `rao`.
+        let fast_for = |rao: u64| {
+            let mut fast = U64F64::from_num(rao) / U64F64::from_num(1_020_000_000u64);
+            while ceiling(fast) < rao {
+                fast += U64F64::from_num(0.000_000_000_01);
+            }
+            assert_eq!(ceiling(fast), rao);
+            fast
+        };
+        // A ceiling at or below spot leaves the target's pool no room, one rao above it room
+        // for less than the smallest mint, and from there the conversion stays under it.
+        let refused: DispatchError =
+            pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded.into();
+        let too_low: DispatchError = Error::<Test>::AmountTooLow.into();
+        for (offset, expected) in [
+            (-1i64, Err(refused)),
+            (0, Err(refused)),
+            (1, Err(too_low)),
+            (1_000, Ok(())),
+            (1_000_000, Ok(())),
+        ] {
+            let rao = spot.saturating_add_signed(offset);
+            SubnetFastMovingPrice::<Test>::insert(target, fast_for(rao));
+            let before = conversion_state(source, target);
+            let tao = conversion_tao(source, target);
+            assert_eq!(convert(source, target), expected);
+            if expected.is_err() {
+                assert_eq!(conversion_state(source, target), before);
+            } else {
+                assert!(spot_rao(target) <= rao);
+            }
+            assert_eq!(conversion_tao(source, target), tao);
+        }
+    });
+}
+
+#[test]
+fn gamma_emission_converts_only_what_keeps_the_target_under_its_ceiling() {
+    new_test_ext(1).execute_with(|| {
+        let allotted = 500 * TAO;
+        let (source, target) = allotted_gamma_emission(allotted);
+        let ceiling = SubtensorModule::gamma_emission_price_limits(target)
+            .unwrap()
+            .1
+            .to_u64();
+        let floor = SubtensorModule::gamma_emission_price_limits(source)
+            .unwrap()
+            .0
+            .to_u64();
+        let tao = conversion_tao(source, target);
+        SubtensorModule::mint_gamma_emission(source);
+
+        let mints = gamma_emission_mints();
+        let &[(alpha_sold, _, gamma)] = mints.as_slice() else {
+            panic!("one conversion");
+        };
+        assert!(!alpha_sold.is_zero() && alpha_sold.to_u64() < allotted);
+        assert_eq!(
+            UnconvertedGammaEmission::<Test>::get(source, target),
+            AlphaBalance::from(allotted) - alpha_sold
+        );
+        assert!(spot_rao(target) <= ceiling);
+        assert!(spot_rao(source) >= floor);
+        assert_eq!(deposit(target, SOURCE_OWNER_HOTKEY).balance, gamma);
+        assert_eq!(conversion_tao(source, target), tao);
+    });
+}
+
+#[test]
+fn gamma_emission_rolls_back_when_the_purchase_fails_after_the_sale() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = allotted_gamma_emission(TAO);
+        // The sale pays its fee and leaves the subnet's account nothing to buy with.
+        let (_, fee) = sale_of_conversion(source, target);
+        set_balance(subnet_account(source), existential_deposit() + fee);
+        let before = conversion_state(source, target);
+
+        assert_noop!(
+            convert(source, target),
+            Error::<Test>::InsufficientTaoBalance
+        );
+        SubtensorModule::mint_gamma_emission(source);
+        assert_eq!(conversion_state(source, target), before);
+        assert!(gamma_emission_mints().is_empty());
+    });
+}
+
+#[test]
+fn gamma_emission_rolls_back_when_the_purchase_takes_less_than_the_sale_returned() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = allotted_gamma_emission(TAO);
+        // The subnet's account holds half of what the sale returns, so the purchase spends
+        // half. The conversion succeeds on this state with the account funded.
+        let (sale, fee) = sale_of_conversion(source, target);
+        set_balance(
+            subnet_account(source),
+            existential_deposit() + fee + sale / 2,
+        );
+        let before = conversion_state(source, target);
+
+        assert_noop!(convert(source, target), Error::<Test>::SlippageTooHigh);
+        SubtensorModule::mint_gamma_emission(source);
+        assert_eq!(conversion_state(source, target), before);
+        assert!(gamma_emission_mints().is_empty());
+    });
+}
+
+#[test]
+fn gamma_emission_converts_once_after_a_failed_conversion() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = allotted_gamma_emission(TAO);
+        let funded = balance(subnet_account(source));
+        let (sale, fee) = sale_of_conversion(source, target);
+        set_balance(subnet_account(source), existential_deposit() + fee);
+        let before = conversion_state(source, target);
+        SubtensorModule::mint_gamma_emission(source);
+        assert_eq!(conversion_state(source, target), before);
+
+        set_balance(subnet_account(source), funded);
+        let tao = conversion_tao(source, target);
+        let author = balance(U256::from(MOCK_BLOCK_BUILDER));
+        SubtensorModule::mint_gamma_emission(source);
+        let converted = conversion_state(source, target);
+        let mints = gamma_emission_mints();
+        let &[(alpha_sold, bought, gamma)] = mints.as_slice() else {
+            panic!("one conversion");
+        };
+        assert_eq!(alpha_sold, AlphaBalance::from(TAO));
+        assert_eq!(bought, TaoBalance::from(sale));
+        assert!(UnconvertedGammaEmission::<Test>::get(source, target).is_zero());
+        assert_eq!(deposit(target, SOURCE_OWNER_HOTKEY).balance, gamma);
+        // The source's account paid the sale and its fee, and all of it is in the target's
+        // account or with the block author.
+        assert_eq!(balance(subnet_account(source)), funded - sale - fee);
+        assert_eq!(conversion_tao(source, target), tao);
+        assert!(balance(U256::from(MOCK_BLOCK_BUILDER)) - author >= fee);
+
+        // Nothing is left to convert again.
+        SubtensorModule::mint_gamma_emission(source);
+        assert_eq!(conversion_state(source, target), converted);
+    });
+}

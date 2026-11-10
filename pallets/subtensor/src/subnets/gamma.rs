@@ -217,7 +217,7 @@ impl<T: Config> Pallet<T> {
     /// The AMM price limits of gamma emission trades on `netuid`: a sale floor
     /// [`crate::GAMMA_EMISSION_MAX_SLIPPAGE_BPS`] below the higher of its fast moving and spot
     /// prices, and a purchase ceiling as far above the lower.
-    fn gamma_emission_price_limits(
+    pub(crate) fn gamma_emission_price_limits(
         netuid: NetUid,
     ) -> Result<(TaoBalance, TaoBalance), DispatchError> {
         let fast = SubnetFastMovingPrice::<T>::get(netuid).ok_or(Error::<T>::SlippageTooHigh)?;
@@ -275,7 +275,7 @@ impl<T: Config> Pallet<T> {
     /// swap input limit and as much as the target's pool takes within the purchase ceiling, buys
     /// and burns the target's alpha with all of the TAO and credits the gamma to the subnet
     /// owner's deposit at the subnet owner hotkey on the target.
-    fn mint_gamma_emission_share(netuid: NetUid, target: NetUid) -> DispatchResult {
+    pub(crate) fn mint_gamma_emission_share(netuid: NetUid, target: NetUid) -> DispatchResult {
         let unconverted = UnconvertedGammaEmission::<T>::get(netuid, target);
         if unconverted.is_zero() {
             return Ok(());
