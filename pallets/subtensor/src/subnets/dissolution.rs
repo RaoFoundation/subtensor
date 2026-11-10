@@ -332,12 +332,13 @@ impl<T: Config> Pallet<T> {
             }) {
                 return false;
             }
-            let lease_weight = T::DbWeight::get().writes(3);
+            let lease_weight = T::DbWeight::get().writes(4);
             if !weight_meter.can_consume(lease_weight) {
                 return false;
             }
             weight_meter.consume(lease_weight);
             SubnetLeases::<T>::remove(lease_id);
+            SubnetLeaseTerminationHotkey::<T>::remove(lease_id);
             AccumulatedLeaseDividends::<T>::remove(lease_id);
             SubnetUidToLeaseId::<T>::remove(netuid);
         }

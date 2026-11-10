@@ -595,3 +595,422 @@ fn oversized_pending_basket_recovers_root_stake_without_a_larger_transaction_wei
         );
     });
 }
+
+// PROTECTED_REGRESSION: lease dust must not block termination or strand the synthetic account's stake; changes require explicit human approval.
+#[test]
+fn lease_termination_hands_over_dust_below_the_transfer_minimum() {
+    use super::leasing::{setup_crowdloan, setup_leased_network};
+    use crate::{
+        Error, Lock, OwnerCutAutoLockEnabled, SubnetLeases, SubnetOwner, SubnetOwnerHotkey,
+        SubnetUidToLeaseId,
+    };
+    use frame_support::{assert_noop, storage::with_storage_layer, traits::Get};
+    use sp_runtime::Percent;
+
+    for locked in [false, true] {
+        for pool_tao in [1u64, 1_000_000_000] {
+            new_test_ext(1).execute_with(|| {
+                let beneficiary = U256::from(1);
+                setup_crowdloan(
+                    0,
+                    10_000_000_000,
+                    1_000_000_000_000,
+                    beneficiary,
+                    &[(U256::from(2), 990_000_000_000)],
+                );
+                let end_block = 500;
+                let (lease_id, lease) = setup_leased_network(
+                    beneficiary,
+                    Percent::from_percent(30),
+                    Some(end_block),
+                    None,
+                );
+                run_to_block(end_block + 1);
+                remove_owner_registration_stake(lease.netuid);
+                setup_reserves(lease.netuid, pool_tao.into(), 1_000_000_000u64.into());
+                let dust = AlphaBalance::from(1_000u64);
+                assert!(dust.to_u64() < crate::DefaultMinTransfer::<Test>::get().to_u64());
+                SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey,
+                    &lease.coldkey,
+                    lease.netuid,
+                    dust,
+                );
+                let destination = U256::from(100_003);
+                assert_ok!(SubtensorModule::create_account_if_non_existent(
+                    &beneficiary,
+                    &destination
+                ));
+                // Ordinary transfers retain their minimum, even when the protocol handover is exempt.
+                assert_noop!(
+                    with_storage_layer(|| SubtensorModule::transfer_stake_within_subnet(
+                        &lease.coldkey,
+                        &lease.hotkey,
+                        &beneficiary,
+                        &destination,
+                        lease.netuid,
+                        dust,
+                    )),
+                    Error::<Test>::AmountTooLow
+                );
+                if locked {
+                    OwnerCutAutoLockEnabled::<Test>::insert(lease.netuid, true);
+                    SubtensorModule::auto_lock_owner_cut(lease.netuid, dust);
+                    assert!(Lock::<Test>::contains_key((
+                        lease.coldkey,
+                        lease.netuid,
+                        lease.hotkey
+                    )));
+                }
+                assert_ok!(SubtensorModule::terminate_lease(
+                    RuntimeOrigin::signed(beneficiary),
+                    lease_id,
+                    destination,
+                ));
+                assert_eq!(SubnetOwner::<Test>::get(lease.netuid), beneficiary);
+                assert_eq!(SubnetOwnerHotkey::<Test>::get(lease.netuid), destination);
+                assert_eq!(
+                    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &lease.hotkey,
+                        &lease.coldkey,
+                        lease.netuid,
+                    ),
+                    AlphaBalance::ZERO,
+                );
+                assert_eq!(
+                    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &destination,
+                        &beneficiary,
+                        lease.netuid,
+                    ),
+                    dust,
+                );
+                assert!(!Lock::<Test>::contains_key((
+                    lease.coldkey,
+                    lease.netuid,
+                    lease.hotkey
+                )));
+                if locked {
+                    let Some(lock) = Lock::<Test>::get((beneficiary, lease.netuid, destination))
+                    else {
+                        panic!("the dust lock must follow the handed-over stake");
+                    };
+                    assert_eq!(lock.locked_mass, dust);
+                }
+                assert!(!SubnetLeases::<Test>::contains_key(lease_id));
+                assert!(!SubnetUidToLeaseId::<Test>::contains_key(lease.netuid));
+            });
+        }
+    }
+}
+
+fn lease_regression_funded(
+    stake: u64,
+    end_block: u64,
+) -> (
+    u32,
+    crate::subnets::leasing::SubnetLeaseOf<Test>,
+    U256,
+    U256,
+) {
+    use super::leasing::{setup_crowdloan, setup_leased_network};
+    use sp_runtime::Percent;
+    let beneficiary = U256::from(1);
+    let contributor = U256::from(2);
+    let destination = U256::from(100_003);
+    setup_crowdloan(
+        0,
+        10_000_000_000,
+        1_000_000_000_000,
+        beneficiary,
+        &[(contributor, 990_000_000_000)],
+    );
+    let (id, lease) = setup_leased_network(
+        beneficiary,
+        Percent::from_percent(30),
+        Some(end_block),
+        None,
+    );
+    remove_owner_registration_stake(lease.netuid);
+    setup_reserves(
+        lease.netuid,
+        1_000_000_000_000u64.into(),
+        1_000_000_000_000u64.into(),
+    );
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &lease.hotkey,
+        &lease.coldkey,
+        lease.netuid,
+        stake.into(),
+    );
+    assert_ok!(SubtensorModule::create_account_if_non_existent(
+        &beneficiary,
+        &destination
+    ));
+    (id, lease, contributor, destination)
+}
+
+fn lease_regression_conviction_winner(
+    lease: &crate::subnets::leasing::SubnetLeaseOf<Test>,
+    now: u64,
+) -> (U256, U256) {
+    use crate::staking::lock::LockState;
+    use crate::{DecayingHotkeyLock, Lock, NetworkRegisteredAt, SubnetOwner, SubnetOwnerHotkey};
+    let coldkey = U256::from(20);
+    let hotkey = U256::from(21);
+    let mass = AlphaBalance::from(1_000_000_000_000u64);
+    System::set_block_number(now);
+    NetworkRegisteredAt::<Test>::insert(lease.netuid, 0);
+    assert_ok!(SubtensorModule::create_account_if_non_existent(
+        &coldkey, &hotkey
+    ));
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &hotkey,
+        &coldkey,
+        lease.netuid,
+        mass,
+    );
+    let source = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+        &lease.hotkey,
+        &lease.coldkey,
+        lease.netuid,
+    );
+    SubnetAlphaOut::<Test>::insert(lease.netuid, mass.saturating_add(source));
+    let state = LockState {
+        locked_mass: mass,
+        conviction: U64F64::from_num(mass.to_u64()),
+        last_update: now,
+    };
+    Lock::<Test>::insert((coldkey, lease.netuid, hotkey), state.clone());
+    DecayingHotkeyLock::<Test>::insert(lease.netuid, hotkey, state);
+    SubtensorModule::change_subnet_owner_if_needed(lease.netuid);
+    assert_eq!(SubnetOwner::<Test>::get(lease.netuid), coldkey);
+    assert_eq!(SubnetOwnerHotkey::<Test>::get(lease.netuid), hotkey);
+    (coldkey, hotkey)
+}
+
+// PROTECTED_REGRESSION: final accumulated lease dividends must reach their contributors instead of the beneficiary; changes require explicit human approval.
+#[test]
+fn lease_final_accrual_reaches_contributors_before_residual_handover() {
+    use crate::{AccumulatedLeaseDividends, SubnetLeaseShares, SubnetLeases};
+    for ended_hook_first in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let (id, lease, contributor, destination) =
+                lease_regression_funded(60_000_000_000, 500);
+            let cut = AlphaBalance::from(10_000_000_000u64);
+            SubtensorModule::distribute_leased_network_dividends(id, cut);
+            let accrued = AccumulatedLeaseDividends::<Test>::get(id);
+            assert_eq!(accrued, AlphaBalance::from(3_000_000_000u64));
+            let owed = AlphaBalance::from(
+                SubnetLeaseShares::<Test>::get(id, contributor)
+                    .saturating_mul(U64F64::from_num(accrued.to_u64()))
+                    .to_num::<u64>(),
+            );
+            assert!(owed > AlphaBalance::from(2_900_000_000u64));
+            System::set_block_number(501); // Not a scheduled distribution block.
+            if ended_hook_first {
+                SubtensorModule::distribute_leased_network_dividends(id, AlphaBalance::ZERO);
+                assert_eq!(
+                    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &lease.hotkey,
+                        &contributor,
+                        lease.netuid,
+                    ),
+                    owed
+                );
+            }
+            assert_ok!(SubtensorModule::terminate_lease(
+                RuntimeOrigin::signed(lease.beneficiary),
+                id,
+                destination,
+            ));
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey,
+                    &contributor,
+                    lease.netuid,
+                ),
+                owed
+            );
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &destination,
+                    &lease.beneficiary,
+                    lease.netuid,
+                ),
+                AlphaBalance::from(60_000_000_000u64) - owed
+            );
+            SubtensorModule::distribute_leased_network_dividends(id, AlphaBalance::ZERO);
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey,
+                    &contributor,
+                    lease.netuid,
+                ),
+                owed
+            );
+            assert!(!SubnetLeases::<Test>::contains_key(id));
+        });
+    }
+}
+
+// PROTECTED_REGRESSION: a sub-minimum contributor debt must not freeze the beneficiary's locked lease stake; changes require explicit human approval.
+#[test]
+fn lease_dust_debt_does_not_hold_back_locked_owner_stake() {
+    use crate::{Lock, OwnerCutAutoLockEnabled, SubnetLeaseUnpaidDividends, SubnetLeases};
+    new_test_ext(1).execute_with(|| {
+        let (id, lease, contributor, destination) = lease_regression_funded(55_000_000_000, 500);
+        let owner_lock = AlphaBalance::from(50_000_000_000u64);
+        OwnerCutAutoLockEnabled::<Test>::insert(lease.netuid, true);
+        SubtensorModule::auto_lock_owner_cut(lease.netuid, owner_lock);
+        let debt = AlphaBalance::from(1_000_000u64);
+        SubnetLeaseUnpaidDividends::<Test>::insert(id, contributor, debt);
+        System::set_block_number(501);
+        assert_ok!(SubtensorModule::terminate_lease(
+            RuntimeOrigin::signed(lease.beneficiary),
+            id,
+            destination,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                &contributor,
+                lease.netuid,
+            ),
+            debt
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &destination,
+                &lease.beneficiary,
+                lease.netuid,
+            ),
+            AlphaBalance::from(55_000_000_000u64) - debt
+        );
+        assert!(
+            Lock::<Test>::get((lease.beneficiary, lease.netuid, destination))
+                .is_some_and(|lock| lock.locked_mass > AlphaBalance::from(49_000_000_000u64))
+        );
+        assert!(
+            SubnetLeaseUnpaidDividends::<Test>::iter_prefix(id)
+                .next()
+                .is_none()
+        );
+        assert!(!SubnetLeases::<Test>::contains_key(id));
+    });
+}
+
+// PROTECTED_REGRESSION: terminated lease retries must preserve a conviction winner and recover outstanding funds without removing the proxy twice; changes require explicit human approval.
+#[test]
+fn lease_retry_after_conviction_takeover_recovers_funds_without_reclaiming_ownership() {
+    use crate::{SubnetLeaseUnpaidDividends, SubnetLeases, SubnetOwner, SubnetOwnerHotkey};
+    for (use_hook, legacy_record) in [(false, false), (true, false), (false, true), (true, true)] {
+        new_test_ext(1).execute_with(|| {
+            let (id, lease, contributor, destination) =
+                lease_regression_funded(55_000_000_000, 500);
+            let debt = AlphaBalance::from(100_000_000_000u64);
+            SubnetLeaseUnpaidDividends::<Test>::insert(id, contributor, debt);
+            System::set_block_number(501);
+            assert_ok!(SubtensorModule::terminate_lease(
+                RuntimeOrigin::signed(lease.beneficiary),
+                id,
+                destination,
+            ));
+            assert!(SubnetLeases::<Test>::contains_key(id));
+            if legacy_record {
+                // Pre-upgrade partial terminations have no new marker, but their proxy was removed.
+                crate::SubnetLeaseTerminationHotkey::<Test>::remove(id);
+            }
+            let (winner, winner_hotkey) =
+                lease_regression_conviction_winner(&lease, crate::staking::lock::ONE_YEAR + 501);
+            assert_ok!(SubtensorModule::terminate_lease(
+                RuntimeOrigin::signed(lease.beneficiary),
+                id,
+                destination,
+            ));
+            assert_eq!(SubnetOwner::<Test>::get(lease.netuid), winner);
+            assert_eq!(SubnetOwnerHotkey::<Test>::get(lease.netuid), winner_hotkey);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                &lease.coldkey,
+                lease.netuid,
+                debt,
+            );
+            if use_hook {
+                SubtensorModule::distribute_leased_network_dividends(id, AlphaBalance::ZERO);
+            } else {
+                assert_ok!(SubtensorModule::terminate_lease(
+                    RuntimeOrigin::signed(lease.beneficiary),
+                    id,
+                    destination,
+                ));
+            }
+            assert_eq!(SubnetOwner::<Test>::get(lease.netuid), winner);
+            assert_eq!(SubnetOwnerHotkey::<Test>::get(lease.netuid), winner_hotkey);
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey,
+                    &contributor,
+                    lease.netuid,
+                ),
+                debt
+            );
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &destination,
+                    &lease.beneficiary,
+                    lease.netuid,
+                ),
+                AlphaBalance::from(55_000_000_000u64)
+            );
+            assert!(!SubnetLeases::<Test>::contains_key(id));
+        });
+    }
+}
+
+// PROTECTED_REGRESSION: lease termination after a conviction takeover must not leave ghost locks or debit the winner's owner bucket; changes require explicit human approval.
+#[test]
+fn lease_termination_after_conviction_takeover_preserves_lock_buckets() {
+    use crate::{DecayingHotkeyLock, DecayingOwnerLock, Lock, OwnerCutAutoLockEnabled};
+    new_test_ext(1).execute_with(|| {
+        let end = crate::staking::lock::ONE_YEAR + 1_000;
+        let (id, lease, _contributor, destination) = lease_regression_funded(55_000_000_000, end);
+        System::set_block_number(crate::staking::lock::ONE_YEAR + 1);
+        OwnerCutAutoLockEnabled::<Test>::insert(lease.netuid, true);
+        SubtensorModule::auto_lock_owner_cut(lease.netuid, 5_000_000_000u64.into());
+        let (_winner, winner_hotkey) =
+            lease_regression_conviction_winner(&lease, crate::staking::lock::ONE_YEAR + 1);
+        assert!(
+            DecayingHotkeyLock::<Test>::get(lease.netuid, lease.hotkey)
+                .is_some_and(|lock| lock.locked_mass != AlphaBalance::ZERO)
+        );
+        System::set_block_number(end + 1);
+        assert_ok!(SubtensorModule::terminate_lease(
+            RuntimeOrigin::signed(lease.beneficiary),
+            id,
+            destination,
+        ));
+        assert!(!Lock::<Test>::contains_key((
+            lease.coldkey,
+            lease.netuid,
+            lease.hotkey
+        )));
+        assert!(!DecayingHotkeyLock::<Test>::contains_key(
+            lease.netuid,
+            lease.hotkey
+        ));
+        assert!(
+            DecayingHotkeyLock::<Test>::get(lease.netuid, winner_hotkey)
+                .is_some_and(|lock| lock.locked_mass > AlphaBalance::from(900_000_000_000u64))
+        );
+        let Some(beneficiary_lock) =
+            Lock::<Test>::get((lease.beneficiary, lease.netuid, destination))
+        else {
+            panic!("the beneficiary must receive the actual retained lock");
+        };
+        assert_eq!(
+            DecayingOwnerLock::<Test>::get(lease.netuid).map(|lock| lock.locked_mass),
+            Some(beneficiary_lock.locked_mass)
+        );
+    });
+}

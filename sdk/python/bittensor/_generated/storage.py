@@ -345,6 +345,7 @@ class SubtensorModule:
     AssociatedEvmAddress = Item('SubtensorModule', 'AssociatedEvmAddress', '(H160, u64)')
     AssociatedUidsByEvmAddress = Item('SubtensorModule', 'AssociatedUidsByEvmAddress', 'BoundedVec')
     SubnetLeases = Item('SubtensorModule', 'SubnetLeases', 'SubnetLease')
+    SubnetLeaseTerminationHotkey = Item('SubtensorModule', 'SubnetLeaseTerminationHotkey', 'AccountId32')
     SubnetLeaseShares = Item('SubtensorModule', 'SubnetLeaseShares', 'FixedU128')
     SubnetUidToLeaseId = Item('SubtensorModule', 'SubnetUidToLeaseId', 'u32')
     NextSubnetLeaseId = Item('SubtensorModule', 'NextSubnetLeaseId', 'u32')

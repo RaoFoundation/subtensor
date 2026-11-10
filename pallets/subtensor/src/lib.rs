@@ -3812,6 +3812,12 @@ pub mod pallet {
     pub type SubnetLeases<T: Config> =
         StorageMap<_, Twox64Concat, LeaseId, SubnetLeaseOf<T>, OptionQuery>;
 
+    /// Internal settlement marker: a formally terminated lease's residual payout hotkey.
+    /// Kept only while a contributor debt or residual stake remains; the frozen lease layout is unchanged.
+    #[pallet::storage]
+    pub type SubnetLeaseTerminationHotkey<T: Config> =
+        StorageMap<_, Twox64Concat, LeaseId, T::AccountId, OptionQuery>;
+
     /// DMAP ( lease_id, contributor ) --> shares | The shares of a contributor for a given lease.
     #[pallet::storage]
     pub type SubnetLeaseShares<T: Config> =
@@ -4369,6 +4375,8 @@ pub trait ProxyInterface<AccountId> {
     -> DispatchResult;
     /// Whether `delegator` already holds any proxy grants (including reserved deposit).
     fn has_delegator_proxies(delegator: &AccountId) -> bool;
+    /// Whether the exact zero-delay lease-beneficiary grant is still installed.
+    fn has_lease_beneficiary_proxy(lease: &AccountId, beneficiary: &AccountId) -> bool;
 }
 
 impl<T> ProxyInterface<T> for () {
@@ -4378,6 +4386,11 @@ impl<T> ProxyInterface<T> for () {
 
     fn remove_lease_beneficiary_proxy(_: &T, _: &T) -> DispatchResult {
         Ok(())
+    }
+
+    fn has_lease_beneficiary_proxy(_: &T, _: &T) -> bool {
+        // No-op backends accept grants without storing them; the explicit marker tracks termination.
+        true
     }
 
     fn has_delegator_proxies(_: &T) -> bool {

@@ -226,18 +226,43 @@ impl<T: Config> Pallet<T> {
                 // lease position. Failed individual payments keep their rows and reserve
                 // the whole position until a later retry; this avoids moving contributor
                 // backing to the beneficiary.
+                Self::crystallize_lease_dividends(lease_id)?;
                 let settled = Self::settle_unpaid_lease_dividends(lease_id, &lease);
 
                 // A lease whose deferred dividends could not all be paid keeps its record
                 // and may be terminated again to retry. One-time provider/proxy cleanup
-                // runs only while the subnet is still owned by the synthetic lease key.
-                let first_termination = SubnetOwner::<T>::get(lease.netuid) != lease.beneficiary;
-                SubnetOwner::<T>::insert(lease.netuid, lease.beneficiary.clone());
-                Self::set_subnet_owner_hotkey(lease.netuid, &hotkey)?;
+                // is controlled by the explicit termination phase, never the current owner.
+                let first_termination = !Self::lease_has_terminated(lease_id, &lease);
+                if first_termination {
+                    // Freeze the payer's individual lock under its old role before rotating buckets.
+                    if let Some((locked_hotkey, mut model)) = Self::read_conviction_model(
+                        &lease.coldkey,
+                        lease.netuid,
+                        Self::get_current_block_as_u64(),
+                    ) {
+                        model.roll_forward(
+                            Self::get_current_block_as_u64(),
+                            UnlockRate::<T>::get(),
+                            MaturityRate::<T>::get(),
+                        );
+                        Self::save_conviction_model(
+                            &lease.coldkey,
+                            lease.netuid,
+                            &locked_hotkey,
+                            model,
+                        );
+                    }
+                    let old_hotkey = SubnetOwnerHotkey::<T>::get(lease.netuid);
+                    Self::move_subnet_owner_lock_buckets(lease.netuid, &old_hotkey, &hotkey);
+                    SubnetOwner::<T>::insert(lease.netuid, lease.beneficiary.clone());
+                    Self::set_subnet_owner_hotkey(lease.netuid, &hotkey)?;
+                }
+                // A retry may choose another owned payout hotkey, but never takes ownership again.
+                SubnetLeaseTerminationHotkey::<T>::insert(lease_id, &hotkey);
 
                 // Once contributors are fully settled, transfer every remaining unit of
                 // the synthetic lease position to the beneficiary. The specialized helper
-                // moves the lock out of the former owner aggregate and treats this signed
+                // uses the source lock's actual current bucket and treats this signed
                 // termination call as consent to receive locked alpha.
                 Self::transfer_lease_residual_if_settled(lease_id, &lease, &hotkey)?;
 
@@ -304,6 +329,44 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    /// Old runtimes already retained some terminated records without an explicit marker.
+    /// Their beneficiary proxy was removed exactly once, so its absence identifies that phase
+    /// independently of conviction ownership. New terminations persist their payout hotkey.
+    pub(crate) fn lease_has_terminated(lease_id: LeaseId, lease: &SubnetLeaseOf<T>) -> bool {
+        SubnetLeaseTerminationHotkey::<T>::contains_key(lease_id)
+            || !T::ProxyInterface::has_lease_beneficiary_proxy(&lease.coldkey, &lease.beneficiary)
+    }
+
+    /// Allocate the final accumulated contributor pot before shares can be cleared.
+    /// The beneficiary's rounding remainder stays in the residual position. No entitlement
+    /// is reallocated to a different contributor on retries or if its transfer is blocked.
+    fn crystallize_lease_dividends(lease_id: LeaseId) -> DispatchResult {
+        frame_support::storage::with_storage_layer(|| {
+            let pot = AccumulatedLeaseDividends::<T>::take(lease_id);
+            if pot.is_zero() {
+                return Ok(());
+            }
+            for (contributor, share) in SubnetLeaseShares::<T>::iter_prefix(lease_id) {
+                let slice = share
+                    .saturating_mul(U64F64::from(pot.to_u64()))
+                    .floor()
+                    .saturating_to_num::<u64>();
+                if slice == 0 {
+                    continue;
+                }
+                SubnetLeaseUnpaidDividends::<T>::try_mutate(lease_id, contributor, |owed| {
+                    let total = owed
+                        .to_u64()
+                        .checked_add(slice)
+                        .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+                    *owed = total.into();
+                    Ok::<(), DispatchError>(())
+                })?;
+            }
+            Ok(())
+        })
+    }
+
     /// Remove the lease record and subnet mapping once no deferred dividend is owed.
     fn finish_lease_cleanup_if_settled(lease_id: LeaseId, netuid: NetUid) {
         if SubnetLeaseUnpaidDividends::<T>::iter_prefix(lease_id)
@@ -315,6 +378,9 @@ impl<T: Config> Pallet<T> {
         let Some(lease) = SubnetLeases::<T>::get(lease_id) else {
             return;
         };
+        if !Self::lease_has_terminated(lease_id, &lease) {
+            return;
+        }
         if !Self::get_stake_for_hotkey_and_coldkey_on_subnet(
             &lease.hotkey,
             &lease.coldkey,
@@ -325,6 +391,7 @@ impl<T: Config> Pallet<T> {
             return;
         }
         SubnetLeases::<T>::remove(lease_id);
+        SubnetLeaseTerminationHotkey::<T>::remove(lease_id);
         SubnetUidToLeaseId::<T>::remove(netuid);
     }
 
@@ -382,7 +449,7 @@ impl<T: Config> Pallet<T> {
                     ) >= owed,
                     Error::<T>::NotEnoughStakeToWithdraw
                 );
-                Self::transfer_stake_within_subnet(
+                Self::transfer_lease_dividend_within_subnet(
                     &lease.coldkey,
                     &lease.hotkey,
                     &contributor,
@@ -432,19 +499,34 @@ impl<T: Config> Pallet<T> {
         // survives termination for this purpose) and drop the record once all are paid.
         let now = frame_system::Pallet::<T>::block_number();
         if lease.end_block.is_some_and(|end_block| end_block <= now) {
-            if SubnetOwner::<T>::get(lease.netuid) == lease.beneficiary {
-                Self::settle_unpaid_lease_dividends(lease_id, &lease);
-                let owner_hotkey = SubnetOwnerHotkey::<T>::get(lease.netuid);
-                let transfer_result = frame_support::storage::with_storage_layer(|| {
-                    Self::transfer_lease_residual_if_settled(lease_id, &lease, &owner_hotkey)
+            if let Err(err) = Self::crystallize_lease_dividends(lease_id) {
+                log::debug!("Unable to allocate final lease {lease_id} dividends: {err:?}");
+                return;
+            }
+            Self::settle_unpaid_lease_dividends(lease_id, &lease);
+            if !Self::lease_has_terminated(lease_id, &lease) {
+                return;
+            }
+            let target = SubnetLeaseTerminationHotkey::<T>::get(lease_id).or_else(|| {
+                // Legacy records may not remember their destination. Infer it only while the
+                // current owner is still the beneficiary; otherwise an explicit retry supplies it.
+                let hotkey = SubnetOwnerHotkey::<T>::get(lease.netuid);
+                (SubnetOwner::<T>::get(lease.netuid) == lease.beneficiary
+                    && Self::coldkey_owns_hotkey(&lease.beneficiary, &hotkey))
+                .then_some(hotkey)
+            });
+            if let Some(target) = target {
+                let transferred = frame_support::storage::with_storage_layer(|| {
+                    SubnetLeaseTerminationHotkey::<T>::insert(lease_id, &target);
+                    Self::transfer_lease_residual_if_settled(lease_id, &lease, &target)
                 });
-                if let Err(err) = transfer_result {
+                if let Err(err) = transferred {
                     log::debug!(
                         "Ended lease {lease_id} residual still cannot be transferred: {err:?}"
                     );
                 }
-                Self::finish_lease_cleanup_if_settled(lease_id, lease.netuid);
             }
+            Self::finish_lease_cleanup_if_settled(lease_id, lease.netuid);
             return;
         }
 

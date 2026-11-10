@@ -936,7 +936,7 @@ impl<T: Config> Pallet<T> {
 
         // A lease already handed over (terminated with deferred dividends still owed) has
         // no beneficiary proxy any more; only the record's beneficiary follows the coldkey.
-        let handed_over = SubnetOwner::<T>::get(lease.netuid) == lease.beneficiary;
+        let handed_over = Self::lease_has_terminated(lease_id, &lease);
         if !handed_over {
             T::ProxyInterface::remove_lease_beneficiary_proxy(&lease.coldkey, old_coldkey)?;
             T::ProxyInterface::add_lease_beneficiary_proxy(&lease.coldkey, new_coldkey)?;

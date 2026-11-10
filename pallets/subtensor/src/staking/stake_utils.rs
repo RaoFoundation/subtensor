@@ -13,6 +13,13 @@ use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::{Order, SwapHandler, SwapResult};
 
+#[derive(Clone, Copy)]
+enum StakeTransferPurpose {
+    User,
+    LeaseDividend,
+    LeaseHandover,
+}
+
 impl<T: Config> Pallet<T> {
     /// Retrieves the total alpha issuance for a given subnet.
     ///
@@ -1443,13 +1450,13 @@ impl<T: Config> Pallet<T> {
             destination_hotkey,
             netuid,
             alpha,
-            false,
+            StakeTransferPurpose::User,
         )
     }
 
     /// Protocol hand-over of a former subnet owner's position. The signed lease beneficiary
-    /// consents to receiving its lock, and the source lock still belongs to the aggregate owner
-    /// bucket that existed before `terminate_lease` changed the subnet owner.
+    /// consents to receiving its lock. Owner/hotkey aggregate buckets must already reflect
+    /// the current subnet ownership before moving this position.
     pub(crate) fn transfer_former_owner_stake_within_subnet(
         origin_coldkey: &T::AccountId,
         origin_hotkey: &T::AccountId,
@@ -1465,7 +1472,28 @@ impl<T: Config> Pallet<T> {
             destination_hotkey,
             netuid,
             alpha,
-            true,
+            StakeTransferPurpose::LeaseHandover,
+        )
+    }
+
+    /// Pay an ended lease's contributor entitlement without the user transfer minimum.
+    /// Lock preferences and the exact funded debit remain enforced.
+    pub(crate) fn transfer_lease_dividend_within_subnet(
+        origin_coldkey: &T::AccountId,
+        origin_hotkey: &T::AccountId,
+        destination_coldkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
+        netuid: NetUid,
+        alpha: AlphaBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        Self::transfer_stake_within_subnet_impl(
+            origin_coldkey,
+            origin_hotkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            alpha,
+            StakeTransferPurpose::LeaseDividend,
         )
     }
 
@@ -1476,7 +1504,7 @@ impl<T: Config> Pallet<T> {
         destination_hotkey: &T::AccountId,
         netuid: NetUid,
         alpha: AlphaBalance,
-        former_owner_handover: bool,
+        purpose: StakeTransferPurpose,
     ) -> Result<TaoBalance, DispatchError> {
         // Root stake moves claimant base on both hotkeys: settle queued basket deposits
         // on each side first (see `stake_into_subnet` / `unstake_from_subnet`).
@@ -1494,7 +1522,7 @@ impl<T: Config> Pallet<T> {
         // The lock must follow the stake to the destination hotkey, otherwise a
         // hotkey-changing transfer would leave the recipient's lock and conviction
         // stranded on the origin hotkey.
-        if former_owner_handover {
+        if matches!(purpose, StakeTransferPurpose::LeaseHandover) {
             Self::transfer_former_owner_lock_with_consent(
                 origin_coldkey,
                 destination_coldkey,
@@ -1560,9 +1588,11 @@ impl<T: Config> Pallet<T> {
             .saturating_to_num::<u64>()
             .into();
 
-        // Ensure tao_equivalent is above the minimum transfer amount
+        // Final lease dividends and residual handovers must preserve every positive unit.
+        // Ordinary user transfers retain their minimum.
         ensure!(
-            tao_equivalent >= DefaultMinTransfer::<T>::get(),
+            !matches!(purpose, StakeTransferPurpose::User)
+                || tao_equivalent >= DefaultMinTransfer::<T>::get(),
             Error::<T>::AmountTooLow
         );
 

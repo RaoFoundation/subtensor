@@ -694,6 +694,17 @@ impl ProxyInterface<AccountId> for Proxier {
         )
     }
 
+    fn has_lease_beneficiary_proxy(lease: &AccountId, beneficiary: &AccountId) -> bool {
+        pallet_proxy::Proxies::<Runtime>::get(lease)
+            .0
+            .iter()
+            .any(|proxy| {
+                proxy.delegate == *beneficiary
+                    && proxy.proxy_type == ProxyType::SubnetLeaseBeneficiary
+                    && proxy.delay == 0
+            })
+    }
+
     fn has_delegator_proxies(delegator: &AccountId) -> bool {
         !pallet_proxy::Proxies::<Runtime>::get(delegator)
             .0

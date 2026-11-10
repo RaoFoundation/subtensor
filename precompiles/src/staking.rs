@@ -1887,94 +1887,50 @@ where
     R: frame_system::Config + pallet_subtensor::Config + pallet_evm::Config,
     R::AccountId: Clone,
 {
-    record_total_coldkey_stake_reads_with::<R, _>(
+    record_total_coldkey_stake_reads_with::<R, _, _>(
         handle,
         coldkey,
         selected_netuid,
         RuntimeHelper::<R>::db_read_gas_cost(),
-        |hotkeys, selected_netuid, max_positions| {
-            let mut raw_positions = 0u64;
-            let mut matched_positions = 0u64;
-            for hotkey in hotkeys {
-                for (netuid, _) in pallet_subtensor::AlphaV2::<R>::iter_prefix((hotkey, coldkey)) {
-                    raw_positions = raw_positions.saturating_add(1);
-                    // Stop at the state-derived envelope instead of doing unmetered
-                    // work if malformed or stale storage violates the subnet bound.
-                    if raw_positions > max_positions {
-                        return None;
-                    }
-                    if selected_netuid.is_none_or(|selected| selected == netuid) {
-                        matched_positions = matched_positions.saturating_add(1);
-                    }
-                }
-            }
-            Some((raw_positions, matched_positions))
+        |hotkey| {
+            pallet_subtensor::AlphaV2::<R>::iter_prefix((hotkey, coldkey)).map(|(netuid, _)| netuid)
         },
     )
 }
 
-/// Preflight the maximum position work before invoking `scan`, then charge only
-/// the work it actually reports. This gives sparse accounts the same effective
-/// refund as the previous exact accounting without allowing a low-gas call to
-/// walk every position before discovering that it is out of gas.
-fn record_total_coldkey_stake_reads_with<R, F>(
+/// Meter actual prefix advances before they run, reserving the released helper's
+/// matching-position work as each row is found. Sparse accounts never need gas
+/// for hypothetical positions. The subsequent aggregate scan is already paid for.
+fn record_total_coldkey_stake_reads_with<R, F, I>(
     handle: &mut impl PrecompileHandle,
     coldkey: &R::AccountId,
     selected_netuid: Option<NetUid>,
     db_read_gas_cost: u64,
-    scan: F,
+    mut positions: F,
 ) -> EvmResult<()>
 where
     R: frame_system::Config + pallet_subtensor::Config + pallet_evm::Config,
     R::AccountId: Clone,
-    F: FnOnce(&[R::AccountId], Option<NetUid>, u64) -> Option<(u64, u64)>,
+    F: FnMut(&R::AccountId) -> I,
+    I: Iterator<Item = NetUid>,
 {
-    // Charge before each state read needed to derive the position bound.
-    handle.record_cost(db_read_gas_cost)?;
+    // Preserve the released fixed charge: this meter and the aggregate helper
+    // each load StakingHotkeys, with an additional conservative setup allowance.
+    handle.record_cost(db_read_gas_cost.saturating_mul(3))?;
     let hotkeys = pallet_subtensor::StakingHotkeys::<R>::get(coldkey);
-    handle.record_cost(db_read_gas_cost)?;
-    let subnet_slots = u64::from(pallet_subtensor::SubnetLimit::<R>::get()).saturating_add(1);
-    let hotkey_count: u64 = hotkeys.len().unique_saturated_into();
-    let max_positions = hotkey_count.saturating_mul(subnet_slots);
-    let max_matched_positions = if selected_netuid.is_some() {
-        hotkey_count
-    } else {
-        max_positions
-    };
-
-    // The released aggregate helper reads StakingHotkeys again after this meter.
-    let max_remaining_reads = 1u64
-        .saturating_add(max_positions.saturating_mul(TOTAL_COLDKEY_POSITION_BASE_READS))
-        .saturating_add(max_matched_positions.saturating_mul(TOTAL_COLDKEY_MATCHED_POSITION_READS));
-    let max_remaining_cost = db_read_gas_cost.saturating_mul(max_remaining_reads);
-    if max_remaining_cost > handle.remaining_gas() {
-        // Match EVM OOG semantics and, crucially, fail before `scan` touches a
-        // single AlphaV2 position.
-        handle.record_cost(handle.remaining_gas())?;
-        return Err(PrecompileFailure::Error {
-            exit_status: ExitError::OutOfGas,
-        });
+    let step_cost = db_read_gas_cost.saturating_mul(TOTAL_COLDKEY_POSITION_BASE_READS);
+    let matched_cost = db_read_gas_cost.saturating_mul(TOTAL_COLDKEY_MATCHED_POSITION_READS);
+    for hotkey in &hotkeys {
+        // Iterator construction does not read storage. Charge before constructing
+        // it and before every next(), including empty prefixes and the final probe.
+        handle.record_cost(step_cost)?;
+        for netuid in positions(hotkey) {
+            if selected_netuid.is_none_or(|selected| selected == netuid) {
+                handle.record_cost(matched_cost)?;
+            }
+            handle.record_cost(step_cost)?;
+        }
     }
-
-    let Some((raw_positions, matched_positions)) = scan(&hotkeys, selected_netuid, max_positions)
-    else {
-        handle.record_cost(handle.remaining_gas())?;
-        return Err(PrecompileFailure::Error {
-            exit_status: ExitError::OutOfGas,
-        });
-    };
-
-    handle.record_cost(
-        db_read_gas_cost.saturating_mul(
-            1u64.saturating_add(
-                raw_positions
-                    .saturating_mul(TOTAL_COLDKEY_POSITION_BASE_READS)
-                    .saturating_add(
-                        matched_positions.saturating_mul(TOTAL_COLDKEY_MATCHED_POSITION_READS),
-                    ),
-            ),
-        ),
-    )?;
     Ok(())
 }
 
@@ -4523,26 +4479,71 @@ mod tests {
     }
 
     #[test]
-    fn coldkey_aggregate_meter_rejects_low_gas_before_position_scan() {
+    fn coldkey_aggregate_meter_stops_before_unpaid_iterator_steps() {
         new_test_ext().execute_with(|| {
             let coldkey = AccountId::from([0x94; 32]);
             let hotkey = AccountId::from([0x95; 32]);
             pallet_subtensor::StakingHotkeys::<Runtime>::insert(&coldkey, vec![hotkey]);
+            // One gas per DB read: fixed charge 3, each advance 2, each matched row 20.
+            for (gas_limit, expected_steps, succeeds) in [
+                (4, 0, false),
+                (5, 1, false),
+                (26, 1, false),
+                (27, 2, false),
+                (48, 2, false),
+                (49, 3, true),
+            ] {
+                let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+                let mut handle = MockHandle::new(
+                    address,
+                    Context {
+                        address,
+                        caller: addr_from_index(0x3008),
+                        apparent_value: U256::zero(),
+                    },
+                );
+                handle.gas_limit = gas_limit;
+                let steps = std::rc::Rc::new(Cell::new(0));
+                let result = record_total_coldkey_stake_reads_with::<Runtime, _, _>(
+                    &mut handle,
+                    &coldkey,
+                    None,
+                    1,
+                    |_| {
+                        let steps = steps.clone();
+                        core::iter::from_fn(move || {
+                            let step = steps.get();
+                            steps.set(step + 1);
+                            (step < 2).then_some(NetUid::from(1))
+                        })
+                    },
+                );
+                if succeeds {
+                    assert_eq!(result, Ok(()));
+                    assert_eq!(handle.gas_used, gas_limit);
+                } else {
+                    assert_eq!(
+                        result,
+                        Err(PrecompileFailure::Error {
+                            exit_status: ExitError::OutOfGas
+                        })
+                    );
+                }
+                assert_eq!(
+                    steps.get(),
+                    expected_steps,
+                    "unpaid iterator work at gas limit {gas_limit}"
+                );
+            }
+        });
+    }
 
-            let hotkey_count = 1u64;
-            let subnet_slots =
-                u64::from(pallet_subtensor::SubnetLimit::<Runtime>::get()).saturating_add(1);
-            let max_positions = hotkey_count.saturating_mul(subnet_slots);
-            let max_remaining_reads = 1u64
-                .saturating_add(max_positions.saturating_mul(TOTAL_COLDKEY_POSITION_BASE_READS))
-                .saturating_add(max_positions.saturating_mul(TOTAL_COLDKEY_MATCHED_POSITION_READS));
-            // The mock runtime maps DB reads to zero gas. Inject one gas per read
-            // so this unit test exercises the admission ordering itself.
-            let db_read = 1u64;
-            let gas_limit = db_read
-                .saturating_mul(2)
-                .saturating_add(db_read.saturating_mul(max_remaining_reads))
-                .saturating_sub(1);
+    #[test]
+    fn coldkey_aggregate_meter_charges_empty_prefixes_before_advancing() {
+        new_test_ext().execute_with(|| {
+            let coldkey = AccountId::from([0x94; 32]);
+            let hotkeys = vec![AccountId::from([0x95; 32]); 1_000];
+            pallet_subtensor::StakingHotkeys::<Runtime>::insert(&coldkey, hotkeys);
             let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
             let mut handle = MockHandle::new(
                 address,
@@ -4552,31 +4553,95 @@ mod tests {
                     apparent_value: U256::zero(),
                 },
             );
-            handle.gas_limit = gas_limit;
-            let scanned = Cell::new(false);
-
-            let result = record_total_coldkey_stake_reads_with::<Runtime, _>(
+            handle.gas_limit = 10;
+            let prefixes = Cell::new(0);
+            let result = record_total_coldkey_stake_reads_with::<Runtime, _, _>(
                 &mut handle,
                 &coldkey,
                 None,
-                db_read,
-                |_, _, _| {
-                    scanned.set(true);
-                    Some((0, 0))
+                1,
+                |_| {
+                    prefixes.set(prefixes.get() + 1);
+                    core::iter::empty()
                 },
             );
-
             assert_eq!(
                 result,
                 Err(PrecompileFailure::Error {
-                    exit_status: ExitError::OutOfGas,
+                    exit_status: ExitError::OutOfGas
                 })
             );
-            assert!(
-                !scanned.get(),
-                "position scan must not run before gas admission"
+            assert_eq!(
+                prefixes.get(),
+                3,
+                "empty hotkeys must not bypass the gas budget"
             );
-            assert_eq!(handle.gas_used, gas_limit);
+        });
+    }
+
+    // PROTECTED_REGRESSION: sparse 43-hotkey accounts must remain queryable through released V1/V2 calldata within contract gas limits; changes require explicit human approval.
+    #[test]
+    fn sparse_coldkey_aggregate_views_fit_within_the_block_gas_limit() {
+        use crate::mock::{TestDbWeight, WeightPerGas};
+        use frame_support::weights::RuntimeDbWeight;
+        use pallet_evm::PrecompileSet;
+
+        struct RestoreDbWeight(RuntimeDbWeight);
+        impl Drop for RestoreDbWeight {
+            fn drop(&mut self) {
+                TestDbWeight::set(self.0);
+            }
+        }
+        let _restore = RestoreDbWeight(TestDbWeight::get());
+        // Reproduce the production-equivalent 625 gas per DB read without changing other tests.
+        TestDbWeight::set(RuntimeDbWeight {
+            read: 625 * WeightPerGas::get().ref_time(),
+            write: 0,
+        });
+        new_test_ext().execute_with(|| {
+            let coldkey = AccountId::from([0x40; 32]);
+            let netuid = setup_staking_subnet();
+            pallet_subtensor::SubnetLimit::<Runtime>::put(128);
+            for index in 0..43u8 {
+                let hotkey = AccountId::from([0x80 + index; 32]);
+                pallet_subtensor::Pallet::<Runtime>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey, &coldkey, netuid, AlphaBalance::from(1_000u64),
+                );
+            }
+            assert_eq!(pallet_subtensor::StakingHotkeys::<Runtime>::get(&coldkey).len(), 43);
+            let total = pallet_subtensor::Pallet::<Runtime>::get_total_stake_for_coldkey(&coldkey);
+            assert!(!total.is_zero());
+            assert_eq!(RuntimeHelper::<Runtime>::db_read_gas_cost(), 625);
+            let coldkey_word = H256::from_slice(coldkey.as_ref());
+            let total_input = encode_with_selector(
+                selector_u32("getTotalColdkeyStake(bytes32)"), (coldkey_word,),
+            );
+            let subnet_input = |netuid: NetUid| encode_with_selector(
+                selector_u32("getTotalColdkeyStakeOnSubnet(bytes32,uint256)"),
+                (coldkey_word, U256::from(u16::from(netuid))),
+            );
+            for (address, input, expected) in [
+                (addr_from_index(StakingPrecompile::<Runtime>::INDEX), total_input.clone(),
+                    tao_to_evm::<Runtime>(total.to_u64()).unwrap()),
+                (addr_from_index(StakingPrecompileV2::<Runtime>::INDEX), total_input,
+                    U256::from(total.to_u64())),
+                (addr_from_index(StakingPrecompileV2::<Runtime>::INDEX), subnet_input(netuid),
+                    U256::from(total.to_u64())),
+                (addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    subnet_input(NetUid::from(SECOND_NETUID_U16)), U256::zero()),
+            ] {
+                let mut handle = MockHandle::new(address, Context {
+                    address, caller: addr_from_index(0x3010), apparent_value: U256::zero(),
+                });
+                handle.input = input;
+                handle.is_static = true;
+                handle.gas_limit = 75_000_000;
+                let output = Precompiles::<Runtime>::new().execute(&mut handle)
+                    .expect("released staking address must remain routed")
+                    .expect("sparse accounts must be queryable from contracts");
+                assert_eq!(U256::from_big_endian(&output.output), expected);
+                assert!(handle.gas_used > 0 && handle.gas_used < 1_000_000);
+            }
         });
     }
 
