@@ -55,6 +55,7 @@ w3f-bls.workspace = true
 sha2.workspace = true
 rand_chacha.workspace = true
 pallet-crowdloan.workspace = true
+pallet-lending.workspace = true
 pallet-subtensor-proxy.workspace = true
 pallet-shield.workspace = true
 pallet-scheduler.workspace = true
@@ -89,6 +90,7 @@ try-runtime = [
 	"sp-runtime/try-runtime",
 	"pallet-commitments/try-runtime",
 	"pallet-crowdloan/try-runtime",
+	"pallet-lending/try-runtime",
 	"pallet-drand/try-runtime",
 	"pallet-subtensor-proxy/try-runtime",
 	"pallet-subtensor-utility/try-runtime",
@@ -119,6 +121,7 @@ std = [
 	"pallet-alpha-assets/std",
 	"pallet-commitments/std",
 	"pallet-crowdloan/std",
+	"pallet-lending/std",
 	"pallet-drand/std",
 	"pallet-subtensor-proxy/std",
 	"pallet-subtensor-swap/std",
@@ -154,6 +157,7 @@ runtime-benchmarks = [
 	"sp-runtime/runtime-benchmarks",
 	"pallet-commitments/runtime-benchmarks",
 	"pallet-crowdloan/runtime-benchmarks",
+	"pallet-lending/runtime-benchmarks",
 	"pallet-drand/runtime-benchmarks",
 	"pallet-subtensor-proxy/runtime-benchmarks",
 	"pallet-subtensor-swap/runtime-benchmarks",

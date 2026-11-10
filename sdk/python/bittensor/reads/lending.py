@@ -1,0 +1,1187 @@
+"""Block-pinned positions, lending inventories and runtime loan quotes."""
+
+from __future__ import annotations
+
+import asyncio
+import re
+from typing import Any, Optional, cast
+
+from .._generated import runtime_apis as api
+from .._generated.errors import ERRORS
+from .._generated.runtime_apis import Method
+from .._generated.storage import Item
+from ..balance import Balance
+from ..intents._money import alpha_amount, tao_amount
+from ..intents.lending import POSITIONS, check_side
+from ..result import BittensorError, ChainError, chain_error_from_dispatch
+from ..settings import ALPHA_SYMBOL, TAO_SYMBOL
+from .base import read
+
+LIFTS = Item("Lending", "Lifts", "LiftBook")
+OPEN_BY_NETUID = Item("Lending", "OpenByNetuid")
+DISSOLUTIONS = Item("Lending", "Dissolutions", "Dissolution")
+INTEREST_RETRY = Item("Lending", "InterestRetry")
+EXPIRY_RETRY = Item("Lending", "ExpiryRetry")
+LAST_DEFERRAL = Item("Lending", "LastDeferral")
+MINER_COLLATERAL = Item("SubtensorModule", "MinerCollateral", "MinerCollateralState")
+SUBNET_TAO = Item("SubtensorModule", "SubnetTAO", "TaoBalance")
+SUBNET_ALPHA_IN = Item("SubtensorModule", "SubnetAlphaIn", "AlphaBalance")
+QUOTE_OPEN = Method("LendingRuntimeApi", "quote_open")
+QUOTE_OPEN_FOR = Method("LendingRuntimeApi", "quote_open_for")
+QUOTE_OPEN_EXACT_FOR = Method("LendingRuntimeApi", "quote_open_exact_for")
+QUOTE_CLOSE = Method("LendingRuntimeApi", "quote_close")
+QUOTE_REPAY = Method("LendingRuntimeApi", "quote_repay")
+QUOTE_RAISE = Method("LendingRuntimeApi", "quote_raise")
+LENDING_STATS = Method("LendingRuntimeApi", "lending_stats")
+LENDING_STATS_GLOBAL = Method("LendingRuntimeApi", "lending_stats_global")
+CURRENT_TERMS_VERSION = Method("LendingRuntimeApi", "current_terms_version")
+
+
+def _nonnegative(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise BittensorError(f"invalid {label} in stake response")
+    return value
+
+
+async def _unlocked_alpha(view, coldkey_ss58: str, hotkey_ss58: str, netuid: int) -> int:
+    """Unlocked alpha on ``hotkey_ss58`` usable as long collateral (rao).
+
+    Mirrors the open-path stake gate: per-hotkey stake, coldkey availability,
+    and miner-collateral lock on that hotkey.
+    """
+    info, availability, bond = await asyncio.gather(
+        view.runtime(
+            api.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
+            [hotkey_ss58, coldkey_ss58, netuid],
+        ),
+        view.runtime(
+            api.StakeInfoRuntimeApi.get_stake_availability_for_coldkeys,
+            [[coldkey_ss58], [netuid]],
+        ),
+        view.query(MINER_COLLATERAL, [netuid, hotkey_ss58, coldkey_ss58]),
+    )
+    if info is not None and not isinstance(info, dict):
+        raise BittensorError("wallet alpha stake is unavailable")
+    if not isinstance(availability, dict):
+        raise BittensorError("wallet alpha availability is unavailable")
+    per_owner = availability.get(coldkey_ss58, {})
+    if not isinstance(per_owner, dict):
+        raise BittensorError("invalid wallet alpha availability")
+    entry = per_owner.get(netuid, per_owner.get(str(netuid), {}))
+    if not isinstance(entry, dict):
+        raise BittensorError("invalid wallet alpha availability")
+    stake = _nonnegative(info.get("stake") if info is not None else 0, "alpha stake")
+    available = _nonnegative(entry.get("available", 0), "available alpha")
+    if bond is not None and not isinstance(bond, dict):
+        raise BittensorError("wallet miner collateral is unavailable")
+    locked = _nonnegative(bond.get("locked") if bond is not None else 0, "miner collateral")
+    return min(available, max(stake - locked, 0))
+
+
+def _ok(raw: Any) -> dict:
+    if not isinstance(raw, dict):
+        raise BittensorError("lending quote unavailable; use a node with the lending runtime")
+    if "Err" in raw:
+        error = raw["Err"]
+        if isinstance(error, dict) and "Module" in error and not isinstance(error["Module"], dict):
+            raise BittensorError("invalid lending quote error response")
+        raise chain_error_from_dispatch(error)
+    result = raw.get("Ok", raw)
+    if not isinstance(result, dict):
+        raise BittensorError("invalid lending quote response")
+    return result
+
+
+def _fmt_rao(rao: int, netuid: int) -> str:
+    """τ / α_N money text (same form as CLI Result cards)."""
+    amount = int(rao) / 1_000_000_000
+    if netuid == 0:
+        return f"{TAO_SYMBOL}{amount:,.9f}"
+    return f"{amount:,.9f}{ALPHA_SYMBOL}_{netuid}"
+
+
+async def pool_capacity_detail(
+    view, netuid: int, side: str, principal: Balance, error: ChainError
+) -> ChainError:
+    """N20: PrincipalExceeds* → exceeds pool capacity with max ~pool reserve."""
+    side = check_side(side)
+    try:
+        if side == "Short":
+            raw = await view.query(SUBNET_ALPHA_IN, [netuid])
+            pool = int(raw or 0)
+            unit = netuid
+            name = "PrincipalExceedsAlphaIn"
+        else:
+            raw = await view.query(SUBNET_TAO, [netuid])
+            pool = int(raw or 0)
+            unit = 0
+            name = "PrincipalExceedsTaoIn"
+    except Exception:
+        pool = 0
+        unit = netuid if side == "Short" else 0
+        name = error.name or (
+            "PrincipalExceedsAlphaIn" if side == "Short" else "PrincipalExceedsTaoIn"
+        )
+    # Chain requires principal strictly less than the reserve.
+    cap = max(pool - 1, 0) if pool > 0 else 0
+    message = (
+        f"exceeds pool capacity for borrow {_fmt_rao(principal.rao, principal.netuid)}: "
+        f"max ~{_fmt_rao(cap, unit)} ({name})"
+    )
+    out = ChainError(message, name)
+    out.remediation_override = (
+        f"reduce --amount below ~{_fmt_rao(cap, unit)}, or wait for deeper "
+        f"{'alpha' if side == 'Short' else 'TAO'} reserves on netuid {netuid}"
+    )
+    return out
+
+
+async def _raise_required_collateral_for_borrow(
+    view, coldkey_ss58: str, hotkey_ss58: str, netuid: int, borrow_rao: int
+) -> Optional[int]:
+    """Min alpha collateral for ``borrow_rao`` via exact C+P quotes (N22).
+
+    Uses DynamicCollateral vs other refusals so the search works even when
+    free stake is below the requirement (StakeUnavailable means LTV-ok).
+    """
+
+    async def probe(collateral_rao: int) -> str:
+        try:
+            _ok(
+                await view.runtime(
+                    QUOTE_RAISE,
+                    [coldkey_ss58, netuid, hotkey_ss58, borrow_rao, collateral_rao, None],
+                )
+            )
+            return "ok"
+        except ChainError as error:
+            if error.name == "DynamicCollateral":
+                return "low"
+            if error.name in ("StakeUnavailable", "InsufficientSellStake"):
+                return "ok_stake"
+            if error.name == "CollateralZero":
+                return "low"
+            raise
+
+    try:
+        hi = 1
+        found = False
+        for _ in range(64):
+            status = await probe(hi)
+            if status in ("ok", "ok_stake"):
+                found = True
+                break
+            nxt = hi * 2
+            if nxt <= hi or nxt > (1 << 62):
+                break
+            hi = nxt
+        if not found:
+            return None
+        lo = max(hi // 2, 1)
+        best = hi
+        for _ in range(64):
+            if lo > hi:
+                break
+            mid = lo + (hi - lo) // 2
+            status = await probe(mid)
+            if status in ("ok", "ok_stake"):
+                best = mid
+                hi = mid - 1
+            else:
+                lo = mid + 1
+        return best
+    except Exception:
+        return None
+
+
+async def stake_unavailable_lending_detail(
+    view,
+    coldkey_ss58: str,
+    hotkey_ss58: str,
+    netuid: int,
+    *,
+    need: Optional[Balance] = None,
+) -> BittensorError:
+    """N20/N22: lending StakeUnavailable with required vs free alpha.
+
+    ``available`` / ``locked`` from stake availability are coldkey+subnet-wide
+    (conviction Lock already in ``locked``; miner collateral already removed
+    from ``available``). Hotkey ``stake`` and per-hotkey miner collateral are
+    separate — never derive conviction Lock as ``stake - available``.
+    """
+    info, availability, bond = await asyncio.gather(
+        view.runtime(
+            api.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
+            [hotkey_ss58, coldkey_ss58, netuid],
+        ),
+        view.runtime(
+            api.StakeInfoRuntimeApi.get_stake_availability_for_coldkeys,
+            [[coldkey_ss58], [netuid]],
+        ),
+        view.query(MINER_COLLATERAL, [netuid, hotkey_ss58, coldkey_ss58]),
+    )
+    stake = _nonnegative(info.get("stake") if isinstance(info, dict) else 0, "alpha stake")
+    per_owner = availability.get(coldkey_ss58, {}) if isinstance(availability, dict) else {}
+    entry = (
+        per_owner.get(netuid, per_owner.get(str(netuid), {})) if isinstance(per_owner, dict) else {}
+    )
+    if not isinstance(entry, dict):
+        entry = {}
+    available = _nonnegative(entry.get("available", 0), "available alpha")
+    # Subnet-wide conviction Lock from the availability entry (Auditor fid:6caee553).
+    locked_conviction = _nonnegative(entry.get("locked", 0), "conviction lock")
+    miner_locked = _nonnegative(
+        bond.get("locked") if isinstance(bond, dict) else 0, "miner collateral"
+    )
+    # Lending takes from this hotkey only; still bounded by coldkey free alpha.
+    free = min(available, max(stake - miner_locked, 0))
+    parts = [
+        f"lending stake unavailable on {hotkey_ss58} (netuid {netuid})",
+    ]
+    if need is not None:
+        # N22: lead with required vs available so amount-mode raise is actionable.
+        parts.append(
+            f"needed {_fmt_rao(need.rao, need.netuid)}, available {_fmt_rao(free, netuid)}"
+        )
+    else:
+        parts.append(f"available {_fmt_rao(free, netuid)}")
+    parts.extend(
+        [
+            f"hotkey stake {_fmt_rao(stake, netuid)}",
+            f"subnet conviction Lock {_fmt_rao(locked_conviction, netuid)}",
+            f"miner-collateral on hotkey {_fmt_rao(miner_locked, netuid)}",
+        ]
+    )
+    err = ChainError("; ".join(parts), "StakeUnavailable")
+    if need is not None and need.rao > free:
+        err.remediation_override = (
+            f"this raise needs about {_fmt_rao(need.rao, need.netuid)} unlocked alpha "
+            f"(collateral and default sale) but only {_fmt_rao(free, netuid)} is free on "
+            f"{hotkey_ss58} — stake more, free conviction Lock / miner collateral, reduce "
+            f"--amount, or pass a hotkey with enough free alpha"
+        )
+    else:
+        err.remediation_override = (
+            "lending can only take unlocked alpha on this hotkey — wait out the subnet "
+            f"conviction Lock ({_fmt_rao(locked_conviction, netuid)}), free miner "
+            f"collateral on this hotkey ({_fmt_rao(miner_locked, netuid)}), stake more "
+            f"here, or pass a hotkey with free alpha (have {_fmt_rao(free, netuid)}; "
+            "check `btcli stake list` / `btcli conviction show`)"
+        )
+    return err
+
+
+async def _interest_clock(view, netuid: int) -> tuple[int, int]:
+    year = int(await view.constant(("Lending", "BlocksPerYear")))
+    if year <= 0:
+        raise BittensorError("invalid lending interest year")
+    dissolution = await view.query(DISSOLUTIONS, [netuid])
+    now = min(view.block, int(dissolution["frozen_at"])) if dissolution else view.block
+    return now, year
+
+
+def _position_record(
+    view, owner: str, netuid: int, raw: Any, clock: tuple[int, int]
+) -> Optional[dict]:
+    if not isinstance(raw, dict):
+        return None
+    variant = raw["side"]
+    side = check_side(str(next(iter(variant)) if isinstance(variant, dict) else variant))
+    collateral_unit = 0 if side == "Short" else netuid
+    principal_unit = netuid if side == "Short" else 0
+    annual = int(raw["annual_interest"])
+    now, default_year = clock
+    # Prefer the position's snapshotted year (terms_version); fall back to the
+    # live constant for pre-migration rows that lack the field.
+    blocks_per_year = int(raw.get("blocks_per_year") or default_year)
+    if blocks_per_year <= 0:
+        blocks_per_year = default_year
+    # Fixed one-year term end; absent only on pre-term storage layouts.
+    expires_at = int(raw["expires_at"]) if raw.get("expires_at") is not None else None
+    expiry_due = int(raw["expiry_due"]) if raw.get("expiry_due") is not None else expires_at
+    # Match runtime: stop display accrual at expires_at during band deferral.
+    accrual_until = now if expires_at is None else min(now, expires_at)
+    accrued_blocks = max(accrual_until - int(raw["last_accrued"]), 0)
+    interest_due = (
+        annual * accrued_blocks + int(raw.get("interest_remainder") or 0)
+    ) // blocks_per_year
+    collateral = int(raw["collateral"])
+    principal = int(raw["principal"])
+    proceeds = int(raw["proceeds"])
+    escrow_alpha = int(raw.get("escrow_alpha") or 0)
+    # N26: read terms_version strictly — do not hide 0 / missing behind `or 1`.
+    if "terms_version" not in raw or raw["terms_version"] is None:
+        raise BittensorError("lending position is missing terms_version")
+    terms_version = int(raw["terms_version"])
+    interest_period = (
+        int(raw["interest_period"]) if raw.get("interest_period") is not None else None
+    )
+    runway_days = None
+    if annual:
+        runway_days = max(collateral - interest_due, 0) * 365 / annual
+        # Cap at the fixed term: interest runway cannot outlast expires_at.
+        if expires_at is not None and blocks_per_year > 0:
+            days_to_expiry = max(expires_at - now, 0) * 365 / blocks_per_year
+            runway_days = min(runway_days, days_to_expiry)
+    remaining = max(collateral - interest_due, 0)
+    # Interest exhaustion only here. AMM shortfall / insolvency is filled by
+    # `_annotate_close_solvency` (E2E N4 / U2) so `underwater` matches the CLI.
+    interest_exhausted = remaining <= 0 and principal > 0
+    return {
+        "coldkey": owner,
+        "netuid": netuid,
+        "side": side,
+        "principal": view.balance(principal, principal_unit),
+        "collateral": view.balance(collateral, collateral_unit),
+        # Short escrow TAO (E_S). Zero for longs — not a "unused" field on shorts.
+        "proceeds": Balance.from_rao(proceeds),
+        "escrow_alpha": view.balance(escrow_alpha, netuid),
+        "escrow": (
+            Balance.from_rao(proceeds) if side == "Short" else view.balance(escrow_alpha, netuid)
+        ),
+        "lift_tao": view.balance(int(raw.get("lift_tao") or 0), 0),
+        "lift_alpha": view.balance(int(raw.get("lift_alpha") or 0), netuid),
+        "annual_interest": view.balance(annual, collateral_unit),
+        "interest_due": view.balance(interest_due, collateral_unit),
+        "last_accrued": int(raw["last_accrued"]),
+        "due": int(raw["due"]),
+        "expires_at": expires_at,
+        "expiry_due": expiry_due,
+        "terms_version": terms_version,
+        "interest_period": interest_period,
+        "blocks_per_year": blocks_per_year,
+        "deferred": None,
+        "underwater": interest_exhausted,
+        "insolvent": interest_exhausted,
+        "shortfall": Balance.from_rao(0),
+        "runway_days": runway_days,
+    }
+
+
+def _decode_deferral_reason(raw: Any) -> str:
+    """BoundedVec / bytes / str → ``Pallet::ErrorName`` when resolvable (N17).
+
+    Accepts the runtime's compact ``Pallet::{index}`` / ``Pallet::Name`` labels,
+    legacy truncated ``Module { index: N, error: [...] }`` dumps, and plain text.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        text = bytes(raw).decode("utf-8", errors="replace")
+    elif isinstance(raw, str):
+        text = raw
+    elif isinstance(raw, (list, tuple)):
+        try:
+            text = bytes(raw).decode("utf-8", errors="replace")
+        except Exception:
+            text = str(raw)
+    else:
+        text = str(raw) if raw is not None else ""
+    text = text.strip()
+    if not text:
+        return ""
+
+    # Legacy Debug dump: Module { index: 7, error: [98, 0, 0, 0] } (may be truncated).
+    dump = re.search(
+        r"Module\s*\{[^}]*index:\s*(\d+)[^}]*error:\s*\[(\d+)",
+        text,
+    )
+    if dump:
+        info = ERRORS.get((int(dump.group(1)), int(dump.group(2))))
+        if info is not None:
+            return f"{info.pallet}::{info.name}"
+
+    # Compact runtime form: PalletName::index or bare index::err (unknown pallet).
+    compact = re.fullmatch(r"([A-Za-z][A-Za-z0-9_]*)::(\d+)$", text)
+    if compact:
+        pallet_name, code = compact.group(1), int(compact.group(2))
+        for (_index, err), info in ERRORS.items():
+            if info.pallet == pallet_name and err == code:
+                return f"{info.pallet}::{info.name}"
+        return text
+    numeric = re.fullmatch(r"(\d+)::(\d+)$", text)
+    if numeric:
+        info = ERRORS.get((int(numeric.group(1)), int(numeric.group(2))))
+        if info is not None:
+            return f"{info.pallet}::{info.name}"
+
+    # Already Pallet::ErrorName (or Lending-local Error Debug name).
+    return text
+
+
+async def _annotate_deferral(view, record: dict) -> dict:
+    """Flag pending interest / settlement deferral (N13 / N18).
+
+    Derive every pending kind from InterestRetry / ExpiryRetry so an interest
+    retry and a settlement retry can both surface. Overlay ``LastDeferral``
+    reason (and retry_at) when its kind matches; otherwise keep the queue
+    membership defaults. ``deferred`` stays the newest entry for back-compat;
+    ``deferrals`` lists every pending kind.
+    """
+    owner = record["coldkey"]
+    netuid = int(record["netuid"])
+    due = record.get("due")
+    expiry_due = record.get("expiry_due")
+    try:
+        last_kind = None
+        last_retry_at = None
+        last_reason = ""
+        last = await view.query(LAST_DEFERRAL, [owner, netuid])
+        if isinstance(last, (list, tuple)) and len(last) >= 3:
+            kind_code, retry_at, reason_raw = last[0], last[1], last[2]
+            last_kind = "interest" if int(kind_code) == 0 else "settlement"
+            last_retry_at = int(retry_at)
+            last_reason = _decode_deferral_reason(reason_raw)
+
+        deferrals: list[dict] = []
+        if due is not None:
+            pending = await view.query(INTEREST_RETRY, [int(due), (owner, netuid)])
+            if pending is not None:
+                reason = (
+                    last_reason
+                    if last_kind == "interest" and last_reason
+                    else "interest charge failed; pending retry"
+                )
+                retry = last_retry_at if last_kind == "interest" and last_retry_at else int(due)
+                deferrals.append({"kind": "interest", "retry_at": retry, "reason": reason})
+        if expiry_due is not None:
+            pending = await view.query(EXPIRY_RETRY, [int(expiry_due), (owner, netuid)])
+            if pending is not None:
+                reason = (
+                    last_reason
+                    if last_kind == "settlement" and last_reason
+                    else "expiry settlement failed; pending retry"
+                )
+                retry = (
+                    last_retry_at
+                    if last_kind == "settlement" and last_retry_at
+                    else int(expiry_due)
+                )
+                deferrals.append({"kind": "settlement", "retry_at": retry, "reason": reason})
+
+        # LastDeferral alone (queues already drained / not yet readable).
+        if not deferrals and last_kind is not None:
+            deferrals.append(
+                {
+                    "kind": last_kind,
+                    "retry_at": int(last_retry_at or 0),
+                    "reason": last_reason
+                    or (
+                        "interest charge failed; pending retry"
+                        if last_kind == "interest"
+                        else "expiry settlement failed; pending retry"
+                    ),
+                }
+            )
+
+        if deferrals:
+            # Newest by retry_at for the singular ``deferred`` field (N18).
+            newest = max(deferrals, key=lambda d: int(d.get("retry_at") or 0))
+            record["deferred"] = newest
+            record["deferrals"] = deferrals
+    except Exception:
+        return record
+    return record
+
+
+async def _annotate_close_solvency(view, record: dict) -> dict:
+    """Set shortfall / insolvent / underwater from the escrow close quote.
+
+    Storage alone cannot know AMM buyback cost. A positive shortfall means the
+    default close path cannot cover principal from escrow (+ collateral for
+    longs) — flag the loan underwater and warn about forfeit at expiry.
+    """
+    try:
+        raw = _ok(
+            await view.runtime(
+                QUOTE_CLOSE,
+                [record["coldkey"], record["netuid"], None, False],
+            )
+        )
+    except Exception:
+        return record
+    shortfall = Balance.from_rao(int(raw.get("shortfall") or 0))
+    record["shortfall"] = shortfall
+    if shortfall.rao > 0:
+        record["underwater"] = True
+        record["insolvent"] = True
+        record["close_shortfall"] = shortfall
+    else:
+        record["insolvent"] = bool(record.get("underwater"))
+    return record
+
+
+async def _load_position_storage(view, coldkey_ss58: str, netuid: int) -> Optional[dict]:
+    """Storage-only position record (no close-quote solvency annotation).
+
+    Used by close/repay quotes so they do not nest a second ``quote_close``
+    through :func:`lending_position`.
+    """
+    raw = await view.query(POSITIONS, [coldkey_ss58, netuid])
+    if not isinstance(raw, dict):
+        return None
+    return _position_record(view, coldkey_ss58, netuid, raw, await _interest_clock(view, netuid))
+
+
+@read(
+    "lending_position",
+    {"coldkey_ss58": "string", "netuid": "integer"},
+    category="Prices & swaps",
+    param_docs={"coldkey_ss58": "Position owner.", "netuid": "Subnet of the position."},
+)
+async def lending_position(view, coldkey_ss58: str, netuid: int) -> Optional[dict]:
+    """A coldkey's fixed-principal loan on one subnet, or None.
+
+    Principal increases when more is borrowed and never falls when interest is
+    collected. This record reports the combined position. Amounts retain their
+    currency: short collateral is TAO and short debt is alpha; long collateral
+    is alpha and long debt is TAO. ``proceeds`` is the short's escrowed TAO
+    (E_S) from the forced alpha sale at open; it is zero for longs.
+    ``escrow_alpha`` is the long's escrowed alpha (A); zero for shorts.
+    ``expires_at`` is the fixed one-year term end (increases restart it).
+    ``runway_days`` is capped at days remaining until ``expires_at``. Interest
+    and runway are estimates at the selected block. ``underwater`` /
+    ``insolvent`` are true when interest is exhausted or the escrow close
+    quote reports a positive ``shortfall`` (AMM cannot cover principal).
+    """
+    view = await view.at()
+    record = await _load_position_storage(view, coldkey_ss58, netuid)
+    if record is None:
+        return None
+    record = await _annotate_deferral(view, record)
+    return await _annotate_close_solvency(view, record)
+
+
+@read(
+    "lending_positions",
+    {"netuid": "integer"},
+    category="Prices & swaps",
+    param_docs={"netuid": "Subnet whose open loans to list."},
+)
+async def lending_positions(view, netuid: int) -> list[dict]:
+    """All open loans on a subnet, pinned to one block and sorted by owner."""
+    view = await view.at()
+    owners = await view.query_map(OPEN_BY_NETUID, [netuid])
+    if not owners:
+        return []
+    clock = await _interest_clock(view, netuid)
+    records = []
+    for key, _ in owners:
+        owner = str(key[0] if isinstance(key, (list, tuple)) else key)
+        raw = await view.query(POSITIONS, [owner, netuid])
+        record = _position_record(view, owner, netuid, raw, clock)
+        if record is not None:
+            record = await _annotate_deferral(view, record)
+            records.append(await _annotate_close_solvency(view, record))
+    return sorted(records, key=lambda record: record["coldkey"])
+
+
+@read(
+    "lending_reserves",
+    {"netuid": "integer"},
+    category="Prices & swaps",
+    param_docs={"netuid": "Subnet whose lift book to inspect."},
+)
+async def lending_reserves(view, netuid: int) -> dict:
+    """Lift-book balances for a subnet: held legs, escrow, and long collateral.
+
+    Reports custody accounting for lift-based lending, not a separate vault.
+    Outstanding short/long lift legs and escrowed proceeds are included.
+    """
+    raw = await view.query(LIFTS, [netuid])
+    raw = raw if isinstance(raw, dict) else {}
+    return {
+        "netuid": netuid,
+        "l_s": view.balance(int(raw.get("l_s") or 0), 0),
+        "l_l": view.balance(int(raw.get("l_l") or 0), 0),
+        "b_l": view.balance(int(raw.get("b_l") or 0), 0),
+        "held_tao": view.balance(int(raw.get("held_tao") or 0), 0),
+        "held_alpha": view.balance(int(raw.get("held_alpha") or 0), netuid),
+        "escrow_tao": view.balance(int(raw.get("escrow_tao") or 0), 0),
+        "escrow_alpha": view.balance(int(raw.get("escrow_alpha") or 0), netuid),
+        "long_collateral_alpha": view.balance(int(raw.get("long_collateral_alpha") or 0), netuid),
+        "g_ema": view.balance(int(raw.get("g_ema") or 0), 0),
+        "last": int(raw.get("last") or 0),
+    }
+
+
+@read(
+    "lending_raise_quote",
+    {
+        "netuid": "integer",
+        "coldkey_ss58": "string",
+        "hotkey_ss58": "string",
+        "borrow_tao": "string",
+        "collateral_alpha": "string",
+        "sell_alpha": "string",
+    },
+    category="Prices & swaps",
+    param_docs={
+        "netuid": "Subnet to raise on.",
+        "coldkey_ss58": "Owner of the raise / existing long.",
+        "hotkey_ss58": "Hotkey holding collateral and sale alpha.",
+        "borrow_tao": "Exact TAO principal; may pair with collateral_alpha for lower-LTV.",
+        "collateral_alpha": "Exact alpha collateral; may pair with borrow_tao for lower-LTV.",
+        "sell_alpha": "Unlocked alpha to sell; omit to match realised escrow alpha.",
+    },
+)
+async def lending_raise_quote(
+    view,
+    netuid: int,
+    coldkey_ss58: str,
+    hotkey_ss58: str,
+    borrow_tao: Optional[str] = "",
+    collateral_alpha: Optional[str] = "",
+    sell_alpha: Optional[str] = "",
+) -> dict:
+    """Quote an atomic raise: escrowed long sizing plus optional unlocked sale."""
+    view = await view.at()
+    # Empty-string defaults keep the generated CLI options optional; treat them
+    # as unset. Pass one or both of borrow_tao / collateral_alpha (exact C+P).
+    borrow_tao = borrow_tao or None
+    collateral_alpha = collateral_alpha or None
+    sell_alpha = sell_alpha or None
+    if borrow_tao is None and collateral_alpha is None:
+        raise BittensorError("provide borrow_tao or collateral_alpha")
+    amount = None if borrow_tao is None else cast(Balance, tao_amount(borrow_tao)).rao
+    collateral = (
+        None
+        if collateral_alpha is None
+        else cast(Balance, alpha_amount(collateral_alpha, netuid)).rao
+    )
+    sell = None if sell_alpha is None else cast(Balance, alpha_amount(sell_alpha, netuid)).rao
+    try:
+        raw = _ok(
+            await view.runtime(
+                QUOTE_RAISE,
+                [coldkey_ss58, netuid, hotkey_ss58, amount, collateral, sell],
+            )
+        )
+    except ChainError as error:
+        if error.name in ("StakeUnavailable", "InsufficientSellStake"):
+            need = None
+            if collateral is not None or sell is not None:
+                need = view.balance(int(collateral or 0) + int(sell or 0), netuid)
+            elif amount is not None:
+                # N22: amount mode sizes C inside the runtime before the stake
+                # gate; recover required collateral (+ default sale ≈ C escrow)
+                # via exact C+P probes so the error states need vs available.
+                required_c = await _raise_required_collateral_for_borrow(
+                    view, coldkey_ss58, hotkey_ss58, netuid, int(amount)
+                )
+                if required_c is not None:
+                    # StakeUnavailable is ensure_collateral_stake(C); sell is checked
+                    # next as InsufficientSellStake (unlocked >= C+S). Report C for
+                    # the first gate; C+C as a stand-in for C+default-sale on the
+                    # second (default S ≈ escrowed buy ≈ C order of magnitude).
+                    need_rao = required_c if error.name == "StakeUnavailable" else required_c * 2
+                    need = view.balance(need_rao, netuid)
+            raise await stake_unavailable_lending_detail(
+                view, coldkey_ss58, hotkey_ss58, netuid, need=need
+            ) from error
+        if error.name in ("PrincipalExceedsAlphaIn", "PrincipalExceedsTaoIn") and amount:
+            raise await pool_capacity_detail(
+                view, netuid, "Long", view.balance(int(amount), 0), error
+            ) from error
+        raise
+    return {
+        "principal_tao": view.balance(int(raw["principal_tao"]), 0),
+        "collateral_alpha": view.balance(int(raw["collateral_alpha"]), netuid),
+        "escrow_alpha": view.balance(int(raw["escrow_alpha"]), netuid),
+        "sell_alpha": view.balance(int(raw["sell_alpha"]), netuid),
+        "free_tao_out": view.balance(int(raw["free_tao_out"]), 0),
+        "price_before": raw.get("price_before"),
+        "price_after_buy": raw.get("price_after_buy"),
+        "price_after": raw.get("price_after"),
+        "v_dyn": view.balance(int(raw["v_dyn"]), 0),
+        "ltv_tier_bps": int(raw["ltv_tier_bps"]),
+        "long_cap_headroom": view.balance(int(raw["long_cap_headroom"]), 0),
+        "annual_interest_alpha": view.balance(int(raw["annual_interest_alpha"]), netuid),
+    }
+
+
+@read(
+    "lending_open_quote",
+    {
+        "netuid": "integer",
+        "side": "string",
+        "collateral": "string",
+        "coldkey_ss58": "string",
+        "hotkey_ss58": "string",
+        "amount": "string",
+    },
+    category="Prices & swaps",
+    param_docs={
+        "netuid": "Subnet to borrow against.",
+        "side": "short or long.",
+        "collateral": "Additional collateral amount: TAO for a short, alpha for a long.",
+        "coldkey_ss58": "Owner to quote an opening or increase for.",
+        "hotkey_ss58": (
+            "Long only: collateral source hotkey. Omit for shorts (TAO-only; "
+            "source_hotkey is None)."
+        ),
+        "amount": "Exact additional principal: alpha for a short, TAO for a long; optional.",
+    },
+)
+async def lending_open_quote(
+    view,
+    netuid: int,
+    side: str,
+    collateral: str,
+    coldkey_ss58: Optional[str] = None,
+    hotkey_ss58: Optional[str] = None,
+    amount: Optional[str] = "",
+) -> dict:
+    """Quote additional fixed debt, opening value and annual interest.
+
+    Supply ``coldkey_ss58`` to quote a new position or increase an existing
+    one on the same side (positions are keyed by coldkey and netuid). Longs
+    also need ``hotkey_ss58`` as the collateral source; shorts must omit it
+    (TAO-only). The runtime accrues old interest and checks the combined
+    position. Alpha loans require conservative funded-claim coverage; TAO
+    loans require conservative funded collateral backing. Both protect each
+    other same-side loan after accrued interest. Returned principal,
+    annual_interest and opening_value are additions, not totals. Short
+    opening_value is the loan's TAO value at the lending EMA, rounded up,
+    and fixes its annual TAO interest. ``escrow_estimate`` is simulated sale
+    proceeds in TAO for shorts and escrowed alpha for longs. Omitting the
+    owner quotes a fresh loan only. A refusal is an error; it never becomes
+    a zero-protection quote. The result is indicative until the transaction
+    executes. Supply ``amount`` with an owner to quote exactly that
+    additional principal.
+    """
+    view = await view.at()
+    side = check_side(side)
+    amount = amount or None
+    collateral_amount = cast(
+        Balance, tao_amount(collateral) if side == "Short" else alpha_amount(collateral, netuid)
+    )
+    if side == "Short" and hotkey_ss58 is not None:
+        raise BittensorError("short open quote is TAO-only; omit hotkey_ss58")
+    if side == "Long" and coldkey_ss58 is not None and hotkey_ss58 is None:
+        raise BittensorError("a long owner-aware quote requires hotkey_ss58")
+    source_hotkey = None if side == "Short" else hotkey_ss58
+    method = QUOTE_OPEN if coldkey_ss58 is None else QUOTE_OPEN_FOR
+    params = (
+        [netuid, side, collateral_amount.rao]
+        if coldkey_ss58 is None
+        else [coldkey_ss58, netuid, side, collateral_amount.rao, source_hotkey]
+    )
+    if amount is not None:
+        if coldkey_ss58 is None:
+            raise BittensorError("an exact lending quote requires coldkey_ss58")
+        if side == "Long" and hotkey_ss58 is None:
+            raise BittensorError("an exact long quote requires hotkey_ss58")
+        principal = cast(
+            Balance, alpha_amount(amount, netuid) if side == "Short" else tao_amount(amount)
+        )
+        if not 0 < principal.rao <= (1 << 64) - 1:
+            raise BittensorError("borrow amount must be positive and fit the chain's token units")
+        method = QUOTE_OPEN_EXACT_FOR
+        params = [
+            coldkey_ss58,
+            netuid,
+            side,
+            collateral_amount.rao,
+            source_hotkey,
+            principal.rao,
+        ]
+    raw = _ok(await view.runtime(method, params))
+    if amount is not None and int(raw["principal"]) != principal.rao:
+        raise BittensorError("exact lending quote returned a different borrowed amount")
+    collateral_unit = 0 if side == "Short" else netuid
+    return {
+        "principal": view.balance(int(raw["principal"]), netuid if side == "Short" else 0),
+        "annual_interest": view.balance(int(raw["annual_interest"]), collateral_unit),
+        "opening_value": Balance.from_rao(int(raw["opening_value"])),
+        "collateral": view.balance(
+            int(raw.get("collateral") or collateral_amount.rao), collateral_unit
+        ),
+        "v_dyn": Balance.from_rao(int(raw.get("v_dyn") or 0)),
+        # Short sale proceeds are TAO; long forced-buy escrow is alpha (E2E U1).
+        "escrow_estimate": view.balance(
+            int(raw.get("escrow_estimate") or 0),
+            0 if side == "Short" else netuid,
+        ),
+    }
+
+
+@read(
+    "lending_required_collateral",
+    {
+        "netuid": "integer",
+        "side": "string",
+        "amount": "string",
+        "coldkey_ss58": "string",
+        "hotkey_ss58": "string",
+    },
+    category="Prices & swaps",
+    param_docs={
+        "netuid": "Subnet to borrow against.",
+        "side": "short or long.",
+        "amount": "Exact additional principal: alpha for a short, TAO for a long.",
+        "coldkey_ss58": "Owner of the new or increased loan.",
+        "hotkey_ss58": "Long only: collateral source hotkey. Omit for shorts.",
+    },
+)
+async def lending_required_collateral(
+    view,
+    netuid: int,
+    side: str,
+    amount: str,
+    coldkey_ss58: str,
+    hotkey_ss58: Optional[str] = None,
+) -> dict:
+    """Minimum additional collateral for exactly the requested borrowed amount.
+
+    The search uses exact-principal runtime quotes at one block. It includes
+    existing principal, accrued interest, market depth and funded-redemption
+    guards. Only the owner's ``InsufficientCollateral`` response means to
+    search higher; unavailable references, inventory, borrowing caps and
+    other positions' uncovered debt remain hard refusals. For longs, probes
+    are capped by unlocked alpha on ``hotkey_ss58`` so the owner-aware stake
+    gate cannot abort an otherwise affordable search. The requested opening
+    value must meet the runtime's minimum, currently 1 TAO.
+
+    Returns collateral and its opening quote. The exact-principal transaction
+    rechecks admission without borrowing extra if state changes.
+    """
+    view = await view.at()
+    side = check_side(side)
+    principal = cast(
+        Balance, alpha_amount(amount, netuid) if side == "Short" else tao_amount(amount)
+    )
+    if not 0 < principal.rao <= (1 << 64) - 1:
+        raise BittensorError("borrow amount must be positive and fit the chain's token units")
+    unit = 0 if side == "Short" else netuid
+    maximum = (1 << 64) - 1
+    existing = await _load_position_storage(view, coldkey_ss58, netuid)
+    if existing is not None:
+        remaining = existing["collateral"].rao - existing["interest_due"].rao
+        if remaining <= 0:
+            raise BittensorError("the existing position's collateral is exhausted")
+        maximum -= remaining
+    if maximum <= 0:
+        raise BittensorError("the position cannot accept additional collateral")
+
+    available: Optional[int] = None
+    if side == "Long":
+        if hotkey_ss58 is None:
+            raise BittensorError("a long required-collateral search needs hotkey_ss58")
+        available = await _unlocked_alpha(view, coldkey_ss58, hotkey_ss58, netuid)
+        if available <= 0:
+            raise BittensorError("no unlocked alpha on the source hotkey for collateral")
+        maximum = min(maximum, available)
+
+    quotes: dict[int, Optional[dict]] = {}
+
+    async def quote(collateral: int) -> Optional[dict]:
+        if collateral not in quotes:
+            try:
+                quotes[collateral] = await lending_open_quote(
+                    view,
+                    netuid,
+                    side,
+                    view.balance(collateral, unit),
+                    coldkey_ss58,
+                    hotkey_ss58,
+                    principal,
+                )
+            except ChainError as error:
+                if error.name == "InsufficientCollateral":
+                    quotes[collateral] = None
+                elif error.name in ("PrincipalExceedsAlphaIn", "PrincipalExceedsTaoIn"):
+                    # N20: pool-capacity refusals are not collateral shortages.
+                    raise await pool_capacity_detail(
+                        view, netuid, side, principal, error
+                    ) from error
+                elif error.name == "StakeUnavailable" and available is not None:
+                    # Probe above unlocked stake — treat as out of search range.
+                    if collateral > available:
+                        quotes[collateral] = None
+                    else:
+                        raise await stake_unavailable_lending_detail(
+                            view,
+                            coldkey_ss58,
+                            hotkey_ss58 or "",
+                            netuid,
+                            need=view.balance(collateral, unit),
+                        ) from error
+                else:
+                    raise
+        return quotes[collateral]
+
+    # Bound the geometric probe by unlocked stake so the first probe cannot
+    # overshoot available collateral and abort on StakeUnavailable.
+    low, high = 0, min(1_000_000_000, maximum)
+    for _ in range(64):
+        if high <= 0:
+            break
+        if await quote(high) is not None:
+            break
+        if high == maximum:
+            if available is not None:
+                # Need-vs-available for --amount mode (U4 / N16): enrich here so
+                # AppContext.run prints it before any CLI except can run.
+                borrow = view.balance(principal.rao, 0 if side == "Long" else netuid)
+                have = view.balance(available, unit)
+                raise BittensorError(
+                    f"insufficient collateral for borrow {borrow}: "
+                    f"needed more than unlocked alpha {have} on {hotkey_ss58}"
+                )
+            raise BittensorError("the required collateral exceeds the chain's position limit")
+        low, high = high, min(high * 2, maximum)
+    else:
+        raise BittensorError("could not bound the required collateral")
+
+    for _ in range(64):
+        if high - low <= 1:
+            break
+        middle = (low + high) // 2
+        if await quote(middle) is None:
+            low = middle
+        else:
+            high = middle
+    result = await quote(high)
+    if result is None:
+        raise BittensorError("the requested loan has no admissible collateral quote")
+    return {"collateral": view.balance(high, unit), **result}
+
+
+@read(
+    "lending_close_quote",
+    {
+        "coldkey_ss58": "string",
+        "netuid": "integer",
+        "hotkey_ss58": "string",
+        "repay_from_wallet": "boolean",
+    },
+    category="Prices & swaps",
+    param_docs={
+        "coldkey_ss58": "Position owner.",
+        "netuid": "Subnet of the position.",
+        "hotkey_ss58": (
+            "Optional per-call hotkey for alpha repay (short wallet path) or "
+            "alpha refund (long close). Omit for short escrow buyback (TAO "
+            "only). When omitted, the runtime skips the hotkey-existence check."
+        ),
+        "repay_from_wallet": (
+            "False / --from-escrow (default): quote the escrow AMM buyback for a short. "
+            "True / --from-wallet (alias --repay-from-wallet): repay short alpha from a "
+            "call-supplied hotkey stake."
+        ),
+    },
+)
+async def lending_close_quote(
+    view,
+    coldkey_ss58: str,
+    netuid: int,
+    hotkey_ss58: Optional[str] = None,
+    repay_from_wallet: bool = False,
+) -> dict:
+    """Runtime quote of the combined debt repayment and refund, after accrued interest.
+
+    Payment is TAO except for a wallet-repaid short, which returns its fixed
+    alpha principal. Refund is TAO for a short and alpha for a long. Default
+    ``repay_from_wallet=False`` quotes the escrow AMM path: shorts buy P alpha
+    from escrow+collateral (leftover TAO refund); when the buyback costs more
+    than the pot, payment is the TAO needed, refund is 0, and ``max_payment``
+    on close must cover the shortfall from free balance. Longs sell escrow A
+    then only enough collateral to cover any shortfall to P (leftover alpha
+    refund). Set True to quote a wallet repayment instead. Pass
+    ``hotkey_ss58`` when alpha is repaid or refunded so quote and call share
+    hotkey-existence checks; omit it on TAO-only short escrow buyback.
+    """
+    view = await view.at()
+    # Storage only: avoid nested quote_close from lending_position annotation.
+    position = await _load_position_storage(view, coldkey_ss58, netuid)
+    if position is None:
+        raise BittensorError(f"no lending position on netuid {netuid}")
+    raw = _ok(
+        await view.runtime(QUOTE_CLOSE, [coldkey_ss58, netuid, hotkey_ss58, repay_from_wallet])
+    )
+    short = position["side"] == "Short"
+    return {
+        "payment": view.balance(int(raw["payment"]), netuid if short and repay_from_wallet else 0),
+        "refund": view.balance(int(raw["refund"]), 0 if short else netuid),
+        "escrow_return": view.balance(int(raw.get("escrow_return") or 0), 0 if short else netuid),
+        "shortfall": Balance.from_rao(int(raw.get("shortfall") or 0)),
+    }
+
+
+@read(
+    "lending_repay_quote",
+    {
+        "coldkey_ss58": "string",
+        "netuid": "integer",
+        "principal_part": "string",
+        "hotkey_ss58": "string",
+        "repay_from_wallet": "boolean",
+    },
+    category="Prices & swaps",
+    param_docs={
+        "coldkey_ss58": "Position owner.",
+        "netuid": "Subnet of the position.",
+        "principal_part": (
+            "Principal to repay: alpha for a short, TAO for a long. Must be "
+            "> 0 and ≤ stored principal; full principal matches lending_close_quote."
+        ),
+        "hotkey_ss58": (
+            "Optional per-call hotkey for alpha repay (short wallet path) or "
+            "alpha refund (long repay). Omit for short escrow buyback (TAO only)."
+        ),
+        "repay_from_wallet": (
+            "False / --from-escrow (default): quote the escrow AMM path for the slice. "
+            "True / --from-wallet (alias --repay-from-wallet): repay short alpha from a "
+            "call-supplied hotkey stake."
+        ),
+    },
+)
+async def lending_repay_quote(
+    view,
+    coldkey_ss58: str,
+    netuid: int,
+    principal_part: str,
+    hotkey_ss58: Optional[str] = None,
+    repay_from_wallet: bool = False,
+) -> dict:
+    """Runtime quote of a partial-repay payment and refund.
+
+    Same payment/refund/shortfall units as :func:`lending_close_quote`, sized
+    for ``principal_part``. Full principal delegates to the close quote on
+    chain.
+    """
+    view = await view.at()
+    # Storage only: avoid nested quote_close from lending_position annotation.
+    position = await _load_position_storage(view, coldkey_ss58, netuid)
+    if position is None:
+        raise BittensorError(f"no lending position on netuid {netuid}")
+    short = position["side"] == "Short"
+    part = cast(
+        Balance,
+        alpha_amount(principal_part, netuid) if short else tao_amount(principal_part),
+    )
+    if part.rao <= 0:
+        raise BittensorError("principal_part must be positive")
+    stored = position["principal"]
+    if not isinstance(stored, Balance) or part.rao > stored.rao:
+        raise BittensorError(f"principal_part {part} exceeds stored principal {stored}")
+    raw = _ok(
+        await view.runtime(
+            QUOTE_REPAY,
+            [coldkey_ss58, netuid, hotkey_ss58, part.rao, repay_from_wallet],
+        )
+    )
+    return {
+        "payment": view.balance(int(raw["payment"]), netuid if short and repay_from_wallet else 0),
+        "refund": view.balance(int(raw["refund"]), 0 if short else netuid),
+        "escrow_return": view.balance(int(raw.get("escrow_return") or 0), 0 if short else netuid),
+        "shortfall": Balance.from_rao(int(raw.get("shortfall") or 0)),
+        "principal_part": part,
+    }
+
+
+def _lending_stats_record(raw: Any, *, netuid: Optional[int]) -> dict:
+    """Normalize LendingStats: Balance amounts for display, ints for counts.
+
+    Lending ``--json`` keeps rao via query ``_jsonable(..., balance_as_rao=True)``
+    (U1, N29). Per-netuid alpha uses ``α_N``; global mixed-subnet alpha sums use
+    a neutral ``α`` label (U4) — not ``α₁``.
+    """
+    raw = raw if isinstance(raw, dict) else {}
+    scoped = netuid is not None and int(netuid) > 0
+    alpha_net = int(netuid) if scoped else 1
+
+    def u(name: str) -> int:
+        return int(raw.get(name) or 0)
+
+    def tao(name: str) -> Balance:
+        return Balance.from_rao(u(name), 0)
+
+    def alpha(name: str) -> Balance:
+        # Global totals mix subnets: tag with plain α (U4), not α₁.
+        if not scoped:
+            return Balance.from_rao(u(name), alpha_net, symbol=ALPHA_SYMBOL)
+        return Balance.from_rao(u(name), alpha_net)
+
+    out: dict[str, Any] = {
+        "interest_burned_tao": tao("interest_burned_tao"),
+        "interest_burned_alpha": alpha("interest_burned_alpha"),
+        "k_neutral_surplus_burned_tao": tao("k_neutral_surplus_burned_tao"),
+        "k_neutral_surplus_burned_alpha": alpha("k_neutral_surplus_burned_alpha"),
+        "forfeited_collateral_tao": tao("forfeited_collateral_tao"),
+        "forfeited_collateral_alpha": alpha("forfeited_collateral_alpha"),
+        "forfeit_buyback_tao": tao("forfeit_buyback_tao"),
+        "forfeit_buyback_alpha": alpha("forfeit_buyback_alpha"),
+        "forfeit_count": u("forfeit_count"),
+        "expiry_settlement_count": u("expiry_settlement_count"),
+        "closes_long": u("closes_long"),
+        "closes_short": u("closes_short"),
+        "opens_long": u("opens_long"),
+        "opens_short": u("opens_short"),
+        "wallet_top_ups_tao": tao("wallet_top_ups_tao"),
+        # N24: TAO-valued k-shortfall; alpha field retained but unused (0).
+        "pool_value_given_below_baseline_tao": tao("pool_value_given_below_baseline_tao"),
+        "pool_value_given_below_baseline_alpha": alpha("pool_value_given_below_baseline_alpha"),
+        "principal_opened_long": tao("principal_opened_long"),
+        "principal_opened_short": alpha("principal_opened_short"),
+    }
+    if netuid is not None and int(netuid) > 0:
+        out["netuid"] = int(netuid)
+    else:
+        out["scope"] = "global"
+    return out
+
+
+@read(
+    "lending_stats",
+    {"netuid": "integer"},
+    category="Prices & swaps",
+    param_docs={
+        "netuid": (
+            "Subnet whose cumulative lending health counters to read. "
+            "Omit (or pass 0) for chain-wide totals; "
+            "or use lending_stats_global."
+        ),
+    },
+)
+async def lending_stats(view, netuid: Optional[int] = 0) -> dict:
+    """Cumulative lending health counters (saturating, monotonic).
+
+    Per-netuid values may clear on dissolution; the global totals never reset.
+    Counters update at the same sites as the matching pallet events.
+    Omit ``netuid`` (or pass 0) for chain-wide totals.
+    """
+    view = await view.at()
+    # Default 0 keeps the generated CLI option optional (None-default would
+    # be treated as required by query._is_required).
+    if netuid is None or int(netuid) <= 0:
+        raw = await view.runtime(LENDING_STATS_GLOBAL, [])
+        return _lending_stats_record(raw, netuid=None)
+    raw = await view.runtime(LENDING_STATS, [int(netuid)])
+    return _lending_stats_record(raw, netuid=int(netuid))
+
+
+@read(
+    "lending_stats_global",
+    {},
+    category="Prices & swaps",
+)
+async def lending_stats_global(view) -> dict:
+    """Chain-wide cumulative lending health counters (never reset)."""
+    view = await view.at()
+    raw = await view.runtime(LENDING_STATS_GLOBAL, [])
+    return _lending_stats_record(raw, netuid=None)
+
+
+@read(
+    "lending_current_terms_version",
+    {},
+    category="Prices & swaps",
+)
+async def lending_current_terms_version(view) -> dict:
+    """Terms version assigned to newly opened lending positions."""
+    view = await view.at()
+    raw = await view.runtime(CURRENT_TERMS_VERSION, [])
+    version = int(raw or 1)
+    if version <= 0:
+        version = 1
+    return {"terms_version": version}

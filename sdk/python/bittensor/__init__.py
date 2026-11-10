@@ -279,6 +279,7 @@ def __getattr__(name: str):
     if hint is not None:
         raise AttributeError(
             f"bittensor.{name} was removed in v11 — {hint}. "
-            "Migration guide: https://www.bittensor.com/docs/migration"
+            "Migration guide: https://github.com/RaoFoundation/subtensor/blob/"
+            "main/docs/migration.mdx"
         )
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -5,13 +5,14 @@ use frame_support::dispatch::{
 };
 use frame_support::storage::StorageNMap as _;
 use frame_support::weights::Weight;
+use pallet_lending::LendingInterface;
 use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
 use sp_core::Get;
 use sp_std::{collections::btree_map::BTreeMap, ops::Neg};
 use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance, Token};
-use subtensor_swap_interface::{Order, SwapHandler, SwapResult};
+use subtensor_swap_interface::{K_NEUTRAL_WEIGHT_ACCURACY, Order, SwapHandler, SwapResult};
 
 impl<T: Config> Pallet<T> {
     /// Retrieves the total alpha issuance for a given subnet.
@@ -43,6 +44,55 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Spot price used for subnet emission's moving EMA ([`SubnetMovingPrice`]).
+    ///
+    /// **Net-long (Jacob v5.8):** restore only unmatched long alpha. Shorts keep
+    /// moving emission (live TAO), lone longs cannot raise it above the no-long
+    /// counterfactual, and an equal long+short hedge leaves emission ≈ spot.
+    /// Uses live TAO (`y* = SubnetTAO`) and:
+    /// `add_back = max(0, held_alpha + escrow_alpha − short_sold_alpha)`,
+    /// `x* = SubnetAlphaIn + add_back`.
+    ///
+    /// When `add_back == 0` (no loans, shorts-only, or fully hedged longs) this
+    /// is byte-identical to live AMM spot. Trading spot and
+    /// [`SubnetFastMovingPrice`] stay on the live AMM either way. Including
+    /// `held_alpha` (the long lift leg) with `escrow_alpha` is required for lone
+    /// longs: adding only escrow would leave a residual pump from parked lift
+    /// alpha. Do **not** add `held_tao` / `escrow_tao` — that would undo shorts.
+    pub fn emission_alpha_price(netuid: NetUid) -> U64F64 {
+        let spot = T::SwapInterface::current_alpha_price(netuid.into());
+        let (_held_tao, held_alpha, _escrow_tao, escrow_alpha, short_sold_alpha) =
+            T::Lending::emission_reserve_offsets(netuid);
+        let long_alpha = held_alpha.saturating_add(escrow_alpha);
+        let add_back = long_alpha.saturating_sub(short_sold_alpha);
+        // Net-long fast path: no unmatched long alpha ⇒ emission == live spot
+        // (covers no-loan, shorts-only, and equal hedges).
+        if add_back == 0 {
+            return spot;
+        }
+
+        let y = u64::from(SubnetTAO::<T>::get(netuid));
+        let x = u64::from(SubnetAlphaIn::<T>::get(netuid));
+        // Do NOT add held_tao / escrow_tao: that would undo shorts.
+        let y_star = y;
+        let x_star = x.saturating_add(add_back);
+        if x_star == 0 {
+            return U64F64::saturating_from_num(0);
+        }
+
+        // Same formula as Balancer::calculate_price: p = (w_base/w_quote)·(y/x).
+        let w_quote = T::SwapInterface::balancer_quote_weight(netuid.into());
+        let w_base = K_NEUTRAL_WEIGHT_ACCURACY.saturating_sub(w_quote);
+        if w_quote == 0 {
+            return U64F64::saturating_from_num(0);
+        }
+        let w1 = U64F64::saturating_from_num(w_base);
+        let w2 = U64F64::saturating_from_num(w_quote);
+        let y_fixed = U64F64::saturating_from_num(y_star);
+        let x_fixed = U64F64::saturating_from_num(x_star);
+        w1.safe_div(w2).saturating_mul(y_fixed.safe_div(x_fixed))
+    }
+
     pub fn update_moving_price(netuid: NetUid) {
         let Some(first_emission_block) = FirstEmissionBlockNumber::<T>::get(netuid) else {
             // Basket price protection needs a live fast anchor even before start_call.
@@ -69,9 +119,11 @@ impl<T: Config> Pallet<T> {
         // Because alpha = b / (b + h), where b and h > 0, alpha < 1, so 1 - alpha > 0.
         // We can use unsigned type here: U96F32
         let one_minus_alpha: U64F64 = U64F64::saturating_from_num(1.0).saturating_sub(alpha);
+        // Emission EMA tracks the net-long counterfactual (see `emission_alpha_price`):
+        // unmatched longs cannot pump emission share; shorts still can dump it;
+        // equal hedges leave emission ≈ spot.
         let current_price: U64F64 = alpha.saturating_mul(U64F64::saturating_from_num(
-            T::SwapInterface::current_alpha_price(netuid.into())
-                .min(U64F64::saturating_from_num(1.0)),
+            Self::emission_alpha_price(netuid).min(U64F64::saturating_from_num(1.0)),
         ));
         let current_moving: U64F64 = one_minus_alpha.saturating_mul(U64F64::saturating_from_num(
             Self::get_moving_alpha_price(netuid),
@@ -1271,13 +1323,18 @@ impl<T: Config> Pallet<T> {
 
         Self::maybe_remove_staking_hotkey(hotkey, coldkey);
 
-        // Record TAO outflow
-        Self::record_tao_outflow(
-            netuid,
-            swap_result
-                .amount_paid_out
-                .saturating_add(fee_outflow.into()),
-        );
+        // Record TAO outflow for flow-based shares (dormant today). Long-side
+        // lending sells set [`LendingSkipTaoFlow`] only on lone-long books
+        // (`short_sold_alpha == 0`); hedged long exits leave it clear so they
+        // cancel matching opens. Short opens / buybacks always record.
+        if !LendingSkipTaoFlow::<T>::get() {
+            Self::record_tao_outflow(
+                netuid,
+                swap_result
+                    .amount_paid_out
+                    .saturating_add(fee_outflow.into()),
+            );
+        }
 
         // Cleanup locks if needed
         Self::cleanup_lock_if_zero(coldkey, netuid);
@@ -1380,8 +1437,12 @@ impl<T: Config> Pallet<T> {
             Self::transfer_tao_from_subnet(netuid, coldkey, refund_tao)?;
         }
 
-        // Record TAO inflow
-        Self::record_tao_inflow(netuid, swap_result.amount_paid_in.into());
+        // Record TAO inflow for flow-based shares (dormant today). Long opens
+        // set [`LendingSkipTaoFlow`] only while `short_sold_alpha == 0`; short
+        // buybacks leave the flag clear.
+        if !LendingSkipTaoFlow::<T>::get() {
+            Self::record_tao_inflow(netuid, swap_result.amount_paid_in.into());
+        }
 
         // Cleanup locks if needed
         Self::cleanup_lock_if_zero(coldkey, netuid);
@@ -1791,6 +1852,12 @@ impl<T: Config> Pallet<T> {
         ensure!(
             Self::hotkey_account_exists(hotkey),
             Error::<T>::HotKeyAccountNotExists
+        );
+
+        // §14: reject third-party stake onto the lending custody hotkey.
+        ensure!(
+            !T::Lending::is_custody_hotkey(hotkey),
+            Error::<T>::CustodyHotkey
         );
 
         // Staking to a new hotkey appends it to the coldkey's `StakingHotkeys`; keep that

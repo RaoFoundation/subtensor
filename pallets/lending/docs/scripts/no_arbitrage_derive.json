@@ -1,0 +1,102 @@
+{
+  "notation": {
+    "phi": "lift fraction P/x (short)",
+    "w_q": "quote/TAO weight (REPORT prints this as w1)",
+    "w_b": "base/alpha weight",
+    "fee_eps": "swap fee on input; base case 0"
+  },
+  "identities_fee0": {
+    "y_after_short": "y * (1-phi)^(1/w_q)",
+    "L_after_lift": "(1-phi) * L",
+    "force_sell_preserves_L": true
+  },
+  "a13": {
+    "fee=0.000000/buggy": {
+      "phi": 0.04493337020708532,
+      "free_delta": 297.8153033151975,
+      "subnet_tao_delta": -297.8153033151975,
+      "w_q_after": 0.4506378730681875,
+      "y_end": 7152.140696684803
+    },
+    "fee=0.000000/keep": {
+      "phi": 0.04493337020708532,
+      "free_delta": -273.87978978135834,
+      "subnet_tao_delta": 273.87978978135834,
+      "w_q_after": 0.471657,
+      "y_end": 7723.8357897813585
+    },
+    "fee=0.000504/buggy": {
+      "phi": 0.04493337020708532,
+      "free_delta": 289.3040162250272,
+      "subnet_tao_delta": -295.02582899682784,
+      "w_q_after": 0.4506458686362678,
+      "y_end": 7154.930171003172
+    },
+    "fee=0.000504/keep": {
+      "phi": 0.04493337020708532,
+      "free_delta": -281.96389682521476,
+      "subnet_tao_delta": 276.24208405341415,
+      "w_q_after": 0.471657,
+      "y_end": 7726.198084053414
+    },
+    "report": {
+      "free_delta": 289.269,
+      "subnet_tao_delta": -297.594,
+      "w_q_after": 0.450646,
+      "y_end": 7152.362,
+      "phi_inferred": 0.04493337020708532
+    },
+    "fee0_short_identity": {
+      "y_s_sim": 6758.05,
+      "y_s_cf": 6758.05,
+      "L_sim": 173772.0966336116,
+      "L_cf": 173772.09663361163
+    }
+  },
+  "a15": {
+    "phi_fit": 0.033,
+    "fee=0.000000/buggy": {
+      "free_delta": 121.7942772460492,
+      "subnet_tao_delta": -121.7942772460492,
+      "w_q_after": 0.43947400359058564,
+      "y_end": 7030.680722753951,
+      "phi": 0.033
+    },
+    "fee=0.000000/keep": {
+      "free_delta": -117.79814364442336,
+      "subnet_tao_delta": 117.79814364442336,
+      "w_q_after": 0.45071,
+      "y_end": 7270.273143644424,
+      "phi": 0.033
+    },
+    "fee=0.000504/buggy": {
+      "free_delta": 115.48171567051031,
+      "subnet_tao_delta": -119.54043663886023,
+      "w_q_after": 0.439478215813705,
+      "y_end": 7032.93456336114,
+      "phi": 0.033
+    },
+    "fee=0.000504/keep": {
+      "free_delta": -123.91022788857481,
+      "subnet_tao_delta": 119.85150692022489,
+      "w_q_after": 0.45071,
+      "y_end": 7272.326506920225,
+      "phi": 0.033
+    },
+    "report": {
+      "free_delta": 121.699,
+      "subnet_tao_delta": -127.946,
+      "w_q_after": 0.438945
+    }
+  },
+  "mu_cross_check": {
+    "phi_meaning": "lift fraction (NOT fee)",
+    "w2_meaning": "quote weight w_q",
+    "identity": "y_s/y = (1-phi)^(1/w_q) at fee=0",
+    "numeric_a13": {
+      "y_s_over_y": 0.9071261628927741,
+      "one_minus_phi_pow": 0.9071261628927741
+    },
+    "cite": "September 2026 independent derivation; fees ignored there"
+  }
+}
