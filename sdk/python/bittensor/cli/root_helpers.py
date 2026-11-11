@@ -158,7 +158,11 @@ def resolve_position_wallet(app_ctx: AppContext, coldkey_ss58: Optional[str]) ->
     position, which put the query spinner ahead of the wallet question; the
     validator picker that follows still filters to non-dust positions.)
     """
-    proxy = app_ctx.resolve_dispatch_proxy()
+    proxy = (
+        app_ctx.resolve_preparation_proxy()
+        if coldkey_ss58 is None
+        else app_ctx.resolve_dispatch_proxy()
+    )
     owner = (
         proxy
         if coldkey_ss58 is None and proxy is not None

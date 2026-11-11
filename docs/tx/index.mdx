@@ -71,11 +71,14 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
 | [`add-proxy`](/docs/tx/add-proxy) | coldkey | signed account (pallet role may apply) | Authorize a delegate key to sign calls on this account's behalf. |
+| [`announce-proxy-call`](/docs/tx/announce-proxy-call) | coldkey | signed account (pallet role may apply) | Commit the hash of a future proxy call (delayed-proxy announce step). |
 | [`create-pure-proxy`](/docs/tx/create-pure-proxy) | coldkey | signed account (pallet role may apply) | Create a pure proxy: a fresh keyless account controlled via delegation. |
 | [`execute-proxy-announced`](/docs/tx/execute-proxy-announced) | coldkey | signed account (pallet role may apply) | Execute a proxy call that was announced and has passed its delay. |
 | [`kill-pure-proxy`](/docs/tx/kill-pure-proxy) | coldkey | signed account (pallet role may apply) | Close a pure proxy account and return its reserved deposit. |
+| [`reject-proxy-announcement`](/docs/tx/reject-proxy-announcement) | coldkey | signed account (pallet role may apply) | Veto a delegate's pending announcement (real-account path). |
 | [`remove-proxies`](/docs/tx/remove-proxies) | coldkey | signed account (pallet role may apply) | Revoke every proxy delegation for the signing account at once. |
 | [`remove-proxy`](/docs/tx/remove-proxy) | coldkey | signed account (pallet role may apply) | Revoke one proxy delegation. |
+| [`remove-proxy-announcement`](/docs/tx/remove-proxy-announcement) | coldkey | signed account (pallet role may apply) | Cancel one of your own pending proxy announcements (delegate path). |
 
 ## SubtensorModule
 

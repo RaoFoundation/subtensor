@@ -10,7 +10,8 @@ the call's hash, waits out the delay (during which the real account can
 veto), then anyone may dispatch the announced call with this intent. The
 inner call is given as an intent op name plus its arguments and must hash
 to exactly what was announced. Fails if the delay has not elapsed or no
-matching announcement exists.
+matching announcement exists. Fee payer can be any funded account — it
+need not be the multisig that announced.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
@@ -25,6 +26,7 @@ matching announcement exists.
 | `inner_op` | string | yes | Intent op name of the announced call (see btcli tools for the catalog). |
 | `inner_args` | object | yes | Arguments of the announced call, as a JSON object. |
 | `force_proxy_type` | string | no | Require the delegation to be exactly this proxy type instead of accepting any type that covers the call. |
+| `announced_call_data` | string | no | Exact SCALE bytes (0x-hex) of the announced call. Prefer this over rebuilding from inner_op/inner_args so the hash still matches after pool prices or balances move. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
