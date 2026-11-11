@@ -4692,7 +4692,7 @@
         },
         "gamma": {
           "type": "object",
-          "description": "Gamma shares to set, by target netuid, in the same forms as `values` ({\"3\": \"5%\"}). Omitted targets keep their current share; a share of 0 removes one. Rules: at most 16, each <= 10%, to another subnet root whitelisted for gamma emission with gamma enabled; none on a leased subnet. With `renormalize` the five slots make room."
+          "description": "Gamma shares to set, as a JSON object mapping target netuid to share ({\"3\": \"5%\"}), in the same forms as `values`. Omitted targets keep their current share; a share of 0 removes one. Rules: at most 16, each <= 10%, to another subnet root whitelisted for gamma emission with gamma enabled; none on a leased subnet. With `renormalize` the five slots make room."
         }
       },
       "required": [

@@ -51,10 +51,11 @@ RENORMALIZE_HELP = (
     "miner slot absorbs up to 1,000 parts of rounding)."
 )
 GAMMA_HELP = (
-    'Gamma shares to set, by target netuid, in the same forms as `values` ({"3": "5%"}). '
-    "Omitted targets keep their current share; a share of 0 removes one. Rules: at most 16, "
-    "each <= 10%, to another subnet root whitelisted for gamma emission with gamma enabled; "
-    "none on a leased subnet. With `renormalize` the five slots make room."
+    'Gamma shares to set, as a JSON object mapping target netuid to share ({"3": "5%"}), in '
+    "the same forms as `values`. Omitted targets keep their current share; a share of 0 "
+    "removes one. Rules: at most 16, each <= 10%, to another subnet root whitelisted for "
+    "gamma emission with gamma enabled; none on a leased subnet. With `renormalize` the five "
+    "slots make room."
 )
 
 
@@ -144,15 +145,14 @@ class SetSubnetEmissionWeights(Intent):
         if len(set(self.slots)) != len(self.slots):
             raise ValueError("each slot may appear at most once")
         self.values = [ew.parse_share(value) for value in self.values]
-        try:
-            targets = [int(t) for t in self.gamma]
-        except (TypeError, ValueError):
-            targets = [-1]
-        if not all(0 <= t <= 0xFFFF for t in targets):
-            raise ValueError("gamma targets must be netuids")
-        if len(set(targets)) != len(targets):
-            raise ValueError("each gamma target may appear at most once")
-        self.gamma = {t: ew.parse_share(v) for t, v in zip(targets, self.gamma.values())}
+        gamma: dict[int, int] = {}
+        for target, share in self.gamma.items():
+            if not str(target).isdecimal() or int(target) > 0xFFFF:
+                raise ValueError(f"gamma target {target!r} is not a netuid")
+            if int(target) in gamma:
+                raise ValueError("each gamma target may appear at most once")
+            gamma[int(target)] = ew.parse_share(share)
+        self.gamma = gamma
 
     def updates(self) -> dict[int, int]:
         return {int(slot): int(value) for slot, value in zip(self.slots, self.values)}
@@ -331,4 +331,4 @@ class SetSubnetEmissionWeights(Intent):
         return f"set emission weights on netuid {self.netuid}: {', '.join(parts)}{mode}"
 
     def touches_netuids(self) -> list[int]:
-        return [self.netuid, *sorted(self.gamma)]
+        return [self.netuid, *sorted(set(self.gamma) - {self.netuid})]

@@ -119,7 +119,7 @@ btcli subnets emission set-value --netuid 12 --slot owner --value 0.10
 btcli subnets emission increase --netuid 12 --slot miner --by 5%
 btcli subnets emission decrease --netuid 12 --slot validator --by 0.02
 
-# write the whole split at once
+# set all five slots at once
 btcli subnets emission set --netuid 12 --owner 0.10 --validator 0.40 --miner 0.50
 ```
 
@@ -172,7 +172,7 @@ shares a change does not name; a share of 0 removes one:
 # set the gamma share to subnet 3; the five slots are rescaled proportionally
 btcli subnets emission set-value --netuid 12 --slot gamma:3 --value 5%
 
-# write the five slots and a gamma share
+# set all five slots and a gamma share
 btcli subnets emission set --netuid 12 --owner 0.10 --validator 0.40 --miner 0.45 --gamma 3=0.05
 ```
 

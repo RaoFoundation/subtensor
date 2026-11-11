@@ -482,8 +482,11 @@ def test_intent_normalises_slots_and_shares():
         ({"slots": [], "values": []}, "at least one"),
         ({"slots": ["owner", 2], "values": [1, 2]}, "at most once"),
         ({"slots": ["gamma"], "values": [1]}, "slots are"),
-        ({"slots": [], "values": [], "gamma": {"x": "5%"}}, "netuids"),
-        ({"slots": [], "values": [], "gamma": {70000: "5%"}}, "netuids"),
+        ({"slots": [], "values": [], "gamma": {"x": "5%"}}, "not a netuid"),
+        ({"slots": [], "values": [], "gamma": {70000: "5%"}}, "not a netuid"),
+        ({"slots": [], "values": [], "gamma": {-1: "5%"}}, "not a netuid"),
+        ({"slots": [], "values": [], "gamma": {3.7: "5%"}}, "not a netuid"),
+        ({"slots": [], "values": [], "gamma": {True: "5%"}}, "not a netuid"),
         ({"slots": [], "values": [], "gamma": {"3": "5%", 3: "1%"}}, "at most once"),
     ],
 )
@@ -691,6 +694,9 @@ def test_intent_sends_the_whole_split():
         netuid=1, slots=[], values=[], renormalize=True, gamma={"3": "5%"}
     )
     assert add.touches_netuids() == [1, 3]
+    assert SetSubnetEmissionWeights(
+        netuid=1, slots=[], values=[], gamma={1: "5%", 3: "1%"}
+    ).touches_netuids() == [1, 3]
     assert "gamma:3=5.00%" in add.summary()
     plan = asyncio.run(client.plan(add, dev_wallet()))
     assert plan.ok, plan.violations
@@ -1144,6 +1150,11 @@ def test_cli_sets_gamma_shares(emission_cli):
         flags = [arg for item in bad for arg in ("--gamma", item)]
         result = invoke("subnets", "emission", "set", *shares, *flags, "--netuid", "1")
         assert result.exit_code == 2 and needle in result.output
+    for bad in ("gamma:x", "gamma"):
+        result = invoke(
+            "subnets", "emission", "set-value", "--slot", bad, "--value", "5%", "--netuid", "1"
+        )
+        assert result.exit_code == 2 and "invalid value for --slot" in result.output
     tx = ("tx", "set-subnet-emission-weights", "--netuid", "1", "--slots", "", "--values", "")
     for bad in ("3=5%", "3"):
         result = invoke(*tx, "--gamma", bad)

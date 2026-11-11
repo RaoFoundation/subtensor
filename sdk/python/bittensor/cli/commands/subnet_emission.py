@@ -148,10 +148,13 @@ def _parse_share(app_ctx: AppContext, raw: str, flag: str) -> int:
 
 def _parse_slot(app_ctx: AppContext, raw: str) -> tuple[Optional[int], Optional[int]]:
     """``(index, None)`` for one of the five slots, ``(None, N)`` for ``gamma:N``."""
+    kind, _, target = raw.partition(":")
+    if kind.lower() == "gamma":
+        if not target.isdecimal():
+            app_ctx.output.error(f"invalid value for `--slot`: {raw!r}", help=_SLOT_HELP)
+            raise typer.Exit(2)
+        return None, int(target)
     try:
-        kind, _, target = raw.partition(":")
-        if kind.lower() == "gamma" and target.isdecimal():
-            return None, int(target)
         return ew.slot_index(raw), None
     except ValueError as error:
         app_ctx.output.error(str(error), help=_SLOT_HELP)
@@ -344,7 +347,7 @@ def _renormalized_submit(
         "gamma_shares{netuid: parts}, gamma_targets{netuid: gamma enabled}, "
         "global_tao_weight, root_share, baseline_root_share, validator_share_after_root, "
         "root_capped, root_tao, alpha_issuance (rao), min_validator (parts), "
-        "created_via_lease, leased, limits{slot: min, max, min_parts, max_parts, why}, "
+        "created_via_lease, leased, limits{slot or gamma: min, max, min_parts, max_parts, why}, "
         "rate_limit{limit_blocks, last_change_block, next_allowed_block, "
         "blocks_until_allowed, owner_can_change_now}."
     ),
