@@ -675,7 +675,7 @@ def test_intent_sends_the_whole_split():
     assert sum(share for _, share in split) == ONE
     plan = asyncio.run(client.plan(remove, dev_wallet()))
     assert plan.ok, plan.violations
-    assert "a removed gamma share's unconverted alpha goes to the miners" in plan.effects
+    assert "removed gamma shares: their unconverted alpha goes to the miners" in plan.effects
 
     same = SetSubnetEmissionWeights(netuid=1, slots=["owner"], values=["10%"], renormalize=True)
     split = asyncio.run(same.build(fake, dev_wallet())).params["split"]
@@ -1058,7 +1058,7 @@ def test_cli_shows_gamma_shares_and_targets(emission_cli):
     assert human.exit_code == 0, human.output
     for needle in (
         "gamma:2  10.00%",
-        "gamma  0.00% to 10.00%  each share, at most 16",
+        "gamma  0.00% to 10.00%  per gamma share; at most 16 shares",
         "gamma targets  2, 3, 4 (gamma disabled)",
     ):
         assert needle in human.output, (needle, human.output)
@@ -1066,8 +1066,10 @@ def test_cli_shows_gamma_shares_and_targets(emission_cli):
     emission_cli.seed("SubtensorModule", "SubnetGammaEnabled", [2], False)
     emission_cli.seed("SubtensorModule", "SubnetUidToLeaseId", [1], 7)
     human = invoke("subnets", "emission", "show", "--netuid", "1").output
-    assert "no longer valid, so every change must remove it (set --gamma 2=0)" in human, human
-    assert "gamma targets  none: a lease holds this subnet" in human, human
+    assert "subnet 2 has gamma disabled, so every change must remove it (--gamma 2=0)" in human, (
+        human
+    )
+    assert "gamma targets  none: this subnet is leased" in human, human
 
 
 def test_cli_sets_gamma_shares(emission_cli):
@@ -1140,7 +1142,7 @@ def test_cli_rejects_gamma_shares_before_signing(emission_cli):
         "the chain would reject this change: GammaEmissionTargetNotWhitelisted"
     )
     assert error["note"].startswith(
-        "allowed on subnet 1 right now: gamma 0.00% to 10.00% (each share"
+        "allowed on subnet 1 right now: gamma 0.00% to 10.00% (per gamma share"
     )
     assert emission_cli.submissions == []
 

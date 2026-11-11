@@ -2424,7 +2424,7 @@
     },
     "GammaDisabled": {
       "code": "disabled",
-      "description": "Gamma minting is switched off network-wide (`GammaEnabled`) or on this subnet (the `gamma_enabled` hyperparameter). Root enables it network-wide; the subnet owner or root enables the subnet. From an emission split, it is the named gamma target that has gamma disabled; leave that slot out of the split (a share of 0 in the SDK or btcli does this).",
+      "description": "Gamma minting is switched off network-wide (`GammaEnabled`) or on this subnet (the `gamma_enabled` hyperparameter). Root enables it network-wide; the subnet owner or root enables the subnet. In an emission split, a gamma share names a subnet with gamma disabled; remove that share (a share of 0 in btcli or the SDK does this).",
       "docs_url": "/docs/errors/chain/GammaDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/GammaDisabled/content.md",
       "pallets": [

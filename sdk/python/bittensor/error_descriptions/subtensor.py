@@ -1058,9 +1058,8 @@ DESCRIPTIONS: dict[str, str] = {
     "GammaDisabled": (
         "Gamma minting is switched off network-wide (`GammaEnabled`) or on this subnet (the "
         "`gamma_enabled` hyperparameter). Root enables it network-wide; the subnet owner or "
-        "root enables the subnet. From an emission split, it is the named gamma target that "
-        "has gamma disabled; leave that slot out of the split (a share of 0 in the SDK or btcli "
-        "does this)."
+        "root enables the subnet. In an emission split, a gamma share names a subnet with gamma "
+        "disabled; remove that share (a share of 0 in btcli or the SDK does this)."
     ),
     "TooManyGammaDeposits": (
         "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or "

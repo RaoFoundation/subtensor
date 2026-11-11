@@ -55,7 +55,7 @@ _hyperparam(
 _hyperparam(
     "subnet_gamma_emission_whitelisted",
     st.SubtensorModule.SubnetGammaEmissionWhitelisted,
-    "Whether root whitelisted the subnet for gamma emission (1 = whitelisted), so that "
-    "other subnets' gamma shares can name it (see the "
+    "Root-controlled gamma emission whitelist flag for a subnet (1 = whitelisted); other "
+    "subnets' gamma shares may name it only while it is set (see the "
     "set_subnet_gamma_emission_whitelisted intent).",
 )

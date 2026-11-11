@@ -176,8 +176,8 @@ class Rules:
     for subnets not created through a lease. ``gamma_share`` is the sum of
     the subnet's gamma shares; the five slots sum to one less it.
     ``gamma_targets`` maps each subnet root whitelisted for gamma emission to
-    whether gamma is enabled there, ``None`` when unknown; ``leased`` is whether a
-    lease holds the subnet now.
+    whether gamma is enabled there, ``None`` when unknown; ``leased`` is whether the
+    subnet is leased now.
     """
 
     min_validator: Optional[int] = None
@@ -220,8 +220,8 @@ class Rules:
             "gamma": _limit(
                 0,
                 MAX_GAMMA,
-                f"each share, at most {MAX_GAMMA_SHARES}, to another whitelisted subnet with "
-                "gamma enabled; none on a leased subnet",
+                f"per gamma share; at most {MAX_GAMMA_SHARES} shares, each to another whitelisted "
+                "subnet with gamma enabled; none on a leased subnet",
             ),
         }
 
@@ -441,7 +441,10 @@ def validate_gamma(
     for target, share in sorted(shares.items()):
         if target == netuid:
             found.append(
-                Violation("InvalidValue", f"gamma:{target} names this subnet; name another one")
+                Violation(
+                    "InvalidValue",
+                    f"gamma:{target} names this subnet; a gamma share must name another subnet",
+                )
             )
         elif targets is not None and target not in targets:
             found.append(
@@ -456,7 +459,7 @@ def validate_gamma(
                 Violation(
                     "GammaDisabled",
                     f"subnet {target} has gamma disabled, so a split cannot name it; set "
-                    f"gamma:{target} to 0 (`btcli subnets emission set ... --gamma {target}=0`) "
+                    f"gamma:{target} to 0 (`--gamma {target}=0` on `btcli subnets emission set`) "
                     "or wait for its owner to enable it",
                 )
             )
@@ -472,14 +475,14 @@ def validate_gamma(
         found.append(
             Violation(
                 "TooManyGammaShares",
-                f"{len(shares)} gamma shares; a split holds at most {MAX_GAMMA_SHARES}",
+                f"{len(shares)} gamma shares; a subnet may have at most {MAX_GAMMA_SHARES}",
             )
         )
     if shares and rules.leased:
         found.append(
             Violation(
                 "GammaEmissionNotSettableOnLeasedSubnet",
-                "a lease holds this subnet, so it cannot have gamma shares until the lease ends",
+                "this subnet is leased, so it cannot have gamma shares until the lease ends",
             )
         )
     return found

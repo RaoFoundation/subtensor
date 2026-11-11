@@ -91,12 +91,12 @@ class SetSubnetEmissionEnabled(Intent):
 @register
 @dataclass
 class SetSubnetGammaEmissionWhitelisted(Intent):
-    """Whitelist a subnet for gamma emission, or take it off (root only).
+    """Whitelist a subnet for gamma emission, or remove it from the whitelist (root only).
 
     A subnet owner's gamma share may only name a subnet on this whitelist (see
-    the ``set_subnet_emission_weights`` intent). Taking a subnet off removes it
-    from every subnet's split: each share joins the paying subnet's miner slot,
-    and its unconverted alpha that subnet's pending miner emission.
+    the ``set_subnet_emission_weights`` intent). Removing a subnet removes every
+    gamma share to it: each share is added to the paying subnet's miner slot and
+    its unconverted alpha to that subnet's pending miner emission.
     """
 
     op = "set_subnet_gamma_emission_whitelisted"
@@ -108,9 +108,9 @@ class SetSubnetGammaEmissionWhitelisted(Intent):
         ("Sudo", "sudo"),
     )
 
-    netuid: int = field(metadata={"help": "Subnet to whitelist or take off."})
+    netuid: int = field(metadata={"help": "Subnet to whitelist or remove from the whitelist."})
     whitelisted: bool = field(
-        metadata={"help": "True to whitelist the subnet, false to take it off."}
+        metadata={"help": "True to whitelist the subnet, false to remove it."}
     )
 
     async def build(self, substrate, wallet: Any):
@@ -123,7 +123,7 @@ class SetSubnetGammaEmissionWhitelisted(Intent):
     def summary(self) -> str:
         if self.whitelisted:
             return f"whitelist netuid {self.netuid} for gamma emission"
-        return f"take netuid {self.netuid} off the gamma emission whitelist"
+        return f"remove netuid {self.netuid} from the gamma emission whitelist"
 
     def affects_all_subnets(self) -> bool:
         return not self.whitelisted

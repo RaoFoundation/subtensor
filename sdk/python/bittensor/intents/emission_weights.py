@@ -33,7 +33,8 @@ from .registry import register
 
 SLOTS_HELP = (
     "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. "
-    "Omitted slots keep their current share. Empty for a change to gamma shares only."
+    "Omitted slots keep their current share. Empty, with empty `values`, to change only gamma "
+    "shares."
 )
 VALUES_HELP = (
     "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage "
@@ -49,10 +50,10 @@ RENORMALIZE_HELP = (
     "Without it, the update is applied verbatim and must already sum to 1 with them."
 )
 GAMMA_HELP = (
-    'Gamma shares to set, by target netuid, in the same forms as `values` ({"3": "5%"}); '
-    "omitted targets keep their share and a share of 0 removes one. A subnet has at most 16, "
-    "each at most 10%, to another subnet that root whitelisted for gamma emission, with gamma "
-    "enabled; a leased subnet has none. With `renormalize` the five slots make room."
+    'Gamma shares to set, by target netuid, in the same forms as `values` ({"3": "5%"}). '
+    "Omitted targets keep their current share; a share of 0 removes one. Rules: at most 16, "
+    "each <= 10%, to another subnet root whitelisted for gamma emission with gamma enabled; "
+    "none on a leased subnet. With `renormalize` the five slots make room."
 )
 
 
@@ -67,9 +68,9 @@ def _vector_text(weights: list[int]) -> str:
 
 
 def _gamma_text(shares: dict[int, int]) -> str:
-    """``gamma:3 5.00% / gamma:7 2.00%``, or ``no gamma shares``."""
+    """``gamma:3 5.00% / gamma:7 2.00%``, or ``none``."""
     text = " / ".join(f"gamma:{t} {ew.format_share(v)}" for t, v in sorted(shares.items()))
-    return text or "no gamma shares"
+    return text or "none"
 
 
 def _pct(value: float, places: int = 2) -> str:
@@ -104,8 +105,8 @@ class SetSubnetEmissionWeights(Intent):
     """Set a subnet's emission split: its five slots and gamma shares (btcli ``subnets emission``).
 
     Dispatches ``AdminUtils.sudo_set_subnet_emission_weights_v2`` with the
-    whole split, keeping the gamma shares it does not name. The
-    signer must be the subnet's owner coldkey (root may also call it). With
+    whole split, keeping the gamma shares it does not name. The signer must
+    be the subnet's owner coldkey (root may also call it). With
     ``renormalize`` the untouched slots are rescaled so the vector and the
     subnet's gamma shares still sum to one; without it the merged vector is
     submitted as given.
@@ -188,7 +189,7 @@ class SetSubnetEmissionWeights(Intent):
         """Everything the preview needs, read once: the current vector and
         root's baseline share, root TAO, alpha issuance, the global TaoWeight,
         the owner's last change block, the subnet's gamma shares now and after
-        this change, the subnets they can name and whether a lease holds the subnet."""
+        this change, the subnets they can name and whether the subnet is leased."""
         current = await self._current(substrate)
         if current is None:
             return None
@@ -304,9 +305,11 @@ class SetSubnetEmissionWeights(Intent):
         )
         gamma = preview["gamma"]
         if gamma["before"] != gamma["after"]:
-            lines.append(f"{_gamma_text(gamma['before'])} -> {_gamma_text(gamma['after'])}")
+            lines.append(
+                f"gamma shares: {_gamma_text(gamma['before'])} -> {_gamma_text(gamma['after'])}"
+            )
             if set(gamma["before"]) - set(gamma["after"]):
-                lines.append("a removed gamma share's unconverted alpha goes to the miners")
+                lines.append("removed gamma shares: their unconverted alpha goes to the miners")
         lines.append(_root_line(preview["root"]))
         return lines
 

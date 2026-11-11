@@ -48,8 +48,8 @@ app = typer.Typer(
 
 _NETUID_HELP = "Numeric identifier of the subnet."
 _SLOT_HELP = (
-    "Slot to change: burn, recycle, owner, validator, miner, or gamma:N for the gamma share "
-    "to subnet N. Gamma shares not named are kept."
+    "Slot to change: burn, recycle, owner, validator, miner or gamma:N (the gamma share to "
+    "subnet N). Other gamma shares are kept."
 )
 _GAMMA_HELP = (
     "Gamma share to subnet N as N=SHARE (3=5%); 0 removes it. Repeatable. Gamma shares not "
@@ -354,8 +354,8 @@ def show(
             ew.format_share(share),
             f"{share} parts"
             if info.gamma_targets.get(target)
-            else f"{share} parts; no longer valid, so every change must remove it "
-            f"(set --gamma {target}=0)",
+            else f"{share} parts; subnet {target} has gamma disabled, so every change must "
+            f"remove it (--gamma {target}=0)",
         )
         for target, share in info.gamma_shares.items()
     ]
@@ -408,7 +408,7 @@ def show(
     rule_rows.append(
         (
             "gamma targets",
-            "none: a lease holds this subnet" if info.leased else targets or "none",
+            "none: this subnet is leased" if info.leased else targets or "none",
             "the subnets root whitelisted for gamma emission",
         )
     )
@@ -447,10 +447,10 @@ def set_weights(
     recycle: str = typer.Option("0", "--recycle", help=f"Recycle share (default 0). {_SHARE_HELP}"),
     gamma: list[str] = typer.Option([], "--gamma", help=_GAMMA_HELP),
     no_gamma: bool = typer.Option(
-        False, "--no-gamma", help="Remove the gamma shares --gamma does not name."
+        False, "--no-gamma", help="Remove every gamma share not named with --gamma."
     ),
 ):
-    """Set the five slots in one go; gamma shares --gamma does not name are kept.
+    """Set all five slots in one go; gamma shares not named are kept.
 
     Burn + recycle together may be at most 33%. Root stakers always keep their
     baseline share: it is paid off the top of the validator slot every block, so
@@ -477,7 +477,7 @@ def set_weights(
             f"add up to 100%, not {ew.format_share(total, 4)}",
             help="give all shares, or use set-value to move one slot and rescale the rest"
             + (
-                "; gamma shares --gamma does not name are kept (--no-gamma removes them)"
+                "; gamma shares not named are kept (--no-gamma removes them)"
                 if set(info.gamma_shares) - set(gamma_changes)
                 else ""
             ),
@@ -498,7 +498,9 @@ def set_weights(
     "set-value",
     epilog=(
         "Example: btcli subnets emission set-value --netuid 4 --slot validator --value 20% "
-        "--dry-run\n\n"
+        "--dry-run\n"
+        "Example with gamma: btcli subnets emission set-value --netuid 4 --slot gamma:3 "
+        "--value 5%\n\n"
         f"{_EXIT_CODES}"
     ),
 )

@@ -347,8 +347,8 @@ class SubnetEmissionWeights:
     ``gamma_shares`` are the subnet's gamma shares (parts) by target netuid and
     ``gamma_share`` their sum; the five slots sum to one less it.
     ``gamma_targets`` are the subnets root whitelisted for gamma emission, each
-    with whether gamma is enabled there, and ``leased`` whether a lease holds the
-    subnet. ``last_change_block`` is when
+    with whether gamma is enabled there, and ``leased`` whether the subnet is
+    leased. ``last_change_block`` is when
     the owner last changed the vector (0 = never); :meth:`rate_limit` turns it
     into when the owner may change it next.
     """
