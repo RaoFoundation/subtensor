@@ -24,6 +24,9 @@ Omitted slots keep their current value. The chain then checks the v1 rules:
 * ``miner >= 0.33``;
 * the five slots and the subnet's gamma shares sum to exactly one.
 
+``sudo_set_subnet_emission_weights_v2(netuid, split)`` replaces the whole split,
+the five slots and the gamma shares, and also checks :func:`validate_gamma`.
+
 Burn destroys alpha but still counts toward issuance; recycle removes alpha
 from ``SubnetAlphaOut`` and ``TotalAlphaIssuance``.
 
@@ -61,6 +64,8 @@ MAX_OWNER = fraction(33, 100)
 MAX_BURN_RECYCLE = fraction(33, 100)
 MAX_VALIDATOR = fraction(50, 100)
 MIN_MINER = fraction(33, 100)
+MAX_GAMMA = fraction(10, 100)
+MAX_GAMMA_SHARES = 16
 
 #: Mainnet launch owner cut ``11796 / 65535`` scaled to u64 parts; also the
 #: floor for lease-created subnets and the base from which the default vector
@@ -173,12 +178,17 @@ class Rules:
     unknown (no chain state at hand). ``min_owner`` is the lease floor, zero
     for subnets not created through a lease. ``gamma_share`` is the sum of
     the subnet's gamma shares; the five slots sum to one less it.
+    ``gamma_targets`` maps each subnet root whitelisted for gamma emission to
+    whether gamma is enabled there, ``None`` when unknown; ``leased`` is whether a
+    lease holds the subnet now.
     """
 
     min_validator: Optional[int] = None
     min_owner: int = 0
     created_via_lease: bool = False
     gamma_share: int = 0
+    gamma_targets: Optional[Mapping[int, bool]] = None
+    leased: bool = False
 
     def limits(self) -> dict[str, dict[str, object]]:
         """Allowed range per slot, by slot name, as the machine-readable shape.
@@ -232,6 +242,13 @@ class Rules:
                 "burn+recycle",
                 f"<= {format_share(MAX_BURN_RECYCLE)}",
                 "combined cap on slots 0 and 1",
+            )
+        )
+        rows.append(
+            (
+                "gamma",
+                f"<= {format_share(MAX_GAMMA)} each, at most {MAX_GAMMA_SHARES}",
+                "to another whitelisted subnet with gamma enabled; none on a leased subnet",
             )
         )
         rows.append(
@@ -293,6 +310,12 @@ def merge(current: Iterable[int], updates: Mapping[Union[int, str], int]) -> lis
     for slot, value in updates.items():
         merged[slot_index(slot)] = int(value)
     return merged
+
+
+def merge_gamma(current: Mapping[int, int], updates: Mapping[int, int]) -> dict[int, int]:
+    """The gamma shares by target netuid after ``updates``: named targets are
+    replaced, a share of 0 removes one, and omitted targets keep their share."""
+    return {target: share for target, share in sorted({**current, **updates}.items()) if share}
 
 
 def renormalize(
@@ -405,6 +428,62 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
                 f"the five slots{and_gamma(rules.gamma_share)} sum to {format_share(total, 6)} "
                 f"({total} parts), not exactly 100% ({ONE} parts); renormalise another slot in "
                 "the same call (`btcli subnets emission set-value` does this for you)",
+            )
+        )
+    return found
+
+
+def validate_gamma(
+    netuid: int, shares: Mapping[int, int], rules: Optional[Rules] = None
+) -> list[Violation]:
+    """Every rule the chain would reject in ``shares``, the gamma shares of subnet
+    ``netuid`` by target netuid (empty when they are accepted). The whitelist and
+    gamma checks need ``rules.gamma_targets`` and are skipped without it."""
+    rules = rules or Rules()
+    targets = rules.gamma_targets
+    found: list[Violation] = []
+    for target, share in sorted(shares.items()):
+        if target == netuid:
+            found.append(
+                Violation("InvalidValue", f"gamma:{target} names this subnet; name another one")
+            )
+        elif targets is not None and target not in targets:
+            found.append(
+                Violation(
+                    "GammaEmissionTargetNotWhitelisted",
+                    f"subnet {target} is not whitelisted for gamma emission; ask root to "
+                    "whitelist it",
+                )
+            )
+        elif targets is not None and not targets[target]:
+            found.append(
+                Violation(
+                    "GammaDisabled",
+                    f"subnet {target} has gamma disabled, so a split cannot name it; remove "
+                    f"gamma:{target} in the same change (`btcli subnets emission set ... "
+                    f"--gamma {target}=0`) or wait for its owner to enable it",
+                )
+            )
+        if share > MAX_GAMMA:
+            found.append(
+                Violation(
+                    "GammaEmissionAboveMaximum",
+                    f"gamma:{target} is {format_share(share)}; each gamma share may be at most "
+                    f"{format_share(MAX_GAMMA)}",
+                )
+            )
+    if len(shares) > MAX_GAMMA_SHARES:
+        found.append(
+            Violation(
+                "TooManyGammaShares",
+                f"{len(shares)} gamma shares; a split holds at most {MAX_GAMMA_SHARES}",
+            )
+        )
+    if shares and rules.leased:
+        found.append(
+            Violation(
+                "GammaEmissionNotSettableOnLeasedSubnet",
+                "a lease holds this subnet, so it cannot have gamma shares until the lease ends",
             )
         )
     return found

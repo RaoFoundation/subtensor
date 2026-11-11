@@ -11,7 +11,7 @@ import pytest
 from bittensor import emission_weights as ew
 from bittensor.cli import context as cli_context
 from bittensor.client import Client
-from bittensor.intents import SetSubnetEmissionWeights
+from bittensor.intents import SetSubnetEmissionWeights, SetSubnetGammaEmissionWhitelisted
 from tests.harness.fake_substrate import FakeSubstrate
 from tests.harness.samples import (
     EMISSION_ALPHA_ISSUANCE,
@@ -198,6 +198,26 @@ def test_gamma_shares_count_toward_the_sum():
     assert "the five slots and the gamma shares (10.00%) sum to 110.000000%" in violation.message
     rows = {name: why for name, _, why in rules.table()}
     assert "all five slots and the gamma shares (10.00%) add up" in rows["sum"]
+
+
+def test_validate_gamma_names_each_rule():
+    five = ew.fraction(5, 100)
+    rules = ew.Rules(gamma_targets={2: True, 3: False})
+
+    def errors(shares, rules=rules):
+        return [violation.error for violation in ew.validate_gamma(1, shares, rules)]
+
+    assert errors({2: five}) == []
+    assert errors({2: ew.MAX_GAMMA}) == []
+    assert errors({1: five}) == ["InvalidValue"]
+    assert errors({9: five}) == ["GammaEmissionTargetNotWhitelisted"]
+    assert errors({3: five}) == ["GammaDisabled"]
+    assert errors({2: ew.MAX_GAMMA + 1}) == ["GammaEmissionAboveMaximum"]
+    many = {target: 1 for target in range(2, 3 + ew.MAX_GAMMA_SHARES)}
+    assert errors(many, ew.Rules()) == ["TooManyGammaShares"]
+    leased = ew.Rules(gamma_targets={2: True}, leased=True)
+    assert errors({2: five}, leased) == ["GammaEmissionNotSettableOnLeasedSubnet"]
+    assert list(ew.merge_gamma({3: five, 5: five}, {5: 0, 2: 1}).items()) == [(2, 1), (3, five)]
 
 
 def test_validate_accepts_default_and_names_each_rule():
@@ -559,21 +579,23 @@ def test_intent_plan_names_a_missing_subnet():
     assert not plan.ok and "subnet 9 does not exist" in plan.violations[0]
 
 
+FIVE_SLOTS = ["Burn", "Recycle", "Owner", "Validator", "Miner"]
+
+
 def test_intent_build_sends_full_vector_when_renormalizing():
     _, fake = _client()
     owner = ew.parse_share("10%")
     intent = SetSubnetEmissionWeights(netuid=1, slots=["owner"], values=["10%"], renormalize=True)
     call = asyncio.run(intent.build(fake, dev_wallet()))
-    assert (call.module, call.function) == ("AdminUtils", "sudo_set_subnet_emission_weights")
-    params = call.params
-    assert params["uids"] == [0, 1, 2, 3, 4]
-    assert params["values"][2] == owner
-    assert sum(params["values"]) == ONE
+    assert (call.module, call.function) == ("AdminUtils", "sudo_set_subnet_emission_weights_v2")
+    split = call.params["split"]
+    assert [slot for slot, _ in split] == FIVE_SLOTS
+    assert split[2] == ("Owner", owner)
+    assert sum(share for _, share in split) == ONE
 
     sparse = SetSubnetEmissionWeights(netuid=1, slots=["miner", "owner"], values=[ONE // 2, 1])
-    params = asyncio.run(sparse.build(fake, dev_wallet())).params
-    assert params["uids"] == [2, 4]
-    assert params["values"] == [1, ONE // 2]
+    split = asyncio.run(sparse.build(fake, dev_wallet())).params["split"]
+    assert split[2] == ("Owner", 1) and split[4] == ("Miner", ONE // 2)
 
 
 #: The fixture subnet after its owner gave 10% of its emission, from the validator
@@ -589,6 +611,8 @@ def _seed_gamma_share(fake: FakeSubstrate) -> None:
     info = dict(EMISSION_WEIGHTS_INFO, weights=GAMMA_WEIGHTS, validator=GAMMA_WEIGHTS[ew.VALIDATOR])
     fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", info)
     fake.seed("SubtensorModule", "SubnetGammaEmission", [1], [(2, GAMMA_SHARE)])
+    fake.seed("SubtensorModule", "SubnetGammaEmissionWhitelisted", [2], True)
+    fake.seed("SubtensorModule", "SubnetGammaEnabled", [2], True)
 
 
 def test_intent_counts_the_gamma_shares_in_the_sum():
@@ -598,8 +622,8 @@ def test_intent_counts_the_gamma_shares_in_the_sum():
     plan = asyncio.run(client.plan(owner, dev_wallet()))
     assert plan.ok, plan.violations
     assert sum(plan.preview["after"]["weights"]) == ONE - GAMMA_SHARE
-    params = asyncio.run(owner.build(fake, dev_wallet())).params
-    assert sum(params["values"]) == ONE - GAMMA_SHARE
+    split = asyncio.run(owner.build(fake, dev_wallet())).params["split"]
+    assert sum(share for _, share in split[:5]) == ONE - GAMMA_SHARE
 
     # A verbatim update that keeps the sum passes; one that fills 100% alone does not.
     moved = SetSubnetEmissionWeights(
@@ -615,6 +639,55 @@ def test_intent_counts_the_gamma_shares_in_the_sum():
     plan = asyncio.run(client.plan(full, dev_wallet()))
     assert [v.split(":")[0] for v in plan.violations] == ["EmissionWeightsDoNotSumToOne"]
     assert "and the gamma shares (10.00%)" in plan.violations[0]
+
+
+def _seed_gamma_targets(fake: FakeSubstrate) -> None:
+    """Root whitelisted subnets 2 and 3, gamma enabled, and 4, gamma disabled."""
+    for netuid, on in ((2, True), (3, True), (4, False)):
+        fake.seed("SubtensorModule", "SubnetGammaEmissionWhitelisted", [netuid], True)
+        fake.seed("SubtensorModule", "SubnetGammaEnabled", [netuid], on)
+
+
+def test_intent_sends_the_whole_split():
+    client, fake = _client()
+    _seed_gamma_share(fake)
+    _seed_gamma_targets(fake)
+    five = ew.parse_share("5%")
+    add = SetSubnetEmissionWeights(
+        netuid=1, slots=[], values=[], renormalize=True, gamma={"3": "5%"}
+    )
+    assert add.touches_netuids() == [1, 3]
+    assert "gamma:3=5.00%" in add.summary()
+    plan = asyncio.run(client.plan(add, dev_wallet()))
+    assert plan.ok, plan.violations
+    split = asyncio.run(add.build(fake, dev_wallet())).params["split"]
+    assert split[5:] == [({"Gamma": {"netuid": 2}}, GAMMA_SHARE), ({"Gamma": {"netuid": 3}}, five)]
+    assert sum(share for _, share in split) == ONE
+
+    remove = SetSubnetEmissionWeights(netuid=1, slots=[], values=[], renormalize=True, gamma={2: 0})
+    split = asyncio.run(remove.build(fake, dev_wallet())).params["split"]
+    assert [slot for slot, _ in split] == FIVE_SLOTS
+    assert sum(share for _, share in split) == ONE
+    plan = asyncio.run(client.plan(remove, dev_wallet()))
+    assert plan.ok, plan.violations
+    assert "a removed gamma share's unconverted alpha goes to the miners" in plan.effects
+
+    same = SetSubnetEmissionWeights(netuid=1, slots=["owner"], values=["10%"], renormalize=True)
+    split = asyncio.run(same.build(fake, dev_wallet())).params["split"]
+    assert split[5:] == [({"Gamma": {"netuid": 2}}, GAMMA_SHARE)]
+    # The chain checks every gamma share in the split, kept ones too.
+    fake.seed("SubtensorModule", "SubnetGammaEnabled", [2], False)
+    plan = asyncio.run(client.plan(same, dev_wallet()))
+    assert any("subnet 2 has gamma disabled" in v for v in plan.violations), plan.violations
+
+    fake.seed("SubtensorModule", "SubnetUidToLeaseId", [1], 7)
+    plan = asyncio.run(client.plan(add, dev_wallet()))
+    assert any(v.startswith("GammaEmissionNotSettableOnLeasedSubnet") for v in plan.violations)
+
+
+def test_whitelist_removal_acts_on_all_subnets():
+    assert not SetSubnetGammaEmissionWhitelisted(netuid=3, whitelisted=True).affects_all_subnets()
+    assert SetSubnetGammaEmissionWhitelisted(netuid=3, whitelisted=False).affects_all_subnets()
 
 
 # --- read -------------------------------------------------------------------
@@ -645,6 +718,17 @@ def test_read_sums_the_gamma_shares():
     info = asyncio.run(client.read("subnet_emission_weights", netuid=1))
     assert info.gamma_share == GAMMA_SHARE
     assert info.rules().gamma_share == GAMMA_SHARE
+
+
+def test_read_lists_gamma_shares_targets_and_lease():
+    client, fake = _client()
+    _seed_gamma_share(fake)
+    _seed_gamma_targets(fake)
+    fake.seed("SubtensorModule", "SubnetUidToLeaseId", [1], 7)
+    info = asyncio.run(client.read("subnet_emission_weights", netuid=1))
+    assert info.gamma_shares == {2: GAMMA_SHARE}
+    assert info.gamma_targets == {2: True, 3: True, 4: False}
+    assert info.leased and info.rules().leased
 
 
 # --- CLI --------------------------------------------------------------------
@@ -1092,11 +1176,12 @@ def test_cli_set_value_submits_the_renormalized_vector(emission_cli):
     )
     assert result.exit_code == 0, result.output
     (call, signer, _) = emission_cli.submissions[-1]
-    assert (call.module, call.function) == ("AdminUtils", "sudo_set_subnet_emission_weights")
+    assert (call.module, call.function) == ("AdminUtils", "sudo_set_subnet_emission_weights_v2")
     assert call.params["netuid"] == 1
-    assert call.params["uids"] == [0, 1, 2, 3, 4]
-    assert call.params["values"][3] == ew.parse_share("30%")
-    assert sum(call.params["values"]) == ONE
+    split = call.params["split"]
+    assert [slot for slot, _ in split] == FIVE_SLOTS
+    assert split[3] == ("Validator", ew.parse_share("30%"))
+    assert sum(share for _, share in split) == ONE
     assert signer.startswith("5")
     # The review card names the move, root's unchanged cut and what validators keep.
     assert "41.00% -> 30.00%" in result.output

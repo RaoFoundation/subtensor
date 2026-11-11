@@ -90,6 +90,47 @@ class SetSubnetEmissionEnabled(Intent):
 
 @register
 @dataclass
+class SetSubnetGammaEmissionWhitelisted(Intent):
+    """Whitelist a subnet for gamma emission, or take it off (root only).
+
+    A subnet owner's gamma share may only name a subnet on this whitelist (see
+    the ``set_subnet_emission_weights`` intent). Taking a subnet off removes it
+    from every subnet's split: each share joins the paying subnet's miner slot,
+    and its unconverted alpha that subnet's pending miner emission.
+    """
+
+    op = "set_subnet_gamma_emission_whitelisted"
+    signer = "coldkey"
+    origin = "root"
+    verify = "subnet_gamma_emission_whitelisted"
+    wraps = (
+        ("AdminUtils", "sudo_set_subnet_gamma_emission_whitelisted"),
+        ("Sudo", "sudo"),
+    )
+
+    netuid: int = field(metadata={"help": "Subnet to whitelist or take off."})
+    whitelisted: bool = field(
+        metadata={"help": "True to whitelist the subnet, false to take it off."}
+    )
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.AdminUtils.sudo_set_subnet_gamma_emission_whitelisted(
+                netuid=self.netuid, whitelisted=self.whitelisted
+            )
+        )
+
+    def summary(self) -> str:
+        if self.whitelisted:
+            return f"whitelist netuid {self.netuid} for gamma emission"
+        return f"take netuid {self.netuid} off the gamma emission whitelist"
+
+    def affects_all_subnets(self) -> bool:
+        return not self.whitelisted
+
+
+@register
+@dataclass
 class SetRootClaimThreshold(Intent):
     """Set the minimum TAO payout for a root dividend claim (root only).
 

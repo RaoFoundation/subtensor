@@ -52,3 +52,10 @@ _hyperparam(
     "emission share even while subnet_is_active is true; only root can flip "
     "it (see the set_subnet_emission_enabled intent).",
 )
+_hyperparam(
+    "subnet_gamma_emission_whitelisted",
+    st.SubtensorModule.SubnetGammaEmissionWhitelisted,
+    "Whether root whitelisted the subnet for gamma emission (1 = whitelisted), so that "
+    "other subnets' gamma shares can name it (see the "
+    "set_subnet_gamma_emission_whitelisted intent).",
+)

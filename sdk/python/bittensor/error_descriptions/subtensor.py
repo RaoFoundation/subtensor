@@ -505,7 +505,7 @@ DESCRIPTIONS: dict[str, str] = {
         "emission splits summing away from 65535, max UIDs or take bounds. Check the specific "
         "argument against the min/max storage items the extrinsic validates (e.g. "
         "`MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the "
-        "same hotkey, or an empty `spend_gamma`."
+        "same hotkey, an empty `spend_gamma`, or a gamma share naming its own subnet."
     ),
     "InvalidVotingPowerEmaAlpha": (
         "The alpha passed to set the voting power EMA exceeds 10^18, which represents 1.0. "
@@ -827,19 +827,19 @@ DESCRIPTIONS: dict[str, str] = {
     "EmissionWeightIndexOutOfRange": (
         "`sudo_set_subnet_emission_weights` named a slot index outside the five-slot emission "
         "weight vector. Valid indices are 0 = burn, 1 = recycle, 2 = owner, 3 = validator, "
-        "4 = miner; later slots (e.g. gamma buys) are reserved for a future runtime."
+        "4 = miner; gamma shares are set with `sudo_set_subnet_emission_weights_v2`."
     ),
     "EmissionWeightIndexDuplicated": (
         "`sudo_set_subnet_emission_weights` listed the same slot index twice in `uids`. Give "
         "each slot at most once per call."
     ),
     "EmissionWeightsDoNotSumToOne": (
-        "After merging your update into the subnet's current emission weight vector, the five "
-        "shares do not sum to exactly `u64::MAX` (1.0). Omitted slots keep their current value, "
-        "so raising one slot requires lowering another in the same call. `btcli subnets "
-        "emission set-value/increase/decrease` renormalise the other slots for you; with the "
-        "raw call, pass a full `[burn, recycle, owner, validator, miner]` vector whose parts "
-        "total 18446744073709551615."
+        "The five slots and the subnet's gamma shares do not sum to exactly `u64::MAX` (1.0), "
+        "so raising one share requires lowering another in the same call. `btcli subnets "
+        "emission set-value/increase/decrease` renormalise the other slots for you; with a "
+        "raw call, give shares that total 18446744073709551615 with the gamma shares "
+        "(`sudo_set_subnet_emission_weights` keeps omitted slots, the v2 call sets them to "
+        "zero)."
     ),
     "BurnEmissionMustBeZero": (
         "Deprecated. Slot 0 (burn) may now be non-zero; burn and recycle together may be at "
@@ -1058,7 +1058,9 @@ DESCRIPTIONS: dict[str, str] = {
     "GammaDisabled": (
         "Gamma minting is switched off network-wide (`GammaEnabled`) or on this subnet (the "
         "`gamma_enabled` hyperparameter). Root enables it network-wide; the subnet owner or "
-        "root enables the subnet."
+        "root enables the subnet. From an emission split, it is the named gamma target that "
+        "has gamma disabled; leave that slot out of the split (a share of 0 in the SDK or btcli "
+        "does this)."
     ),
     "TooManyGammaDeposits": (
         "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or "

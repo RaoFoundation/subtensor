@@ -83,7 +83,7 @@ from .registration import (
     SwapHotkey,
 )
 from .registry import REGISTRY, build, list_tools, register
-from .root import SetRootClaimThreshold, SetSubnetEmissionEnabled
+from .root import SetRootClaimThreshold, SetSubnetEmissionEnabled, SetSubnetGammaEmissionWhitelisted
 from .serving import ResetAxon, ServeAxon, ServeAxonTls, ServePrometheus, SetService
 from .staking import (
     AddStake,
@@ -189,6 +189,7 @@ __all__ = [
     "SetService",
     "SetSubnetEmissionEnabled",
     "SetSubnetEmissionWeights",
+    "SetSubnetGammaEmissionWhitelisted",
     "SetSubnetIdentity",
     "SetTake",
     "SetWeights",
