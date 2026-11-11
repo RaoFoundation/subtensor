@@ -142,7 +142,15 @@ class SetSubnetEmissionWeights(Intent):
         if len(set(self.slots)) != len(self.slots):
             raise ValueError("each slot may appear at most once")
         self.values = [ew.parse_share(value) for value in self.values]
-        self.gamma = {int(t): ew.parse_share(v) for t, v in self.gamma.items()}
+        try:
+            targets = [int(t) for t in self.gamma]
+        except (TypeError, ValueError):
+            targets = [-1]
+        if not all(0 <= t <= 0xFFFF for t in targets):
+            raise ValueError("gamma targets must be netuids")
+        if len(set(targets)) != len(targets):
+            raise ValueError("each gamma target may appear at most once")
+        self.gamma = {t: ew.parse_share(v) for t, v in zip(targets, self.gamma.values())}
 
     def updates(self) -> dict[int, int]:
         return {int(slot): int(value) for slot, value in zip(self.slots, self.values)}

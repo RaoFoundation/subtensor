@@ -392,7 +392,8 @@ def test_rules_limits_and_table_cover_every_slot():
         min_validator=ew.parse_share("2.2%"), min_owner=ew.DEFAULT_OWNER, created_via_lease=True
     )
     limits = rules.limits()
-    assert list(limits) == ["burn", "recycle", "owner", "validator", "miner"]
+    assert list(limits) == ["burn", "recycle", "owner", "validator", "miner", "gamma"]
+    assert limits["gamma"]["max_parts"] == ew.MAX_GAMMA and "at most 16" in limits["gamma"]["why"]
     assert limits["owner"]["min_parts"] == ew.DEFAULT_OWNER and "lease" in limits["owner"]["why"]
     assert limits["validator"]["min"] == pytest.approx(0.022)
     assert limits["validator"]["max_parts"] == ew.MAX_VALIDATOR
@@ -404,6 +405,7 @@ def test_rules_limits_and_table_cover_every_slot():
     assert rows["validator"] == "2.2000% to 50.0000%"
     assert rows["miner"] == ">= 33.00%"
     assert rows["sum"] == "= 100%"
+    assert rows["gamma"] == "0.00% to 10.00%"
     assert limits["burn"]["max_parts"] == ew.MAX_BURN_RECYCLE
     # No floor: validator is only capped, owner starts at 0.
     rows = {name: rule for name, rule, _ in ew.Rules().table()}
@@ -465,6 +467,9 @@ def test_intent_normalises_slots_and_shares():
         ({"slots": [], "values": []}, "at least one"),
         ({"slots": ["owner", 2], "values": [1, 2]}, "at most once"),
         ({"slots": ["gamma"], "values": [1]}, "slots are"),
+        ({"slots": [], "values": [], "gamma": {"x": "5%"}}, "netuids"),
+        ({"slots": [], "values": [], "gamma": {70000: "5%"}}, "netuids"),
+        ({"slots": [], "values": [], "gamma": {"3": "5%", 3: "1%"}}, "at most once"),
     ],
 )
 def test_intent_rejects_malformed_input(kwargs, match):
@@ -1043,7 +1048,7 @@ def test_cli_shows_gamma_shares_and_targets(emission_cli):
     assert human.exit_code == 0, human.output
     for needle in (
         "gamma:2  10.00%",
-        "gamma  <= 10.00% each",
+        "gamma  0.00% to 10.00%  each share, at most 16",
         "gamma targets  2, 3, 4 (gamma disabled)",
     ):
         assert needle in human.output, (needle, human.output)
@@ -1118,7 +1123,9 @@ def test_cli_rejects_gamma_shares_before_signing(emission_cli):
     assert error["error"].startswith(
         "the chain would reject this change: GammaEmissionTargetNotWhitelisted"
     )
-    assert error["note"].startswith("allowed on subnet 1 right now: gamma <= 10.00% each")
+    assert error["note"].startswith(
+        "allowed on subnet 1 right now: gamma 0.00% to 10.00% (each share"
+    )
     assert emission_cli.submissions == []
 
 

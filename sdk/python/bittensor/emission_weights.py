@@ -4,9 +4,9 @@ A subnet's alpha emission is divided by a five-slot vector
 ``[burn, recycle, owner, validator, miner]`` whose entries are ``u64`` parts of
 ``u64::MAX`` (so they sum to exactly one with the subnet's gamma shares). The
 owner or root sets it with
-``AdminUtils.sudo_set_subnet_emission_weights(netuid, uids, values)`` — a
-*sparse* update: every ``uids[i]`` names a slot and ``values[i]`` its new share.
-Omitted slots keep their current value. The chain then checks the v1 rules:
+``AdminUtils.sudo_set_subnet_emission_weights_v2(netuid, split)``, which
+replaces the whole split, the five slots and the gamma shares (see
+:func:`validate_gamma`). The chain checks:
 
 * ``burn + recycle <= 0.33`` (combined cap);
 * ``0 <= owner <= 0.33``; lease-created subnets may not drop below the launch
@@ -23,9 +23,6 @@ Omitted slots keep their current value. The chain then checks the v1 rules:
   ``V`` — see :func:`baseline_root_share` and :func:`validator_floor`;
 * ``miner >= 0.33``;
 * the five slots and the subnet's gamma shares sum to exactly one.
-
-``sudo_set_subnet_emission_weights_v2(netuid, split)`` replaces the whole split,
-the five slots and the gamma shares, and also checks :func:`validate_gamma`.
 
 Burn destroys alpha but still counts toward issuance; recycle removes alpha
 from ``SubnetAlphaOut`` and ``TotalAlphaIssuance``.
@@ -191,7 +188,7 @@ class Rules:
     leased: bool = False
 
     def limits(self) -> dict[str, dict[str, object]]:
-        """Allowed range per slot, by slot name, as the machine-readable shape.
+        """Allowed range per slot and per gamma share, by name, as the machine-readable shape.
 
         Each entry carries ``min`` / ``max`` as 0..1 floats and ``min_parts`` /
         ``max_parts`` as exact u64 parts, plus ``why``. ``validator.min`` is the
@@ -220,6 +217,12 @@ class Rules:
                 else "must exceed root's baseline share (unknown without chain state)",
             ),
             "miner": _limit(MIN_MINER, ONE, "miner incentive floor"),
+            "gamma": _limit(
+                0,
+                MAX_GAMMA,
+                f"each share, at most {MAX_GAMMA_SHARES}, to another whitelisted subnet with "
+                "gamma enabled; none on a leased subnet",
+            ),
         }
 
     def table(self) -> list[tuple[str, str, str]]:
@@ -242,13 +245,6 @@ class Rules:
                 "burn+recycle",
                 f"<= {format_share(MAX_BURN_RECYCLE)}",
                 "combined cap on slots 0 and 1",
-            )
-        )
-        rows.append(
-            (
-                "gamma",
-                f"<= {format_share(MAX_GAMMA)} each, at most {MAX_GAMMA_SHARES}",
-                "to another whitelisted subnet with gamma enabled; none on a leased subnet",
             )
         )
         rows.append(
@@ -459,9 +455,9 @@ def validate_gamma(
             found.append(
                 Violation(
                     "GammaDisabled",
-                    f"subnet {target} has gamma disabled, so a split cannot name it; remove "
-                    f"gamma:{target} in the same change (`btcli subnets emission set ... "
-                    f"--gamma {target}=0`) or wait for its owner to enable it",
+                    f"subnet {target} has gamma disabled, so a split cannot name it; set "
+                    f"gamma:{target} to 0 (`btcli subnets emission set ... --gamma {target}=0`) "
+                    "or wait for its owner to enable it",
                 )
             )
         if share > MAX_GAMMA:
