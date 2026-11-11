@@ -2478,7 +2478,7 @@
     },
     "GammaEmissionTargetNotWhitelisted": {
       "code": "policy_violation",
-      "description": "A gamma share in the emission split names a subnet root has not whitelisted for gamma emission. Only whitelisted subnets can be targets.",
+      "description": "A gamma share in the emission split names a subnet root has not whitelisted for gamma emission. Only whitelisted subnets can be targets; remove that share (a share of 0 in btcli or the SDK does this).",
       "docs_url": "/docs/errors/chain/GammaEmissionTargetNotWhitelisted",
       "markdown_url": "/llms.mdx/docs/errors/chain/GammaEmissionTargetNotWhitelisted/content.md",
       "pallets": [

@@ -900,7 +900,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "GammaEmissionTargetNotWhitelisted": (
         "A gamma share in the emission split names a subnet root has not whitelisted for "
-        "gamma emission. Only whitelisted subnets can be targets."
+        "gamma emission. Only whitelisted subnets can be targets; remove that share (a share of "
+        "0 in btcli or the SDK does this)."
     ),
     "TooManyGammaShares": (
         "The emission split has more than 16 gamma shares. Drop gamma shares to at most 16."

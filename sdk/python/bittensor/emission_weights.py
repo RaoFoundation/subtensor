@@ -468,8 +468,9 @@ def validate_gamma(
             found.append(
                 Violation(
                     "GammaEmissionTargetNotWhitelisted",
-                    f"subnet {target} is not whitelisted for gamma emission; ask root to "
-                    "whitelist it",
+                    f"subnet {target} is not whitelisted for gamma emission, so a split cannot "
+                    f"name it; set gamma:{target} to 0 (`--gamma {target}=0` on `btcli subnets "
+                    "emission set`) or ask root to whitelist it",
                 )
             )
         elif targets is not None and not targets[target]:

@@ -713,6 +713,14 @@ def test_intent_sends_the_whole_split():
     fake.seed("SubtensorModule", "SubnetGammaEnabled", [2], False)
     plan = asyncio.run(client.plan(same, dev_wallet()))
     assert any("subnet 2 has gamma disabled" in v for v in plan.violations), plan.violations
+    # A dissolving subnet leaves the whitelist before its shares are removed.
+    fake.seed("SubtensorModule", "SubnetGammaEmissionWhitelisted", [2], False)
+    plan = asyncio.run(client.plan(same, dev_wallet()))
+    assert any(
+        "subnet 2 is not whitelisted for gamma emission, so a split cannot name it; set gamma:2 "
+        "to 0" in v
+        for v in plan.violations
+    ), plan.violations
 
     fake.seed("SubtensorModule", "SubnetUidToLeaseId", [1], 7)
     plan = asyncio.run(client.plan(add, dev_wallet()))
@@ -1099,6 +1107,12 @@ def test_cli_shows_gamma_shares_and_targets(emission_cli):
         human
     )
     assert "gamma targets  none: this subnet is leased" in human, human
+    emission_cli.seed("SubtensorModule", "SubnetGammaEmissionWhitelisted", [2], False)
+    human = invoke("subnets", "emission", "show", "--netuid", "1").output
+    assert (
+        "subnet 2 is not whitelisted for gamma emission, so every change must remove it "
+        "(--gamma 2=0)" in human
+    ), human
 
 
 def test_cli_sets_gamma_shares(emission_cli):

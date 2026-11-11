@@ -167,6 +167,19 @@ def _slot_share(
     return f"gamma:{target}", info.gamma_shares.get(target, 0)
 
 
+def _gamma_note(info: SubnetEmissionWeights, target: int, share: int) -> str:
+    """A gamma share's parts, and why the next change must remove it when it must."""
+    if target not in info.gamma_targets:
+        why = "is not whitelisted for gamma emission"
+    elif not info.gamma_targets[target]:
+        why = "has gamma disabled"
+    else:
+        return f"{share} parts"
+    return (
+        f"{share} parts; subnet {target} {why}, so every change must remove it (--gamma {target}=0)"
+    )
+
+
 def _parse_gamma(app_ctx: AppContext, raw: list[str]) -> dict[int, int]:
     """``--gamma N=SHARE`` options as shares by target netuid."""
     shares: dict[int, int] = {}
@@ -352,10 +365,7 @@ def show(
         (
             f"gamma:{target}",
             ew.format_share(share),
-            f"{share} parts"
-            if info.gamma_targets.get(target)
-            else f"{share} parts; subnet {target} has gamma disabled, so every change must "
-            f"remove it (--gamma {target}=0)",
+            _gamma_note(info, target, share),
         )
         for target, share in info.gamma_shares.items()
     ]
