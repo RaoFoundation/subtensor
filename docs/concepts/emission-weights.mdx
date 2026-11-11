@@ -176,8 +176,8 @@ btcli subnets emission set-value --netuid 12 --slot gamma:3 --value 5%
 btcli subnets emission set --netuid 12 --owner 0.10 --validator 0.40 --miner 0.45 --gamma 3=0.05
 ```
 
-While a target has gamma disabled, every change must also remove its share (a
-share of 0).
+While a share's target breaks these rules, every change must also remove the
+share (a share of 0).
 
 The gamma shares of each block's `alpha_out` accrue together and are allotted
 to their targets at the subnet's epoch. Each target then converts on its own:

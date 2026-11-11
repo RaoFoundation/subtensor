@@ -3,10 +3,10 @@
 The vector is ``[burn, recycle, owner, validator, miner]``. ``show`` prints the
 vector, what root keeps, the allowed range of every slot and when the owner may
 change it next. ``set`` writes owner / validator / miner (and optionally burn /
-recycle and gamma shares) in one go; ``set-value``, ``increase`` and
-``decrease`` move one slot and rescale the others to fill the rest. Every write
-is checked against the chain's rules locally first and a rejected change names
-the rule and the allowed range, so nothing is signed that the chain would refuse.
+recycle and gamma shares) in one go; ``set-value``, ``increase`` and ``decrease`` move one slot
+and rescale the others to fill the rest. Every write is checked against the
+chain's rules locally first and a rejected change names the rule and the allowed
+range, so nothing is signed that the chain would refuse.
 
 Exit codes: 0 success; 1 the subnet does not exist, the change is blocked right
 now (owner rate limit) or the chain rejected it; 2 invalid input or a vector
@@ -365,11 +365,7 @@ def show(
         for slot in ew.ADJUSTABLE_SLOTS
     ]
     vector_rows += [
-        (
-            f"gamma:{target}",
-            ew.format_share(share),
-            _gamma_note(info, target, share),
-        )
+        (f"gamma:{target}", ew.format_share(share), _gamma_note(info, target, share))
         for target, share in info.gamma_shares.items()
     ]
     next_value, next_note = _next_change(info.rate_limit())

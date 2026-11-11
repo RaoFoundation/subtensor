@@ -343,36 +343,35 @@ def renormalize(
 
     The untouched slots keep their relative proportions (split evenly when
     they are all zero); the last of them in slot order — normally the miner —
-    absorbs the rounding remainder. With every slot pinned the miner slot
-    absorbs rounding as in :func:`absorb_rounding`. Raises if the pinned shares
-    and the gamma shares exceed one, or if every adjustable slot is pinned but
-    the total is not one.
+    absorbs the rounding remainder. Raises if the pinned shares and the gamma
+    shares exceed one, or if every adjustable slot is pinned but the total is
+    not one beyond the rounding the miner slot absorbs (:func:`absorb_rounding`).
     """
     pinned = {slot_index(slot): int(value) for slot, value in fixed.items()}
-    out = normalize_weights(current)
-    for slot, value in pinned.items():
-        out[slot] = value
+    base = normalize_weights(current)
     free = [slot for slot in ADJUSTABLE_SLOTS if slot not in pinned]
-    if not free:
-        out = absorb_rounding(out, gamma_share)
-        total = sum(out) + gamma_share
-        if total != ONE:
-            raise ValueError(
-                f"all adjustable slots are pinned but they{and_gamma(gamma_share)} sum to "
-                f"{format_share(total)}, not 100%"
-            )
-        return out
     remaining = ONE - gamma_share - sum(pinned.values())
     if remaining < 0:
         raise ValueError(
             f"the pinned shares{and_gamma(gamma_share)} alone exceed 100%: "
             + ", ".join(f"{SLOT_NAMES[s]}={format_share(v)}" for s, v in pinned.items() if v)
         )
-    free_total = sum(out[slot] for slot in free)
+    out = base[:]
+    for slot, value in pinned.items():
+        out[slot] = value
+    if not free:
+        out = absorb_rounding(out, gamma_share)
+        if sum(out) + gamma_share != ONE:
+            raise ValueError(
+                f"all adjustable slots are pinned but they{and_gamma(gamma_share)} sum to "
+                f"{format_share(ONE - remaining)}, not 100%"
+            )
+        return out
+    free_total = sum(base[slot] for slot in free)
     if free_total == 0:
         shares = [remaining // len(free)] * len(free)
     else:
-        shares = [(remaining * out[slot]) // free_total for slot in free]
+        shares = [(remaining * base[slot]) // free_total for slot in free]
     shares[-1] += remaining - sum(shares)
     for slot, value in zip(free, shares):
         out[slot] = value

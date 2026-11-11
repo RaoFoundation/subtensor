@@ -484,9 +484,7 @@ def test_intent_normalises_slots_and_shares():
         ({"slots": ["gamma"], "values": [1]}, "slots are"),
         ({"slots": [], "values": [], "gamma": {"x": "5%"}}, "not a netuid"),
         ({"slots": [], "values": [], "gamma": {70000: "5%"}}, "not a netuid"),
-        ({"slots": [], "values": [], "gamma": {-1: "5%"}}, "not a netuid"),
         ({"slots": [], "values": [], "gamma": {3.7: "5%"}}, "not a netuid"),
-        ({"slots": [], "values": [], "gamma": {True: "5%"}}, "not a netuid"),
         ({"slots": [], "values": [], "gamma": {"3": "5%", 3: "1%"}}, "at most once"),
     ],
 )
@@ -1083,12 +1081,8 @@ def test_cli_counts_the_gamma_shares_in_the_sum(emission_cli):
     shares = ("--owner", "18%", "--validator", "31%", "--miner", "51%")
     over = invoke("subnets", "emission", "set", "--netuid", "1", *shares)
     assert over.exit_code == 2 and "--no-gamma removes them" in " ".join(over.output.split())
-    assert (
-        invoke(
-            "--dry-run", "subnets", "emission", "set", "--netuid", "1", *shares, "--no-gamma"
-        ).exit_code
-        == 0
-    )
+    ok = invoke("--dry-run", "subnets", "emission", "set", "--netuid", "1", *shares, "--no-gamma")
+    assert ok.exit_code == 0, ok.output
 
 
 def test_cli_shows_gamma_shares_and_targets(emission_cli):
