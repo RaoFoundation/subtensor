@@ -442,7 +442,7 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
             Violation(
                 "EmissionWeightsDoNotSumToOne",
                 f"the five slots{and_gamma(rules.gamma_share)} sum to {format_share(total, 6)} "
-                f"({total} parts), not exactly 100% ({ONE} parts); renormalise another slot in "
+                f"({total} parts), not exactly 100% ({ONE} parts); renormalize another slot in "
                 "the same call (`btcli subnets emission set-value` does this for you)",
             )
         )
