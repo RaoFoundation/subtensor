@@ -276,6 +276,14 @@ def _offer_operation_refill(app_ctx: AppContext, record: dict[str, Any], intent)
         return intent
     children = intent.intents if isinstance(intent, Batch) else [intent.to_dict()]
     refill = Transfer(dest_ss58=record["controller_ss58"], amount_tao=amount)
+    unstaking = {"remove_stake", "remove_stake_limit", "unstake_all", "unstake_all_alpha"}
+    withdrawal_batch = all(
+        child["op"] in unstaking | {"claim_root", "claim_root_with_hotkey"} for child in children
+    ) and any(child["op"] in unstaking for child in children)
+    if withdrawal_batch:
+        # The requested unstake can be the source of the refill's free TAO.
+        # Preserve atomicity, but release that TAO before attempting to send it.
+        return Batch(intents=[*children, refill.to_dict()])
     return Batch(intents=[refill.to_dict(), *children])
 
 

@@ -258,7 +258,7 @@ async def test_cli_protected_migration_cancel_execute_and_rotate(tmp_path, multi
             await client.read("balance", coldkey_ss58=successor.ss58_address)
         ).rao == before + 10**9
 
-        for operation in ("transfer", "stake"):
+        for operation in ("transfer", "stake", "unstake"):
             # Use disposable-chain root authority only to reproduce a low
             # controller balance. Refill and user actions use normal btcli.
             result = await client.submit_call(
@@ -273,10 +273,25 @@ async def test_cli_protected_migration_cancel_execute_and_rotate(tmp_path, multi
                 shielded=False,
             )
             assert result.success, result.to_dict()
+            if operation == "unstake":
+                result = await client.submit_call(
+                    bt.calls.Sudo.sudo(
+                        call=await client.compose(
+                            bt.calls.Balances.force_set_balance(who=pure, new_free=0)
+                        )
+                    ),
+                    dev_wallet(),
+                    shielded=False,
+                )
+                assert result.success, result.to_dict()
+                assert (await client.read("balance", coldkey_ss58=pure)).rao == 0
+                assert int(await client.query(("SubtensorModule", "RootStakeUnlockInterval"))) == 0
             args = (
                 ["wallet", "transfer", "--dest", successor.ss58_address, "--amount", "1"]
                 if operation == "transfer"
                 else ["stake", "add", "--hotkey", hot, "--netuid", "0", "--amount", "1"]
+                if operation == "stake"
+                else ["stake", "remove", "--hotkey", hot, "--netuid", "0", "--amount", "2"]
             )
             before_balance = (await client.read("balance", coldkey_ss58=successor.ss58_address)).rao
             before_stake = (
@@ -288,8 +303,9 @@ async def test_cli_protected_migration_cancel_execute_and_rotate(tmp_path, multi
             refill_row = state["pending"][0]
             assert refill_row["inner_op"] == "batch"
             children = refill_row["inner_args"]["intents"]
-            assert children[0]["op"] == "transfer"
-            assert children[0]["dest_ss58"] == controller_address
+            refill = children[-1] if operation == "unstake" else children[0]
+            assert refill["op"] == "transfer"
+            assert refill["dest_ss58"] == controller_address
             assert len(children) == 2
             await run.wait(client, refill_row["executable_at_block"])
             # Exactly one execution submission; the refill is already committed.
@@ -303,10 +319,14 @@ async def test_cli_protected_migration_cancel_execute_and_rotate(tmp_path, multi
                 assert (
                     await client.read("balance", coldkey_ss58=successor.ss58_address)
                 ).rao == before_balance + 10**9
-            else:
+            elif operation == "stake":
                 assert (
                     await client.read("stake", coldkey_ss58=pure, hotkey_ss58=hot, netuid=0)
                 ).rao > before_stake
+            else:
+                assert (
+                    await client.read("stake", coldkey_ss58=pure, hotkey_ss58=hot, netuid=0)
+                ).rao < before_stake
         await run.cli(controller, "proxy", "rotate", "--to", "next", *signatories)
         state = await run.cli(controller, "proxy", "show")
         row = next(item for item in state["pending"] if item["category"] == "rotate-controller")

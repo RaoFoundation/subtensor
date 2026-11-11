@@ -7,7 +7,7 @@ import pytest
 import typer
 
 from bittensor.cli import protected
-from bittensor.intents import Batch, StakeIntoBasket, Transfer
+from bittensor.intents import Batch, RemoveStake, StakeIntoBasket, Transfer
 from bittensor.protected_funding import funding_budget
 
 
@@ -67,6 +67,27 @@ def test_root_basket_staking_also_offers_a_refill(monkeypatch):
     )
     assert isinstance(result, Batch)
     assert result.intents[1] == intent.to_dict()
+
+
+@pytest.mark.parametrize("batched", [False, True])
+def test_unstaking_releases_tao_before_the_controller_refill(monkeypatch, batched):
+    ctx = SimpleNamespace(
+        assume_yes=True,
+        dry_run=False,
+        output=SimpleNamespace(message=lambda *_: None),
+    )
+    state = budget(account={"data": {"free": 200_000_000, "reserved": 0}}).to_dict()
+    monkeypatch.setattr(protected, "_controller_funding", lambda *_: state)
+    intent = RemoveStake(hotkey_ss58="validator", netuid=0, amount_alpha=2)
+    original = intent.to_dict()
+    if batched:
+        intent = Batch(intents=[original])
+    result = protected._offer_operation_refill(
+        ctx, {"controller_ss58": "controller", "controller_wallet": "owner"}, intent
+    )
+    assert result.intents[0] == original
+    assert result.intents[1]["op"] == "transfer"
+    assert result.intents[1]["dest_ss58"] == "controller"
 
 
 def test_external_funding_checks_live_controller_before_sending(monkeypatch):
