@@ -26,6 +26,7 @@ from .._generated import runtime_apis, storage
 from ..balance import Balance
 from ..client import Client
 from ..extension.client import BridgeError
+from ..intents.base import Intent
 from ..intents.registration import (
     ClaimRootWithHotkey,
     _registration_split_suffix,
@@ -141,6 +142,66 @@ class ResolvedAddress:
 
 
 @dataclass
+class _ProtectedPreviewIntent(Intent):
+    """Preview a delayed call from its pure without pretending it is an instant proxy.
+
+    Only the semantic dispatch origin changes. The selected wallet still quotes
+    fees, and any multisig adapter and the inner intent's safety policy survive.
+    This adapter is used exclusively by the dry-run planner.
+    """
+
+    inner: Intent
+    dispatch_origin: str
+
+    def __post_init__(self):
+        self.__dict__.update(op=self.inner.op, signer=self.inner.signer)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+    def origin_view(self, substrate, wallet):
+        from ..executor import _OriginView
+
+        return _OriginView(self.dispatch_origin, wallet=wallet)
+
+    def semantic_intent(self):
+        return self.inner.semantic_intent()
+
+    async def build(self, substrate, wallet):
+        return await self.inner.build(substrate, wallet)
+
+    async def wrap_call(self, substrate, wallet, call):
+        return await self.inner.wrap_call(substrate, wallet, call)
+
+    async def preflight(self, substrate, dispatch_origin, fee_payer, *, call=None):
+        from ..executor import _coerce_addresses
+        from ..hashed import prepare_recipient_intent
+
+        prepared, _recipients = await prepare_recipient_intent(
+            substrate, await _coerce_addresses(substrate, self.inner)
+        )
+        return await prepared.preflight(substrate, dispatch_origin, fee_payer, call=call)
+
+    def summary(self):
+        return self.inner.summary()
+
+    def spend(self):
+        return self.inner.spend()
+
+    def touches_netuids(self):
+        return self.inner.touches_netuids()
+
+    def affects_all_subnets(self):
+        return self.inner.affects_all_subnets()
+
+    def requires_build_for_policy(self):
+        return self.inner.requires_build_for_policy()
+
+    def to_dict(self):
+        return self.inner.to_dict()
+
+
+@dataclass
 class AppContext:
     network: str
     wallet_name: str
@@ -178,6 +239,8 @@ class AppContext:
     # True while the multi-approval driver is iterating, so the per-round
     # ``submit`` calls take the ordinary single-signer path.
     _multisig_rounds_active: bool = False
+    # Cache the protected-account chain identity for this selected endpoint.
+    _protected_chain: Optional[tuple[str, str]] = field(default=None, repr=False)
     # Round 1's inner call bytes (0x-hex SCALE). Later rounds approve exactly
     # these bytes instead of rebuilding the semantic call, because a rebuild
     # is not always byte-stable (e.g. timelock-encrypted weight commits) and
@@ -288,12 +351,44 @@ class AppContext:
             configured = cfg.get("proxy_for")
             if not configured:
                 return None
+            if configured == "self":
+                return None
             self.output.message(
                 f"[dim]dispatching via configured proxy_for {configured!r} "
                 "— pass `--proxy-for self` to sign directly[/dim]"
             )
             return self.resolve_address("proxy_for", str(configured))
         return self.resolve_address("proxy_for", raw)
+
+    def resolve_preparation_proxy(
+        self, explicit: Optional[str] = None, *, signer: str = "coldkey"
+    ) -> Optional[str]:
+        """Select the effective account for reads before preparing a transaction.
+
+        This includes a protected pure for ordinary coldkey operations, while
+        leaving submission options untouched so its delay still applies.
+        Explicit/context/configured proxy choices, including ``self``, take
+        precedence just as they do in ``submit``. Hotkey operations retain
+        their own account unless the user explicitly requests proxy dispatch.
+        """
+        proxy = (
+            self.resolve_dispatch_proxy()
+            if explicit is None
+            else self.resolve_dispatch_proxy(explicit)
+        )
+        if proxy is not None:
+            return proxy
+        if (
+            signer == "hotkey"
+            or explicit is not None
+            or self.proxy_for is not None
+            or cfg.get("proxy_for")
+        ):
+            return None
+        from .protected import _get_protected_record
+
+        record = _get_protected_record(self, require_ready=True) if self.wallet_name else None
+        return record["protected_ss58"] if record is not None else None
 
     def resolve_mev_shield(
         self,
@@ -1041,11 +1136,77 @@ class AppContext:
         # top-level import here would be circular.
         from .prompt import confirm_wallet, replay_command
 
+        # Routing depends on the wallet selected here. In particular, a prompt
+        # can replace an unprotected default with a protected or saved multisig
+        # wallet. Public wallet confirmation does not unlock signing keys.
+        confirm_wallet(
+            self,
+            help_text=(
+                "Wallet containing the signing hotkey."
+                if intent.signer == "hotkey"
+                else "Wallet whose coldkey signs this transaction."
+            ),
+            require_coldkey=intent.signer == "coldkey",
+        )
+        protected_preview_origin = None
         if force_proxy_type is None:
             force_proxy_type = self.force_proxy_type
         if force_proxy_type is not None:
             force_proxy_type = str(getattr(force_proxy_type, "value", force_proxy_type))
+        # Track whether the caller / --proxy-for flag chose a dispatch target
+        # before falling back to config, so protected-account auto-announce
+        # does not override an explicit choice (including the `self` sentinel).
+        user_set_proxy = (
+            proxy_for is not None or self.proxy_for is not None or cfg.get("proxy_for") == "self"
+        )
         proxy_for = self.resolve_dispatch_proxy(proxy_for)
+        if not user_set_proxy and proxy_for is None:
+            # Inline import: cli.protected imports AppContext from this module.
+            from .. import protected_account as pa
+            from .protected import (
+                PROTECTED_BYPASS_OPS,
+                _get_protected_record,
+                _refresh_live_allows,
+                maybe_route_protected,
+            )
+
+            if self.dry_run:
+                # Preview instant allows against the protected origin. Delayed
+                # calls only print what would be announced — never Proxy.proxy
+                # wrap them (delay > 0 would fail as Unannounced).
+                record = (
+                    _get_protected_record(self, require_ready=True)
+                    if self.wallet_name
+                    and intent.signer != "hotkey"
+                    and intent.op not in PROTECTED_BYPASS_OPS
+                    else None
+                )
+                if record is not None:
+                    record = _refresh_live_allows(self, record)
+                    dispatcher = record.get("controller_ss58")
+                    instant = pa.instant_proxy_type_for(
+                        intent.op, record, dispatcher_ss58=dispatcher, intent=intent
+                    )
+                    if instant is not None:
+                        proxy_for = record["protected_ss58"]
+                        if force_proxy_type is None:
+                            force_proxy_type = instant
+                    else:
+                        protected_preview_origin = record["protected_ss58"]
+                        self.output.message(
+                            f"[dim]protected account {record.get('name')} "
+                            f"({record['protected_ss58']}): this call would be "
+                            f"announced (delay {record.get('delay_blocks')} blocks), "
+                            "not executed immediately[/dim]"
+                        )
+            else:
+                proxy_for, instant_type, announced = maybe_route_protected(
+                    self, intent, proxy_for=proxy_for, user_set_proxy=user_set_proxy
+                )
+                if announced:
+                    return None
+                if instant_type is not None and force_proxy_type is None:
+                    force_proxy_type = instant_type
         if force_proxy_type is not None and proxy_for is None:
             self.output.error(
                 "--force-proxy-type requires --proxy-for",
@@ -1072,9 +1233,16 @@ class AppContext:
             )
 
         # ``-w <multisig>``: rewrite the intent as a multisig approval signed
-        # by a member. Must run before confirm_wallet / wallet() because the
+        # by a member. Must run before wallet() because the
         # multisig name is not a coldkey directory.
         unwrapped_intent = intent
+        # Announced execution selects a validated multisig member solely to pay
+        # fees. It deliberately has no multisig dispatch adapter or review-card
+        # route, but its explicit --signatory is still a valid selection.
+        announcement_fee_payer = (
+            intent.op in ms_helpers._PROXY_ANNOUNCEMENT_FEE_PAYER_OPS
+            and cfg.get_multisig(self.wallet_name) is not None
+        )
         try:
             intent = ms_helpers.wrap_intent_for_multisig_wallet(self, intent)
         except ValueError as error:
@@ -1090,7 +1258,11 @@ class AppContext:
             # and survives the rewrite.
             semantic_question = summary or unwrapped_intent.summary()
             summary = None
-        if self.signatory_wallet and self.multisig_wallet_name is None:
+        if (
+            self.signatory_wallet
+            and self.multisig_wallet_name is None
+            and not announcement_fee_payer
+        ):
             # A typo'd or missing multisig name must not degrade into a plain
             # single-signer transaction: the user explicitly asked for a
             # multisig member to sign.
@@ -1111,30 +1283,6 @@ class AppContext:
         # the card's "mev shield  off" row instead of as floating prose.
         shield_note: Optional[str] = None
 
-        # The signing wallet is confirmed when it was only defaulted (generated
-        # tx commands already did this via signer_specs and set wallet_given).
-        confirm_wallet(
-            self,
-            help_text=(
-                "Wallet containing the signing hotkey."
-                if intent.signer == "hotkey"
-                else "Wallet whose coldkey signs this transaction."
-            ),
-            require_coldkey=intent.signer == "coldkey",
-        )
-        # The prompt may have just named a saved multisig. Wrap now so
-        # Signer / Transaction show the same routing as ``-w MULTIX``.
-        if intent is unwrapped_intent:
-            try:
-                rewritten = ms_helpers.wrap_intent_for_multisig_wallet(self, intent)
-            except ValueError as error:
-                self.output.error(str(error))
-                raise typer.Exit(2) from error
-            if rewritten is not intent:
-                intent = rewritten
-                semantic_question = summary or unwrapped_intent.summary()
-                summary = None
-                semantic_intent = intent.semantic_intent()
         wallet = self.wallet()
         self._register_local_names(wallet)
         options = {"proxy_for": proxy_for, "proxy_type": force_proxy_type}
@@ -1253,8 +1401,13 @@ class AppContext:
         async def _plan(client):
             signer = await self.resolve_signing_wallet(intent.signer)
             plan_target = signer if self.uses_external_signer() else wallet
+            preview_intent = (
+                _ProtectedPreviewIntent(intent, protected_preview_origin)
+                if protected_preview_origin is not None
+                else intent
+            )
             try:
-                return await client.plan(intent, plan_target, shielded=shield, **options)
+                return await client.plan(preview_intent, plan_target, shielded=shield, **options)
             finally:
                 if self.uses_extension_signer() and hasattr(signer, "close"):
                     await signer.close()
@@ -1273,6 +1426,11 @@ class AppContext:
             )
             if shield != plan.shielded:
                 plan = self.run(_plan)
+            if protected_preview_origin is not None:
+                plan.effects.append(
+                    f"previewed as protected account {protected_preview_origin}; "
+                    "announcement required before execution"
+                )
             if base_summary != intent_summary:
                 plan.summary = base_summary
                 plan.effects = [
@@ -1927,7 +2085,10 @@ class AppContext:
         the refs don't form a valid approval sequence (non-members, duplicates,
         more rounds than the threshold, or a member with no known backend).
         """
-        if self._multisig_rounds_active:
+        if (
+            self._multisig_rounds_active
+            or intent.op in ms_helpers._PROXY_ANNOUNCEMENT_FEE_PAYER_OPS
+        ):
             return None
         explicit = len(self.signatory_wallets) > 1
         preset = self.wallet_name
