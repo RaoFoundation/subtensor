@@ -409,6 +409,8 @@ async def subnet_emission_weights(view, netuid: int) -> Optional[SubnetEmissionW
     accept or reject a change (``min_validator`` moves with root stake, alpha
     issuance and the global TAO weight, so it is a snapshot of this block).
     """
+    if netuid == 0:
+        return None  # the runtime API answers for the root subnet, which has no vector
     view = await view.at()
     info = await view.runtime(api.SubnetInfoRuntimeApi.get_subnet_emission_weights, [netuid])
     if info is None:

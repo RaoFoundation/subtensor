@@ -158,6 +158,8 @@ class SetSubnetEmissionWeights(Intent):
         return {int(slot): int(value) for slot, value in zip(self.slots, self.values)}
 
     async def _current(self, substrate) -> Optional[dict]:
+        if self.netuid == 0:
+            return None  # the runtime API answers for the root subnet, which has no vector
         return await substrate.runtime_call(
             *api.SubnetInfoRuntimeApi.get_subnet_emission_weights, [self.netuid]
         )
@@ -267,9 +269,7 @@ class SetSubnetEmissionWeights(Intent):
             return IntentPreflight(
                 effects=[self.summary()],
                 warnings=[],
-                blocks=[
-                    f"subnet {self.netuid} does not exist (the root subnet has no emission vector)"
-                ],
+                blocks=[f"subnet {self.netuid} does not exist or has no emission vector"],
             )
         try:
             after = self._merged(inputs["current"], inputs["gamma_share"])

@@ -614,6 +614,16 @@ def test_intent_plan_names_a_missing_subnet():
     assert not plan.ok and "subnet 9 does not exist" in plan.violations[0]
 
 
+def test_root_subnet_has_no_emission_vector():
+    # The runtime API answers for the root subnet too (the _client default seeds it).
+    client, _ = _client()
+    assert asyncio.run(client.read("subnet_emission_weights", netuid=0)) is None
+    intent = SetSubnetEmissionWeights(netuid=0, slots=["owner"], values=["10%"], renormalize=True)
+    plan = asyncio.run(client.plan(intent, dev_wallet()))
+    assert not plan.ok
+    assert plan.violations == ["subnet 0 does not exist or has no emission vector"]
+
+
 FIVE_SLOTS = ["Burn", "Recycle", "Owner", "Validator", "Miner"]
 
 
@@ -920,6 +930,12 @@ def test_cli_show_missing_subnet_exits_1(emission_cli):
     result = invoke("--json", "subnets", "emission", "show", "--netuid", "7")
     assert result.exit_code == 1
     assert _stderr_json(result)["error"] == "subnet 7 does not exist or has no emission vector"
+
+
+def test_cli_show_root_subnet_exits_1(emission_cli):
+    result = invoke("--json", "subnets", "emission", "show", "--netuid", "0")
+    assert result.exit_code == 1
+    assert _stderr_json(result)["error"] == "subnet 0 does not exist or has no emission vector"
 
 
 def test_cli_set_value_dry_run_renormalizes(emission_cli):
