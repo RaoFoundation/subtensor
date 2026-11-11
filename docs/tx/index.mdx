@@ -14,7 +14,8 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`set-hyperparameter`](/docs/tx/set-hyperparameter) | coldkey | subnet owner | Set an owner-settable subnet hyperparameter (btcli `sudo set`). |
 | [`set-mechanism-count`](/docs/tx/set-mechanism-count) | coldkey | subnet owner | Set the number of mechanisms on a subnet. |
 | [`set-subnet-emission-enabled`](/docs/tx/set-subnet-emission-enabled) | coldkey | root (chain sudo) | Enable or disable a subnet's pool-side TAO emission (root only). |
-| [`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights) | coldkey | subnet owner | Set slots of a subnet's emission weight vector (btcli `subnets emission`). |
+| [`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights) | coldkey | subnet owner | Set a subnet's emission split: its five slots and gamma shares (btcli `subnets emission`). |
+| [`set-subnet-gamma-emission-whitelisted`](/docs/tx/set-subnet-gamma-emission-whitelisted) | coldkey | root (chain sudo) | Whitelist a subnet for gamma emission, or take it off (root only). |
 | [`trim-null-subnet-batch`](/docs/tx/trim-null-subnet-batch) | coldkey | subnet owner | Execute one bounded Null subnet pruning batch toward `target`. |
 | [`trim-subnet`](/docs/tx/trim-subnet) | coldkey | subnet owner | Trim a subnet to at most `max_n` UIDs (subnet owner). |
 

@@ -45,6 +45,7 @@
     "min-allowed-weights",
     "reveal-period",
     "subnet-emission-enabled",
+    "subnet-gamma-emission-whitelisted",
     "weights-rate-limit",
     "---Identity & commitments---",
     "commitment",

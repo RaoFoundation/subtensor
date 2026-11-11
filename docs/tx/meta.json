@@ -7,6 +7,7 @@
     "set-mechanism-count",
     "set-subnet-emission-enabled",
     "set-subnet-emission-weights",
+    "set-subnet-gamma-emission-whitelisted",
     "trim-null-subnet-batch",
     "trim-subnet",
     "---Balances---",
