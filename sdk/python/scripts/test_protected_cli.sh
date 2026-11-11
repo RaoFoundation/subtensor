@@ -47,4 +47,4 @@ done
 [[ "$ready" == true ]] || { echo "Disposable node did not start" >&2; exit 1; }
 cd "$ROOT/sdk/python"
 E2E_WALLET_ENDPOINT="ws://127.0.0.1:$RPC_PORT" E2E_EVIDENCE_DIR="$EVIDENCE" \
-  INSTA_UPDATE=no uv run --no-sync pytest tests/e2e/test_protected_cli.py -vv
+  INSTA_UPDATE=no uv run --no-sync pytest tests/e2e/test_protected_cli.py -x -vv

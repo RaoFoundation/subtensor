@@ -274,17 +274,20 @@ async def test_cli_protected_migration_cancel_execute_and_rotate(tmp_path, multi
             )
             assert result.success, result.to_dict()
             if operation == "unstake":
+                # Keep the provider required by the existing proxy deposit;
+                # there is still no spendable TAO for a controller refill.
+                minimum = (await client.read("existential_deposit")).rao
                 result = await client.submit_call(
                     bt.calls.Sudo.sudo(
                         call=await client.compose(
-                            bt.calls.Balances.force_set_balance(who=pure, new_free=0)
+                            bt.calls.Balances.force_set_balance(who=pure, new_free=minimum)
                         )
                     ),
                     dev_wallet(),
                     shielded=False,
                 )
                 assert result.success, result.to_dict()
-                assert (await client.read("balance", coldkey_ss58=pure)).rao == 0
+                assert (await client.read("balance", coldkey_ss58=pure)).rao == minimum
                 assert int(await client.query(("SubtensorModule", "RootStakeUnlockInterval"))) == 0
             args = (
                 ["wallet", "transfer", "--dest", successor.ss58_address, "--amount", "1"]
