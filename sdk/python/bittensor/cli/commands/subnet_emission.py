@@ -165,7 +165,7 @@ def _slot_share(
     info: SubnetEmissionWeights, index: Optional[int], target: Optional[int]
 ) -> tuple[str, int]:
     """The slot's name and current share."""
-    if target is None:
+    if index is not None:
         return ew.SLOT_NAMES[index], info.weights[index]
     return f"gamma:{target}", info.gamma_shares.get(target, 0)
 

@@ -169,6 +169,15 @@ class SetSubnetEmissionWeights(Intent):
         )
         return shares, ew.merge_gamma(shares, self.gamma)
 
+    async def _gamma_rules(self, substrate) -> tuple[dict[int, bool], bool]:
+        """The subnets a gamma share can name, each with whether gamma is enabled
+        there, and whether this subnet is leased."""
+        targets, lease = await asyncio.gather(
+            gamma_emission_targets(lambda item, keys: substrate.query_map(*item, keys)),
+            substrate.query(*st.SubtensorModule.SubnetUidToLeaseId, [self.netuid]),
+        )
+        return targets, lease is not None
+
     def _merged(self, current: Optional[dict], gamma_share: int) -> list[int]:
         base = ew.normalize_weights(current["weights"]) if current else ew.default_weights()
         if self.renormalize:
@@ -180,7 +189,9 @@ class SetSubnetEmissionWeights(Intent):
             self._current(substrate), self._gamma_shares(substrate)
         )
         weights = self._merged(current, sum(gamma.values()))
-        split = [(name.capitalize(), w) for name, w in zip(ew.SLOT_NAMES, weights)]
+        split: list[tuple[Any, int]] = [
+            (name.capitalize(), w) for name, w in zip(ew.SLOT_NAMES, weights)
+        ]
         split += [({"Gamma": {"netuid": t}}, share) for t, share in gamma.items()]
         return await substrate.compose(
             calls.AdminUtils.sudo_set_subnet_emission_weights_v2(self.netuid, split)
@@ -201,8 +212,7 @@ class SetSubnetEmissionWeights(Intent):
             block,
             owner,
             (gamma_before, gamma_after),
-            gamma_targets,
-            lease,
+            (gamma_targets, leased),
         ) = await asyncio.gather(
             root_preservation_inputs(query, self.netuid),
             substrate.query(
@@ -212,8 +222,7 @@ class SetSubnetEmissionWeights(Intent):
             substrate.block_number(),
             substrate.query(*st.SubtensorModule.SubnetOwner, [self.netuid]),
             self._gamma_shares(substrate),
-            gamma_emission_targets(lambda item, keys: substrate.query_map(*item, keys)),
-            substrate.query(*st.SubtensorModule.SubnetUidToLeaseId, [self.netuid]),
+            self._gamma_rules(substrate),
         )
         return {
             "current": current,
@@ -228,7 +237,7 @@ class SetSubnetEmissionWeights(Intent):
             "gamma_share": sum(gamma_after.values()),
             "gamma": {"before": gamma_before, "after": gamma_after},
             "gamma_targets": gamma_targets,
-            "leased": lease is not None,
+            "leased": leased,
         }
 
     def _preview(self, inputs: dict, after: list[int]) -> dict[str, Any]:

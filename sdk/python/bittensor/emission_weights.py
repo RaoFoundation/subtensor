@@ -87,6 +87,9 @@ BLOCK_SECONDS = 12
 
 ShareLike = Union[int, float, str]
 
+#: Slot shares keyed by uid (``2``) or by name (``"owner"``).
+SlotShares = Union[Mapping[int, int], Mapping[str, int]]
+
 
 def slot_index(slot: Union[int, str]) -> int:
     """Resolve a slot given by name (``"owner"``) or uid (``2``)."""
@@ -304,7 +307,7 @@ def normalize_weights(weights: Iterable[int]) -> list[int]:
     return out
 
 
-def merge(current: Iterable[int], updates: Mapping[Union[int, str], int]) -> list[int]:
+def merge(current: Iterable[int], updates: SlotShares) -> list[int]:
     """Apply a sparse update exactly as the chain does: named slots are
     replaced; omitted slots keep their current value."""
     merged = normalize_weights(current)
@@ -332,7 +335,7 @@ def merge_gamma(current: Mapping[int, int], updates: Mapping[int, int]) -> dict[
 
 def renormalize(
     current: Iterable[int],
-    fixed: Mapping[Union[int, str], int],
+    fixed: SlotShares,
     gamma_share: int = 0,
 ) -> list[int]:
     """Pin the ``fixed`` slots and rescale the other adjustable slots so the
