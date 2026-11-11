@@ -293,9 +293,8 @@ def run_fund(app_ctx: AppContext, *, from_wallet: str) -> None:
     if record is None:
         raise typer.Exit(2)
     _live_controller_delay(app_ctx, record, require_grant=True)
-    pending = app_ctx.run(
-        lambda c: c.read("coldkey_swap_announcement", coldkey_ss58=record["controller_ss58"])
-    )
+    controller = record["controller_ss58"]
+    pending = app_ctx.run(lambda c: c.read("coldkey_swap_announcement", coldkey_ss58=controller))
     if pending is not None:
         app_ctx.output.error("complete the coldkey migration before topping up its controller")
         raise typer.Exit(2)
@@ -334,9 +333,8 @@ def offer_post_migration_funding(app_ctx: AppContext, destination: str) -> None:
     record = _get_protected_record(app_ctx)
     if record is None or _account_identity(destination) != record["protected_ss58"]:
         return
-    pending = app_ctx.run(
-        lambda c: c.read("coldkey_swap_announcement", coldkey_ss58=record["controller_ss58"])
-    )
+    controller = record["controller_ss58"]
+    pending = app_ctx.run(lambda c: c.read("coldkey_swap_announcement", coldkey_ss58=controller))
     if pending is not None:
         return  # A successful multisig approval may not have executed the swap.
     state = _controller_funding(app_ctx, record)
