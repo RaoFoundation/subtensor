@@ -56,6 +56,58 @@ that rather than granting something broader.
 
 With no `--allow`, nothing is instant.
 
+### Keep the controller funded
+
+The coldkey migration moves **all available TAO** into the pure account. The
+controller still pays announcement deposits and transaction fees; a multisig's
+signatories also need their own fee balances. Setup warns about this before
+announcing the migration. Keep a separate funded wallet ready.
+
+After executing the migration, btcli offers to fund the controller immediately.
+You can also do it explicitly:
+
+```bash
+btcli proxy fund --wallet main --from-wallet reserve
+btcli proxy show --wallet main
+```
+
+`fund` transfers from the separate wallet directly to the controller. It refuses
+to top up before migration completes, because the migration would move that
+top-up into the pure account too. `show` reports free, reserved and available
+controller funds, the next announcement's refundable deposit, estimated fees,
+and whether a new announcement can be funded. Inspection does not need a local
+signing key. If the RPC cannot supply an estimate, the output says so.
+
+The recommended balance covers the estimated fees and deposits for 20 pending
+transfers or 10 pending staking operations, whichever requires more. The low
+balance threshold covers five transfers or two staking operations. Estimates
+use representative calls and the registered controller descriptor when present;
+ordinary accounts use a standard-signature envelope. Larger payloads, Shield
+carriers, congestion and runtime upgrades can change costs.
+They exclude the TAO being transferred or staked, which belongs to the pure.
+Announcement deposits are refundable, not fees.
+
+When controller funds are low, an ordinary transfer or staking command offers to
+include a refill from the pure account in the same `Utility.batch_all`. Accepting
+commits the refill amount and the requested action together. **The whole batch
+uses the controller's normal delay**, even if staking has a zero-delay allow.
+Executing the matured batch needs no separate refill signature. `--yes` accepts
+the refill; declining continues the requested action without it. This is a
+one-time offer per command, not a background or scheduled refill. If the
+controller cannot afford even the announcement, fund it from another wallet
+first. The pure must have enough free TAO for the refill and requested action.
+
+The real btcli green-path tests run against a disposable chain with both a
+single-key controller and a 2-of-3 multisig. With a built release node and the
+SDK development environment installed, run:
+
+```bash
+bash sdk/python/scripts/test_protected_cli.sh
+```
+
+This starts and stops its own local node; it does not use a public testnet or
+require faucet funds. The `SDK protected-account E2E` CI job runs the same suite.
+
 ### Coldkey swap follow-up
 
 Protect prints the execute block and the exact command:

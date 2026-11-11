@@ -2224,7 +2224,11 @@ def swap_coldkey(
     """
     app_ctx: AppContext = ctx_of(ctx)
     new_coldkey = app_ctx.resolve_address("coldkey_ss58", new_coldkey_ss58)
-    app_ctx.submit(SwapColdkeyAnnounced(new_coldkey_ss58=new_coldkey))
+    result = app_ctx.submit(SwapColdkeyAnnounced(new_coldkey_ss58=new_coldkey))
+    if result is not None and result.success and not app_ctx.dry_run:
+        from ..protected import offer_post_migration_funding
+
+        offer_post_migration_funding(app_ctx, new_coldkey)
 
 
 @app.command("swap-check", rich_help_panel=PANEL_SECURITY)

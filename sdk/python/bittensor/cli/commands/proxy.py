@@ -26,6 +26,7 @@ from ..prompt import PromptSpec, fill_missing, interactive
 from ..protected import (
     run_cancel,
     run_execute_protected,
+    run_fund,
     run_protect,
     run_rotate,
     run_rotate_finalize,
@@ -38,6 +39,19 @@ app = typer.Typer(
     help="On-chain proxy management, protected accounts, and the local proxy book."
     f"\n\nGuides: {guide_docs_url('proxies')}, {guide_docs_url('protected-accounts')}",
 )
+
+
+@app.command("fund")
+@with_tx_globals
+def fund_controller(
+    ctx: typer.Context,
+    from_wallet: str = typer.Option(
+        ..., "--from-wallet", help="Separate wallet paying the top-up."
+    ),
+):
+    """Fund a protected account's controller after migration, using a separate wallet."""
+    run_fund(ctx_of(ctx), from_wallet=from_wallet)
+
 
 book_app = typer.Typer(
     no_args_is_help=True,

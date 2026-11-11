@@ -21,6 +21,7 @@ from ..intents import (
     RemoveProxies,
     RemoveProxy,
     RemoveProxyAnnouncement,
+    Transfer,
 )
 from ..intents.proxy import compose_announceable_call
 from ..receiving import is_receiving_address, parse_recipient
@@ -177,12 +178,173 @@ def maybe_route_protected(
     instant = pa.instant_proxy_type_for(
         intent.op, record, dispatcher_ss58=dispatcher, intent=intent
     )
+    funded_intent = _offer_operation_refill(app_ctx, record, intent)
+    if funded_intent is not intent:
+        # A Staking allow cannot authorize a transfer. The user accepted an
+        # explicitly delayed Any batch, not an instant spending permission.
+        intent = funded_intent
+        instant = None
     if instant is not None:
         return record["protected_ss58"], instant, False
 
     # Delayed path: announce instead of executing.
     _submit_protected_announcement(app_ctx, intent, record)
     return None, None, True
+
+
+def _controller_funding(app_ctx: AppContext, record: dict[str, Any]) -> dict[str, Any]:
+    from ..protected_funding import controller_funding
+    from ..sp_core import Keypair, ss58_decode
+
+    try:
+        # Inspection must work without opening a local signing wallet. Query
+        # fees using an unsigned standard-signature envelope for this address.
+        public = Keypair(public_key=bytes(ss58_decode(record["controller_ss58"])), crypto_type=1)
+        state = app_ctx.run(lambda client: controller_funding(client, record, public))
+        return state.to_dict()
+    except Exception as error:
+        # Funding is advisory. An unavailable estimate must be visible, but
+        # must not disable cancellation or access to a previously saved queue.
+        return {"controller": record["controller_ss58"], "available": False, "error": str(error)}
+
+
+def _funding_warning(app_ctx: AppContext, state: dict[str, Any]) -> None:
+    from ..balance import Balance
+
+    if "available_rao" not in state:
+        app_ctx.output.message(
+            "[bold red]WARNING: controller funding could not be checked: "
+            f"{state.get('error', 'unknown error')}[/bold red]"
+        )
+        return
+    app_ctx.output.message(
+        "[bold red]WARNING: controller funds are low. Available: "
+        f"{Balance.from_rao(state['available_rao'])}; recommended: "
+        f"{Balance.from_rao(state['target_rao'])}. "
+        "Fees and refundable announcement deposits are paid outside the pure account."
+        "[/bold red]"
+    )
+
+
+def _offer_operation_refill(app_ctx: AppContext, record: dict[str, Any], intent):
+    from ..balance import Balance
+    from .prompt import interactive
+
+    operations = {
+        "transfer",
+        "transfer_all",
+        "add_stake",
+        "add_stake_limit",
+        "remove_stake",
+        "remove_stake_limit",
+        "move_stake",
+        "swap_stake",
+        "unstake_all",
+        "batch",
+    }
+    if intent.op not in operations or app_ctx.dry_run:
+        return intent
+    state = _controller_funding(app_ctx, record)
+    if "available_rao" not in state:
+        _funding_warning(app_ctx, state)
+        return intent
+    projected = (
+        state["available_rao"]
+        - state["next_announcement_deposit_rao"]
+        - max(state["transfer_fee_rao"], state["staking_fee_rao"])
+    )
+    if not state["low"] and projected >= state["warning_rao"]:
+        return intent
+    _funding_warning(app_ctx, state)
+    if not state["can_announce"]:
+        app_ctx.output.message(
+            "Top up the controller from another wallet first; it cannot fund a new announcement. "
+            f"Use `btcli proxy fund --wallet {record['controller_wallet']} "
+            "--from-wallet FUNDING_WALLET`."
+        )
+        return intent
+    amount = Balance.from_rao(state["top_up_rao"])
+    app_ctx.output.message(
+        f"Offer: include a {amount} refill to {record['controller_ss58']} in the same "
+        "Utility.batch_all as this operation. The whole batch waits for the controller "
+        "delay and executes with one signature; this also delays otherwise instant staking."
+    )
+    accepted = app_ctx.assume_yes or (
+        interactive(app_ctx) and app_ctx.output.confirm("Include the delayed controller refill?")
+    )
+    if not accepted:
+        app_ctx.output.message("Controller refill declined; continuing without replenishment.")
+        return intent
+    children = intent.intents if isinstance(intent, Batch) else [intent.to_dict()]
+    refill = Transfer(dest_ss58=record["controller_ss58"], amount_tao=amount)
+    return Batch(intents=[refill.to_dict(), *children])
+
+
+def run_fund(app_ctx: AppContext, *, from_wallet: str) -> None:
+    """Fund the controller using a separate wallet after its coldkey migration."""
+    record = _get_protected_record(app_ctx, require_ready=True)
+    if record is None:
+        raise typer.Exit(2)
+    _live_controller_delay(app_ctx, record, require_grant=True)
+    pending = app_ctx.run(
+        lambda c: c.read("coldkey_swap_announcement", coldkey_ss58=record["controller_ss58"])
+    )
+    if pending is not None:
+        app_ctx.output.error("complete the coldkey migration before topping up its controller")
+        raise typer.Exit(2)
+    state = _controller_funding(app_ctx, record)
+    if "top_up_rao" not in state:
+        _funding_warning(app_ctx, state)
+        raise typer.Exit(1)
+    if not state["top_up_rao"]:
+        app_ctx.output.message("Controller already has the recommended funding.")
+        return
+    from ..balance import Balance
+
+    with _preserve_controller_context(app_ctx, record):
+        app_ctx.wallet_name = from_wallet
+        app_ctx.multisig_wallet_name = None
+        app_ctx.signatory_wallet = None
+        app_ctx.signatory_wallets = []
+        if _account_identity(_controller_ss58(app_ctx)) == record["controller_ss58"]:
+            app_ctx.output.error("choose a different funding wallet")
+            raise typer.Exit(2)
+        result = app_ctx.submit(
+            Transfer(
+                dest_ss58=record["controller_ss58"],
+                amount_tao=Balance.from_rao(state["top_up_rao"]),
+            ),
+            proxy_for="self",
+            summary="fund protected-account controller",
+        )
+    if result is None or not result.success:
+        raise typer.Exit(1)
+
+
+def offer_post_migration_funding(app_ctx: AppContext, destination: str) -> None:
+    from .prompt import interactive
+
+    record = _get_protected_record(app_ctx)
+    if record is None or _account_identity(destination) != record["protected_ss58"]:
+        return
+    pending = app_ctx.run(
+        lambda c: c.read("coldkey_swap_announcement", coldkey_ss58=record["controller_ss58"])
+    )
+    if pending is not None:
+        return  # A successful multisig approval may not have executed the swap.
+    state = _controller_funding(app_ctx, record)
+    if not state.get("low", True):
+        return
+    _funding_warning(app_ctx, state)
+    app_ctx.output.message(
+        "Fund the controller now from a different wallet with "
+        f"`btcli proxy fund --wallet {record['controller_wallet']} --from-wallet FUNDING_WALLET`."
+    )
+    if interactive(app_ctx) and app_ctx.output.confirm(
+        "Fund the controller now from another wallet?"
+    ):
+        source = typer.prompt("Funding wallet")
+        run_fund(app_ctx, from_wallet=source)
 
 
 def _refresh_live_allows(app_ctx: AppContext, record: dict[str, Any]) -> dict[str, Any]:
@@ -225,6 +387,7 @@ def _preserve_controller_context(app_ctx: AppContext, record: dict[str, Any]):
         app_ctx.wallet_name,
         getattr(app_ctx, "multisig_wallet_name", None),
         getattr(app_ctx, "signatory_wallet", None),
+        list(getattr(app_ctx, "signatory_wallets", [])),
     )
     controller_ss58 = _account_identity(record.get("controller_ss58") or _controller_ss58(app_ctx))
     try:
@@ -234,6 +397,8 @@ def _preserve_controller_context(app_ctx: AppContext, record: dict[str, Any]):
         app_ctx.multisig_wallet_name = saved[1]
         if hasattr(app_ctx, "signatory_wallet"):
             app_ctx.signatory_wallet = saved[2]
+        if hasattr(app_ctx, "signatory_wallets"):
+            app_ctx.signatory_wallets = saved[3]
 
 
 def _call_data_hex(call: Any) -> Optional[str]:
@@ -1273,6 +1438,12 @@ def _protect_create(
             pa.upsert_protected(record)
 
     if announcement is None and record["coldkey_swap"].get("status") != "announced":
+        app_ctx.output.message(
+            "[bold red]WARNING: the coldkey migration moves ALL available TAO to the pure "
+            "account. Its controller will need a separate top-up AFTER migration to pay "
+            "fees and refundable announcement deposits. Keep a funded second wallet ready."
+            "[/bold red]"
+        )
 
         def _save_swap_receipt(result):
             nonlocal record
@@ -1345,6 +1516,12 @@ def _protect_create(
         f"Coldkey swap announced → {name} ({pure_ss58}). Execute {timing} with:\n"
         f"  btcli wallet swap-coldkey --new-coldkey {pure_ss58} --wallet {wallet_name}\n"
         f"Check progress: btcli wallet swap-check --wallet {wallet_name}"
+    )
+    app_ctx.output.message(
+        "After executing the migration, fund its controller immediately with:\n"
+        f"  btcli proxy fund --wallet {wallet_name} --from-wallet FUNDING_WALLET\n"
+        "`btcli proxy show` reports the recommended balance for 20 transfers or 10 staking "
+        "operations, including refundable announcement deposits."
     )
     if pending_allows:
         app_ctx.output.message(
@@ -1761,6 +1938,7 @@ def run_show(app_ctx: AppContext, *, index: Optional[int]) -> None:
 
     current = app_ctx.run(lambda c: c.block())
     rows = _reconcile_pending(app_ctx, record)
+    funding = _controller_funding(app_ctx, record)
 
     def _display_status(row):
         if row.get("status") == "awaiting_approval":
@@ -1849,6 +2027,7 @@ def run_show(app_ctx: AppContext, *, index: Optional[int]) -> None:
                 "ss58": record["protected_ss58"],
                 "delay_blocks": record.get("delay_blocks"),
             },
+            "controller_funding": funding,
         }
         app_ctx.output.detail(f"announcement #{index}", detail)
         return
@@ -1870,6 +2049,7 @@ def run_show(app_ctx: AppContext, *, index: Optional[int]) -> None:
                 "protected": record,
                 "current_block": current,
                 "pending": payload,
+                "controller_funding": funding,
             }
         )
         return
@@ -1877,6 +2057,20 @@ def run_show(app_ctx: AppContext, *, index: Optional[int]) -> None:
     name = record.get("name") or pa.default_protected_name(wallet_name)
     delay = record.get("delay_blocks")
     title = f"protected {name} ({record['protected_ss58']}) — delay {delay} blocks"
+    if "available_rao" in funding:
+        from ..balance import Balance
+
+        out.message(
+            f"Controller {record['controller_ss58']}: available "
+            f"{Balance.from_rao(funding['available_rao'])}, reserved "
+            f"{Balance.from_rao(funding['reserved_rao'])}; recommended "
+            f"{Balance.from_rao(funding['target_rao'])}. "
+            "Next announcement deposit: "
+            f"{Balance.from_rao(funding['next_announcement_deposit_rao'])}; "
+            f"can announce: {funding['can_announce']}. Fees are estimates."
+        )
+    if funding.get("low", True):
+        _funding_warning(app_ctx, funding)
     table_rows = []
     for row in rows:
         status, countdown = _display_status(row)
