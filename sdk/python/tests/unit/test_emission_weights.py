@@ -606,6 +606,28 @@ def test_intent_plan_blocks_a_signer_who_is_not_the_owner():
     assert plan.ok, plan.violations
 
 
+def test_intent_plan_blocks_a_call_built_on_another_split(monkeypatch):
+    # Root changes the split between building the call and previewing it.
+    client, fake = _client()
+    weights = [ew.parse_share(share) for share in ("5%", 0, "18%", "36%", "41%")]
+    changed = {**EMISSION_WEIGHTS_INFO, "weights": ew.absorb_rounding(weights)}
+    build = SetSubnetEmissionWeights.build
+
+    async def build_then_root_changes(self, substrate, wallet):
+        call = await build(self, substrate, wallet)
+        fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", changed)
+        return call
+
+    monkeypatch.setattr(SetSubnetEmissionWeights, "build", build_then_root_changes)
+    intent = SetSubnetEmissionWeights(netuid=1, slots=["owner"], values=["10%"], renormalize=True)
+    plan = asyncio.run(client.plan(intent, dev_wallet()))
+    assert not plan.ok
+    assert plan.violations == [
+        "the emission split of subnet 1 changed after this call was built, so the call no "
+        "longer matches this preview; prepare it again"
+    ]
+
+
 def test_intent_plan_names_a_missing_subnet():
     client, fake = _client()
     fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", None)

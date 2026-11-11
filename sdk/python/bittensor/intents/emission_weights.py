@@ -186,17 +186,19 @@ class SetSubnetEmissionWeights(Intent):
             return ew.renormalize(base, self.updates(), gamma_share)
         return ew.absorb_rounding(ew.merge(base, self.updates()), gamma_share)
 
-    async def build(self, substrate, wallet: Any):
-        current, (_, gamma) = await asyncio.gather(
-            self._current(substrate), self._gamma_shares(substrate)
-        )
-        weights = self._merged(current, sum(gamma.values()))
+    def _call(self, weights: list[int], gamma: dict[int, int]):
         split: list[tuple[Any, int]] = [
             (name.capitalize(), w) for name, w in zip(ew.SLOT_NAMES, weights)
         ]
         split += [({"Gamma": {"netuid": t}}, share) for t, share in gamma.items()]
+        return calls.AdminUtils.sudo_set_subnet_emission_weights_v2(self.netuid, split)
+
+    async def build(self, substrate, wallet: Any):
+        current, (_, gamma) = await asyncio.gather(
+            self._current(substrate), self._gamma_shares(substrate)
+        )
         return await substrate.compose(
-            calls.AdminUtils.sudo_set_subnet_emission_weights_v2(self.netuid, split)
+            self._call(self._merged(current, sum(gamma.values())), gamma)
         )
 
     async def _inputs(self, substrate) -> Optional[dict]:
@@ -263,7 +265,7 @@ class SetSubnetEmissionWeights(Intent):
         )
 
     async def preflight(self, substrate, dispatch_origin: str, fee_payer: str, *, call=None):
-        del fee_payer, call
+        del fee_payer
         inputs = await self._inputs(substrate)
         if inputs is None:
             return IntentPreflight(
@@ -279,6 +281,14 @@ class SetSubnetEmissionWeights(Intent):
         rules = self._rules(inputs)
         blocks = [str(violation) for violation in ew.validate(after, rules)]
         blocks += [str(v) for v in ew.validate_gamma(self.netuid, inputs["gamma"]["after"], rules)]
+        if call is not None:
+            # A wrapped call (sudo, proxy, multisig) carries this call's bytes inline.
+            shown = await substrate.compose(self._call(after, inputs["gamma"]["after"]))
+            if bytes(shown.data) not in bytes(call.data):
+                blocks.append(
+                    f"the emission split of subnet {self.netuid} changed after this call was "
+                    "built, so the call no longer matches this preview; prepare it again"
+                )
         owner = inputs["owner"]
         if owner is not None and dispatch_origin != owner:
             blocks.append(
