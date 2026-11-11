@@ -64,6 +64,11 @@ MIN_MINER = fraction(33, 100)
 MAX_GAMMA = fraction(10, 100)
 MAX_GAMMA_SHARES = 16
 
+#: Most parts a split may miss one by and still count as rounding: shares
+#: given as percentages or fractions floor to whole parts, so ones that add
+#: up to 100% can fall a few parts short. See :func:`absorb_rounding`.
+MAX_ROUNDING_PARTS = 1_000
+
 #: Mainnet launch owner cut ``11796 / 65535`` scaled to u64 parts; also the
 #: floor for lease-created subnets and the base from which the default vector
 #: ``[0, 0, 0.18, 0.41, 0.41]`` is derived.
@@ -308,6 +313,17 @@ def merge(current: Iterable[int], updates: Mapping[Union[int, str], int]) -> lis
     return merged
 
 
+def absorb_rounding(weights: Iterable[int], gamma_share: int = 0) -> list[int]:
+    """The vector with its rounding absorbed: when the five slots and
+    ``gamma_share`` miss one by at most :data:`MAX_ROUNDING_PARTS`, the miner
+    slot makes up the difference. Any other vector comes back unchanged."""
+    out = normalize_weights(weights)
+    gap = ONE - gamma_share - sum(out)
+    if -min(MAX_ROUNDING_PARTS, out[MINER]) <= gap <= MAX_ROUNDING_PARTS:
+        out[MINER] += gap
+    return out
+
+
 def merge_gamma(current: Mapping[int, int], updates: Mapping[int, int]) -> dict[int, int]:
     """The gamma shares by target netuid after ``updates``: named targets are
     replaced, a share of 0 removes one, and omitted targets keep their share."""
@@ -324,34 +340,36 @@ def renormalize(
 
     The untouched slots keep their relative proportions (split evenly when
     they are all zero); the last of them in slot order — normally the miner —
-    absorbs the rounding remainder. Raises if the pinned shares and the gamma
-    shares exceed one, or if every adjustable slot is pinned but the total is
-    not one.
+    absorbs the rounding remainder. With every slot pinned the miner slot
+    absorbs rounding as in :func:`absorb_rounding`. Raises if the pinned shares
+    and the gamma shares exceed one, or if every adjustable slot is pinned but
+    the total is not one.
     """
     pinned = {slot_index(slot): int(value) for slot, value in fixed.items()}
-    base = normalize_weights(current)
+    out = normalize_weights(current)
+    for slot, value in pinned.items():
+        out[slot] = value
     free = [slot for slot in ADJUSTABLE_SLOTS if slot not in pinned]
+    if not free:
+        out = absorb_rounding(out, gamma_share)
+        total = sum(out) + gamma_share
+        if total != ONE:
+            raise ValueError(
+                f"all adjustable slots are pinned but they{and_gamma(gamma_share)} sum to "
+                f"{format_share(total)}, not 100%"
+            )
+        return out
     remaining = ONE - gamma_share - sum(pinned.values())
     if remaining < 0:
         raise ValueError(
             f"the pinned shares{and_gamma(gamma_share)} alone exceed 100%: "
             + ", ".join(f"{SLOT_NAMES[s]}={format_share(v)}" for s, v in pinned.items() if v)
         )
-    out = base[:]
-    for slot, value in pinned.items():
-        out[slot] = value
-    if not free:
-        if remaining != 0:
-            raise ValueError(
-                f"all adjustable slots are pinned but they{and_gamma(gamma_share)} sum to "
-                f"{format_share(ONE - remaining)}, not 100%"
-            )
-        return out
-    free_total = sum(base[slot] for slot in free)
+    free_total = sum(out[slot] for slot in free)
     if free_total == 0:
         shares = [remaining // len(free)] * len(free)
     else:
-        shares = [(remaining * base[slot]) // free_total for slot in free]
+        shares = [(remaining * out[slot]) // free_total for slot in free]
     shares[-1] += remaining - sum(shares)
     for slot, value in zip(free, shares):
         out[slot] = value

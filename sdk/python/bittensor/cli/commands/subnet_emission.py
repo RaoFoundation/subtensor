@@ -467,11 +467,11 @@ def set_weights(
     removed = dict.fromkeys(info.gamma_shares, 0) if no_gamma else {}
     gamma_changes = {**removed, **_parse_gamma(app_ctx, gamma)}
     gamma_share = sum(ew.merge_gamma(info.gamma_shares, gamma_changes).values())
-    total = burn_parts + recycle_parts + owner_parts + validator_parts + miner_parts + gamma_share
-    if 0 < abs(ew.ONE - total) <= 1_000:
-        # Decimal shares rarely hit u64::MAX exactly; let the miner slot soak up the dust.
-        miner_parts += ew.ONE - total
-    elif total != ew.ONE:
+    proposed = ew.absorb_rounding(
+        [burn_parts, recycle_parts, owner_parts, validator_parts, miner_parts], gamma_share
+    )
+    total = sum(proposed) + gamma_share
+    if total != ew.ONE:
         app_ctx.output.error(
             f"burn + recycle + owner + validator + miner{ew.and_gamma(gamma_share)} must "
             f"add up to 100%, not {ew.format_share(total, 4)}",
@@ -483,7 +483,6 @@ def set_weights(
             ),
         )
         raise typer.Exit(2)
-    proposed = [burn_parts, recycle_parts, owner_parts, validator_parts, miner_parts]
     _submit(
         app_ctx,
         info,

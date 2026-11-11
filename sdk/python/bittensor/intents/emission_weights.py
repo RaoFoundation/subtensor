@@ -47,7 +47,8 @@ VALUES_HELP = (
 RENORMALIZE_HELP = (
     "Keep the named slots as given and rescale the other slots proportionally so the "
     "vector and the subnet's gamma shares sum to 1 (the last free slot absorbs rounding). "
-    "Without it, the update is applied verbatim and must already sum to 1 with them."
+    "Without it, the update is applied verbatim and must already sum to 1 with them (the "
+    "miner slot absorbs up to 1,000 parts of rounding)."
 )
 GAMMA_HELP = (
     'Gamma shares to set, by target netuid, in the same forms as `values` ({"3": "5%"}). '
@@ -172,7 +173,7 @@ class SetSubnetEmissionWeights(Intent):
         base = ew.normalize_weights(current["weights"]) if current else ew.default_weights()
         if self.renormalize:
             return ew.renormalize(base, self.updates(), gamma_share)
-        return ew.merge(base, self.updates())
+        return ew.absorb_rounding(ew.merge(base, self.updates()), gamma_share)
 
     async def build(self, substrate, wallet: Any):
         current, (_, gamma) = await asyncio.gather(
@@ -325,7 +326,8 @@ class SetSubnetEmissionWeights(Intent):
             for slot, value in self.updates().items()
         ]
         parts += [f"gamma:{t}={ew.format_share(v)}" for t, v in sorted(self.gamma.items())]
-        mode = " (renormalizing the rest)" if self.renormalize else ""
+        rest = self.renormalize and len(self.slots) < len(ew.SLOT_NAMES)
+        mode = " (renormalizing the rest)" if rest else ""
         return f"set emission weights on netuid {self.netuid}: {', '.join(parts)}{mode}"
 
     def touches_netuids(self) -> list[int]:

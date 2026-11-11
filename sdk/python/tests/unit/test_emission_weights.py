@@ -170,6 +170,21 @@ def test_renormalize_rejects_overflow_and_incomplete_pin():
         )
 
 
+def test_absorb_rounding_tops_up_the_miner_slot():
+    floored = [0, 0, ew.parse_share("18%"), ew.parse_share("41%"), ew.parse_share("41%")]
+    assert sum(floored) == ONE - 1
+    assert ew.absorb_rounding(floored) == [*floored[:4], floored[4] + 1]
+    assert ew.renormalize(DEFAULT, dict(zip(ew.SLOT_NAMES, floored))) == ew.absorb_rounding(floored)
+    gamma = ew.parse_share("10%")
+    with_gamma = [0, 0, ew.parse_share("18%"), ew.parse_share("31%"), ew.parse_share("41%")]
+    assert sum(ew.absorb_rounding(with_gamma, gamma)) + gamma == ONE
+    # A gap larger than rounding stays for validate() to report, and the miner
+    # slot never goes below zero.
+    short = [0, 0, ew.parse_share("18%"), ew.parse_share("41%"), ew.parse_share("40%")]
+    assert ew.absorb_rounding(short) == short
+    assert ew.absorb_rounding([0, 0, ONE, 5, 5]) == [0, 0, ONE, 5, 5]
+
+
 def test_renormalize_accepts_nonzero_burn_and_rescales_the_rest():
     burn = ew.parse_share("10%")
     out = ew.renormalize(DEFAULT, {"burn": burn})
@@ -539,6 +554,20 @@ def test_intent_plan_blocks_on_chain_rules():
     verbatim = SetSubnetEmissionWeights(netuid=1, slots=["owner"], values=["10%"])
     plan = asyncio.run(client.plan(verbatim, dev_wallet()))
     assert [v.split(":")[0] for v in plan.violations] == ["EmissionWeightsDoNotSumToOne"]
+
+
+def test_intent_accepts_percentages_that_add_up_to_100():
+    client, fake = _client()
+    shares = ["0", "0", "18%", "41%", "41%"]
+    for renormalize in (False, True):
+        intent = SetSubnetEmissionWeights(
+            netuid=1, slots=list(ew.SLOT_NAMES), values=shares, renormalize=renormalize
+        )
+        assert "renormalizing" not in intent.summary()
+        plan = asyncio.run(client.plan(intent, dev_wallet()))
+        assert plan.ok, plan.violations
+        split = asyncio.run(intent.build(fake, dev_wallet())).params["split"]
+        assert sum(share for _, share in split) == ONE
 
 
 def test_intent_plan_blocks_inside_the_owner_rate_limit():
