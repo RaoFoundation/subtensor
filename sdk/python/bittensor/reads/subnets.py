@@ -310,11 +310,22 @@ async def root_preservation_inputs(query, netuid: int) -> tuple[int, int, float]
     return int(root_tao or 0), issuance, share_to_float(int(tao_weight or 0))
 
 
-async def gamma_emission_share(query, netuid: int) -> int:
-    """The sum of the subnet's gamma shares in u64 parts; its five emission
-    slots sum to one less it. ``query(item, keys)`` is an async storage read."""
+async def gamma_emission_shares(query, netuid: int) -> dict[int, int]:
+    """The subnet's gamma shares in u64 parts, by target netuid; its five emission
+    slots sum to one less their sum. ``query(item, keys)`` is an async storage read."""
     shares = await query(st.SubtensorModule.SubnetGammaEmission, [netuid])
-    return sum(int(share) for _, share in shares or [])
+    return {int(target): int(share) for target, share in shares or []}
+
+
+async def gamma_emission_targets(query_map) -> dict[int, bool]:
+    """Every subnet root whitelisted for gamma emission, by netuid, and whether gamma
+    is enabled there. ``query_map(item, keys)`` is an async storage map read."""
+    whitelisted, enabled = await asyncio.gather(
+        query_map(st.SubtensorModule.SubnetGammaEmissionWhitelisted, []),
+        query_map(st.SubtensorModule.SubnetGammaEnabled, []),
+    )
+    on = {int(netuid) for netuid, value in enabled if value}
+    return {n: n in on for n in sorted(int(netuid) for netuid, value in whitelisted if value)}
 
 
 @dataclass
@@ -333,8 +344,11 @@ class SubnetEmissionWeights:
     ``baseline_root_parts`` is the baseline in exact u64 parts (what the
     runtime API reports); ``min_validator`` is the lowest validator share
     (parts) the chain accepts at this block: one part above it.
-    ``gamma_share`` is the sum of the subnet's gamma shares (parts); the five
-    slots sum to one less it. ``last_change_block`` is when
+    ``gamma_shares`` are the subnet's gamma shares (parts) by target netuid and
+    ``gamma_share`` their sum; the five slots sum to one less it.
+    ``gamma_targets`` are the subnets root whitelisted for gamma emission, each
+    with whether gamma is enabled there, and ``leased`` whether the subnet is
+    leased. ``last_change_block`` is when
     the owner last changed the vector (0 = never); :meth:`rate_limit` turns it
     into when the owner may change it next.
     """
@@ -348,6 +362,9 @@ class SubnetEmissionWeights:
     validator: int
     miner: int
     gamma_share: int
+    gamma_shares: dict[int, int]
+    gamma_targets: dict[int, bool]
+    leased: bool
     global_tao_weight: float
     created_via_lease: bool
     root_tao: int
@@ -367,6 +384,8 @@ class SubnetEmissionWeights:
             min_owner=DEFAULT_OWNER,
             created_via_lease=self.created_via_lease,
             gamma_share=self.gamma_share,
+            gamma_targets=self.gamma_targets,
+            leased=self.leased,
         )
 
     def rate_limit(self) -> dict[str, object]:
@@ -390,6 +409,8 @@ async def subnet_emission_weights(view, netuid: int) -> Optional[SubnetEmissionW
     accept or reject a change (``min_validator`` moves with root stake, alpha
     issuance and the global TAO weight, so it is a snapshot of this block).
     """
+    if netuid == 0:
+        return None  # the runtime API answers for the root subnet, which has no vector
     view = await view.at()
     info = await view.runtime(api.SubnetInfoRuntimeApi.get_subnet_emission_weights, [netuid])
     if info is None:
@@ -399,11 +420,15 @@ async def subnet_emission_weights(view, netuid: int) -> Optional[SubnetEmissionW
     (
         (root_tao, alpha_issuance, global_tao_weight),
         last_change,
-        gamma_share,
+        gamma_shares,
+        gamma_targets,
+        lease,
     ) = await asyncio.gather(
         root_preservation_inputs(view.query, netuid),
         view.query(st.SubtensorModule.LastRateLimitedBlock, [rate_limit_key]),
-        gamma_emission_share(view.query, netuid),
+        gamma_emission_shares(view.query, netuid),
+        gamma_emission_targets(view.query_map),
+        view.query(st.SubtensorModule.SubnetUidToLeaseId, [netuid]),
     )
     baseline_parts = int(info["root_baseline_share"])
     root_parts = min(int(info["root_share"]), weights[3])
@@ -416,7 +441,10 @@ async def subnet_emission_weights(view, netuid: int) -> Optional[SubnetEmissionW
         owner=int(info["owner"]),
         validator=int(info["validator"]),
         miner=int(info["miner"]),
-        gamma_share=gamma_share,
+        gamma_share=sum(gamma_shares.values()),
+        gamma_shares=gamma_shares,
+        gamma_targets=gamma_targets,
+        leased=lease is not None,
         global_tao_weight=global_tao_weight,
         created_via_lease=bool(info["created_via_lease"]),
         root_tao=root_tao,

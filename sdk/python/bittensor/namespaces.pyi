@@ -290,6 +290,9 @@ class Hyperparameters(_ReadNamespace):
     async def subnet_emission_enabled(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). New registrations start enabled. When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent)."""
 
+    async def subnet_gamma_emission_whitelisted(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
+        """Root-controlled gamma emission whitelist flag for a subnet (1 = whitelisted); other subnets' gamma shares may name it only while it is set (see the set_subnet_gamma_emission_whitelisted intent)."""
+
     async def weights_rate_limit(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Blocks a hotkey must wait between weight sets on a subnet."""
 

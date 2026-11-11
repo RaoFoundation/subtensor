@@ -4646,15 +4646,15 @@
   },
   {
     "name": "set_subnet_emission_weights",
-    "summary": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).",
-    "description": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).\n\nDispatches `AdminUtils.sudo_set_subnet_emission_weights` for the named\nslots. The signer must be the subnet's owner coldkey (root may also call\nit). With `renormalize` the untouched slots are rescaled so the vector\nand the subnet's gamma shares still sum to one; without it the merged\nvector is submitted as given.\nRoot stakers are paid their baseline share of emission (what they earn\nwith the default validator share and the global TaoWeight) off the top of\nthe validator slot every block, whatever the subnet sets \u2014 the pre-sign\nplan shows that share and what alpha validators are left with, and lists\nevery rule the chain would reject (including a validator share at or below\nthe baseline), so a bad vector is caught before signing. Owners may change\nthe vector once per week per subnet.",
+    "summary": "Set a subnet's emission split: its five slots and gamma shares (btcli `subnets emission`).",
+    "description": "Set a subnet's emission split: its five slots and gamma shares (btcli `subnets emission`).\n\nDispatches `AdminUtils.sudo_set_subnet_emission_weights_v2` with the\nwhole split, keeping the gamma shares it does not name. The signer must\nbe the subnet's owner coldkey (root may also call it). With\n`renormalize` the untouched slots are rescaled so the vector and the\nsubnet's gamma shares still sum to one; without it the merged vector is\nsubmitted as given.\nRoot stakers are paid their baseline share of emission (what they earn\nwith the default validator share and the global TaoWeight) off the top of\nthe validator slot every block, whatever the subnet sets \u2014 the pre-sign\nplan shows that share and what alpha validators are left with, and lists\nevery rule the chain would reject (including a validator share at or below\nthe baseline), so a bad vector is caught before signing. Owners may change\nthe vector once per week per subnet.",
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": "subnet_emission_weights",
     "wraps": [
       [
         "AdminUtils",
-        "sudo_set_subnet_emission_weights"
+        "sudo_set_subnet_emission_weights_v2"
       ]
     ],
     "docs_url": "/docs/tx/set-subnet-emission-weights",
@@ -4673,7 +4673,7 @@
               "string"
             ]
           },
-          "description": "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted slots keep their current share."
+          "description": "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted slots keep their current share. Empty, with empty `values`, to change only gamma shares."
         },
         "values": {
           "type": "array",
@@ -4688,7 +4688,11 @@
         },
         "renormalize": {
           "type": "boolean",
-          "description": "Keep the named slots as given and rescale the other slots proportionally so the vector and the subnet's gamma shares sum to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1 with them."
+          "description": "Keep the named slots as given and rescale the other slots proportionally so the vector and the subnet's gamma shares sum to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1 with them (the miner slot absorbs up to 1,000 parts of rounding)."
+        },
+        "gamma": {
+          "type": "object",
+          "description": "Gamma shares to set, as a JSON object mapping target netuid to share ({\"3\": \"5%\"}), in the same forms as `values`. Omitted targets keep their current share; a share of 0 removes one. Rules: at most 16, each <= 10%, to another subnet root whitelisted for gamma emission with gamma enabled; none on a leased subnet. With `renormalize` the five slots make room."
         }
       },
       "required": [
@@ -4704,11 +4708,62 @@
     "sources": [
       {
         "pallet": "AdminUtils",
-        "call": "sudo_set_subnet_emission_weights",
+        "call": "sudo_set_subnet_emission_weights_v2",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2745,
-        "end_line": 2766,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2743-L2766",
+        "line": 3014,
+        "end_line": 3034,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3008-L3034",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "set_subnet_gamma_emission_whitelisted",
+    "summary": "Whitelist a subnet for gamma emission, or remove it from the whitelist (root only).",
+    "description": "Whitelist a subnet for gamma emission, or remove it from the whitelist (root only).\n\nA subnet owner's gamma share may only name a subnet on this whitelist (see\nthe `set_subnet_emission_weights` intent). Removing a subnet removes every\ngamma share to it: each share is added to the paying subnet's miner slot and\nits unconverted alpha to that subnet's pending miner emission.",
+    "signer": "coldkey",
+    "origin": "root",
+    "verify": "subnet_gamma_emission_whitelisted",
+    "wraps": [
+      [
+        "AdminUtils",
+        "sudo_set_subnet_gamma_emission_whitelisted"
+      ],
+      [
+        "Sudo",
+        "sudo"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-subnet-gamma-emission-whitelisted",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to whitelist or remove from the whitelist."
+        },
+        "whitelisted": {
+          "type": "boolean",
+          "description": "True to whitelist the subnet, false to remove it."
+        }
+      },
+      "required": [
+        "netuid",
+        "whitelisted"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-subnet-gamma-emission-whitelisted --netuid <int> --whitelisted/--no-whitelisted",
+    "python_class": "SetSubnetGammaEmissionWhitelisted",
+    "markdown_url": "/llms.mdx/docs/tx/set-subnet-gamma-emission-whitelisted/content.md",
+    "sources": [
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_subnet_gamma_emission_whitelisted",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 3041,
+        "end_line": 3062,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3038-L3062",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]

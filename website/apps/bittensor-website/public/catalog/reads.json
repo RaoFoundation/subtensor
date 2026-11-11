@@ -2504,6 +2504,15 @@
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetUidToLeaseId",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3828,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3828",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
         "kind": "runtime",
         "container": "SubnetInfoRuntimeApi",
         "name": "get_subnet_emission_weights",
@@ -2512,6 +2521,32 @@
         "end_line": 291,
         "url": "/code/pallets/subtensor/src/subnets/emission_weights.rs#L284-L291",
         "raw_url": "/code/raw/pallets/subtensor/src/subnets/emission_weights.rs"
+      }
+    ]
+  },
+  {
+    "name": "subnet_gamma_emission_whitelisted",
+    "summary": "Root-controlled gamma emission whitelist flag for a subnet (1 = whitelisted); other subnets' gamma shares may name it only while it is set (see the set_subnet_gamma_emission_whitelisted intent).",
+    "description": "Root-controlled gamma emission whitelist flag for a subnet (1 = whitelisted); other subnets' gamma shares may name it only while it is set (see the set_subnet_gamma_emission_whitelisted intent).",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Hyperparameters",
+    "docs_url": "/docs/query/subnet-gamma-emission-whitelisted",
+    "markdown_url": "/llms.mdx/docs/query/subnet-gamma-emission-whitelisted/content.md",
+    "python": "sub.hyperparameters.subnet_gamma_emission_whitelisted(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetGammaEmissionWhitelisted",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 4072,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4072",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
