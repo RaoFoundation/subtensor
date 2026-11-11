@@ -149,8 +149,9 @@ def _parse_share(app_ctx: AppContext, raw: str, flag: str) -> int:
 def _parse_slot(app_ctx: AppContext, raw: str) -> tuple[Optional[int], Optional[int]]:
     """``(index, None)`` for one of the five slots, ``(None, N)`` for ``gamma:N``."""
     try:
-        if raw.lower().startswith("gamma:") and raw[len("gamma:") :].isdigit():
-            return None, int(raw[len("gamma:") :])
+        kind, _, target = raw.partition(":")
+        if kind.lower() == "gamma" and target.isdecimal():
+            return None, int(target)
         return ew.slot_index(raw), None
     except ValueError as error:
         app_ctx.output.error(str(error), help=_SLOT_HELP)
@@ -173,6 +174,9 @@ def _parse_gamma(app_ctx: AppContext, raw: list[str]) -> dict[int, int]:
         target, sep, share = item.partition("=")
         if not sep or not target.isdecimal():
             app_ctx.output.error(f"invalid value for `--gamma`: {item!r}", help=_GAMMA_HELP)
+            raise typer.Exit(2)
+        if int(target) in shares:
+            app_ctx.output.error(f"`--gamma` names subnet {int(target)} more than once")
             raise typer.Exit(2)
         shares[int(target)] = _parse_share(app_ctx, share, "--gamma")
     return shares
@@ -471,7 +475,12 @@ def set_weights(
         app_ctx.output.error(
             f"burn + recycle + owner + validator + miner{ew.and_gamma(gamma_share)} must "
             f"add up to 100%, not {ew.format_share(total, 4)}",
-            help="give all shares, or use set-value to move one slot and rescale the rest",
+            help="give all shares, or use set-value to move one slot and rescale the rest"
+            + (
+                "; gamma shares --gamma does not name are kept (--no-gamma removes them)"
+                if set(info.gamma_shares) - set(gamma_changes)
+                else ""
+            ),
         )
         raise typer.Exit(2)
     proposed = [burn_parts, recycle_parts, owner_parts, validator_parts, miner_parts]

@@ -74,7 +74,15 @@ def _coerce(field_annotation: str, value: Any) -> Any:
     if value is None:
         return value
     if _is_dict(field_annotation):
-        return json.loads(value) if isinstance(value, str) else value
+        if not isinstance(value, str):
+            return value
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, dict):
+            raise ValueError(f"expected a JSON object, not {value!r}")
+        return parsed
     if not _is_list(field_annotation):
         return value
     text = str(value).strip()

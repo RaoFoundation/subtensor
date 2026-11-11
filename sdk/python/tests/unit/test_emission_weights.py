@@ -1037,6 +1037,16 @@ def test_cli_counts_the_gamma_shares_in_the_sum(emission_cli):
     assert full.exit_code == 0, full.output
     assert sum(json.loads(full.output)["args"]["values"]) == ONE - GAMMA_SHARE
 
+    shares = ("--owner", "18%", "--validator", "31%", "--miner", "51%")
+    over = invoke("subnets", "emission", "set", "--netuid", "1", *shares)
+    assert over.exit_code == 2 and "--no-gamma removes them" in " ".join(over.output.split())
+    assert (
+        invoke(
+            "--dry-run", "subnets", "emission", "set", "--netuid", "1", *shares, "--no-gamma"
+        ).exit_code
+        == 0
+    )
+
 
 def test_cli_shows_gamma_shares_and_targets(emission_cli):
     _seed_gamma_share(emission_cli)
@@ -1081,12 +1091,18 @@ def test_cli_sets_gamma_shares(emission_cli):
     assert gamma_after("decrease", "--slot", "gamma:2", "--by", "10%") == {}
     shares = ("--owner", "18%", "--validator", "41%", "--miner", "41%")
     assert gamma_after("set", *shares, "--no-gamma") == {}
-    for bad in ("3", "x=5%"):
-        result = invoke("subnets", "emission", "set", *shares, "--gamma", bad, "--netuid", "1")
-        assert result.exit_code == 2 and "invalid value for --gamma" in result.output
+    for bad, needle in (
+        (["3"], "invalid value for --gamma"),
+        (["x=5%"], "invalid value for --gamma"),
+        (["3=1%", "3=2%"], "names subnet 3 more than once"),
+    ):
+        flags = [arg for item in bad for arg in ("--gamma", item)]
+        result = invoke("subnets", "emission", "set", *shares, *flags, "--netuid", "1")
+        assert result.exit_code == 2 and needle in result.output
     tx = ("tx", "set-subnet-emission-weights", "--netuid", "1", "--slots", "", "--values", "")
-    result = invoke(*tx, "--gamma", "3=5%")
-    assert result.exit_code == 2 and "invalid value for --gamma" in result.output
+    for bad in ("3=5%", "3"):
+        result = invoke(*tx, "--gamma", bad)
+        assert result.exit_code == 2 and "expected a JSON object" in result.output
 
     real = invoke(
         "--yes",
