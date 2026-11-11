@@ -3,10 +3,10 @@
 The vector is ``[burn, recycle, owner, validator, miner]``. ``show`` prints the
 vector, what root keeps, the allowed range of every slot and when the owner may
 change it next. ``set`` writes owner / validator / miner (and optionally burn /
-recycle) in one go; ``set-value``, ``increase`` and ``decrease`` move one slot
-and rescale the others to fill the rest. Every write is checked against the
-chain's rules locally first and a rejected change names the rule and the allowed
-range, so nothing is signed that the chain would refuse.
+recycle and gamma shares) in one go; ``set-value``, ``increase`` and
+``decrease`` move one slot and rescale the others to fill the rest. Every write
+is checked against the chain's rules locally first and a rejected change names
+the rule and the allowed range, so nothing is signed that the chain would refuse.
 
 Exit codes: 0 success; 1 the subnet does not exist, the change is blocked right
 now (owner rate limit) or the chain rejected it; 2 invalid input or a vector
@@ -15,6 +15,7 @@ the chain's rules would reject.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Optional
 
 import typer
@@ -35,7 +36,7 @@ app = typer.Typer(
     no_args_is_help=True,
     help=(
         "Subnet emission weights: how a subnet splits its alpha emission between burn, "
-        "recycle, the owner, validators and miners.\n\n"
+        "recycle, the owner, validators, miners and gamma shares to other subnets.\n\n"
         "Only the subnet owner coldkey can change the vector, once every 50,400 blocks "
         "(about 7 days) per subnet. Root is paid its baseline share of emission off the top "
         "of the validator slot every block, whatever the subnet sets. Burn + recycle together "
@@ -46,7 +47,14 @@ app = typer.Typer(
 )
 
 _NETUID_HELP = "Numeric identifier of the subnet."
-_SLOT_HELP = "Slot to change: burn, recycle, owner, validator or miner."
+_SLOT_HELP = (
+    "Slot to change: burn, recycle, owner, validator, miner, or gamma:N for the gamma share "
+    "to subnet N. Gamma shares not named are kept."
+)
+_GAMMA_HELP = (
+    "Gamma share to subnet N as N=SHARE (3=5%); 0 removes it. Repeatable. Gamma shares not "
+    "named are kept."
+)
 _SHARE_HELP = "A percentage (41%), a 0..1 fraction (0.41), or raw u64 parts."
 _SHOW_HINT = (
     "`btcli subnets emission show --netuid {netuid}` prints the vector and every allowed range"
@@ -63,6 +71,12 @@ _ERROR_SLOT: dict[str, Optional[str]] = {
     "ValidatorEmissionTooLowToPreserveRoot": "validator",
     "MinerEmissionBelowMinimum": "miner",
     "EmissionWeightsDoNotSumToOne": None,
+    "InvalidValue": "gamma",
+    "GammaEmissionTargetNotWhitelisted": "gamma",
+    "GammaDisabled": "gamma",
+    "GammaEmissionAboveMaximum": "gamma",
+    "TooManyGammaShares": "gamma",
+    "GammaEmissionNotSettableOnLeasedSubnet": "gamma",
 }
 
 
@@ -85,6 +99,8 @@ def _record(info: SubnetEmissionWeights) -> dict[str, Any]:
         "weights": info.weights,
         "shares": info.shares,
         "gamma_share": info.gamma_share,
+        "gamma_shares": info.gamma_shares,
+        "gamma_targets": info.gamma_targets,
         "global_tao_weight": info.global_tao_weight,
         "root_share": info.root_share,
         "baseline_root_share": info.baseline_root_share,
@@ -94,6 +110,7 @@ def _record(info: SubnetEmissionWeights) -> dict[str, Any]:
         "alpha_issuance": info.alpha_issuance,
         "min_validator": info.min_validator,
         "created_via_lease": info.created_via_lease,
+        "leased": info.leased,
         "limits": info.rules().limits(),
         "rate_limit": info.rate_limit(),
     }
@@ -129,20 +146,50 @@ def _parse_share(app_ctx: AppContext, raw: str, flag: str) -> int:
         raise typer.Exit(2) from error
 
 
-def _parse_slot(app_ctx: AppContext, raw: str) -> int:
+def _parse_slot(app_ctx: AppContext, raw: str) -> tuple[Optional[int], Optional[int]]:
+    """``(index, None)`` for one of the five slots, ``(None, N)`` for ``gamma:N``."""
     try:
-        return ew.slot_index(raw)
+        if raw.lower().startswith("gamma:") and raw[len("gamma:") :].isdigit():
+            return None, int(raw[len("gamma:") :])
+        return ew.slot_index(raw), None
     except ValueError as error:
         app_ctx.output.error(str(error), help=_SLOT_HELP)
         raise typer.Exit(2) from error
 
 
-def _reject(app_ctx: AppContext, info: SubnetEmissionWeights, proposed: list[int]) -> None:
-    """Exit 2 naming every rule the proposed vector breaks and the allowed range."""
-    violations = ew.validate(proposed, info.rules())
+def _slot_share(
+    info: SubnetEmissionWeights, index: Optional[int], target: Optional[int]
+) -> tuple[str, int]:
+    """The slot's name and current share."""
+    if target is None:
+        return ew.SLOT_NAMES[index], info.weights[index]
+    return f"gamma:{target}", info.gamma_shares.get(target, 0)
+
+
+def _parse_gamma(app_ctx: AppContext, raw: list[str]) -> dict[int, int]:
+    """``--gamma N=SHARE`` options as shares by target netuid."""
+    shares: dict[int, int] = {}
+    for item in raw:
+        target, sep, share = item.partition("=")
+        if not sep or not target.isdecimal():
+            app_ctx.output.error(f"invalid value for `--gamma`: {item!r}", help=_GAMMA_HELP)
+            raise typer.Exit(2)
+        shares[int(target)] = _parse_share(app_ctx, share, "--gamma")
+    return shares
+
+
+def _reject(
+    app_ctx: AppContext,
+    info: SubnetEmissionWeights,
+    proposed: list[int],
+    gamma_after: dict[int, int],
+) -> None:
+    """Exit 2 naming every rule the proposed split breaks and the allowed range."""
+    rules = replace(info.rules(), gamma_share=sum(gamma_after.values()))
+    violations = ew.validate(proposed, rules) + ew.validate_gamma(info.netuid, gamma_after, rules)
     if not violations:
         return
-    ranges = _ranges(info.rules())
+    ranges = _ranges(rules)
     allowed = []
     for violation in violations:
         slot = _ERROR_SLOT.get(violation.error)
@@ -169,8 +216,11 @@ def _reject(app_ctx: AppContext, info: SubnetEmissionWeights, proposed: list[int
     raise typer.Exit(2)
 
 
-def _card(info: SubnetEmissionWeights, preview: dict[str, Any]) -> list[tuple]:
-    """Review-card rows: each moving slot, what root keeps, what validators are left."""
+def _card(
+    info: SubnetEmissionWeights, preview: dict[str, Any], gamma_after: dict[int, int]
+) -> list[tuple]:
+    """Review-card rows: each moving slot and gamma share, what root keeps, what
+    validators are left."""
     before, after = preview["before"]["weights"], preview["after"]["weights"]
     rows: list[tuple] = []
     for slot in ew.ADJUSTABLE_SLOTS:
@@ -180,6 +230,14 @@ def _card(info: SubnetEmissionWeights, preview: dict[str, Any]) -> list[tuple]:
         if after[slot] != before[slot]:
             value = f"{ew.format_share(before[slot])} -> {value}"
         rows.append((ew.SLOT_NAMES[slot], value))
+    for target in sorted({*info.gamma_shares, *gamma_after}):
+        old, new = info.gamma_shares.get(target, 0), gamma_after.get(target, 0)
+        value = ew.format_share(new)
+        if new != old:
+            value = f"{ew.format_share(old)} -> {value}"
+        rows.append((f"gamma:{target}", value))
+    if set(info.gamma_shares) - set(gamma_after):
+        rows.append(("removed gamma shares", "their unconverted alpha goes to the miners"))
     root = preview["root"]
     share_after = root["share_after"]
     rows.append(
@@ -221,13 +279,16 @@ def _submit(
     *,
     slots: list[int],
     renormalize: bool,
+    gamma: dict[int, int],
 ) -> None:
-    _reject(app_ctx, info, proposed)
+    gamma_after = ew.merge_gamma(info.gamma_shares, gamma)
+    _reject(app_ctx, info, proposed, gamma_after)
     intent = SetSubnetEmissionWeights(
         netuid=info.netuid,
         slots=list(slots),
         values=[proposed[slot] for slot in slots],
         renormalize=renormalize,
+        gamma=gamma,
     )
     preview = ew.preview(
         info.weights,
@@ -237,18 +298,25 @@ def _submit(
         root_tao=info.root_tao,
         alpha_issuance=info.alpha_issuance,
     )
-    app_ctx.submit(intent, card_sections=[("Emission weights", _card(info, preview))])
+    app_ctx.submit(intent, card_sections=[("Emission weights", _card(info, preview, gamma_after))])
 
 
 def _renormalized_submit(
-    app_ctx: AppContext, info: SubnetEmissionWeights, index: int, parts: int
+    app_ctx: AppContext,
+    info: SubnetEmissionWeights,
+    index: Optional[int],
+    target: Optional[int],
+    parts: int,
 ) -> None:
+    fixed = {} if index is None else {index: parts}
+    gamma = {} if target is None else {target: parts}
+    gamma_share = sum(ew.merge_gamma(info.gamma_shares, gamma).values())
     try:
-        proposed = ew.renormalize(info.weights, {index: parts}, info.gamma_share)
+        proposed = ew.renormalize(info.weights, fixed, gamma_share)
     except ValueError as error:
         app_ctx.output.error(str(error), help=_SHOW_HINT.format(netuid=info.netuid))
         raise typer.Exit(2) from error
-    _submit(app_ctx, info, proposed, slots=[index], renormalize=True)
+    _submit(app_ctx, info, proposed, slots=list(fixed), renormalize=True, gamma=gamma)
 
 
 @app.command(
@@ -256,9 +324,10 @@ def _renormalized_submit(
     epilog=(
         "Example: btcli subnets emission show --netuid 4\n\n"
         "JSON fields: netuid, block, weights (u64 parts), shares (0..1), gamma_share (parts), "
+        "gamma_shares{netuid: parts}, gamma_targets{netuid: gamma enabled}, "
         "global_tao_weight, root_share, baseline_root_share, validator_share_after_root, "
         "root_capped, root_tao, alpha_issuance (rao), min_validator (parts), "
-        "created_via_lease, limits{slot: min, max, min_parts, max_parts, why}, "
+        "created_via_lease, leased, limits{slot: min, max, min_parts, max_parts, why}, "
         "rate_limit{limit_blocks, last_change_block, next_allowed_block, "
         "blocks_until_allowed, owner_can_change_now}."
     ),
@@ -274,6 +343,17 @@ def show(
     vector_rows: list[tuple[str, str, Optional[str]]] = [
         (ew.SLOT_NAMES[slot], ew.format_share(info.weights[slot]), f"{info.weights[slot]} parts")
         for slot in ew.ADJUSTABLE_SLOTS
+    ]
+    vector_rows += [
+        (
+            f"gamma:{target}",
+            ew.format_share(share),
+            f"{share} parts"
+            if info.gamma_targets.get(target)
+            else f"{share} parts; no longer valid, so every change must remove it "
+            f"(set --gamma {target}=0)",
+        )
+        for target, share in info.gamma_shares.items()
     ]
     next_value, next_note = _next_change(info.rate_limit())
     root_rows: list[tuple[str, str, Optional[str]]] = [
@@ -314,8 +394,20 @@ def show(
         ("created via lease", "yes" if info.created_via_lease else "no", None),
     ]
     ranges = _ranges(info.rules())
-    order = [*list(ew.SLOT_NAMES), "burn+recycle", "sum"]
+    order = [*list(ew.SLOT_NAMES), "burn+recycle", "gamma", "sum"]
     rule_rows: list[tuple[str, str, Optional[str]]] = [(name, *ranges[name]) for name in order]
+    targets = ", ".join(
+        f"{target}" + ("" if on else " (gamma disabled)")
+        for target, on in info.gamma_targets.items()
+        if target != netuid
+    )
+    rule_rows.append(
+        (
+            "gamma targets",
+            "none: a lease holds this subnet" if info.leased else targets or "none",
+            "the subnets root whitelisted for gamma emission",
+        )
+    )
     app_ctx.output.kv_sections(
         f"subnet {netuid} emission weights",
         [("Vector", vector_rows), ("Root", root_rows), ("Allowed", rule_rows)],
@@ -334,7 +426,9 @@ def show(
         "Example: btcli subnets emission set --netuid 4 --owner 18% --validator 20% --miner 62% "
         "--dry-run\n"
         "Example with burn: btcli subnets emission set --netuid 4 --burn 5% --owner 10% "
-        "--validator 40% --miner 45%\n\n"
+        "--validator 40% --miner 45%\n"
+        "Example with gamma: btcli subnets emission set --netuid 4 --owner 18% --validator 31% "
+        "--miner 46% --gamma 3=5%\n\n"
         f"{_EXIT_CODES}"
     ),
 )
@@ -347,8 +441,12 @@ def set_weights(
     miner: str = typer.Option(..., "--miner", help=f"Miner share. {_SHARE_HELP}"),
     burn: str = typer.Option("0", "--burn", help=f"Burn share (default 0). {_SHARE_HELP}"),
     recycle: str = typer.Option("0", "--recycle", help=f"Recycle share (default 0). {_SHARE_HELP}"),
+    gamma: list[str] = typer.Option([], "--gamma", help=_GAMMA_HELP),
+    no_gamma: bool = typer.Option(
+        False, "--no-gamma", help="Remove the gamma shares --gamma does not name."
+    ),
 ):
-    """Set the full emission split in one go.
+    """Set the five slots in one go; gamma shares --gamma does not name are kept.
 
     Burn + recycle together may be at most 33%. Root stakers always keep their
     baseline share: it is paid off the top of the validator slot every block, so
@@ -362,21 +460,29 @@ def set_weights(
     owner_parts = _parse_share(app_ctx, owner, "--owner")
     validator_parts = _parse_share(app_ctx, validator, "--validator")
     miner_parts = _parse_share(app_ctx, miner, "--miner")
-    total = (
-        burn_parts + recycle_parts + owner_parts + validator_parts + miner_parts + info.gamma_share
-    )
+    removed = dict.fromkeys(info.gamma_shares, 0) if no_gamma else {}
+    gamma_changes = {**removed, **_parse_gamma(app_ctx, gamma)}
+    gamma_share = sum(ew.merge_gamma(info.gamma_shares, gamma_changes).values())
+    total = burn_parts + recycle_parts + owner_parts + validator_parts + miner_parts + gamma_share
     if 0 < abs(ew.ONE - total) <= 1_000:
         # Decimal shares rarely hit u64::MAX exactly; let the miner slot soak up the dust.
         miner_parts += ew.ONE - total
     elif total != ew.ONE:
         app_ctx.output.error(
-            f"burn + recycle + owner + validator + miner{ew.and_gamma(info.gamma_share)} must "
+            f"burn + recycle + owner + validator + miner{ew.and_gamma(gamma_share)} must "
             f"add up to 100%, not {ew.format_share(total, 4)}",
             help="give all shares, or use set-value to move one slot and rescale the rest",
         )
         raise typer.Exit(2)
     proposed = [burn_parts, recycle_parts, owner_parts, validator_parts, miner_parts]
-    _submit(app_ctx, info, proposed, slots=list(range(len(ew.SLOT_NAMES))), renormalize=False)
+    _submit(
+        app_ctx,
+        info,
+        proposed,
+        slots=list(range(len(ew.SLOT_NAMES))),
+        renormalize=False,
+        gamma=gamma_changes,
+    )
 
 
 @app.command(
@@ -401,9 +507,9 @@ def set_value(
     """
     app_ctx: AppContext = ctx_of(ctx)
     info = _fetch(app_ctx, netuid)
-    index = _parse_slot(app_ctx, slot)
+    index, target = _parse_slot(app_ctx, slot)
     parts = _parse_share(app_ctx, value, "--value")
-    _renormalized_submit(app_ctx, info, index, parts)
+    _renormalized_submit(app_ctx, info, index, target, parts)
 
 
 @app.command(
@@ -422,9 +528,10 @@ def increase(
     """Raise one slot by an amount; the other slots are rescaled to fill the rest."""
     app_ctx: AppContext = ctx_of(ctx)
     info = _fetch(app_ctx, netuid)
-    index = _parse_slot(app_ctx, slot)
+    index, target = _parse_slot(app_ctx, slot)
     delta = _parse_share(app_ctx, by, "--by")
-    _renormalized_submit(app_ctx, info, index, min(ew.ONE, info.weights[index] + delta))
+    _, current = _slot_share(info, index, target)
+    _renormalized_submit(app_ctx, info, index, target, min(ew.ONE, current + delta))
 
 
 @app.command(
@@ -444,13 +551,14 @@ def decrease(
     """Lower one slot by an amount; the other slots are rescaled to fill the rest."""
     app_ctx: AppContext = ctx_of(ctx)
     info = _fetch(app_ctx, netuid)
-    index = _parse_slot(app_ctx, slot)
+    index, target = _parse_slot(app_ctx, slot)
     delta = _parse_share(app_ctx, by, "--by")
-    if delta > info.weights[index]:
+    name, current = _slot_share(info, index, target)
+    if delta > current:
         app_ctx.output.error(
-            f"{ew.SLOT_NAMES[index]} is only {ew.format_share(info.weights[index])}; cannot "
+            f"{name} is only {ew.format_share(current)}; cannot "
             f"take {ew.format_share(delta)} from it",
             help=_SHOW_HINT.format(netuid=info.netuid),
         )
         raise typer.Exit(2)
-    _renormalized_submit(app_ctx, info, index, info.weights[index] - delta)
+    _renormalized_submit(app_ctx, info, index, target, current - delta)

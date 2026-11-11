@@ -740,6 +740,8 @@ SHOW_FIELDS = [
     "weights",
     "shares",
     "gamma_share",
+    "gamma_shares",
+    "gamma_targets",
     "global_tao_weight",
     "root_share",
     "baseline_root_share",
@@ -749,6 +751,7 @@ SHOW_FIELDS = [
     "alpha_issuance",
     "min_validator",
     "created_via_lease",
+    "leased",
     "limits",
     "rate_limit",
 ]
@@ -1028,6 +1031,95 @@ def test_cli_counts_the_gamma_shares_in_the_sum(emission_cli):
     )
     assert full.exit_code == 0, full.output
     assert sum(json.loads(full.output)["args"]["values"]) == ONE - GAMMA_SHARE
+
+
+def test_cli_shows_gamma_shares_and_targets(emission_cli):
+    _seed_gamma_share(emission_cli)
+    _seed_gamma_targets(emission_cli)
+    record = json.loads(invoke("--json", "subnets", "emission", "show", "--netuid", "1").output)
+    assert record["gamma_shares"] == {"2": GAMMA_SHARE}
+    assert record["gamma_targets"] == {"2": True, "3": True, "4": False}
+    human = invoke("subnets", "emission", "show", "--netuid", "1")
+    assert human.exit_code == 0, human.output
+    for needle in (
+        "gamma:2  10.00%",
+        "gamma  <= 10.00% each",
+        "gamma targets  2, 3, 4 (gamma disabled)",
+    ):
+        assert needle in human.output, (needle, human.output)
+
+    emission_cli.seed("SubtensorModule", "SubnetGammaEnabled", [2], False)
+    emission_cli.seed("SubtensorModule", "SubnetUidToLeaseId", [1], 7)
+    human = invoke("subnets", "emission", "show", "--netuid", "1").output
+    assert "no longer valid, so every change must remove it (set --gamma 2=0)" in human, human
+    assert "gamma targets  none: a lease holds this subnet" in human, human
+
+
+def test_cli_sets_gamma_shares(emission_cli):
+    _seed_gamma_share(emission_cli)
+    _seed_gamma_targets(emission_cli)
+    five = ew.parse_share("5%")
+
+    def gamma_after(*args):
+        result = invoke("--json", "--dry-run", "subnets", "emission", *args, "--netuid", "1")
+        assert result.exit_code == 0, result.output
+        preview = json.loads(result.output)["preview"]
+        after = preview["gamma"]["after"]
+        assert sum(preview["after"]["weights"]) + sum(after.values()) == ONE
+        return after
+
+    both = {"2": GAMMA_SHARE, "3": five}
+    assert gamma_after("set-value", "--slot", "gamma:3", "--value", "5%") == both
+    assert gamma_after("increase", "--slot", "gamma:3", "--by", "5%") == both
+    shares = ("--owner", "18%", "--validator", "31%", "--miner", "36%")
+    assert gamma_after("set", *shares, "--gamma", "3=5%") == both
+    assert gamma_after("decrease", "--slot", "gamma:2", "--by", "10%") == {}
+    shares = ("--owner", "18%", "--validator", "41%", "--miner", "41%")
+    assert gamma_after("set", *shares, "--no-gamma") == {}
+    for bad in ("3", "x=5%"):
+        result = invoke("subnets", "emission", "set", *shares, "--gamma", bad, "--netuid", "1")
+        assert result.exit_code == 2 and "invalid value for --gamma" in result.output
+    tx = ("tx", "set-subnet-emission-weights", "--netuid", "1", "--slots", "", "--values", "")
+    result = invoke(*tx, "--gamma", "3=5%")
+    assert result.exit_code == 2 and "invalid value for --gamma" in result.output
+
+    real = invoke(
+        "--yes",
+        "subnets",
+        "emission",
+        "set-value",
+        "--netuid",
+        "1",
+        "--slot",
+        "gamma:2",
+        "--value",
+        "0",
+    )
+    assert real.exit_code == 0, real.output
+    assert "10.00% -> 0.00%" in real.output
+    assert "their unconverted alpha goes to the miners" in real.output
+
+
+def test_cli_rejects_gamma_shares_before_signing(emission_cli):
+    result = invoke(
+        "--json",
+        "subnets",
+        "emission",
+        "set-value",
+        "--netuid",
+        "1",
+        "--slot",
+        "gamma:9",
+        "--value",
+        "5%",
+    )
+    assert result.exit_code == 2, result.output
+    error = _stderr_json(result)
+    assert error["error"].startswith(
+        "the chain would reject this change: GammaEmissionTargetNotWhitelisted"
+    )
+    assert error["note"].startswith("allowed on subnet 1 right now: gamma <= 10.00% each")
+    assert emission_cli.submissions == []
 
 
 def test_cli_explains_rule_violations_before_submitting(emission_cli):

@@ -322,11 +322,15 @@ def _make_command(intent_cls: type[Intent]):
                         f"invalid value for `--{f.name.replace('_', '-')}`: {error}"
                     )
                     raise typer.Exit(2)
-        args = {
-            f.name: _coerce(str(f.type), kwargs[f.name])
-            for f in specs
-            if kwargs.get(f.name) is not None
-        }
+        args = {}
+        for f in specs:
+            if kwargs.get(f.name) is None:
+                continue
+            try:
+                args[f.name] = _coerce(str(f.type), kwargs[f.name])
+            except ValueError as error:
+                app_ctx.output.error(f"invalid value for `--{f.name.replace('_', '-')}`: {error}")
+                raise typer.Exit(2)
         # Flag-level resolution above only covers top-level *_ss58 options;
         # this pass reaches names inside JSON-shaped fields too (signatory
         # lists, a multisig inner --call, batch children).
