@@ -7,7 +7,7 @@ import pytest
 import typer
 
 from bittensor.cli import protected
-from bittensor.intents import Batch, Transfer
+from bittensor.intents import Batch, StakeIntoBasket, Transfer
 from bittensor.protected_funding import funding_budget
 
 
@@ -51,6 +51,22 @@ def test_existing_announcement_reserve_is_not_charged_twice():
     state = budget(announcement_count=1, announcement_deposit=104_000_000)
     assert state.next_announcement_deposit_rao == 68_000_000
     assert state.target_rao == budget().target_rao - 36_000_000
+
+
+def test_root_basket_staking_also_offers_a_refill(monkeypatch):
+    ctx = SimpleNamespace(
+        assume_yes=True,
+        dry_run=False,
+        output=SimpleNamespace(message=lambda *_: None),
+    )
+    state = budget(account={"data": {"free": 200_000_000, "reserved": 0}}).to_dict()
+    monkeypatch.setattr(protected, "_controller_funding", lambda *_: state)
+    intent = StakeIntoBasket(hotkey_ss58="validator", amount_tao=1)
+    result = protected._offer_operation_refill(
+        ctx, {"controller_ss58": "controller", "controller_wallet": "owner"}, intent
+    )
+    assert isinstance(result, Batch)
+    assert result.intents[1] == intent.to_dict()
 
 
 def test_external_funding_checks_live_controller_before_sending(monkeypatch):

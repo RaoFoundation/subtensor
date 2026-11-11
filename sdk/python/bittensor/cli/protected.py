@@ -233,14 +233,13 @@ def _offer_operation_refill(app_ctx: AppContext, record: dict[str, Any], intent)
     operations = {
         "transfer",
         "transfer_all",
-        "add_stake",
-        "add_stake_limit",
-        "remove_stake",
-        "remove_stake_limit",
-        "move_stake",
-        "swap_stake",
-        "unstake_all",
+        "transfer_stake",
+        "transfer_stake_and_hotkey",
+        "move_stake_limit",
+        "swap_stake_limit",
+        "move_swap_stake",
         "batch",
+        *pa.PROXY_TYPE_INTENT_OPS["Staking"],
     }
     if intent.op not in operations or app_ctx.dry_run:
         return intent
