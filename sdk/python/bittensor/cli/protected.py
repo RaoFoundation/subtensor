@@ -1225,15 +1225,16 @@ def _reconcile_pending(app_ctx: AppContext, record: dict[str, Any]) -> list[dict
                 ),
                 None,
             )
-            saved = (
-                exact or (matches[0] if matches else None)
-                if matches
-                else {
+            if exact is not None:
+                saved = exact
+            elif matches:
+                saved = matches[0]
+            else:
+                saved = {
                     "index": None,
                     "category": "unknown",
                     "provisional": True,
                 }
-            )
             plaintext = next((candidate for candidate in matches if candidate.get("inner_op")), {})
             row = {
                 **saved,
