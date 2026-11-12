@@ -213,9 +213,9 @@ def test_omitted_delay_preserves_live_seven_day_window(setup_context):
     assert chain.grants[0]["delay"] == delay
     # The cached value may be stale; the currently active grant is authoritative.
     pa.upsert_protected({**_record(), "delay_blocks": 36})
-    _protect(ctx, allow=["lock"])
+    _protect(ctx, allow=["weights"])
     queued = ann.list_for_wallet("owner", genesis_hash=GENESIS)
-    assert [row["category"] for row in queued] == ["allow:Lock"]
+    assert [row["category"] for row in queued] == ["allow:Weights"]
     assert queued[0]["delay_blocks"] == delay
     assert _record()["delay_blocks"] == delay
 
@@ -262,7 +262,7 @@ def test_setup_resumes_missing_steps_without_duplicate_chain_calls(
 
         monkeypatch.setattr(cfg, "add_proxy", fail_book_once)
     with pytest.raises((typer.Exit, OSError)):
-        _protect(ctx, allow=["lock", "unstake"], delay="7d")
+        _protect(ctx, allow=["weights", "staking"], delay="7d")
     interrupted = _record()
     assert interrupted is not None
     assert pa.protected_setup_pending(interrupted)
@@ -282,7 +282,7 @@ def test_setup_resumes_missing_steps_without_duplicate_chain_calls(
     assert len(_submitted(chain, "announce_coldkey_swap")) == 1
     assert len(chain.announcements) == 2
     assert not pa.protected_setup_pending(_record())
-    assert _record()["pending_allows"] == ["Lock", "Staking"]
+    assert _record()["pending_allows"] == ["Weights", "Staking"]
     assert _record()["coldkey_swap"]["execute_block"] == 200
     assert _record()["delay_blocks"] == pa.parse_delay_to_blocks("7d")
 
@@ -357,12 +357,12 @@ def test_setup_recognizes_allow_executed_before_retry(setup_context):
     ctx, chain = setup_context
     chain.fail_allow = "Staking"
     with pytest.raises(typer.Exit):
-        _protect(ctx, allow=["lock", "unstake"])
-    chain.grants.append({"delegate": chain.controller, "proxy_type": "Lock", "delay": 0})
+        _protect(ctx, allow=["weights", "staking"])
+    chain.grants.append({"delegate": chain.controller, "proxy_type": "Weights", "delay": 0})
     chain.announcements.clear()
     _protect(ctx)
     assert len(_submitted(chain, "announce_proxy_call")) == 2
-    assert _record()["allows"] == ["Lock"]
+    assert _record()["allows"] == ["Weights"]
     assert _record()["pending_allows"] == ["Staking"]
     assert not pa.protected_setup_pending(_record())
 
@@ -373,7 +373,7 @@ def test_setup_dry_run_does_not_write_or_submit(setup_context, existing):
     if existing:
         chain.fail_swap = True
         with pytest.raises(typer.Exit):
-            _protect(ctx, allow=["lock"])
+            _protect(ctx, allow=["weights"])
     before = (
         pa.load_protected(),
         cfg.load_proxies(),
@@ -381,7 +381,7 @@ def test_setup_dry_run_does_not_write_or_submit(setup_context, existing):
         list(chain.submitted),
     )
     ctx.dry_run = True
-    _protect(ctx, allow=["unstake"])
+    _protect(ctx, allow=["staking"])
     assert (
         pa.load_protected(),
         cfg.load_proxies(),
