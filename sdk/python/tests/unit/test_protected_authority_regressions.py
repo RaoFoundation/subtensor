@@ -250,6 +250,41 @@ def test_rotation_does_not_restore_unrecorded_foreign_grants(monkeypatch):
     ]
 
 
+# PR #3305: rotation must not restore zero-delay authority to the controller it revokes.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+def test_rotation_migrates_controller_allow_without_restoring_old_key(monkeypatch):
+    old = Keypair.create_from_seed(bytes([77]) * 32, 1)
+    new = Keypair.create_from_seed(bytes([78]) * 32, 1)
+    pure = Keypair.create_from_seed(bytes([79]) * 32, 1)
+    chain = _Chain(
+        [
+            {"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY},
+            {"delegate": old.ss58_address, "proxy_type": "GammaSpend", "delay": 0},
+        ]
+    )
+    ctx = _context(monkeypatch, chain, {"old": receiving_address(old)})
+    record = _record(
+        old,
+        pure,
+        allows=["GammaSpend"],
+        allow_key_ss58=receiving_address(old),
+    )
+
+    children, migrated = protected_cli._rotation_batch_children(
+        ctx,
+        record,
+        controller_ss58=receiving_address(old),
+        new_ss58=new.ss58_address,
+        delay=DELAY,
+    )
+    chain.apply({"op": "batch", "intents": children})
+
+    assert migrated == ["GammaSpend"]
+    assert not any(grant["delegate"] == old.ss58_address for grant in chain.grants)
+    assert {"delegate": new.ss58_address, "proxy_type": "Any", "delay": DELAY} in chain.grants
+    assert {"delegate": new.ss58_address, "proxy_type": "GammaSpend", "delay": 0} in chain.grants
+
+
 # PR #3305: hashed identities must not leave a revoked controller able to spend protected funds.
 # PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("old_crypto_type,new_crypto_type", [(6, 1), (1, 6), (6, 6)])

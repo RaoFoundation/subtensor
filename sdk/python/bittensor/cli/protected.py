@@ -2948,6 +2948,7 @@ def _rotation_batch_children(
         (grant["delegate"], str(grant["proxy_type"]), int(grant["delay"]))
         for grant in data["proxies"]
         if allow_key
+        and allow_key != controller_ss58
         and _account_identity(grant["delegate"]) == allow_key
         and str(grant["proxy_type"]) in recorded_allows
         and int(grant["delay"]) == 0
