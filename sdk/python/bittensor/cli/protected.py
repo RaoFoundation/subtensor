@@ -54,6 +54,67 @@ PROTECTED_MANAGEMENT_OPS = frozenset(
 )
 
 
+def _protected_management_path(encoded: dict[str, Any]) -> Optional[str]:
+    """Return the first dangerous proxy-management path in a saved intent tree."""
+    op = encoded.get("op")
+    if op in PROTECTED_MANAGEMENT_OPS:
+        return str(op)
+    if op == "batch":
+        for index, child in enumerate(encoded.get("intents") or []):
+            found = _protected_management_path(child)
+            if found:
+                return f"batch[{index}].{found}"
+    if op == "execute_proxy_announced":
+        nested = {**(encoded.get("inner_args") or {}), "op": encoded.get("inner_op")}
+        found = _protected_management_path(nested)
+        if found:
+            return f"execute_proxy_announced.{found}"
+    return None
+
+
+def _refuse_protected_management(app_ctx: AppContext, encoded: dict[str, Any], pure: str) -> None:
+    path = _protected_management_path(encoded)
+    if path is None:
+        return
+    app_ctx.output.error(
+        f"refusing to route {path} to keyless protected account {pure}",
+        help="use `btcli proxy protect --allow/--disallow` or `btcli proxy rotate`; "
+        "ordinary proxy management can orphan the account or install immediate authority",
+    )
+    raise typer.Exit(2)
+
+
+def _is_protected_management_receipt(row: dict[str, Any], encoded: dict[str, Any]) -> bool:
+    """Recognize only proxy changes produced by protect/rotate itself."""
+    category = str(row.get("category") or "")
+    op = encoded.get("op")
+    if category.startswith(("allow:", "disallow:")):
+        expected_op = "add_proxy" if category.startswith("allow:") else "remove_proxy"
+        return (
+            op == expected_op
+            and str(encoded.get("proxy_type")) == category.split(":", 1)[1]
+            and int(encoded.get("delay") or 0) == 0
+        )
+    children = encoded.get("intents") or []
+    if category == "delay-change":
+        return (
+            op == "batch"
+            and len(children) == 2
+            and [child.get("op") for child in children] == ["remove_proxy", "add_proxy"]
+            and all(child.get("proxy_type") == "Any" for child in children)
+            and children[0].get("delegate_ss58") == children[1].get("delegate_ss58")
+        )
+    if category == "rotate-controller":
+        return (
+            op == "batch"
+            and bool(row.get("rotate_to_ss58"))
+            and len(children) >= 2
+            and children[0].get("op") == "remove_proxies"
+            and all(child.get("op") == "add_proxy" for child in children[1:])
+        )
+    return False
+
+
 def _account_identity(address: str) -> str:
     """Use account identities for authority checks, retaining descriptors for writes."""
     return parse_recipient(address).account if is_receiving_address(address) else address
@@ -180,14 +241,8 @@ def maybe_route_protected(
     record = _get_protected_record(app_ctx, wallet_name, require_ready=True)
     if record is None:
         return proxy_for, None, False
-    if intent.op in PROTECTED_MANAGEMENT_OPS:
-        app_ctx.output.error(
-            f"refusing to auto-route {intent.op} to keyless protected account "
-            f"{record['protected_ss58']}",
-            help="use `btcli proxy protect --allow/--disallow` or `btcli proxy rotate`; "
-            "ordinary proxy management can orphan the account or install immediate authority",
-        )
-        raise typer.Exit(2)
+    encoded = intent.to_dict() if hasattr(intent, "to_dict") else {"op": intent.op}
+    _refuse_protected_management(app_ctx, encoded, record["protected_ss58"])
     record = _refresh_live_allows(app_ctx, record)
     dispatcher = record.get("controller_ss58") or _controller_ss58(app_ctx)
     instant = pa.instant_proxy_type_for(
@@ -530,7 +585,12 @@ def _call_data_hex(call: Any) -> Optional[str]:
 
 
 def _review_protected_announcement(
-    app_ctx: AppContext, intent, record: dict[str, Any], wallet: Any
+    app_ctx: AppContext,
+    intent,
+    record: dict[str, Any],
+    wallet: Any,
+    *,
+    expected_call_hash: str,
 ) -> None:
     """Run the normal inner-call safety plan before committing only its hash.
 
@@ -558,11 +618,20 @@ def _review_protected_announcement(
         plan_wallet = _OriginView(record["controller_ss58"])
 
     async def _plan(client):
-        return await client.plan(
+        plan = await client.plan(
             _ProtectedPreviewIntent(intent, record["protected_ss58"]),
             plan_wallet,
             shielded=False,
         )
+        _preview_call, preview_hash, _extras = await compose_announceable_call(
+            client._substrate, intent, record["protected_ss58"], wallet
+        )
+        if str(preview_hash).lower() != str(expected_call_hash).lower():
+            plan.blocks.append(
+                "the exact call changed while it was being previewed; retry so the "
+                "displayed operation and announced hash are identical"
+            )
+        return plan
 
     plan = app_ctx.run(_plan)
     plan.effects.append(
@@ -801,7 +870,13 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
         return composed, call_hash, block, intent.to_dict(), spec_version, semantics
 
     composed, call_hash, block, encoded, spec_version, semantics = app_ctx.run(_prepare)
-    _review_protected_announcement(app_ctx, intent, record, wallet)
+    _review_protected_announcement(
+        app_ctx,
+        intent,
+        record,
+        wallet,
+        expected_call_hash=call_hash,
+    )
     inner_args = {k: v for k, v in encoded.items() if k != "op"}
     call_data = _call_data_hex(composed)
     recovered = _recover_existing_commitment(
@@ -824,19 +899,30 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
         )
         print_queued(app_ctx, record=record, row=recovered, current_block=block)
         return
-    with _preserve_controller_context(app_ctx, record) as controller_ss58:
-        result = app_ctx.submit(
-            AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
-            proxy_for="self",
-            summary=f"announce {intent.op} for protected account",
+    if app_ctx.dry_run:
+        with _preserve_controller_context(app_ctx, record):
+            app_ctx.submit(
+                AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
+                proxy_for="self",
+                summary=f"announce {intent.op} for protected account",
+            )
+        return
+    controller_ss58 = _account_identity(record.get("controller_ss58") or _controller_ss58(app_ctx))
+    unconfirmed = ann.unconfirmed_commitment(
+        record["controller_wallet"],
+        genesis_hash=record["genesis_hash"],
+        delegate_ss58=controller_ss58,
+        real_ss58=real,
+        call_hash=call_hash,
+    )
+    if unconfirmed is not None:
+        app_ctx.output.error(
+            f"identical announcement #{unconfirmed['index']} may still be in the "
+            "transaction pool or awaiting multisig approval; refusing to submit a duplicate",
+            help="wait for inclusion and run `btcli proxy show`; keep or cancel that "
+            "commitment before retrying",
         )
-    if result is None or not result.success:
-        raise typer.Exit(1)
-    # Prefer the inclusion block when available.
-    announced_at = block
-    if result.extrinsic_id:
-        with contextlib.suppress(ValueError):
-            announced_at = int(str(result.extrinsic_id).split("-")[0])
+        raise typer.Exit(2)
     row = ann.add_announcement(
         genesis_hash=record["genesis_hash"],
         controller_wallet=record["controller_wallet"],
@@ -847,12 +933,46 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
         inner_args=inner_args,
         category=ann.category_for_op(intent.op),
         delay_blocks=delay,
-        announced_at_block=announced_at,
+        announced_at_block=block,
         force_proxy_type="Any",
         summary=intent.summary(),
         call_data=call_data,
         runtime_spec_version=spec_version,
         call_semantics=semantics,
+        status="submitting",
+    )
+    with _preserve_controller_context(app_ctx, record) as controller_ss58:
+        result = app_ctx.submit(
+            AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
+            proxy_for="self",
+            summary=f"announce {intent.op} for protected account",
+        )
+    if result is None or not result.success:
+        ann.mark_status(
+            record["controller_wallet"],
+            int(row["index"]),
+            "failed",
+            genesis_hash=record["genesis_hash"],
+        )
+        raise typer.Exit(1)
+    # Prefer the inclusion block when available.
+    announced_at = block
+    if result.extrinsic_id:
+        with contextlib.suppress(ValueError):
+            announced_at = int(str(result.extrinsic_id).split("-")[0])
+    row = (
+        ann.update_announcement(
+            record["controller_wallet"],
+            int(row["index"]),
+            {
+                "delegate_ss58": controller_ss58,
+                "announced_at_block": announced_at,
+                "executable_at_block": announced_at + delay,
+                "status": "pending",
+            },
+            genesis_hash=record["genesis_hash"],
+        )
+        or row
     )
     row = _mark_announcement_from_submit(app_ctx, row, result) or row
     row = next(
@@ -890,6 +1010,16 @@ def _recover_existing_commitment(
     ]
     recovered = []
     for item in matches:
+        ann.upsert_on_chain_announcement(
+            controller_wallet=record["controller_wallet"],
+            genesis_hash=record["genesis_hash"],
+            delegate_ss58=controller,
+            real_ss58=record["protected_ss58"],
+            call_hash=call_hash,
+            delay_blocks=delay_blocks,
+            announced_at_block=int(item["announced_at_block"]),
+            announcement_ordinal=int(item.get("announcement_ordinal") or 0),
+        )
         recovered.append(
             ann.add_announcement(
                 controller_wallet=record["controller_wallet"],
@@ -1269,6 +1399,20 @@ def _reconcile_pending(app_ctx: AppContext, record: dict[str, Any]) -> list[dict
             and row["real_ss58"] == record["protected_ss58"]
         ):
             continue
+        elif row.get("status") == "submitting":
+            merged.append(
+                {
+                    **row,
+                    "on_chain": False,
+                    "approval_state": "submission_unknown",
+                    "approval_state_reason": (
+                        "The announcement was saved before submission, but inclusion is not "
+                        "confirmed yet. It may still be in the transaction pool; refusing an "
+                        "identical retry prevents duplicate execution."
+                    ),
+                }
+            )
+            continue
         elif row.get("status") == "awaiting_approval":
             approval_pending = _pending_multisig_announcement(app_ctx, row)
             if approval_pending is not False:
@@ -1574,6 +1718,7 @@ def _protect_create(
             "name": name,
             "delay_blocks": delay_blocks,
             "allows": [],
+            "reviewed_allows": [],
             "pending_allows": [],
             "allow_key_ss58": _account_identity(allow_key_ss58) if allow_key_ss58 else None,
             "allow_key_address": allow_key_ss58,
@@ -1890,6 +2035,12 @@ def _protect_update(
         for grant in pa.allow_key_grants(data["proxies"], old_allow_key)
         if grant["proxy_type"] in pa.PROXY_TYPE_INTENT_OPS
     ]
+    reviewed_allows = list(
+        dict.fromkeys(existing.get("reviewed_allows", existing.get("allows") or []))
+    )
+    for proxy_type in allow_types:
+        if proxy_type in current_allows and proxy_type not in reviewed_allows:
+            reviewed_allows.append(proxy_type)
     pending_rows = _reconcile_pending(app_ctx, existing)
     pending_allows = list(
         dict.fromkeys(
@@ -1901,7 +2052,11 @@ def _protect_update(
             and grant["proxy_type"] in pa.PROXY_TYPE_INTENT_OPS
         )
     )
-    existing = {**existing, "allows": current_allows}
+    existing = {
+        **existing,
+        "allows": current_allows,
+        "reviewed_allows": reviewed_allows,
+    }
     if not app_ctx.dry_run:
         pa.upsert_protected(existing)
     new_allow_key = _account_identity(allow_key_ss58) if allow_key_ss58 else None
@@ -1940,9 +2095,12 @@ def _protect_update(
             raise typer.Exit(2)
         existing = {
             **existing,
+            "allows": [],
+            "reviewed_allows": [],
             "allow_key_ss58": new_allow_key,
             "allow_key_address": allow_key_ss58,
         }
+        reviewed_allows = []
         if not app_ctx.dry_run:
             pa.upsert_protected(existing)
     delegate = (
@@ -2058,6 +2216,7 @@ def _protect_update(
     existing = {
         **existing,
         "allows": current_allows,
+        "reviewed_allows": reviewed_allows,
         "pending_allows": pending_allows,
         "allow_key_ss58": (
             new_allow_key if new_allow_key is not None else existing.get("allow_key_ss58")
@@ -2220,7 +2379,13 @@ def _announce_as_protected(
         return composed, call_hash, block, spec_version, semantics
 
     composed, call_hash, block, spec_version, semantics = app_ctx.run(_prepare)
-    _review_protected_announcement(app_ctx, intent, record, wallet)
+    _review_protected_announcement(
+        app_ctx,
+        intent,
+        record,
+        wallet,
+        expected_call_hash=call_hash,
+    )
     encoded = intent.to_dict()
     inner_args = {k: v for k, v in encoded.items() if k != "op"}
     recovered = _recover_existing_commitment(
@@ -2242,20 +2407,29 @@ def _announce_as_protected(
             f"#{recovered['index']}; recovered its receipt instead of duplicating it"
         )
         return recovered
-    with _preserve_controller_context(app_ctx, record) as controller_ss58:
-        result = app_ctx.submit(
-            AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
-            proxy_for="self",
-            summary=f"announce {category}",
-        )
-    if result is None:
+    if app_ctx.dry_run:
+        with _preserve_controller_context(app_ctx, record):
+            app_ctx.submit(
+                AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
+                proxy_for="self",
+                summary=f"announce {category}",
+            )
         return None
-    if not result.success:
-        raise typer.Exit(1)
-    announced_at = block
-    if result.extrinsic_id:
-        with contextlib.suppress(ValueError):
-            announced_at = int(str(result.extrinsic_id).split("-")[0])
+    controller_ss58 = _account_identity(record.get("controller_ss58") or _controller_ss58(app_ctx))
+    unconfirmed = ann.unconfirmed_commitment(
+        record["controller_wallet"],
+        genesis_hash=record["genesis_hash"],
+        delegate_ss58=controller_ss58,
+        real_ss58=real,
+        call_hash=call_hash,
+    )
+    if unconfirmed is not None:
+        app_ctx.output.error(
+            f"identical {category} announcement #{unconfirmed['index']} may still be "
+            "in the transaction pool or awaiting multisig approval; refusing a duplicate",
+            help="wait for inclusion and run `btcli proxy show` before retrying",
+        )
+        raise typer.Exit(2)
     row = ann.add_announcement(
         controller_wallet=record["controller_wallet"],
         genesis_hash=record["genesis_hash"],
@@ -2266,23 +2440,65 @@ def _announce_as_protected(
         inner_args=inner_args,
         category=category,
         delay_blocks=delay,
-        announced_at_block=announced_at,
+        announced_at_block=block,
         force_proxy_type="Any",
         summary=intent.summary(),
         call_data=_call_data_hex(composed),
         runtime_spec_version=spec_version,
         call_semantics=semantics,
+        status="submitting",
     )
-    row = _mark_announcement_from_submit(app_ctx, row, result) or row
     if row_extra:
-        updated = ann.update_announcement(
+        row = (
+            ann.update_announcement(
+                record["controller_wallet"],
+                int(row["index"]),
+                row_extra,
+                genesis_hash=record["genesis_hash"],
+            )
+            or row
+        )
+    with _preserve_controller_context(app_ctx, record) as controller_ss58:
+        result = app_ctx.submit(
+            AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
+            proxy_for="self",
+            summary=f"announce {category}",
+        )
+    if result is None:
+        ann.mark_status(
             record["controller_wallet"],
             int(row["index"]),
-            row_extra,
+            "failed",
             genesis_hash=record["genesis_hash"],
         )
-        if updated is not None:
-            row = updated
+        return None
+    if not result.success:
+        ann.mark_status(
+            record["controller_wallet"],
+            int(row["index"]),
+            "failed",
+            genesis_hash=record["genesis_hash"],
+        )
+        raise typer.Exit(1)
+    announced_at = block
+    if result.extrinsic_id:
+        with contextlib.suppress(ValueError):
+            announced_at = int(str(result.extrinsic_id).split("-")[0])
+    row = (
+        ann.update_announcement(
+            record["controller_wallet"],
+            int(row["index"]),
+            {
+                "delegate_ss58": controller_ss58,
+                "announced_at_block": announced_at,
+                "executable_at_block": announced_at + delay,
+                "status": "pending",
+            },
+            genesis_hash=record["genesis_hash"],
+        )
+        or row
+    )
+    row = _mark_announcement_from_submit(app_ctx, row, result) or row
     row = next(
         (live for live in _reconcile_pending(app_ctx, record) if live["index"] == row["index"]),
         row,
@@ -2306,6 +2522,8 @@ def run_show(app_ctx: AppContext, *, index: Optional[int]) -> None:
     funding = _controller_funding(app_ctx, record)
 
     def _display_status(row):
+        if row.get("status") == "submitting":
+            return "submission_unknown", "not confirmed"
         if row.get("status") == "awaiting_approval":
             status = (
                 "approval_unknown"
@@ -2446,7 +2664,9 @@ def run_show(app_ctx: AppContext, *, index: Optional[int]) -> None:
             [
                 "unsaved" if row.get("index") is None else str(row["index"]),
                 category,
-                "after approval"
+                "after inclusion"
+                if row.get("status") == "submitting"
+                else "after approval"
                 if row.get("status") == "awaiting_approval"
                 else str(row["executable_at_block"]),
                 countdown,
@@ -2689,6 +2909,18 @@ def run_execute_protected(
             f"skipping {_label(row)}: on-chain hash without local plaintext "
             "(cancel with `btcli proxy cancel --index …`, or re-announce from this device)"
         )
+    auto_ready = []
+    for row in ready:
+        executed_index = ann.executed_commitment_index(row)
+        if executed_index is not None:
+            app_ctx.output.message(
+                f"skipping {_label(row)} ({row.get('category')}): identical payload already "
+                f"executed as #{executed_index}; inspect it and pass --index {_idx(row)} "
+                "explicitly only if repeating the operation is intentional"
+            )
+            continue
+        auto_ready.append(row)
+    ready = auto_ready
     if not ready:
         if not waiting and not unknown:
             app_ctx.output.message("no pending announcements")
@@ -2710,6 +2942,13 @@ def _execute_one(
             "or re-announce the call from this device"
         )
         return
+    encoded = {**(row.get("inner_args") or {}), "op": row.get("inner_op")}
+    if not _is_protected_management_receipt(row, encoded):
+        _refuse_protected_management(
+            app_ctx,
+            encoded,
+            row["real_ss58"],
+        )
     if row.get("status") == "awaiting_approval" or not row.get("on_chain", True):
         app_ctx.output.error(
             f"#{row['index']} has not landed on chain yet "
@@ -2728,6 +2967,35 @@ def _execute_one(
         "controller_wallet": row["controller_wallet"],
         "controller_ss58": row.get("delegate_ss58"),
     }
+    if row.get("category") == "rotate-controller":
+        delay = _live_controller_delay(app_ctx, record, require_grant=True)
+        live = _on_chain_announcements(
+            app_ctx,
+            controller_ss58=_account_identity(row["delegate_ss58"]),
+            protected_ss58=row["real_ss58"],
+            delay_blocks=delay,
+        )
+        expected = (
+            str(row.get("call_hash") or "").lower(),
+            int(row.get("announced_at_block") or 0),
+            int(row.get("announcement_ordinal") or 0),
+        )
+        identities = {
+            (
+                str(item.get("call_hash") or "").lower(),
+                int(item.get("announced_at_block") or 0),
+                int(item.get("announcement_ordinal") or 0),
+            )
+            for item in live
+        }
+        if identities != {expected}:
+            app_ctx.output.error(
+                f"refusing rotation #{row['index']}: the old controller's queue changed "
+                "after rotation was reviewed",
+                help="cancel or execute the other announcements, cancel this rotation, "
+                "then queue a fresh rotation from the reviewed state",
+            )
+            raise typer.Exit(2)
     context = (
         _execution_fee_payer(app_ctx, fee_payer)
         if fee_payer
@@ -2766,9 +3034,12 @@ def _execute_one(
         if record is not None and category.startswith("allow:"):
             proxy_type = category.split(":", 1)[1]
             allows = list(record.get("allows") or [])
+            reviewed = list(record.get("reviewed_allows", allows))
             pending = list(record.get("pending_allows") or [])
             if proxy_type not in allows:
                 allows.append(proxy_type)
+            if proxy_type not in reviewed:
+                reviewed.append(proxy_type)
             # proxy_announced consumes matured duplicates only; younger
             # commitments with the same hash still need cancellation tracking.
             outstanding = pa.pending_allow_grant_labels(_reconcile_pending(app_ctx, record))
@@ -2777,13 +3048,28 @@ def _execute_one(
                     pending.append(proxy_type)
             else:
                 pending = [t for t in pending if t != proxy_type]
-            record = {**record, "allows": allows, "pending_allows": pending}
+            record = {
+                **record,
+                "allows": allows,
+                "reviewed_allows": reviewed,
+                "pending_allows": pending,
+            }
             pa.upsert_protected(record)
         if record is not None and category.startswith("disallow:"):
             proxy_type = category.split(":", 1)[1]
             allows = [t for t in (record.get("allows") or []) if t != proxy_type]
+            reviewed = [
+                t
+                for t in record.get("reviewed_allows", record.get("allows") or [])
+                if t != proxy_type
+            ]
             pending = [t for t in (record.get("pending_allows") or []) if t != proxy_type]
-            record = {**record, "allows": allows, "pending_allows": pending}
+            record = {
+                **record,
+                "allows": allows,
+                "reviewed_allows": reviewed,
+                "pending_allows": pending,
+            }
             pa.upsert_protected(record)
         if record is not None and row.get("category") == "delay-change":
             # Each row commits its own change. A newer request may have replaced
@@ -2923,18 +3209,26 @@ def _rotation_batch_children(
     """Build the atomic rotate batch and the allow types migrated to ``new_ss58``.
 
     Reset the grant set at execution, including grants created after announcement.
-    Reinstall delayed Any for the new controller, live controller-owned allows,
-    and the separate delegates reviewed at announcement time. The entire batch
+    Reinstall delayed Any for the new controller and only live grants that are
+    also recorded as explicitly reviewed policy. The entire batch
     rolls back if any replacement fails.
     """
     data = app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=record["protected_ss58"]))
     controller_ss58 = _account_identity(controller_ss58)
-    live_allows = [
+    live_controller_allows = {
         str(grant["proxy_type"])
         for grant in pa.allow_key_grants(data["proxies"], controller_ss58)
         if grant["proxy_type"] in pa.PROXY_TYPE_INTENT_OPS
+    }
+    reviewed_record = {
+        **record,
+        "allows": record.get("reviewed_allows", record.get("allows") or []),
+    }
+    migrate = [
+        proxy_type
+        for proxy_type in pa.controller_owned_allow_types(reviewed_record, controller_ss58)
+        if proxy_type in live_controller_allows
     ]
-    migrate = pa.controller_owned_allow_types({**record, "allows": live_allows}, controller_ss58)
     children: list[dict[str, Any]] = [
         RemoveProxies().to_dict(),
         AddProxy(delegate_ss58=new_ss58, proxy_type="Any", delay=delay).to_dict(),
@@ -2943,7 +3237,7 @@ def _rotation_batch_children(
     # allow-key policy. An arbitrary non-controller grant may have been planted
     # by an attacker and rotation is the recovery boundary that must clear it.
     allow_key = _account_identity(record.get("allow_key_ss58"))
-    recorded_allows = set(record.get("allows") or [])
+    recorded_allows = set(record.get("reviewed_allows", record.get("allows") or []))
     replacements = [
         (grant["delegate"], str(grant["proxy_type"]), int(grant["delay"]))
         for grant in data["proxies"]
@@ -3131,7 +3425,6 @@ def run_rotate(app_ctx: AppContext, *, to_wallet: str) -> None:
             "rotation; otherwise their deposits and plaintext can be stranded",
         )
         raise typer.Exit(2)
-    record = _refresh_live_allows(app_ctx, record)
     delay = _live_controller_delay(app_ctx, record, require_grant=True)
     record = {**record, "delay_blocks": delay}
     controller_ss58 = str(record.get("controller_ss58") or _controller_ss58(app_ctx))

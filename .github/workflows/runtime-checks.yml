@@ -828,7 +828,8 @@ jobs:
             true|false) ;;
             *) echo "invalid runtime selection: '$RUNTIME_RELEVANT'" >&2; exit 1 ;;
           esac
-          if [ "$CLONE" = "skipped" ] && [ "$BUILD" = "skipped" ] && [ "$RUNTIME_RELEVANT" = "false" ]; then
+          if [ "$CLONE" = "skipped" ] && [ "$RUNTIME_RELEVANT" = "false" ] && \
+             { [ "$BUILD" = "skipped" ] || [ "$BUILD" = "success" ]; }; then
             exit 0
           fi
           exit 1

@@ -13,7 +13,7 @@ from bittensor import protected_account as pa
 from bittensor import proxy_announcements as ann
 from bittensor.cli import protected as protected_cli
 from bittensor.cli.context import AppContext
-from bittensor.intents import ExecuteProxyAnnounced
+from bittensor.intents import AddProxy, Batch, ExecuteProxyAnnounced
 from bittensor.receiving import parse_recipient, receiving_address
 from bittensor.sp_core import Keypair
 
@@ -171,6 +171,64 @@ def test_protected_account_refuses_ordinary_proxy_management(monkeypatch, operat
 
     assert rejected.value.exit_code == 2
     assert chain.grants == [{"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY}]
+
+
+# PR #3305: batching must not bypass protected-account proxy-management refusal.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+def test_protected_account_refuses_proxy_management_nested_in_batch(monkeypatch):
+    old = Keypair.create_from_seed(bytes([68]) * 32, 1)
+    attacker = Keypair.create_from_seed(bytes([70]) * 32, 1)
+    pure = Keypair.create_from_seed(bytes([69]) * 32, 1)
+    chain = _Chain([{"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY}])
+    ctx = _context(monkeypatch, chain, {"old": receiving_address(old)})
+    pa.upsert_protected(_record(old, pure, setup={"status": "ready"}))
+    intent = Batch(
+        intents=[
+            AddProxy(
+                delegate_ss58=attacker.ss58_address,
+                proxy_type="Any",
+                delay=0,
+            )
+        ]
+    )
+
+    with pytest.raises(typer.Exit) as rejected:
+        protected_cli.maybe_route_protected(
+            ctx,
+            intent,
+            proxy_for=None,
+            user_set_proxy=False,
+        )
+
+    assert rejected.value.exit_code == 2
+    assert chain.grants == [{"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY}]
+
+
+# PR #3305: an older saved row cannot disguise arbitrary proxy management as a normal batch.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+def test_saved_batch_is_not_treated_as_protect_managed_operation(monkeypatch):
+    old = Keypair.create_from_seed(bytes([68]) * 32, 1)
+    attacker = Keypair.create_from_seed(bytes([70]) * 32, 1)
+    pure = Keypair.create_from_seed(bytes([69]) * 32, 1)
+    chain = _Chain([{"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY}])
+    ctx = _context(monkeypatch, chain, {"old": receiving_address(old)})
+    encoded = {
+        "op": "batch",
+        "intents": [
+            {
+                "op": "add_proxy",
+                "delegate_ss58": attacker.ss58_address,
+                "proxy_type": "Any",
+                "delay": 0,
+            }
+        ],
+    }
+    row = {"category": "batch", "real_ss58": pure.ss58_address}
+
+    assert not protected_cli._is_protected_management_receipt(row, encoded)
+    with pytest.raises(typer.Exit) as rejected:
+        protected_cli._refuse_protected_management(ctx, encoded, pure.ss58_address)
+    assert rejected.value.exit_code == 2
 
 
 # PR #3305: rotation must not strand executable calls or their reserved deposits under the old key.

@@ -175,6 +175,33 @@ def _assert_subsequent_wallet_routing(ctx, name, pure):
     assert pending[-1]["inner_op"] == "transfer"
 
 
+# PR #3305: a rotation reviewed against an empty queue must stop if the queue changes.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+def test_rotation_execute_refuses_a_later_announcement(rotation):
+    ctx, chain, _record, root, _old, _pure, errors = rotation
+    new = Keypair.create_from_seed(bytes([123]) * 32, 1)
+    _write_public(root, "new", new)
+    protected.run_rotate(ctx, to_wallet="new")
+    rotation_row = ann.list_for_wallet("old", genesis_hash=GENESIS)[0]
+    chain.announcements.append(
+        {
+            "real": chain.pure,
+            "call_hash": "0x" + "44" * 32,
+            "height": chain.height + 1,
+        }
+    )
+    chain.height = 111
+
+    with pytest.raises(typer.Exit) as rejected:
+        protected.run_execute_protected(ctx, index=rotation_row["index"])
+
+    assert rejected.value.exit_code == 2
+    assert len(chain.submitted) == 1
+    assert isinstance(chain.submitted[0], AnnounceProxyCall)
+    assert pa.get_by_controller("old", genesis_hash=GENESIS) is not None
+    assert errors and "queue changed" in errors[-1]
+
+
 @pytest.mark.parametrize("crypto_type,full_address", [(1, False), (6, False), (6, True)])
 def test_raw_rotation_executes_and_routes_again_by_actual_wallet_name(
     rotation, crypto_type, full_address

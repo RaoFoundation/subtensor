@@ -181,8 +181,10 @@ btcli stake remove --wallet main ...
 Value-moving calls are **announced** (signed via `main` / its multisig), the
 plaintext, exact call bytes, runtime version, and decoded meaning are stored
 locally. Before the hash is submitted, btcli shows and preflights the complete
-inner operation, including destination, amount, refill, spend limits, and
-available balance. You then see:
+inner operation, including destination, amount, refill, and available balance.
+The standard btcli configuration does not install a persistent spend cap or
+netuid allowlist; the cancellation window and the displayed call review are the
+protection for delayed operations. You then see:
 
 ```
 Protected account: main-protected (5H..)
@@ -247,10 +249,12 @@ separate.
 
 If the same call was announced more than once, each on-chain commitment has its
 own stable index and execution window. Retrying after a lost receipt recovers
-the existing commitment instead of reserving another deposit. Executing a ready
-entry cannot hide or accidentally execute its younger duplicate. Readiness uses
-the controller's current on-chain delay, including changes executed from another
-device.
+the existing commitment instead of reserving another deposit. The plaintext is
+saved before submission, so an inclusion-unknown retry is refused while the
+first transaction may still be in the pool. After one instance executes,
+no-index execution skips later identical instances; pass their explicit index
+only when repeating the operation is intentional. Readiness uses the controller's
+current on-chain delay, including changes executed from another device.
 Cancelled multisig approvals are removed from the pending view after the CLI
 confirms that both the underlying approval and proxy announcement are absent.
 Older rows recover the approval identity from historical events and call data;
@@ -277,12 +281,14 @@ btcli proxy rotate --wallet main --to newwallet
 Rotation is refused until the old controller's announcement queue is empty;
 otherwise removing it could strand executable calls and their deposits. It
 then announces an atomic batch that replaces all proxy grants, adds `newwallet`
-as the delayed controller, and restores only the zero-delay grants recorded for
-the configured allow key. Unreviewed grants, pending disallows, and grants added
-after the snapshot are not silently carried forward. Completion requires the
-exact configured delay. Proxy fee sponsorship is reset. If any replacement
-fails, the entire batch rolls back. No coldkey swap is needed. After execution,
-the local config record moves to `newwallet` automatically.
+as the delayed controller, and restores only live zero-delay grants that are
+also recorded as reviewed policy for the configured allow key. btcli checks the
+queue again immediately before execution and refuses if another announcement was
+added after review. A third-party relayer can still execute any matured on-chain
+rotation directly, so monitor and cancel a stale rotation if the queue changes.
+Completion requires the exact configured delay. Proxy fee sponsorship is reset.
+If any replacement fails, the entire batch rolls back. No coldkey swap is needed.
+After execution, the local config record moves to `newwallet` automatically.
 
 The destination wallet must not already control a different local protected
 account on the same network. A conflicting binding is preserved and rotation

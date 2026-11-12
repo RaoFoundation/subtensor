@@ -129,6 +129,7 @@ def add_announcement(
     runtime_spec_version: Optional[int] = None,
     call_semantics: Optional[dict[str, Any]] = None,
     genesis_hash: Optional[str] = None,
+    status: str = "pending",
 ) -> dict[str, Any]:
     """Append a pending announcement and return the stored row.
 
@@ -154,7 +155,7 @@ def add_announcement(
         "executable_at_block": int(announced_at_block) + int(delay_blocks),
         "force_proxy_type": force_proxy_type,
         "summary": summary or category,
-        "status": "pending",
+        "status": status,
         "created_at": int(time.time()),
     }
     if genesis_hash is not None:
@@ -168,7 +169,11 @@ def add_announcement(
     # Re-announcing the same commitment, or finishing multisig approvals, must
     # retain the index previously shown by discovery or an earlier submission.
     for i, existing in enumerate(rows):
-        if _same_identity(existing, row):
+        reusable_identity = _same_identity(existing, row) and not (
+            status == "submitting"
+            and existing.get("status") not in {"submitting", "awaiting_approval"}
+        )
+        if reusable_identity:
             row = {**existing, **row, "index": existing["index"]}
             row.pop("plaintext_missing", None)
             row.pop("on_chain", None)
@@ -235,15 +240,22 @@ def upsert_on_chain_announcement(
                     rows[j] = {**duplicate, "status": "superseded"}
             break
     else:
-        template = next((existing for existing in rows if _same_commitment(existing, chain)), None)
+        templates = [existing for existing in rows if _same_commitment(existing, chain)]
+        template = next(
+            (
+                existing
+                for existing in templates
+                if existing.get("status") in {"submitting", "awaiting_approval"}
+            ),
+            next((existing for existing in reversed(templates) if existing.get("inner_op")), None),
+        )
+        reuse_provisional = bool(
+            template and template.get("status") in {"submitting", "awaiting_approval"}
+        )
         row = {
             **(template or {}),
             **chain,
-            "index": (
-                template["index"]
-                if template and template.get("status") != "pending"
-                else next_index(rows)
-            ),
+            "index": (template["index"] if reuse_provisional else next_index(rows)),
             "inner_op": (template or {}).get("inner_op", ""),
             "inner_args": (template or {}).get("inner_args", {}),
             "category": (template or {}).get("category", "unknown"),
@@ -252,7 +264,7 @@ def upsert_on_chain_announcement(
             "plaintext_missing": not bool((template or {}).get("inner_op")),
             "created_at": int(time.time()),
         }
-        if template and template.get("status") != "pending":
+        if reuse_provisional:
             rows[rows.index(template)] = row
         else:
             rows.append(row)
@@ -260,7 +272,47 @@ def upsert_on_chain_announcement(
     return row
 
 
-ACTIVE_ANNOUNCEMENT_STATUSES = frozenset({"pending", "awaiting_approval"})
+ACTIVE_ANNOUNCEMENT_STATUSES = frozenset({"pending", "submitting", "awaiting_approval"})
+
+
+def unconfirmed_commitment(
+    controller_wallet: str,
+    *,
+    genesis_hash: str,
+    delegate_ss58: str,
+    real_ss58: str,
+    call_hash: str,
+) -> Optional[dict[str, Any]]:
+    """Return a locally reserved submission that may still enter the chain."""
+    candidate = {
+        "controller_wallet": controller_wallet,
+        "genesis_hash": genesis_hash,
+        "delegate_ss58": delegate_ss58,
+        "real_ss58": real_ss58,
+        "call_hash": call_hash,
+    }
+    return next(
+        (
+            row
+            for row in load_announcements()
+            if row.get("status") in {"submitting", "awaiting_approval"}
+            and _same_commitment(row, candidate)
+        ),
+        None,
+    )
+
+
+def executed_commitment_index(row: dict[str, Any]) -> Optional[int]:
+    """Return a prior executed instance of the same payload, if one exists."""
+    match = next(
+        (
+            saved
+            for saved in load_announcements()
+            if saved.get("status") == "executed" and _same_commitment(saved, row)
+        ),
+        None,
+    )
+    return int(match["index"]) if match is not None else None
 
 
 def list_for_wallet(

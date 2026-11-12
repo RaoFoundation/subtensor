@@ -9,6 +9,7 @@ from hashlib import blake2b
 from types import SimpleNamespace
 
 import pytest
+import typer
 
 from bittensor import protected_account as pa
 from bittensor import proxy_announcements as ann
@@ -202,6 +203,34 @@ def test_duplicate_hash_uses_earliest_window_and_preserves_younger_commitment(
         assert later[0]["index"] == original_later["index"]
         assert later[0]["executable_at_block"] == 166
         assert later[0]["status"] == "waiting"
+        chain.current_block = 166
+        protected_cli.run_execute_protected(ctx, index=None)
+        assert chain.balances[destination] == 1_000_000_000
+        assert chain.announcements
+        protected_cli.run_execute_protected(ctx, index=later[0]["index"])
+        assert chain.balances[destination] == 2_000_000_000
+
+
+# PR #3305: a lost submission receipt must not allow an identical mempool retry.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+def test_plaintext_is_reserved_before_submit_and_blocks_unknown_retry(timing_setup, monkeypatch):
+    ctx, _chain, record, destination, _shown, _messages = timing_setup
+    transfer = Transfer(dest_ss58=destination, amount_tao=1)
+
+    def lose_receipt(*_args, **_kwargs):
+        raise OSError("connection lost after broadcast")
+
+    monkeypatch.setattr(ctx, "submit", lose_receipt)
+    with pytest.raises(OSError, match="connection lost"):
+        protected_cli._submit_protected_announcement(ctx, transfer, record)
+
+    reserved = ann.list_for_wallet("controller", genesis_hash=GENESIS)
+    assert len(reserved) == 1
+    assert reserved[0]["status"] == "submitting"
+    assert reserved[0]["call_data"]
+    with pytest.raises(typer.Exit) as rejected:
+        protected_cli._submit_protected_announcement(ctx, transfer, record)
+    assert rejected.value.exit_code == 2
 
 
 # PR #3305: overlapping delay updates must never advertise a longer cancellation window than live.

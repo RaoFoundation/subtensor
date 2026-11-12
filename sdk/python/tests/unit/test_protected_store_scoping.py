@@ -117,14 +117,14 @@ def test_discovered_indices_keep_cancellation_target_after_other_calls_disappear
     assert selected["plaintext_missing"]
 
 
-@pytest.mark.parametrize("status", ["gone", "executed", "cancelled", "awaiting_approval"])
-def test_live_commitment_recovers_historical_plaintext_with_original_index(status):
+@pytest.mark.parametrize("status", ["gone", "executed", "cancelled"])
+def test_new_live_commitment_recovers_plaintext_with_a_new_index(status):
     saved = _announce(CHAIN_A)
     ann.mark_status("main", saved["index"], status, genesis_hash=CHAIN_A)
 
     recovered = _discover(saved["call_hash"], height=200)
 
-    assert recovered["index"] == saved["index"]
+    assert recovered["index"] != saved["index"]
     assert recovered["inner_op"] == saved["inner_op"]
     assert recovered["inner_args"] == saved["inner_args"]
     assert recovered["call_data"] == saved["call_data"]
@@ -132,6 +132,18 @@ def test_live_commitment_recovers_historical_plaintext_with_original_index(statu
     assert recovered["status"] == "pending"
     assert recovered["executable_at_block"] == 210
     assert len(ann.list_for_wallet("main", genesis_hash=CHAIN_A)) == 1
+    assert ann.get_by_index("main", saved["index"], genesis_hash=CHAIN_A)["status"] == status
+
+
+def test_live_commitment_reuses_unconfirmed_multisig_index():
+    saved = _announce(CHAIN_A)
+    ann.mark_status("main", saved["index"], "awaiting_approval", genesis_hash=CHAIN_A)
+
+    recovered = _discover(saved["call_hash"], height=200)
+
+    assert recovered["index"] == saved["index"]
+    assert recovered["status"] == "pending"
+    assert recovered["call_data"] == saved["call_data"]
 
 
 def test_announcing_discovered_hash_attaches_plaintext_without_changing_index():

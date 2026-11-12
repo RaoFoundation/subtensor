@@ -273,7 +273,7 @@ def test_threshold_reached_during_reconciliation_does_not_drop_announced_call(li
     assert _saved(row)["status"] == "pending"
 
 
-def test_remote_executed_allow_no_longer_blocks_rotation_and_is_migrated(lifecycle, monkeypatch):
+def test_remote_executed_unreviewed_allow_is_cleared_by_rotation(lifecycle, monkeypatch):
     ctx, chain, _record, _messages, _errors = lifecycle
     row = _row()
     chain.grants.append({"delegate": ALICE, "proxy_type": "Staking", "delay": 0})
@@ -290,9 +290,9 @@ def test_remote_executed_allow_no_longer_blocks_rotation_and_is_migrated(lifecyc
     assert _stored()["pending_allows"] == []
     assert len(queued) == 1
     record, intent, kwargs = queued[0]
-    assert record["allows"] == ["Staking"]
-    assert kwargs["row_extra"]["rotate_migrated_allows"] == ["Staking"]
-    assert any(
+    assert record["allows"] == []
+    assert kwargs["row_extra"]["rotate_migrated_allows"] == []
+    assert not any(
         child.get("delegate_ss58") == BOB and child.get("proxy_type") == "Staking"
         for child in intent.intents
     )
