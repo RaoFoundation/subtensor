@@ -633,6 +633,21 @@ class ExecuteProxyAnnounced(Intent):
             "after pool prices or balances move."
         },
     )
+    expected_call_hash: Optional[str] = field(
+        default=None,
+        repr=False,
+        metadata={"help": "Expected on-chain Blake2-256 commitment for the saved call bytes."},
+    )
+    announced_spec_version: Optional[int] = field(
+        default=None,
+        repr=False,
+        metadata={"help": "Runtime spec version under which the saved call was composed."},
+    )
+    announced_call_semantics: Optional[dict] = field(
+        default=None,
+        repr=False,
+        metadata={"help": "Decoded call recorded when the announcement was composed."},
+    )
 
     def __post_init__(self):
         # The wrapper remains the semantic intent: returning the child from
@@ -655,16 +670,35 @@ class ExecuteProxyAnnounced(Intent):
 
         extras: dict = {}
         if self.announced_call_data:
+            from re import fullmatch
+
+            if fullmatch(r"0x(?:[0-9a-fA-F]{2})+", self.announced_call_data) is None:
+                raise ValueError("announced_call_data must be nonempty 0x-prefixed byte hex")
             data = bytes.fromhex(self.announced_call_data.removeprefix("0x"))
             spec = await substrate.spec_version()
             inner_call = CallBytes(data=data, spec_version=spec)
-            # Verify the stored bytes still match the announced commitment.
             actual = "0x" + bytes(inner_call.call_hash).hex()
-            # Hash check happens at dispatch time via the pallet; we still
-            # refuse early if the local row is obviously corrupt.
-            if not data:
-                raise ValueError("announced_call_data is empty")
-            _ = actual
+            if self.expected_call_hash and actual.lower() != self.expected_call_hash.lower():
+                raise ValueError(
+                    "saved call bytes do not match the selected announcement hash "
+                    f"({actual} != {self.expected_call_hash})"
+                )
+            if self.announced_spec_version is not None and spec != self.announced_spec_version:
+                if self.announced_call_semantics is None:
+                    raise ValueError(
+                        "runtime changed since this call was announced and the saved row "
+                        "has no original decoded semantics; cancel and re-announce it"
+                    )
+                from ..proxy_announcements import normalize_call_semantics
+
+                current_semantics = normalize_call_semantics(
+                    await substrate.decode_scale("Call", data)
+                )
+                if current_semantics != self.announced_call_semantics:
+                    raise ValueError(
+                        "runtime metadata now decodes the announced bytes differently; "
+                        "cancel and re-announce the operation"
+                    )
         else:
             origin = _OriginView(await account_for_read(substrate, self.real_ss58))
             origin._wallet = getattr(wallet, "_wallet", wallet)

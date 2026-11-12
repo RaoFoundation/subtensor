@@ -662,7 +662,9 @@ jobs:
     name: clone-upgrade (${{ matrix.phase }})
     needs: [changes, clone-plan, build-node-release]
     runs-on: [self-hosted, fireactions-turbo-8]
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
+    if: >-
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade')
     timeout-minutes: 90
     permissions:
       contents: read

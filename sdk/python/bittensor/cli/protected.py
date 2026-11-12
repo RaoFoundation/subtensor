@@ -46,6 +46,13 @@ PROTECTED_BYPASS_OPS = frozenset(
     }
 )
 
+# These calls can orphan the keyless account or install immediate authority.
+# Protected-account changes must go through protect/rotate, whose invariants
+# reconcile the complete grant set and delayed queue.
+PROTECTED_MANAGEMENT_OPS = frozenset(
+    {"add_proxy", "remove_proxy", "remove_proxies", "kill_pure_proxy"}
+)
+
 
 def _account_identity(address: str) -> str:
     """Use account identities for authority checks, retaining descriptors for writes."""
@@ -173,11 +180,27 @@ def maybe_route_protected(
     record = _get_protected_record(app_ctx, wallet_name, require_ready=True)
     if record is None:
         return proxy_for, None, False
+    if intent.op in PROTECTED_MANAGEMENT_OPS:
+        app_ctx.output.error(
+            f"refusing to auto-route {intent.op} to keyless protected account "
+            f"{record['protected_ss58']}",
+            help="use `btcli proxy protect --allow/--disallow` or `btcli proxy rotate`; "
+            "ordinary proxy management can orphan the account or install immediate authority",
+        )
+        raise typer.Exit(2)
     record = _refresh_live_allows(app_ctx, record)
     dispatcher = record.get("controller_ss58") or _controller_ss58(app_ctx)
     instant = pa.instant_proxy_type_for(
         intent.op, record, dispatcher_ss58=dispatcher, intent=intent
     )
+    if intent.op == "pow_register" and instant != "Registration":
+        app_ctx.output.error(
+            "PoW registration cannot use a protected account's delayed controller: "
+            "the proof expires after five blocks, long before the announcement delay",
+            help="PoW requires an already-installed zero-delay Registration proxy; "
+            "Registration is intentionally not offered by `btcli proxy protect --allow`",
+        )
+        raise typer.Exit(2)
     funded_intent = _offer_operation_refill(app_ctx, record, intent)
     if funded_intent is not intent:
         # A Staking allow cannot authorize a transfer. The user accepted an
@@ -190,6 +213,28 @@ def maybe_route_protected(
     # Delayed path: announce instead of executing.
     _submit_protected_announcement(app_ctx, intent, record)
     return None, None, True
+
+
+def protected_pow_origin(app_ctx: AppContext) -> Optional[str]:
+    """Return the pure origin for a usable instant PoW route, or reject delay."""
+    if not app_ctx.wallet_name:
+        return None
+    record = _get_protected_record(app_ctx, require_ready=True)
+    if record is None:
+        return None
+    record = _refresh_live_allows(app_ctx, record)
+    dispatcher = record.get("controller_ss58") or _controller_ss58(app_ctx)
+    if (
+        pa.instant_proxy_type_for("pow_register", record, dispatcher_ss58=dispatcher, intent=None)
+        != "Registration"
+    ):
+        app_ctx.output.error(
+            "PoW registration cannot wait behind this protected account's controller delay",
+            help="the proof is valid for only five blocks; use burn registration or an "
+            "explicitly installed zero-delay Registration proxy",
+        )
+        raise typer.Exit(2)
+    return record["protected_ss58"]
 
 
 def _controller_funding(app_ctx: AppContext, record: dict[str, Any]) -> dict[str, Any]:
@@ -243,6 +288,8 @@ def _offer_operation_refill(app_ctx: AppContext, record: dict[str, Any], intent)
     }
     if intent.op not in operations or app_ctx.dry_run:
         return intent
+    if getattr(app_ctx, "no_controller_refill", False):
+        return intent
     state = _controller_funding(app_ctx, record)
     if "available_rao" not in state:
         _funding_warning(app_ctx, state)
@@ -262,6 +309,22 @@ def _offer_operation_refill(app_ctx: AppContext, record: dict[str, Any], intent)
             "--from-wallet FUNDING_WALLET`."
         )
         return intent
+    pending_refill = _pending_controller_refill_rao(app_ctx, record)
+    if pending_refill:
+        app_ctx.output.message(
+            f"Controller refill already pending: {Balance.from_rao(pending_refill)}; "
+            "not stacking another refill. Execute or cancel the existing announcement first."
+        )
+        return intent
+    maximum = getattr(app_ctx, "max_controller_refill", None)
+    if maximum is not None and state["top_up_rao"] > maximum.rao:
+        app_ctx.output.error(
+            f"automatic controller refill {Balance.from_rao(state['top_up_rao'])} exceeds "
+            f"--max-controller-refill {maximum}",
+            help="raise the explicit ceiling, fund the controller externally, or pass "
+            "--no-refill-controller",
+        )
+        raise typer.Exit(2)
     amount = Balance.from_rao(state["top_up_rao"])
     app_ctx.output.message(
         f"Offer: include a {amount} refill to {record['controller_ss58']} in the same "
@@ -277,14 +340,59 @@ def _offer_operation_refill(app_ctx: AppContext, record: dict[str, Any], intent)
     children = intent.intents if isinstance(intent, Batch) else [intent.to_dict()]
     refill = Transfer(dest_ss58=record["controller_ss58"], amount_tao=amount)
     unstaking = {"remove_stake", "remove_stake_limit", "unstake_all", "unstake_all_alpha"}
-    withdrawal_batch = all(
-        child["op"] in unstaking | {"claim_root", "claim_root_with_hotkey"} for child in children
-    ) and any(child["op"] in unstaking for child in children)
-    if withdrawal_batch:
-        # The requested unstake can be the source of the refill's free TAO.
-        # Preserve atomicity, but release that TAO before attempting to send it.
-        return Batch(intents=[*children, refill.to_dict()])
+    release_ops = unstaking | {"claim_root", "claim_root_with_hotkey"}
+    last_release = max(
+        (index for index, child in enumerate(children) if child["op"] in release_ops),
+        default=-1,
+    )
+    if last_release >= 0:
+        # Preserve the user's child order while ensuring every requested
+        # release that may fund the refill runs before the transfer.
+        return Batch(
+            intents=[
+                *children[: last_release + 1],
+                refill.to_dict(),
+                *children[last_release + 1 :],
+            ]
+        )
     return Batch(intents=[refill.to_dict(), *children])
+
+
+def _pending_controller_refill_rao(app_ctx: AppContext, record: dict[str, Any]) -> int:
+    """Total TAO already committed from the pure account to its controller."""
+    from ..balance import Balance
+
+    controller = _account_identity(record["controller_ss58"])
+
+    def visit(encoded: dict[str, Any]) -> int:
+        if (
+            encoded.get("op") == "transfer"
+            and _account_identity(encoded.get("dest_ss58")) == controller
+        ):
+            amount = encoded.get("amount_tao")
+            if amount == "all":
+                return 0
+            try:
+                return Balance.from_tao(str(amount)).rao
+            except (TypeError, ValueError):
+                return 0
+        if encoded.get("op") == "batch":
+            return sum(visit(child) for child in encoded.get("intents") or [])
+        return 0
+
+    if all(hasattr(app_ctx, field) for field in ("network", "run")) and record.get("genesis_hash"):
+        rows = _reconcile_pending(app_ctx, record)
+    else:
+        # Pure policy/unit callers can still inspect the locally committed
+        # queue without manufacturing a network client.
+        rows = ann.list_for_wallet(
+            record["controller_wallet"], genesis_hash=record.get("genesis_hash")
+        )
+    return sum(
+        visit({"op": row.get("inner_op"), **(row.get("inner_args") or {})})
+        for row in rows
+        if not row.get("plaintext_missing")
+    )
 
 
 def run_fund(app_ctx: AppContext, *, from_wallet: str) -> None:
@@ -327,12 +435,19 @@ def run_fund(app_ctx: AppContext, *, from_wallet: str) -> None:
         raise typer.Exit(1)
 
 
-def offer_post_migration_funding(app_ctx: AppContext, destination: str) -> None:
+def offer_post_migration_funding(
+    app_ctx: AppContext, destination: str, *, controller_wallet: Optional[str] = None
+) -> None:
     from .prompt import interactive
 
-    record = _get_protected_record(app_ctx)
+    record = _get_protected_record(app_ctx, controller_wallet)
     if record is None or _account_identity(destination) != record["protected_ss58"]:
         return
+    # Multisig submission may have replaced wallet_name with the member that
+    # supplied the last approval. Follow-up lookup and funding must continue
+    # in the protected controller's namespace.
+    app_ctx.wallet_name = record["controller_wallet"]
+    app_ctx.multisig_wallet_name = record["controller_wallet"]
     controller = record["controller_ss58"]
     pending = app_ctx.run(lambda c: c.read("coldkey_swap_announcement", coldkey_ss58=controller))
     if pending is not None:
@@ -412,6 +527,51 @@ def _call_data_hex(call: Any) -> Optional[str]:
     if raw is None:
         return None
     return "0x" + bytes(raw).hex()
+
+
+def _review_protected_announcement(
+    app_ctx: AppContext, intent, record: dict[str, Any], wallet: Any
+) -> None:
+    """Run the normal inner-call safety plan before committing only its hash.
+
+    A delayed announcement is not permission to skip recipient, spend, balance,
+    or policy checks: discovering an impossible or unsafe call after the delay
+    would waste both the waiting period and the announcement deposit.
+    """
+    from .. import config as cfg
+
+    if not hasattr(app_ctx.output, "plan"):
+        # Minimal unit fixtures replace the output renderer. Production btcli
+        # always has it; keeping the guard avoids making storage tests emulate
+        # the complete transaction-review UI.
+        return
+
+    from ..executor import _OriginView
+    from .context import _ProtectedPreviewIntent
+    from .prompt import replay_command
+
+    plan_wallet = wallet
+    if cfg.get_multisig(record["controller_wallet"]) is not None:
+        # The saved multisig has no keyfile-shaped wallet of its own. Its
+        # public account is sufficient for inner-call policy and balance
+        # checks; the outer announcement flow selects the actual member payer.
+        plan_wallet = _OriginView(record["controller_ss58"])
+
+    async def _plan(client):
+        return await client.plan(
+            _ProtectedPreviewIntent(intent, record["protected_ss58"]),
+            plan_wallet,
+            shielded=False,
+        )
+
+    plan = app_ctx.run(_plan)
+    plan.effects.append(
+        f"commit this call for protected account {record['protected_ss58']}; "
+        f"execution remains delayed by {record.get('delay_blocks')} blocks"
+    )
+    app_ctx.output.plan(plan, command=replay_command())
+    if not plan.ok:
+        raise typer.Exit(1)
 
 
 def _hash_call_data(call_data: str) -> str:
@@ -632,11 +792,38 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
             client._substrate, intent, real, wallet
         )
         block = await client.block()
-        return composed, call_hash, block, intent.to_dict()
+        spec_version = None
+        with contextlib.suppress(Exception):
+            spec_version = await client._substrate.spec_version()
+        semantics = None
+        with contextlib.suppress(Exception):
+            semantics = await client.decode_scale("Call", bytes(composed.data))
+        return composed, call_hash, block, intent.to_dict(), spec_version, semantics
 
-    composed, call_hash, block, encoded = app_ctx.run(_prepare)
+    composed, call_hash, block, encoded, spec_version, semantics = app_ctx.run(_prepare)
+    _review_protected_announcement(app_ctx, intent, record, wallet)
     inner_args = {k: v for k, v in encoded.items() if k != "op"}
     call_data = _call_data_hex(composed)
+    recovered = _recover_existing_commitment(
+        app_ctx,
+        record,
+        call_hash=call_hash,
+        inner_op=intent.op,
+        inner_args=inner_args,
+        category=ann.category_for_op(intent.op),
+        summary=intent.summary(),
+        call_data=call_data,
+        runtime_spec_version=spec_version,
+        call_semantics=semantics,
+        delay_blocks=delay,
+    )
+    if recovered is not None:
+        app_ctx.output.message(
+            f"identical announcement already exists on chain as #{recovered['index']}; "
+            "recovered its receipt instead of reserving another deposit"
+        )
+        print_queued(app_ctx, record=record, row=recovered, current_block=block)
+        return
     with _preserve_controller_context(app_ctx, record) as controller_ss58:
         result = app_ctx.submit(
             AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
@@ -664,6 +851,8 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
         force_proxy_type="Any",
         summary=intent.summary(),
         call_data=call_data,
+        runtime_spec_version=spec_version,
+        call_semantics=semantics,
     )
     row = _mark_announcement_from_submit(app_ctx, row, result) or row
     row = next(
@@ -671,6 +860,57 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
         row,
     )
     print_queued(app_ctx, record=record, row=row, current_block=announced_at)
+
+
+def _recover_existing_commitment(
+    app_ctx: AppContext,
+    record: dict[str, Any],
+    *,
+    call_hash: str,
+    inner_op: str,
+    inner_args: dict[str, Any],
+    category: str,
+    summary: str,
+    call_data: Optional[str],
+    runtime_spec_version: Optional[int],
+    call_semantics: Optional[dict[str, Any]],
+    delay_blocks: int,
+) -> Optional[dict[str, Any]]:
+    """Recover a lost receipt without creating a duplicate on-chain commitment."""
+    controller = _account_identity(record.get("controller_ss58") or _controller_ss58(app_ctx))
+    matches = [
+        item
+        for item in _on_chain_announcements(
+            app_ctx,
+            controller_ss58=controller,
+            protected_ss58=record["protected_ss58"],
+            delay_blocks=delay_blocks,
+        )
+        if str(item["call_hash"]).lower() == str(call_hash).lower()
+    ]
+    recovered = []
+    for item in matches:
+        recovered.append(
+            ann.add_announcement(
+                controller_wallet=record["controller_wallet"],
+                genesis_hash=record["genesis_hash"],
+                delegate_ss58=controller,
+                real_ss58=record["protected_ss58"],
+                call_hash=call_hash,
+                inner_op=inner_op,
+                inner_args=inner_args,
+                category=category,
+                delay_blocks=delay_blocks,
+                announced_at_block=int(item["announced_at_block"]),
+                announcement_ordinal=int(item.get("announcement_ordinal") or 0),
+                force_proxy_type="Any",
+                summary=summary,
+                call_data=call_data,
+                runtime_spec_version=runtime_spec_version,
+                call_semantics=call_semantics,
+            )
+        )
+    return min(recovered, key=lambda row: int(row["announced_at_block"])) if recovered else None
 
 
 def warn_defeating_proxies(app_ctx: AppContext, record: dict[str, Any]) -> None:
@@ -865,22 +1105,34 @@ def _on_chain_announcements(
         data = await client.read("proxy_announcements", delegate_ss58=controller_ss58)
         return data["announcements"]
 
-    rows: dict[str, dict[str, Any]] = {}
+    rows: list[dict[str, Any]] = []
+    occurrences: dict[tuple[str, int], int] = {}
     for item in app_ctx.run(_load):
         if item["real"] != protected_ss58:
             continue
         height = int(item["height"])
-        key = str(item["call_hash"]).lower()
-        if key not in rows or height < rows[key]["announced_at_block"]:
-            rows[key] = {
+        identity = (str(item["call_hash"]).lower(), height)
+        ordinal = occurrences.get(identity, 0)
+        occurrences[identity] = ordinal + 1
+        rows.append(
+            {
                 "real_ss58": item["real"],
                 "call_hash": item["call_hash"],
                 "announced_at_block": height,
+                "announcement_ordinal": ordinal,
                 "delay_blocks": delay_blocks,
                 "executable_at_block": height + delay_blocks,
                 "delegate_ss58": controller_ss58,
             }
-    return list(rows.values())
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            row["announced_at_block"],
+            row["call_hash"],
+            row["announcement_ordinal"],
+        ),
+    )
 
 
 def _live_controller_delay(
@@ -942,7 +1194,7 @@ def _reconcile_pending(app_ctx: AppContext, record: dict[str, Any]) -> list[dict
     )
     # Persist discovered identities before showing an index. Reuse historical
     # plaintext when a previously disappeared commitment is seen again.
-    by_hash = {}
+    by_identity = {}
     history = ann.list_for_wallet(wallet_name, include_done=True, genesis_hash=genesis_hash)
     for item in on_chain:
         fields: dict[str, Any] = dict(
@@ -953,6 +1205,7 @@ def _reconcile_pending(app_ctx: AppContext, record: dict[str, Any]) -> list[dict
             call_hash=item["call_hash"],
             delay_blocks=delay,
             announced_at_block=item["announced_at_block"],
+            announcement_ordinal=item.get("announcement_ordinal", 0),
         )
         if dry_run:
             matches = [
@@ -962,8 +1215,18 @@ def _reconcile_pending(app_ctx: AppContext, record: dict[str, Any]) -> list[dict
                 and _account_identity(saved["delegate_ss58"]) == controller
                 and _account_identity(saved["real_ss58"]) == record["protected_ss58"]
             ]
+            exact = next(
+                (
+                    saved
+                    for saved in matches
+                    if int(saved.get("announced_at_block") or 0) == int(item["announced_at_block"])
+                    and int(saved.get("announcement_ordinal") or 0)
+                    == int(item.get("announcement_ordinal") or 0)
+                ),
+                None,
+            )
             saved = (
-                matches[0]
+                exact or (matches[0] if matches else None)
                 if matches
                 else {
                     "index": None,
@@ -984,14 +1247,23 @@ def _reconcile_pending(app_ctx: AppContext, record: dict[str, Any]) -> list[dict
             }
         else:
             row = ann.upsert_on_chain_announcement(**fields)
-        by_hash[str(item["call_hash"]).lower()] = row
+        identity = (
+            str(item["call_hash"]).lower(),
+            int(item["announced_at_block"]),
+            int(item.get("announcement_ordinal") or 0),
+        )
+        by_identity[identity] = row
     local = ann.list_for_wallet(wallet_name, genesis_hash=genesis_hash)
-    merged: list[dict[str, Any]] = list(by_hash.values())
+    merged: list[dict[str, Any]] = list(by_identity.values())
 
     for row in local:
-        key = str(row.get("call_hash") or "").lower()
+        identity = (
+            str(row.get("call_hash") or "").lower(),
+            int(row.get("announced_at_block") or 0),
+            int(row.get("announcement_ordinal") or 0),
+        )
         if (
-            key in by_hash
+            identity in by_identity
             and _account_identity(row["delegate_ss58"]) == controller
             and row["real_ss58"] == record["protected_ss58"]
         ):
@@ -1084,6 +1356,9 @@ def run_protect(
         app_ctx.output.error(str(error))
         raise typer.Exit(2) from error
 
+    if allow_types:
+        _warn_allow_authority(app_ctx, allow_types, separate_key=bool(allow_key))
+
     allow_key_ss58 = None
     if allow_key:
         allow_key_ss58 = app_ctx.resolve_address("coldkey_ss58", allow_key)
@@ -1123,6 +1398,62 @@ def run_protect(
         disallow_types=disallow_types,
         allow_key_ss58=allow_key_ss58,
     )
+
+
+def _warn_allow_authority(
+    app_ctx: AppContext, allow_types: list[str], *, separate_key: bool
+) -> None:
+    """Disclose the complete live ProxyType filters before granting delay-0 authority."""
+    from .._generated.runtime_apis import ProxyFilterRuntimeApi
+
+    def text_value(value: Any) -> str:
+        if isinstance(value, bytes):
+            return value.decode(errors="replace")
+        if isinstance(value, list) and all(isinstance(part, int) for part in value):
+            return bytes(value).decode(errors="replace")
+        return str(value)
+
+    filters: dict[str, list[str]] = {}
+    try:
+        raw = app_ctx.run(lambda c: c.runtime(ProxyFilterRuntimeApi.get_proxy_filters, [None]))
+        for item in raw or []:
+            name = text_value(item.get("name") or "")
+            mode = item.get("filter_mode") or {}
+            calls = mode.get("Allow", []) if isinstance(mode, dict) else []
+            rendered = []
+            for call in calls:
+                if isinstance(call, dict):
+                    pallet = text_value(
+                        call.get("pallet_name") or call.get("pallet") or call.get("module") or ""
+                    )
+                    function = text_value(
+                        call.get("call_name") or call.get("call") or call.get("function") or ""
+                    )
+                    rendered.append(f"{pallet}::{function}" if pallet and function else str(call))
+                else:
+                    rendered.append(str(call))
+            if name:
+                filters[name] = rendered
+    except Exception:
+        # Disclosure must not make setup depend on a new runtime API. Older
+        # chains still get the SDK's complete known operation list.
+        filters = {}
+
+    app_ctx.output.message(
+        "[bold red]WARNING: every --allow grant is zero-delay authority. A stolen "
+        "allow key can repeatedly run every listed operation and destroy economic "
+        "value even when it cannot transfer free TAO.[/bold red]"
+    )
+    for proxy_type in allow_types:
+        calls = filters.get(proxy_type) or sorted(pa.PROXY_TYPE_INTENT_OPS.get(proxy_type, ()))
+        rendered = ", ".join(calls) if calls else "all live filter calls"
+        app_ctx.output.message(f"  {proxy_type}: {rendered}")
+    if not separate_key:
+        app_ctx.output.message(
+            "[bold red]The controller would hold these instant grants too. For a "
+            "high-value account, use a separate --allow-key so compromising the "
+            "controller does not also compromise every allow.[/bold red]"
+        )
 
 
 def _bind_legacy_network(app_ctx: AppContext, wallet_name: str) -> None:
@@ -1879,9 +2210,37 @@ def _announce_as_protected(
             client._substrate, intent, real, wallet
         )
         block = await client.block()
-        return composed, call_hash, block
+        spec_version = None
+        with contextlib.suppress(Exception):
+            spec_version = await client._substrate.spec_version()
+        semantics = None
+        with contextlib.suppress(Exception):
+            semantics = await client.decode_scale("Call", bytes(composed.data))
+        return composed, call_hash, block, spec_version, semantics
 
-    composed, call_hash, block = app_ctx.run(_prepare)
+    composed, call_hash, block, spec_version, semantics = app_ctx.run(_prepare)
+    _review_protected_announcement(app_ctx, intent, record, wallet)
+    encoded = intent.to_dict()
+    inner_args = {k: v for k, v in encoded.items() if k != "op"}
+    recovered = _recover_existing_commitment(
+        app_ctx,
+        record,
+        call_hash=call_hash,
+        inner_op=intent.op,
+        inner_args=inner_args,
+        category=category,
+        summary=intent.summary(),
+        call_data=_call_data_hex(composed),
+        runtime_spec_version=spec_version,
+        call_semantics=semantics,
+        delay_blocks=delay,
+    )
+    if recovered is not None:
+        app_ctx.output.message(
+            f"identical {category} announcement already exists on chain as "
+            f"#{recovered['index']}; recovered its receipt instead of duplicating it"
+        )
+        return recovered
     with _preserve_controller_context(app_ctx, record) as controller_ss58:
         result = app_ctx.submit(
             AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
@@ -1896,8 +2255,6 @@ def _announce_as_protected(
     if result.extrinsic_id:
         with contextlib.suppress(ValueError):
             announced_at = int(str(result.extrinsic_id).split("-")[0])
-    encoded = intent.to_dict()
-    inner_args = {k: v for k, v in encoded.items() if k != "op"}
     row = ann.add_announcement(
         controller_wallet=record["controller_wallet"],
         genesis_hash=record["genesis_hash"],
@@ -1912,6 +2269,8 @@ def _announce_as_protected(
         force_proxy_type="Any",
         summary=intent.summary(),
         call_data=_call_data_hex(composed),
+        runtime_spec_version=spec_version,
+        call_semantics=semantics,
     )
     row = _mark_announcement_from_submit(app_ctx, row, result) or row
     if row_extra:
@@ -2263,7 +2622,9 @@ def _clear_pending_allow_after_cancel(row: dict[str, Any]) -> None:
         pa.upsert_protected({**record, "pending_allows": pending_allows})
 
 
-def run_execute_protected(app_ctx: AppContext, *, index: Optional[int]) -> None:
+def run_execute_protected(
+    app_ctx: AppContext, *, index: Optional[int], fee_payer: Optional[str] = None
+) -> None:
     wallet_name = require_wallet_name(app_ctx)
     record = _get_protected_record(app_ctx, wallet_name)
     if record is None:
@@ -2284,7 +2645,7 @@ def run_execute_protected(app_ctx: AppContext, *, index: Optional[int]) -> None:
                 "(checked local store and on-chain Proxy.Announcements)"
             )
             raise typer.Exit(1)
-        _execute_one(app_ctx, row, current)
+        _execute_one(app_ctx, row, current, fee_payer=fee_payer)
         return
 
     def _idx(row: dict[str, Any]) -> Optional[int]:
@@ -2332,10 +2693,16 @@ def run_execute_protected(app_ctx: AppContext, *, index: Optional[int]) -> None:
             app_ctx.output.message("no pending announcements")
         return
     for row in ready:
-        _execute_one(app_ctx, row, current)
+        _execute_one(app_ctx, row, current, fee_payer=fee_payer)
 
 
-def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -> None:
+def _execute_one(
+    app_ctx: AppContext,
+    row: dict[str, Any],
+    current_block: int,
+    *,
+    fee_payer: Optional[str] = None,
+) -> None:
     if row.get("plaintext_missing") or not row.get("inner_op"):
         app_ctx.output.error(
             f"#{row['index']} has no local plaintext — cannot execute; cancel instead "
@@ -2360,7 +2727,12 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
         "controller_wallet": row["controller_wallet"],
         "controller_ss58": row.get("delegate_ss58"),
     }
-    with _preserve_controller_context(app_ctx, record):
+    context = (
+        _execution_fee_payer(app_ctx, fee_payer)
+        if fee_payer
+        else _preserve_controller_context(app_ctx, record)
+    )
+    with context:
         result = app_ctx.submit(
             ExecuteProxyAnnounced(
                 delegate_ss58=row["delegate_ss58"],
@@ -2369,6 +2741,9 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
                 inner_args=row.get("inner_args") or {},
                 force_proxy_type=row.get("force_proxy_type") or "Any",
                 announced_call_data=row.get("call_data"),
+                expected_call_hash=row.get("call_hash"),
+                announced_spec_version=row.get("runtime_spec_version"),
+                announced_call_semantics=row.get("call_semantics"),
             ),
             proxy_for="self",
             summary=(
@@ -2478,6 +2853,39 @@ def _execute_one(app_ctx: AppContext, row: dict[str, Any], current_block: int) -
                         )
 
 
+@contextlib.contextmanager
+def _execution_fee_payer(app_ctx: AppContext, wallet_name: str):
+    """Select a single local signer that pays only for permissionless execution."""
+    saved = (
+        app_ctx.wallet_name,
+        app_ctx.wallet_given,
+        app_ctx.multisig_wallet_name,
+        app_ctx.signatory_wallet,
+        list(app_ctx.signatory_wallets),
+        app_ctx.signer_backend,
+        app_ctx.signer_address,
+    )
+    try:
+        app_ctx.wallet_name = wallet_name
+        app_ctx.wallet_given = True
+        app_ctx.multisig_wallet_name = None
+        app_ctx.signatory_wallet = None
+        app_ctx.signatory_wallets = []
+        app_ctx.signer_backend = None
+        app_ctx.signer_address = None
+        yield
+    finally:
+        (
+            app_ctx.wallet_name,
+            app_ctx.wallet_given,
+            app_ctx.multisig_wallet_name,
+            app_ctx.signatory_wallet,
+            app_ctx.signatory_wallets,
+            app_ctx.signer_backend,
+            app_ctx.signer_address,
+        ) = saved
+
+
 def _rotation_complete_on_chain(
     app_ctx: AppContext,
     record: dict[str, Any],
@@ -2530,10 +2938,18 @@ def _rotation_batch_children(
         RemoveProxies().to_dict(),
         AddProxy(delegate_ss58=new_ss58, proxy_type="Any", delay=delay).to_dict(),
     ]
+    # Preserve only grants represented by this protected record's explicit
+    # allow-key policy. An arbitrary non-controller grant may have been planted
+    # by an attacker and rotation is the recovery boundary that must clear it.
+    allow_key = _account_identity(record.get("allow_key_ss58"))
+    recorded_allows = set(record.get("allows") or [])
     replacements = [
         (grant["delegate"], str(grant["proxy_type"]), int(grant["delay"]))
         for grant in data["proxies"]
-        if _account_identity(grant["delegate"]) != controller_ss58
+        if allow_key
+        and _account_identity(grant["delegate"]) == allow_key
+        and str(grant["proxy_type"]) in recorded_allows
+        and int(grant["delay"]) == 0
     ]
     for proxy_type in migrate:
         replacements.append((new_ss58, proxy_type, 0))
@@ -2695,7 +3111,24 @@ def run_rotate(app_ctx: AppContext, *, to_wallet: str) -> None:
             f"{destination['protected_ss58']} on this network; choose another wallet"
         )
         raise typer.Exit(2)
-    _reconcile_pending(app_ctx, record)
+    pending = _reconcile_pending(app_ctx, record)
+    if pending:
+        labels = ", ".join(
+            f"#{row.get('index')} {row.get('category') or row.get('inner_op') or 'unknown'}"
+            for row in pending
+        )
+        grants = pa.pending_allow_grant_labels(pending)
+        reason = (
+            "cannot rotate while allow grants are still pending: "
+            if grants
+            else "cannot rotate while the old controller has pending announcements: "
+        )
+        app_ctx.output.error(
+            reason + labels,
+            help="execute the operations you still want and cancel the rest, then rerun "
+            "rotation; otherwise their deposits and plaintext can be stranded",
+        )
+        raise typer.Exit(2)
     record = _refresh_live_allows(app_ctx, record)
     delay = _live_controller_delay(app_ctx, record, require_grant=True)
     record = {**record, "delay_blocks": delay}
@@ -2716,10 +3149,17 @@ def run_rotate(app_ctx: AppContext, *, to_wallet: str) -> None:
         new_ss58=new_address,
         delay=delay,
     )
+    retained = [
+        child
+        for child in children
+        if child.get("op") == "add_proxy"
+        and _account_identity(child.get("delegate_ss58")) != _account_identity(new_ss58)
+    ]
     app_ctx.output.message(
-        "Rotation atomically replaces all proxy grants with the reviewed grants. "
-        "Grants added during the waiting period will be removed; proxy fee "
-        "sponsorship will be reset."
+        "Rotation atomically clears every proxy grant, installs the new delayed "
+        "controller, and restores only the protected record's explicit allow-key "
+        f"grants: {retained or 'none'}. Grants added outside that policy, including "
+        "during the waiting period, will be removed; proxy fee sponsorship will be reset."
     )
     row = _announce_as_protected(
         app_ctx,

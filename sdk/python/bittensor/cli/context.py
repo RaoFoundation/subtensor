@@ -285,6 +285,10 @@ class AppContext:
     _resolving_multisigs: set = field(default_factory=set)
     # Explicit per-invocation authorization; never persisted as a wallet default.
     max_registration_deposit: Optional[Balance] = None
+    # Optional ceiling for an automatic protected-account controller refill.
+    max_controller_refill: Optional[Balance] = None
+    # Per-invocation opt-out; --yes otherwise retains its documented auto-refill behavior.
+    no_controller_refill: bool = False
 
     def reset_extension_session(self) -> None:
         self._extension_selection = None
@@ -1914,7 +1918,7 @@ class AppContext:
                             execution_intent = await client.mine_pow_registration(
                                 intent.netuid,
                                 intent.hotkey_address(signer, intent.hotkey_ss58),
-                                public_view(signer, "coldkey").ss58_address,
+                                proxy_for or public_view(signer, "coldkey").ss58_address,
                                 workers=intent.mining_workers,
                                 max_seconds=intent.mining_timeout,
                                 backend=intent.mining_backend,
@@ -1952,7 +1956,7 @@ class AppContext:
                         execution_intent = await client.mine_pow_registration(
                             intent.netuid,
                             intent.hotkey_address(signer, intent.hotkey_ss58),
-                            public_view(signer, "coldkey").ss58_address,
+                            proxy_for or public_view(signer, "coldkey").ss58_address,
                             workers=intent.mining_workers,
                             max_seconds=intent.mining_timeout,
                             backend=intent.mining_backend,

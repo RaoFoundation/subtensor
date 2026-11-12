@@ -33,17 +33,14 @@ def test_parse_delay_rejects_zero_and_accepts_duration():
 
 
 def test_allow_items_map_and_refuse_dangerous():
-    assert pa.resolve_allow_items(["unstake", "childkeys", "basket-swaps"]) == [
+    assert pa.resolve_allow_items(["staking", "childkeys", "basket-swaps"]) == [
         "Staking",
         "ChildKeys",
         "BasketTrading",
     ]
-    with pytest.raises(ValueError, match="refused"):
-        pa.resolve_allow_item("transfer")
-    with pytest.raises(ValueError, match="refused"):
-        pa.resolve_allow_item("any")
-    with pytest.raises(ValueError, match="refused"):
-        pa.resolve_allow_item("nontransfer")
+    for item in ("stake", "unstake", "registration", "lock", "transfer", "any", "nontransfer"):
+        with pytest.raises(ValueError, match="refused"):
+            pa.resolve_allow_item(item)
     with pytest.raises(ValueError, match="no suitably narrow"):
         pa.resolve_allow_item("crowdloan")
 

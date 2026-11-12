@@ -160,7 +160,7 @@ def timing_setup(tmp_path, monkeypatch):
 
 # PR #3305: a later duplicate must not hide an already executable transfer from its owner.
 # PROTECTED_REGRESSION: changes require explicit human approval.
-@pytest.mark.parametrize("heights", [(100, 130), (130, 100)])
+@pytest.mark.parametrize("heights", [(100, 130), (130, 100), (100, 100)])
 def test_duplicate_hash_uses_earliest_window_and_preserves_younger_commitment(
     timing_setup, heights
 ):
@@ -175,20 +175,33 @@ def test_duplicate_hash_uses_earliest_window_and_preserves_younger_commitment(
 
     protected_cli.run_show(ctx, index=None)
     pending = shown[-1]["pending"]
-    assert len(pending) == 1
-    assert pending[0]["announced_at_block"] == 100
-    assert pending[0]["executable_at_block"] == 136
-    assert pending[0]["status"] == "ready"
+    assert len(pending) == 2
+    assert sorted(row["announced_at_block"] for row in pending) == sorted(heights)
+    assert len({row["index"] for row in pending}) == 2
+    assert len({(row["announced_at_block"], row["announcement_ordinal"]) for row in pending}) == 2
+    for pending_row in pending:
+        height = pending_row["announced_at_block"]
+        assert pending_row["executable_at_block"] == height + 36
+        assert pending_row["status"] == ("ready" if height == 100 else "waiting")
 
-    protected_cli.run_execute_protected(ctx, index=row["index"])
+    # A retry after a lost receipt recovers both concrete commitments instead
+    # of reserving a third deposit for the same call hash.
+    protected_cli._submit_protected_announcement(ctx, transfer, record)
+    assert len(chain.announcements) == 2
+
+    ready = next(row for row in pending if row["status"] == "ready")
+    protected_cli.run_execute_protected(ctx, index=ready["index"])
     assert chain.balances[destination] == 1_000_000_000
-    assert [item["height"] for item in chain.announcements] == [130]
+    expected_remaining = [height for height in heights if height == 130]
+    assert [item["height"] for item in chain.announcements] == expected_remaining
     protected_cli.run_show(ctx, index=None)
     later = shown[-1]["pending"]
-    assert len(later) == 1
-    assert later[0]["index"] == row["index"]
-    assert later[0]["executable_at_block"] == 166
-    assert later[0]["status"] == "waiting"
+    assert len(later) == len(expected_remaining)
+    if later:
+        original_later = next(row for row in pending if row["announced_at_block"] == 130)
+        assert later[0]["index"] == original_later["index"]
+        assert later[0]["executable_at_block"] == 166
+        assert later[0]["status"] == "waiting"
 
 
 # PR #3305: overlapping delay updates must never advertise a longer cancellation window than live.

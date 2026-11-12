@@ -27,6 +27,9 @@ need not be the multisig that announced.
 | `inner_args` | object | yes | Arguments of the announced call, as a JSON object. |
 | `force_proxy_type` | string | no | Require the delegation to be exactly this proxy type instead of accepting any type that covers the call. |
 | `announced_call_data` | string | no | Exact SCALE bytes (0x-hex) of the announced call. Prefer this over rebuilding from inner_op/inner_args so the hash still matches after pool prices or balances move. |
+| `expected_call_hash` | string | no | Expected on-chain Blake2-256 commitment for the saved call bytes. |
+| `announced_spec_version` | integer | no | Runtime spec version under which the saved call was composed. |
+| `announced_call_semantics` | object | no | Decoded call recorded when the announcement was composed. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

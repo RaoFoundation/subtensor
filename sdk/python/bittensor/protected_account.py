@@ -24,16 +24,12 @@ DEFAULT_PROTECTED_PATH = Path.home() / ".bittensor" / "btcli_protected.json"
 # User-facing --allow tokens -> existing ProxyType names. Only types that cannot
 # transfer free balance, manage proxies, or run a coldkey swap are accepted.
 ALLOW_ITEM_TO_PROXY_TYPE: dict[str, str] = {
-    "stake": "Staking",
-    "unstake": "Staking",
     "staking": "Staking",
     "childkeys": "ChildKeys",
     "childkey": "ChildKeys",
     "basket": "BasketTrading",
     "basket-swaps": "BasketTrading",
     "basket_swaps": "BasketTrading",
-    "registration": "Registration",
-    "lock": "Lock",
     "gamma": "GammaSpend",
     "root-claim": "RootClaim",
     "root_claim": "RootClaim",
@@ -49,6 +45,22 @@ ALLOW_ITEM_TO_PROXY_TYPE: dict[str, str] = {
 
 # Tokens that would defeat the delay model if granted as zero-delay allows.
 FORBIDDEN_ALLOW_ITEMS: dict[str, str] = {
+    "stake": (
+        "stake sounds narrower than the full Staking proxy authority; use "
+        "'staking' after reviewing its complete permissions"
+    ),
+    "unstake": (
+        "unstake sounds narrower than the full Staking proxy authority; use "
+        "'staking' after reviewing its complete permissions"
+    ),
+    "registration": (
+        "Registration can burn protected-account TAO immediately and is not "
+        "offered as a protected-account allow"
+    ),
+    "lock": (
+        "Lock can freeze protected-account stake permanently and is not offered "
+        "as a protected-account allow"
+    ),
     "any": "Any can transfer and change proxies immediately",
     "transfer": "Transfer moves free balance immediately",
     "smalltransfer": "SmallTransfer moves free balance immediately",
@@ -658,14 +670,6 @@ def rotation_complete(
         and int(d.get("delay") or 0) == delay
         for d in delegations
     )
-    if not new_ok:
-        # Accept any positive delay match when local delay drifted.
-        new_ok = any(
-            _account_identity(d.get("delegate")) == _account_identity(new_controller_ss58)
-            and d.get("proxy_type") == "Any"
-            and int(d.get("delay") or 0) > 0
-            for d in delegations
-        )
     if not new_ok:
         return False
     old_cleared = (

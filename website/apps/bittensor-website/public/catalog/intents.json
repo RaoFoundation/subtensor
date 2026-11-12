@@ -1447,6 +1447,18 @@
         "announced_call_data": {
           "type": "string",
           "description": "Exact SCALE bytes (0x-hex) of the announced call. Prefer this over rebuilding from inner_op/inner_args so the hash still matches after pool prices or balances move."
+        },
+        "expected_call_hash": {
+          "type": "string",
+          "description": "Expected on-chain Blake2-256 commitment for the saved call bytes."
+        },
+        "announced_spec_version": {
+          "type": "integer",
+          "description": "Runtime spec version under which the saved call was composed."
+        },
+        "announced_call_semantics": {
+          "type": "object",
+          "description": "Decoded call recorded when the announcement was composed."
         }
       },
       "required": [

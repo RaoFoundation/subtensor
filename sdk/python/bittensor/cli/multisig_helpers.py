@@ -1229,6 +1229,8 @@ async def build_pending_followup(
     sudo = False
     proxy_for = None
     force_proxy_type = None
+    protected_inner = None
+    protected_preimage_missing = False
     if call_spec:
         target = call_spec.get("target")
         params = call_spec.get("params") or {}
@@ -1237,6 +1239,48 @@ async def build_pending_followup(
         proxy_for = call_spec.get("proxy_for")
         force_proxy_type = call_spec.get("force_proxy_type")
         call_data = call_spec.get("call_data")
+        if target == "Proxy.announce":
+            from .. import proxy_announcements as proxy_ann
+
+            committed = params.get("call_hash")
+            wanted = hex_bytes(committed) if committed is not None else None
+            real = _multiaddress_ss58(params.get("real"))
+            matching = []
+            for saved in proxy_ann.load_announcements():
+                saved_data = saved.get("call_data")
+                if (
+                    not wanted
+                    or not saved_data
+                    or str(saved.get("call_hash") or "").lower() != wanted.lower()
+                ):
+                    continue
+                if real and saved.get("real_ss58") != real:
+                    continue
+                try:
+                    digest = (
+                        "0x"
+                        + blake2b(
+                            bytes.fromhex(hex_bytes(saved_data)[2:]), digest_size=32
+                        ).hexdigest()
+                    )
+                except (TypeError, ValueError):
+                    continue
+                if digest.lower() == wanted.lower():
+                    matching.append(saved)
+            if matching:
+                saved = matching[0]
+                protected_inner = {
+                    "op": saved.get("inner_op"),
+                    "summary": saved.get("summary"),
+                    "call_hash": wanted,
+                    "call_data": saved.get("call_data"),
+                }
+            else:
+                # The outer multisig call proves only that this hash will be
+                # announced. Never emit a one-click co-signer command until
+                # this machine has the verified protected-call preimage.
+                protected_preimage_missing = True
+                target = None
 
     co_signer_commands = []
     if target:
@@ -1274,9 +1318,30 @@ async def build_pending_followup(
                 }
             )
 
+    if protected_preimage_missing:
+        decode_note = (
+            "protected Proxy.announce preimage unavailable on this device; "
+            "the outer multisig call exposes only its hash"
+        )
+        decode_hint = (
+            "obtain the protected announcement receipt/call bytes from the initiator, "
+            "verify them with `btcli proxy show`, then approve by rerunning the original "
+            "protected operation"
+        )
+    elif co_signer_commands:
+        decode_note = None
+        decode_hint = None
+    else:
+        decode_note = (
+            "call details unknown — the opening block may be pruned on this RPC node, "
+            "the op may have used approve_as_multi (hash only), or local cache may be missing"
+        )
+        decode_hint = "pass `--call-data 0x..` once, or re-open the op with a current SDK build"
+
     return {
         "status": "pending",
         "target": target,
+        "protected_inner": protected_inner,
         "sudo": sudo,
         "proxy_for": proxy_for,
         "force_proxy_type": force_proxy_type,
@@ -1306,19 +1371,8 @@ async def build_pending_followup(
         "co_signer_commands": co_signer_commands,
         "commands_available": bool(co_signer_commands),
         # Rustc-style split: `note:` states the situation, `hint:` the fix.
-        "decode_note": (
-            None
-            if co_signer_commands
-            else (
-                "call details unknown — the opening block may be pruned on this RPC node, "
-                "the op may have used approve_as_multi (hash only), or local cache may be missing"
-            )
-        ),
-        "decode_hint": (
-            None
-            if co_signer_commands
-            else "pass `--call-data 0x..` once, or re-open the op with a current SDK build"
-        ),
+        "decode_note": decode_note,
+        "decode_hint": decode_hint,
     }
 
 

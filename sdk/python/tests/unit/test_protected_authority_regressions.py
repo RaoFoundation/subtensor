@@ -7,6 +7,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
+import typer
 
 from bittensor import protected_account as pa
 from bittensor import proxy_announcements as ann
@@ -146,6 +147,107 @@ def _isolated_stores(tmp_path, monkeypatch):
     monkeypatch.setenv("BTCLI_PROTECTED_PATH", str(tmp_path / "protected.json"))
     monkeypatch.setenv("BTCLI_PROXY_ANNOUNCEMENTS_PATH", str(tmp_path / "announcements.json"))
     monkeypatch.setenv("BTCLI_CONFIG_PATH", str(tmp_path / "config.json"))
+
+
+# PR #3305: ordinary proxy management must not orphan or bypass a funded keyless account.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+@pytest.mark.parametrize(
+    "operation", ["add_proxy", "remove_proxy", "remove_proxies", "kill_pure_proxy"]
+)
+def test_protected_account_refuses_ordinary_proxy_management(monkeypatch, operation):
+    old = Keypair.create_from_seed(bytes([68]) * 32, 1)
+    pure = Keypair.create_from_seed(bytes([69]) * 32, 1)
+    chain = _Chain([{"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY}])
+    ctx = _context(monkeypatch, chain, {"old": receiving_address(old)})
+    pa.upsert_protected(_record(old, pure, setup={"status": "ready"}))
+
+    with pytest.raises(typer.Exit) as rejected:
+        protected_cli.maybe_route_protected(
+            ctx,
+            SimpleNamespace(op=operation, signer="coldkey"),
+            proxy_for=None,
+            user_set_proxy=False,
+        )
+
+    assert rejected.value.exit_code == 2
+    assert chain.grants == [{"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY}]
+
+
+# PR #3305: rotation must not strand executable calls or their reserved deposits under the old key.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+def test_rotation_refuses_any_pending_old_controller_announcement(monkeypatch):
+    old = Keypair.create_from_seed(bytes([65]) * 32, 1)
+    new = Keypair.create_from_seed(bytes([66]) * 32, 1)
+    pure = Keypair.create_from_seed(bytes([67]) * 32, 1)
+    chain = _Chain([{"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY}])
+    ctx = _context(monkeypatch, chain, {"old": receiving_address(old)})
+    record = _record(old, pure, setup={"status": "ready"})
+    pa.upsert_protected(record)
+    row = ann.add_announcement(
+        controller_wallet="old",
+        genesis_hash=GENESIS,
+        delegate_ss58=old.ss58_address,
+        real_ss58=pure.ss58_address,
+        call_hash="0x" + "44" * 32,
+        inner_op="transfer",
+        inner_args={"dest_ss58": new.ss58_address, "amount_tao": "1"},
+        category="transfer",
+        delay_blocks=DELAY,
+        announced_at_block=1,
+        call_data="0x0102",
+    )
+    chain.announcements.append(
+        {"real": pure.ss58_address, "call_hash": row["call_hash"], "height": 1}
+    )
+    monkeypatch.setattr(
+        protected_cli,
+        "_resolve_rotation_destination",
+        lambda *_args: ("new", new.ss58_address, new.ss58_address),
+    )
+
+    with pytest.raises(typer.Exit) as rejected:
+        protected_cli.run_rotate(ctx, to_wallet="new")
+
+    assert rejected.value.exit_code == 2
+    assert chain.announcements
+    assert chain.grants == [{"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY}]
+
+
+# PR #3305: controller recovery must clear an attacker-planted grant instead of preserving it.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+def test_rotation_does_not_restore_unrecorded_foreign_grants(monkeypatch):
+    old = Keypair.create_from_seed(bytes([62]) * 32, 1)
+    new = Keypair.create_from_seed(bytes([63]) * 32, 1)
+    attacker = Keypair.create_from_seed(bytes([64]) * 32, 1)
+    pure = Keypair.create_from_seed(bytes([61]) * 32, 1)
+    chain = _Chain(
+        [
+            {"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY},
+            {"delegate": attacker.ss58_address, "proxy_type": "Any", "delay": 0},
+        ]
+    )
+    ctx = _context(monkeypatch, chain, {"old": receiving_address(old)})
+    record = _record(old, pure, setup={"status": "ready"})
+
+    children, migrated = protected_cli._rotation_batch_children(
+        ctx,
+        record,
+        controller_ss58=old.ss58_address,
+        new_ss58=new.ss58_address,
+        delay=DELAY,
+    )
+
+    assert migrated == []
+    assert children == [
+        {"op": "remove_proxies", "from_hotkey": False},
+        {
+            "op": "add_proxy",
+            "delegate_ss58": new.ss58_address,
+            "proxy_type": "Any",
+            "delay": DELAY,
+            "from_hotkey": None,
+        },
+    ]
 
 
 # PR #3305: hashed identities must not leave a revoked controller able to spend protected funds.

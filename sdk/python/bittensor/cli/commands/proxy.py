@@ -411,9 +411,12 @@ def protect_account(
         None,
         "--allow",
         help="Zero-delay restricted proxy to grant (repeatable). Known items: "
-        "stake/unstake, childkeys, basket/basket-swaps, registration, lock, gamma, "
+        "staking, childkeys, basket/basket-swaps, gamma, "
         "root-claim, validate, weights, owner, swap-hotkey, subnet-lease. "
-        "Refuses transfer/proxy/swap-capable types. No presets — omit for none.",
+        "Each token grants its complete runtime ProxyType, not only the named command. "
+        "Use a separate --allow-key and review the warning before accepting. "
+        "Refuses transfer/proxy/swap-capable types, Registration, and Lock. "
+        "No presets — omit for none.",
     ),
     disallow: Optional[list[str]] = typer.Option(
         None,
@@ -495,6 +498,13 @@ def execute_announced(
     ),
     inner_args: str = typer.Option("{}", "--inner-args", help="JSON object of inner intent args."),
     force_proxy_type: Optional[ProxyTypeChoice] = typer.Option(None, "--force-proxy-type"),
+    fee_payer: Optional[str] = typer.Option(
+        None,
+        "--fee-payer",
+        help="Local single-key wallet that signs and pays only for permissionless "
+        "execution of a protected announcement. It receives no authority over the "
+        "protected account.",
+    ),
 ):
     """Execute announced proxy call(s) after the delay.
 
@@ -508,6 +518,12 @@ def execute_announced(
     app_ctx: AppContext = ctx_of(ctx)
     low_level = any(v is not None for v in (delegate_ss58, real_ss58, inner_op))
     if low_level:
+        if fee_payer is not None:
+            app_ctx.output.error(
+                "--fee-payer is available only for a saved protected-account announcement",
+                help="select the saved row with --index, or choose the signing wallet with -w",
+            )
+            raise typer.Exit(2)
         if not (delegate_ss58 and real_ss58 and inner_op):
             app_ctx.output.error(
                 "low-level execute requires --delegate, --real, and --inner-op together"
@@ -531,7 +547,7 @@ def execute_announced(
             proxy_for="self",
         )
         return
-    run_execute_protected(app_ctx, index=index)
+    run_execute_protected(app_ctx, index=index, fee_payer=fee_payer)
 
 
 @app.command("rotate")

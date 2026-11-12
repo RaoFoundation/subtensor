@@ -16,7 +16,7 @@ from bittensor._transport.contract import CallBytes
 from bittensor.cli import prompt
 from bittensor.cli import protected as protected_cli
 from bittensor.cli.context import AppContext
-from bittensor.intents import AnnounceProxyCall, RemoveStake
+from bittensor.intents import AnnounceProxyCall, ExecuteProxyAnnounced, RemoveStake
 from bittensor.intents.proxy import compose_announceable_call
 from bittensor.sp_core import ss58_decode
 from tests.harness.fake_substrate import FakeSubstrate
@@ -112,6 +112,22 @@ def saved_hash_setup(tmp_path, monkeypatch):
     protected_cli._submit_protected_announcement(ctx, intent, record)
     row = ann.list_for_wallet("controller", genesis_hash=GENESIS)[0]
     return ctx, chain, intent, row, shown, messages
+
+
+# PR #3305: selecting one saved row must never execute another pending call's bytes.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+async def test_execute_binds_saved_bytes_to_selected_announcement_hash():
+    intent = ExecuteProxyAnnounced(
+        delegate_ss58=ALICE,
+        real_ss58=BOB,
+        inner_op="transfer",
+        inner_args={"dest_ss58": BOB, "amount_tao": "1"},
+        announced_call_data="0x0102",
+        expected_call_hash="0x" + "00" * 32,
+    )
+
+    with pytest.raises(ValueError, match="selected announcement hash"):
+        await intent.build(_HashChain(), dev_wallet())
 
 
 @pytest.mark.parametrize("changed", ["stake", "price"])

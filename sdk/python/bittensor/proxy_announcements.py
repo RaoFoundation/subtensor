@@ -22,6 +22,19 @@ from .receiving import is_receiving_address, parse_recipient
 DEFAULT_ANNOUNCEMENTS_PATH = Path.home() / ".bittensor" / "btcli_proxy_announcements.json"
 
 
+def normalize_call_semantics(value: Any) -> Any:
+    """Convert decoded SCALE values into stable JSON-comparable primitives."""
+    if hasattr(value, "value"):
+        value = value.value
+    if isinstance(value, bytes):
+        return "0x" + value.hex()
+    if isinstance(value, dict):
+        return {str(key): normalize_call_semantics(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [normalize_call_semantics(item) for item in value]
+    return value
+
+
 def announcements_path() -> Path:
     return Path(os.getenv("BTCLI_PROXY_ANNOUNCEMENTS_PATH") or DEFAULT_ANNOUNCEMENTS_PATH)
 
@@ -68,8 +81,8 @@ def _scope_matches(row: dict[str, Any], genesis_hash: Optional[str]) -> bool:
     )
 
 
-def _same_identity(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    """One commitment on one chain, including its announcing delegate and real."""
+def _same_commitment(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Same call commitment and authority, regardless of announcement instance."""
     return (
         _scope_matches(left, right.get("genesis_hash"))
         and left.get("controller_wallet") == right.get("controller_wallet")
@@ -77,6 +90,16 @@ def _same_identity(left: dict[str, Any], right: dict[str, Any]) -> bool:
         == _account_identity(right.get("delegate_ss58"))
         and _account_identity(left.get("real_ss58")) == _account_identity(right.get("real_ss58"))
         and str(left.get("call_hash") or "").lower() == str(right.get("call_hash") or "").lower()
+    )
+
+
+def _same_identity(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """One concrete on-chain announcement, including same-block duplicates."""
+    return (
+        _same_commitment(left, right)
+        and int(left.get("announced_at_block") or 0) == int(right.get("announced_at_block") or 0)
+        and int(left.get("announcement_ordinal") or 0)
+        == int(right.get("announcement_ordinal") or 0)
     )
 
 
@@ -99,9 +122,12 @@ def add_announcement(
     category: str,
     delay_blocks: int,
     announced_at_block: int,
+    announcement_ordinal: int = 0,
     force_proxy_type: Optional[str] = None,
     summary: str = "",
     call_data: Optional[str] = None,
+    runtime_spec_version: Optional[int] = None,
+    call_semantics: Optional[dict[str, Any]] = None,
     genesis_hash: Optional[str] = None,
 ) -> dict[str, Any]:
     """Append a pending announcement and return the stored row.
@@ -124,6 +150,7 @@ def add_announcement(
         "category": category,
         "delay_blocks": int(delay_blocks),
         "announced_at_block": int(announced_at_block),
+        "announcement_ordinal": int(announcement_ordinal),
         "executable_at_block": int(announced_at_block) + int(delay_blocks),
         "force_proxy_type": force_proxy_type,
         "summary": summary or category,
@@ -134,6 +161,10 @@ def add_announcement(
         row["genesis_hash"] = str(genesis_hash).lower()
     if call_data:
         row["call_data"] = call_data
+    if runtime_spec_version is not None:
+        row["runtime_spec_version"] = int(runtime_spec_version)
+    if call_semantics is not None:
+        row["call_semantics"] = normalize_call_semantics(call_semantics)
     # Re-announcing the same commitment, or finishing multisig approvals, must
     # retain the index previously shown by discovery or an earlier submission.
     for i, existing in enumerate(rows):
@@ -161,6 +192,7 @@ def upsert_on_chain_announcement(
     call_hash: str,
     delay_blocks: int,
     announced_at_block: int,
+    announcement_ordinal: int = 0,
 ) -> dict[str, Any]:
     """Persist a discovered commitment with a stable index and recover saved bytes.
 
@@ -179,6 +211,7 @@ def upsert_on_chain_announcement(
         "call_hash": call_hash,
         "delay_blocks": int(delay_blocks),
         "announced_at_block": int(announced_at_block),
+        "announcement_ordinal": int(announcement_ordinal),
         "executable_at_block": int(announced_at_block) + int(delay_blocks),
         "status": "pending",
         "on_chain": True,
@@ -202,18 +235,27 @@ def upsert_on_chain_announcement(
                     rows[j] = {**duplicate, "status": "superseded"}
             break
     else:
+        template = next((existing for existing in rows if _same_commitment(existing, chain)), None)
         row = {
+            **(template or {}),
             **chain,
-            "index": next_index(rows),
-            "inner_op": "",
-            "inner_args": {},
-            "category": "unknown",
-            "force_proxy_type": "Any",
-            "summary": f"on-chain announcement {call_hash}",
-            "plaintext_missing": True,
+            "index": (
+                template["index"]
+                if template and template.get("status") != "pending"
+                else next_index(rows)
+            ),
+            "inner_op": (template or {}).get("inner_op", ""),
+            "inner_args": (template or {}).get("inner_args", {}),
+            "category": (template or {}).get("category", "unknown"),
+            "force_proxy_type": (template or {}).get("force_proxy_type", "Any"),
+            "summary": (template or {}).get("summary", f"on-chain announcement {call_hash}"),
+            "plaintext_missing": not bool((template or {}).get("inner_op")),
             "created_at": int(time.time()),
         }
-        rows.append(row)
+        if template and template.get("status") != "pending":
+            rows[rows.index(template)] = row
+        else:
+            rows.append(row)
     save_announcements(rows)
     return row
 
