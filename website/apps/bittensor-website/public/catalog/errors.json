@@ -2046,7 +2046,7 @@
     },
     "EmissionWeightsDoNotSumToOne": {
       "code": "invalid_argument",
-      "description": "The five slots and the subnet's gamma shares do not sum to exactly `u64::MAX` (1.0), so raising one share requires lowering another in the same call. `btcli subnets emission set-value/increase/decrease` renormalize the other slots for you; with a raw call, give shares that total 18446744073709551615 with the gamma shares (`sudo_set_subnet_emission_weights` keeps omitted slots, the v2 call sets them to zero).",
+      "description": "The five slots and the subnet's gamma shares do not sum to exactly `u64::MAX` (1.0), so raising one share requires lowering another in the same call. `btcli subnets emission set-value/increase/decrease` renormalize the other slots for you; with a raw call, give shares that total 18446744073709551615 with the gamma shares (`sudo_set_subnet_emission_weights` keeps omitted slots; `sudo_set_subnet_emission_weights_v2` sets omitted slots to zero).",
       "docs_url": "/docs/errors/chain/EmissionWeightsDoNotSumToOne",
       "markdown_url": "/llms.mdx/docs/errors/chain/EmissionWeightsDoNotSumToOne/content.md",
       "pallets": [

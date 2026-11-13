@@ -838,6 +838,53 @@ def _pending_multisig_announcement(app_ctx: AppContext, row: dict[str, Any]) -> 
     return pending
 
 
+def _submit_reserved_announcement(
+    app_ctx: AppContext,
+    record: dict[str, Any],
+    row: dict[str, Any],
+    *,
+    summary: str,
+):
+    """Submit a locally reserved announcement without stranding pre-broadcast exits.
+
+    The row is intentionally reserved before the confirmation prompt so another
+    process cannot queue the same payload. ``before_submit`` is the exact boundary
+    after confirmation/signing and immediately before handing the transaction to
+    the client. A local exit before that boundary is safe to retry; after it, an
+    exception has an unknown broadcast outcome and must keep blocking duplicates.
+    ``OSError`` remains conservative only for test doubles and custom submitters
+    that cannot expose the boundary.
+    """
+    broadcast_started = False
+    boundary_supported = getattr(app_ctx.submit, "__func__", None) is AppContext.submit
+
+    def _mark_broadcast_started() -> None:
+        nonlocal broadcast_started
+        broadcast_started = True
+
+    try:
+        with _preserve_controller_context(app_ctx, record) as controller_ss58:
+            result = app_ctx.submit(
+                AnnounceProxyCall(real_ss58=record["protected_ss58"], call_hash=row["call_hash"]),
+                proxy_for="self",
+                summary=summary,
+                before_submit=_mark_broadcast_started,
+            )
+    except BaseException as error:  # Ctrl-C must release a pre-broadcast row.
+        # For the real AppContext the callback makes every earlier failure safe
+        # to retry. Old/custom submitters may not call it, so retain their
+        # historical conservative treatment of an ambiguous transport error.
+        if not broadcast_started and (boundary_supported or not isinstance(error, OSError)):
+            ann.mark_status(
+                record["controller_wallet"],
+                int(row["index"]),
+                "failed",
+                genesis_hash=record["genesis_hash"],
+            )
+        raise
+    return controller_ss58, result
+
+
 def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str, Any]) -> None:
     from .prompt import confirm_wallet
 
@@ -941,12 +988,12 @@ def _submit_protected_announcement(app_ctx: AppContext, intent, record: dict[str
         call_semantics=semantics,
         status="submitting",
     )
-    with _preserve_controller_context(app_ctx, record) as controller_ss58:
-        result = app_ctx.submit(
-            AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
-            proxy_for="self",
-            summary=f"announce {intent.op} for protected account",
-        )
+    controller_ss58, result = _submit_reserved_announcement(
+        app_ctx,
+        record,
+        row,
+        summary=f"announce {intent.op} for protected account",
+    )
     if result is None or not result.success:
         ann.mark_status(
             record["controller_wallet"],
@@ -2458,12 +2505,9 @@ def _announce_as_protected(
             )
             or row
         )
-    with _preserve_controller_context(app_ctx, record) as controller_ss58:
-        result = app_ctx.submit(
-            AnnounceProxyCall(real_ss58=real, call_hash=call_hash),
-            proxy_for="self",
-            summary=f"announce {category}",
-        )
+    controller_ss58, result = _submit_reserved_announcement(
+        app_ctx, record, row, summary=f"announce {category}"
+    )
     if result is None:
         ann.mark_status(
             record["controller_wallet"],

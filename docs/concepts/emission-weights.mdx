@@ -119,9 +119,15 @@ btcli subnets emission set-value --netuid 12 --slot owner --value 0.10
 btcli subnets emission increase --netuid 12 --slot miner --by 5%
 btcli subnets emission decrease --netuid 12 --slot validator --by 0.02
 
-# set all five slots at once
-btcli subnets emission set --netuid 12 --owner 0.10 --validator 0.40 --miner 0.50
+# set all five slots at once and explicitly remove any existing gamma shares
+btcli subnets emission set --netuid 12 --owner 0.10 --validator 0.40 --miner 0.50 --no-gamma
 ```
+
+`set` keeps existing gamma shares unless you pass `--no-gamma`. Because those
+shares count toward the same 100%, a five-slot split totaling 100% needs
+`--no-gamma` on a subnet that may already have gamma shares. You can combine
+`--no-gamma` with new `--gamma TARGET=SHARE` flags to replace the whole gamma
+allocation explicitly.
 
 Every write validates against the rules locally first and prints each broken
 rule in the same words the chain error carries, with the allowed range, so a

@@ -838,8 +838,8 @@ DESCRIPTIONS: dict[str, str] = {
         "so raising one share requires lowering another in the same call. `btcli subnets "
         "emission set-value/increase/decrease` renormalize the other slots for you; with a "
         "raw call, give shares that total 18446744073709551615 with the gamma shares "
-        "(`sudo_set_subnet_emission_weights` keeps omitted slots, the v2 call sets them to "
-        "zero)."
+        "(`sudo_set_subnet_emission_weights` keeps omitted slots; "
+        "`sudo_set_subnet_emission_weights_v2` sets omitted slots to zero)."
     ),
     "BurnEmissionMustBeZero": (
         "Deprecated. Slot 0 (burn) may now be non-zero; burn and recycle together may be at "

@@ -233,6 +233,27 @@ def test_plaintext_is_reserved_before_submit_and_blocks_unknown_retry(timing_set
     assert rejected.value.exit_code == 2
 
 
+# PR #3305: declining before broadcast must not permanently block retry or rotation.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+def test_declined_announcement_releases_local_reservation(timing_setup, monkeypatch):
+    ctx, chain, record, destination, _shown, _messages = timing_setup
+    transfer = Transfer(dest_ss58=destination, amount_tao=1)
+
+    def decline(*_args, **_kwargs):
+        raise typer.Exit(130)
+
+    monkeypatch.setattr(ctx, "submit", decline)
+    with pytest.raises(typer.Exit) as declined:
+        protected_cli._submit_protected_announcement(ctx, transfer, record)
+    assert declined.value.exit_code == 130
+    assert ann.list_for_wallet("controller", genesis_hash=GENESIS) == []
+    assert chain.announcements == []
+
+    monkeypatch.setattr(ctx, "submit", chain.submit)
+    protected_cli._submit_protected_announcement(ctx, transfer, record)
+    assert len(chain.announcements) == 1
+
+
 # PR #3305: overlapping delay updates must never advertise a longer cancellation window than live.
 # PROTECTED_REGRESSION: changes require explicit human approval.
 @pytest.mark.parametrize("submit_method", ["daily", "settings"])
