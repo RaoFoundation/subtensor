@@ -71,18 +71,30 @@ jobs:
           #   trailing slashes in WASI paths. We never expose a filesystem to
           #   the runtime WASM; same pin as the wasmtime entries above.
           # RUSTSEC-2026-0316 / RUSTSEC-2026-0424: wasmtime 8.0.1 is pinned by
-          #   the polkadot-sdk fork's sc-executor; 0424 needs >=36 / >=48 /
-          #   >=49.0.5 / >=50.0.1 — same pin as the other wasmtime entries.
-          # RUSTSEC-2026-0387: crypto-bigint 0.5.5 timing variability. Fix is
-          #   >=0.7.6; elliptic-curve 0.13 (via k256 in frame-support /
-          #   frontier) requires ^0.5 — revisit on the next major SDK bump.
-          # RUSTSEC-2026-0403: zstd-safe 5.0.2 / 6.0.6 uninitialized output on
-          #   legacy-frame decompress failure. Fix is ^7.4.0 / >=8.2.0; zstd
-          #   0.11 (wasmtime-cache) and 0.12 (sp-maybe-compressed-blob /
-          #   polkadot-node-primitives) pin those majors — revisit on SDK bump.
-          # RUSTSEC-2026-0459: libsqlite3-sys 0.30.1 via C SQLite CVE-2026-119375.
-          #   Fix is >=0.39.0; sqlx 0.8.6 in frontier fc-db requires ^0.30.1 —
-          #   revisit when frontier moves off sqlx 0.8.
+          #   the polkadot-sdk fork's sc-executor. Both affect component-model
+          #   APIs, while this node executes core Wasm and does not compile the
+          #   `component-model` feature. check-audit-feature-exclusions.py checks
+          #   every workspace feature/target and fails if that changes. 0424
+          #   needs >=36 / >=48 / >=49.0.5 / >=50.0.1; revisit on SDK bump.
+          # RUSTSEC-2026-0387: crypto-bigint 0.5.5 timing variability. Host-side
+          #   sp-core ECDSA signing uses secp256k1, not k256/crypto-bigint; the
+          #   no-std runtime path only verifies/recovers public signatures and
+          #   Subtensor session keys are Aura sr25519 + Grandpa ed25519. Thus no
+          #   production path applies the affected arithmetic to a secret. Do
+          #   not add runtime ECDSA secret operations before upgrading to >=0.7.6;
+          #   elliptic-curve 0.13 currently pins ^0.5 through the SDK fork.
+          # RUSTSEC-2026-0403: only zstd's streaming write Decoder / zstd-safe
+          #   DCtx::decompress_stream is affected. The pinned consumers use
+          #   zstd::Decoder (the unaffected read decoder) in
+          #   sp-maybe-compressed-blob and zstd::decode_all (also explicitly
+          #   unaffected) in wasmtime-cache; no affected decoder is called.
+          #   Fixing the versions still requires the next polkadot-sdk bump.
+          # RUSTSEC-2026-0459: SQLite is opened only by the opt-in Frontier SQL
+          #   backend; KeyValue is the default and never opens it. Exploitation
+          #   additionally requires a crafted local database + sibling WAL.
+          #   docs/guides/running-a-node.mdx requires SQL operators to keep both
+          #   files in a private trusted data directory. libsqlite3-sys >=0.39
+          #   requires moving Frontier off sqlx 0.8.6; revisit with that bump.
           # RUSTSEC-2026-0418 (libz-sys build-script env leak) was resolved by
           #   bumping libz-sys 1.1.22 → 1.1.32 in Cargo.lock (no ignore).
           cargo audit --ignore RUSTSEC-2023-0091 \
