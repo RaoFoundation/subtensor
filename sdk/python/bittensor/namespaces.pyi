@@ -43,6 +43,9 @@ class Balances(_ReadNamespace):
 
         This is the `swap-check` status: `ColdkeySwapAnnouncements` stores the block
         at which the swap becomes executable and the BlakeTwo256 hash committed to.
+        `import_source_policies` is the V2 policy snapshot committed with the
+        destination: True or False for V2, None for a legacy announcement. The hash,
+        snapshot and dispute state are read at the same block.
         `recovery_locked` is true after root `reset_coldkey_swap_keep_locked` (stored
         dispute block 0): the coldkey can only make swap calls until a successful swap or
         a full reset, even when no announcement is pending.
@@ -53,6 +56,9 @@ class Balances(_ReadNamespace):
 
     async def proxies(self, coldkey_ss58: str, *, block: Optional[int] = None) -> dict:
         """Proxy delegations of an account: who may sign on its behalf, and the reserved deposit."""
+
+    async def proxy_announcements(self, delegate_ss58: str, *, block: Optional[int] = None) -> dict:
+        """Pending delayed-proxy announcements made by a delegate, plus reserved deposit."""
 
 class Chain(_ReadNamespace):
     """Chain-level reads: time, block metadata, global limits."""
@@ -289,6 +295,9 @@ class Hyperparameters(_ReadNamespace):
 
     async def subnet_emission_enabled(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). New registrations start enabled. When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent)."""
+
+    async def subnet_gamma_emission_whitelisted(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
+        """Root-controlled gamma emission whitelist flag for a subnet (1 = whitelisted); other subnets' gamma shares may name it only while it is set (see the set_subnet_gamma_emission_whitelisted intent)."""
 
     async def weights_rate_limit(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Blocks a hotkey must wait between weight sets on a subnet."""

@@ -2,8 +2,8 @@
 
 Each subnet carries a five-slot vector ``[burn, recycle, owner, validator,
 miner]`` of ``u64 / u64::MAX`` shares. The subnet owner (or root) changes it with
-``AdminUtils.sudo_set_subnet_emission_weights``, a sparse update: name the slots
-you are changing and their new shares; omitted slots keep their current value.
+``AdminUtils.sudo_set_subnet_emission_weights_v2``, which replaces the whole
+split (the five slots and the gamma shares).
 The chain enforces the rules spelled out in :mod:`bittensor.emission_weights`
 and rate-limits owners to one change per week per subnet (root is exempt; the
 first change on a subnet is always allowed).
@@ -24,7 +24,8 @@ from .._generated import runtime_apis as api
 from .._generated import storage as st
 from ..reads.subnets import (
     emission_weights_rate_limit_key,
-    gamma_emission_share,
+    gamma_emission_shares,
+    gamma_emission_targets,
     root_preservation_inputs,
 )
 from .base import Intent, IntentPreflight
@@ -32,7 +33,8 @@ from .registry import register
 
 SLOTS_HELP = (
     "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. "
-    "Omitted slots keep their current share."
+    "Omitted slots keep their current share. Empty, with empty `values`, to change only gamma "
+    "shares."
 )
 VALUES_HELP = (
     "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage "
@@ -45,7 +47,15 @@ VALUES_HELP = (
 RENORMALIZE_HELP = (
     "Keep the named slots as given and rescale the other slots proportionally so the "
     "vector and the subnet's gamma shares sum to 1 (the last free slot absorbs rounding). "
-    "Without it, the update is applied verbatim and must already sum to 1 with them."
+    "Without it, the update is applied verbatim and must already sum to 1 with them (the "
+    "miner slot absorbs up to 1,000 parts of rounding)."
+)
+GAMMA_HELP = (
+    'Gamma shares to set, as a JSON object mapping target netuid to share ({"3": "5%"}), in '
+    "the same forms as `values`. Omitted targets keep their current share; a share of 0 "
+    "removes one. Rules: at most 16, each <= 10%, to another subnet root whitelisted for "
+    "gamma emission with gamma enabled; none on a leased subnet. With `renormalize` the five "
+    "slots make room."
 )
 
 
@@ -57,6 +67,12 @@ def _vector_text(weights: list[int]) -> str:
         if slot not in (ew.BURN, ew.RECYCLE) or weights[slot]
     ]
     return " / ".join(parts)
+
+
+def _gamma_text(shares: dict[int, int]) -> str:
+    """``gamma:3 5.00% / gamma:7 2.00%``, or ``none``."""
+    text = " / ".join(f"gamma:{t} {ew.format_share(v)}" for t, v in sorted(shares.items()))
+    return text or "none"
 
 
 def _pct(value: float, places: int = 2) -> str:
@@ -88,13 +104,14 @@ def _root_line(root: dict[str, Any]) -> str:
 @register
 @dataclass
 class SetSubnetEmissionWeights(Intent):
-    """Set slots of a subnet's emission weight vector (btcli ``subnets emission``).
+    """Set a subnet's emission split: its five slots and gamma shares (btcli ``subnets emission``).
 
-    Dispatches ``AdminUtils.sudo_set_subnet_emission_weights`` for the named
-    slots. The signer must be the subnet's owner coldkey (root may also call
-    it). With ``renormalize`` the untouched slots are rescaled so the vector
-    and the subnet's gamma shares still sum to one; without it the merged
-    vector is submitted as given.
+    Dispatches ``AdminUtils.sudo_set_subnet_emission_weights_v2`` with the
+    whole split, keeping the gamma shares it does not name. The signer must
+    be the subnet's owner coldkey (root may also call it). With
+    ``renormalize`` the untouched slots are rescaled so the vector and the
+    subnet's gamma shares still sum to one; without it the merged vector is
+    submitted as given.
     Root stakers are paid their baseline share of emission (what they earn
     with the default validator share and the global TaoWeight) off the top of
     the validator slot every block, whatever the subnet sets — the pre-sign
@@ -108,12 +125,13 @@ class SetSubnetEmissionWeights(Intent):
     signer = "coldkey"
     origin = "subnet_owner"
     verify = "subnet_emission_weights"
-    wraps = (("AdminUtils", "sudo_set_subnet_emission_weights"),)
+    wraps = (("AdminUtils", "sudo_set_subnet_emission_weights_v2"),)
 
     netuid: int = field(metadata={"help": "Subnet to configure; the signer must be its owner."})
     slots: list[int | str] = field(metadata={"help": SLOTS_HELP})
     values: list[int | float | str] = field(metadata={"help": VALUES_HELP})
     renormalize: bool = field(default=False, metadata={"help": RENORMALIZE_HELP})
+    gamma: dict = field(default_factory=dict, metadata={"help": GAMMA_HELP})
 
     def __post_init__(self):
         if len(self.slots) != len(self.values):
@@ -121,50 +139,73 @@ class SetSubnetEmissionWeights(Intent):
                 f"slots and values must pair up: got {len(self.slots)} slots and "
                 f"{len(self.values)} values"
             )
-        if not self.slots:
-            raise ValueError("name at least one slot to set")
+        if not self.slots and not self.gamma:
+            raise ValueError("name at least one slot or gamma share to set")
         self.slots = [ew.slot_index(slot) for slot in self.slots]
         if len(set(self.slots)) != len(self.slots):
             raise ValueError("each slot may appear at most once")
         self.values = [ew.parse_share(value) for value in self.values]
+        gamma: dict[int, int] = {}
+        for target, share in self.gamma.items():
+            if not str(target).isdecimal() or int(target) > 0xFFFF:
+                raise ValueError(f"gamma target {target!r} is not a netuid")
+            if int(target) in gamma:
+                raise ValueError("each gamma target may appear at most once")
+            gamma[int(target)] = ew.parse_share(share)
+        self.gamma = gamma
 
     def updates(self) -> dict[int, int]:
         return {int(slot): int(value) for slot, value in zip(self.slots, self.values)}
 
     async def _current(self, substrate) -> Optional[dict]:
+        if self.netuid == 0:
+            return None  # the runtime API answers for the root subnet, which has no vector
         return await substrate.runtime_call(
             *api.SubnetInfoRuntimeApi.get_subnet_emission_weights, [self.netuid]
         )
 
-    async def _gamma_share(self, substrate) -> int:
-        return await gamma_emission_share(
+    async def _gamma_shares(self, substrate) -> tuple[dict[int, int], dict[int, int]]:
+        """The subnet's gamma shares by target netuid, now and after this change."""
+        shares = await gamma_emission_shares(
             lambda item, keys: substrate.query(*item, keys), self.netuid
         )
+        return shares, ew.merge_gamma(shares, self.gamma)
+
+    async def _gamma_rules(self, substrate) -> tuple[dict[int, bool], bool]:
+        """The subnets a gamma share can name, each with whether gamma is enabled
+        there, and whether this subnet is leased."""
+        targets, lease = await asyncio.gather(
+            gamma_emission_targets(lambda item, keys: substrate.query_map(*item, keys)),
+            substrate.query(*st.SubtensorModule.SubnetUidToLeaseId, [self.netuid]),
+        )
+        return targets, lease is not None
 
     def _merged(self, current: Optional[dict], gamma_share: int) -> list[int]:
         base = ew.normalize_weights(current["weights"]) if current else ew.default_weights()
         if self.renormalize:
             return ew.renormalize(base, self.updates(), gamma_share)
-        return ew.merge(base, self.updates())
+        return ew.absorb_rounding(ew.merge(base, self.updates()), gamma_share)
+
+    def _call(self, weights: list[int], gamma: dict[int, int]):
+        split: list[tuple[Any, int]] = [
+            (name.capitalize(), w) for name, w in zip(ew.SLOT_NAMES, weights)
+        ]
+        split += [({"Gamma": {"netuid": t}}, share) for t, share in gamma.items()]
+        return calls.AdminUtils.sudo_set_subnet_emission_weights_v2(self.netuid, split)
 
     async def build(self, substrate, wallet: Any):
-        if self.renormalize:
-            current, gamma_share = await asyncio.gather(
-                self._current(substrate), self._gamma_share(substrate)
-            )
-            merged = self._merged(current, gamma_share)
-            uids, values = list(range(len(merged))), merged
-        else:
-            uids = sorted(self.updates())
-            values = [self.updates()[uid] for uid in uids]
+        current, (_, gamma) = await asyncio.gather(
+            self._current(substrate), self._gamma_shares(substrate)
+        )
         return await substrate.compose(
-            calls.AdminUtils.sudo_set_subnet_emission_weights(self.netuid, uids, values)
+            self._call(self._merged(current, sum(gamma.values())), gamma)
         )
 
     async def _inputs(self, substrate) -> Optional[dict]:
         """Everything the preview needs, read once: the current vector and
         root's baseline share, root TAO, alpha issuance, the global TaoWeight,
-        the owner's last change block and the subnet's gamma shares."""
+        the owner's last change block, the subnet's gamma shares now and after
+        this change, the subnets they can name and whether the subnet is leased."""
         current = await self._current(substrate)
         if current is None:
             return None
@@ -174,7 +215,8 @@ class SetSubnetEmissionWeights(Intent):
             last_change,
             block,
             owner,
-            gamma_share,
+            (gamma_before, gamma_after),
+            (gamma_targets, leased),
         ) = await asyncio.gather(
             root_preservation_inputs(query, self.netuid),
             substrate.query(
@@ -183,7 +225,8 @@ class SetSubnetEmissionWeights(Intent):
             ),
             substrate.block_number(),
             substrate.query(*st.SubtensorModule.SubnetOwner, [self.netuid]),
-            self._gamma_share(substrate),
+            self._gamma_shares(substrate),
+            self._gamma_rules(substrate),
         )
         return {
             "current": current,
@@ -195,7 +238,10 @@ class SetSubnetEmissionWeights(Intent):
             "last_change_block": int(last_change or 0),
             "block": int(block),
             "owner": None if owner is None else str(owner),
-            "gamma_share": gamma_share,
+            "gamma_share": sum(gamma_after.values()),
+            "gamma": {"before": gamma_before, "after": gamma_after},
+            "gamma_targets": gamma_targets,
+            "leased": leased,
         }
 
     def _preview(self, inputs: dict, after: list[int]) -> dict[str, Any]:
@@ -214,18 +260,18 @@ class SetSubnetEmissionWeights(Intent):
             min_owner=ew.DEFAULT_OWNER,
             created_via_lease=bool(inputs["current"]["created_via_lease"]),
             gamma_share=inputs["gamma_share"],
+            gamma_targets=inputs["gamma_targets"],
+            leased=inputs["leased"],
         )
 
     async def preflight(self, substrate, dispatch_origin: str, fee_payer: str, *, call=None):
-        del fee_payer, call
+        del fee_payer
         inputs = await self._inputs(substrate)
         if inputs is None:
             return IntentPreflight(
                 effects=[self.summary()],
                 warnings=[],
-                blocks=[
-                    f"subnet {self.netuid} does not exist (the root subnet has no emission vector)"
-                ],
+                blocks=[f"subnet {self.netuid} does not exist or has no emission vector"],
             )
         try:
             after = self._merged(inputs["current"], inputs["gamma_share"])
@@ -234,6 +280,15 @@ class SetSubnetEmissionWeights(Intent):
         preview = self._preview(inputs, after)
         rules = self._rules(inputs)
         blocks = [str(violation) for violation in ew.validate(after, rules)]
+        blocks += [str(v) for v in ew.validate_gamma(self.netuid, inputs["gamma"]["after"], rules)]
+        if call is not None:
+            # A wrapped call (sudo, proxy, multisig) carries this call's bytes inline.
+            shown = await substrate.compose(self._call(after, inputs["gamma"]["after"]))
+            if bytes(shown.data) not in bytes(call.data):
+                blocks.append(
+                    f"the emission split of subnet {self.netuid} changed after this call was "
+                    "built, so the call no longer matches this preview; prepare it again"
+                )
         owner = inputs["owner"]
         if owner is not None and dispatch_origin != owner:
             blocks.append(
@@ -252,6 +307,7 @@ class SetSubnetEmissionWeights(Intent):
             )
         preview["rate_limit"] = rate
         preview["limits"] = rules.limits()
+        preview["gamma"] = inputs["gamma"]
         return IntentPreflight(
             effects=self._effect_lines(preview),
             warnings=[],
@@ -267,6 +323,13 @@ class SetSubnetEmissionWeights(Intent):
             if preview["changed"]
             else "vector: " + _vector_text(before) + " (unchanged)"
         )
+        gamma = preview["gamma"]
+        if gamma["before"] != gamma["after"]:
+            lines.append(
+                f"gamma shares: {_gamma_text(gamma['before'])} -> {_gamma_text(gamma['after'])}"
+            )
+            if set(gamma["before"]) - set(gamma["after"]):
+                lines.append("removed gamma shares: their unconverted alpha goes to the miners")
         lines.append(_root_line(preview["root"]))
         return lines
 
@@ -277,9 +340,14 @@ class SetSubnetEmissionWeights(Intent):
         return list((await self.preflight(substrate, signer_address, signer_address)).blocks)
 
     def summary(self) -> str:
-        parts = ", ".join(
+        parts = [
             f"{ew.SLOT_NAMES[slot]}={ew.format_share(value)}"
             for slot, value in self.updates().items()
-        )
-        mode = " (renormalizing the rest)" if self.renormalize else ""
-        return f"set emission weights on netuid {self.netuid}: {parts}{mode}"
+        ]
+        parts += [f"gamma:{t}={ew.format_share(v)}" for t, v in sorted(self.gamma.items())]
+        rest = self.renormalize and len(self.slots) < len(ew.SLOT_NAMES)
+        mode = " (renormalizing the rest)" if rest else ""
+        return f"set emission weights on netuid {self.netuid}: {', '.join(parts)}{mode}"
+
+    def touches_netuids(self) -> list[int]:
+        return [self.netuid, *sorted(set(self.gamma) - {self.netuid})]

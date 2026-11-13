@@ -95,8 +95,11 @@ class AddProxy(Intent):
     signer per delegation (returned on removal). The delegate can act within
     ``proxy_type`` immediately (or after announcing, if ``delay`` > 0) — grant
     only to keys you control or fully trust. ``Validate`` and ``Weights`` cover
-    hotkey-signed calls, so the wallet's hotkey signs those grants and must hold
-    the deposit and fee.
+    hotkey-signed calls, so by default the wallet's hotkey signs those grants
+    and must hold the deposit and fee. Set ``from_hotkey=False`` to grant from
+    the coldkey or a proxied account instead (for example, to preserve a pure
+    account's existing grants). ``from_hotkey=True`` selects the hotkey for
+    any proxy type.
     """
 
     op = "add_proxy"
@@ -108,11 +111,25 @@ class AddProxy(Intent):
     )
     proxy_type: str = field(default="Staking", metadata={"help": PROXY_TYPE_HELP})
     delay: int = field(default=0, metadata={"help": DELAY_HELP})
+    from_hotkey: Optional[bool] = field(
+        default=None,
+        metadata={
+            "help": "Signing origin: true selects the hotkey; false selects the coldkey "
+            "or proxied account. Omit to use the hotkey for Validate/Weights and "
+            "the coldkey for other proxy types."
+        },
+    )
 
     def __post_init__(self):
         check_proxy_type(self.proxy_type)
         # Instance attribute shadowing the ClassVar default.
-        self.signer = proxy_grant_signer(self.proxy_type)
+        self.signer = (
+            proxy_grant_signer(self.proxy_type)
+            if self.from_hotkey is None
+            else "hotkey"
+            if self.from_hotkey
+            else "coldkey"
+        )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -381,6 +398,196 @@ class KillPureProxy(Intent):
 
 @register
 @dataclass
+class AnnounceProxyCall(Intent):
+    """Commit the hash of a future proxy call (delayed-proxy announce step).
+
+    A delegate whose grant has ``delay`` > 0 must publish the call hash here
+    and wait before ``execute_proxy_announced`` can reveal and run it. The
+    chain stores only the hash; keep the plaintext locally (the CLI's
+    protected-account store does this). The deposit reserved for the
+    announcement is returned when the call is executed, removed, or rejected.
+    """
+
+    op = "announce_proxy_call"
+    signer = "coldkey"
+    wraps = (("Proxy", "announce"),)
+
+    real_ss58: str = field(
+        metadata={"help": "Account the future call will execute as (the delegation's grantor)."}
+    )
+    call_hash: str = field(
+        metadata={
+            "help": "Blake2-256 hash of the exact call bytes that will later be "
+            "passed to execute_proxy_announced (0x-prefixed hex)."
+        }
+    )
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.Proxy.announce(real=self.real_ss58, call_hash=self.call_hash)
+        )
+
+    def summary(self) -> str:
+        short = _short_hash(self.call_hash)
+        return f"announce proxy call {short} for {self.real_ss58}"
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        return [
+            "reserves an announcement deposit from the signer (returned on "
+            "execute, remove, or reject)"
+        ]
+
+
+@register
+@dataclass
+class RemoveProxyAnnouncement(Intent):
+    """Cancel one of your own pending proxy announcements (delegate path).
+
+    Signed by the delegate that announced the call. Returns the announcement
+    deposit. Prefer this over ``reject_proxy_announcement`` when the real
+    account is a keyless pure proxy (it has no key to sign a reject).
+    """
+
+    op = "remove_proxy_announcement"
+    signer = "coldkey"
+    wraps = (("Proxy", "remove_announcement"),)
+
+    real_ss58: str = field(
+        metadata={"help": "Account the announcement targeted (the delegation's grantor)."}
+    )
+    call_hash: str = field(
+        metadata={"help": "Hash previously passed to announce_proxy_call (0x-prefixed hex)."}
+    )
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.Proxy.remove_announcement(real=self.real_ss58, call_hash=self.call_hash)
+        )
+
+    def summary(self) -> str:
+        short = _short_hash(self.call_hash)
+        return f"remove announcement {short} for {self.real_ss58}"
+
+
+@register
+@dataclass
+class RejectProxyAnnouncement(Intent):
+    """Veto a delegate's pending announcement (real-account path).
+
+    Must be signed *as the real account*. For a keyless pure proxy that means
+    dispatching through a proxy relationship that can reach this call — typically
+    impractical during the same delay window, which is why protected-account
+    cancel uses ``remove_proxy_announcement`` (delegate path) instead.
+    """
+
+    op = "reject_proxy_announcement"
+    signer = "coldkey"
+    wraps = (("Proxy", "reject_announcement"),)
+
+    delegate_ss58: str = field(metadata={"help": "Delegate that made the announcement."})
+    call_hash: str = field(
+        metadata={"help": "Hash previously announced by the delegate (0x-prefixed hex)."}
+    )
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.Proxy.reject_announcement(delegate=self.delegate_ss58, call_hash=self.call_hash)
+        )
+
+    def summary(self) -> str:
+        short = _short_hash(self.call_hash)
+        return f"reject announcement {short} from {self.delegate_ss58}"
+
+
+def _short_hash(call_hash: str) -> str:
+    if len(call_hash) <= 18:
+        return call_hash
+    return f"{call_hash[:10]}…{call_hash[-6:]}"
+
+
+def _announced_mev_policy(intent: Intent) -> tuple[bool, bool]:
+    """Keep every dispatched child's shielding contract through an announcement."""
+    from .batch import Batch
+    from .multisig import MultisigApprove, MultisigExecute, MultisigThreshold1
+
+    semantic = intent.semantic_intent()
+    default = semantic.mev_shield_default
+    required = semantic.mev_shield_required
+    children = []
+    if isinstance(semantic, Batch):
+        children = [build_intent(spec["op"], spec) for spec in semantic.intents]
+    elif isinstance(semantic, (MultisigApprove, MultisigExecute, MultisigThreshold1)):
+        children = [build_intent(semantic.call["op"], semantic.call)]
+    for child in children:
+        child_default, child_required = _announced_mev_policy(child)
+        default = default or child_default
+        required = required or child_required
+    return default, required
+
+
+async def _announced_call_requires_direct(substrate, call: Any) -> bool:
+    """Detect an inner atomic batch without rebuilding its committed payload.
+
+    An enclosing batch_all filters nested batch_all through Proxy dispatch.
+    Proxy consumes the announcement and reports the inner failure as an event,
+    so that failure does not roll back later outer-batch calls. Inspect nested
+    dispatch wrappers conservatively, including wrappers that reset the origin.
+    Unknown payloads remain directly replayable, but cannot be safely batched.
+    """
+    from ..fee_filters import _arg_value, _call_dict
+    from ..shielding import _SINGLE_CALL_WRAPPERS
+
+    async def contains_atomic_batch(value):
+        decoded = _call_dict(value)
+        if decoded is None and isinstance(value, dict) and len(value) == 1:
+            module, variants = next(iter(value.items()))
+            if isinstance(variants, dict) and len(variants) == 1:
+                function, params = next(iter(variants.items()))
+                if isinstance(params, dict):
+                    decoded = {
+                        "call_module": module,
+                        "call_function": function,
+                        "call_args": [{"name": key, "value": item} for key, item in params.items()],
+                    }
+        if decoded is None:
+            data = getattr(value, "data", value)
+            if not isinstance(data, (bytes, bytearray, str)):
+                raise ValueError("announced RuntimeCall cannot be inspected")
+            decoded = await substrate.decode_scale("Call", data)
+        if not isinstance(decoded, dict):
+            raise ValueError("announced RuntimeCall did not decode to a call")
+        pair = (decoded.get("call_module"), decoded.get("call_function"))
+        if not all(isinstance(part, str) and part for part in pair):
+            raise ValueError("announced RuntimeCall has no call identity")
+        if pair in {("Utility", "batch_all"), ("Crowdloan", "finalize")}:
+            # Finalize dispatches a preimage-stored RuntimeCall with inherited
+            # filters. Its encoded ID cannot prove that call is free of batches.
+            return True
+        if pair in _SINGLE_CALL_WRAPPERS:
+            children = [_arg_value(decoded, "call")]
+        elif pair == ("Utility", "if_else"):
+            children = [_arg_value(decoded, "main"), _arg_value(decoded, "fallback")]
+        elif pair[0] == "Utility" and pair[1] in {"batch", "force_batch"}:
+            children = _arg_value(decoded, "calls")
+            if not isinstance(children, (list, tuple)):
+                raise ValueError("announced batch has no inspectable calls")
+        else:
+            return False
+        for child in children:
+            if child is None or await contains_atomic_batch(child):
+                return True
+        return False
+
+    try:
+        return await contains_atomic_batch(call)
+    except Exception:
+        # Metadata may be unavailable for older saved payloads. Never turn an
+        # inspection failure into permission to nest an opaque call in Batch.
+        return True
+
+
+@register
+@dataclass
 class ExecuteProxyAnnounced(Intent):
     """Execute a proxy call that was announced and has passed its delay.
 
@@ -389,7 +596,8 @@ class ExecuteProxyAnnounced(Intent):
     veto), then anyone may dispatch the announced call with this intent. The
     inner call is given as an intent op name plus its arguments and must hash
     to exactly what was announced. Fails if the delay has not elapsed or no
-    matching announcement exists.
+    matching announcement exists. Fee payer can be any funded account — it
+    need not be the multisig that announced.
     """
 
     op = "execute_proxy_announced"
@@ -413,22 +621,95 @@ class ExecuteProxyAnnounced(Intent):
             "accepting any type that covers the call."
         },
     )
+    # Distinct from MultisigIntentAdapter.inner_call_data: the executor treats
+    # that attribute as a multisig pin and skips ``build()``. Announced payload
+    # bytes must not share the name or saved withdrawals compose to ``None``.
+    announced_call_data: Optional[str] = field(
+        default=None,
+        repr=False,
+        metadata={
+            "help": "Exact SCALE bytes (0x-hex) of the announced call. Prefer this "
+            "over rebuilding from inner_op/inner_args so the hash still matches "
+            "after pool prices or balances move."
+        },
+    )
+    expected_call_hash: Optional[str] = field(
+        default=None,
+        repr=False,
+        metadata={"help": "Expected on-chain Blake2-256 commitment for the saved call bytes."},
+    )
+    announced_spec_version: Optional[int] = field(
+        default=None,
+        repr=False,
+        metadata={"help": "Runtime spec version under which the saved call was composed."},
+    )
+    announced_call_semantics: Optional[dict] = field(
+        default=None,
+        repr=False,
+        metadata={"help": "Decoded call recorded when the announcement was composed."},
+    )
+
+    def __post_init__(self):
+        # The wrapper remains the semantic intent: returning the child from
+        # semantic_intent() would make the executor build it without the
+        # Proxy.proxy_announced envelope. Carry its shielding policy separately,
+        # including when exact saved bytes skip rebuilding the child call.
+        default, required = _announced_mev_policy(build_intent(self.inner_op, self.inner_args))
+        self.__dict__.update(mev_shield_default=default, mev_shield_required=required)
 
     def requires_build_for_policy(self) -> bool:
-        return build_intent(self.inner_op, self.inner_args).requires_build_for_policy()
+        # A pinned outer multisig must still derive the batch-safety flag for
+        # saved and rebuilt payloads. Saved bytes remain untouched; legacy
+        # rebuilds reuse approved dynamic inputs through pinned_inputs.
+        return True
 
     async def build(self, substrate, wallet: Any):
+        from .._transport.contract import CallBytes
         from ..executor import _compose_nested_intent_call, _OriginView
         from ..receiving import account_for_read
 
-        origin = _OriginView(await account_for_read(substrate, self.real_ss58))
-        origin._wallet = getattr(wallet, "_wallet", wallet)
-        inner_call, extras = await _compose_nested_intent_call(
-            substrate,
-            build_intent(self.inner_op, self.inner_args),
-            origin,
-            wrapper="announced proxy",
-        )
+        extras: dict = {}
+        if self.announced_call_data:
+            from re import fullmatch
+
+            if fullmatch(r"0x(?:[0-9a-fA-F]{2})+", self.announced_call_data) is None:
+                raise ValueError("announced_call_data must be nonempty 0x-prefixed byte hex")
+            data = bytes.fromhex(self.announced_call_data.removeprefix("0x"))
+            spec = await substrate.spec_version()
+            inner_call = CallBytes(data=data, spec_version=spec)
+            actual = "0x" + bytes(inner_call.call_hash).hex()
+            if self.expected_call_hash and actual.lower() != self.expected_call_hash.lower():
+                raise ValueError(
+                    "saved call bytes do not match the selected announcement hash "
+                    f"({actual} != {self.expected_call_hash})"
+                )
+            if self.announced_spec_version is not None and spec != self.announced_spec_version:
+                if self.announced_call_semantics is None:
+                    raise ValueError(
+                        "runtime changed since this call was announced and the saved row "
+                        "has no original decoded semantics; cancel and re-announce it"
+                    )
+                from ..proxy_announcements import normalize_call_semantics
+
+                current_semantics = normalize_call_semantics(
+                    await substrate.decode_scale("Call", data)
+                )
+                if current_semantics != self.announced_call_semantics:
+                    raise ValueError(
+                        "runtime metadata now decodes the announced bytes differently; "
+                        "cancel and re-announce the operation"
+                    )
+        else:
+            origin = _OriginView(await account_for_read(substrate, self.real_ss58))
+            origin._wallet = getattr(wallet, "_wallet", wallet)
+            inner_call, extras = await _compose_nested_intent_call(
+                substrate,
+                build_intent(self.inner_op, self.inner_args),
+                origin,
+                wrapper="announced proxy",
+            )
+        if await _announced_call_requires_direct(substrate, inner_call):
+            extras["requires_direct_submission"] = True
         composed = await substrate.compose(
             calls.Proxy.proxy_announced(
                 delegate=self.delegate_ss58,
@@ -441,3 +722,21 @@ class ExecuteProxyAnnounced(Intent):
 
     def summary(self) -> str:
         return f"execute announced {self.inner_op} as {self.real_ss58} via {self.delegate_ss58}"
+
+
+async def compose_announceable_call(substrate, intent: Any, real_ss58: str, wallet: Any):
+    """Build the exact inner call bytes (and hash) that announce / proxy_announced share.
+
+    Returns ``(call, call_hash_hex, extras)`` where ``call_hash_hex`` is
+    ``0x``-prefixed Blake2-256 of the call bytes.
+    """
+    from ..executor import _compose_nested_intent_call, _OriginView
+    from ..receiving import account_for_read
+
+    origin = _OriginView(await account_for_read(substrate, real_ss58), wallet=wallet)
+    call, extras = await _compose_nested_intent_call(
+        substrate, intent, origin, wrapper="announced proxy"
+    )
+    composed = call if hasattr(call, "call_hash") else await substrate.compose(call)
+    call_hash = "0x" + bytes(composed.call_hash).hex()
+    return composed, call_hash, extras

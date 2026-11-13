@@ -211,11 +211,8 @@ RAW_ONLY: dict[str, set[str]] = {
         # the dispatch wrapper itself — used by the executor's proxy signing
         # mode (proxy_for=...), not expressed as a standalone intent
         "proxy",
-        # announced-proxy flow (non-zero delay): proxy_announced is wrapped;
-        # announce/reject/remove remain raw
-        "announce",
-        "reject_announcement",
-        "remove_announcement",
+        # announced-proxy flow (non-zero delay): announce / reject / remove /
+        # proxy_announced are wrapped by intents (protected-account UX)
         # pure (keyless) proxies are wrapped (create_pure/kill_pure); deposit
         # maintenance stays raw — niche
         "poke_deposit",
@@ -289,10 +286,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",
-        # whole-split setter with gamma shares; the SetSubnetEmissionWeights
-        # intent covers the fixed slots
-        "sudo_set_subnet_emission_weights_v2",
-        "sudo_set_subnet_gamma_emission_whitelisted",
+        # superseded by v2, which the SetSubnetEmissionWeights intent sends
+        "sudo_set_subnet_emission_weights",
         "sudo_set_subnet_limit",
         "sudo_set_subnet_moving_alpha",
         # owner-cut setters deprecated by the emission weight vector (both always
