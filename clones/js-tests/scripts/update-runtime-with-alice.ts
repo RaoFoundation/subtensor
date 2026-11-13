@@ -7,6 +7,7 @@ import { Keyring } from "@polkadot/api";
 
 import { connectApi } from "../lib/api.js";
 import { createTempLogger } from "../lib/file-log.js";
+import { submitRuntimeUpgrade } from "../lib/runtime-upgrade.js";
 
 const WS_ENDPOINT = process.env.WS_ENDPOINT ?? "ws://127.0.0.1:9944";
 
@@ -27,54 +28,6 @@ const keyring = new Keyring({ type: "sr25519" });
 const alice = keyring.addFromUri("//Alice");
 const logger = createTempLogger("runtime-update-alice.log");
 logger.captureConsole();
-
-function formatDispatchError(api, error) {
-  if (!error.isModule) {
-    return error.toString();
-  }
-
-  const decoded = api.registry.findMetaError(error.asModule);
-  return `${decoded.section}.${decoded.name}: ${decoded.docs.join(" ")}`;
-}
-
-async function submitAndWait(api, signer, tx, label) {
-  return new Promise<any>((resolve, reject) => {
-    let unsubscribe;
-    let settled = false;
-
-    const finish = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      unsubscribe?.();
-      fn(value);
-    };
-
-    tx.signAndSend(signer, ({ status, events, dispatchError }) => {
-      if (dispatchError) {
-        finish(reject, new Error(`${label} failed: ${formatDispatchError(api, dispatchError)}`));
-        return;
-      }
-
-      if (status.isInBlock || status.isFinalized) {
-        for (const { event } of events) {
-          if (event.section === "system" && event.method === "ExtrinsicFailed") {
-            const [error] = event.data;
-            finish(reject, new Error(`${label} failed: ${formatDispatchError(api, error)}`));
-            return;
-          }
-        }
-      }
-
-      if (status.isFinalized) {
-        finish(resolve, status.asFinalized.toString());
-      }
-    })
-      .then((unsub) => {
-        unsubscribe = unsub;
-      })
-      .catch((error) => finish(reject, error));
-  });
-}
 
 async function connect() {
   return connectApi(WS_ENDPOINT, { log: console.log });
@@ -106,14 +59,8 @@ async function main() {
     console.log("wasm:", WASM_PATH);
     console.log("wasm bytes:", wasm.length);
 
-    const blockHash = await submitAndWait(
-      api,
-      alice,
-      api.tx.sudo.sudo(api.tx.system.setCode(`0x${wasm.toString("hex")}`)),
-      "runtime upgrade"
-    );
-
-    console.log("runtime upgrade finalized in block:", blockHash);
+    const blockHash = await submitRuntimeUpgrade(api, alice, wasm);
+    console.log("runtime upgrade finalized with matching installed code in block:", blockHash);
 
     await api.disconnect();
     api = await connect();
