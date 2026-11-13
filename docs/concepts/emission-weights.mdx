@@ -119,7 +119,7 @@ btcli subnets emission set-value --netuid 12 --slot owner --value 0.10
 btcli subnets emission increase --netuid 12 --slot miner --by 5%
 btcli subnets emission decrease --netuid 12 --slot validator --by 0.02
 
-# write the whole split at once
+# set all five slots at once
 btcli subnets emission set --netuid 12 --owner 0.10 --validator 0.40 --miner 0.50
 ```
 
@@ -157,12 +157,27 @@ where `EmissionSlot` is `Burn`, `Recycle`, `Owner`, `Validator`, `Miner` or
 `Gamma { netuid }`. The split lists each slot at most once, in that order and
 gamma slots by netuid (`EmissionSlotsNotAscending`), and a slot it leaves out is
 zero. The call has the rules, rate limit and freeze window of
-`set-subnet-emission-weights`. A gamma share must name another subnet, with
+`sudo_set_subnet_emission_weights`. A gamma share must name another subnet, with
 gamma enabled, that root has whitelisted for gamma emission with
-`AdminUtils.sudo_set_subnet_gamma_emission_whitelisted(netuid, whitelisted)`
+[`set-subnet-gamma-emission-whitelisted`](/docs/tx/set-subnet-gamma-emission-whitelisted)
 (`InvalidValue`, `GammaDisabled`, `GammaEmissionTargetNotWhitelisted`,
 `GammaEmissionAboveMaximum`, `TooManyGammaShares`). A subnet under a lease has
 no gamma shares (`GammaEmissionNotSettableOnLeasedSubnet`).
+
+[`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights) and
+`btcli subnets emission` send this call for every change, keeping the gamma
+shares a change does not name; a share of 0 removes one:
+
+```bash
+# set the gamma share to subnet 3; the five slots are rescaled proportionally
+btcli subnets emission set-value --netuid 12 --slot gamma:3 --value 5%
+
+# set all five slots and a gamma share
+btcli subnets emission set --netuid 12 --owner 0.10 --validator 0.40 --miner 0.45 --gamma 3=0.05
+```
+
+While a share's target breaks these rules, every change must also remove the
+share (a share of 0).
 
 The gamma shares of each block's `alpha_out` accrue together and are allotted
 to their targets at the subnet's epoch. Each target then converts on its own:
@@ -183,7 +198,8 @@ split: its share is added to the miner slot and its unconverted alpha to the
 pending miner emission, as is the unconverted alpha of a share the owner
 drops. The v2 call and every removal emit `SubnetEmissionWeightsSet` with the
 five slots and `SubnetGammaEmissionSet` with the gamma shares, and
-`btcli subnets emission show --json` reports their sum as `gamma_share`.
+`btcli subnets emission show --json` reports them as `gamma_shares` and their
+sum as `gamma_share`.
 
 ## Related
 

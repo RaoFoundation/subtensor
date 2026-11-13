@@ -4,14 +4,17 @@
 use super::claim_root::{fund_pool, register_on_root};
 use super::mock::*;
 use crate::{
-    BasketRate, BasketShares, BurnIncreaseMult, FirstEmissionBlockNumber, PendingBasketDeposits,
+    BasketRate, BasketShares, BurnIncreaseMult, CheckColdkeySwap, ColdkeySwapAnnouncements,
+    ColdkeySwapDisputes, Error, FirstEmissionBlockNumber, PendingBasketDeposits,
     RootClaimableThreshold, SubnetAlphaOut, SubnetLimit, SubnetMechanism, SubtokenEnabled,
 };
-use frame_support::assert_ok;
+use frame_support::{assert_ok, traits::ExtendedDispatchable};
+use pallet_subtensor_proxy::{Announcements, Call as ProxyCall, Proxies};
 use sp_core::U256;
+use sp_runtime::traits::Hash;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64};
-use subtensor_runtime_common::{AlphaBalance, NetUid, Token};
+use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance, Token};
 
 // PROTECTED_REGRESSION: a tiny volatile holding must not strand earned root dividends; changes require explicit human approval.
 #[test]
@@ -1012,5 +1015,131 @@ fn lease_termination_after_conviction_takeover_preserves_lock_buckets() {
             DecayingOwnerLock::<Test>::get(lease.netuid).map(|lock| lock.locked_mass),
             Some(beneficiary_lock.locked_mass)
         );
+    });
+}
+
+// PROTECTED_REGRESSION: a coldkey swap must not prevent a delayed proxy controller from cancelling a takeover announcement; changes require explicit human approval.
+#[test]
+#[allow(clippy::unwrap_used)]
+fn proxy_controller_can_cancel_only_its_own_announcements_during_coldkey_swap() {
+    new_test_ext(1).execute_with(|| {
+        let pure = U256::from(4_901);
+        let controller = U256::from(4_902);
+        let other_controller = U256::from(4_903);
+        let attacker = U256::from(4_904);
+        for account in [pure, controller, other_controller] {
+            add_balance_to_coldkey_account(&account, TaoBalance::new(1_000_000_000));
+        }
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(pure),
+            controller,
+            ProxyType::Any,
+            3,
+        ));
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(pure),
+            other_controller,
+            ProxyType::Any,
+            3,
+        ));
+
+        let takeover_call = RuntimeCall::Proxy(ProxyCall::add_proxy {
+            delegate: attacker,
+            proxy_type: ProxyType::Any,
+            delay: 0,
+        });
+        let first_hash = <Test as frame_system::Config>::Hashing::hash_of(&takeover_call);
+        let second_hash = <Test as frame_system::Config>::Hashing::hash_of(&RuntimeCall::System(
+            frame_system::Call::remark { remark: vec![2] },
+        ));
+        for hash in [first_hash, second_hash] {
+            assert_ok!(Proxy::announce(
+                RuntimeOrigin::signed(controller),
+                pure,
+                hash,
+            ));
+        }
+        assert_ok!(Proxy::announce(
+            RuntimeOrigin::signed(other_controller),
+            pure,
+            first_hash,
+        ));
+
+        ColdkeySwapAnnouncements::<Test>::insert(
+            controller,
+            (
+                System::block_number(),
+                <Test as frame_system::Config>::Hashing::hash_of(&U256::from(4_905)),
+            ),
+        );
+        let remove = |call_hash| {
+            RuntimeCall::Proxy(ProxyCall::remove_announcement {
+                real: pure,
+                call_hash,
+            })
+        };
+        assert_ok!(<CheckColdkeySwap<Test> as ExtendedDispatchable<
+            RuntimeCall,
+        >>::dispatch_with_extension(
+            RuntimeOrigin::signed(controller),
+            remove(first_hash),
+        ));
+        assert_eq!(Announcements::<Test>::get(controller).0.len(), 1);
+        assert_eq!(Announcements::<Test>::get(other_controller).0.len(), 1);
+
+        System::set_block_number(System::block_number() + 3);
+        let execute_takeover = RuntimeCall::Proxy(ProxyCall::proxy_announced {
+            delegate: controller,
+            real: pure,
+            force_proxy_type: Some(ProxyType::Any),
+            call: Box::new(takeover_call),
+        });
+        assert!(
+            <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
+                RuntimeOrigin::signed(attacker),
+                execute_takeover,
+            )
+            .is_err()
+        );
+        assert!(
+            !Proxies::<Test>::get(pure)
+                .0
+                .iter()
+                .any(|definition| definition.delegate == attacker)
+        );
+
+        // A dispute keeps every other controller action frozen, but must not freeze cancellation.
+        ColdkeySwapDisputes::<Test>::insert(controller, System::block_number());
+        let announce = RuntimeCall::Proxy(ProxyCall::announce {
+            real: pure,
+            call_hash: first_hash,
+        });
+        assert_eq!(
+            <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
+                RuntimeOrigin::signed(controller),
+                announce,
+            )
+            .unwrap_err()
+            .error,
+            Error::<Test>::ColdkeySwapDisputed.into(),
+        );
+        assert_ok!(<CheckColdkeySwap<Test> as ExtendedDispatchable<
+            RuntimeCall,
+        >>::dispatch_with_extension(
+            RuntimeOrigin::signed(controller),
+            remove(second_hash),
+        ));
+        assert!(Announcements::<Test>::get(controller).0.is_empty());
+
+        // remove_announcement has no delegate argument: entering the pallet as `controller`
+        // cannot touch an announcement stored under a different delegate.
+        assert!(
+            <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
+                RuntimeOrigin::signed(controller),
+                remove(first_hash),
+            )
+            .is_err()
+        );
+        assert_eq!(Announcements::<Test>::get(other_controller).0.len(), 1);
     });
 }

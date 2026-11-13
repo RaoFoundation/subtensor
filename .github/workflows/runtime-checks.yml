@@ -222,7 +222,7 @@ jobs:
     name: build release node
     needs: changes
     if: >-
-      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true') &&
       !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
     # Turbo runners probe the host-local tier and fail open to direct R2.
     # This build gates clone-upgrade and TypeScript release reuse, so it takes
@@ -535,6 +535,41 @@ jobs:
           uv run python -m codegen.check --names
           uv run python scripts/export_beta_baselines_rs.py --check
 
+  sdk-protected-e2e:
+    name: SDK protected-account E2E
+    needs: [changes, build-node-release]
+    if: >-
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true') &&
+      !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-subtensor-release-${{ github.sha }}
+          path: target/release
+      - name: Install uv and SDK dependencies
+        working-directory: sdk/python
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/uv" sync --python 3.14 --locked --all-extras --dev
+      - name: Test protected-account CLI on a disposable chain
+        env:
+          E2E_EVIDENCE_DIR: ${{ runner.temp }}/protected-cli-evidence
+        run: |
+          chmod +x target/release/node-subtensor
+          bash sdk/python/scripts/test_protected_cli.sh
+      - name: Upload public CLI receipts and disposable node log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protected-cli-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/protected-cli-evidence
+          retention-days: 3
+          if-no-files-found: ignore
+
   # Decide whether the clone regressions can fan out over the immutable
   # snapshot. Fresh-state diagnostics and a missing trusted snapshot retain
   # the single-job live-scrape path, avoiding duplicate archive RPC load.
@@ -631,7 +666,9 @@ jobs:
     name: clone-upgrade (${{ matrix.phase }})
     needs: [changes, clone-plan, build-node-release]
     runs-on: [self-hosted, fireactions-turbo-8]
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
+    if: >-
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade')
     timeout-minutes: 90
     permissions:
       contents: read
@@ -795,7 +832,8 @@ jobs:
             true|false) ;;
             *) echo "invalid runtime selection: '$RUNTIME_RELEVANT'" >&2; exit 1 ;;
           esac
-          if [ "$CLONE" = "skipped" ] && [ "$BUILD" = "skipped" ] && [ "$RUNTIME_RELEVANT" = "false" ]; then
+          if [ "$CLONE" = "skipped" ] && [ "$RUNTIME_RELEVANT" = "false" ] && \
+             { [ "$BUILD" = "skipped" ] || [ "$BUILD" = "success" ]; }; then
             exit 0
           fi
           exit 1

@@ -12,7 +12,8 @@ use sp_std::marker::PhantomData;
 /// Dispatch extension that blocks most calls when a coldkey swap is active.
 ///
 /// When a coldkey swap has been announced for the signing account:
-/// * If the swap is disputed, ALL calls are blocked.
+/// * The signer may always remove one of its own proxy announcements.
+/// * If the swap is disputed, all other calls are blocked.
 /// * Otherwise, only swap-related calls and MEV-protected calls (`submit_encrypted`)
 ///   are allowed through.
 ///
@@ -32,12 +33,18 @@ pub struct CheckColdkeySwap<T: Config>(PhantomData<T>);
 
 impl<T> CheckColdkeySwap<T>
 where
-    T: Config + pallet_shield::Config,
-    CallOf<T>: IsSubType<Call<T>> + IsSubType<pallet_shield::Call<T>>,
+    T: Config + pallet_shield::Config + pallet_subtensor_proxy::Config,
+    CallOf<T>: IsSubType<Call<T>>
+        + IsSubType<pallet_shield::Call<T>>
+        + IsSubType<pallet_subtensor_proxy::Call<T>>,
 {
     pub fn check(who: &T::AccountId, call: &CallOf<T>) -> Result<(), Error<T>> {
         let dispute = ColdkeySwapDisputes::<T>::get(who);
-        if dispute.is_some_and(|when| !when.is_zero()) {
+        let removes_own_proxy_announcement = matches!(
+            IsSubType::<pallet_subtensor_proxy::Call<T>>::is_sub_type(call),
+            Some(pallet_subtensor_proxy::Call::remove_announcement { .. })
+        );
+        if dispute.is_some_and(|when| !when.is_zero()) && !removes_own_proxy_announcement {
             return Err(Error::<T>::ColdkeySwapDisputed);
         }
         let locked = dispute.is_some();
@@ -45,7 +52,7 @@ where
             return Ok(());
         }
 
-        if Self::is_allowed_during_swap(call, locked) {
+        if removes_own_proxy_announcement || Self::is_allowed_during_swap(call, locked) {
             Ok(())
         } else {
             Err(Error::<T>::ColdkeySwapAnnounced)
@@ -77,10 +84,11 @@ where
 
 impl<T> DispatchExtension<<T as frame_system::Config>::RuntimeCall> for CheckColdkeySwap<T>
 where
-    T: Config + pallet_shield::Config,
+    T: Config + pallet_shield::Config + pallet_subtensor_proxy::Config,
     <T as frame_system::Config>::RuntimeCall: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<Call<T>>
-        + IsSubType<pallet_shield::Call<T>>,
+        + IsSubType<pallet_shield::Call<T>>
+        + IsSubType<pallet_subtensor_proxy::Call<T>>,
     DispatchableOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();

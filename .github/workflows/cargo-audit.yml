@@ -70,8 +70,21 @@ jobs:
           # RUSTSEC-2026-0269: wasmtime 8.0.1 filesystem sandbox escape via
           #   trailing slashes in WASI paths. We never expose a filesystem to
           #   the runtime WASM; same pin as the wasmtime entries above.
-          # RUSTSEC-2026-0316: wasmtime 8.0.1 is pinned by the polkadot-sdk
-          # fork; this is covered by the existing wasmtime exceptions.
+          # RUSTSEC-2026-0316 / RUSTSEC-2026-0424: wasmtime 8.0.1 is pinned by
+          #   the polkadot-sdk fork's sc-executor; 0424 needs >=36 / >=48 /
+          #   >=49.0.5 / >=50.0.1 — same pin as the other wasmtime entries.
+          # RUSTSEC-2026-0387: crypto-bigint 0.5.5 timing variability. Fix is
+          #   >=0.7.6; elliptic-curve 0.13 (via k256 in frame-support /
+          #   frontier) requires ^0.5 — revisit on the next major SDK bump.
+          # RUSTSEC-2026-0403: zstd-safe 5.0.2 / 6.0.6 uninitialized output on
+          #   legacy-frame decompress failure. Fix is ^7.4.0 / >=8.2.0; zstd
+          #   0.11 (wasmtime-cache) and 0.12 (sp-maybe-compressed-blob /
+          #   polkadot-node-primitives) pin those majors — revisit on SDK bump.
+          # RUSTSEC-2026-0459: libsqlite3-sys 0.30.1 via C SQLite CVE-2026-119375.
+          #   Fix is >=0.39.0; sqlx 0.8.6 in frontier fc-db requires ^0.30.1 —
+          #   revisit when frontier moves off sqlx 0.8.
+          # RUSTSEC-2026-0418 (libz-sys build-script env leak) was resolved by
+          #   bumping libz-sys 1.1.22 → 1.1.32 in Cargo.lock (no ignore).
           cargo audit --ignore RUSTSEC-2023-0091 \
                       --ignore RUSTSEC-2024-0438 \
                       --ignore RUSTSEC-2025-0009 \
@@ -105,4 +118,8 @@ jobs:
                       --ignore RUSTSEC-2026-0235 \
                       --ignore RUSTSEC-2026-0258 \
                       --ignore RUSTSEC-2026-0269 \
-                      --ignore RUSTSEC-2026-0316
+                      --ignore RUSTSEC-2026-0316 \
+                      --ignore RUSTSEC-2026-0387 \
+                      --ignore RUSTSEC-2026-0403 \
+                      --ignore RUSTSEC-2026-0424 \
+                      --ignore RUSTSEC-2026-0459

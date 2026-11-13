@@ -231,6 +231,18 @@ def main_callback(
         "automatic recipient registration, separate from transfer and fees.",
         rich_help_panel=g.PANEL_EXECUTION,
     ),
+    max_controller_refill: Optional[str] = typer.Option(
+        None,
+        "--max-controller-refill",
+        help="Maximum TAO an automatic protected-account controller refill may move.",
+        rich_help_panel=g.PANEL_EXECUTION,
+    ),
+    no_controller_refill: bool = typer.Option(
+        False,
+        "--no-refill-controller",
+        help="Disable automatic protected-account controller refills.",
+        rich_help_panel=g.PANEL_EXECUTION,
+    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -317,6 +329,8 @@ def main_callback(
         hotkey_given=hotkey_source is not None and hotkey_source.name != "DEFAULT",
         assume_yes=assume_yes,
         max_registration_deposit=parse_registration_deposit(max_registration_deposit),
+        max_controller_refill=g.parse_controller_refill(max_controller_refill),
+        no_controller_refill=no_controller_refill,
         dry_run=dry_run,
         mev_shield=mev_shield,
         verbosity=verbosity,

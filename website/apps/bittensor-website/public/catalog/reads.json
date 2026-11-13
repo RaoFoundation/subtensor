@@ -479,7 +479,7 @@
   {
     "name": "coldkey_swap_announcement",
     "summary": "A coldkey's swap state (execute block, new-key hash, dispute, recovery lock), or None.",
-    "description": "A coldkey's swap state (execute block, new-key hash, dispute, recovery lock), or None.\n\nThis is the `swap-check` status: `ColdkeySwapAnnouncements` stores the block\nat which the swap becomes executable and the BlakeTwo256 hash committed to.\n`recovery_locked` is true after root `reset_coldkey_swap_keep_locked` (stored\ndispute block 0): the coldkey can only make swap calls until a successful swap or\na full reset, even when no announcement is pending.",
+    "description": "A coldkey's swap state (execute block, new-key hash, dispute, recovery lock), or None.\n\nThis is the `swap-check` status: `ColdkeySwapAnnouncements` stores the block\nat which the swap becomes executable and the BlakeTwo256 hash committed to.\n`import_source_policies` is the V2 policy snapshot committed with the\ndestination: True or False for V2, None for a legacy announcement. The hash,\nsnapshot and dispute state are read at the same block.\n`recovery_locked` is true after root `reset_coldkey_swap_keep_locked` (stored\ndispute block 0): the coldkey can only make swap calls until a successful swap or\na full reset, even when no announcement is pending.",
     "params": {
       "coldkey_ss58": "string"
     },
@@ -491,6 +491,15 @@
     "markdown_url": "/llms.mdx/docs/query/coldkey-swap-announcement/content.md",
     "python": "sub.balances.coldkey_swap_announcement(...)",
     "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "ColdkeySwapV2PolicySnapshots",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 4122,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4122",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
       {
         "kind": "storage",
         "container": "SubtensorModule",
@@ -1682,6 +1691,32 @@
     ]
   },
   {
+    "name": "proxy_announcements",
+    "summary": "Pending delayed-proxy announcements made by a delegate, plus reserved deposit.",
+    "description": "Pending delayed-proxy announcements made by a delegate, plus reserved deposit.",
+    "params": {
+      "delegate_ss58": "string"
+    },
+    "param_docs": {
+      "delegate_ss58": "Delegate whose pending Proxy.announce entries to list (announcements are keyed by the announcing delegate)."
+    },
+    "category": "Accounts & keys",
+    "docs_url": "/docs/query/proxy-announcements",
+    "markdown_url": "/llms.mdx/docs/query/proxy-announcements/content.md",
+    "python": "sub.balances.proxy_announcements(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Proxy",
+        "name": "Announcements",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 996,
+        "url": "/code/pallets/proxy/src/lib.rs#L996",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "quote_mint_gamma",
     "summary": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.",
     "description": "The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.\n\nRaises the chain error that stops the mint, such as `TaoUsdPriceUnavailable`\nwhen the TAO/USD price is missing or stale, or `AmountTooLow` below 0.1 gamma.",
@@ -2504,6 +2539,15 @@
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetUidToLeaseId",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3828,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3828",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
         "kind": "runtime",
         "container": "SubnetInfoRuntimeApi",
         "name": "get_subnet_emission_weights",
@@ -2512,6 +2556,32 @@
         "end_line": 291,
         "url": "/code/pallets/subtensor/src/subnets/emission_weights.rs#L284-L291",
         "raw_url": "/code/raw/pallets/subtensor/src/subnets/emission_weights.rs"
+      }
+    ]
+  },
+  {
+    "name": "subnet_gamma_emission_whitelisted",
+    "summary": "Root-controlled gamma emission whitelist flag for a subnet (1 = whitelisted); other subnets' gamma shares may name it only while it is set (see the set_subnet_gamma_emission_whitelisted intent).",
+    "description": "Root-controlled gamma emission whitelist flag for a subnet (1 = whitelisted); other subnets' gamma shares may name it only while it is set (see the set_subnet_gamma_emission_whitelisted intent).",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Hyperparameters",
+    "docs_url": "/docs/query/subnet-gamma-emission-whitelisted",
+    "markdown_url": "/llms.mdx/docs/query/subnet-gamma-emission-whitelisted/content.md",
+    "python": "sub.hyperparameters.subnet_gamma_emission_whitelisted(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetGammaEmissionWhitelisted",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 4072,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4072",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
