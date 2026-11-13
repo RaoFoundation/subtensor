@@ -3,7 +3,9 @@
   "scripts": {
     "test": "tsx tests/clone-smoke-test.ts",
     "typecheck": "tsc --noEmit",
+    "test:runtime-upgrade": "node --import tsx tests/unit-runtime-upgrade.test.ts",
     "test:clone-regressions": "tsx scripts/run-clone-regressions.ts",
+    "preruntime:update:alice": "npm run test:runtime-upgrade",
     "runtime:update:alice": "tsx scripts/update-runtime-with-alice.ts",
     "test:balancer-operation": "tsx tests/test-balancer-operation.ts",
     "test:balancer-devnet-status": "tsx tests/test-balancer-devnet-status.ts",

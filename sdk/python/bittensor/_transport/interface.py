@@ -18,6 +18,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Optional, TypeVar
 from ..mldsa import supports_fixed_profile
 from ..sp_core import (
     FALCON_CRYPTO_TYPES,
+    HASHED_WRAPPED_SIGNER_VERSION,
     PQ_CRYPTO_TYPES,
     PQ_PROFILES,
     REGISTERED_CRYPTO_TYPES,
@@ -50,6 +51,7 @@ from .extrinsics import (
     IMMORTAL,
     NonceCache,
     hashed_proof_length,
+    require_hashed_signer_version,
     resolve_outcome,
     shielded_ciphertext_size,
     watch_status_block,
@@ -823,6 +825,7 @@ class SubstrateConnection:
             )
         mldsa = keypair.crypto_type in PQ_CRYPTO_TYPES
         codec = await self._runtimes.codec_at(block_hash)
+        require_hashed_signer_version(codec, keypair)
         if codec.constant("HashedAccounts", "RegistrationDeposit") is None:
             raise SubstrateRequestException("runtime does not support hashed accounts")
         if mldsa and codec.constant("HashedAccounts", "MlDsaRegistrationDeposit") is None:
@@ -924,7 +927,12 @@ class SubstrateConnection:
         block_hash = (
             signing_snapshot.block_hash
             if signing_snapshot is not None
-            else (await self.get_chain_finalised_head() if mldsa else await self.get_chain_head())
+            else (
+                await self.get_chain_finalised_head()
+                if mldsa
+                or getattr(keypair, "hashed_signature_version", 1) == HASHED_WRAPPED_SIGNER_VERSION
+                else await self.get_chain_head()
+            )
         )
         snapshot = await self._hashed_snapshot_at(keypair, block_hash)
         if signing_snapshot is not None and snapshot != signing_snapshot:
@@ -956,7 +964,15 @@ class SubstrateConnection:
             expected = _signer_identity(keypair)
             current_key = keypair.at_generation(generation)
             _check_signer_identity(current_key, expected)
-            if bytes(current_key.hashed_current_commitment) != commitment:
+            # Hardware-backed wrapped signers may need a device round trip to
+            # derive the chain's current key. Keep that I/O off the event loop.
+            current_commitment = (
+                await asyncio.to_thread(lambda: bytes(current_key.hashed_current_commitment))
+                if getattr(current_key, "hashed_signature_version", 1)
+                == HASHED_WRAPPED_SIGNER_VERSION
+                else bytes(current_key.hashed_current_commitment)
+            )
+            if current_commitment != commitment:
                 raise SubstrateRequestException(
                     "derived hashed signing key does not match the current on-chain commitment"
                 )
@@ -984,6 +1000,8 @@ class SubstrateConnection:
                 signature = generation.to_bytes(8, "little") + b"\x00" * (
                     hashed_proof_length(keypair.crypto_type) - 8
                 )
+                if getattr(keypair, "hashed_signature_version", 1) == HASHED_WRAPPED_SIGNER_VERSION:
+                    signature = bytes([HASHED_WRAPPED_SIGNER_VERSION]) + signature
         era, era_block_hash = await self._normalize_era(era)
         return await _sign_and_assemble(
             codec,

@@ -28,6 +28,9 @@ except AttributeError as error:
         "rebuild or upgrade bittensor-core together with bittensor."
     ) from error
 CLASSICAL_HASHED_CRYPTO_TYPES = (CRYPTO_HASHED, CRYPTO_HASHED_ED25519)
+# Classical authorization modes, distinct from immutable descriptor versions.
+HASHED_SIGNER_VERSION = 1
+HASHED_WRAPPED_SIGNER_VERSION = 0x81
 MLDSA_CRYPTO_TYPES = (CRYPTO_MLDSA65, CRYPTO_MLDSA65_FIXED)
 FALCON512_CRYPTO_TYPES = (CRYPTO_FALCON512, CRYPTO_FALCON512_HASHED)
 FALCON1024_CRYPTO_TYPES = (CRYPTO_FALCON1024, CRYPTO_FALCON1024_HASHED)

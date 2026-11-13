@@ -31,8 +31,9 @@ impl PyLedgerDevice {
     /// The generic app's version as ``(major, minor, patch)``.
     ///
     /// Also the cheapest "is the Polkadot app open?" probe.
-    fn app_version(&self) -> PyResult<(u16, u16, u16)> {
-        self.inner.app_version().map_err(to_py_err)
+    fn app_version(&self, py: Python) -> PyResult<(u16, u16, u16)> {
+        py.allow_threads(|| self.inner.app_version())
+            .map_err(to_py_err)
     }
 
     /// Derive ``m/44'/354'/account'/0'/index'`` on-device; returns
@@ -49,9 +50,8 @@ impl PyLedgerDevice {
         ss58_prefix: u16,
         confirm: bool,
     ) -> PyResult<(Py<PyBytes>, String)> {
-        let address = self
-            .inner
-            .address(account, index, ss58_prefix, confirm)
+        let address = py
+            .allow_threads(|| self.inner.address(account, index, ss58_prefix, confirm))
             .map_err(to_py_err)?;
         Ok((
             PyBytes::new(py, &address.public_key).into(),
@@ -75,6 +75,25 @@ impl PyLedgerDevice {
     ) -> PyResult<Py<PyBytes>> {
         let signature = py
             .allow_threads(|| self.inner.sign(account, index, &payload, &proof))
+            .map_err(to_py_err)?;
+        Ok(PyBytes::new(py, &signature).into())
+    }
+
+    /// Sign an explicitly ``<Bytes>...</Bytes>``-wrapped message (at most
+    /// 256 bytes including the wrapper), using the app's message-signing
+    /// command. This does not clear-sign or display decoded transaction data.
+    /// Returns an Ed25519 MultiSignature; the caller must verify it against
+    /// the expected public key and exact wrapped bytes.
+    #[pyo3(signature = (message, account=0, index=0))]
+    fn sign_message(
+        &self,
+        py: Python,
+        message: Vec<u8>,
+        account: u32,
+        index: u32,
+    ) -> PyResult<Py<PyBytes>> {
+        let signature = py
+            .allow_threads(|| self.inner.sign_message(account, index, &message))
             .map_err(to_py_err)?;
         Ok(PyBytes::new(py, &signature).into())
     }

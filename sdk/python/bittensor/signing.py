@@ -13,7 +13,7 @@ structurally (no base class needed — just define the method):
   extension-style signers that take the Polkadot-JS ``SignerPayloadJSON``
   instead of raw payload bytes (:class:`bittensor.ExtensionSigner`).
 - ``metadata_digest(SigningContext) -> bytes`` — for signers that verify the
-  runtime before signing (Ledger's generic app refuses to blind-sign). The
+  runtime before signing (the ordinary Ledger clear-signing path). The
   returned RFC-0078 merkleized-metadata digest is signed into the payload via
   the ``CheckMetadataHash`` extension, and the assembled extrinsic carries the
   matching mode byte.
@@ -27,6 +27,9 @@ signing is split in two on ``Client``: ``prepare_call`` builds an
 just an address, and ``submit_signature`` reunites it with the signature.
 
 Native keyfiles are the first backend (:class:`WalletSigner`).
+Registered hashed signers expose ``sign_hashed(full_payload)``; it may also
+be asynchronous, as for :class:`LedgerHashedSigner`. The transport synchronizes
+their generation and checks runtime support before requesting authorization.
 Every SDK API that accepts a ``wallet`` accepts a :data:`WalletLike`: a
 ``Wallet``, a wallet name string (``"cold"`` or ``"cold/hot"``), anything
 wallet-shaped (:class:`KeyedWallet` — e.g. an object carrying dev keypairs),
@@ -38,7 +41,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Protocol, Union, runtime_checkable
 
-from .ledger import LedgerSigner  # noqa: F401  (re-export: hardware signing backend)
+from .ledger import LedgerHashedSigner, LedgerSigner  # noqa: F401  (hardware signing backends)
 from .sp_core import REGISTERED_CRYPTO_TYPES, is_stateless_pq, ss58_decode
 from .wallet import Wallet
 from .wallets import signing_keypair

@@ -15,6 +15,21 @@ use crate::error::CoreError;
 const VERSION: u8 = 1;
 const DERIVATION_SALT: &[u8] = b"bittensor/hashed/v1/derive";
 
+/// SDK proof framing. The original raw proof stays exactly 136 bytes; a wrapped
+/// proof explicitly prefixes it with the signer version authenticated on chain.
+pub(crate) fn decode_hashed_authorization(encoded: &[u8]) -> Result<(u8, Proof), CoreError> {
+    let (version, proof) = match encoded.len() {
+        136 => (subtensor_hashed::VERSION, encoded),
+        137 if encoded[0] == subtensor_hashed::WRAPPED_SIGNER_VERSION => {
+            (subtensor_hashed::WRAPPED_SIGNER_VERSION, &encoded[1..])
+        }
+        _ => return Err(crypto_err("invalid hashed authorization proof format")),
+    };
+    let proof = Proof::decode(&mut &proof[..])
+        .map_err(|_| crypto_err("invalid hashed authorization proof"))?;
+    Ok((version, proof))
+}
+
 /// Verify a device's complete signing result against independently trusted
 /// authority. The proof itself never chooses the account, scheme or current
 /// commitment. `payload` must be the full call, extra and implicit bytes, not
@@ -32,12 +47,12 @@ pub fn verify_hashed_authorization(
     if !input.is_empty() || !descriptor.is_supported() {
         return Err(crypto_err("invalid hashed account descriptor"));
     }
-    // Fixed-size SDK proof: generation, current key, next commitment, signature.
-    if encoded.len() != 8 + 32 + 32 + 64 || generation == u64::MAX {
+    if generation == u64::MAX {
         return Ok(false);
     }
-    let proof = Proof::decode(&mut &encoded[..])
-        .map_err(|_| crypto_err("invalid hashed authorization proof"))?;
+    let Ok((version, proof)) = decode_hashed_authorization(encoded) else {
+        return Ok(false);
+    };
     if proof.generation != generation
         || key_commitment(descriptor.scheme, &proof.public_key) != *expected_commitment
         || proof.next_commitment == [0; 32]
@@ -47,22 +62,24 @@ pub fn verify_hashed_authorization(
     }
     let address = SignerAddress {
         account: account_id(&descriptor),
-        version: descriptor.version,
+        version,
         scheme: descriptor.scheme,
         generation,
         public_key: proof.public_key,
         next_commitment: proof.next_commitment,
     };
-    let message = address.signing_hash(payload);
+    let message = address
+        .signing_message(payload)
+        .map_err(|_| crypto_err("unsupported hashed signer version"))?;
     Ok(match descriptor.scheme {
         Scheme::Sr25519 => sr25519::Pair::verify(
             &sr25519::Signature::from_raw(proof.signature),
-            message,
+            message.as_ref(),
             &sr25519::Public::from_raw(proof.public_key),
         ),
         Scheme::Ed25519 => ed25519::Pair::verify(
             &ed25519::Signature::from_raw(proof.signature),
-            message,
+            message.as_ref(),
             &ed25519::Public::from_raw(proof.public_key),
         ),
     })
@@ -294,27 +311,49 @@ impl Keypair {
     /// versioned raw signer address (account, scheme, generation, current key
     /// and next commitment) under the transaction domain before signing.
     pub fn sign_hashed(&self, payload: &[u8]) -> Result<Vec<u8>, CoreError> {
+        self.sign_hashed_version(payload, subtensor_hashed::VERSION)
+    }
+
+    /// Explicit message-wrapper authorization; existing raw signing is unchanged.
+    pub fn sign_hashed_wrapped(&self, payload: &[u8]) -> Result<Vec<u8>, CoreError> {
+        self.sign_hashed_version(payload, subtensor_hashed::WRAPPED_SIGNER_VERSION)
+    }
+
+    fn sign_hashed_version(&self, payload: &[u8], version: u8) -> Result<Vec<u8>, CoreError> {
         let hashed = self.hashed()?;
         let address = SignerAddress {
-            version: VERSION,
+            version,
             scheme: hashed.descriptor.scheme,
             account: self.public_key_bytes(),
             generation: hashed.generation,
             public_key: self.hashed_public_key()?,
             next_commitment: self.hashed_next_commitment()?,
         };
-        let payload = address.signing_hash(payload);
+        let payload = address
+            .signing_message(payload)
+            .map_err(|_| crypto_err("unsupported hashed signer version"))?;
         let signature = match hashed.descriptor.scheme {
-            Scheme::Sr25519 => hashed.pair_at(hashed.generation)?.sign(&payload).0,
-            Scheme::Ed25519 => hashed.ed_at(hashed.generation)?.sign(&payload).to_bytes(),
+            Scheme::Sr25519 => hashed.pair_at(hashed.generation)?.sign(payload.as_ref()).0,
+            Scheme::Ed25519 => hashed
+                .ed_at(hashed.generation)?
+                .sign(payload.as_ref())
+                .to_bytes(),
         };
-        Ok(Proof {
+        let proof = Proof {
             generation: hashed.generation,
             public_key: self.hashed_public_key()?,
             next_commitment: self.hashed_next_commitment()?,
             signature,
         }
-        .encode())
+        .encode();
+        if version == subtensor_hashed::WRAPPED_SIGNER_VERSION {
+            let mut encoded = Vec::with_capacity(137);
+            encoded.push(version);
+            encoded.extend_from_slice(&proof);
+            Ok(encoded)
+        } else {
+            Ok(proof)
+        }
     }
 
     pub fn hashed_signing_public_key(&self) -> Result<Vec<u8>, CoreError> {

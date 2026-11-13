@@ -519,6 +519,10 @@ jobs:
 
       - name: SDK offline checks (same as just check)
         working-directory: sdk/python
+        env:
+          # uv builds the local Rust core through maturin; avoid libgit2 TLS
+          # failures while fetching the workspace's pinned Git dependencies.
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
         run: |
           python3 ../../.github/scripts/test_prepare_sdk_dist.py
           uv sync --python 3.14 --locked --all-extras --dev
@@ -849,6 +853,9 @@ jobs:
 
       - name: Docs drift gate (generated tx/query/errors pages)
         working-directory: sdk/python
+        env:
+          # This also builds the local Rust core through uv/maturin.
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
         run: |
           uv sync --locked --all-extras --dev
           uv run python ../../website/apps/bittensor-website/scripts/generate.py --check
