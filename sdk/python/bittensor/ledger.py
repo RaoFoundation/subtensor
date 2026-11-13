@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 from copy import copy
 from hashlib import blake2b
+from threading import Lock
 from typing import Optional
 
 import bittensor_core as _backend
@@ -231,23 +232,39 @@ class LedgerHashedSigner:
         self._generation = 0
         self._ss58_format = ss58_format
         self._device = _device_cls()()
-        self._public_keys: dict[int, bytes] = {}
-        initial = self._derive_public(0)
-        self._descriptor = _HASHED_DESCRIPTOR_PREFIX + _hashed_key_commitment(initial)
+        # Generation views share the device and this lock. Keep only the
+        # immutable identity, never keys learned during a signing attempt.
+        self._device_lock = Lock()
+        self._initial_public_key = self._read_public(0)
+        self._descriptor = _HASHED_DESCRIPTOR_PREFIX + _hashed_key_commitment(
+            self._initial_public_key
+        )
         self._public = _backend.Keypair.from_hashed_descriptor(self._descriptor, ss58_format)
 
     def _path_index(self, generation: int) -> int:
         return _hardened_component(generation, "generation")
 
-    def _derive_public(self, generation: int) -> bytes:
+    def _read_public(self, generation: int) -> bytes:
         index = self._path_index(generation)
-        if generation not in self._public_keys:
-            public_key, _ = self._device.address(self._account, index, self._ss58_format, False)
-            public_key = bytes(public_key)
-            if len(public_key) != 32:
-                raise LedgerError("device returned an invalid Ed25519 public key")
-            self._public_keys[generation] = public_key
-        return self._public_keys[generation]
+        public_key, _ = self._device.address(self._account, index, self._ss58_format, False)
+        public_key = bytes(public_key)
+        if len(public_key) != 32:
+            raise LedgerError("device returned an invalid Ed25519 public key")
+        return public_key
+
+    def _check_device_identity(self) -> None:
+        if self._read_public(0) != self._initial_public_key:
+            raise LedgerError("Ledger wallet changed; reconnect the original wallet")
+
+    def _derive_public(self, generation: int) -> bytes:
+        self._path_index(generation)
+        with self._device_lock:
+            self._check_device_identity()
+            if generation == 0:
+                return self._initial_public_key
+            public_key = self._read_public(generation)
+            self._check_device_identity()
+            return public_key
 
     @property
     def public_key(self) -> bytes:
@@ -311,11 +328,24 @@ class LedgerHashedSigner:
 
         The SDK checks the live account commitment and runtime support before
         calling this method. This method independently checks the device's
-        signature against the exact wrapped digest and expected rotating key.
+        identity, signature, and successor key before returning a proof.
         """
-        payload = bytes(payload)
-        current = await asyncio.to_thread(self._derive_public, self._generation)
-        next_commitment = await asyncio.to_thread(self.hashed_commitment, self._generation + 1)
+        # Keep the lock in the worker: cancelling the await must not release
+        # the device while its signing operation is still running.
+        return await asyncio.to_thread(self._sign_hashed, bytes(payload))
+
+    def _sign_hashed(self, payload: bytes) -> bytes:
+        with self._device_lock:
+            return self._sign_hashed_locked(payload)
+
+    def _sign_hashed_locked(self, payload: bytes) -> bytes:
+        sign_message = getattr(self._device, "sign_message", None)
+        if sign_message is None:
+            raise LedgerError("this bittensor-core build has no Ledger message-signing support")
+        self._check_device_identity()
+        current = self._read_public(self._generation)
+        successor = self._read_public(self._generation + 1)
+        next_commitment = _hashed_key_commitment(successor)
         generation = self._generation.to_bytes(8, "little")
         signer_address = (
             self.public_key
@@ -328,19 +358,22 @@ class LedgerHashedSigner:
             _HASHED_TRANSACTION_DOMAIN + signer_address + payload, digest_size=32
         ).digest()
         message = b"<Bytes>" + digest + b"</Bytes>"
-        sign_message = getattr(self._device, "sign_message", None)
-        if sign_message is None:
-            raise LedgerError("this bittensor-core build has no Ledger message-signing support")
-        signature = bytes(
-            await asyncio.to_thread(
-                sign_message, message, self._account, self._path_index(self._generation)
-            )
-        )
+        self._check_device_identity()
+        signature = bytes(sign_message(message, self._account, self._path_index(self._generation)))
         if len(signature) != 65 or signature[0] != 0:
             raise LedgerError("expected a 65-byte Ed25519 MultiSignature from the device")
         address = _backend.ss58_encode(current, self._ss58_format)
         if not _backend.verify_strict(message, signature[1:], address, 0):
             raise LedgerError("device signature does not match the requested hashed authorization")
+        # A valid current-key signature alone does not prove that the successor
+        # came from the same wallet. Re-read both keys and the pinned identity;
+        # all attempt-local values are discarded on failure or cancellation.
+        if (
+            self._read_public(self._generation) != current
+            or self._read_public(self._generation + 1) != successor
+        ):
+            raise LedgerError("Ledger keys changed during signing; retry with the original wallet")
+        self._check_device_identity()
         return (
             bytes([self.hashed_signature_version])
             + generation
