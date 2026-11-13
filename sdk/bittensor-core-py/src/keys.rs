@@ -279,6 +279,21 @@ impl Keypair {
         ))
     }
 
+    /// Sign a classical hashed authorization using the explicit <Bytes> mode.
+    fn sign_hashed_wrapped<'py>(
+        &self,
+        py: Python<'py>,
+        implication: &[u8],
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self
+                .inner
+                .sign_hashed_wrapped(implication)
+                .map_err(to_py_err)?,
+        ))
+    }
+
     #[staticmethod]
     #[pyo3(signature = (descriptor, ss58_format=DEFAULT_SS58_FORMAT))]
     fn from_mldsa_descriptor(descriptor: &[u8], ss58_format: u16) -> PyResult<Self> {

@@ -5,7 +5,7 @@
 // Client-side codec, not runtime code.
 #![allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
-use codec::{Decode, Encode};
+use codec::Encode;
 use scale_info::{form::PortableForm, TypeDef, Variant};
 use sp_core::hashing::blake2_256;
 
@@ -296,20 +296,22 @@ impl Runtime {
             None
         };
         let proof = if is_hashed_crypto(signature_version) {
-            if signature.len() != 136 {
-                return Err(CoreError::Codec(
-                    "hashed authorization proof must be 136 bytes".into(),
-                ));
-            }
+            let (version, proof) = crate::keys::decode_hashed_authorization(signature)?;
             if !self.pallets.iter().any(|p| p.name == "HashedAccounts") {
                 return Err(CoreError::Codec(
                     "runtime does not support hashed accounts".into(),
                 ));
             }
-            Some(
-                subtensor_hashed::Proof::decode(&mut &signature[..])
-                    .map_err(|_| CoreError::Codec("invalid hashed authorization proof".into()))?,
-            )
+            if version == subtensor_hashed::WRAPPED_SIGNER_VERSION
+                && !self
+                    .constant("HashedAccounts", "ClassicalSignerVersions")
+                    .is_some_and(|constant| constant.value.contains(&version))
+            {
+                return Err(CoreError::Codec(
+                    "runtime does not support wrapped hashed signatures".into(),
+                ));
+            }
+            Some((version, proof))
         } else {
             None
         };
@@ -319,14 +321,14 @@ impl Runtime {
                 subtensor_hashed::mldsa::CARRIER_SIGNATURE.as_slice(),
                 0,
             )
-        } else if let Some(proof) = &proof {
+        } else if let Some((version, proof)) = &proof {
             let scheme = if signature_version == crate::keys::CRYPTO_HASHED {
                 subtensor_hashed::Scheme::Sr25519
             } else {
                 subtensor_hashed::Scheme::Ed25519
             };
             let address = subtensor_hashed::SignerAddress {
-                version: subtensor_hashed::VERSION,
+                version: *version,
                 scheme,
                 account: public_key,
                 generation: proof.generation,
@@ -1098,3 +1100,6 @@ pub(crate) mod hashed_tests {
                 && matches!(value, Value::Uint(4) | Value::Int(4))));
     }
 }
+#[cfg(test)]
+#[path = "wrapped_signature_tests.rs"]
+mod wrapped_signature_tests;

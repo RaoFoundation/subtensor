@@ -95,6 +95,54 @@ Polkadot Vault need explicit support for the selected scheme before they can
 sign its transactions. Unknown signing schemes fail before
 creating or restoring a keyfile.
 
+## Ledger signing for hashed Ed25519 accounts
+
+`LedgerHashedSigner` is an opt-in Python SDK signer for a rotating Ed25519
+account backed by the Polkadot Ledger app's wrapped-message signing support:
+
+```python
+import bittensor as bt
+
+signer = bt.LedgerHashedSigner(account=3)
+print(signer.hashed_receiving_address())
+```
+
+Reserve a dedicated Ledger account number for this signer. Generation `g` uses
+the hardened path `m/44'/354'/account'/0'/g'` and commits to the next index.
+Do not reuse this account's key sequence for ordinary Ledger wallets or another
+hashed signer. Keep the account number with your Ledger recovery information;
+restoring the same Ledger seed and account number recovers the same hashed
+account. The SDK reads the current generation from finalized chain state, so
+there is no local counter or private-key file to restore.
+
+Register the public receiving descriptor through a sponsor and wait for
+finalization before funding the account. The normal hashed-account registration
+reserve applies. Pass the signer as the SDK's `wallet` argument when transacting.
+Its permanent SS58 account differs from the device's ordinary Ed25519 account.
+
+This signing mode displays a transaction digest on the device, rather than
+decoded transfer amounts or destinations. Review those details in the caller
+before approving. The signed digest binds the entire call, transaction
+extensions, chain, current generation, and next key commitment. The SDK verifies
+the returned device signature before assembling the transaction. MEV Shield
+requires two approvals, one for the inner call and one for its carrier.
+If signing is cancelled in the caller, reject any remaining device prompt before
+retrying; cancellation cannot dismiss an approval already displayed by the device.
+
+The runtime must advertise version `129` (`0x81`) in
+`HashedAccounts.ClassicalSignerVersions`, and hashed accounts must be enabled.
+The SDK rejects unsupported runtimes before requesting a signature. Existing
+raw hashed signatures use version `1` and retain their encoding. A single
+selected verification checks the exact message `b"<Bytes>" + digest + b"</Bytes>"`;
+the runtime does not try both modes. The mode does not change the account's
+descriptor, balance, or rotation rules.
+
+The ordinary `LedgerSigner` and CLI `--ledger` option keep their existing
+clear-signing behavior. This adapter does not add Ledger support for ML-DSA or
+Falcon signatures. It requires matching SDK and native core builds, compatible
+Ledger firmware, and the runtime change; physical-device validation is still
+required before relying on a particular device/app combination.
+
 ## Registration and authorization
 
 Standard ML-DSA and Falcon wallets use one ordinary **SS58 address** for display, receiving, and

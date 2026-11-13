@@ -57,7 +57,7 @@ from .extension import (
 )
 from .intents import REGISTRY as _INTENT_REGISTRY
 from .intents import Intent, Plan, Policy
-from .ledger import LedgerError, LedgerSigner
+from .ledger import LedgerError, LedgerHashedSigner, LedgerSigner
 from .metagraph import Metagraph, MetagraphNeuron, NeuronCommitment
 from .multisig import Multisig
 from .reads import (
@@ -214,6 +214,7 @@ __all__ = [
     "stop_bridge_daemon",
     # Ledger hardware signing (Polkadot generic app, RFC-0078 clear-signing)
     "LedgerSigner",
+    "LedgerHashedSigner",
     "LedgerError",
     # Polkadot Vault air-gapped signing (UOS QR round-trip)
     "VaultSigner",

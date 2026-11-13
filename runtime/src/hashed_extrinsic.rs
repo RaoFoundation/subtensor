@@ -114,6 +114,7 @@ fn decode_address<I: Input>(input: &mut I) -> Result<Address, codec::Error> {
 }
 
 /// Exact payload shared with the SDK: no call wrapper or extra wire fields.
+#[cfg(test)]
 pub(crate) fn signing_hash(
     address: &SignerAddress,
     call: &RuntimeCall,
@@ -255,7 +256,13 @@ impl Checkable<ChainContext> for UncheckedExtrinsic {
                         );
                         if !matches
                             || !signature.verify(
-                                signing_hash(address, &xt.0.function, &extension.0)?.as_slice(),
+                                address
+                                    .signing_message(
+                                        &(&xt.0.function, &extension.0, extension.0.implicit()?)
+                                            .encode(),
+                                    )
+                                    .map_err(|_| InvalidTransaction::BadProof)?
+                                    .as_ref(),
                                 &AccountId::new(address.public_key),
                             )
                         {

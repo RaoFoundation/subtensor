@@ -232,6 +232,16 @@ pub mod pallet {
 
     #[pallet::extra_constants]
     impl<T: Config> Pallet<T> {
+        /// Classical signer modes: raw hash and the exact `<Bytes>`-wrapped hash.
+        /// Both authenticate the same version-1 account descriptors.
+        #[pallet::constant_name(ClassicalSignerVersions)]
+        pub fn classical_signer_versions() -> [u8; 2] {
+            [
+                subtensor_hashed::VERSION,
+                subtensor_hashed::WRAPPED_SIGNER_VERSION,
+            ]
+        }
+
         /// Supported ML-DSA profiles: registered rotating and registration-free fixed.
         #[pallet::constant_name(MldsaAccountProfiles)]
         pub fn mldsa_account_profiles() -> [u8; 2] {

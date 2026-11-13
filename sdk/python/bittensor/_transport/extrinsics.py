@@ -28,12 +28,16 @@ import inspect
 from hashlib import blake2b
 from typing import Any, Optional
 
+from ..mldsa import supports_fixed_profile
 from ..sp_core import (
+    CLASSICAL_HASHED_CRYPTO_TYPES,
     CRYPTO_ECDSA,
     CRYPTO_ED25519,
     CRYPTO_SR25519,
     ECDSA_SIGNATURE_LEN,
     ED25519_SIGNATURE_LEN,
+    HASHED_SIGNER_VERSION,
+    HASHED_WRAPPED_SIGNER_VERSION,
     PQ_CRYPTO_TYPES,
     REGISTERED_CRYPTO_TYPES,
     SR25519_SIGNATURE_LEN,
@@ -63,6 +67,20 @@ from .utils.receipt import (
 IMMORTAL = "00"
 HASHED_PROOF_LENGTH = 136
 MLDSA_PROOF_LENGTH = 5367
+
+
+def require_hashed_signer_version(codec, keypair):
+    """Reject unavailable message-signing modes before asking a device to sign."""
+    if keypair.crypto_type not in CLASSICAL_HASHED_CRYPTO_TYPES:
+        return
+    version = getattr(keypair, "hashed_signature_version", HASHED_SIGNER_VERSION)
+    if version == HASHED_SIGNER_VERSION:
+        return
+    if version != HASHED_WRAPPED_SIGNER_VERSION or not supports_fixed_profile(
+        codec.constant("HashedAccounts", "ClassicalSignerVersions"), version
+    ):
+        raise SubstrateRequestException("runtime does not support this hashed signature mode")
+
 
 # Shield wire: key hash + KEM length + ML-KEM-768 ciphertext + XChaCha nonce + AEAD tag.
 SHIELD_ENCRYPTION_OVERHEAD = 16 + 2 + 1088 + 24 + 16
@@ -406,6 +424,22 @@ async def create_signed_extrinsic(
     paths); a 65-byte value carries the signature version in its first byte.
     """
     if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
+        require_hashed_signer_version(codec, keypair)
+        if signature is None:
+            call_data = codec.call_data(call)
+            _, extra, additional = codec.signature_payload_parts(
+                call_data,
+                era=era,
+                nonce=nonce,
+                tip=tip,
+                tip_asset_id=tip_asset_id,
+                genesis_hash=genesis_hash,
+                era_block_hash=era_block_hash,
+            )
+            signature = keypair.sign_hashed(call_data + extra + additional)
+            if inspect.isawaitable(signature):
+                signature = await signature
+            signature = bytes(signature)
         return create_hashed_extrinsic(
             codec,
             call,
@@ -470,12 +504,18 @@ def create_hashed_extrinsic(
     era_block_hash: str,
     proof: Optional[bytes | str] = None,
 ) -> SignedExtrinsic:
-    """Sign a direct v4 call with rotation data in its standard raw signer address."""
+    """Assemble a direct v4 hashed call, signing inline only for synchronous keys.
+
+    Use ``create_signed_extrinsic`` for hardware or other asynchronous signers.
+    """
+    require_hashed_signer_version(codec, keypair)
     account = bytes(keypair.public_key)
     if len(account) != 32:
         raise ValueError("hashed account IDs must contain exactly 32 bytes")
     call_data = codec.call_data(call)
     if proof is None:
+        if inspect.iscoroutinefunction(keypair.sign_hashed):
+            raise TypeError("asynchronous hashed signers require create_signed_extrinsic")
         _, extra, additional = codec.signature_payload_parts(
             call_data,
             era=era,
@@ -490,7 +530,12 @@ def create_hashed_extrinsic(
         proof = bytes(keypair.sign_hashed(call_data + extra + additional))
     elif isinstance(proof, str):
         proof = bytes.fromhex(proof.removeprefix("0x"))
-    if len(proof) != hashed_proof_length(keypair.crypto_type):
+    wrapped = (
+        keypair.crypto_type in CLASSICAL_HASHED_CRYPTO_TYPES
+        and len(proof) == HASHED_PROOF_LENGTH + 1
+        and proof[0] == HASHED_WRAPPED_SIGNER_VERSION
+    )
+    if len(proof) != hashed_proof_length(keypair.crypto_type) and not wrapped:
         raise ValueError(
             "hashed authorization requires a complete "
             f"{hashed_proof_length(keypair.crypto_type)}-byte rotation proof"

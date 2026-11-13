@@ -22,6 +22,7 @@ use crate::error::CoreError;
 
 mod base58;
 mod hashed;
+pub(crate) use hashed::decode_hashed_authorization;
 pub use hashed::{verify_hashed_authorization, HashedKeypair};
 mod falcon;
 mod mldsa;

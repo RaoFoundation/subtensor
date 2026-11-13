@@ -193,5 +193,6 @@ class HashedAccounts:
     RegistrationDeposit = Item('HashedAccounts', 'RegistrationDeposit')
     MlDsaRegistrationDeposit = Item('HashedAccounts', 'MlDsaRegistrationDeposit')
     DerivedRegistrationDeposit = Item('HashedAccounts', 'DerivedRegistrationDeposit')
+    ClassicalSignerVersions = Item('HashedAccounts', 'ClassicalSignerVersions')
     MldsaAccountProfiles = Item('HashedAccounts', 'MldsaAccountProfiles')
     FalconAccountProfiles = Item('HashedAccounts', 'FalconAccountProfiles')

@@ -4,8 +4,8 @@
 //! and the chunked `SIGN` whose message is the signature payload followed by
 //! the RFC-0078 metadata proof (see [`crate::digest`]). The generic app
 //! clear-signs: it decodes the transaction on-device against the proof and
-//! refuses to sign what it cannot display, so there is no blind-signing path
-//! here.
+//! refuses to sign what it cannot display. The separate `SIGN_RAW` operation
+//! signs explicitly wrapped messages; it never replaces transaction clear-signing.
 //!
 //! The app signs with ed25519 (scheme 0) on the Polkadot derivation path
 //! `m/44'/354'/account'/0'/index'` — the same keys Ledger Live and every
@@ -17,6 +17,7 @@
 #![allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
 use ledger_apdu::{APDUAnswer, APDUCommand};
+use std::sync::{Mutex, MutexGuard};
 
 use crate::error::CoreError;
 use crate::signers::hid::Transport;
@@ -25,6 +26,7 @@ const CLA: u8 = 0xF9;
 const INS_GET_VERSION: u8 = 0x00;
 const INS_GET_ADDR: u8 = 0x01;
 const INS_SIGN: u8 = 0x02;
+const INS_SIGN_RAW: u8 = 0x03;
 
 const P1_ADDR_SHOW: u8 = 1;
 const P1_ADDR_SILENT: u8 = 0;
@@ -51,6 +53,9 @@ pub struct LedgerAddress {
 /// One connected Ledger running the Polkadot generic app.
 pub struct LedgerDevice {
     transport: Transport,
+    // A signing operation spans several APDUs. Lock the complete operation,
+    // not only individual HID exchanges, so concurrent requests cannot mix.
+    operation: Mutex<()>,
 }
 
 impl LedgerDevice {
@@ -61,6 +66,7 @@ impl LedgerDevice {
     pub fn open() -> Result<Self, CoreError> {
         Ok(Self {
             transport: Transport::open()?,
+            operation: Mutex::new(()),
         })
     }
 
@@ -69,6 +75,7 @@ impl LedgerDevice {
     /// Also serves as the "is the right app open?" probe: any other app
     /// rejects CLA `0xF9`.
     pub fn app_version(&self) -> Result<(u16, u16, u16), CoreError> {
+        let _operation = self.lock()?;
         let answer = self.exchange(INS_GET_VERSION, 0, 0, Vec::new())?;
         let data = answer.as_slice();
         if data.len() < 7 {
@@ -91,6 +98,7 @@ impl LedgerDevice {
         ss58_prefix: u16,
         confirm: bool,
     ) -> Result<LedgerAddress, CoreError> {
+        let _operation = self.lock()?;
         let mut payload = bip44_path(account, index).to_vec();
         payload.extend_from_slice(&ss58_prefix.to_le_bytes());
         let p1 = if confirm {
@@ -128,6 +136,7 @@ impl LedgerDevice {
         payload: &[u8],
         proof: &[u8],
     ) -> Result<Vec<u8>, CoreError> {
+        let _operation = self.lock()?;
         let payload_len = u16::try_from(payload.len()).map_err(|_| {
             CoreError::Device("signature payload exceeds the device's 64 KiB limit".into())
         })?;
@@ -155,6 +164,35 @@ impl LedgerDevice {
         Ok(signature)
     }
 
+    /// Sign an explicitly `<Bytes>...</Bytes>`-wrapped message using `SIGN_RAW`.
+    ///
+    /// This is message signing, without an RFC-0078 transaction proof. The
+    /// caller must provide the exact uppercase wrapper and separately verify
+    /// the signature against the expected public key. Messages are limited to
+    /// 256 bytes, including the wrapper, so the app signs these exact bytes
+    /// instead of applying its large-message hash rule.
+    pub fn sign_message(
+        &self,
+        account: u32,
+        index: u32,
+        message: &[u8],
+    ) -> Result<Vec<u8>, CoreError> {
+        let commands = message_signing_commands(account, index, message)?;
+        let _operation = self.lock()?;
+        let mut signature = Vec::new();
+        for (p1, data) in commands {
+            signature = self.exchange(INS_SIGN_RAW, p1, SCHEME_ED25519, data)?;
+        }
+        validate_ed25519_signature(&signature)?;
+        Ok(signature)
+    }
+
+    fn lock(&self) -> Result<MutexGuard<'_, ()>, CoreError> {
+        self.operation
+            .lock()
+            .map_err(|_| CoreError::Device("Ledger operation poisoned by an earlier panic".into()))
+    }
+
     fn exchange(&self, ins: u8, p1: u8, p2: u8, data: Vec<u8>) -> Result<Vec<u8>, CoreError> {
         let command = APDUCommand {
             cla: CLA,
@@ -174,6 +212,53 @@ impl LedgerDevice {
             code => Err(CoreError::Device(device_error(code, answer.data()))),
         }
     }
+}
+
+/// Assemble the raw-message protocol without device I/O, validating all input
+/// before sending the first APDU. The initial length excludes any proof.
+fn message_signing_commands(
+    account: u32,
+    index: u32,
+    message: &[u8],
+) -> Result<Vec<(u8, Vec<u8>)>, CoreError> {
+    if account >= HARDENED || index >= HARDENED {
+        return Err(CoreError::Device(
+            "Ledger account and index must be less than 2^31".into(),
+        ));
+    }
+    if message.len() < 15
+        || message.len() > 256
+        || !message.starts_with(b"<Bytes>")
+        || !message.ends_with(b"</Bytes>")
+    {
+        return Err(CoreError::Device(
+            "message must be wrapped in <Bytes>...</Bytes> and at most 256 bytes".into(),
+        ));
+    }
+    let message_len = u16::try_from(message.len())
+        .map_err(|_| CoreError::Device("message length exceeds u16".into()))?;
+    let mut first = bip44_path(account, index).to_vec();
+    first.extend_from_slice(&message_len.to_le_bytes());
+    let mut commands = vec![(P1_SIGN_INIT, first)];
+    let mut chunks = message.chunks(CHUNK_SIZE).peekable();
+    while let Some(chunk) = chunks.next() {
+        let p1 = if chunks.peek().is_none() {
+            P1_SIGN_LAST
+        } else {
+            P1_SIGN_ADD
+        };
+        commands.push((p1, chunk.to_vec()));
+    }
+    Ok(commands)
+}
+
+fn validate_ed25519_signature(signature: &[u8]) -> Result<(), CoreError> {
+    if signature.len() != 65 || signature.first() != Some(&SCHEME_ED25519) {
+        return Err(CoreError::Device(
+            "expected a 65-byte Ed25519 MultiSignature from the device".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// The 5-element hardened BIP44 path the generic app expects, serialized as
@@ -246,5 +331,42 @@ mod tests {
             "device returned 0x6d00 (instruction not supported (is the Polkadot app open?))"
         );
         assert!(device_error(0x1234, b"boom").contains("boom"));
+    }
+
+    #[test]
+    fn wrapped_message_commands_match_generic_app_protocol() {
+        let message = [b"<Bytes>".as_slice(), &[0x42; 32], b"</Bytes>"].concat();
+        let commands = message_signing_commands(2, 7, &message).unwrap();
+        assert_eq!(commands.len(), 2);
+        assert_eq!(commands[0].0, P1_SIGN_INIT);
+        assert_eq!(&commands[0].1[..20], &bip44_path(2, 7));
+        assert_eq!(&commands[0].1[20..], &[47, 0]);
+        assert_eq!(commands[1], (P1_SIGN_LAST, message));
+
+        let message = [b"<Bytes>".as_slice(), &[0x42; 241], b"</Bytes>"].concat();
+        let commands = message_signing_commands(0, 0, &message).unwrap();
+        assert_eq!(&commands[0].1[20..], &[0, 1]);
+        assert_eq!(commands[1], (P1_SIGN_ADD, message[..250].to_vec()));
+        assert_eq!(commands[2], (P1_SIGN_LAST, message[250..].to_vec()));
+    }
+
+    #[test]
+    fn wrapped_message_input_and_signature_validation_are_strict() {
+        for message in [
+            b"payload".as_slice(),
+            b"<bytes>payload</bytes>",
+            b"<Bytes>payload</bytes>",
+            b"<Bytes></Bytes>extra",
+        ] {
+            assert!(message_signing_commands(0, 0, message).is_err());
+        }
+        let too_long = [b"<Bytes>".as_slice(), &[0x42; 242], b"</Bytes>"].concat();
+        assert!(message_signing_commands(0, 0, &too_long).is_err());
+        assert!(message_signing_commands(HARDENED, 0, b"<Bytes></Bytes>").is_err());
+        assert!(message_signing_commands(0, HARDENED, b"<Bytes></Bytes>").is_err());
+        assert!(validate_ed25519_signature(&[0; 65]).is_ok());
+        assert!(validate_ed25519_signature(&[0; 64]).is_err());
+        assert!(validate_ed25519_signature(&[1; 65]).is_err());
+        assert!(validate_ed25519_signature(&[0; 66]).is_err());
     }
 }

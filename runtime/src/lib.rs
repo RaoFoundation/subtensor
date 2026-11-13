@@ -22,6 +22,8 @@ mod hashed_owner;
 #[cfg(test)]
 mod hashed_tests;
 #[cfg(test)]
+mod hashed_wrapped_signature_tests;
+#[cfg(test)]
 mod mldsa_test_weights;
 mod proxy_filters;
 pub mod small_order;
