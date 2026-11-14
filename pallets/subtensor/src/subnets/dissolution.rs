@@ -444,8 +444,6 @@ impl<T: Config> Pallet<T> {
         ImmuneOwnerUidsLimit::<T>::remove(netuid);
         StakeWeight::<T>::remove(netuid);
         LoadedEmission::<T>::remove(netuid);
-        OwnerLock::<T>::remove(netuid);
-        DecayingOwnerLock::<T>::remove(netuid);
         ActivityCutoffFactorMilli::<T>::remove(netuid);
         LastEpochBlock::<T>::remove(netuid);
         PendingEpochAt::<T>::remove(netuid);

@@ -1,3 +1,4 @@
+use super::migrate_one_lock_bucket_per_hotkey::deprecated::{DecayingOwnerLock, OwnerLock};
 use super::*;
 use crate::staking::lock::LockState;
 use frame_support::weights::Weight;

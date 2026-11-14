@@ -1462,14 +1462,10 @@ fn destroy_alpha_in_out_stakes_cleans_all_lock_aggregates() {
 
         HotkeyLock::<Test>::insert(netuid, hotkey, lock.clone());
         DecayingHotkeyLock::<Test>::insert(netuid, hotkey, lock.clone());
-        OwnerLock::<Test>::insert(netuid, lock.clone());
-        DecayingOwnerLock::<Test>::insert(netuid, lock.clone());
         DecayingLock::<Test>::insert(coldkey, netuid, false);
 
         HotkeyLock::<Test>::insert(other_netuid, hotkey, lock.clone());
         DecayingHotkeyLock::<Test>::insert(other_netuid, hotkey, lock.clone());
-        OwnerLock::<Test>::insert(other_netuid, lock.clone());
-        DecayingOwnerLock::<Test>::insert(other_netuid, lock);
         DecayingLock::<Test>::insert(coldkey, other_netuid, false);
 
         DissolveCleanupQueue::<Test>::set(vec![netuid]);
@@ -1477,8 +1473,6 @@ fn destroy_alpha_in_out_stakes_cleans_all_lock_aggregates() {
 
         assert!(!HotkeyLock::<Test>::contains_key(netuid, hotkey));
         assert!(!DecayingHotkeyLock::<Test>::contains_key(netuid, hotkey));
-        assert!(!OwnerLock::<Test>::contains_key(netuid));
-        assert!(!DecayingOwnerLock::<Test>::contains_key(netuid));
         assert!(!DecayingLock::<Test>::contains_key(coldkey, netuid));
 
         assert!(HotkeyLock::<Test>::contains_key(other_netuid, hotkey));
@@ -1486,8 +1480,6 @@ fn destroy_alpha_in_out_stakes_cleans_all_lock_aggregates() {
             other_netuid,
             hotkey
         ));
-        assert!(OwnerLock::<Test>::contains_key(other_netuid));
-        assert!(DecayingOwnerLock::<Test>::contains_key(other_netuid));
         assert!(DecayingLock::<Test>::contains_key(coldkey, other_netuid));
     });
 }
@@ -3023,10 +3015,6 @@ fn dissolve_clears_all_lock_maps_for_removed_network() {
         DecayingHotkeyLock::<Test>::insert(net, hot_2, lock_b.clone());
         DecayingHotkeyLock::<Test>::insert(other_net, hot_1, lock_a.clone());
 
-        // --- OwnerLock
-        OwnerLock::<Test>::insert(net, lock_a.clone());
-        OwnerLock::<Test>::insert(other_net, lock_b.clone());
-
         // --- DecayingLock
         DecayingLock::<Test>::insert(cold_1, net, false);
         DecayingLock::<Test>::insert(cold_2, net, false);
@@ -3044,8 +3032,6 @@ fn dissolve_clears_all_lock_maps_for_removed_network() {
         assert!(DecayingHotkeyLock::<Test>::contains_key(net, hot_1));
         assert!(DecayingHotkeyLock::<Test>::contains_key(net, hot_2));
 
-        assert!(OwnerLock::<Test>::contains_key(net));
-
         assert!(DecayingLock::<Test>::contains_key(cold_1, net));
         assert!(DecayingLock::<Test>::contains_key(cold_2, net));
 
@@ -3056,7 +3042,6 @@ fn dissolve_clears_all_lock_maps_for_removed_network() {
         )));
         assert!(HotkeyLock::<Test>::contains_key(other_net, hot_1));
         assert!(DecayingHotkeyLock::<Test>::contains_key(other_net, hot_1));
-        assert!(OwnerLock::<Test>::contains_key(other_net));
         assert!(DecayingLock::<Test>::contains_key(cold_1, other_net));
 
         // --- Dissolve ---
@@ -3081,8 +3066,6 @@ fn dissolve_clears_all_lock_maps_for_removed_network() {
                 .is_none()
         );
 
-        assert!(!OwnerLock::<Test>::contains_key(net));
-
         assert!(!DecayingLock::<Test>::contains_key(cold_1, net));
         assert!(!DecayingLock::<Test>::contains_key(cold_2, net));
 
@@ -3093,7 +3076,6 @@ fn dissolve_clears_all_lock_maps_for_removed_network() {
         )));
         assert!(HotkeyLock::<Test>::contains_key(other_net, hot_1));
         assert!(DecayingHotkeyLock::<Test>::contains_key(other_net, hot_1));
-        assert!(OwnerLock::<Test>::contains_key(other_net));
         assert!(DecayingLock::<Test>::contains_key(cold_1, other_net));
     });
 }
