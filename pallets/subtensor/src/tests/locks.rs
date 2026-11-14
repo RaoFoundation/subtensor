@@ -3614,6 +3614,7 @@ fn test_change_subnet_owner_rolls_old_owner_hotkey_locks() {
         SubtensorModule::change_subnet_owner_if_needed(netuid);
 
         assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), king_hotkey);
+        System::assert_has_event(Event::SubnetOwnerHotkeySet(netuid, king_hotkey).into());
         assert_eq!(
             SubtensorModule::hotkey_conviction(&old_owner_hotkey, netuid),
             conviction

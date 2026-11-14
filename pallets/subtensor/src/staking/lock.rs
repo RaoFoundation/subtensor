@@ -1039,6 +1039,7 @@ impl<T: Config> Pallet<T> {
 
     /// Roll the owner hotkey's aggregate locks forward before a subnet's owner hotkey
     /// changes, so the outgoing hotkey keeps the conviction it holds at the hand-over.
+    /// Called by `set_subnet_owner_hotkey`, which every change of the owner hotkey goes through.
     pub(crate) fn roll_forward_subnet_owner_locks(netuid: NetUid) {
         let now = Self::get_current_block_as_u64();
         let unlock_rate = UnlockRate::<T>::get();
@@ -1147,7 +1148,6 @@ impl<T: Config> Pallet<T> {
         if new_owner_coldkey == current_owner_coldkey {
             return;
         }
-        let old_owner_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
 
         // Register new owner as a neuron if not yet registered.
         if Self::get_uid_for_net_and_hotkey(netuid, &king_hotkey).is_err()
@@ -1156,12 +1156,11 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        Self::roll_forward_subnet_owner_locks(netuid);
-
-        // Reassign subnet owner coldkey and owner hotkey.
+        // Reassign subnet owner hotkey and owner coldkey.
+        if Self::set_subnet_owner_hotkey(netuid, &king_hotkey).is_err() {
+            return;
+        }
         SubnetOwner::<T>::insert(netuid, new_owner_coldkey.clone());
-        SubnetOwnerHotkey::<T>::insert(netuid, king_hotkey.clone());
-        Self::retarget_auto_parent_on_owner_change(netuid, &old_owner_hotkey, &king_hotkey);
         Self::deposit_event(Event::SubnetOwnerChanged {
             netuid,
             old_coldkey: current_owner_coldkey,
