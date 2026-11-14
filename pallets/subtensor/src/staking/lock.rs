@@ -1293,6 +1293,18 @@ impl<T: Config> Pallet<T> {
                 },
             );
         }
+        Self::move_hotkey_lock_buckets_to_owner(netuid, new_owner_hotkey);
+    }
+
+    /// Fold a hotkey's aggregate lock buckets into the subnet owner buckets.
+    /// Used when `new_owner_hotkey` takes over the owner role on `netuid`.
+    pub(crate) fn move_hotkey_lock_buckets_to_owner(
+        netuid: NetUid,
+        new_owner_hotkey: &T::AccountId,
+    ) {
+        let now = Self::get_current_block_as_u64();
+        let unlock_rate = UnlockRate::<T>::get();
+        let maturity_rate = MaturityRate::<T>::get();
         if let Some(king_lock) = HotkeyLock::<T>::take(netuid, new_owner_hotkey) {
             let moved_king_lock = ConvictionModel::roll_forward_lock(
                 king_lock,

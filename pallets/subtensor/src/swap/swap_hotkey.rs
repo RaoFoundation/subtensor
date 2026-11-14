@@ -1146,8 +1146,10 @@ impl<T: Config> Pallet<T> {
         if let Ok(old_subnet_owner_hotkey) = SubnetOwnerHotkey::<T>::try_get(netuid) {
             weight.saturating_accrue(T::DbWeight::get().reads(1));
             if old_subnet_owner_hotkey == *old_hotkey {
+                // Locks already held on the new hotkey now belong in the owner buckets.
+                Self::move_hotkey_lock_buckets_to_owner(netuid, new_hotkey);
                 Self::set_subnet_owner_hotkey(netuid, new_hotkey)?;
-                weight.saturating_accrue(T::DbWeight::get().writes(1));
+                weight.saturating_accrue(T::DbWeight::get().reads_writes(4, 5));
             }
         }
 

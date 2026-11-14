@@ -713,7 +713,9 @@ impl<T: Config> Pallet<T> {
             current_block,
         );
 
-        // Insert/update the hotkey
+        // Reclassify aggregate lock buckets for the new owner hotkey, then update it.
+        let old_owner_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
+        Self::move_subnet_owner_lock_buckets(netuid, &old_owner_hotkey, hotkey);
         Self::set_subnet_owner_hotkey(netuid, hotkey)?;
 
         // Return success.
