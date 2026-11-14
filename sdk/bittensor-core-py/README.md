@@ -36,3 +36,12 @@ bindings only. Build a development wheel from the repo root:
 ```
 uvx maturin develop -m sdk/bittensor-core-py/Cargo.toml
 ```
+
+Build the source distribution from the repo root:
+
+```
+python3 .github/scripts/build-core-sdist.py
+```
+
+This includes the vendored crates referenced by the workspace's path patches,
+even when they are outside the Python binding's dependency graph.

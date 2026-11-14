@@ -75,7 +75,6 @@ jobs:
       # write into it (the wheel written into a runner-owned dist/ is fine).
       - name: Build sdist
         if: matrix.target == 'x86_64'
-        working-directory: sdk/bittensor-core-py
         run: |
           if ! command -v cargo >/dev/null; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
@@ -84,7 +83,10 @@ jobs:
           fi
           curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           export PATH="$HOME/.local/bin:$PATH"
-          uv build --sdist --out-dir ../../dist
+          python3 .github/scripts/build-core-sdist.py
+          sdist_dir=$(mktemp -d)
+          tar -xzf dist/bittensor_core-*.tar.gz -C "$sdist_dir"
+          (cd "$sdist_dir"/bittensor_core-* && cargo metadata --locked --no-deps --format-version 1 >/dev/null)
 
       # Default features include "ledger". On Linux hidapi uses its pure-Rust
       # hidraw backend (linux-native-basic-udev), which links no libudev and
