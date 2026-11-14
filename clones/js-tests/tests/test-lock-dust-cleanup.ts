@@ -65,7 +65,7 @@ async function main() {
     console.log("original rates:", `unlock=${originalUnlockRate}`, `maturity=${originalMaturityRate}`);
 
     const { netuid, hotkey } = await findTestHotkey();
-    const aggregateStorage = await aggregateStorageForLock(testColdkey.address, netuid, hotkey);
+    const aggregateStorage = await aggregateStorageForLock(testColdkey.address, netuid);
     assert.equal(aggregateStorage, "decayingHotkeyLock", "dust cleanup test must use DecayingHotkeyLock");
     console.log("test subnet:", netuid);
     console.log("test hotkey:", hotkey);
@@ -318,8 +318,6 @@ function assertMetadataAvailable() {
     ["SubtensorModule.Lock", api.query.subtensorModule?.lock],
     ["SubtensorModule.HotkeyLock", api.query.subtensorModule?.hotkeyLock],
     ["SubtensorModule.DecayingHotkeyLock", api.query.subtensorModule?.decayingHotkeyLock],
-    ["SubtensorModule.OwnerLock", api.query.subtensorModule?.ownerLock],
-    ["SubtensorModule.DecayingOwnerLock", api.query.subtensorModule?.decayingOwnerLock],
     ["SubtensorModule.DecayingLock", api.query.subtensorModule?.decayingLock],
     ["SubtensorModule.LockingColdkeys", api.query.subtensorModule?.lockingColdkeys],
     ["SubtensorModule.UnlockRate", api.query.subtensorModule?.unlockRate],
@@ -514,15 +512,10 @@ async function lockingColdkeys(netuid, hotkey) {
   return entries.map(([key]) => key.args[2].toString());
 }
 
-async function aggregateStorageForLock(coldkey, netuid, hotkey) {
-  const ownerHotkey = (await api.query.subtensorModule.subnetOwnerHotkey(netuid)).toString();
-  const isOwnerLock = hotkey === ownerHotkey;
+async function aggregateStorageForLock(coldkey, netuid) {
   const maybeDecayingLock = await api.query.subtensorModule.decayingLock(coldkey, netuid);
   const isPerpetual = maybeDecayingLock.isSome && maybeDecayingLock.unwrap().isFalse;
 
-  if (isOwnerLock) {
-    return isPerpetual ? "ownerLock" : "decayingOwnerLock";
-  }
   return isPerpetual ? "hotkeyLock" : "decayingHotkeyLock";
 }
 
@@ -531,16 +524,10 @@ async function hasNoDecayingHotkeyLock(netuid, hotkey) {
 }
 
 function queryAggregateLock(storageName, netuid, hotkey) {
-  if (storageName === "ownerLock" || storageName === "decayingOwnerLock") {
-    return api.query.subtensorModule[storageName](netuid);
-  }
   return api.query.subtensorModule[storageName](netuid, hotkey);
 }
 
 function aggregateLabel(storageName, netuid, hotkey) {
-  if (storageName === "ownerLock" || storageName === "decayingOwnerLock") {
-    return `${storageName}(${netuid})`;
-  }
   return `${storageName}(${netuid}, ${hotkey})`;
 }
 
