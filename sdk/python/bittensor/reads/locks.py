@@ -313,8 +313,6 @@ async def subnet_convictions(view, netuid: int) -> dict:
     (
         hotkey_rows,
         decaying_rows,
-        owner_lock,
-        decaying_owner_lock,
         owner_hotkey,
         alpha_out,
         protocol_alpha,
@@ -325,8 +323,6 @@ async def subnet_convictions(view, netuid: int) -> dict:
     ) = await asyncio.gather(
         view.query_map(st.SubtensorModule.HotkeyLock, [netuid]),
         view.query_map(st.SubtensorModule.DecayingHotkeyLock, [netuid]),
-        view.query(st.SubtensorModule.OwnerLock, [netuid]),
-        view.query(st.SubtensorModule.DecayingOwnerLock, [netuid]),
         view.query(st.SubtensorModule.SubnetOwnerHotkey, [netuid]),
         view.query(st.SubtensorModule.SubnetAlphaOut, [netuid]),
         view.query(st.SubtensorModule.SubnetProtocolAlpha, [netuid]),
@@ -358,20 +354,14 @@ async def subnet_convictions(view, netuid: int) -> dict:
 
     buckets: dict[str, list[_LockBucket]] = {}
     for key, value in hotkey_rows:
-        buckets.setdefault(_hotkey_of(key), []).append(
-            _rolled_bucket(value, perpetual=True, owner=False)
+        hotkey = _hotkey_of(key)
+        buckets.setdefault(hotkey, []).append(
+            _rolled_bucket(value, perpetual=True, owner=hotkey == owner_hotkey)
         )
     for key, value in decaying_rows:
-        buckets.setdefault(_hotkey_of(key), []).append(
-            _rolled_bucket(value, perpetual=False, owner=False)
-        )
-    if owner_hotkey and owner_lock:
-        buckets.setdefault(owner_hotkey, []).append(
-            _rolled_bucket(owner_lock, perpetual=True, owner=True)
-        )
-    if owner_hotkey and decaying_owner_lock:
-        buckets.setdefault(owner_hotkey, []).append(
-            _rolled_bucket(decaying_owner_lock, perpetual=False, owner=True)
+        hotkey = _hotkey_of(key)
+        buckets.setdefault(hotkey, []).append(
+            _rolled_bucket(value, perpetual=False, owner=hotkey == owner_hotkey)
         )
 
     eligible_alpha = _eligible_alpha(alpha_out, protocol_alpha, alpha_burned)
