@@ -221,7 +221,8 @@ fn test_lock_stake_by_subnet_owner_coldkey_gets_immediate_conviction() {
             .expect("lock to owner hotkey should exist");
         assert_eq!(lock.locked_mass, lock_amount);
         assert_eq!(lock.conviction, U64F64::saturating_from_num(5000));
-        let owner_lock = OwnerLock::<Test>::get(netuid).expect("owner lock should exist");
+        let owner_lock =
+            HotkeyLock::<Test>::get(netuid, owner_hotkey).expect("owner lock should exist");
         assert_eq!(owner_lock.locked_mass, lock_amount);
         assert_eq!(owner_lock.conviction, U64F64::saturating_from_num(5000));
     });
@@ -248,13 +249,10 @@ fn test_lock_to_subnet_owner_hotkey_gets_immediate_conviction_for_non_owner_cold
         assert_eq!(lock.locked_mass, lock_amount);
         assert_eq!(lock.conviction, U64F64::saturating_from_num(5000));
 
-        let owner_lock = OwnerLock::<Test>::get(netuid).expect("owner lock should exist");
+        let owner_lock =
+            HotkeyLock::<Test>::get(netuid, owner_hotkey).expect("owner lock should exist");
         assert_eq!(owner_lock.locked_mass, lock_amount);
         assert_eq!(owner_lock.conviction, U64F64::saturating_from_num(5000));
-        assert!(
-            HotkeyLock::<Test>::get(netuid, owner_hotkey).is_none(),
-            "lock to owner hotkey should use OwnerLock, not HotkeyLock"
-        );
     });
 }
 
@@ -298,12 +296,12 @@ fn test_decaying_lock_to_subnet_owner_hotkey_keeps_decaying_mass() {
             rolled.conviction
         );
         assert!(
-            OwnerLock::<Test>::get(netuid).is_none(),
-            "decaying lock to owner hotkey should not use perpetual OwnerLock"
+            HotkeyLock::<Test>::get(netuid, owner_hotkey).is_none(),
+            "decaying lock to owner hotkey should not use perpetual HotkeyLock"
         );
         assert!(
-            DecayingOwnerLock::<Test>::get(netuid).is_some(),
-            "decaying lock to owner hotkey should use DecayingOwnerLock"
+            DecayingHotkeyLock::<Test>::get(netuid, owner_hotkey).is_some(),
+            "decaying lock to owner hotkey should use DecayingHotkeyLock"
         );
     });
 }
@@ -335,8 +333,8 @@ fn test_lock_by_subnet_owner_coldkey_to_non_owner_hotkey_matures_normally() {
         assert_eq!(lock.locked_mass, lock_amount);
         assert_eq!(lock.conviction, U64F64::saturating_from_num(0));
         assert!(
-            OwnerLock::<Test>::get(netuid).is_none(),
-            "owner coldkey lock to a non-owner hotkey should not use OwnerLock"
+            HotkeyLock::<Test>::get(netuid, owner_hotkey).is_none(),
+            "owner coldkey lock to a non-owner hotkey should not count for the owner hotkey"
         );
 
         let hotkey_lock =
@@ -379,7 +377,8 @@ fn test_lock_stake_topup_by_subnet_owner_coldkey_gets_immediate_conviction() {
             U64F64::saturating_from_num(u64::from(expected_locked))
         );
 
-        let owner_lock = OwnerLock::<Test>::get(netuid).expect("owner lock should exist");
+        let owner_lock =
+            HotkeyLock::<Test>::get(netuid, owner_hotkey).expect("owner lock should exist");
         assert_eq!(owner_lock.locked_mass, expected_locked);
         assert_eq!(
             owner_lock.conviction,
@@ -729,7 +728,7 @@ fn plot_perpetual_decay_perpetual_lock_curve() {
                 &owner_hotkey,
                 rolled.clone(),
             );
-            SubtensorModule::insert_owner_lock_state(netuid, rolled.clone());
+            SubtensorModule::insert_hotkey_lock_state(netuid, &owner_hotkey, rolled.clone());
             println!(
                 "{},{},{}",
                 block,
@@ -1617,22 +1616,14 @@ fn test_aggregate_roll_forward_matches_members_with_staggered_updates() {
                 let aggregate = member(3_000_000_000);
                 let model = |individual, aggregate: LockState| {
                     let empty = member(0);
-                    let bucket = |is_owner, is_perpetual| {
-                        if owner == is_owner && perpetual == is_perpetual {
+                    let bucket = |is_perpetual| {
+                        if perpetual == is_perpetual {
                             aggregate.clone()
                         } else {
                             empty.clone()
                         }
                     };
-                    ConvictionModel::new(
-                        owner,
-                        perpetual,
-                        individual,
-                        bucket(false, true),
-                        bucket(false, false),
-                        bucket(true, true),
-                        bucket(true, false),
-                    )
+                    ConvictionModel::new(owner, perpetual, individual, bucket(true), bucket(false))
                 };
                 let roll = |lock| {
                     ConvictionModel::roll_forward_lock(
@@ -3141,7 +3132,7 @@ fn test_mixed_perpetual_owner_and_decaying_non_owner_locks_roll_forward() {
         System::set_block_number(System::block_number() + UnlockRate::<Test>::get());
 
         let owner_lock = roll_forward_lock(
-            OwnerLock::<Test>::get(netuid).unwrap(),
+            HotkeyLock::<Test>::get(netuid, owner_hotkey).unwrap(),
             SubtensorModule::get_current_block_as_u64(),
             true,
             true,
@@ -3413,7 +3404,7 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
         let owner_lock = Lock::<Test>::get((new_owner_coldkey, netuid, king_hotkey)).unwrap();
         assert_eq!(owner_lock.conviction, U64F64::from_num(1_400));
 
-        let king_lock = OwnerLock::<Test>::get(netuid).unwrap();
+        let king_lock = HotkeyLock::<Test>::get(netuid, king_hotkey).unwrap();
         assert_eq!(king_lock.conviction, U64F64::from_num(1_400));
     });
 }
@@ -3515,16 +3506,18 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
                 last_update: now,
             },
         );
-        OwnerLock::<Test>::insert(
+        HotkeyLock::<Test>::insert(
             netuid,
+            old_owner_hotkey,
             LockState {
                 locked_mass: 400u64.into(),
                 conviction: U64F64::from_num(400),
                 last_update: now,
             },
         );
-        DecayingOwnerLock::<Test>::insert(
+        DecayingHotkeyLock::<Test>::insert(
             netuid,
+            old_owner_hotkey,
             LockState {
                 locked_mass: 300u64.into(),
                 conviction: U64F64::from_num(300),
@@ -3567,8 +3560,100 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
             300u64.into()
         );
         assert_eq!(
-            OwnerLock::<Test>::get(netuid).unwrap().locked_mass,
+            HotkeyLock::<Test>::get(netuid, king_hotkey)
+                .unwrap()
+                .locked_mass,
             2_000u64.into()
+        );
+    });
+}
+
+#[test]
+fn test_change_subnet_owner_rolls_old_owner_hotkey_locks() {
+    new_test_ext(1).execute_with(|| {
+        let old_owner_coldkey = U256::from(1);
+        let old_owner_hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(old_owner_coldkey, old_owner_hotkey, 100_000_000_000);
+        SubnetOwner::<Test>::insert(netuid, old_owner_coldkey);
+        SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+        let king_coldkey = U256::from(5);
+        let king_hotkey = U256::from(6);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &king_coldkey,
+            &king_hotkey
+        ));
+        register_ok_neuron(netuid, king_hotkey, king_coldkey, 0);
+
+        // The owner hotkey's decaying aggregate was last written one unlock period ago.
+        let last_update = crate::staking::lock::ONE_YEAR + 1;
+        let now = last_update + UnlockRate::<Test>::get();
+        System::set_block_number(now);
+        NetworkRegisteredAt::<Test>::insert(netuid, 1);
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000_000u64));
+        DecayingHotkeyLock::<Test>::insert(
+            netuid,
+            old_owner_hotkey,
+            LockState {
+                locked_mass: 1_000_000u64.into(),
+                conviction: U64F64::from_num(1_000_000),
+                last_update,
+            },
+        );
+        HotkeyLock::<Test>::insert(
+            netuid,
+            king_hotkey,
+            LockState {
+                locked_mass: 2_000_000u64.into(),
+                conviction: U64F64::from_num(2_000_000),
+                last_update: now,
+            },
+        );
+        let conviction = SubtensorModule::hotkey_conviction(&old_owner_hotkey, netuid);
+
+        SubtensorModule::change_subnet_owner_if_needed(netuid);
+
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), king_hotkey);
+        assert_eq!(
+            SubtensorModule::hotkey_conviction(&old_owner_hotkey, netuid),
+            conviction
+        );
+    });
+}
+
+#[test]
+fn test_set_subnet_owner_hotkey_rolls_old_owner_hotkey_locks() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1);
+        let old_owner_hotkey = U256::from(2);
+        let new_owner_hotkey = U256::from(3);
+        let netuid = setup_subnet_with_stake(owner_coldkey, old_owner_hotkey, 100_000_000_000);
+        SubnetOwner::<Test>::insert(netuid, owner_coldkey);
+        SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+        // The owner hotkey's decaying aggregate was last written one unlock period ago.
+        let last_update = SubtensorModule::get_current_block_as_u64();
+        System::set_block_number(last_update + UnlockRate::<Test>::get());
+        DecayingHotkeyLock::<Test>::insert(
+            netuid,
+            old_owner_hotkey,
+            LockState {
+                locked_mass: 1_000_000u64.into(),
+                conviction: U64F64::from_num(1_000_000),
+                last_update,
+            },
+        );
+        let conviction = SubtensorModule::hotkey_conviction(&old_owner_hotkey, netuid);
+
+        assert_ok!(SubtensorModule::set_subnet_owner_hotkey(
+            netuid,
+            &new_owner_hotkey
+        ));
+
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), new_owner_hotkey);
+        assert_eq!(
+            SubtensorModule::hotkey_conviction(&old_owner_hotkey, netuid),
+            conviction
         );
     });
 }
@@ -3599,8 +3684,9 @@ fn test_swap_hotkey_locks_moves_owner_hotkey_aggregate_to_owner_lock() {
             },
         );
         SubtensorModule::add_locking_coldkey(&old_owner_hotkey, netuid, &locking_coldkey);
-        OwnerLock::<Test>::insert(
+        HotkeyLock::<Test>::insert(
             netuid,
+            old_owner_hotkey,
             LockState {
                 locked_mass: 500u64.into(),
                 conviction: U64F64::from_num(500),
@@ -3612,10 +3698,12 @@ fn test_swap_hotkey_locks_moves_owner_hotkey_aggregate_to_owner_lock() {
 
         assert!(Lock::<Test>::get((locking_coldkey, netuid, old_owner_hotkey)).is_none());
         assert!(Lock::<Test>::get((locking_coldkey, netuid, new_owner_hotkey)).is_some());
-        assert!(HotkeyLock::<Test>::get(netuid, new_owner_hotkey).is_none());
+        assert!(HotkeyLock::<Test>::get(netuid, old_owner_hotkey).is_none());
         assert!(DecayingHotkeyLock::<Test>::get(netuid, new_owner_hotkey).is_none());
         assert_eq!(
-            OwnerLock::<Test>::get(netuid).unwrap().locked_mass,
+            HotkeyLock::<Test>::get(netuid, new_owner_hotkey)
+                .unwrap()
+                .locked_mass,
             500u64.into()
         );
         assert!(!LockingColdkeys::<Test>::contains_key((
@@ -3628,6 +3716,42 @@ fn test_swap_hotkey_locks_moves_owner_hotkey_aggregate_to_owner_lock() {
             new_owner_hotkey,
             locking_coldkey
         )));
+    });
+}
+
+#[test]
+fn test_swap_hotkey_locks_adds_owner_hotkey_aggregate_to_new_hotkey_aggregate() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1);
+        let old_owner_hotkey = U256::from(2);
+        let new_owner_hotkey = U256::from(3);
+        let netuid = setup_subnet_with_stake(owner_coldkey, old_owner_hotkey, 100_000_000_000);
+        SubnetOwner::<Test>::insert(netuid, owner_coldkey);
+        SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+        // Each hotkey already aggregates one perpetual lock.
+        let now = SubtensorModule::get_current_block_as_u64();
+        for (coldkey, hotkey, mass) in [
+            (U256::from(4), old_owner_hotkey, 500u64),
+            (U256::from(5), new_owner_hotkey, 200u64),
+        ] {
+            let lock = LockState {
+                locked_mass: mass.into(),
+                conviction: U64F64::from_num(mass),
+                last_update: now,
+            };
+            DecayingLock::<Test>::insert(coldkey, netuid, false);
+            Lock::<Test>::insert((coldkey, netuid, hotkey), lock.clone());
+            SubtensorModule::add_locking_coldkey(&hotkey, netuid, &coldkey);
+            HotkeyLock::<Test>::insert(netuid, hotkey, lock);
+        }
+
+        SubtensorModule::swap_hotkey_locks(&old_owner_hotkey, &new_owner_hotkey);
+
+        assert!(HotkeyLock::<Test>::get(netuid, old_owner_hotkey).is_none());
+        let aggregate = HotkeyLock::<Test>::get(netuid, new_owner_hotkey).unwrap();
+        assert_eq!(aggregate.locked_mass, 700u64.into());
+        assert_eq!(aggregate.conviction, U64F64::from_num(700));
     });
 }
 
@@ -3861,8 +3985,9 @@ fn test_change_subnet_owner_if_needed_ignores_other_lockers_conviction() {
         seed(king_hotkey, king_coldkey, 1_700);
         seed(bystander_hotkey, bystander_coldkey, 1_500);
         // Owner's instant-maturing defensive lock.
-        OwnerLock::<Test>::insert(
+        HotkeyLock::<Test>::insert(
             netuid,
+            owner_hotkey,
             LockState {
                 locked_mass: 1_500u64.into(),
                 conviction: U64F64::from_num(1_500),
@@ -5276,11 +5401,7 @@ fn test_moving_lock_to_subnet_owner_hotkey_gets_owner_conviction_for_non_owner_c
         assert_eq!(lock.locked_mass, lock_amount);
         assert_eq!(lock.conviction, U64F64::from_num(5000));
 
-        assert!(
-            HotkeyLock::<Test>::get(netuid, owner_hotkey).is_none(),
-            "lock moved to owner hotkey should use OwnerLock"
-        );
-        let owner_lock = OwnerLock::<Test>::get(netuid).unwrap();
+        let owner_lock = HotkeyLock::<Test>::get(netuid, owner_hotkey).unwrap();
         assert_eq!(owner_lock.locked_mass, lock_amount);
         assert_eq!(owner_lock.conviction, U64F64::from_num(5000));
     });

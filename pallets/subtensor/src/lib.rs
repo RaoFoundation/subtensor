@@ -2309,7 +2309,7 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// DMAP ( netuid, hotkey ) --> LockState | Total decaying non-owner lock per hotkey per subnet.
+    /// DMAP ( netuid, hotkey ) --> LockState | Total decaying lock per hotkey per subnet.
     #[pallet::storage]
     pub type DecayingHotkeyLock<T: Config> = StorageDoubleMap<
         _,
@@ -2320,14 +2320,6 @@ pub mod pallet {
         LockState,    // Total merged decaying lock
         OptionQuery,
     >;
-
-    /// MAP ( netuid ) --> LockState | Total perpetual lock to the owner hotkey for a subnet.
-    #[pallet::storage]
-    pub type OwnerLock<T: Config> = StorageMap<_, Identity, NetUid, LockState, OptionQuery>;
-
-    /// MAP ( netuid ) --> LockState | Total decaying lock to the owner hotkey for a subnet.
-    #[pallet::storage]
-    pub type DecayingOwnerLock<T: Config> = StorageMap<_, Identity, NetUid, LockState, OptionQuery>;
 
     /// DMAP ( coldkey, netuid ) --> false | When present and false, this coldkey's lock is perpetual.
     /// Missing entries mean the lock decays by default.

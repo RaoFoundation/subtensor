@@ -9,6 +9,9 @@
 
 use super::mock::*;
 use crate::migrations::migrate_alpha_v2::retired::{Alpha, TotalHotkeyShares};
+use crate::migrations::migrate_one_lock_bucket_per_hotkey::deprecated::{
+    DecayingOwnerLock, OwnerLock,
+};
 use crate::staking::lock::LockState;
 use crate::*;
 use alloc::collections::BTreeMap;
@@ -5636,6 +5639,73 @@ fn test_migrate_reset_tnet_conviction_locks() {
             1,
             "migration must not run more than once"
         );
+    });
+}
+
+#[test]
+fn test_migrate_one_lock_bucket_per_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_one_lock_bucket_per_hotkey";
+
+        let owner_hotkey = U256::from(2001);
+        let other_hotkey = U256::from(2002);
+        let perpetual_coldkey = U256::from(1002);
+        let decaying_coldkey = U256::from(1003);
+        let other_coldkey = U256::from(1004);
+        let netuid = add_dynamic_network(&owner_hotkey, &U256::from(1001));
+        let now = SubtensorModule::get_current_block_as_u64();
+        let lock = |mass: u64, conviction: u64| LockState {
+            locked_mass: AlphaBalance::from(mass),
+            conviction: U64F64::from_num(conviction),
+            last_update: now,
+        };
+
+        // Two locks to the owner hotkey and one to another hotkey.
+        DecayingLock::<Test>::insert(perpetual_coldkey, netuid, false);
+        Lock::<Test>::insert(
+            (perpetual_coldkey, netuid, owner_hotkey),
+            lock(1_000, 1_000),
+        );
+        Lock::<Test>::insert((decaying_coldkey, netuid, owner_hotkey), lock(2_000, 2_000));
+        Lock::<Test>::insert((other_coldkey, netuid, other_hotkey), lock(4_000, 500));
+
+        // The perpetual lock to the owner hotkey is counted in both of its former buckets.
+        HotkeyLock::<Test>::insert(netuid, owner_hotkey, lock(1_000, 700));
+        OwnerLock::<Test>::insert(netuid, lock(1_000, 1_000));
+        DecayingOwnerLock::<Test>::insert(netuid, lock(2_000, 2_000));
+        DecayingHotkeyLock::<Test>::insert(netuid, other_hotkey, lock(4_000, 500));
+
+        let weight = crate::migrations::migrate_one_lock_bucket_per_hotkey::migrate_one_lock_bucket_per_hotkey::<Test>();
+
+        assert!(!weight.is_zero(), "migration weight should be non-zero");
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert_eq!(OwnerLock::<Test>::iter().count(), 0);
+        assert_eq!(DecayingOwnerLock::<Test>::iter().count(), 0);
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, owner_hotkey),
+            Some(lock(1_000, 1_000))
+        );
+        assert_eq!(
+            DecayingHotkeyLock::<Test>::get(netuid, owner_hotkey),
+            Some(lock(2_000, 2_000))
+        );
+        assert_eq!(HotkeyLock::<Test>::get(netuid, other_hotkey), None);
+        assert_eq!(
+            DecayingHotkeyLock::<Test>::get(netuid, other_hotkey),
+            Some(lock(4_000, 500))
+        );
+        assert_eq!(
+            SubtensorModule::hotkey_conviction(&owner_hotkey, netuid),
+            U64F64::from_num(3_000)
+        );
+
+        HotkeyLock::<Test>::remove(netuid, owner_hotkey);
+        assert_eq!(
+            crate::migrations::migrate_one_lock_bucket_per_hotkey::migrate_one_lock_bucket_per_hotkey::<Test>(),
+            <Test as frame_system::Config>::DbWeight::get().reads(1),
+            "second run should only read the migration flag"
+        );
+        assert!(!HotkeyLock::<Test>::contains_key(netuid, owner_hotkey));
     });
 }
 

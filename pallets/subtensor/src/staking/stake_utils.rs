@@ -1455,8 +1455,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Protocol hand-over of a former subnet owner's position. The signed lease beneficiary
-    /// consents to receiving its lock. Owner/hotkey aggregate buckets must already reflect
-    /// the current subnet ownership before moving this position.
+    /// consents to receiving its lock.
     pub(crate) fn transfer_former_owner_stake_within_subnet(
         origin_coldkey: &T::AccountId,
         origin_hotkey: &T::AccountId,

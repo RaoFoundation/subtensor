@@ -1,3 +1,4 @@
+use super::migrate_one_lock_bucket_per_hotkey::deprecated::{DecayingOwnerLock, OwnerLock};
 use super::*;
 use frame_support::weights::Weight;
 use scale_info::prelude::string::String;
