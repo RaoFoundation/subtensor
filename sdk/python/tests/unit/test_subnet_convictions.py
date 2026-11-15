@@ -40,3 +40,14 @@ async def test_runtime_with_owner_lock_storage_adds_the_owner_aggregates() -> No
 
     assert entry["locked_alpha"].rao == 1_700
     assert entry["conviction_alpha"].rao == 1_200
+
+
+async def test_runtime_with_only_the_perpetual_owner_lock_storage_reads_it() -> None:
+    chain = FakeSubstrate()
+    chain.seed("SubtensorModule", "OwnerLock", [_NETUID], _lock(1_000, chain.block))
+    chain.seed_map("SubtensorModule", "HotkeyLock", [(_OWNER, _lock(500, chain.block))])
+
+    entry = await _owner_entry(chain)
+
+    assert entry["locked_alpha"].rao == 1_500
+    assert entry["conviction_alpha"].rao == 1_000

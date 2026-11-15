@@ -161,7 +161,7 @@ class FakeSubstrate:
         # Default fixtures model the legacy deposit constants; seeding this
         # storage item opts into the configurable runtime's metadata.
         # The owner lock aggregates exist only in older runtimes' metadata;
-        # seeding both opts into that layout.
+        # seeding one opts into that layout.
         self.missing_storage = {
             ("HashedAccounts", "HashedAccountRegistrationDeposit"),
             ("SubtensorModule", "OwnerLock"),

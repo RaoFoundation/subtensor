@@ -19,11 +19,11 @@ _DEFAULT_LOCK_RATE = 934_866
 _ONE_YEAR_BLOCKS = 7200 * 365 + 1800
 
 # Runtimes before the one-aggregate-per-hotkey layout keep the owner hotkey's
-# aggregates here, perpetual then decaying.
-_OWNER_LOCKS = (
-    (st.Item("SubtensorModule", "OwnerLock", "LockState"), True),
-    (st.Item("SubtensorModule", "DecayingOwnerLock", "LockState"), False),
-)
+# aggregates here, keyed by whether the aggregate is perpetual.
+_OWNER_LOCKS = {
+    True: st.Item("SubtensorModule", "OwnerLock", "LockState"),
+    False: st.Item("SubtensorModule", "DecayingOwnerLock", "LockState"),
+}
 
 # Bit 0 of `AccountFlags`: the coldkey opted into receiving locked alpha
 # (the pallet's ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA).
@@ -294,12 +294,21 @@ def _blocks_until_conviction(
     return None
 
 
-async def _owner_locks(view, netuid: int) -> Optional[list]:
-    """The owner aggregates of a runtime that stores them apart, else None."""
-    try:
-        return await asyncio.gather(*(view.query(item, [netuid]) for item, _ in _OWNER_LOCKS))
-    except StorageFunctionNotFound:
-        return None
+async def _owner_locks(view, netuid: int) -> dict[bool, Any]:
+    """The owner aggregates the runtime stores apart, keyed like ``_OWNER_LOCKS``.
+
+    A map the runtime does not have is left out, so the result is empty where
+    the owner hotkey's locks are in its own aggregates.
+    """
+
+    async def _stored(perpetual: bool, item: st.Item) -> dict[bool, Any]:
+        try:
+            return {perpetual: await view.query(item, [netuid])}
+        except StorageFunctionNotFound:
+            return {}
+
+    stored = await asyncio.gather(*(_stored(*entry) for entry in _OWNER_LOCKS.items()))
+    return {perpetual: value for part in stored for perpetual, value in part.items()}
 
 
 @read(
@@ -371,7 +380,7 @@ async def subnet_convictions(view, netuid: int) -> dict:
         return str(key[0]) if isinstance(key, (tuple, list)) else str(key)
 
     # Where the owner aggregates are stored apart, the hotkey rows are not the owner's.
-    row_owner = owner_hotkey if owner_locks is None else None
+    row_owner = None if owner_locks else owner_hotkey
     buckets: dict[str, list[_LockBucket]] = {}
     for rows, perpetual in ((hotkey_rows, True), (decaying_rows, False)):
         for key, value in rows:
@@ -379,7 +388,7 @@ async def subnet_convictions(view, netuid: int) -> dict:
             buckets.setdefault(hotkey, []).append(
                 _rolled_bucket(value, perpetual=perpetual, owner=hotkey == row_owner)
             )
-    for value, (_, perpetual) in zip(owner_locks or (), _OWNER_LOCKS):
+    for perpetual, value in owner_locks.items():
         if owner_hotkey and value:
             buckets.setdefault(owner_hotkey, []).append(
                 _rolled_bucket(value, perpetual=perpetual, owner=True)
