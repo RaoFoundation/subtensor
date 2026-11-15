@@ -1054,20 +1054,10 @@ impl<T: Config> Pallet<T> {
         let lockers: Vec<T::AccountId> =
             LockingColdkeys::<T>::iter_key_prefix((netuid, &owner_hotkey)).collect();
         for coldkey in lockers {
-            if let Some(lock) = Lock::<T>::get((&coldkey, netuid, &owner_hotkey)) {
-                let rolled = ConvictionModel::roll_forward_lock(
-                    lock,
-                    now,
-                    unlock_rate,
-                    maturity_rate,
-                    true,
-                    Self::is_perpetual_lock(&coldkey, netuid),
-                )
-                .0;
-                Self::insert_lock_state(&coldkey, netuid, &owner_hotkey, rolled);
-            } else {
-                Self::maybe_remove_locking_coldkey(&owner_hotkey, netuid, &coldkey);
-            }
+            let mut model =
+                Self::read_conviction_model_for_hotkey(&coldkey, netuid, &owner_hotkey, now);
+            model.roll_forward(now, unlock_rate, maturity_rate);
+            Self::save_conviction_model(&coldkey, netuid, &owner_hotkey, model);
         }
         if let Some(lock) = HotkeyLock::<T>::get(netuid, &owner_hotkey) {
             Self::insert_hotkey_lock_state(

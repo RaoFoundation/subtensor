@@ -3660,6 +3660,58 @@ fn test_set_subnet_owner_hotkey_rolls_old_owner_hotkey_locks() {
 }
 
 #[test]
+fn test_set_subnet_owner_hotkey_removes_dust_lock_from_old_owner_hotkey_aggregate() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1);
+        let old_owner_hotkey = U256::from(2);
+        let new_owner_hotkey = U256::from(3);
+        let dust_coldkey = U256::from(4);
+        let netuid = setup_subnet_with_stake(owner_coldkey, old_owner_hotkey, 100_000_000_000);
+        SubnetOwner::<Test>::insert(netuid, owner_coldkey);
+        SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+        DecayingLock::<Test>::insert(owner_coldkey, netuid, true);
+        DecayingLock::<Test>::insert(dust_coldkey, netuid, true);
+
+        // Two decaying locks, one of which has unlocked to less than the dust threshold.
+        let last_update = SubtensorModule::get_current_block_as_u64();
+        System::set_block_number(last_update + UnlockRate::<Test>::get());
+        let lock = |mass: u64| LockState {
+            locked_mass: mass.into(),
+            conviction: U64F64::from_num(mass),
+            last_update,
+        };
+        let dust = 2 * crate::staking::lock::LOCK_STATE_ZERO_THRESHOLD;
+        SubtensorModule::insert_lock_state(
+            &owner_coldkey,
+            netuid,
+            &old_owner_hotkey,
+            lock(1_000_000),
+        );
+        SubtensorModule::insert_lock_state(&dust_coldkey, netuid, &old_owner_hotkey, lock(dust));
+        DecayingHotkeyLock::<Test>::insert(netuid, old_owner_hotkey, lock(1_000_000 + dust));
+
+        assert_ok!(SubtensorModule::set_subnet_owner_hotkey(
+            netuid,
+            &new_owner_hotkey
+        ));
+
+        // The dust lock is gone from the aggregate too, up to one rao of rounding.
+        assert!(!Lock::<Test>::contains_key((
+            dust_coldkey,
+            netuid,
+            old_owner_hotkey
+        )));
+        let remaining = Lock::<Test>::get((owner_coldkey, netuid, old_owner_hotkey))
+            .unwrap()
+            .locked_mass;
+        let aggregate = DecayingHotkeyLock::<Test>::get(netuid, old_owner_hotkey)
+            .unwrap()
+            .locked_mass;
+        assert!(aggregate.saturating_sub(remaining) <= 1u64.into());
+    });
+}
+
+#[test]
 fn test_swap_hotkey_locks_moves_owner_hotkey_aggregate_to_owner_lock() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1);
