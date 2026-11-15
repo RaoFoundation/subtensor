@@ -5673,7 +5673,8 @@ fn test_migrate_one_lock_bucket_per_hotkey() {
         HotkeyLock::<Test>::insert(netuid, owner_hotkey, lock(1_000, 700));
         OwnerLock::<Test>::insert(netuid, lock(1_000, 1_000));
         DecayingOwnerLock::<Test>::insert(netuid, lock(2_000, 2_000));
-        DecayingHotkeyLock::<Test>::insert(netuid, other_hotkey, lock(4_000, 500));
+        // The other hotkey's aggregate holds conviction that its lock does not.
+        DecayingHotkeyLock::<Test>::insert(netuid, other_hotkey, lock(4_000, 3_000));
 
         let weight = crate::migrations::migrate_one_lock_bucket_per_hotkey::migrate_one_lock_bucket_per_hotkey::<Test>();
 
@@ -5692,7 +5693,7 @@ fn test_migrate_one_lock_bucket_per_hotkey() {
         assert_eq!(HotkeyLock::<Test>::get(netuid, other_hotkey), None);
         assert_eq!(
             DecayingHotkeyLock::<Test>::get(netuid, other_hotkey),
-            Some(lock(4_000, 500))
+            Some(lock(4_000, 3_000))
         );
         assert_eq!(
             SubtensorModule::hotkey_conviction(&owner_hotkey, netuid),
