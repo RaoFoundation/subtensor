@@ -1037,14 +1037,38 @@ impl<T: Config> Pallet<T> {
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal))
     }
 
-    /// Roll the owner hotkey's aggregate locks forward before a subnet's owner hotkey
-    /// changes, so the outgoing hotkey keeps the conviction it holds at the hand-over.
+    /// Roll the owner hotkey's aggregate and individual locks forward before a subnet's
+    /// owner hotkey changes, so the outgoing hotkey keeps the conviction it holds at the
+    /// hand-over.
     /// Called by `set_subnet_owner_hotkey`, which every change of the owner hotkey goes through.
     pub(crate) fn roll_forward_subnet_owner_locks(netuid: NetUid) {
         let now = Self::get_current_block_as_u64();
         let unlock_rate = UnlockRate::<T>::get();
         let maturity_rate = MaturityRate::<T>::get();
         let owner_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
+        // Roll the individual locks too. Under the owner rule an aggregate's conviction
+        // equals its locked mass at every roll, but an individual lock only receives that
+        // when it is next touched. Settling them here keeps the sum of individual
+        // convictions equal to the aggregate once the hotkey rolls under the general rule,
+        // so a later full unlock leaves no conviction behind.
+        let lockers: Vec<T::AccountId> =
+            LockingColdkeys::<T>::iter_key_prefix((netuid, &owner_hotkey)).collect();
+        for coldkey in lockers {
+            if let Some(lock) = Lock::<T>::get((&coldkey, netuid, &owner_hotkey)) {
+                let rolled = ConvictionModel::roll_forward_lock(
+                    lock,
+                    now,
+                    unlock_rate,
+                    maturity_rate,
+                    true,
+                    Self::is_perpetual_lock(&coldkey, netuid),
+                )
+                .0;
+                Self::insert_lock_state(&coldkey, netuid, &owner_hotkey, rolled);
+            } else {
+                Self::maybe_remove_locking_coldkey(&owner_hotkey, netuid, &coldkey);
+            }
+        }
         if let Some(lock) = HotkeyLock::<T>::get(netuid, &owner_hotkey) {
             Self::insert_hotkey_lock_state(
                 netuid,
