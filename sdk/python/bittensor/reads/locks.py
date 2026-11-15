@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from .._generated import runtime_apis as api
 from .._generated import storage as st
+from .._transport.errors import StorageFunctionNotFound
 from .base import read
 
 # Chain default for UnlockRate/MaturityRate (blocks); used when the storage
@@ -16,6 +17,13 @@ _DEFAULT_LOCK_RATE = 934_866
 
 # The pallet's ONE_YEAR: a subnet's ownership can only change after this age.
 _ONE_YEAR_BLOCKS = 7200 * 365 + 1800
+
+# Runtimes before the one-aggregate-per-hotkey layout keep the owner hotkey's
+# aggregates here, perpetual then decaying.
+_OWNER_LOCKS = (
+    (st.Item("SubtensorModule", "OwnerLock", "LockState"), True),
+    (st.Item("SubtensorModule", "DecayingOwnerLock", "LockState"), False),
+)
 
 # Bit 0 of `AccountFlags`: the coldkey opted into receiving locked alpha
 # (the pallet's ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA).
@@ -286,6 +294,14 @@ def _blocks_until_conviction(
     return None
 
 
+async def _owner_locks(view, netuid: int) -> Optional[list]:
+    """The owner aggregates of a runtime that stores them apart, else None."""
+    try:
+        return await asyncio.gather(*(view.query(item, [netuid]) for item, _ in _OWNER_LOCKS))
+    except StorageFunctionNotFound:
+        return None
+
+
 @read(
     "subnet_convictions",
     {"netuid": "integer"},
@@ -313,6 +329,7 @@ async def subnet_convictions(view, netuid: int) -> dict:
     (
         hotkey_rows,
         decaying_rows,
+        owner_locks,
         owner_hotkey,
         alpha_out,
         protocol_alpha,
@@ -323,6 +340,7 @@ async def subnet_convictions(view, netuid: int) -> dict:
     ) = await asyncio.gather(
         view.query_map(st.SubtensorModule.HotkeyLock, [netuid]),
         view.query_map(st.SubtensorModule.DecayingHotkeyLock, [netuid]),
+        _owner_locks(view, netuid),
         view.query(st.SubtensorModule.SubnetOwnerHotkey, [netuid]),
         view.query(st.SubtensorModule.SubnetAlphaOut, [netuid]),
         view.query(st.SubtensorModule.SubnetProtocolAlpha, [netuid]),
@@ -352,17 +370,20 @@ async def subnet_convictions(view, netuid: int) -> dict:
     def _hotkey_of(key: Any) -> str:
         return str(key[0]) if isinstance(key, (tuple, list)) else str(key)
 
+    # Where the owner aggregates are stored apart, the hotkey rows are not the owner's.
+    row_owner = owner_hotkey if owner_locks is None else None
     buckets: dict[str, list[_LockBucket]] = {}
-    for key, value in hotkey_rows:
-        hotkey = _hotkey_of(key)
-        buckets.setdefault(hotkey, []).append(
-            _rolled_bucket(value, perpetual=True, owner=hotkey == owner_hotkey)
-        )
-    for key, value in decaying_rows:
-        hotkey = _hotkey_of(key)
-        buckets.setdefault(hotkey, []).append(
-            _rolled_bucket(value, perpetual=False, owner=hotkey == owner_hotkey)
-        )
+    for rows, perpetual in ((hotkey_rows, True), (decaying_rows, False)):
+        for key, value in rows:
+            hotkey = _hotkey_of(key)
+            buckets.setdefault(hotkey, []).append(
+                _rolled_bucket(value, perpetual=perpetual, owner=hotkey == row_owner)
+            )
+    for value, (_, perpetual) in zip(owner_locks or (), _OWNER_LOCKS):
+        if owner_hotkey and value:
+            buckets.setdefault(owner_hotkey, []).append(
+                _rolled_bucket(value, perpetual=perpetual, owner=True)
+            )
 
     eligible_alpha = _eligible_alpha(alpha_out, protocol_alpha, alpha_burned)
     threshold = eligible_alpha * 18 / 100
