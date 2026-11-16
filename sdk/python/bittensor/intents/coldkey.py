@@ -5,8 +5,9 @@ The safe, non-deprecated flow is two steps:
   1. ``announce_coldkey_swap`` publishes the cleartext destination via
      ``announce_coldkey_swap_v2`` (validated and reserved before the fee) and
      records the block at which the swap becomes executable (now + the chain's
-     announcement delay). The on-chain announcement stores the BlakeTwo256
-     hash of that key. The legacy hash-only ``announce_coldkey_swap`` extrinsic
+     announcement delay). The on-chain announcement stores a BlakeTwo256
+     commitment to that key and its policy-import eligibility at announcement
+     time. The legacy hash-only ``announce_coldkey_swap`` extrinsic
      remains available for raw callers that must keep the destination secret.
   2. after that delay, ``swap_coldkey_announced`` reveals/confirms the new
      coldkey and performs the swap (merging into the destination if it is

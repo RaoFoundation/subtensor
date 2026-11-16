@@ -234,7 +234,7 @@ impl<T: Config> Pallet<T> {
                 // is controlled by the explicit termination phase, never the current owner.
                 let first_termination = !Self::lease_has_terminated(lease_id, &lease);
                 if first_termination {
-                    // Freeze the payer's individual lock under its old role before rotating buckets.
+                    // Freeze the payer's individual lock under its old role before the owner hotkey changes.
                     if let Some((locked_hotkey, mut model)) = Self::read_conviction_model(
                         &lease.coldkey,
                         lease.netuid,
@@ -252,8 +252,6 @@ impl<T: Config> Pallet<T> {
                             model,
                         );
                     }
-                    let old_hotkey = SubnetOwnerHotkey::<T>::get(lease.netuid);
-                    Self::move_subnet_owner_lock_buckets(lease.netuid, &old_hotkey, &hotkey);
                     SubnetOwner::<T>::insert(lease.netuid, lease.beneficiary.clone());
                     Self::set_subnet_owner_hotkey(lease.netuid, &hotkey)?;
                 }
@@ -262,7 +260,7 @@ impl<T: Config> Pallet<T> {
 
                 // Once contributors are fully settled, transfer every remaining unit of
                 // the synthetic lease position to the beneficiary. The specialized helper
-                // uses the source lock's actual current bucket and treats this signed
+                // uses the source lock's actual current role and treats this signed
                 // termination call as consent to receive locked alpha.
                 Self::transfer_lease_residual_if_settled(lease_id, &lease, &hotkey)?;
 

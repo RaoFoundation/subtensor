@@ -599,7 +599,13 @@ def register_subnet(
         if netuid == 0:
             app_ctx.output.error("PoW registration is unavailable on root")
             raise typer.Exit(2)
-        coldkey = app_ctx.resolve_dispatch_proxy() or app_ctx.resolve_address("coldkey_ss58", None)
+        from ..protected import protected_pow_origin
+
+        coldkey = (
+            app_ctx.resolve_dispatch_proxy()
+            or protected_pow_origin(app_ctx)
+            or app_ctx.resolve_address("coldkey_ss58", None)
+        )
         with app_ctx.output.activity("mining a fresh registration proof…"):
             intent = app_ctx.run(
                 lambda client: client.mine_pow_registration(

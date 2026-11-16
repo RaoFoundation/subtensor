@@ -4,14 +4,17 @@
 use super::claim_root::{fund_pool, register_on_root};
 use super::mock::*;
 use crate::{
-    BasketRate, BasketShares, BurnIncreaseMult, FirstEmissionBlockNumber, PendingBasketDeposits,
+    BasketRate, BasketShares, BurnIncreaseMult, CheckColdkeySwap, ColdkeySwapAnnouncements,
+    ColdkeySwapDisputes, Error, FirstEmissionBlockNumber, PendingBasketDeposits,
     RootClaimableThreshold, SubnetAlphaOut, SubnetLimit, SubnetMechanism, SubtokenEnabled,
 };
-use frame_support::assert_ok;
+use frame_support::{assert_ok, traits::ExtendedDispatchable};
+use pallet_subtensor_proxy::{Announcements, Call as ProxyCall, Proxies};
 use sp_core::U256;
+use sp_runtime::traits::Hash;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64};
-use subtensor_runtime_common::{AlphaBalance, NetUid, Token};
+use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance, Token};
 
 // PROTECTED_REGRESSION: a tiny volatile holding must not strand earned root dividends; changes require explicit human approval.
 #[test]
@@ -971,7 +974,7 @@ fn lease_retry_after_conviction_takeover_recovers_funds_without_reclaiming_owner
 // PROTECTED_REGRESSION: lease termination after a conviction takeover must not leave ghost locks or debit the winner's owner bucket; changes require explicit human approval.
 #[test]
 fn lease_termination_after_conviction_takeover_preserves_lock_buckets() {
-    use crate::{DecayingHotkeyLock, DecayingOwnerLock, Lock, OwnerCutAutoLockEnabled};
+    use crate::{DecayingHotkeyLock, Lock, OwnerCutAutoLockEnabled};
     new_test_ext(1).execute_with(|| {
         let end = crate::staking::lock::ONE_YEAR + 1_000;
         let (id, lease, _contributor, destination) = lease_regression_funded(55_000_000_000, end);
@@ -1009,8 +1012,200 @@ fn lease_termination_after_conviction_takeover_preserves_lock_buckets() {
             panic!("the beneficiary must receive the actual retained lock");
         };
         assert_eq!(
-            DecayingOwnerLock::<Test>::get(lease.netuid).map(|lock| lock.locked_mass),
+            DecayingHotkeyLock::<Test>::get(lease.netuid, destination).map(|lock| lock.locked_mass),
             Some(beneficiary_lock.locked_mass)
         );
+    });
+}
+
+// PROTECTED_REGRESSION: a coldkey swap must not prevent a delayed proxy controller from cancelling a takeover announcement; changes require explicit human approval.
+#[test]
+#[allow(clippy::unwrap_used)]
+fn proxy_controller_can_cancel_only_its_own_announcements_during_coldkey_swap() {
+    new_test_ext(1).execute_with(|| {
+        let pure = U256::from(4_901);
+        let controller = U256::from(4_902);
+        let other_controller = U256::from(4_903);
+        let attacker = U256::from(4_904);
+        for account in [pure, controller, other_controller] {
+            add_balance_to_coldkey_account(&account, TaoBalance::new(1_000_000_000));
+        }
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(pure),
+            controller,
+            ProxyType::Any,
+            3,
+        ));
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(pure),
+            other_controller,
+            ProxyType::Any,
+            3,
+        ));
+
+        let takeover_call = RuntimeCall::Proxy(ProxyCall::add_proxy {
+            delegate: attacker,
+            proxy_type: ProxyType::Any,
+            delay: 0,
+        });
+        let first_hash = <Test as frame_system::Config>::Hashing::hash_of(&takeover_call);
+        let second_hash = <Test as frame_system::Config>::Hashing::hash_of(&RuntimeCall::System(
+            frame_system::Call::remark { remark: vec![2] },
+        ));
+        for hash in [first_hash, second_hash] {
+            assert_ok!(Proxy::announce(
+                RuntimeOrigin::signed(controller),
+                pure,
+                hash,
+            ));
+        }
+        assert_ok!(Proxy::announce(
+            RuntimeOrigin::signed(other_controller),
+            pure,
+            first_hash,
+        ));
+
+        ColdkeySwapAnnouncements::<Test>::insert(
+            controller,
+            (
+                System::block_number(),
+                <Test as frame_system::Config>::Hashing::hash_of(&U256::from(4_905)),
+            ),
+        );
+        let remove = |call_hash| {
+            RuntimeCall::Proxy(ProxyCall::remove_announcement {
+                real: pure,
+                call_hash,
+            })
+        };
+        assert_ok!(<CheckColdkeySwap<Test> as ExtendedDispatchable<
+            RuntimeCall,
+        >>::dispatch_with_extension(
+            RuntimeOrigin::signed(controller),
+            remove(first_hash),
+        ));
+        assert_eq!(Announcements::<Test>::get(controller).0.len(), 1);
+        assert_eq!(Announcements::<Test>::get(other_controller).0.len(), 1);
+
+        System::set_block_number(System::block_number() + 3);
+        let execute_takeover = RuntimeCall::Proxy(ProxyCall::proxy_announced {
+            delegate: controller,
+            real: pure,
+            force_proxy_type: Some(ProxyType::Any),
+            call: Box::new(takeover_call),
+        });
+        assert!(
+            <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
+                RuntimeOrigin::signed(attacker),
+                execute_takeover,
+            )
+            .is_err()
+        );
+        assert!(
+            !Proxies::<Test>::get(pure)
+                .0
+                .iter()
+                .any(|definition| definition.delegate == attacker)
+        );
+
+        // A dispute keeps every other controller action frozen, but must not freeze cancellation.
+        ColdkeySwapDisputes::<Test>::insert(controller, System::block_number());
+        let announce = RuntimeCall::Proxy(ProxyCall::announce {
+            real: pure,
+            call_hash: first_hash,
+        });
+        assert_eq!(
+            <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
+                RuntimeOrigin::signed(controller),
+                announce,
+            )
+            .unwrap_err()
+            .error,
+            Error::<Test>::ColdkeySwapDisputed.into(),
+        );
+        assert_ok!(<CheckColdkeySwap<Test> as ExtendedDispatchable<
+            RuntimeCall,
+        >>::dispatch_with_extension(
+            RuntimeOrigin::signed(controller),
+            remove(second_hash),
+        ));
+        assert!(Announcements::<Test>::get(controller).0.is_empty());
+
+        // remove_announcement has no delegate argument: entering the pallet as `controller`
+        // cannot touch an announcement stored under a different delegate.
+        assert!(
+            <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
+                RuntimeOrigin::signed(controller),
+                remove(first_hash),
+            )
+            .is_err()
+        );
+        assert_eq!(Announcements::<Test>::get(other_controller).0.len(), 1);
+    });
+}
+
+// PROTECTED_REGRESSION: a coldkey swap after the owner hotkey changes must not count a lock to that hotkey twice and hand the subnet to its coldkey (finney SN24, block 9503363); changes require explicit human approval.
+#[test]
+fn coldkey_swap_after_owner_hotkey_change_keeps_the_subnet() {
+    use crate::{
+        DecayingLock, HotkeyLock, Lock, NetworkRegisteredAt, SubnetOwner, SubnetOwnerHotkey,
+        SubnetProtocolAlpha,
+    };
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(5_001);
+        let new_owner = U256::from(5_002);
+        let hotkey_coldkey = U256::from(5_003);
+        let hotkey = U256::from(5_004);
+        let netuid = add_dynamic_network(&U256::from(5_005), &owner);
+        let locked = AlphaBalance::from(1_000_000_000u64);
+
+        // The owner locks to a hotkey of another coldkey, then makes it the owner hotkey.
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &hotkey_coldkey,
+            &hotkey
+        ));
+        register_ok_neuron(netuid, hotkey, hotkey_coldkey, 0);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &owner, netuid, locked,
+        );
+        DecayingLock::<Test>::insert(owner, netuid, false);
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &owner, netuid, &hotkey, locked
+        ));
+        assert_ok!(SubtensorModule::do_set_sn_owner_hotkey(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            &hotkey,
+        ));
+
+        // The lock is 12.5% of the eligible alpha, below the 18% takeover threshold.
+        System::set_block_number(crate::staking::lock::ONE_YEAR + 1);
+        NetworkRegisteredAt::<Test>::insert(netuid, 0);
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(8_000_000_000u64));
+        SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::ZERO);
+        let conviction = SubtensorModule::hotkey_conviction(&hotkey, netuid);
+
+        assert_ok!(SubtensorModule::set_reject_locked_alpha(
+            RuntimeOrigin::signed(new_owner),
+            false,
+        ));
+        assert_ok!(SubtensorModule::do_swap_coldkey(&owner, &new_owner));
+
+        assert_eq!(
+            Lock::<Test>::get((new_owner, netuid, hotkey)).map(|lock| lock.locked_mass),
+            Some(locked)
+        );
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, hotkey).map(|lock| lock.locked_mass),
+            Some(locked)
+        );
+        assert_eq!(
+            SubtensorModule::hotkey_conviction(&hotkey, netuid),
+            conviction
+        );
+
+        SubtensorModule::change_subnet_owner_if_needed(netuid);
+        assert_eq!(SubnetOwner::<Test>::get(netuid), new_owner);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), hotkey);
     });
 }

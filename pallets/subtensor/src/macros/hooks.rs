@@ -224,6 +224,9 @@ mod hooks {
                 // Add pre-tracking burns to the generation-scoped AlphaBurned counters. This
                 // follows both AlphaOut repair and recycled-generation counter rebasing.
                 .saturating_add(migrations::migrate_backfill_historical_alpha_burned::migrate_backfill_historical_alpha_burned::<T>())
+                // Rebuild every hotkey's lock aggregates from the individual locks and drop
+                // the former owner aggregates.
+                .saturating_add(migrations::migrate_one_lock_bucket_per_hotkey::migrate_one_lock_bucket_per_hotkey::<T>())
                 // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
                 // on_idle weight over subsequent blocks.
                 .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>())

@@ -37,12 +37,16 @@ mod helpers;
 
 #[benchmarks(
     where
-        T: pallet_alpha_assets::Config + pallet_balances::Config + pallet_shield::Config,
+        T: pallet_alpha_assets::Config
+            + pallet_balances::Config
+            + pallet_shield::Config
+            + pallet_subtensor_proxy::Config,
         <T as pallet_balances::Config>::ExistentialDeposit: Get<TaoBalance>,
         <T as frame_system::Config>::RuntimeCall:
             Dispatchable<RuntimeOrigin = OriginFor<T>, Info = DispatchInfo, PostInfo = PostDispatchInfo>
             + IsSubType<Call<T>>
-            + IsSubType<pallet_shield::Call<T>>,
+            + IsSubType<pallet_shield::Call<T>>
+            + IsSubType<pallet_subtensor_proxy::Call<T>>,
         OriginFor<T>: Clone + OriginTrait<AccountId = T::AccountId>,
 )]
 mod pallet_benchmarks {

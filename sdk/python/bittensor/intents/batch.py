@@ -93,6 +93,11 @@ class Batch(Intent):
                         "this guarded account payment must be submitted directly, "
                         "not inside a batch"
                     )
+                if built.extras.get("requires_direct_submission"):
+                    raise ValueError(
+                        "this announced payload contains or may contain an atomic batch; "
+                        "submit it directly, not inside another batch"
+                    )
                 child_call = built.call
                 extras.update(
                     {f"{index}:{child.op}.{key}": value for key, value in built.extras.items()}

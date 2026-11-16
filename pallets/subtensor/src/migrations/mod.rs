@@ -43,6 +43,7 @@ pub mod migrate_kappa_map_to_default;
 pub mod migrate_network_immunity_period;
 pub mod migrate_network_lock_cost_2500;
 pub mod migrate_network_lock_reduction_interval;
+pub mod migrate_one_lock_bucket_per_hotkey;
 pub mod migrate_orphaned_storage_items;
 pub mod migrate_pending_emissions;
 pub mod migrate_populate_locking_coldkeys;

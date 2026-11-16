@@ -50,15 +50,19 @@ ignore = [
     #   rustls-platform-verifier; not part of the node build.
     "RUSTSEC-2026-0383",
     # RUSTSEC-2026-0387 (added 2026-10-28): crypto-bigint timing variability
-    # in ops intended to be constant-time. Pulled transitively by the
-    # polkadot-sdk crypto stack; no patch on the pinned line without an SDK
-    # bump. Accepted as a known fork-tree exception; revisit on next bump.
+    # in ops intended to be constant-time. sp-core's std/host ECDSA signing
+    # selects secp256k1; k256/crypto-bigint is the portable no-std path. The
+    # production runtime verifies/recovers public ECDSA input but never signs
+    # with a secret, and SessionKeys contains only Aura sr25519 and Grandpa
+    # ed25519. Do not add runtime ECDSA secret operations while this is ignored.
+    # The >=0.7.6 fix needs a major polkadot-sdk crypto dependency bump.
     "RUSTSEC-2026-0387",
     # RUSTSEC-2026-0403 (added 2026-10-28): zstd-safe uninitialized memory on
-    # failed legacy-frame streaming decompression (5.0.2 and 6.0.6). Same
-    # SDK-pinned zstd graph as the other zstd-safe unsound entries; node
-    # decompression paths do not feed untrusted legacy frames. Fix needs a
-    # newer zstd-safe major via the polkadot-sdk bump.
+    # failed legacy-frame streaming decompression. Only stream::write::Decoder
+    # / DCtx::decompress_stream is affected. sp-maybe-compressed-blob calls the
+    # unaffected read Decoder and wasmtime-cache calls decode_all, which the
+    # advisory also marks unaffected. No affected API is called by the node.
+    # Fixing the SDK-pinned 5.0.2/6.0.6 versions needs the next SDK bump.
     "RUSTSEC-2026-0403",
     # GHSA-6fr9-xmw9-5352 / RUSTSEC-2026-0424 (added 2026-10-30): unchecked
     # memory usage transferring borrowed resources between wasmtime
@@ -68,4 +72,13 @@ ignore = [
     # (or other patched majors); revisit on the next polkadot-sdk bump.
     # https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-6fr9-xmw9-5352
     "RUSTSEC-2026-0424",
+    # RUSTSEC-2026-0459 (added 2026-11-09): bundled SQLite can expose stale
+    # process memory when opening an attacker-crafted database and sibling WAL
+    # with mismatched page sizes. BackendType::KeyValue is the node default and
+    # does not open SQLite. The optional SQL path opens only frontier.db3 under
+    # the operator's node data directory; docs/guides/running-a-node.mdx tells
+    # SQL operators to keep that database and WAL private and trusted. Updating
+    # libsqlite3-sys to >=0.39 requires moving Frontier off sqlx 0.8.6.
+    # https://rustsec.org/advisories/RUSTSEC-2026-0459.html
+    "RUSTSEC-2026-0459",
 ]

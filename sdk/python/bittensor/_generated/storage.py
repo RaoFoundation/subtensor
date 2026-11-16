@@ -155,8 +155,6 @@ class SubtensorModule:
     LockingColdkeys = Item('SubtensorModule', 'LockingColdkeys', '()')
     HotkeyLock = Item('SubtensorModule', 'HotkeyLock', 'LockState')
     DecayingHotkeyLock = Item('SubtensorModule', 'DecayingHotkeyLock', 'LockState')
-    OwnerLock = Item('SubtensorModule', 'OwnerLock', 'LockState')
-    DecayingOwnerLock = Item('SubtensorModule', 'DecayingOwnerLock', 'LockState')
     DecayingLock = Item('SubtensorModule', 'DecayingLock', 'bool')
     OwnerCutAutoLockEnabled = Item('SubtensorModule', 'OwnerCutAutoLockEnabled', 'bool')
     MaturityRate = Item('SubtensorModule', 'MaturityRate', 'u64')

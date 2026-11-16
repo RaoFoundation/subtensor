@@ -7,6 +7,9 @@ description: "A coldkey's swap state (execute block, new-key hash, dispute, reco
 
 This is the `swap-check` status: `ColdkeySwapAnnouncements` stores the block
 at which the swap becomes executable and the BlakeTwo256 hash committed to.
+`import_source_policies` is the V2 policy snapshot committed with the
+destination: True or False for V2, None for a legacy announcement. The hash,
+snapshot and dispute state are read at the same block.
 `recovery_locked` is true after root `reset_coldkey_swap_keep_locked` (stored
 dispute block 0): the coldkey can only make swap calls until a successful swap or
 a full reset, even when no announcement is pending.
@@ -46,6 +49,7 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 ## On-chain implementation
 
+- Storage [`SubtensorModule.ColdkeySwapV2PolicySnapshots`](/code/pallets/subtensor/src/lib.rs#L4122)
 - Storage [`SubtensorModule.ColdkeySwapAnnouncements`](/code/pallets/subtensor/src/lib.rs#L2162)
 - Storage [`SubtensorModule.ColdkeySwapDisputes`](/code/pallets/subtensor/src/lib.rs#L2186)
 
