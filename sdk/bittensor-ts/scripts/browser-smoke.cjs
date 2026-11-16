@@ -164,6 +164,29 @@ try {
   assert(decodedExtrinsic.call.call_function === 'remark', 'extrinsic call function decoded')
 
   assert(typeof globalThis.Buffer === 'undefined', 'no Node Buffer polyfill is present')
+  const protectedStore = new sdk.BrowserJsonStore(localStorage, 'protected-smoke:' + mode + ':')
+  const secondProtectedStore = new sdk.BrowserJsonStore(localStorage, 'protected-smoke:' + mode + ':')
+  await protectedStore.write('protected_setups', { count: 0 })
+  await Promise.all(Array.from({ length: 24 }, (_, index) => (index % 2 ? protectedStore : secondProtectedStore).update('protected_setups', value => ({ value: { count: value.count + 1 }, result: null }))))
+  assert((await protectedStore.read('protected_setups')).count === 24, 'browser workflow storage uses atomic Web Locks across store instances')
+  const protectedClient = new sdk.Client('local')
+  protectedClient.rpc = async () => { throw new Error('constructing a protected session must not call RPC') }
+  const protectedSession = protectedClient.protectedAccount({ controllerWallet: 'browser', store: protectedStore, signerFor: () => { throw new Error('inspection must not unlock') } })
+  assert(protectedSession instanceof sdk.ProtectedAccountSession, 'portable protected-account session is exported')
+  assert(typeof protectedSession.setup === 'function' && typeof protectedSession.execute === 'function' && typeof protectedSession.rotate === 'function', 'browser protected lifecycle is available')
+  await protectedClient.close()
+  const quoteHash = '0x' + '12'.repeat(32)
+  const quoteBackend = sdk.createProtectedProxyBackend({
+    blockHash: async () => quoteHash, genesisHash: async () => quoteHash, blockNumber: async () => 50, blockTime: async () => 12,
+    runtimeAt: async () => runtime, query: async () => ({ nonce: 17 }),
+    rpc: async (method, [bytes, block]) => {
+      assert(method === 'payment_queryInfo' && block === quoteHash, 'protected funding only quotes at its pinned hash')
+      const decoded = runtime.decodeExtrinsic(hexToBytes(bytes.slice(2)))
+      assert(decoded.nonce === 17 && decoded.call.call_function === 'transfer_keep_alive', 'browser funding quote uses the actual WASM extrinsic codec')
+      return { partialFee: '1200' }
+    },
+  }, { crypto: { accountId: sdk.publicKeyFromSs58, ss58Encode: sdk.ss58FromPublic, hash: sdk.blake2_256, fromDescriptor: sdk.Keypair.fromDescriptor }, reader: async () => ({}), submit: async () => { throw new Error('fee quotation must not submit') } })
+  assert(await (await quoteBackend.snapshot()).fee({ pallet: 'Balances', call: 'transfer_keep_alive', params: { dest: keypair.ss58Address, value: 100n } }, keypair.ss58Address) === 1200n, 'browser funding quote remains exact')
   assert(sdk.listReads().length === 113, 'complete read catalog available')
   assert(sdk.listIntentTools().length === 102, 'complete intent catalog available')
   assert(typeof sdk.resolveTransactionFeePayer === 'function' && typeof sdk.serializeUnsignedTransaction === 'function', 'portable fee-payer and unsigned helpers are public browser exports')

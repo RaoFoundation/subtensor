@@ -1,4 +1,4 @@
-import { isDefiniteSubmissionRejection } from './transport'
+import { isDefiniteSubmissionRejection, markSubmissionNotSent } from './transport'
 import { bytesHex as hex, concatBytes, hexBytes } from './portable'
 import { isProtectedCrypto, isRotatingCrypto, u64 } from './wallet-types'
 import { signingAuthority, assertAuthorityCurrent, registrationCall, rotationCall, type SigningAuthority, type ProtectedAccountClient, type ProtectedKeypair } from './protected-accounts'
@@ -128,6 +128,8 @@ export class ProtectedWalletClient {
     return authority
   }
   private async submitSelected(call: IntentDescriptor | Uint8Array, options: ProtectedTransactionOptions, selected?: SigningAuthority): Promise<any> {
+    let handedOff = false
+    try {
     const authority = selected ?? await this.selectAuthority(options), account = hex(this.keypair.publicKey)
     const previous = submitted.get(this.queueOwner)?.get(account)
     const restore = () => {
@@ -136,6 +138,7 @@ export class ProtectedWalletClient {
     }
     const submit = async (bytes: Uint8Array, count: number, submissionOptions: ProtectedTransactionOptions) => {
       markSubmitted(count)
+      handedOff = true
       try {
         const result = await this.adapter.submitBytes(bytes, this.keypair.ss58Address, submissionOptions)
         if (result.data?.submission_rejected === true && !result.blockHash) restore()
@@ -157,7 +160,7 @@ export class ProtectedWalletClient {
       const signed = await this.signed(call, authority, options)
       await assertAuthorityCurrent(this.adapter, authority)
       options.signal?.throwIfAborted()
-      return submit(signed.bytes, 1, options)
+      return await submit(signed.bytes, 1, options)
     }
     if (options.period === null || options.period != null && (options.period < 4 || options.period > 8)) throw new RangeError('shielding requires a 4..8 block era')
     const signing = { ...options, period: options.period ?? 8 }
@@ -179,16 +182,21 @@ export class ProtectedWalletClient {
     const innerHash = typeof inner.hash === 'string' ? inner.hash : hex(inner.hash)
     if (!isRotatingCrypto(this.keypair.cryptoType) && result.blockHash && result.extrinsicHash === innerHash) submitted.get(this.queueOwner)?.delete(account)
     return result
+    } catch (error) { throw handedOff ? error : markSubmissionNotSent(error) }
   }
   async execute(intent: Intent, options: ProtectedWorkflowOptions = {}): Promise<any> {
+    let handedOff = false
+    try {
     options = { ...structuredOptions(options), context: structuredClone(options.context), policy: structuredClone(options.policy) }
-    return this.serial(async () => {
+    return await this.serial(async () => {
       const authority = await this.selectAuthority(options)
       const plan = await this.prepareWorkflow(intent,options,authority)
       if (!plan.ok) throw new Error(plan.violations.join('; '))
       await authorizeRegistrationSponsorship(plan.intent,options)
+      handedOff = true
       return this.submitSelected(plan.call, { ...options, mevShield: plan.shielded },authority)
     })
+    } catch (error) { throw handedOff ? error : markSubmissionNotSent(error) }
   }
   async plan(intent: Intent, options: ProtectedWorkflowOptions = {}) {
     options = { ...structuredOptions(options), context: structuredClone(options.context), policy: structuredClone(options.policy) }

@@ -1,7 +1,9 @@
-import { isDefiniteSubmissionRejection, SubmissionUncertainError, SubmissionNotSentError } from './transport'
+import { isDefiniteSubmissionRejection, markSubmissionNotSent, SubmissionUncertainError, SubmissionNotSentError } from './transport'
 import { serializeUnsignedTransaction, restoreUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime, type SerializedUnsignedTransaction } from './unsigned-transaction'
 import { extrinsicSignerAccountId } from './extrinsic-signer'
 import { ProtectedWalletClient } from './protected-transactions'
+import { createProtectedProxyBackend } from './protected-proxy-adapter'
+import { createProtectedAccountSession, type ProtectedAccountClientOptions } from './protected-proxy-session'
 import { registerWallet, registrationDepositForTypes, estimateWalletRegistrationFee, walletPublicKey, requireWalletIdentity, bindWalletRegistrationSigner, type WalletRegistrationOptions, type WalletRegistrationAdapter } from './wallet-registration'
 import type { ProtectedKeypair } from './protected-accounts'
 import { verifyAuthorization, decodeReceivingAddress, Keypair } from './browser'
@@ -474,6 +476,24 @@ export class Client {
       followShielded: (carrier, hash, period, options) => this.resolveShieldedInner(carrier, hash, period, options),
     }, keypair, this)
   }
+  protectedAccount(options: ProtectedAccountClientOptions<BrowserSigner, WorkflowOptions>) {
+    const backend = createProtectedProxyBackend(this, {
+      crypto: { accountId: publicKeyFromSs58, ss58Encode: ss58FromPublic, hash: blake2_256, fromDescriptor: Keypair.fromDescriptor },
+      reader: hash => this.intentReader(hash), publicKeyFor: options.publicKeyFor,
+      receiptBlockFor: options.receiptBlockFor, receiptSearchBlocks: options.receiptSearchBlocks,
+      submit: options.submit ?? (async (intent, request) => {
+        let signer: BrowserSigner
+        try {
+          if (!options.signerFor) throw new Error('protected account submission requires signerFor or a multisig submitter')
+          signer = await options.signerFor(request.signerAddress)
+          const address = signer.ss58Address ?? signer.address
+          if (!address || hex(publicKeyFromSs58(address)) !== hex(publicKeyFromSs58(request.signerAddress))) throw new Error('protected account submitter returned a different signer')
+        } catch (error) { throw new SubmissionNotSentError(error) }
+        return this.execute(intent, signer, { ...options.transactionOptions, waitForFinalization: true, proxyFor: request.proxyFor, proxyType: request.forceProxyType })
+      }),
+    })
+    return createProtectedAccountSession(backend, options.store, options.controllerWallet)
+  }
   private walletRegistrationAdapter(): WalletRegistrationAdapter {
     const publicIdentity = (wallet: any, role: 'coldkey' | 'hotkey') => walletPublicKey(wallet, role, {
       decodeAddress: publicKeyFromSs58, ecdsaAccount: accountIdFromEcdsaPublic,
@@ -577,12 +597,14 @@ export class Client {
   }
   multisig(signatories: readonly string[], threshold: number, accountMode: 'legacy' | 'safe' = 'legacy'): BrowserMultisig { return new BrowserMultisig(this, signatories, threshold, accountMode) }
   private async submitPreparedCall(call: Call, signer: BrowserSigner, options: SubmitOptions, at?: string, ownsReservation = false): Promise<ExtrinsicResult> {
+    let broadcastStarted = false
+    try {
     const blockHash = at ?? await this.blockHash()
     const address = signer.ss58Address ?? signer.address!
     const reserved = ownsReservation || options.nonce == null, count = options.mevShield ? 2 : 1
     const nonce = options.nonce ?? this.reserveNonceRange(address, await this.peekNonce(address), count)
     const token = this.nonceTokens.get(hex(publicKeyFromSs58(address)))
-    let broadcastStarted = false, carrierReturned = false
+    let carrierReturned = false
     try {
     options = { ...options, nonce }
     const { policy: _policy, ...submissionOptions } = options
@@ -620,6 +642,7 @@ export class Client {
       if (reserved && (!broadcastStarted || !carrierReturned && isDefiniteSubmissionRejection(error)) && this.nonceFloors.get(key) === nonce + count) this.nonceFloors.set(key, nonce)
       throw error
     }
+    } catch (error) { throw broadcastStarted ? error : markSubmissionNotSent(error) }
   }
   async prepareMultisig(request: MultisigApprovalRequest, block?: BlockRef) { return prepareMultisigApproval(await this.intentReader(block), request) }
   upgrades(): UpgradeClient {
@@ -700,6 +723,8 @@ export class Client {
     if (signer instanceof Keypair && isProtectedCrypto(signer.cryptoType)) return this.protectedWallet(signer).execute(intent, { ...options, tip: BigInt(options.tip ?? 0), tipAssetId: options.tipAssetId == null ? null : BigInt(options.tipAssetId) })
     signer = pinSigner(signer)
     return this.serial(signer, async () => {
+      let handedOff = false
+      try {
       const address = signer.ss58Address ?? signer.address!, context = options.context ?? { coldkey: address, ...(intentSignerRole(intent) === 'hotkey' ? { hotkey: address, hotkeyPublicKey: publicKeyFromSs58(address) } : {}) }
       let plan = await this.planForSigner(intent, context, options.policy, options, signer)
       if (plan.violations.length) throw new ChainError(`transaction rejected: ${plan.violations.join('; ')}`)
@@ -707,7 +732,6 @@ export class Client {
       const reserved = options.nonce == null, count = shield ? 2 : 1
       const submissionNonce = reserved ? this.reserveNonceRange(address, plan.nonce, count) : plan.nonce
       const key = hex(publicKeyFromSs58(address)), token = this.nonceTokens.get(key)
-      let handedOff = false
       try {
         // A reservation may have advanced during planning. Price the exact nonce
         // that will be signed, including changes in SCALE compact-encoded length.
@@ -723,6 +747,7 @@ export class Client {
         if (!handedOff && reserved && this.nonceTokens.get(key) === token && this.nonceFloors.get(key) === submissionNonce + count) this.nonceFloors.set(key, submissionNonce)
         throw error
       }
+      } catch (error) { throw handedOff ? error : markSubmissionNotSent(error) }
     })
   }
 }

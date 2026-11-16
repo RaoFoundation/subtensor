@@ -1,4 +1,4 @@
-import { isDefiniteSubmissionRejection } from './transport'
+import { isDefiniteSubmissionRejection, markSubmissionNotSent } from './transport'
 import { Balance, assetIdValue, taoTransactionAmountRao } from './balance'
 import { nativeRustClient, type Client, type SignerLike, type ChainSigner, type ExtrinsicResult, type SubmitOptions, type CallLike } from './client'
 import { Intent, intentFromJSON, intentSignerRole, checkIntentPolicy, encodeIntentCall, type IntentContext, type IntentDescriptor, type IntentPolicy, type IntentReader, type PreparedIntent } from './intents'
@@ -137,15 +137,20 @@ export class WorkflowClient {
 
   /** Re-plan at the current head; a prior preview never authorizes a stale spend. */
   async execute(value: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowResult> {
+    let handedOff = false
+    try {
     const intent = value instanceof Intent ? value : intentFromJSON(value)
     const identity = await publicIdentity(this.client, intent, signer, options)
     if (isProtectedCrypto(identity.cryptoType)) {
       const key = signer instanceof Wallet ? await signer.signer(intentSignerRole(intent),options) : signer
       if (!(key instanceof Keypair)) throw new TypeError('protected signing requires a Keypair; external wallets can submit their encoded transaction')
-      return this.client.protectedWallet(key).execute(intent, { ...options, metadataHash: options.metadataHash == null ? undefined : Buffer.from(options.metadataHash as Uint8Array), tip: taoTransactionAmountRao(options.tip ?? 0n), tipAssetId: options.tipAssetId == null ? null : assetIdValue(options.tipAssetId), hotkey: identity.hotkey, hotkeyPublicKey: identity.hotkeyPublicKey })
+      const protectedSession = this.client.protectedWallet(key)
+      const protectedOptions = { ...options, metadataHash: options.metadataHash == null ? undefined : Buffer.from(options.metadataHash as Uint8Array), tip: taoTransactionAmountRao(options.tip ?? 0n), tipAssetId: options.tipAssetId == null ? null : assetIdValue(options.tipAssetId), hotkey: identity.hotkey, hotkeyPublicKey: identity.hotkeyPublicKey }
+      handedOff = true
+      return await protectedSession.execute(intent, protectedOptions)
     }
     const planningSigner = signer instanceof Wallet ? signer : bindSignerIdentity(signer, identity)
-    return runSignerQueue(this.client, identity.address, async permit => {
+    return await runSignerQueue(this.client, identity.address, async permit => {
       if (options.signal?.aborted) throw options.signal.reason ?? new Error('workflow aborted')
       let plan = await this.plan(intent, planningSigner, options)
       if (!publicKeyFromSs58(plan.signerAddress).equals(identity.publicKey)) throw new Error('signer account changed after preflight')
@@ -171,16 +176,19 @@ export class WorkflowClient {
       const resolvedSigner = bindSignerIdentity(planningSigner instanceof Wallet ? await planningSigner.signer(plan.intent.signerRole, options) : planningSigner, identity)
       const submission = signerQueueOptions(submitOptions({ ...executionOptions, period: plan.shielded ? 8 : options.period === undefined ? 128 : options.period }), permit)
       if (!plan.shielded) {
+        handedOff = true
         const result = await this.client.submit(plan.call, resolvedSigner, { waitForInclusion: true, ...submission, policy: options.policy as any })
         return { ...result, data: { ...plan.intent.extras, ...result.data } }
       }
       delegated = true
+      handedOff = true
       return await this.submitShieldedCall(plan.call, resolvedSigner, identity.address, { ...submission, policy: options.policy as any }, { ...plan.intent.extras }, reserved)
       } catch (error) {
         if (reserved && !delegated) await reserved.native.releaseNonces(identity.address, reserved.nonce, 2)
         throw error
       }
     })
+    } catch (error) { throw handedOff ? error : markSubmissionNotSent(error) }
   }
 
   /** Encrypt a raw descriptor/call with an external signer, after explicit raw admission. */
@@ -228,7 +236,7 @@ export class WorkflowClient {
     return followed
     } catch (error) {
       if (reserved && (!broadcastStarted || !carrierReturned && isDefiniteSubmissionRejection(error))) await reserved.native.releaseNonces(address, reserved.nonce, 2)
-      throw error
+      throw broadcastStarted ? error : markSubmissionNotSent(error)
     }
   }
 

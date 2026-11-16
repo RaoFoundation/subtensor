@@ -145,6 +145,107 @@ Root-claim previews include deferred entitlements after stake has been removed.
 When a deferred entitlement cannot be quoted, the aggregate remains unavailable
 and the preview explains the missing valuation instead of presenting a zero claim.
 
+## Delayed protected accounts
+
+`client.protectedAccount(...)` provides the release's delayed pure-proxy workflow
+in Node and browsers. This is separate from `protectedWallet`, which manages
+rotating signing keys. A protected account holds assets behind a controller's
+nonzero `Any` proxy delay, with optional narrowly scoped immediate permissions.
+
+```ts
+import { Client, FileJsonStore, buildIntent } from '@bittensor/sdk'
+
+const client = new Client('finney')
+const account = client.protectedAccount({
+  controllerWallet: 'main',
+  store: new FileJsonStore(),
+  signerFor: address => walletsByAddress.get(address)!,
+  // Optional public descriptors for fee estimation; never unlock keys here.
+  publicKeyFor: address => publicKeysByAddress.get(address),
+})
+
+const setup = { controllerAddress, delay: '36h', allows: ['staking'] }
+const plan = await account.planSetup(setup)
+// Review plan.warnings and the complete authority granted by each allow item.
+const progress = await account.setup(setup)
+// After an interruption, call resumeSetup(setup) to recover the saved progress.
+```
+
+Setup verifies pure-account creation provenance and live proxy grants, queues
+requested permissions, and announces the coldkey migration. `status: 'ready'`
+means that configuration and migration announcement are ready; it does not mean
+the assets have moved. Inspect `migrationStatus()` and call `executeMigration()`
+once the chain's waiting period expires. **Migration moves available TAO, stake,
+and ownership to the protected account.** The controller needs its own funds for
+fees and announcement deposits. Setup will not blindly recreate a pure account
+after an uncertain submission. `creationReceipt` allows recovery using a known
+included receipt; `reuse` requires matching historical `PureCreated` provenance.
+
+```ts
+const payment = buildIntent('transfer', { dest_ss58: recipient, amount_tao: '1' })
+const announced = await account.submit(payment)
+if ('row' in announced) {
+  // Save this index. Call execute only after inspect reports ready: true.
+  const pending = (await account.inspect()).pending.find(row => row.index === announced.row.index)
+  if (pending?.ready) await account.execute(pending.index)
+}
+```
+
+`account.inspect()` is read-only and reports live grants and pending work.
+To persist newly discovered chain announcements and assign stable local indices,
+use `account.announcements.list((await account.inspect()).record)`. Persisted
+announcements retain the exact call bytes, hash, runtime version, and decoded
+semantics. Execution verifies them again, respects the live delay, and requires
+`allowRepeat: true` before repeating a payload already recorded as executed.
+Unknown submissions remain reserved. Hash-only receipts are searched across up
+to 128 finalized blocks by default (`receiptSearchBlocks`); `receiptBlockFor`
+can supply an inclusion block for older work. An unsuccessful search never proves
+that submission failed. `cancel(index)` removes an announcement;
+an unresolved multisig commitment must first be resolved by its signatories.
+Announcement files contain public transaction details in plaintext.
+
+`route(intent)` previews direct, immediate-proxy, or delayed execution.
+Immediate routes require a matching live grant. Hotkey operations require an
+explicit `signerAddress`; ordinary protected submissions cannot change proxy
+authority. Use `planSettings` / `updateSettings` for delay and allow changes,
+and `planRotation` / `rotate` / `finalizeRotation` for controller replacement.
+Rotation verifies new authority and removal of the old controller before moving
+the local binding. Permission revocation cancels pending grant announcements
+before queuing removal, so those grants cannot quietly return later.
+
+`funding()` quotes fees, announcement deposits, usable balance, and a controller
+funding target without unlocking a key or reserving a nonce. Supply `publicKeyFor`
+for unregistered non-sr25519 payers so quotes use their authorization size.
+`planRefill(intent)`
+previews an optional refill. `submit(intent, { refill: { maxRefillRao } })`
+explicitly includes a capped refill in the same delayed atomic batch; insufficient
+funds to announce still require external funding. Use explicit amounts for
+staking or crowdloan contributions when including a refill: their static
+`amount_tao: 'all'` would otherwise be calculated before the refill.
+`transfer_all` and transfers with `amount_tao: 'all'` remain available because
+they compute the remaining balance during execution. After migration,
+`fund(fromAddress, { maxFundingRao, expectedFundingRao })` tops up the controller
+from a separate account, rechecking the approved amount before submission.
+
+Browsers use `new BrowserJsonStore(localStorage, 'my-app:')` or a transactional
+`JsonStore` implementation. The browser store uses Web Locks for atomic updates;
+Node's `FileJsonStore` locks, atomically replaces, and syncs its files. After a
+process crash, an abandoned `.lock` requires checking its recorded owner before
+removal. Custom stores shared across processes or tabs must implement atomic
+`update`; the fallback serializes only users of the same store object.
+`MemoryJsonStore` is suitable for tests and ephemeral sessions. Records are
+scoped by genesis hash and controller; importing an unscoped legacy record
+requires explicit `bindLegacy()` verification.
+
+For multisig controllers, provide `submit(intent, request)` instead of `signerFor`.
+The callback must authorize `request.signerAddress`, honor `proxyFor` and
+`forceProxyType` when present, and return the included receipt and complete
+events. Approval-only receipts stay pending until the actual action executes.
+Throw `SubmissionNotSentError` only when delivery definitely did not occur;
+ambiguous failures retain reservations, and `SubmissionUncertainError` can carry
+the extrinsic hash for recovery. The default Node and browser submitters use the
+existing transaction engine and wait for finalization.
+
 ## Build locally
 
 From the repository root:
@@ -346,8 +447,8 @@ rejects any different identity returned after unlocking.
 
 ## Semantic workflows
 
-`listReads()` describes all 111 registered reads. `listIntentTools()` describes
-all 98 semantic operations, their inputs, defaults, signer roles, and safety
+`listReads()` describes all 113 registered reads. `listIntentTools()` describes
+all 102 semantic operations, their inputs, defaults, signer roles, and safety
 requirements. Calls, storage, constants, and runtime API descriptors are generated
 from the Python metadata catalog; precompile ABIs come from canonical Solidity.
 `buildIntent()` and `intentBuilders` provide operation-specific argument types,

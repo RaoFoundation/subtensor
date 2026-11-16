@@ -1,14 +1,32 @@
 /** Explicit application persistence. Values are never loaded or applied merely by importing the SDK. */
-export interface JsonStore { read(key: string): Promise<unknown | undefined>; write(key: string, value: unknown): Promise<void> }
+export interface JsonStore {
+  read(key: string): Promise<unknown | undefined>
+  write(key: string, value: unknown): Promise<void>
+  /** Atomic read/modify/write; durable workflow journals use this when available. */
+  update?<T>(key: string, action: (current: unknown) => { value: unknown; result: T }): Promise<T>
+}
 export class MemoryJsonStore implements JsonStore {
   private values = new Map<string, unknown>()
   async read(key: string) { return structuredClone(this.values.get(key)) }
   async write(key: string, value: unknown) { this.values.set(key, structuredClone(value)) }
+  async update<T>(key: string, action: (current: unknown) => { value: unknown; result: T }): Promise<T> {
+    const { value, result } = action(structuredClone(this.values.get(key)))
+    this.values.set(key, structuredClone(value))
+    return structuredClone(result)
+  }
 }
 export class BrowserJsonStore implements JsonStore {
   constructor(private readonly storage: Pick<Storage, 'getItem' | 'setItem'>, private readonly prefix = 'bittensor:') {}
   async read(key: string) { const value = this.storage.getItem(this.prefix + key); return value == null ? undefined : JSON.parse(value) }
   async write(key: string, value: unknown) { this.storage.setItem(this.prefix + key, JSON.stringify(value)) }
+  async update<T>(key: string, action: (current: unknown) => { value: unknown; result: T }): Promise<T> {
+    if (typeof navigator === 'undefined' || !navigator.locks) throw new Error('atomic browser storage requires Web Locks or a transactional JsonStore adapter')
+    return navigator.locks.request(`${this.prefix}json:${key}`, async () => {
+      const { value, result } = action(await this.read(key))
+      await this.write(key, value)
+      return result
+    })
+  }
 }
 export interface AddressEntry { name: string; address: string; [key: string]: unknown }
 export interface ProxyEntry { name: string; [key: string]: unknown }

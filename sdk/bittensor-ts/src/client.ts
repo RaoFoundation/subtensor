@@ -2,6 +2,8 @@ import { SubmissionUncertainError, SubmissionNotSentError, isDefiniteSubmissionR
 export { SubmissionUncertainError, SubmissionNotSentError } from './transport'
 import { serializeUnsignedTransaction, restoreUnsignedTransaction, type SerializedUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime } from './unsigned-transaction'
 import { ProtectedWalletClient } from './protected-transactions'
+import { createProtectedProxyBackend } from './protected-proxy-adapter'
+import { createProtectedAccountSession, type ProtectedAccountClientOptions } from './protected-proxy-session'
 import { registerWallet, registrationDepositForTypes, estimateWalletRegistrationFee, walletPublicKey, requireWalletIdentity, bindWalletRegistrationSigner, type WalletRegistrationOptions, type WalletRegistrationAdapter } from './wallet-registration'
 import { Wallet, type WalletPasswordOptions } from './wallet'
 import { isProtectedCrypto } from './wallet-types'
@@ -17,7 +19,7 @@ import { gammaReceiptData } from './gamma'
 import { extrinsicSignerAccountId } from './extrinsic-signer'
 import { WorkflowClient, type WorkflowOptions, type WorkflowPlan, type WorkflowSigner, type WorkflowResult } from './node-workflows'
 import { runSignerQueue, signerQueueOptions, bindSignerIdentity } from './signer-queue'
-import { encodeIntentCall, listIntentTools, type Intent } from './intents'
+import { encodeIntentCall, listIntentTools, intentSignerRole, type Intent } from './intents'
 import { createNodeUpgradeClient } from './node-upgrade'
 import type { UpgradeClient } from './upgrade'
 import { dispatchRead, listReads, type ReadName, type ReadParams, type ReadResult, type ReadArgs, type ReadView } from './reads'
@@ -1685,6 +1687,28 @@ export class Client extends BrowserChainClient {
   estimate_shielded_carrier_fee(address: string): Promise<Balance> { return this.estimateShieldedCarrierFee(address) }
 
   workflows(): WorkflowClient { return new WorkflowClient(this) }
+  protectedAccount(options: ProtectedAccountClientOptions<WorkflowSigner, WorkflowOptions>) {
+    const backend = createProtectedProxyBackend(this, {
+      crypto: { accountId: publicKeyFromSs58, ss58Encode: ss58FromPublic, hash: blake2_256, fromDescriptor: Keypair.fromDescriptor },
+      reader: async hash => createNodeIntentReader(this, await this.requireNativeClient(), hash),
+      publicKeyFor: options.publicKeyFor,
+      receiptBlockFor: options.receiptBlockFor, receiptSearchBlocks: options.receiptSearchBlocks,
+      submit: options.submit ?? (async (intent, request) => {
+        let signer: WorkflowSigner
+        try {
+          if (!options.signerFor) throw new Error('protected account submission requires signerFor or a multisig submitter')
+          signer = await options.signerFor(request.signerAddress)
+          const key = await walletPublicKey(signer, intentSignerRole(intent), {
+            decodeAddress: publicKeyFromSs58, ecdsaAccount: accountIdFromEcdsaPublic,
+            accountContext: async () => { const runtime = await this.runtimeAt(); return { client: this, runtime, ss58Format: runtime.ss58Format } },
+          })
+          if (!publicKeyFromSs58(key.ss58Address).equals(publicKeyFromSs58(request.signerAddress))) throw new Error('protected account submitter returned a different signer')
+        } catch (error) { throw new SubmissionNotSentError(error) }
+        return this.execute(intent, signer, { ...options.transactionOptions, waitForFinalization: true, proxyFor: request.proxyFor, proxyType: request.forceProxyType })
+      }),
+    })
+    return createProtectedAccountSession(backend, options.store, options.controllerWallet)
+  }
   upgrades(): UpgradeClient { return createNodeUpgradeClient(this) }
   tools() { return listIntentTools() }
   plan(intent: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowPlan> { return this.workflows().plan(intent, signer, options) }

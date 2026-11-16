@@ -124,8 +124,14 @@ export type EndpointRequest = (method: string, params?: unknown[]) => Promise<un
 export type EndpointValidator = (endpoint: string, request: EndpointRequest) => Promise<void>
 
 /** Only explicit admission errors prove a submission was not accepted. */
+const knownUnsentErrors = new WeakSet<object>()
+/** Record a proven pre-handoff failure without changing the caller's Error object. */
+export function markSubmissionNotSent(error: unknown): unknown {
+  if (error != null && (typeof error === 'object' || typeof error === 'function')) { knownUnsentErrors.add(error); return error }
+  return new SubmissionNotSentError(error)
+}
 export function isDefiniteSubmissionRejection(error: unknown): boolean {
-  return error instanceof SubmissionNotSentError || error instanceof JsonRpcError && [-32600, -32601, -32602, 1010, 1011, 1012, 1014].includes(error.code ?? 0)
+  return error != null && (typeof error === 'object' || typeof error === 'function') && knownUnsentErrors.has(error) || error instanceof SubmissionNotSentError || error instanceof JsonRpcError && [-32600, -32601, -32602, 1010, 1011, 1012, 1014].includes(error.code ?? 0)
 }
 
 /** Preparation failed before the transport attempted to send the transaction. */
