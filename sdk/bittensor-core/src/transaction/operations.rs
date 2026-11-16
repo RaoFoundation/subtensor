@@ -191,6 +191,9 @@ impl IntentCall {
             "Proxy.add_proxy" | "Proxy.remove_proxy" => &["delegate", "proxy_type", "delay"],
             "Proxy.announce" | "Proxy.remove_announcement" => &["real", "call_hash"],
             "Proxy.reject_announcement" => &["delegate", "call_hash"],
+            "Multisig.cancel_as_multi" | "Multisig.cancel_as_multi_safe" => {
+                &["threshold", "other_signatories", "timepoint", "call_hash"]
+            }
             "Proxy.create_pure" | "Proxy.create_safe_pure" | "Proxy.create_protected_pure" => {
                 &["proxy_type", "delay", "index"]
             }
@@ -242,6 +245,12 @@ impl IntentCall {
             _ => return owner_hyperparameter(operation, params),
         };
         validate_fields(&params, allowed)?;
+        if matches!(
+            operation,
+            "Multisig.cancel_as_multi" | "Multisig.cancel_as_multi_safe"
+        ) {
+            validate_multisig_cancellation(&params)?;
+        }
         if operation == "HashedAccounts.check_registration_deposit" {
             number(field(&params, "max_deposit")?)?;
         }
@@ -372,6 +381,24 @@ impl IntentCall {
     pub fn from_descriptor(client: &Client, descriptor: &Value) -> Result<Self, CoreError> {
         descriptor_inner(client, descriptor, 0, &mut None)
     }
+}
+
+fn validate_multisig_cancellation(params: &Value) -> Result<(), CoreError> {
+    let hash = value_bytes(field(params, "call_hash")?)?;
+    let when = field(params, "timepoint")?;
+    validate_fields(when, &["height", "index"])?;
+    crate::policy::evaluate(
+        "transaction.multisig_cancel",
+        serde_json::json!({
+            "call_hash":format!("0x{}",hex::encode(hash)),
+            "timepoint":{
+                "height":number(field(when,"height")?)?.to_string(),
+                "index":number(field(when,"index")?)?.to_string(),
+            }
+        }),
+    )
+    .map_err(|error| invalid(&error.message))?;
+    Ok(())
 }
 
 fn descriptor_inner(
@@ -505,6 +532,17 @@ fn descriptor_unchecked(
             | "Multisig.approve_as_multi_safe"
             | "Multisig.cancel_as_multi_safe"
     );
+    if matches!(
+        operation.as_str(),
+        "Multisig.cancel_as_multi" | "Multisig.cancel_as_multi_safe"
+    ) && optional_field(descriptor, "semanticCall")?.is_none()
+    {
+        // Cancellation neither dispatches nor authorizes the inner call. Its
+        // original commitment is sufficient even when current state or metadata
+        // can no longer reconstruct that call. Hash-only approvals still need
+        // their semantic descriptor and retain spend/scope checks below.
+        return IntentCall::operation(&operation, params);
+    }
     let inner_descriptor = if hash_only {
         field(descriptor, "semanticCall")?
     } else {

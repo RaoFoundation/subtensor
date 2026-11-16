@@ -489,6 +489,10 @@ export interface NativeIntentCallConstructor {
   setRootClaimType(claimType: string, subnets?: number[] | null): NativeIntentCallHandle
 }
 
+export interface NativeNonceObservationHandle {
+  included(): Promise<void>
+}
+
 export interface NativeClientHandle {
   currentRuntime(): Promise<NativeRuntimeHandle>
   blockTime(): Promise<bigint>
@@ -516,6 +520,7 @@ export interface NativeClientHandle {
   runtimeCall(api: string, method: string, params: unknown, blockHash?: string | null): Promise<unknown>
   accountNextIndex(address: string): Promise<bigint>
   reserveNonces(address: string, count: bigint): Promise<bigint>
+  observeNonce(address: string, nonce: bigint): Promise<NativeNonceObservationHandle | null | undefined>
   releaseNonces(address: string, nonce: bigint, count: bigint): Promise<void>
   invalidateNonce(address: string): Promise<void>
   signExtrinsic(
@@ -647,6 +652,7 @@ export interface NativeBinding {
   NativePolicy: NativePolicyConstructor
   NativeIntentCall: NativeIntentCallConstructor
   NativeExternalSigningPlan: { readonly prototype: NativeExternalSigningPlanHandle }
+  NativeNonceObservation: { readonly prototype: NativeNonceObservationHandle }
   NativeCancellationToken: NativeCancellationTokenConstructor
   NativeClient: NativeClientConstructor
   NativeWallet: NativeWalletConstructor

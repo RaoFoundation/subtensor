@@ -1,4 +1,5 @@
 import { Balance } from '../balance'
+import { accountRecord, subnetRecord } from '../staking-records'
 import { type ReadView, type ChainRecord, st, api, num, integer, bal, blockOf, keyOf } from './base'
 import { subnetStates, type SubnetLifecycleState } from './subnets'
 export interface ReadStakePosition { hotkey: string; coldkey: string; netuid: number; stake: Balance; is_registered: boolean; subnet_state: SubnetLifecycleState | null; raw: ChainRecord }
@@ -14,7 +15,7 @@ async function valuation(view: ReadView, coldkeys: string[]): Promise<Record<str
   const records = new Map<string, ReadStakePosition[]>((rows ?? []).map(([key, values]: [string, ChainRecord[]]) => [String(key), (values ?? []).map(r => stakePosition(view, r, states))]))
   const spotValue = (stake: Balance) => bal(view, stake.netuid === 0 ? stake.rao : stake.rao * (priceRao[stake.netuid] ?? 0n) / 1000000000n)
   return Object.fromEntries(coldkeys.map(coldkey => {
-    const positions = records.get(coldkey) ?? []
+    const positions = accountRecord<ReadStakePosition[]>(records, coldkey, view.decodeAddress?.bind(view)) ?? []
     return [coldkey, { coldkey, block: blockOf(view), positions, stake_value: bal(view, positions.reduce((sum, p) => sum + spotValue(p.stake).rao, 0n)), tao_per_alpha: display, spot_value: spotValue }]
   }))
 }
@@ -22,9 +23,9 @@ async function availability(view: ReadView, coldkey: string, netuids: number[]) 
   const ids = [...new Set(netuids)].sort((a, b) => a - b)
   if (!ids.length) return []
   const raw = await view.runtime(stakeApi('get_stake_availability_for_coldkeys'), [[coldkey], ids])
-  const entries = raw instanceof Map ? raw.get(coldkey) : raw?.[coldkey]
+  const entries = accountRecord(raw, coldkey, view.decodeAddress?.bind(view))
   return ids.map(netuid => {
-    const r = (entries instanceof Map ? entries.get(netuid) ?? entries.get(String(netuid)) : entries?.[netuid]) ?? {}
+    const r = subnetRecord<ChainRecord>(entries, netuid) ?? {}
     return { netuid, total: bal(view, r.total, netuid), locked: bal(view, r.locked, netuid), available: bal(view, r.available, netuid) }
   })
 }
@@ -57,7 +58,7 @@ export const stakingReads = {
   },
   auto_stake_all: async (view: ReadView, p: { coldkey_ss58: string }) => (await view.queryMap(st('AutoStakeDestination'), [p.coldkey_ss58])).map(([id, hotkey]) => ({ netuid: num(keyOf(id)), hotkey: String(hotkey) })).sort((a, b) => a.netuid - b.netuid),
   quote_stake: async (view: ReadView, p: { netuid: number; amount_tao: number | string }) => quote(view, await view.runtime(api('SwapRuntimeApi', 'sim_swap_tao_for_alpha'), [p.netuid, Balance.fromTao(p.amount_tao).rao]), p.netuid),
-  quote_unstake: async (view: ReadView, p: { netuid: number; amount_alpha: number | string }) => quote(view, await view.runtime(api('SwapRuntimeApi', 'sim_swap_alpha_for_tao'), [p.netuid, Balance.fromAlpha(p.amount_alpha, p.netuid).rao]), p.netuid),
+  quote_unstake: async (view: ReadView, p: { netuid: number; amount_alpha: number | string }) => quote(view, await view.runtime(api('SwapRuntimeApi', 'sim_swap_alpha_for_tao'), [p.netuid, Balance.fromAmount(p.amount_alpha, p.netuid).rao]), p.netuid),
   alpha_prices: async (view: ReadView): Promise<Record<number, number>> => Object.fromEntries((await priceRows(view)).map(row => [num(row.netuid), Number(integer(row.price)) / 1e9])),
   alpha_price: async (view: ReadView, p: { netuid: number }) => { const price = integer(await view.runtime(api('SwapRuntimeApi', 'current_alpha_price'), [p.netuid])); return { netuid: p.netuid, tao_per_alpha: Number(price) / 1e9, price_rao: price } },
 }

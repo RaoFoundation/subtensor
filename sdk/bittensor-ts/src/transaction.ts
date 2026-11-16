@@ -9,6 +9,7 @@ import native, {
   type NativeExternalSigningPlanHandle,
   type NativeIntentCallHandle,
   type NativeMapPair,
+  type NativeNonceObservationHandle,
   type NativePlan,
   type NativePolicyHandle,
   type NativePolicyOptions,
@@ -567,6 +568,11 @@ export class NativeChainClient {
   /** Release our unused reservation; uncertain submissions must retain it. */
   releaseNonces(address: string, nonce: number | bigint, count: number): Promise<void> {
     return nativeAsync(() => this.native.releaseNonces(address, BigInt(nonce), BigInt(count)))
+  }
+
+  /** Capture before transmission; call included only for a verified receipt of this nonce. */
+  observeNonce(address: string, nonce: number | bigint): Promise<NativeNonceObservationHandle | null | undefined> {
+    return nativeAsync(() => this.native.observeNonce(address, BigInt(nonce)))
   }
 
   /** Reset the cached floor from RPC only after reconciling all pending detached and shielded transactions. */

@@ -230,7 +230,7 @@ async def test_local_ss58_multisig_approval_bytes_keep_recipient_guard(setup, tm
     timepoint = {"height": 1, "index": 0}
     for intent in (
         MultisigApprove(**kwargs, timepoint=timepoint),
-        MultisigCancel(**kwargs, timepoint=timepoint),
+        MultisigCancel(**kwargs, timepoint=timepoint, call_hash="0x" + inner.call_hash.hex()),
     ):
         call, _ = await _compose_intent_call(chain, intent, wallet)
         assert call.params["call_hash"] == inner.call_hash

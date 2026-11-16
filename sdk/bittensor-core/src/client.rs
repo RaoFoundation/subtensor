@@ -286,6 +286,11 @@ pub struct Client {
     ss58_format: u16,
 }
 
+/// An account's reservation epoch captured before submitting a transaction.
+/// Retiring this observation cannot invalidate reservations from a later epoch.
+#[derive(Clone)]
+pub struct NonceObservation(String, u64, Arc<()>);
+
 /// One immutable authority/nonce selection for an ordinary signature or both
 /// signatures of a Shield submission. Authority is never reloaded between the
 /// encrypted inner proof and its carrier proof.
@@ -865,7 +870,7 @@ impl Client {
 
     // Capture the reservation epoch before transmission. A delayed duplicate
     // receipt must not clear a new reservation after an account was reaped.
-    fn nonce_observation(&self, extrinsic: &[u8]) -> Option<(String, u64, Arc<()>)> {
+    fn nonce_observation(&self, extrinsic: &[u8]) -> Option<NonceObservation> {
         let decoded = self
             .runtime()
             .ok()?
@@ -888,19 +893,45 @@ impl Client {
             .tokens
             .get(&account)?
             .clone();
-        Some((account, nonce, token))
+        Some(NonceObservation(account, nonce, token))
     }
 
-    fn retire_included_nonce(
+    /// Capture the reservation epoch before a client transports an extrinsic.
+    /// This also covers encrypted inner extrinsics whose receipts are followed
+    /// outside the native transport.
+    pub fn observe_nonce(
         &self,
-        observation: Option<(String, u64, Arc<()>)>,
-        outcome: &TxOutcome,
-    ) {
+        address: &str,
+        nonce: u64,
+    ) -> Result<Option<NonceObservation>, CoreError> {
+        let account = nonce_account_key(address)?;
+        let reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        Ok(reservations
+            .tokens
+            .get(&account)
+            .cloned()
+            .map(|token| NonceObservation(account, nonce, token)))
+    }
+
+    /// Retire an observed nonce only after verifying its extrinsic's inclusion.
+    /// Dispatch failures also consume the nonce. Missing or uncertain receipts
+    /// must not call this method; later reservations are retained automatically.
+    pub fn nonce_included(&self, observation: &NonceObservation) -> Result<(), CoreError> {
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        reservations.included(&observation.0, observation.1, &observation.2);
+        Ok(())
+    }
+
+    fn retire_included_nonce(&self, observation: Option<NonceObservation>, outcome: &TxOutcome) {
         if outcome.block_hash.is_some() {
-            if let Some((account, nonce, token)) = observation {
-                if let Ok(mut reservations) = self.nonce_reservations.lock() {
-                    reservations.included(&account, nonce, &token);
-                }
+            if let Some(observation) = observation {
+                let _ = self.nonce_included(&observation);
             }
         }
     }

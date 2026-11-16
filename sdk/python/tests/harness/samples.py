@@ -263,6 +263,7 @@ INTENT_SAMPLES: dict[str, dict] = {
         "other_signatories": [BOB],
         "call": {"op": "transfer", "dest_ss58": BOB, "amount_tao": 0.1},
         "timepoint": {"height": 1, "index": 0},
+        "call_hash": "0x" + "11" * 32,
     },
     "fund_evm_key": {"evm_address": "0x" + "11" * 20, "amount_tao": 1.0},
     "evm_withdraw": {"amount_tao": 1.0},

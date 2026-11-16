@@ -392,12 +392,14 @@ export interface MultisigCancelInput {
   threshold: number | bigint | `${bigint}`
   /** The other members of the multisig (every signatory except the signer), as a JSON list of addresses. The same set must be given on every approval; order does not matter (sorted automatically). */
   other_signatories: readonly string[]
-  /** The inner call to dispatch from the multisig account, as a JSON object {"op": <intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet. */
-  call: IntentJSON | Intent
-  /** Account derivation mode: legacy or safe; must match every approval. */
-  account_mode?: string
   /** Block height and extrinsic index of the approval that opened the operation, as a JSON object {"height": ..., "index": ...}. Required — it identifies which pending operation to cancel. */
   timepoint: IntentTimepointInput
+  /** Original intent, retained for display only; never rebuilt to cancel. */
+  call?: IntentJSON | Intent | null
+  /** Account derivation mode: legacy or safe; must match every approval. */
+  account_mode?: string
+  /** Original committed 32-byte call hash as 0x-prefixed hex. When omitted, find the pending operation by its opening timepoint; never rebuild the inner call. */
+  call_hash?: string | null
 }
 /** Approve and, if the threshold is met, execute a multisig call (final approval). */
 export interface MultisigExecuteInput {

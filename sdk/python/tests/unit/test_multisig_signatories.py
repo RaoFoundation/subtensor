@@ -23,7 +23,11 @@ CASES = [
     (MultisigExecute, {"threshold": 2, "timepoint": TIMEPOINT}, "as_multi"),
     (MultisigApprove, {"threshold": 3}, "as_multi"),
     (MultisigApprove, {"threshold": 3, "timepoint": TIMEPOINT}, "approve_as_multi"),
-    (MultisigCancel, {"threshold": 2, "timepoint": TIMEPOINT}, "cancel_as_multi"),
+    (
+        MultisigCancel,
+        {"threshold": 2, "timepoint": TIMEPOINT, "call_hash": "0x" + "11" * 32},
+        "cancel_as_multi",
+    ),
 ]
 
 

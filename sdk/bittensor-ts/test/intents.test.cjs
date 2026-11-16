@@ -104,6 +104,7 @@ function sample(tool) {
   if ('timepoint' in args) args.timepoint = { height: 1, index: 0 }
   if ('take' in args) args.take = '0.1'
   switch (tool.name) {
+    case 'multisig_cancel': args.call_hash = '0x' + '11'.repeat(32); break
     case 'set_gamma_deposit_spender': args.default_spender = true; break
     case 'set_gamma_deposit_daily_spend_cap': args.daily_spend_cap_gamma = '0'; break
     case 'set_service': args.url = 'https://example.test/service'; break
@@ -304,7 +305,7 @@ test('wrapped and mixed-batch spends retain each actual dispatch account', async
   const combined = await buildIntent('batch', { intents: [multi, announced, transfer] }).prepare(reader(), context)
   assert.deepEqual(combined.spendByAccount, [{ address: 'multisig', amountRao: 1250000000n }, { address: 'real', amountRao: 2000000000n }, { address: 'coldkey', amountRao: 1250000000n }])
   assert.equal(combined.spendRao, 4500000000n)
-  const canceled = await buildIntent('multisig_cancel', { threshold: 2, other_signatories: ['other'], call: transfer, timepoint: { height: 1, index: 0 } }).prepare(reader(), context)
+  const canceled = await buildIntent('multisig_cancel', { threshold: 2, other_signatories: ['other'], call: transfer, timepoint: { height: 1, index: 0 }, call_hash: '0x' + '11'.repeat(32) }).prepare(reader(), context)
   assert.deepEqual(canceled.spendByAccount, [])
 })
 

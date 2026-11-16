@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use bittensor_core::client::{
     BlockHeader, DispatchError, ExternalSigner, ExternalSigningOptions, ExternalSigningPlan,
-    MetadataHashMode, SubnetHyperparameter, SubnetHyperparameterValue, SubnetInfo, SwapQuote,
-    TxOutcome, TxSubmitOptions, TxWait, DEFAULT_RECEIPT_TIMEOUT,
+    MetadataHashMode, NonceObservation, SubnetHyperparameter, SubnetHyperparameterValue,
+    SubnetInfo, SwapQuote, TxOutcome, TxSubmitOptions, TxWait, DEFAULT_RECEIPT_TIMEOUT,
 };
 use bittensor_core::codec::Value;
 use bittensor_core::digest::ChainInfo;
@@ -238,6 +238,12 @@ impl Task for ClientConnectTask {
 client_task!(ClientStringTask, String, String, Ok);
 client_task!(ClientBoolTask, bool, bool, Ok);
 client_task!(ClientUnitTask, (), (), Ok);
+client_task!(
+    ClientNonceObservationTask,
+    Option<NativeNonceObservation>,
+    Option<NativeNonceObservation>,
+    Ok
+);
 client_task!(
     ClientRuntimeTask,
     Arc<bittensor_core::runtime::Runtime>,
@@ -1045,6 +1051,24 @@ impl NativeExternalSigningPlan {
 }
 
 #[napi]
+pub struct NativeNonceObservation {
+    client: Arc<Client>,
+    observation: Arc<NonceObservation>,
+}
+
+#[napi]
+impl NativeNonceObservation {
+    #[napi]
+    pub fn included(&self) -> AsyncTask<ClientUnitTask> {
+        let observation = Arc::clone(&self.observation);
+        AsyncTask::new(ClientUnitTask::new(
+            Arc::clone(&self.client),
+            move |client| client.nonce_included(&observation),
+        ))
+    }
+}
+
+#[napi]
 pub struct NativeClient {
     pub(crate) inner: Arc<Client>,
 }
@@ -1326,6 +1350,27 @@ impl NativeClient {
         Ok(AsyncTask::new(ClientUnitTask::new(
             Arc::clone(&self.inner),
             move |client| client.release_nonces(&address, nonce, count),
+        )))
+    }
+
+    #[napi(js_name = "observeNonce")]
+    pub fn observe_nonce(
+        &self,
+        address: String,
+        nonce: BigInt,
+    ) -> NapiResult<AsyncTask<ClientNonceObservationTask>> {
+        let nonce = bigint_u64("nonce", &nonce)?;
+        let retained_client = Arc::clone(&self.inner);
+        Ok(AsyncTask::new(ClientNonceObservationTask::new(
+            Arc::clone(&self.inner),
+            move |client| {
+                Ok(client.observe_nonce(&address, nonce)?.map(|observation| {
+                    NativeNonceObservation {
+                        client: retained_client,
+                        observation: Arc::new(observation),
+                    }
+                }))
+            },
         )))
     }
 

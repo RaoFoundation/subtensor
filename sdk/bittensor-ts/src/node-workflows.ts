@@ -211,12 +211,15 @@ export class WorkflowClient {
     const { policy: _policy, ...carrierOptions } = submission
     const outer = await this.client.signExtrinsic(carrier, signer, { ...carrierOptions, nonce, allowRawCall: true })
     const wait = { ...carrierOptions, waitForInclusion: options.waitForInclusion ?? true }
+    const innerHash = '0x' + Buffer.from(inner.hash).toString('hex')
+    const observation = await native?.observeNonce?.(address, nonce + 1)
     options.signal?.throwIfAborted()
     broadcastStarted = true
     const result = await this.client.submitSigned(outer, address, wait)
     carrierReturned = true
     if (reserved && result.data?.submission_rejected === true) await reserved.native.releaseNonces(address, reserved.nonce, 2)
-    const followed = await followShieldedResult({ ...result, data: { ...extras, ...result.data } }, '0x' + Buffer.from(inner.hash).toString('hex'), 8, this.client, wait)
+    const followed = await followShieldedResult({ ...result, data: { ...extras, ...result.data } }, innerHash, 8, this.client, wait)
+    if (followed.blockHash && followed.extrinsicHash === innerHash && followed.data?.carrier_only === false) await observation?.included()
     if (reserved && followed.data?.inner_expiry_finalized === true) await reserved.native.releaseNonces(address, nonce + 1, 1)
     return followed
     } catch (error) {
@@ -306,12 +309,15 @@ export class NodeMultisig {
     if (ciphertext.length > 8192) throw new RangeError('shielded ciphertext exceeds 8192 bytes')
     const encodedCarrier = await this.client.composeCall('MevShield', 'submit_encrypted', { ciphertext })
     const outer = await this.client.signExtrinsic(encodedCarrier, resolved, signerQueueOptions({ ...submitOptions(options), period: 8, nonce, allowRawCall: true }, permit))
+    const innerHash = '0x' + Buffer.from(signedInner.hash).toString('hex')
+    const observation = await native.observeNonce?.(identity.address, nonce + 1)
     options.signal?.throwIfAborted()
     broadcastStarted = true
     const result = await this.client.submitSigned(outer, identity.address, signerQueueOptions({ waitForInclusion: true, ...submitOptions(options) }, permit))
     carrierReturned = true
     if (reserved && result.data?.submission_rejected === true) await native.releaseNonces(identity.address, nonce, 2)
-    const followed = await followShieldedResult({ ...result, data: { ...data, ...result.data } }, '0x' + Buffer.from(signedInner.hash).toString('hex'), 8, this.client, submission)
+    const followed = await followShieldedResult({ ...result, data: { ...data, ...result.data } }, innerHash, 8, this.client, submission)
+    if (followed.blockHash && followed.extrinsicHash === innerHash && followed.data?.carrier_only === false) await observation?.included()
     if (reserved && followed.data?.inner_expiry_finalized === true) await native.releaseNonces(identity.address, nonce + 1, 1)
     return followed
     } catch (error) {

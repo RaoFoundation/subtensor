@@ -181,6 +181,8 @@ async def test_safe_mode_reaches_every_approval_stage(kind, timepoint, function)
     }
     if kind is not MultisigThreshold1:
         kwargs.update(threshold=2, timepoint=timepoint)
+    if kind is MultisigCancel:
+        kwargs["call_hash"] = "0x" + "11" * 32
     built = await kind(**kwargs).build(substrate, dev_wallet())
     call = built.call if isinstance(built, BuiltCall) else built
     assert call.function == function

@@ -240,6 +240,45 @@ fn multisig_members(input: &Value) -> Result<Value, PolicyError> {
     Ok(json!({"indices":sorted,"other_indices":others,"count":members.len()}))
 }
 
+fn multisig_cancel(input: &Value) -> Result<Value, PolicyError> {
+    let timepoint = |value: &Value| -> Result<Value, PolicyError> {
+        let height = u32::try_from(uint(&value["height"], "timepoint height")?)
+            .map_err(|_| PolicyError::range_error("timepoint height exceeds u32"))?;
+        let index = u32::try_from(uint(&value["index"], "timepoint index")?)
+            .map_err(|_| PolicyError::range_error("timepoint index exceeds u32"))?;
+        Ok(json!({"height":height,"index":index}))
+    };
+    let when = timepoint(&input["timepoint"])?;
+    let selected = if !input["call_hash"].is_null() {
+        input["call_hash"].clone()
+    } else {
+        let pending = input["pending"].as_array().ok_or_else(|| {
+            PolicyError::type_error("cancel requires a committed call_hash or pending operations")
+        })?;
+        let mut selected = None;
+        for row in pending {
+            if timepoint(&row["timepoint"])? == when {
+                if selected.is_some() {
+                    return Err(PolicyError::invalid(
+                        "multiple pending operations share this timepoint; pass the committed call_hash",
+                    ));
+                }
+                selected = Some(row["call_hash"].clone());
+            }
+        }
+        selected.ok_or_else(|| PolicyError::invalid(
+            "no pending multisig operation at this timepoint; pass the original committed call_hash",
+        ))?
+    };
+    let hash = bytes(&selected, "multisig call hash")?;
+    if hash.len() != 32 {
+        return Err(PolicyError::range_error(
+            "multisig call hash must be 32 bytes",
+        ));
+    }
+    Ok(json!({"call_hash":format!("0x{}",hex::encode(hash)),"timepoint":when}))
+}
+
 pub(crate) fn nested_dispatch_error(events: &Value) -> Option<Value> {
     for row in events.as_array()? {
         let event = row.get("event").unwrap_or(row);
@@ -510,6 +549,7 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value, PolicyErr
             )),
         },
         "transaction.multisig_members" => multisig_members(&input),
+        "transaction.multisig_cancel" => multisig_cancel(&input),
         "transaction.multisig_deposit" => {
             let factor = uint(&input["factor"], "multisig deposit factor")?;
             let threshold = uint(&input["threshold"], "threshold")?;
@@ -1417,6 +1457,41 @@ fn serving(input: &Value) -> Result<Value, PolicyError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn multisig_cancellation_selects_only_the_original_commitment() -> Result<(), PolicyError> {
+        let first = format!("0x{}", "11".repeat(32));
+        let second = format!("0x{}", "22".repeat(32));
+        let when = json!({"height":42,"index":3});
+        let pending = json!([
+            {"call_hash":first,"timepoint":{"height":41,"index":3}},
+            {"call_hash":second,"timepoint":when},
+        ]);
+        assert_eq!(
+            evaluate(
+                "transaction.multisig_cancel",
+                json!({"timepoint":when,"pending":pending})
+            )?,
+            json!({"call_hash":second,"timepoint":when})
+        );
+        assert_eq!(
+            evaluate(
+                "transaction.multisig_cancel",
+                json!({"timepoint":when,"call_hash":first})
+            )?,
+            json!({"call_hash":first,"timepoint":when})
+        );
+        for input in [
+            json!({"timepoint":when,"pending":[]}),
+            json!({"timepoint":when,"pending":[{"call_hash":first,"timepoint":when},{"call_hash":second,"timepoint":when}]}),
+            json!({"timepoint":when,"call_hash":"0x01"}),
+            json!({"timepoint":{"height":4294967296u64,"index":0},"call_hash":first}),
+            json!({"timepoint":{"height":1,"index":-1},"call_hash":first}),
+        ] {
+            assert!(evaluate("transaction.multisig_cancel", input).is_err());
+        }
+        Ok(())
+    }
 
     #[test]
     fn policy_preserves_unbounded_and_exact_large_spend() -> Result<(), PolicyError> {

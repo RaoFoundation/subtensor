@@ -932,6 +932,8 @@ export class BrowserChainClient {
     return Balance.fromRao(rao, netuid, symbol)
   }
 
+  decodeAddress(address: string): Uint8Array { return publicKeyFromSs58(address) }
+
   read<Name extends ReadName>(name: Name, ...args: ReadArgs<Name>): Promise<ReadResult<Name>>
   read(name: string, params?: Record<string, unknown>): Promise<unknown>
   read(name: string, params: Record<string, unknown> = {}): Promise<unknown> {
@@ -2344,6 +2346,7 @@ export class Snapshot {
   }
 
   at(block?: number | null): Promise<Snapshot> { return block == null || block === this.block ? Promise.resolve(this) : this.client.at(block) }
+  decodeAddress(address: string): Uint8Array { return publicKeyFromSs58(address) }
   balance(rao: BalanceLike, netuid = 0, symbol?: string | null): Balance { return this.client.balance(rao, netuid, symbol) }
   timestamp(): Promise<Date> { return this.client.timestamp(this.blockHash) }
   blockTime(): Promise<number> { return this.client.blockTime(this.blockHash) }

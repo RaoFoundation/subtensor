@@ -235,6 +235,7 @@ export class Client {
   async decodeCall(bytes: Uint8Array, block?: BlockRef): Promise<ScaleValue> { return (await this.runtimeAt(block)).decodeCall(bytes) }
   async at(block?: BlockRef): Promise<Snapshot> { const hash = await this.resolveBlockHash(block); return new Snapshot(this, await this.blockNumber(hash), hash) }
   balance(rao: BalanceLike, netuid = 0, symbol?: string | null): Balance { return Balance.fromRao(rao, netuid, symbol) }
+  decodeAddress(address: string): Uint8Array { return publicKeyFromSs58(address) }
   async timestamp(block?: BlockRef): Promise<Date> { return new Date(Number(await this.query(['Timestamp', 'Now'], [], block))) }
   async blockTime(block?: BlockRef): Promise<number> {
     const hash = await this.resolveBlockHash(block), runtime = await this.runtimeAt(hash)
@@ -818,6 +819,7 @@ export class Snapshot implements ReadView {
   runtime(item: Descriptor, params: ScaleValue[] = []) { return this.client.runtime(item, params, this.hash) }
   constant(item: Descriptor) { return this.client.constant(item, this.hash) }
   async at(block?: number | null): Promise<Snapshot> { return block == null || block === this.block ? this : this.client.at(block) }
+  decodeAddress(address: string): Uint8Array { return publicKeyFromSs58(address) }
   balance(rao: BalanceLike, netuid = 0, symbol?: string | null) { return this.client.balance(rao, netuid, symbol) }
   timestamp() { return this.client.timestamp(this.hash) }
   blockTime() { return this.client.blockTime(this.hash) }

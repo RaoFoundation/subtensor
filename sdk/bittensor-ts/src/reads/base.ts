@@ -6,6 +6,8 @@ export type ReadDescriptor = readonly [string, string]
 export type ChainRecord = Record<string, any>
 export interface ReadView {
   readonly block?: number | (() => Promise<number>)
+  /** Decode display addresses with the shared Rust AccountId implementation. */
+  decodeAddress?(address: string): Uint8Array
   /** Whether storage exists in the selected block's metadata, independent of its stored value. */
   hasStorage?(item: ReadDescriptor): Promise<boolean>
   query(item: ReadDescriptor, params?: ScaleValue[]): Promise<any>

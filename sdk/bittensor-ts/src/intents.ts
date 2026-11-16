@@ -12,6 +12,7 @@ import { prepareHyperparameter } from './intent-hyperparameters'
 import { rootClaimChargedFeeRao, quoteRootClaimPreviews, readRootClaimRelationships, type RootClaimPreview } from './root-claim'
 import type { IntentArguments, IntentBuilders, IntentInputMap } from './intent-inputs'
 import { announcedCallRequiresDirect, decodedCallDescriptor, sameCallSemantics, announcedCallLeaves, validateAnnouncedCall } from './proxy-announcements'
+import { accountRecord, subnetRecord } from './staking-records'
 export type { IntentInputMap, IntentJSON, IntentArguments, IntentBuilders, IntentAmountInput, BasketSwapLegInput, IntentTimepointInput } from './intent-inputs'
 
 export type IntentOperation = typeof INTENT_CATALOG[number]['name']
@@ -22,7 +23,7 @@ export interface IntentDescriptor {
   readonly pallet: string
   readonly call: string
   readonly params: Readonly<Record<string, unknown>>
-  /** Exact semantic call required to verify a hash-only multisig wrapper. */
+  /** Exact semantic call required for hash-only approvals; optional for cancellation. */
   readonly semanticCall?: IntentDescriptor
   /** Exact saved SCALE bytes; must match re-encoding this descriptor before use. */
   readonly callData?: string | Uint8Array
@@ -651,8 +652,9 @@ async function stakeAmount(value: Balance | 'all', reader: IntentReader, context
   return BigInt(evaluatePolicy<string>('financial.staking_amount', { kind: 'stake', amount }))
 }
 async function lockable(reader: IntentReader, coldkey: string, netuid: number): Promise<bigint> {
-  const values = rec(await reader.runtimeCall('StakeInfoRuntimeApi', 'get_stake_availability_for_coldkeys', [[coldkey], [netuid]]))
-  const amount = unsigned(rec(rec(values[coldkey])[netuid]).available ?? 0, 'available alpha')
+  const values = await reader.runtimeCall('StakeInfoRuntimeApi', 'get_stake_availability_for_coldkeys', [[coldkey], [netuid]])
+  const entries = accountRecord(values, coldkey, reader.decodeAddress?.bind(reader))
+  const amount = unsigned(rec(subnetRecord(entries, netuid)).available ?? 0, 'available alpha')
   return BigInt(evaluatePolicy<string>('financial.staking_amount', { kind: 'lock', amount }))
 }
 async function price(reader: IntentReader, netuid: number): Promise<bigint> {
@@ -867,6 +869,18 @@ async function multisig(plan: MutablePlan, reader: IntentReader, context: Intent
   })
   const others = members.indices.map(index => a.other_signatories[index])
   const account = required(reader.multisigAccount, 'multisigAccount').call(reader, [context.coldkey, ...others], threshold, mode === 'safe')
+  if (plan.op === 'multisig_cancel') {
+    // A semantic intent can depend on live prices, balances, or metadata. Its
+    // newly prepared hash cannot identify an already committed operation.
+    const pending = a.call_hash == null
+      ? (await required(reader.queryMap, 'queryMap (or pass the committed call_hash)').call(reader, 'Multisig', 'Multisigs', [account.address])).map(([key, value]) => ({ call_hash: Array.isArray(key) && key.length === 1 ? key[0] : key, timepoint: rec(value).when }))
+      : undefined
+    const committed = evaluatePolicy<{ call_hash: string; timepoint: { height: number; index: number } }>('transaction.multisig_cancel', { call_hash: a.call_hash, timepoint: a.timepoint, pending })
+    plan.call = descriptor('Multisig', 'cancel_as_multi' + suffix, { threshold, other_signatories: others, timepoint: committed.timepoint, call_hash: bytes(committed.call_hash) })
+    plan.spendRao = null; plan.spendByAccount = []; plan.requiredFreeByAccount = []; plan.netuids = []; plan.affectsAllSubnets = false; plan.global = true; plan.mevShieldRequired = false; plan.mevShieldDefault = false; plan.violations = []
+    plan.extras = { ...plan.extras, multisig_call_hash: committed.call_hash, multisig_account: account.address }
+    return
+  }
   const semantic = intentFromJSON(a.call), innerRole = intentSignerRole(semantic)
   const inner = await semantic.prepare(reader, { coldkey: account.address, hotkey: innerRole === 'hotkey' ? account.address : undefined, hotkeyPublicKey: innerRole === 'hotkey' ? account.publicKey : undefined, feePayer: plan.feePayer, accountMode: mode })
   mergeChild(plan, inner)
@@ -879,34 +893,26 @@ async function multisig(plan: MutablePlan, reader: IntentReader, context: Intent
   } else {
     params.threshold = threshold
     const timepoint = a.timepoint == null ? null : { height: small(a.timepoint.height, 0xffffffff, 'timepoint height'), index: small(a.timepoint.index, 0xffffffff, 'timepoint index') }
-    if (plan.op === 'multisig_cancel') {
-      if (!timepoint) throw new TypeError('cancel requires a timepoint')
-      params.timepoint = timepoint; params.call_hash = hash
-      plan.call = { ...descriptor('Multisig', 'cancel_as_multi' + suffix, params), semanticCall: inner.call }
-      // Cancellation never dispatches or spends the inner call.
-      plan.spendRao = null; plan.spendByAccount = []; plan.requiredFreeByAccount = []; plan.netuids = []; plan.affectsAllSubnets = false; plan.global = true; plan.mevShieldRequired = false; plan.mevShieldDefault = false; plan.violations = []
-    } else {
-      params.maybe_timepoint = timepoint
-      params.max_weight = await required(reader.estimateWeight, 'estimateWeight').call(reader, inner.call, plan.feePayer)
-      const hashOnly = plan.op === 'multisig_approve' && timepoint != null
-      if (hashOnly) params.call_hash = hash
-      else params.call = inner.call
-      plan.call = { ...descriptor('Multisig', (hashOnly ? 'approve_as_multi' : 'as_multi') + suffix, params), ...(hashOnly ? { semanticCall: inner.call } : {}) }
-      let deposit = 0n
-      if (timepoint == null) {
-        const constant = required(reader.constant, 'constant').bind(reader)
-        const [base, factor] = await Promise.all([constant('Multisig', 'DepositBase'), constant('Multisig', 'DepositFactor')])
-        deposit = BigInt(evaluatePolicy<string>('transaction.multisig_deposit', { base, threshold, factor }))
-      }
-      const fee = await required(reader.estimateFee, 'estimateFee').call(reader, plan.call, plan.feePayer)
-      const feeAccount = reader.resolveFeePayer ? await reader.resolveFeePayer(plan.call, plan.feePayer) : plan.feePayer
-      const [depositFree, feeFree] = await Promise.all([freeBalance(reader, context.coldkey), freeBalance(reader, feeAccount)])
-      plan.requiredFreeByAccount = [...plan.requiredFreeByAccount, { address: context.coldkey, requiredRao: deposit, availableRao: depositFree }, { address: feeAccount, requiredRao: fee, availableRao: feeFree }]
-      plan.estimatedFeeRao = fee
-      const depositId = hex(decode(context.coldkey)), feeId = hex(decode(feeAccount))
-      const funding = evaluatePolicy<{ required: Array<{ affordable: boolean }> }>('financial.affordability', { spends: [{ account: depositId, amount: deposit }], charges: [{ account: feeId, amount: fee }], free: { [feeId]: feeFree, [depositId]: depositFree } })
-      if (funding.required.some(row => !row.affordable)) plan.violations = [...plan.violations, `multisig dispatch account needs ${deposit} rao for deposit and fee account needs ${fee} rao for fee`]
+    params.maybe_timepoint = timepoint
+    params.max_weight = await required(reader.estimateWeight, 'estimateWeight').call(reader, inner.call, plan.feePayer)
+    const hashOnly = plan.op === 'multisig_approve' && timepoint != null
+    if (hashOnly) params.call_hash = hash
+    else params.call = inner.call
+    plan.call = { ...descriptor('Multisig', (hashOnly ? 'approve_as_multi' : 'as_multi') + suffix, params), ...(hashOnly ? { semanticCall: inner.call } : {}) }
+    let deposit = 0n
+    if (timepoint == null) {
+      const constant = required(reader.constant, 'constant').bind(reader)
+      const [base, factor] = await Promise.all([constant('Multisig', 'DepositBase'), constant('Multisig', 'DepositFactor')])
+      deposit = BigInt(evaluatePolicy<string>('transaction.multisig_deposit', { base, threshold, factor }))
     }
+    const fee = await required(reader.estimateFee, 'estimateFee').call(reader, plan.call, plan.feePayer)
+    const feeAccount = reader.resolveFeePayer ? await reader.resolveFeePayer(plan.call, plan.feePayer) : plan.feePayer
+    const [depositFree, feeFree] = await Promise.all([freeBalance(reader, context.coldkey), freeBalance(reader, feeAccount)])
+    plan.requiredFreeByAccount = [...plan.requiredFreeByAccount, { address: context.coldkey, requiredRao: deposit, availableRao: depositFree }, { address: feeAccount, requiredRao: fee, availableRao: feeFree }]
+    plan.estimatedFeeRao = fee
+    const depositId = hex(decode(context.coldkey)), feeId = hex(decode(feeAccount))
+    const funding = evaluatePolicy<{ required: Array<{ affordable: boolean }> }>('financial.affordability', { spends: [{ account: depositId, amount: deposit }], charges: [{ account: feeId, amount: fee }], free: { [feeId]: feeFree, [depositId]: depositFree } })
+    if (funding.required.some(row => !row.affordable)) plan.violations = [...plan.violations, `multisig dispatch account needs ${deposit} rao for deposit and fee account needs ${fee} rao for fee`]
   }
   plan.extras = { ...plan.extras, multisig_call_hash: hex(hash), multisig_account: account.address }
 }

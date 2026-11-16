@@ -7,7 +7,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const sdk = require('../dist')
-const { buildIntent, encodeIntentCall } = require('../dist/intents')
+const { Intent, buildIntent, encodeIntentCall } = require('../dist/intents')
 const { policyEvaluate } = require('../dist/policy')
 const golden = require('../../python/tests/fixtures/golden.json')
 
@@ -65,11 +65,25 @@ for (const operation of ['multisig_cancel', 'multisig_approve']) {
       timepoint: { height: 1, index: 0 },
       call: { op: 'batch', intents: [{ op: 'transfer', dest_ss58: bob.ss58Address, amount_tao: '1.25' }] },
     }
-    const standalone = await buildIntent(operation, spec).prepare(view, context)
+    let intent
+    if (operation === 'multisig_cancel') {
+      const saved = await buildIntent(spec.call.op, spec.call).prepare(view, { coldkey: charlie.ss58Address })
+      spec.call_hash = '0x' + Buffer.from(await view.hashCall(saved.call)).toString('hex')
+      // Cancellation needs only its original commitment. Attach optional saved
+      // semantics before flattening to retain this descriptor-preservation test.
+      class SavedCancellation extends Intent {
+        async prepare(reader, context) {
+          const plan = await super.prepare(reader, context)
+          return { ...plan, call: { ...plan.call, semanticCall: saved.call } }
+        }
+      }
+      intent = new SavedCancellation(operation, spec)
+    } else intent = buildIntent(operation, spec)
+    const standalone = await intent.prepare(view, context)
     const original = sdk.IntentCall.fromDescriptor(client, standalone.call)
     assert.equal(original.function, operation === 'multisig_cancel' ? 'cancel_as_multi' : 'approve_as_multi')
 
-    const batched = await buildIntent('batch', { intents: [spec] }).prepare(view, context)
+    const batched = await buildIntent('batch', { intents: [operation === 'multisig_cancel' ? intent : spec] }).prepare(view, context)
     const native = sdk.IntentCall.fromDescriptor(client, batched.call)
     const expected = await compose(standalone.call)
     assert.deepEqual(Buffer.from(native.params.calls[0]), Buffer.from(expected))
