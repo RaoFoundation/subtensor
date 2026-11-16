@@ -985,9 +985,12 @@ fn shield_fee_cap_checks_carrier_before_any_signing() {
         ]
     };
     replies.extend(quote());
+    replies.push(("system_accountNextIndex", Some(json!(7))));
+    replies.extend(quote().into_iter().take(5));
     replies.push(("state_getRuntimeVersion", Some(version())));
-    replies.extend(quote());
-    replies.extend(quote());
+    replies.extend(quote().into_iter().take(5));
+    replies.push(("payment_queryInfo", Some(json!({"partialFee":"10"}))));
+    replies.push(("payment_queryInfo", Some(json!({"partialFee":"10"}))));
     let (endpoint, worker) = server(replies);
     let client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
     // This fixture isolates the fee guard; metadata binding has its own tests.
@@ -1015,6 +1018,145 @@ fn shield_fee_cap_checks_carrier_before_any_signing() {
         "{result:?}"
     );
     worker.join().unwrap();
+}
+
+// PROTECTED_REGRESSION: detached nonce reservations must not bypass the Shield fee cap at a carrier weight-tier boundary; changes require explicit human approval.
+#[test]
+fn shield_fee_cap_reprices_the_reserved_nonce_before_signing() {
+    use crate::transaction::{Executor, IntentCall, Policy, SignerRole, Wallet};
+    let template = test_client(vec![], HashMap::new());
+    let mut runtime = template.runtime.write().unwrap();
+    Arc::get_mut(&mut runtime)
+        .unwrap()
+        .extrinsic
+        .signed_extensions
+        .retain(|ext| ext.identifier != "CheckMetadataHash");
+    let runtime = Arc::clone(&runtime);
+    let key = Keypair::from_uri("//Alice", crate::keys::CRYPTO_SR25519).unwrap();
+    let public = Keypair::new(Some(&key.ss58_address()), None, key.crypto_type(), 42).unwrap();
+    let mut params = TxParams {
+        era: Value::record(vec![
+            ("period".into(), Value::Uint(8)),
+            ("current".into(), Value::Uint(0)),
+        ]),
+        nonce: 63,
+        tip: 0,
+        tip_asset_id: None,
+        genesis_hash: [1; 32],
+        era_block_hash: [1; 32],
+        metadata_hash: None,
+    };
+    let (remark, call) = (6900..7000)
+        .find_map(|size| {
+            let remark = Value::record(vec![("remark".into(), Value::Bytes(vec![42; size]))]);
+            let call = runtime.compose_call("System", "remark", &remark).unwrap();
+            let encoded = Client::payment_extrinsic(&runtime, &call, &public, &params).unwrap();
+            (mlkem::shielded_ciphertext_size(encoded.len()).unwrap() == 8192)
+                .then_some((remark, call))
+        })
+        .expect("remark exactly at the small carrier boundary");
+    let mut key_bytes = Vec::new();
+    let key_info = storage_info(&runtime, "MevShield", "NextKey").unwrap();
+    runtime
+        .encode_id(
+            key_info.value_type,
+            &Value::Bytes(vec![0; 1184]),
+            &mut key_bytes,
+        )
+        .unwrap();
+    let prepare = || {
+        vec![
+            ("state_getRuntimeVersion", Some(version())),
+            ("chain_getHeader", Some(json!({"number":"0x0"}))),
+            ("chain_getBlockHash", Some(json!(hex_prefixed(&[1; 32])))),
+            ("chain_getBlockHash", Some(json!(hex_prefixed(&[1; 32])))),
+            ("state_getRuntimeVersion", Some(version())),
+        ]
+    };
+    let mut replies = vec![
+        ("system_accountNextIndex", Some(json!(62))),
+        ("state_getRuntimeVersion", Some(version())),
+        ("system_accountNextIndex", Some(json!(62))),
+    ];
+    replies.extend(prepare());
+    replies.push(("payment_queryInfo", Some(json!({"partialFee":"10"}))));
+    replies.push(("system_accountNextIndex", Some(json!(62))));
+    replies.extend(prepare());
+    replies.push(("state_getRuntimeVersion", Some(version())));
+    replies.extend(prepare());
+    replies.push(("payment_queryInfo", Some(json!({"partialFee":"10"}))));
+    replies.push(("payment_queryInfo", Some(json!({"partialFee":"2"}))));
+    replies.push(("state_getRuntimeVersion", Some(version())));
+    replies.push(("state_getStorage", Some(json!(hex_prefixed(&key_bytes)))));
+    replies.push(("system_accountNextIndex", Some(json!(62))));
+    replies.extend(prepare());
+    replies.push(("payment_queryInfo", Some(json!({"partialFee":"10"}))));
+    replies.push(("payment_queryInfo", Some(json!({"partialFee":"20"}))));
+    replies.push(("system_accountNextIndex", Some(json!(62))));
+    let quotes = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&quotes);
+    let (endpoint, worker) = inspected_server(replies, move |request| {
+        if request["method"] == "payment_queryInfo" {
+            captured
+                .lock()
+                .unwrap()
+                .push(decode_hex(request["params"][0].as_str().unwrap()).unwrap());
+        }
+    });
+    let client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
+    *client.runtime.write().unwrap() = Arc::clone(&runtime);
+    assert_eq!(
+        client.reserve_nonces(&public.ss58_address(), 1).unwrap(),
+        62
+    );
+    let wallet = Wallet {
+        coldkey: public.clone(),
+        hotkey: public.clone(),
+    };
+    let result = Executor::new(&client).submit_shielded(
+        &IntentCall::raw_call("remark", SignerRole::Coldkey, "System", "remark", remark),
+        &wallet,
+        Some(&Policy {
+            max_fee_rao: Some(15),
+            allow_raw_calls: true,
+            ..Default::default()
+        }),
+    );
+    assert!(
+        matches!(&result, Err(CoreError::Policy(message)) if message.contains("fee")),
+        "{result:?}"
+    );
+    // The rejected pair is reusable, while the earlier detached reservation remains owned.
+    assert_eq!(
+        client.reserve_nonces(&public.ss58_address(), 1).unwrap(),
+        63
+    );
+    worker.join().unwrap();
+    let quotes = quotes.lock().unwrap();
+    assert_eq!(quotes.len(), 5);
+    assert_eq!(
+        quotes[1],
+        Client::payment_extrinsic(&runtime, &call, &public, &params).unwrap()
+    );
+    params.nonce = 64;
+    assert_eq!(
+        quotes[3],
+        Client::payment_extrinsic(&runtime, &call, &public, &params).unwrap()
+    );
+    for (quote, size, nonce) in [(&quotes[2], 8192, 62), (&quotes[4], 8193, 63)] {
+        let carrier = runtime
+            .compose_call(
+                "MevShield",
+                "submit_encrypted",
+                &Value::record(vec![("ciphertext".into(), Value::Bytes(vec![0; size]))]),
+            )
+            .unwrap();
+        params.nonce = nonce;
+        assert_eq!(
+            *quote,
+            Client::payment_extrinsic(&runtime, &carrier, &public, &params).unwrap()
+        );
+    }
 }
 
 #[test]

@@ -17,6 +17,7 @@ export interface AnnounceableCall {
 export interface PreparedAnnouncement extends AnnounceableCall { readonly record: AnnouncementAccount; readonly row: NewProxyAnnouncement }
 export interface AnnounceOptions { category?: string; summary?: string; purpose?: string; allowManagement?: boolean; metadata?: Record<string, unknown> }
 export interface AnnouncementActionOptions { signerAddress?: string; allowRepeat?: boolean; allowManagement?: boolean }
+export interface AnnouncementActionReceipt { extrinsicHash: string; blockHash?: string }
 export interface ProtectedAnnouncementResult { row: ProxyAnnouncement; receipt?: ProtectedProxyReceipt; recovered?: boolean; completed: boolean }
 const preparedAnnouncements = new WeakSet<object>()
 
@@ -186,6 +187,65 @@ export class ProtectedAnnouncements {
     if (!onChain && (action.kind === 'cancel' || moduleEvents(receipt, 'Proxy', 'ProxyExecuted').length > 0)) return { ...row, status: action.kind === 'execute' ? 'executed' : 'cancelled', pending_action: null, action_receipt: receipt }
     return row
   }
+  /** Recover an action completed by another multisig member using its final transaction. */
+  async recoverAction(record: AnnouncementAccount, index: number, reference: AnnouncementActionReceipt): Promise<ProtectedAnnouncementResult> {
+    const row = await this.journal.getByIndex(record.controller_wallet, index, this.scope(record))
+    if (!row) throw new Error('announcement index not found on this chain')
+    this.assertRow(record, row)
+    const action = row.pending_action
+    if (!action) return { row, recovered: true, completed: ['executed', 'cancelled'].includes(row.status) }
+    const identity = action.multisig as AnnouncementMultisig | undefined
+    if (!identity?.timepoint) throw new Error('original multisig account, call hash, and timepoint are required for action recovery')
+    const lookup = this.backend.finalizedReceipt ?? this.backend.receipt
+    if (!lookup || !this.backend.blockHash || !this.backend.extrinsicCall) throw new Error('finalized receipt and historical call lookup are required for action recovery')
+    const transaction = hash(reference.extrinsicHash)
+    const receipt = await lookup.call(this.backend, transaction, reference.blockHash == null ? undefined : hash(reference.blockHash))
+    if (!receipt || receipt.status !== 'finalized' || !receipt.blockHash || receipt.blockNumber == null || receipt.extrinsicIndex == null || hash(receipt.extrinsicHash) !== transaction) throw new Error('multisig action receipt is not finalized or cannot be located')
+    if (reference.blockHash != null && hash(reference.blockHash) !== hash(receipt.blockHash)) throw new Error('multisig action receipt does not match the requested inclusion block')
+    const height = number(receipt.blockNumber, 'completion block'), indexInBlock = number(receipt.extrinsicIndex, 'completion extrinsic index')
+    if (hash(await this.backend.blockHash(height)) !== hash(receipt.blockHash)) throw new Error('multisig action receipt is not in the canonical chain')
+    const view = await this.snapshot(record), delay = await this.liveDelay(record, view, false)
+    if (view.block < height) throw new Error('snapshot has not observed the completed multisig action')
+    if (await view.query('Multisig', 'Multisigs', [identity.account_ss58, hash(identity.call_hash)]) != null) throw new Error('multisig commitment is still pending; its completion cannot be recovered')
+    const account = (value: unknown): string => {
+      const address = this.callAccount(value)
+      if (!address) throw new Error('multisig action account cannot be decoded')
+      return hex(this.backend.accountId(address))
+    }
+    const call = (value: unknown) => {
+      const normalize = (value: any): any => {
+        if (value instanceof Uint8Array) return value
+        if (Array.isArray(value)) return value.map(normalize)
+        if (value == null || typeof value !== 'object') return value
+        const result = Object.fromEntries(Object.entries(value).map(([key, value]) => [key, normalize(value)]))
+        if (result.pallet === 'Proxy' && result.params) for (const key of ['real', 'delegate']) if (result.params[key] != null) result.params[key] = account(result.params[key])
+        return result
+      }
+      return normalize(decodedCallDescriptor(value))
+    }
+    const outer = call(await this.backend.extrinsicCall(receipt.blockHash, indexInBlock))
+    const cancelled = moduleEvents(receipt, 'Multisig', 'MultisigCancelled').length > 0
+    const opening = cancelled ? call(await this.backend.extrinsicCall(identity.timepoint.height, identity.timepoint.index)) : undefined
+    const events = receipt.events.map(event => {
+      if (event.extrinsic_idx != null && event.extrinsic_idx !== indexInBlock) throw new Error('multisig action receipt contains events from another transaction')
+      if (event.module_id === 'Multisig' && ['MultisigExecuted', 'MultisigCancelled'].includes(event.event_id)) {
+        const value = attrs(event, ['approving', 'timepoint', 'multisig', 'call_hash', 'result'])
+        return { ...event, attributes: { ...value, multisig: account(value.multisig) } }
+      }
+      return event.module_id === 'Proxy' && event.event_id === 'ProxyExecuted' ? { ...event, attributes: attrs(event, ['result']) } : event
+    })
+    const onChain = (await this.onChain(record, view, delay)).some(item => this.journal.sameIdentity(item, row))
+    const committed = row.call_semantics ?? (row.call_data ? await view.decodeCall(hexBytes(row.call_data)) : undefined)
+    const outcome = evaluatePolicy<{ status: string; execution_uncertain?: boolean }>('protected.multisig_action_result', {
+      kind: action.kind, on_chain: onChain, call: outer, opening_call: opening,
+      identity: { account: account(identity.account_ss58), call_hash: hash(identity.call_hash), timepoint: identity.timepoint },
+      announcement: { real: account(row.real_ss58), delegate: account(row.delegate_ss58), call_hash: hash(row.call_hash), call: committed == null ? null : call(committed) },
+      receipt: { ...receipt, events },
+    })
+    const saved = await this.journal.settleAction(record.controller_wallet, row.index, action, { ...outcome, pending_action: null, action_receipt: receipt }, this.scope(record))
+    if (!saved || saved.pending_action) throw new Error('announcement action changed during recovery')
+    return { row: saved, receipt, recovered: true, completed: ['executed', 'cancelled'].includes(saved.status) }
+  }
   async reconcile(record: AnnouncementAccount, options: { persist?: boolean } = {}): Promise<ProxyAnnouncement[]> {
     const view = await this.snapshot(record), delay = await this.liveDelay(record, view, false), persist = options.persist !== false
     const live = await this.onChain(record, view, delay)
@@ -290,7 +350,10 @@ export class ProtectedAnnouncements {
     if (!live.some(item => this.journal.sameIdentity(item, row))) throw new Error('selected announcement is no longer on chain')
     if (row.category === 'rotate-controller' && (live.length !== 1 || !this.journal.sameIdentity(live[0], row))) throw new Error('old controller queue changed since rotation was reviewed')
     const prior = await this.journal.executedCommitmentIndex(row)
-    if (prior != null && !options.allowRepeat) throw new Error(`this payload already executed as #${prior}; explicit allowRepeat is required`)
+    if (prior != null && !options.allowRepeat) {
+      const previous = await this.journal.getByIndex(record.controller_wallet, prior, this.scope(record))
+      throw new Error(`this payload ${previous?.execution_uncertain ? 'may have executed' : 'already executed'} as #${prior}; explicit allowRepeat is required`)
+    }
     const intent = intentFromJSON({ op: 'execute_proxy_announced', delegate_ss58: row.delegate_ss58, real_ss58: row.real_ss58, inner_op: row.inner_op, inner_args: row.inner_args, force_proxy_type: row.force_proxy_type ?? 'Any', announced_call_data: row.call_data, expected_call_hash: row.call_hash, announced_spec_version: row.runtime_spec_version, announced_call_semantics: row.call_semantics })
     return this.action(record, row, 'execute', intent, options.signerAddress ?? record.controller_ss58, options.allowRepeat === true)
   }

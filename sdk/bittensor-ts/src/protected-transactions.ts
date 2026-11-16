@@ -8,6 +8,7 @@ import { Intent, checkIntentPolicy, encodeIntentCall, intentSignerRole, PROXY_TY
 import { resolveTransactionFeePayer } from './fee-payer'
 import { authorizeRegistrationSponsorship, type RegistrationSponsorshipOptions } from './registration-sponsorship'
 import { prepareOrder, type PreparedOrder, type VersionedOrder } from './limit-orders'
+import { shieldedCiphertextSize, validateShieldedCiphertextSize } from './shield-size'
 
 export interface ProtectedTransactionOptions {
   nonce?: number
@@ -109,7 +110,7 @@ export class ProtectedWalletClient {
     const reader = await this.adapter.intentReader(authority.block)
     const payer = call instanceof Uint8Array ? {dropsTip:false} : await resolveTransactionFeePayer(reader, call, this.keypair.ss58Address)
     let fee = BigInt(info.partialFee ?? info.partial_fee) + (payer.dropsTip ? 0n : u64(options.tip ?? 0n))
-    if (shield && includeCarrier) fee += await this.quote({pallet:'MevShield',call:'submit_encrypted',params:{ciphertext:new Uint8Array(8192)}},authority,{...options,mevShield:false,period:8})
+    if (shield && includeCarrier) fee += await this.quote({pallet:'MevShield',call:'submit_encrypted',params:{ciphertext:new Uint8Array(shieldedCiphertextSize(extrinsic.bytes.length))}},authority,{...options,mevShield:false,period:8})
     return fee
   }
   async submit(call: IntentDescriptor | Uint8Array, options: ProtectedTransactionOptions = {}): Promise<any> {
@@ -172,7 +173,7 @@ export class ProtectedWalletClient {
     if (publicKey.length !== 1184) throw new Error('Shield key unavailable')
     const inner = await this.signed(call, authority, signing, 1)
     const ciphertext = this.adapter.seal(publicKey, inner.bytes)
-    if (ciphertext.length > 8192) throw new Error('shielded ciphertext exceeds 8192 bytes')
+    validateShieldedCiphertextSize(ciphertext.length)
     const outer = await this.signed({ pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext } }, authority, signing)
     await assertAuthorityCurrent(this.adapter, authority)
     options.signal?.throwIfAborted()

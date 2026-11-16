@@ -73,7 +73,7 @@ async function fixture({ realFree = reserve + transfer, delegateFree = fee } = {
     assert.equal(call.call, 'proxy_announced')
     assert.equal(call.params.call.callData, hex(saved))
     assert.equal(BigInt(call.params.call.params.calls[2].params.value), transfer)
-    return { payload: saved }
+    return { payload: saved, callData: saved, publicKey: delegate.publicKey, cryptoType: 1, txParams: {}, runtime: { encodeSignedExtrinsic: () => ({ bytes: Buffer.concat([saved, Buffer.alloc(64)]) }) } }
   }
   client.signPrepared = async (unsigned, signer) => {
     const signature = await signer.signBytes(unsigned.payload)

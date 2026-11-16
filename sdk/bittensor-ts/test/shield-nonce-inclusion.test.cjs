@@ -136,7 +136,7 @@ test('Node multisig Shield retires the included inner reservation', async () => 
     })
     // Keep signing/fee data deterministic; reserve/observe/include all use the real Rust client.
     native.externalSigningPlan = async (data, _address, publicKey) => ({ runtime: runtime.handle, publicKey, callData: data, feeRao: 10n, txParams: { era: toWire('00'), nonce: 7n, tip: 0n } })
-    native.externalSigningPlanForIntent = async () => ({ feeRao: 10n })
+    native.externalSigningPlanForIntent = async (call, _address, publicKey, cryptoType, _proof, _policy, options) => ({ runtime: runtime.handle, publicKey, cryptoType, callData: runtime.composeCall(call.pallet, call.function, call.params), feeRao: 10n, txParams: { era: toWire({ period: 8, current: 99 }), nonce: options.nonce, tip: 0n } })
     const multisig = new NodeMultisig(client, [address, Keypair.fromUri('//Bob').ss58Address], 2)
     const result = await multisig.approve({ pallet: 'System', call: 'remark', params: { remark: Buffer.from([1]) } }, signer, { allowRawCall: true, mevShield: true })
     assert.deepEqual(signedNonces, [8, 7])

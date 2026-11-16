@@ -551,7 +551,7 @@ impl IntentCall {
         )
     }
 
-    /// Register a hotkey on root.
+    /// Register a hotkey on root. The live registration burn has no call-level cap.
     pub fn root_register(hotkey: impl Into<String>) -> Self {
         Self::trusted(
             "root_register",
@@ -559,7 +559,7 @@ impl IntentCall {
             "SubtensorModule",
             "root_register",
             Value::record(vec![("hotkey".into(), Value::str(hotkey))]),
-            Spend::None,
+            Spend::Unbounded,
             [0],
             false,
         )
@@ -1284,7 +1284,7 @@ impl<'a> Executor<'a> {
         if !plan.ok() {
             return Err(CoreError::Policy(plan.violations.join("; ")));
         }
-        // Quote a maximum-size carrier with a dummy signature before either
+        // Quote both encoded envelopes with dummy signatures before either
         // real signature is requested. The policy covers the whole workflow.
         let signer = wallet.signer(intent.signer);
         let fee = self.client.estimate_shielded_fee(&plan.call_data, signer)?;
@@ -1294,7 +1294,18 @@ impl<'a> Executor<'a> {
         if !violations.is_empty() {
             return Err(CoreError::Policy(violations.join("; ")));
         }
-        self.client.submit_shielded(&plan.call_data, signer, false)
+        let fee_check = |fee| {
+            let violations = policy
+                .or(self.policy.as_ref())
+                .map_or_else(Vec::new, |policy| policy.check(intent, Some(fee)));
+            if violations.is_empty() {
+                Ok(())
+            } else {
+                Err(CoreError::Policy(violations.join("; ")))
+            }
+        };
+        self.client
+            .submit_shielded_checked(&plan.call_data, signer, false, Some(&fee_check))
     }
 }
 

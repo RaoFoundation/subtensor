@@ -28,6 +28,7 @@ import inspect
 from hashlib import blake2b
 from typing import Any, Optional
 
+from .._policy import evaluate_policy
 from ..sp_core import (
     PQ_CRYPTO_TYPES,
     REGISTERED_CRYPTO_TYPES,
@@ -58,18 +59,13 @@ IMMORTAL = "00"
 HASHED_PROOF_LENGTH = 136
 MLDSA_PROOF_LENGTH = 5367
 
-# Shield wire: key hash + KEM length + ML-KEM-768 ciphertext + XChaCha nonce + AEAD tag.
-SHIELD_ENCRYPTION_OVERHEAD = 16 + 2 + 1088 + 24 + 16
-MAX_SHIELDED_CIPHERTEXT_BYTES = 32768
+_SHIELD_LIMITS = evaluate_policy("financial.shield.constants", {})
+SHIELD_ENCRYPTION_OVERHEAD = _SHIELD_LIMITS["overhead"]
+MAX_SHIELDED_CIPHERTEXT_BYTES = _SHIELD_LIMITS["maximum"]
 
 
 def shielded_ciphertext_size(extrinsic_size: int) -> int:
-    size = extrinsic_size + SHIELD_ENCRYPTION_OVERHEAD
-    if size > MAX_SHIELDED_CIPHERTEXT_BYTES:
-        raise ValueError(
-            f"encrypted transaction exceeds the {MAX_SHIELDED_CIPHERTEXT_BYTES}-byte carrier limit"
-        )
-    return size
+    return evaluate_policy("financial.shield.ciphertext_size", {"size": extrinsic_size})
 
 
 def hashed_proof_length(crypto_type: int) -> int:

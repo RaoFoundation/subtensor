@@ -73,6 +73,8 @@ export interface ProtectedProxyBackend {
   ss58Encode(account: Uint8Array): string
   hash(data: Uint8Array): Uint8Array
   receipt?(extrinsicHash: string, blockHash?: string): Promise<ProtectedProxyReceipt | null>
+  /** Resolve only a canonical finalized inclusion, including when a block hint is supplied. */
+  finalizedReceipt?(extrinsicHash: string, blockHash?: string): Promise<ProtectedProxyReceipt | null>
   events?(block: number | string): Promise<readonly ProtectedProxyEvent[]>
   /** Decode an inclusion-block call using the runtime that executed that block. */
   extrinsicCall?(block: number | string, index: number): Promise<unknown | null>

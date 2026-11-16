@@ -304,6 +304,11 @@ class RootRegister(Intent):
     def summary(self) -> str:
         return f"register {self.hotkey_ss58 or 'wallet hotkey'} on the root network"
 
+    def spend(self):
+        from ._shared import operation_spend
+
+        return operation_spend(self.op)
+
     async def effects(self, substrate, signer_address: str) -> list[str]:
         burn, _lock = await neuron_registration_split(substrate, 0)
         return [
@@ -595,6 +600,11 @@ class SwapHotkey(Intent):
     def summary(self) -> str:
         scope = f"netuid {self.netuid}" if self.netuid is not None else "all subnets"
         return f"swap hotkey to {self.new_hotkey_ss58} ({scope})"
+
+    def spend(self):
+        from ._shared import operation_spend
+
+        return operation_spend(self.op)
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         return ["re-keys the neuron identity; the old hotkey stops earning"]

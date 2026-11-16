@@ -130,7 +130,7 @@ test('fee admission includes the inner transaction and maximum Shield carrier wi
         encodeSignedExtrinsic: (data, account, proof, type, params) => { encoded.push({ account, proof, type, params }); return { bytes: Uint8Array.of(2) } } }
     }, blockNumber: async () => 5, rpc: async (method, args) => { assert.equal(method, 'payment_queryInfo'); assert.equal(args[1], 'head'); return { partialFee: '12' } },
   }, { pallet: 'HashedAccounts', call: 'register', params: {} }, payer, 'head', publicKeyFromSs58)
-  assert.equal(fee, 24n); assert.equal(calls[1][2].ciphertext.length, 8192)
+  assert.equal(fee, 24n); assert.equal(calls[1][2].ciphertext.length, 1147)
   assert.ok(encoded.every(e => e.params.nonce === 0xffffffffn && e.proof.every(byte => byte === 0)))
 })
 

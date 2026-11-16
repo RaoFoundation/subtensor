@@ -1004,6 +1004,23 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value, PolicyErr
     }
 }
 
+/// These calls debit a runtime-priced burn or migrate the entire balance.
+/// None carries an on-chain bound on that debit, so a preflight quote cannot
+/// make it safe under a finite spend cap.
+pub(crate) fn unbounded_account_spend(operation: &str) -> bool {
+    matches!(
+        operation
+            .strip_prefix("SubtensorModule.")
+            .unwrap_or(operation),
+        "root_register"
+            | "swap_hotkey"
+            | "swap_hotkey_v2"
+            | "announce_coldkey_swap"
+            | "announce_coldkey_swap_v2"
+            | "swap_coldkey_announced"
+    )
+}
+
 fn intent_metadata(input: &Value) -> Result<Value, PolicyError> {
     let op = input["op"]
         .as_str()
@@ -1087,16 +1104,17 @@ fn intent_metadata(input: &Value) -> Result<Value, PolicyError> {
             | "stake_into_basket"
     ) || (op == "swap_hotkey" && args["netuid"].is_null())
         || (op == "set_subnet_gamma_emission_whitelisted" && args["whitelisted"] == false);
-    let unbounded = matches!(
-        op,
-        "transfer_all"
-            | "burned_register"
-            | "register_subnet"
-            | "register_leased_network"
-            | "transfer_stake"
-            | "add_collateral"
-            | "finalize_crowdloan"
-    );
+    let unbounded = unbounded_account_spend(op)
+        || matches!(
+            op,
+            "transfer_all"
+                | "burned_register"
+                | "register_subnet"
+                | "register_leased_network"
+                | "transfer_stake"
+                | "add_collateral"
+                | "finalize_crowdloan"
+        );
     let field = if op == "create_crowdloan" {
         Some("deposit_tao")
     } else if matches!(

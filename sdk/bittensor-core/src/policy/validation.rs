@@ -62,6 +62,7 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value, PolicyErr
         "validation.timelock.round" => timelock_round(&input),
         "validation.timelock.time" => timelock_time(&input),
         "validation.timelock.envelope" => timelock_envelope(&input),
+        "validation.commitment.decode" => commitment_decode(&input),
         "validation.pruning.state" => pruning_state(&input),
         "validation.pruning.admission" => pruning_admission(&input),
         "validation.pruning.decision" => pruning_decision(&input),
@@ -568,6 +569,54 @@ fn timelock_envelope(input: &Value) -> Result<Value, PolicyError> {
         json!({"inner": format!("0x{}", hex::encode(&data[offset..end])), "round": round.to_string()}),
     )
 }
+fn commitment_decode(input: &Value) -> Result<Value, PolicyError> {
+    // RevealedCommitments stores the decrypted bytes verbatim. A raw payload
+    // can itself be a valid SCALE vector, so its encoding cannot be inferred.
+    let encoding = input["encoding"].as_str().unwrap_or("raw");
+    if !matches!(encoding, "raw" | "scale") {
+        return Err(PolicyError::invalid(
+            "commitment encoding must be raw or scale",
+        ));
+    }
+    // The runtime codec returns valid UTF-8 as text, including literal "0x..."
+    // strings; non-UTF-8 bytes are rendered as hex. Preserve either raw form.
+    let data = if let Some(text) = input.get("text") {
+        let text = text
+            .as_str()
+            .ok_or_else(|| PolicyError::type_error("commitment text must be a string"))?;
+        if encoding == "raw" {
+            return Ok(json!(text));
+        }
+        if let Ok(payload) = scale_commitment_payload(text.as_bytes()) {
+            return Ok(commitment_text(payload));
+        }
+        bytes(&json!(text), "SCALE commitment")?
+    } else {
+        bytes(&input["data"], "commitment")?
+    };
+    let payload = if encoding == "scale" {
+        scale_commitment_payload(&data)?
+    } else {
+        &data
+    };
+    Ok(commitment_text(payload))
+}
+
+fn scale_commitment_payload(data: &[u8]) -> Result<&[u8], PolicyError> {
+    let (length, offset) = compact_decode(data, 0)
+        .map_err(|_| PolicyError::invalid("invalid or non-canonical SCALE commitment length"))?;
+    if usize::try_from(length).ok() != data.len().checked_sub(offset) {
+        return Err(PolicyError::invalid("invalid SCALE commitment length"));
+    }
+    Ok(&data[offset..])
+}
+
+fn commitment_text(payload: &[u8]) -> Value {
+    json!(std::str::from_utf8(payload)
+        .map(str::to_owned)
+        .unwrap_or_else(|_| format!("0x{}", hex::encode(payload))))
+}
+
 fn pruning_state(input: &Value) -> Result<Value, PolicyError> {
     let count = u64_value(&input["mechanisms"], "mechanism count")?;
     if !(1..=16).contains(&count) {

@@ -76,6 +76,11 @@ class AnnounceColdkeySwap(Intent):
     def summary(self) -> str:
         return f"announce coldkey swap to {self.new_coldkey_ss58}"
 
+    def spend(self):
+        from ._shared import operation_spend
+
+        return operation_spend(self.op)
+
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         return [
             "after the announcement delay, swap_coldkey_announced will move EVERYTHING "
@@ -118,6 +123,11 @@ class SwapColdkeyAnnounced(Intent):
 
     def summary(self) -> str:
         return f"SWAP coldkey to {self.new_coldkey_ss58} (moves all ownership)"
+
+    def spend(self):
+        from ._shared import operation_spend
+
+        return operation_spend(self.op)
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         return [

@@ -16,6 +16,7 @@ import { followShieldedResult } from './shielded-receipt'
 import { createNodeIntentReader } from './node-workflows'
 import { classifyChainError, chainErrorFromDispatch, type ChainErrorInfo } from './chain-errors'
 import { nestedDispatchError } from './receipt'
+import { maximumShieldedCiphertextSize, validateShieldedCiphertextSize } from './shield-size'
 import { gammaReceiptData } from './gamma'
 import { extrinsicSignerAccountId } from './extrinsic-signer'
 import { WorkflowClient, type WorkflowOptions, type WorkflowPlan, type WorkflowSigner, type WorkflowResult } from './node-workflows'
@@ -24,7 +25,7 @@ import { encodeIntentCall, listIntentTools, intentSignerRole, type Intent } from
 import { createNodeUpgradeClient } from './node-upgrade'
 import type { UpgradeClient } from './upgrade'
 import { dispatchRead, listReads, type ReadName, type ReadParams, type ReadResult, type ReadArgs, type ReadView } from './reads'
-import { fetchMetagraph, fetchCommitments } from './metagraph'
+import { fetchMetagraph, fetchCommitments, type CommitmentReadOptions } from './metagraph'
 import { bindReadNamespace, type AccountsReadNamespace, type ChainReadNamespace, type SubnetsReadNamespace, type StakingReadNamespace, type EpochsReadNamespace, type HyperparametersReadNamespace, type DelegationReadNamespace, type NeuronsReadNamespace, type LeasingReadNamespace, type CollateralReadNamespace, type LocksReadNamespace, type IdentityReadNamespace, type WeightsReadNamespace, type GammaReadNamespace, type PricesReadNamespace, type ReadBlock } from './read-namespaces'
 import { storage as generatedStorage, constants as generatedConstants, runtimeApi as generatedRuntimeApi, calls as generatedCalls, callDescriptors } from './descriptors'
 import { DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_MAX_REQUEST_RETRIES, DEFAULT_RETRY_BACKOFF_MS, DEFAULT_MAX_RETRY_BACKOFF_MS, DEFAULT_ENDPOINT_VALIDATION_TTL_MS, DEFAULT_MAX_SUBSCRIPTION_QUEUE, DEFAULT_MAX_WS_MESSAGE_BYTES, IDEMPOTENT_RPC_METHODS, RpcRequestOptions, JsonRpcTransportOptions, RpcRequest, SubscriptionWaiter, SubscriptionState, EndpointAttempt, ActiveConnection, ConnectingAttempt, SubscriptionOptions, WebSocketLike, WebSocketConstructor, WebSocketFactory, EndpointRequest, EndpointValidator, JsonRpcError, ChainError, RequestTimeoutError, RequestAbortedError, EndpointValidationError, JsonRpcTransport, nonNegativeNumber, nonNegativeInteger, hasOwn, parseJsonRpcResponse, readResponseText, jsonRpcResponseResult, jsonRpcSubscriptionNotification, RequestSignal, delay, withRequestSignal, normalizeAbortError, throwIfAborted } from './transport'
@@ -1684,11 +1685,12 @@ export class Client extends BrowserChainClient {
     if (amount < 0n || result >= 1n << 128n) throw new RangeError('TAO amount overflows u128')
     return result
   }
-  async estimateShieldedCarrierFee(address: string): Promise<Balance> {
-    const call = await this.composeCall('MevShield', 'submit_encrypted', { ciphertext: new Uint8Array(8192) })
+  /** Address-only calls quote the maximum accepted carrier; pass its actual encrypted length for an exact tier. */
+  async estimateShieldedCarrierFee(address: string, ciphertextSize = maximumShieldedCiphertextSize()): Promise<Balance> {
+    const call = await this.composeCall('MevShield', 'submit_encrypted', { ciphertext: new Uint8Array(validateShieldedCiphertextSize(ciphertextSize)) })
     return this.estimateFee(call, { ss58Address: address, cryptoType: CRYPTO_SR25519 }, { allowRawCall: true })
   }
-  estimate_shielded_carrier_fee(address: string): Promise<Balance> { return this.estimateShieldedCarrierFee(address) }
+  estimate_shielded_carrier_fee(address: string, ciphertextSize?: number): Promise<Balance> { return this.estimateShieldedCarrierFee(address, ciphertextSize) }
 
   workflows(): WorkflowClient { return new WorkflowClient(this) }
   protectedAccount(options: ProtectedAccountClientOptions<WorkflowSigner, WorkflowOptions>) {
@@ -2425,12 +2427,12 @@ export class SubnetsNamespace {
     return infos.map(info => ({ ...info, neuronCount: info.neuron_count }))
   }
 
-  async graph(netuid: number, options: { block?: ReadBlock; commitments?: boolean } = {}) {
+  async graph(netuid: number, options: CommitmentReadOptions & { block?: ReadBlock; commitments?: boolean } = {}) {
     return fetchMetagraph(await scopedReadView(this.client, options.block), netuid, options)
   }
 
-  async commitments(netuid: number, block?: ReadBlock) {
-    return fetchCommitments(await scopedReadView(this.client, block), netuid)
+  async commitments(netuid: number, block?: ReadBlock, options: CommitmentReadOptions = {}) {
+    return fetchCommitments(await scopedReadView(this.client, block), netuid, options)
   }
 
   async state(netuid: number, block?: ReadBlock) {
@@ -2600,8 +2602,8 @@ export class SnapshotBalancesNamespace {
 
 export class SnapshotSubnetsNamespace {
   constructor(private readonly snapshot: Snapshot) {}
-  graph(netuid: number, options: { commitments?: boolean } = {}) { return fetchMetagraph(this.snapshot, netuid, options) }
-  commitments(netuid: number) { return fetchCommitments(this.snapshot, netuid) }
+  graph(netuid: number, options: CommitmentReadOptions & { commitments?: boolean } = {}) { return fetchMetagraph(this.snapshot, netuid, options) }
+  commitments(netuid: number, options: CommitmentReadOptions = {}) { return fetchCommitments(this.snapshot, netuid, options) }
   state(netuid: number) { return dispatchRead(this.snapshot, 'subnet_state', { netuid }) }
   states() { return dispatchRead(this.snapshot, 'subnet_states') }
 

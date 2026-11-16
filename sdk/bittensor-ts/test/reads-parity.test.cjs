@@ -185,7 +185,7 @@ test('commitments expose sealed, failed, and revealed-only history at a pinned b
     'Commitments.RevealedCommitments': [['revealed', [['0x086869', 95]]]],
     'SubtensorModule.Uids': [['sealed', 2]],
   } })
-  const records = await fetchCommitments(v, 2)
+  const records = await fetchCommitments(v, 2, { revealedEncoding: 'scale' })
   assert.deepEqual(Object.keys(records), ['revealed', 'failed', 'sealed'])
   assert.equal(records.sealed.duration, 2.5)
   assert.equal(records.sealed.uid, 2)

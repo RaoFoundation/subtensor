@@ -13,12 +13,13 @@ import { authorizeRegistrationSponsorship, type RegistrationSponsorshipOptions }
 import { blake2_256, hexToBytes, sealMevShieldTransaction } from './crypto'
 import { Runtime, multisigAccountId, storagePrefixFor } from './runtime'
 import { fromWire } from './wire'
-import type { NativeExternalSigningOptions } from './native'
+import type { NativeExternalSigningOptions, NativeExternalSigningPlanHandle } from './native'
 import { generateCommitV2 } from './timelock'
 import { iterCallLeaves } from './fee-filters'
 import { resolveTransactionFeePayer } from './fee-payer'
 import { MultisigCallCache, prepareMultisigApproval } from './multisig-workflow'
 import { followShieldedResult } from './shielded-receipt'
+import { shieldedCiphertextSize, validateShieldedCiphertextSize } from './shield-size'
 import { runSignerQueue, signerQueueOptions, bindSignerIdentity, signerPublicKey, type BoundSignerIdentity, type SignerQueuePermit } from './signer-queue'
 import type { ScaleValue } from './types'
 
@@ -49,6 +50,11 @@ export interface WorkflowPlan {
 export interface WorkflowResult extends ExtrinsicResult {
   /** Includes reveal round, multisig coordinates, or shielded-inner hash where applicable. */
   data?: Record<string, unknown>
+}
+
+function externalShieldedSize(plan: NativeExternalSigningPlanHandle): number {
+  const encoded = plan.runtime.encodeSignedExtrinsic(plan.callData, plan.publicKey, Buffer.alloc(plan.cryptoType === 2 ? 65 : 64), plan.cryptoType, { ...plan.txParams, metadataHashEnabled: plan.txParams.metadataHash != null })
+  return shieldedCiphertextSize(encoded.bytes.length)
 }
 
 /** Python-style semantic planning/execution on the native client, including external signers. */
@@ -102,7 +108,7 @@ export class WorkflowClient {
     if (execution.violations.includes('shield_required')) violations.push(`${intent.op} requires MEV shielding`)
     let carrierFee = 0n
     if (shielded) {
-      const carrier = await this.client.composeCall('MevShield', 'submit_encrypted', { ciphertext: new Uint8Array(8192) }, blockHash)
+      const carrier = await this.client.composeCall('MevShield', 'submit_encrypted', { ciphertext: new Uint8Array(externalShieldedSize(innerPlan)) }, blockHash)
       carrierFee = await estimateRawFee(native, carrier, identity.address, identity.publicKey, identity.cryptoType, { ...signingOptions, nonce: BigInt(estimateNonce) }, identity.requiresMetadataProof) + tip
     }
     const fee = innerFee + carrierFee
@@ -204,7 +210,7 @@ export class WorkflowClient {
     const submission = { ...options, period: 8 }
     const inner = await this.client.signExtrinsic(call, signer, { ...submission, nonce: nonce + 1 })
     const ciphertext = sealMevShieldTransaction(publicKey, inner.bytes)
-    if (ciphertext.length > 8192) throw new RangeError('shielded ciphertext exceeds 8192 bytes')
+    validateShieldedCiphertextSize(ciphertext.length)
     const carrier = await this.client.composeCall('MevShield', 'submit_encrypted', { ciphertext })
     // The carrier contains only the already checked signed inner call. Inner
     // semantic policy checks do not apply to this opaque encryption envelope.
@@ -290,10 +296,10 @@ export class NodeMultisig {
     let nonce = options.nonce ?? await native.accountNextIndex(identity.address)
     if (!Number.isSafeInteger(nonce) || nonce < 0 || nonce >= Number.MAX_SAFE_INTEGER) throw new RangeError('invalid multisig nonce')
     const policy = Policy.from({ ...options.policy, allowedNetuids: options.policy?.allowedNetuids == null ? undefined : [...options.policy.allowedNetuids], allowRawCalls: options.allowRawCall })
-    const carrier = shielded ? await this.client.composeCall('MevShield', 'submit_encrypted', { ciphertext: new Uint8Array(8192) }) : undefined
     const checkFunding = async () => {
       const signingOptions = nativeOptions({ ...options, nonce: nonce + (shielded ? 1 : 0), period: shielded ? 8 : options.period === undefined ? 128 : options.period })
       const inner = await native.externalSigningPlanForIntent(trusted, identity.address, identity.publicKey, identity.cryptoType, identity.requiresMetadataProof, policy, signingOptions)
+      const carrier = shielded ? await this.client.composeCall('MevShield', 'submit_encrypted', { ciphertext: new Uint8Array(externalShieldedSize(inner)) }) : undefined
       const tip = taoTransactionAmountRao(options.tip ?? 0n), innerFee = (inner.feeRao == null ? await native.estimateFeeExternal(inner) : BigInt(inner.feeRao)) + tip
       const carrierFee = carrier ? await estimateRawFee(native, carrier, identity.address, identity.publicKey, identity.cryptoType, { ...signingOptions, nonce: BigInt(nonce) }, identity.requiresMetadataProof) + tip : 0n
       const violations = [...approval.violations, ...policy.check(trusted, innerFee + carrierFee)]
@@ -313,7 +319,7 @@ export class NodeMultisig {
     ;(resolved as SignerLike & { beginTwoStageSigning?(): void }).beginTwoStageSigning?.()
     const signedInner = await this.client.signExtrinsic(trusted, resolved, { ...submission, nonce: nonce + 1, period: 8 })
     const ciphertext = sealMevShieldTransaction(publicKey!, signedInner.bytes)
-    if (ciphertext.length > 8192) throw new RangeError('shielded ciphertext exceeds 8192 bytes')
+    validateShieldedCiphertextSize(ciphertext.length)
     const encodedCarrier = await this.client.composeCall('MevShield', 'submit_encrypted', { ciphertext })
     const outer = await this.client.signExtrinsic(encodedCarrier, resolved, signerQueueOptions({ ...submitOptions(options), period: 8, nonce, allowRawCall: true }, permit))
     const innerHash = '0x' + Buffer.from(signedInner.hash).toString('hex')

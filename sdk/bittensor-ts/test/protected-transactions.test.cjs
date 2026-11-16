@@ -66,8 +66,8 @@ test('shielded pair shares authority with consecutive generation and nonce; over
   assert.deepEqual(state.encoded.map(row => row.params.nonce),[4n,3n])
   assert.equal(result.period,8)
   const other = fixture()
-  other.adapter.seal = () => Buffer.alloc(8193)
-  await assert.rejects(other.session.submit(remark,{allowRawCall:true,mevShield:true}),/8192/)
+  other.adapter.seal = () => Buffer.alloc(32769)
+  await assert.rejects(other.session.submit(remark,{allowRawCall:true,mevShield:true}),/32768/)
   assert.equal(other.state.submissions.length,0)
 })
 test('protected Shield uses the best-head encryption key while signing with finalized authority', async () => {

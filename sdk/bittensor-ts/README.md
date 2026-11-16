@@ -204,6 +204,14 @@ to 128 finalized blocks by default (`receiptSearchBlocks`); `receiptBlockFor`
 can supply an inclusion block for older work. An unsuccessful search never proves
 that submission failed. `cancel(index)` removes an announcement;
 an unresolved multisig commitment must first be resolved by its signatories.
+If another member completes execution or cancellation, call
+`account.recoverAction(index, { extrinsicHash, blockHash })` with that final
+transaction. Recovery verifies canonical finality, the original multisig
+timepoint and call, and the protected announcement's outcome before releasing
+the journal reservation. Missing on-chain records alone do not prove success.
+Recovered cancellations retain an `execution_uncertain` replay guard: the same
+payload could have executed before being announced again. Controller rotation
+can proceed, but executing that payload again requires explicit `allowRepeat`.
 Announcement files contain public transaction details in plaintext.
 
 `route(intent)` previews direct, immediate-proxy, or delayed execution.
@@ -325,6 +333,11 @@ await client.transfer(alice, '5F...', Balance.fromTao('0.01'), {
 })
 await client.close()
 ```
+
+Revealed commitment reads preserve raw plaintext by default. For known legacy
+commitments containing a SCALE byte vector, pass `revealedEncoding: 'scale'`
+to the commitment or metagraph read options. `decodeRevealedCommitment(bytes,
+'scale')` decodes an individual legacy payload and rejects malformed frames.
 
 `Client` is the Node-native high-level client. Raw JSON-RPC calls,
 subscriptions, injected WebSockets, and endpoint fallback belong to the explicit

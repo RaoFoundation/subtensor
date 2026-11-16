@@ -22,7 +22,15 @@ def metadata(intent):
 
 
 def spend(intent):
-    value = metadata(intent)["spend_rao"]
+    return _spend_value(metadata(intent)["spend_rao"])
+
+
+def operation_spend(op: str):
+    """Read argument-independent spend without serializing address objects."""
+    return _spend_value(evaluate_policy("transaction.intent_metadata", {"op": op})["spend_rao"])
+
+
+def _spend_value(value):
     return (
         UNBOUNDED
         if value == "unbounded"

@@ -485,6 +485,9 @@ fn same_commitment(left: &Value, right: &Value) -> bool {
             .all(|key| left[key] == right[key])
         && lower(&left["call_hash"]) == lower(&right["call_hash"])
 }
+fn repeat_approval_required(row: &Value) -> bool {
+    row["status"] == "executed" || row["execution_uncertain"] == true
+}
 
 const TRUSTED_LEAVES: &[&str] = &[
     "AdminUtils.sudo_set_activity_cutoff_factor",
@@ -936,6 +939,172 @@ fn receipt_state(receipt: &Value) -> Value {
             || !receipt["blockNumber"].is_null()
             || ["inBlock", "finalized"].contains(&status));
     json!({"successful":success,"approval_only":approval,"included":included,"confirmed":success && included && !approval && status!="failed"})
+}
+
+fn multisig_calls(call: &Value, depth: usize, result: &mut Vec<Value>) -> Result<()> {
+    depth_guard(depth, "multisig recovery call nesting exceeds 64")?;
+    if call["pallet"] == "Multisig" {
+        result.push(call.clone());
+    }
+    for child in call_children(call)? {
+        multisig_calls(&child, depth.saturating_add(1), result)?;
+    }
+    Ok(())
+}
+
+fn multisig_action_matches(action: &Value, input: &Value) -> Result<bool> {
+    let expected = &input["announcement"];
+    if action["pallet"] != "Proxy" || action["params"]["real"] != expected["real"] {
+        return Ok(false);
+    }
+    Ok(match text(&input["kind"]) {
+        "execute" if action["call"] == "proxy_announced" => {
+            action["params"]["delegate"] == expected["delegate"]
+                && semantic_value(&action["params"]["call"], 0)?
+                    == semantic_value(&expected["call"], 0)?
+        }
+        "cancel" if action["call"] == "remove_announcement" => {
+            text(&action["params"]["call_hash"]).to_lowercase()
+                == text(&expected["call_hash"]).to_lowercase()
+        }
+        _ => false,
+    })
+}
+
+fn multisig_action_result(input: &Value) -> Result<Value> {
+    let invalid =
+        || PolicyError::invalid("receipt does not prove the original protected multisig action");
+    let receipt = &input["receipt"];
+    let identity = &input["identity"];
+    if receipt["status"] != "finalized"
+        || identity["account"].as_str().is_none_or(str::is_empty)
+        || identity["timepoint"].is_null()
+    {
+        return Err(invalid());
+    }
+    let committed = super::transaction::evaluate(
+        "transaction.multisig_cancel",
+        json!({"call_hash":identity["call_hash"],"timepoint":identity["timepoint"]}),
+    )?;
+    let events = rows(&receipt["events"]);
+    let completions: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            event["module_id"] == "Multisig"
+                && ["MultisigExecuted", "MultisigCancelled"].contains(&text(&event["event_id"]))
+        })
+        .collect();
+    if completions.len() != 1
+        || events
+            .iter()
+            .any(|event| event["module_id"] == "System" && event["event_id"] == "ExtrinsicFailed")
+    {
+        return Err(invalid());
+    }
+    let event = completions[0];
+    let end = events
+        .iter()
+        .position(|candidate| candidate == event)
+        .ok_or_else(invalid)?;
+    let attrs = &event["attributes"];
+    if attrs["multisig"] != identity["account"]
+        || text(&attrs["call_hash"]).to_lowercase() != committed["call_hash"]
+        || semantic_value(&attrs["timepoint"], 0)? != semantic_value(&committed["timepoint"], 0)?
+        || (!event["extrinsic_idx"].is_null()
+            && event["extrinsic_idx"] != receipt["extrinsicIndex"])
+    {
+        return Err(invalid());
+    }
+    let mut calls = Vec::new();
+    multisig_calls(&decoded_call(&input["call"], 0)?, 0, &mut calls)?;
+    let cancelled = event["event_id"] == "MultisigCancelled";
+    let mut matches: usize = 0;
+    for call in &calls {
+        if cancelled {
+            if ["cancel_as_multi", "cancel_as_multi_safe"].contains(&text(&call["call"]))
+                && text(&call["params"]["call_hash"]).to_lowercase() == committed["call_hash"]
+                && semantic_value(&call["params"]["timepoint"], 0)?
+                    == semantic_value(&committed["timepoint"], 0)?
+            {
+                matches = matches.saturating_add(1);
+            }
+        } else if ["as_multi", "as_multi_safe"].contains(&text(&call["call"]))
+            && semantic_value(&call["params"]["maybe_timepoint"], 0)?
+                == semantic_value(&committed["timepoint"], 0)?
+            && multisig_action_matches(&call["params"]["call"], input)?
+        {
+            matches = matches.saturating_add(1);
+        }
+    }
+    if matches != 1 {
+        return Err(invalid());
+    }
+    let on_chain = input["on_chain"] == true;
+    if cancelled {
+        let mut openings = Vec::new();
+        multisig_calls(&decoded_call(&input["opening_call"], 0)?, 0, &mut openings)?;
+        let mut matches: usize = 0;
+        for call in &openings {
+            if ["as_multi", "as_multi_safe"].contains(&text(&call["call"]))
+                && call["params"]["maybe_timepoint"].is_null()
+                && multisig_action_matches(&call["params"]["call"], input)?
+            {
+                matches = matches.saturating_add(1);
+            }
+        }
+        if matches != 1 {
+            return Err(invalid());
+        }
+        // Cancellation only proves this approval did not execute the action.
+        // A permissionless proxy_announced may have consumed it separately.
+        return if on_chain {
+            Ok(json!({"status":"pending"}))
+        } else {
+            Err(invalid())
+        };
+    }
+    if attrs["result"].get("Ok").is_none() && attrs["result"].get("Err").is_none() {
+        return Err(invalid());
+    }
+    let failed = if attrs["result"].get("Err").is_some() {
+        true
+    } else if input["kind"] == "execute" {
+        let proxies: Vec<_> = events[..=end]
+            .iter()
+            .filter(|event| event["module_id"] == "Proxy" && event["event_id"] == "ProxyExecuted")
+            .collect();
+        if proxies.len() != 1 {
+            return Err(invalid());
+        }
+        let result = &proxies[0]["attributes"]["result"];
+        if result.get("Ok").is_none() && result.get("Err").is_none() {
+            return Err(invalid());
+        }
+        result.get("Err").is_some()
+    } else {
+        false
+    };
+    if failed {
+        return if on_chain {
+            Ok(json!({"status":"pending"}))
+        } else {
+            Err(invalid())
+        };
+    }
+    // A later failing sibling in a non-atomic batch cannot undo this payment.
+    // Earlier nested failures are ambiguous without a complete dispatch trace.
+    let scoped = json!({"status":"finalized","success":true,"events":&events[..=end]});
+    if on_chain || receipt_state(&scoped)["successful"] != true {
+        return Err(invalid());
+    }
+    Ok(if input["kind"] == "execute" {
+        json!({"status":"executed"})
+    } else {
+        // remove_announcement identifies a payload, not an announcement height.
+        // A permissionless executor could have paid the original before the
+        // same hash was announced again and this cancellation removed it.
+        json!({"status":"cancelled","execution_uncertain":true})
+    })
 }
 fn rotation_plan(input: &Value) -> Value {
     let record = &input["record"];
@@ -1423,10 +1592,15 @@ fn journal_transition(input: &Value) -> Result<Value> {
         if input["kind"] == "execute" && input["allow_repeat"] != true {
             if let Some(executed) = data
                 .iter()
-                .find(|row| row["status"] == "executed" && journal_same(row, &old, input, false))
+                .find(|row| repeat_approval_required(row) && journal_same(row, &old, input, false))
             {
                 return Err(PolicyError::invalid(format!(
-                    "this payload already executed as #{}; explicit allowRepeat is required",
+                    "this payload {} as #{}; explicit allowRepeat is required",
+                    if executed["execution_uncertain"] == true {
+                        "may have executed"
+                    } else {
+                        "already executed"
+                    },
                     number(&executed["index"]) as u64
                 )));
             }
@@ -1855,6 +2029,7 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value> {
             semantic_value(&input["left"], 0)? == semantic_value(&input["right"], 0)?
         )),
         "protected.receipt_state" => Ok(receipt_state(&input)),
+        "protected.multisig_action_result" => multisig_action_result(&input),
         "protected.rotation_plan" => Ok(rotation_plan(&input)),
         "protected.validate_setup_grants" => {
             let controller = &input["controller"];
@@ -1971,6 +2146,11 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value> {
         "protected.refill_position" => refill_position(&input),
         "protected.announcement_category" => Ok(json!(category(text(&input["op"])))),
         "protected.same_commitment" => Ok(json!(same_commitment(&input["left"], &input["right"]))),
+        "protected.repeat_commitment_index" => Ok(rows(&input["rows"])
+            .iter()
+            .find(|row| repeat_approval_required(row) && same_commitment(row, &input["row"]))
+            .map(|row| row["index"].clone())
+            .unwrap_or(Value::Null)),
         "protected.same_identity" => Ok(json!(
             same_commitment(&input["left"], &input["right"])
                 && number(&input["left"]["announced_at_block"])

@@ -7,7 +7,7 @@ import {
   controllerAnyDelays, deriveLegacyPureSs58, instantProxyTypeFor,
   parseDelayToBlocks, protectedSetupPending, protectedManagementPath, assertProtectedManagementAllowed, resolveAllowItems, rotationComplete,
 } from './protected-account-config'
-import { type ProtectedAnnouncements, type ProtectedAnnouncementResult } from './protected-announcements'
+import { type ProtectedAnnouncements, type ProtectedAnnouncementResult, type AnnouncementActionReceipt } from './protected-announcements'
 import type { ProxyAnnouncement } from './announcement-store'
 import { nestedDispatchError } from './receipt'
 import { isDefiniteSubmissionRejection } from './transport'
@@ -453,6 +453,13 @@ export class ProtectedAccountSession {
   cancel(index: number): Promise<ProtectedAnnouncementResult> { return this.change(async () => {
     const record = await this.record(await this.backend.snapshot(), false), result = await this.announcements.cancel(record, index)
     if (result.completed) await this.refreshRecord(record)
+    return result
+  }) }
+  /** Supply the final transaction when another multisig member completed an action. */
+  recoverAction(index: number, receipt: AnnouncementActionReceipt): Promise<ProtectedAnnouncementResult> { return this.change(async () => {
+    const record = await this.record(await this.backend.snapshot(), false)
+    const result = await this.announcements.recoverAction(record, index, receipt)
+    await this.refreshRecord(record)
     return result
   }) }
   private async refreshRecord(record: ProtectedAccountRecord): Promise<void> {

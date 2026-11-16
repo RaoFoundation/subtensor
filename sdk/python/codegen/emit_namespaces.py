@@ -18,7 +18,7 @@ import inspect
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, get_origin
 
 from bittensor import namespaces
 from bittensor.namespaces import NAMESPACES, _accepts_pin
@@ -54,12 +54,17 @@ _BUILTIN_NAMES = {"list", "dict", "tuple", "set", "str", "int", "float", "bool",
 
 
 def _type_sources() -> dict[str, str]:
-    """Public class name -> module path, for resolving annotation identifiers."""
+    """Public class or type-alias name -> module path for annotation imports."""
     sources: dict[str, str] = {}
     for module_path in _TYPE_MODULES:
         module = sys.modules[module_path]
         for name, obj in vars(module).items():
-            if inspect.isclass(obj) and not name.startswith("_") and obj.__module__ == module_path:
+            if name.startswith("_"):
+                continue
+            defined_class = inspect.isclass(obj) and obj.__module__ == module_path
+            # Parameterized aliases (Literal, unions, collections) are not
+            # classes and report typing/builtins rather than their owner.
+            if defined_class or get_origin(obj) is not None:
                 sources.setdefault(name, module_path)
     return sources
 

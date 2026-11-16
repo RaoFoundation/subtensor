@@ -20,14 +20,19 @@ export function decodeCommitmentFields(fields: any[], includeHashes = true): str
   }
   return [...(raw.length ? [utf8Text(Uint8Array.from(raw))] : []), ...hashes].join('\n')
 }
-function revealedEntry(entry: any[]): [number, string] {
+export interface CommitmentReadOptions {
+  /** Decrypted storage is raw by default; select scale only for known legacy payloads. */
+  revealedEncoding?: 'raw' | 'scale'
+}
+/** Decode known plaintext or an explicitly selected legacy SCALE byte vector. */
+export function decodeRevealedCommitment(data: Uint8Array, encoding: 'raw' | 'scale' = 'raw'): string {
+  return evaluatePolicy<string>('validation.commitment.decode', { data: toHex(data), encoding })
+}
+function revealedEntry(entry: any[], encoding: 'raw' | 'scale'): [number, string] {
   const [value, block] = entry
-  let bytes = value instanceof Uint8Array ? value : Array.isArray(value) ? Uint8Array.from(value) : typeof value === 'string' && value.startsWith('0x') ? fromHex(value) : new TextEncoder().encode(String(value))
-  if (bytes.length) {
-    const mode = bytes[0] & 3, offset = mode === 3 ? 1 + (bytes[0] >> 2) + 4 : mode === 0 ? 1 : mode === 1 ? 2 : 4
-    bytes = bytes.slice(offset)
-  }
-  return [num(block), String(utf8Text(bytes))]
+  if (typeof value === 'string') return [num(block), evaluatePolicy<string>('validation.commitment.decode', { text: value, encoding })]
+  const bytes = value instanceof Uint8Array ? value : Array.isArray(value) ? Uint8Array.from(value) : new TextEncoder().encode(String(value))
+  return [num(block), decodeRevealedCommitment(bytes, encoding)]
 }
 export interface NeuronCommitmentData {
   hotkey: string; netuid: number; uid: number | null; block: number; queried_block: number; deposit: Balance; data: string;
@@ -48,10 +53,10 @@ export class NeuronCommitment implements NeuronCommitmentData {
   }
   get reveals_at(): Date | null { return this.reveal_round == null || this.decrypted ? null : commitmentRevealTime(this.reveal_round) }
 }
-export async function fetchCommitments(view: ReadView, netuid: number): Promise<Record<string, NeuronCommitment>> {
+export async function fetchCommitments(view: ReadView, netuid: number, options: CommitmentReadOptions = {}): Promise<Record<string, NeuronCommitment>> {
   view = await view.at()
   const [committed, revealed, uids, seconds] = await Promise.all([view.queryMap(['Commitments', 'CommitmentOf'], [netuid]), view.queryMap(['Commitments', 'RevealedCommitments'], [netuid]), view.queryMap(st('Uids'), [netuid]), view.blockTime()])
-  const histories = new Map<string, Array<[number, string]>>(revealed.map(([key, entries]) => [String(keyOf(key)), (entries ?? []).map(revealedEntry).sort((a: [number, string], b: [number, string]) => a[0] - b[0])]))
+  const histories = new Map<string, Array<[number, string]>>(revealed.map(([key, entries]) => [String(keyOf(key)), (entries ?? []).map((entry: any[]) => revealedEntry(entry, options.revealedEncoding ?? 'raw')).sort((a: [number, string], b: [number, string]) => a[0] - b[0])]))
   const uidMap = Object.fromEntries(uids.map(([key, value]) => [String(keyOf(key)), num(value)]))
   const records = new Map<string, NeuronCommitment>()
   for (const [key, row] of committed) {
@@ -113,8 +118,8 @@ export class Metagraph implements Iterable<MetagraphNeuron> {
   by_hotkey(hotkey: string): MetagraphNeuron | null { return this.byHotkey(hotkey) }
   [Symbol.iterator](): Iterator<MetagraphNeuron> { return this.neurons[Symbol.iterator]() }
 }
-export async function fetchMetagraph(view: ReadView, netuid: number, options: { commitments?: boolean } = {}): Promise<Metagraph | null> {
+export async function fetchMetagraph(view: ReadView, netuid: number, options: CommitmentReadOptions & { commitments?: boolean } = {}): Promise<Metagraph | null> {
   view = await view.at()
-  const [graph, commitments] = await Promise.all([view.runtime(api('SubnetInfoRuntimeApi', 'get_metagraph'), [netuid]), options.commitments === false ? Promise.resolve({}) : fetchCommitments(view, netuid)])
+  const [graph, commitments] = await Promise.all([view.runtime(api('SubnetInfoRuntimeApi', 'get_metagraph'), [netuid]), options.commitments === false ? Promise.resolve({}) : fetchCommitments(view, netuid, options)])
   return graph && typeof graph === 'object' ? new Metagraph(netuid, graph, commitments) : null
 }

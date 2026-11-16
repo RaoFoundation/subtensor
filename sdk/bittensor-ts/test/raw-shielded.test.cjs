@@ -206,7 +206,7 @@ test('Node multisig shielding releases the expired inner reservation', async () 
   const native = await state.client.requireNativeClient(), released = []
   native.accountNextIndex = async () => 7
   native.externalSigningPlan = async (data, _address, publicKey) => ({ runtime: runtime.handle, publicKey, callData: data, feeRao: 10n, txParams: { era: toWire('00'), nonce: 7n, tip: 0n } })
-  native.externalSigningPlanForIntent = async () => ({ feeRao: 10n })
+  native.externalSigningPlanForIntent = async (call, _address, publicKey, cryptoType, _proof, _policy, options) => ({ runtime: runtime.handle, publicKey, cryptoType, callData: runtime.composeCall(call.pallet, call.function, call.params), feeRao: 10n, txParams: { era: toWire({ period: 8, current: 99 }), nonce: options.nonce, tip: 0n } })
   native.releaseNonces = async (...args) => released.push(args)
   const multisig = new NodeMultisig(state.client, [state.address, Keypair.fromUri('//Bob').ss58Address], 2)
   const result = await multisig.approve({ pallet: 'System', call: 'remark', params: { remark: Buffer.from([1]) } }, state.signer, { allowRawCall: true, mevShield: true })

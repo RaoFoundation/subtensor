@@ -118,7 +118,7 @@ export function createProtectedProxyBackend(client: ProtectedProxyClient, option
       },
     })
   }
-  return {
+  const backend: ProtectedProxyBackend = {
     snapshot, accountId: crypto.accountId, ss58Encode: crypto.ss58Encode, hash: crypto.hash,
     submit: async (intent, request) => protectedProxyReceipt(await options.submit(intent, request)),
     blockHash: height => client.blockHash(height),
@@ -166,5 +166,14 @@ export function createProtectedProxyBackend(client: ProtectedProxyClient, option
       }
       return null
     },
+    finalizedReceipt: async (hash, block) => {
+      const receipt = await backend.receipt!(hash, block)
+      if (!receipt?.blockHash || receipt.blockNumber == null || receipt.extrinsicIndex == null) return null
+      const finalized = blockHash(await (client.finalizedHead ? client.finalizedHead() : client.rpc('chain_getFinalizedHead', [])))
+      if (receipt.blockNumber > await client.blockNumber(finalized)) return null
+      if (blockHash(await client.blockHash(receipt.blockNumber)) !== blockHash(receipt.blockHash)) return null
+      return { ...receipt, status: 'finalized' }
+    },
   }
+  return backend
 }

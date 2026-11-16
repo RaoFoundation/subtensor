@@ -1647,10 +1647,33 @@ impl Client {
         signer: &Keypair,
         nonce: u64,
     ) -> Result<JsonValue, CoreError> {
+        let extrinsic =
+            self.payment_extrinsic_at_nonce(call_data, signer, nonce, DEFAULT_ERA_PERIOD)?;
+        self.rpc_value("payment_queryInfo", json!([hex_prefixed(&extrinsic)]))
+    }
+
+    fn payment_extrinsic_at_nonce(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        nonce: u64,
+        period: u64,
+    ) -> Result<Vec<u8>, CoreError> {
         let runtime = self.current_runtime()?;
-        let params = self.transaction_params(nonce, Some(DEFAULT_ERA_PERIOD))?;
+        let params = self.transaction_params(nonce, Some(period))?;
+        Self::payment_extrinsic(&runtime, call_data, signer, &params)
+    }
+
+    fn payment_extrinsic(
+        runtime: &Runtime,
+        call_data: &[u8],
+        signer: &Keypair,
+        params: &TxParams,
+    ) -> Result<Vec<u8>, CoreError> {
         let proof_len = if is_hashed_crypto(signer.crypto_type()) {
             subtensor_hashed::Proof::max_encoded_len()
+        } else if signer.crypto_type() == crate::keys::CRYPTO_ECDSA {
+            65
         } else {
             64
         };
@@ -1700,38 +1723,63 @@ impl Client {
             signer.public_key_bytes(),
             &proof,
             signer.crypto_type(),
-            &params,
+            params,
         )?;
-        self.rpc_value("payment_queryInfo", json!([hex_prefixed(&extrinsic)]))
+        Ok(extrinsic)
     }
 
     pub fn estimate_fee(&self, call_data: &[u8], signer: &Keypair) -> Result<u128, CoreError> {
         Self::fee_from_payment_info(self.payment_info(call_data, signer)?)
     }
 
-    /// Conservative full shield quote, including maximum carrier and nonce sizes.
+    /// Quote both envelopes with dummy authorization at the selected consecutive nonces.
     pub(crate) fn estimate_shielded_fee(
         &self,
         call_data: &[u8],
         signer: &Keypair,
     ) -> Result<u128, CoreError> {
+        let nonce = self.account_next_index(&signer.ss58_address())?;
+        let inner_nonce = nonce
+            .checked_add(1)
+            .ok_or_else(|| CoreError::Policy("shielded nonce overflow".into()))?;
+        let inner =
+            self.payment_extrinsic_at_nonce(call_data, signer, inner_nonce, MEV_SHIELD_ERA_PERIOD)?;
+        let size = crate::mlkem::shielded_ciphertext_size(inner.len())?;
         let carrier = self.compose_call(
             "MevShield",
             "submit_encrypted",
-            &Value::record(vec![("ciphertext".into(), Value::Bytes(vec![0; 8192]))]),
+            &Value::record(vec![("ciphertext".into(), Value::Bytes(vec![0; size]))]),
         )?;
-        let inner = Self::fee_from_payment_info(self.payment_info_at_nonce(
-            call_data,
-            signer,
-            u64::from(u32::MAX),
-        )?)?;
-        let outer = Self::fee_from_payment_info(self.payment_info_at_nonce(
-            &carrier,
-            signer,
-            u64::from(u32::MAX),
-        )?)?;
+        let outer =
+            self.payment_extrinsic_at_nonce(&carrier, signer, nonce, MEV_SHIELD_ERA_PERIOD)?;
+        let inner = self.payment_query_fee(&inner)?;
+        let outer = self.payment_query_fee(&outer)?;
         inner
             .checked_add(outer)
+            .ok_or_else(|| CoreError::Policy("Shield total fee exceeds u128".into()))
+    }
+
+    fn shielded_fee_at_context(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        context: &SigningContext,
+    ) -> Result<u128, CoreError> {
+        let mut inner_params = context.params.clone();
+        inner_params.nonce = inner_params
+            .nonce
+            .checked_add(1)
+            .ok_or_else(|| CoreError::Policy("shielded nonce overflow".into()))?;
+        let inner = Self::payment_extrinsic(&context.runtime, call_data, signer, &inner_params)?;
+        let size = mlkem::shielded_ciphertext_size(inner.len())?;
+        let carrier = context.runtime.compose_call(
+            "MevShield",
+            "submit_encrypted",
+            &Value::record(vec![("ciphertext".into(), Value::Bytes(vec![0; size]))]),
+        )?;
+        let outer = Self::payment_extrinsic(&context.runtime, &carrier, signer, &context.params)?;
+        self.payment_query_fee(&inner)?
+            .checked_add(self.payment_query_fee(&outer)?)
             .ok_or_else(|| CoreError::Policy("Shield total fee exceeds u128".into()))
     }
 
@@ -1961,6 +2009,16 @@ impl Client {
         signer: &Keypair,
         wait_for_finalization: bool,
     ) -> Result<TxOutcome, CoreError> {
+        self.submit_shielded_checked(call_data, signer, wait_for_finalization, None)
+    }
+
+    pub(crate) fn submit_shielded_checked(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        wait_for_finalization: bool,
+        fee_check: Option<&dyn Fn(u128) -> Result<(), CoreError>>,
+    ) -> Result<TxOutcome, CoreError> {
         let next_key = self.query("MevShield", "NextKey", &[], None)?;
         let public_key = value_bytes(&next_key)
             .ok_or_else(|| CoreError::Rpc("MevShield.NextKey is unavailable".into()))?;
@@ -1971,6 +2029,12 @@ impl Client {
         };
         let prepared = (|| -> Result<_, CoreError> {
             let context = self.prepare_signing(signer, nonce, Some(MEV_SHIELD_ERA_PERIOD), true)?;
+            // Detached reservations may move the inner nonce into a wider SCALE
+            // encoding and the carrier into the runtime's larger weight tier.
+            // Check the exact reserved context before exposing either signature.
+            if let Some(check) = fee_check {
+                check(self.shielded_fee_at_context(call_data, signer, &context)?)?;
+            }
             let (inner, inner_hash) = self.sign_prepared(call_data, signer, &context, 1)?;
             let envelope = prepare_shielded_envelope(
                 context.params.nonce,
@@ -3711,11 +3775,7 @@ fn prepare_shielded_envelope(
         .ok_or_else(|| CoreError::Policy("shielded nonce overflow".into()))?;
     let (inner, inner_hash) = sign_inner(inner_nonce, MEV_SHIELD_ERA_PERIOD)?;
     let ciphertext = seal(&inner)?;
-    if ciphertext.len() > 8192 {
-        return Err(CoreError::Policy(
-            "shielded ciphertext exceeds 8192 bytes".into(),
-        ));
-    }
+    crate::mlkem::validate_shielded_ciphertext_size(ciphertext.len())?;
     Ok(ShieldedEnvelope {
         outer_nonce: nonce,
         period: MEV_SHIELD_ERA_PERIOD,
@@ -3789,9 +3849,29 @@ mod shielded_envelope_tests {
         let result = prepare_shielded_envelope(
             0,
             |_, _| Ok((vec![1], "0xinner".into())),
-            |_| Ok(vec![0; 8193]),
+            |_| Ok(vec![0; 32769]),
         );
         assert!(result.is_err());
+    }
+
+    // PROTECTED_REGRESSION: supported large Shield calls must not be blocked by the small-carrier weight tier; changes require explicit human approval.
+    #[test]
+    fn large_carriers_through_runtime_bound_are_submittable() -> Result<(), CoreError> {
+        for size in [8193, 9460, 32768] {
+            let envelope = prepare_shielded_envelope(
+                63,
+                |nonce, period| {
+                    assert_eq!(nonce, 64);
+                    assert_eq!(period, 8);
+                    Ok((vec![1], "0xinner".into()))
+                },
+                |_| Ok(vec![0; size]),
+            )?;
+            assert_eq!(envelope.ciphertext.len(), size);
+            assert_eq!(envelope.outer_nonce, 63);
+            assert_eq!(envelope.inner_hash, "0xinner");
+        }
+        Ok(())
     }
 }
 

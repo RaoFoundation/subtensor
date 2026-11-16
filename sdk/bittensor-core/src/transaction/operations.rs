@@ -301,6 +301,9 @@ impl IntentCall {
             }
         }
         let spend = match operation {
+            operation if crate::policy::transaction::unbounded_account_spend(operation) => {
+                Spend::Unbounded
+            }
             "EVM.deposit" => match field(&params, "value")? {
                 Value::Null => Spend::Unbounded,
                 value => Spend::Bounded(number(value)?),

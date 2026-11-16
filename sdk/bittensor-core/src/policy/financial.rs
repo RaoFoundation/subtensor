@@ -21,6 +21,7 @@ mod gamma;
 mod locks;
 mod orders;
 mod registration;
+mod shield;
 mod staking;
 
 type Result<T> = std::result::Result<T, PolicyError>;
@@ -970,6 +971,9 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value> {
     }
     if let Some(op) = op.strip_prefix("fee.") {
         return fees::evaluate(op, &input);
+    }
+    if let Some(op) = op.strip_prefix("shield.") {
+        return shield::evaluate(op, &input);
     }
     match op {
         "staking_decision" | "staking_amount" | "staking_claim" | "staking_call"

@@ -17,6 +17,7 @@ import { resolveEvmRecipient } from './evm-alias'
 import { authorizeRegistrationSponsorship, type RegistrationSponsorshipOptions } from './registration-sponsorship'
 import { chainErrorFromDispatch, type ChainErrorInfo } from './chain-errors'
 import { followShieldedResult } from './shielded-receipt'
+import { shieldedCiphertextSize, validateShieldedCiphertextSize } from './shield-size'
 import { MultisigCallCache, prepareMultisigApproval, type MultisigApprovalRequest } from './multisig-workflow'
 import { UpgradeClient, type UpgradeAdapter } from './upgrade'
 import { bindReadNamespace, type AccountsReadNamespace, type SubnetsReadNamespace, type StakingReadNamespace, type NeuronsReadNamespace, type ChainReadNamespace, type EpochsReadNamespace, type HyperparametersReadNamespace, type DelegationReadNamespace, type LeasingReadNamespace, type CollateralReadNamespace, type LocksReadNamespace, type IdentityReadNamespace, type WeightsReadNamespace, type GammaReadNamespace, type PricesReadNamespace } from './read-namespaces'
@@ -30,7 +31,7 @@ import { Balance, type BalanceLike } from './balance'
 import { JsonRpcTransport, ChainError, EndpointValidationError, withRequestSignal, type JsonRpcTransportOptions, type RpcRequestOptions } from './transport'
 import { bytesHex as hex, hexBytes, concatBytes } from './portable'
 import { dispatchRead, listReads, type ReadName, type ReadArgs, type ReadParams, type ReadResult, type ReadView } from './reads'
-import { fetchMetagraph } from './metagraph'
+import { fetchMetagraph, type CommitmentReadOptions } from './metagraph'
 import { Intent, wrapPreparedMultisig, intentFromJSON, intentSignerRole, listIntentTools, checkIntentPolicy, encodeIntentCall, PROXY_TYPES, type IntentContext, type IntentDescriptor, type IntentPolicy, type IntentReader, type PreparedIntent } from './intents'
 import { iterCallLeaves } from './fee-filters'
 import { resolveTransactionFeePayer } from './fee-payer'
@@ -249,7 +250,7 @@ export class Client {
   async isFastBlocks(): Promise<boolean> { return await this.blockTime() === 0.25 }
   read<N extends ReadName>(name: N, ...args: ReadArgs<N>): Promise<ReadResult<N>> { return dispatchRead(this, name, (args[0] ?? {}) as ReadParams[N]) }
   reads() { return listReads() }
-  async metagraph(netuid: number, options: { block?: BlockRef; commitments?: boolean } = {}) { return fetchMetagraph(await this.at(options.block), netuid, options) }
+  async metagraph(netuid: number, options: CommitmentReadOptions & { block?: BlockRef; commitments?: boolean } = {}) { return fetchMetagraph(await this.at(options.block), netuid, options) }
   async blockInfo(block?: BlockRef) {
     const hash = await this.resolveBlockHash(block), raw = await this.rpc('chain_getBlock', [hash])
     if (!raw?.block) return null
@@ -556,6 +557,19 @@ export class Client {
     // Keep the original tip encoded for length fees; sponsored calls discard its charge.
     return Balance.fromRao(BigInt(info.partialFee) + (payer.dropsTip ? 0n : options.tip ?? 0n))
   }
+  /** Quote the actual inner envelope and matching Shield tier without requesting signatures. */
+  async estimateShieldedFees(call: Call, account: string | BrowserSigner, options: SubmitOptions = {}, block?: BlockRef): Promise<{ innerFee: Balance; carrierFee: Balance }> {
+    const signer = typeof account === 'string' ? { address: account } : account
+    const hash = block == null ? await this.blockHash() : await this.resolveBlockHash(block)
+    const nonce = options.nonce ?? await this.peekNonce(signer.ss58Address ?? signer.address!)
+    const signing = shieldOptions({ ...options, nonce })
+    const unsigned = await this.prepareRaw(call, signer, { ...signing, nonce: nonce + 1 }, hash)
+    const inner = unsigned.runtime.encodeSignedExtrinsic(unsigned.callData, unsigned.publicKey, new Uint8Array(unsigned.cryptoType === 2 ? 65 : 64), unsigned.cryptoType, { ...unsigned.txParams, metadataHashEnabled: unsigned.txParams.metadataHash != null })
+    const size = shieldedCiphertextSize(inner.bytes.length)
+    const innerFee = await this.estimateFee(call, signer, { ...signing, nonce: nonce + 1 }, hash)
+    const carrierFee = await this.estimateFee({ pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext: new Uint8Array(size) } }, signer, signing, hash)
+    return { innerFee, carrierFee }
+  }
   async estimateWeight(call: Call, address: string, block?: BlockRef): Promise<{ ref_time: bigint; proof_size: bigint }> {
     const unsigned = await this.prepareRaw(call, { address }, {}, block == null ? undefined : await this.resolveBlockHash(block)), bytes = unsigned.runtime.encodeSignedExtrinsic(unsigned.callData, unsigned.publicKey, new Uint8Array(64), 1, unsigned.txParams).bytes
     const { weight } = await this.rpc('payment_queryInfo', [hex(bytes), unsigned.blockHash])
@@ -629,7 +643,7 @@ export class Client {
     if (key.length !== 1184) throw new ChainError('MevShield.NextKey is not an ML-KEM-768 key')
     const inner = await this.signPrepared(await this.prepareRaw(call, signer, { ...signingOptions, nonce: nonce + 1 }, blockHash), signer)
     const ciphertext = sealMevShieldTransaction(key, inner.bytes)
-    if (ciphertext.length > 8192) throw new ChainError('shielded ciphertext exceeds 8192 bytes')
+    validateShieldedCiphertextSize(ciphertext.length)
     const carrier = { pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext } }
     const outer = await this.signPrepared(await this.prepareRaw(carrier, signer, { ...signingOptions, nonce }, blockHash), signer)
     options.signal?.throwIfAborted()
@@ -690,8 +704,9 @@ export class Client {
       signingOptions.metadataHash = unsigned.txParams.metadataHash as Uint8Array
     }
     const feeSigner = signer ?? prepared.feePayer
-    const innerFee = await this.estimateFee(call, feeSigner, { ...signingOptions, nonce: nonce + (shielded ? 1 : 0) }, snapshot.hash)
-    const carrierFee = shielded ? await this.estimateFee({ pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext: new Uint8Array(8192) } }, feeSigner, { ...signingOptions, nonce }, snapshot.hash) : Balance.fromRao(0)
+    const { innerFee, carrierFee } = shielded
+      ? await this.estimateShieldedFees(call, feeSigner, { ...signingOptions, nonce }, snapshot.hash)
+      : { innerFee: await this.estimateFee(call, feeSigner, { ...signingOptions, nonce }, snapshot.hash), carrierFee: Balance.fromRao(0) }
     const fee = Balance.fromRao(innerFee.rao + carrierFee.rao), violations = checkIntentPolicy(prepared, policy, fee.rao)
     if (execution.violations.includes('shield_required')) violations.push('this intent requires MEV shielding')
     if (execution.violations.includes('call_hash')) violations.push('multisig call changed from expectedCallHash')
@@ -793,8 +808,9 @@ export class BrowserMultisig {
     if (requiresShield && !options.mevShield) throw new ChainError('add_collateral requires MEV shielding')
     const approval = await this.prepare(call, address, options.expectedCallHash)
     const signing = options.mevShield ? shieldOptions(options) : options
-    const fee = await this.client.estimateFee(approval.call, address, signing)
-    const carrierFee = options.mevShield ? await this.client.estimateFee({ pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext: new Uint8Array(8192) } }, address, signing) : Balance.fromRao(0)
+    const { innerFee: fee, carrierFee } = options.mevShield
+      ? await this.client.estimateShieldedFees(approval.call, signer, signing)
+      : { innerFee: await this.client.estimateFee(approval.call, signer, signing), carrierFee: Balance.fromRao(0) }
     if (approval.violations.length || approval.availableFreeRao < approval.depositRao + fee.rao + carrierFee.rao) throw new ChainError('multisig signer cannot cover deposit and fees')
     return this.client.submit(approval.call, signer, options)
   }
@@ -832,7 +848,7 @@ export class Snapshot implements ReadView {
   async isFastBlocks() { return await this.blockTime() === 0.25 }
   blockInfo(block?: number | null) { return this.client.blockInfo(block == null ? this.hash : block) }
   read<N extends ReadName>(name: N, ...args: ReadArgs<N>): Promise<ReadResult<N>> { return dispatchRead(this, name, (args[0] ?? {}) as ReadParams[N]) }
-  metagraph(netuid: number, options: { commitments?: boolean } = {}) { return fetchMetagraph(this, netuid, options) }
+  metagraph(netuid: number, options: CommitmentReadOptions & { commitments?: boolean } = {}) { return fetchMetagraph(this, netuid, options) }
 }
 export { Client as BrowserChainClient, Client as SubtensorClient }
 function first(value: unknown): unknown { return Array.isArray(value) ? value[0] : value }

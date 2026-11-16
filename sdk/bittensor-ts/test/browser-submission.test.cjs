@@ -73,8 +73,8 @@ test('browser shield releases only the inner nonce after finalized expiry', asyn
   for (const finalized of [false, true]) for (const multisig of [false, true]) {
     const { client, signer } = await fixture(), nonces = []
     client.query = async () => new Uint8Array(1184).fill(0x42)
-    client.prepareRaw = async (_call, _signer, options) => { nonces.push(options.nonce); return {} }
-    client.signPrepared = async () => ({ bytes: new Uint8Array([1]), hash: new Uint8Array(32) })
+    client.prepareRaw = async (_call, _signer, options) => ({ nonce: options.nonce, callData: new Uint8Array([1]), publicKey: core.publicKeyFromSs58(signer.address), cryptoType: 1, txParams: {}, runtime: { encodeSignedExtrinsic: () => ({ bytes: new Uint8Array([1]) }) } })
+    client.signPrepared = async unsigned => { nonces.push(unsigned.nonce); return { bytes: new Uint8Array([1]), hash: new Uint8Array(32) } }
     client.broadcastExtrinsic = async () => ({ status: 'inBlock', success: true })
     client.resolveShieldedInner = async () => ({ status: finalized ? 'failed' : 'unknown', data: { inner_expiry_finalized: finalized } })
     if (multisig) {

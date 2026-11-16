@@ -28,6 +28,8 @@ export interface ProxyAnnouncement {
   on_chain?: boolean
   ready?: boolean
   multisig_announcement?: AnnouncementMultisig
+  /** A recovered cancellation cannot exclude an earlier permissionless execution. */
+  execution_uncertain?: boolean
   [key: string]: any
 }
 export interface NewProxyAnnouncement {
@@ -64,6 +66,7 @@ function document(value: unknown): ProxyAnnouncement[] {
     if (!row || integer(row.index, 'announcement index') === 0 || indices.has(row.index) || typeof row.controller_wallet !== 'string' || !row.controller_wallet || typeof row.delegate_ss58 !== 'string' || typeof row.real_ss58 !== 'string') throw new TypeError('invalid announcement record')
     indices.add(row.index); hash(row.call_hash)
     if (row.genesis_hash != null) hash(row.genesis_hash)
+    if (row.execution_uncertain != null && typeof row.execution_uncertain !== 'boolean') throw new TypeError('invalid announcement execution uncertainty')
     integer(row.announced_at_block, 'announcement block'); integer(row.announcement_ordinal ?? 0, 'announcement ordinal')
     integer(row.delay_blocks, 'announcement delay')
   }
@@ -144,7 +147,9 @@ export class ProxyAnnouncementStore {
   }
   remove(wallet: string, index: number, scope: AnnouncementScope = {}): Promise<boolean> { return this.mutate(rows => { const i = rows.findIndex(row => row.index === index && row.controller_wallet === wallet && this.scope(row, scope)); if (i < 0) return false; rows.splice(i, 1); return true }) }
   async unconfirmedCommitment(input: Pick<ProxyAnnouncement, 'controller_wallet' | 'delegate_ss58' | 'real_ss58' | 'call_hash'> & { genesis_hash: string }): Promise<ProxyAnnouncement | undefined> { return (await this.all()).find(row => ['submitting', 'awaiting_approval'].includes(row.status) && this.sameCommitment(row, input)) }
-  async executedCommitmentIndex(row: ProxyAnnouncement): Promise<number | undefined> { return (await this.all()).find(saved => saved.status === 'executed' && this.sameCommitment(saved, row))?.index }
+  async executedCommitmentIndex(row: ProxyAnnouncement): Promise<number | undefined> {
+    return evaluatePolicy<number | null>('protected.repeat_commitment_index', { rows: (await this.all()).map(saved => this.canonical(saved)), row: this.canonical(row) }) ?? undefined
+  }
   moveWallet(from: string, to: string, scope: AnnouncementScope = {}): Promise<number> { return this.mutate(rows => { let count = 0; rows.forEach((row, i) => { if (row.controller_wallet === from && this.scope(row, scope) && ACTIVE_ANNOUNCEMENT_STATUSES.has(row.status)) { rows[i] = { ...row, controller_wallet: to }; count++ } }); return count }) }
   bindLegacy(wallet: string, genesisHash: string, real: string): Promise<number> {
     const genesis = hash(genesisHash)

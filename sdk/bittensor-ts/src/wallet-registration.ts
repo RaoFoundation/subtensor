@@ -6,6 +6,7 @@ import { descriptorBytes, rawBytes, registrationDescriptor } from './protected-a
 import { quoteRegistrationDeposit, registrationDepositGuard } from './registration-deposit'
 import { bytesHex as hex } from './portable'
 import { isRotatingCrypto, isProtectedCrypto, isPqCrypto, u64, walletType } from './wallet-types'
+import { shieldedCiphertextSize } from './shield-size'
 
 export type WalletRole = 'coldkey' | 'hotkey'
 export interface WalletRegistrationKey {
@@ -128,15 +129,17 @@ export function bindWalletRegistrationSigner(signer: any, expected: WalletRegist
   return Object.freeze(bound)
 }
 
-/** A full inner + maximum-size carrier quote with dummy authorization and maximal nonce width. */
+/** Quote the encoded inner and its matching carrier with dummy authorization and maximal nonce width. */
 export async function estimateWalletRegistrationFee(client: { runtimeAt(block: string): Promise<any>; blockNumber(block: string): Promise<number>; rpc(method: string, params: unknown[]): Promise<any> }, call: IntentDescriptor, payer: WalletRegistrationKey, block: string, decode: (address: string) => Uint8Array): Promise<bigint> {
   const runtime = await client.runtimeAt(block)
   const current = Math.max(0, await client.blockNumber(block) - 1)
   const proof = payer.dummyAuthorization ? payer.dummyAuthorization() : new Uint8Array(payer.cryptoType === 2 ? 65 : 64)
   let total = 0n
-  for (const descriptor of [call, { pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext: new Uint8Array(8192) } }]) {
+  const calls = [call]
+  for (const [index, descriptor] of calls.entries()) {
     const data = await encodeIntentCall(descriptor, async (p, f, a) => runtime.composeCall(p, f, a))
     const encoded = runtime.encodeSignedExtrinsic(data, decode(payer.ss58Address), proof, payer.cryptoType, { era: { period: 8, current }, nonce: 0xffffffffn, tip: 0n, metadataHashEnabled: false })
+    if (index === 0) calls.push({ pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext: new Uint8Array(shieldedCiphertextSize(encoded.bytes.length)) } })
     const info = await client.rpc('payment_queryInfo', [hex(encoded.bytes), block])
     const fee = info?.partialFee ?? info?.partial_fee
     if (fee == null) throw new Error('wallet registration fee unavailable')
