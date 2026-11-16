@@ -290,7 +290,10 @@ test('Node detached signing keeps the native plan authoritative and rejects forg
   const signer = require('../dist/keys').Keypair.fromUri('//Alice')
   const client = new Client('local'), other = new Client('local')
   let submitted = 0
-  const native = { submitExternal: async (plan, signature) => { assert.equal(plan, handle); assert.equal(signature.length, 64); submitted++; return { success: true, message: 'submitted', extrinsicHash: '0xabc', events: [] } } }
+  const native = {
+    assembleExternal: async (plan, signature) => { assert.equal(plan, handle); assert.equal(signature.length, 64); return { hash: '0xabc' } },
+    submitExternal: async (plan, signature) => { assert.equal(plan, handle); assert.equal(signature.length, 64); submitted++; return { success: true, message: 'submitted', extrinsicHash: '0xabc', events: [] } },
+  }
   const handle = { publicKey: Buffer.alloc(32), cryptoType: 1, callData: Buffer.from([1]), payload: Buffer.from([2]), includedInExtrinsic: Buffer.from([3]), includedInSignedData: Buffer.from([4]), txParams: { era: '00', nonce: 7, tip: 0n, genesisHash: Buffer.alloc(32), eraBlockHash: Buffer.alloc(32) } }
   client.requireNativeClient = async () => native
   client.runtimeAt = async () => ({ ss58Format: 42 })

@@ -21,6 +21,9 @@ function parseMessage(raw: RawData): Record<string, any> {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) throw new BridgeError('invalid bridge message')
   return value
 }
+function requestPath(target: string | undefined, base: string): string | undefined {
+  try { return new URL(target ?? '/', base).pathname } catch { return undefined }
+}
 const send = (socket: WebSocket, value: unknown) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value)) }
 export class BridgeServer {
   readonly host: '127.0.0.1' | '::1'
@@ -50,13 +53,16 @@ export class BridgeServer {
     if (!this.http) {
       const http = createServer((request, response) => {
         if (request.headers.host !== new URL(this.httpUrl).host) { response.writeHead(403).end('Invalid host'); return }
-        const path = new URL(request.url ?? '/', this.httpUrl).pathname
+        const path = requestPath(request.url, this.httpUrl)
+        if (path == null) { response.writeHead(400).end('Invalid request target'); return }
         if (request.method !== 'GET' || !['/', '/index.html'].includes(path)) { response.writeHead(404).end('Not Found'); return }
         response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' }).end(EXTENSION_BRIDGE_HTML)
       })
       const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024, perMessageDeflate: false })
       http.on('upgrade', (request, socket, head) => {
-        if (request.headers.host !== new URL(this.httpUrl).host || new URL(request.url ?? '/', this.httpUrl).pathname !== '/ws') { socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return }
+        const path = requestPath(request.url, this.httpUrl)
+        if (path == null) { socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'); return }
+        if (request.headers.host !== new URL(this.httpUrl).host || path !== '/ws') { socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return }
         const origin = request.headers.origin
         if (origin != null && origin !== new URL(this.httpUrl).origin) { socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return }
         sockets.handleUpgrade(request, socket, head, connection => this.accept(connection, origin))

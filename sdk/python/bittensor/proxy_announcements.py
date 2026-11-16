@@ -234,16 +234,15 @@ def unconfirmed_commitment(
 
 
 def executed_commitment_index(row: dict[str, Any]) -> Optional[int]:
-    """Return a prior executed instance of the same payload, if one exists."""
-    match = next(
-        (
-            saved
-            for saved in load_announcements()
-            if saved.get("status") == "executed" and _same_commitment(saved, row)
-        ),
-        None,
+    """Return an executed or execution-uncertain instance of the payload."""
+    match = evaluate_policy(
+        "protected.repeat_commitment_index",
+        {
+            "rows": [_canonical_policy_row(saved) for saved in load_announcements()],
+            "row": _canonical_policy_row(row),
+        },
     )
-    return int(match["index"]) if match is not None else None
+    return int(match) if match is not None else None
 
 
 def list_for_wallet(
@@ -300,10 +299,15 @@ def update_announcement(
 def mark_status(
     wallet_name: str, index: int, status: str, *, genesis_hash: Optional[str] = None
 ) -> Optional[dict[str, Any]]:
+    state = (
+        evaluate_policy("protected.announcement_retirement", {"status": status})
+        if status in {"gone", "cancelled"}
+        else {"status": status}
+    )
     return update_announcement(
         wallet_name,
         index,
-        {"status": status, "updated_at": int(time.time())},
+        {**state, "updated_at": int(time.time())},
         genesis_hash=genesis_hash,
     )
 

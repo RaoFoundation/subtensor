@@ -486,7 +486,30 @@ fn same_commitment(left: &Value, right: &Value) -> bool {
         && lower(&left["call_hash"]) == lower(&right["call_hash"])
 }
 fn repeat_approval_required(row: &Value) -> bool {
-    row["status"] == "executed" || row["execution_uncertain"] == true
+    row["status"] == "executed"
+        || row["execution_uncertain"] == true
+        // Older journals did not record uncertainty when an announcement
+        // disappeared or a hash-based cancellation completed. Neither proves
+        // that permissionless execution did not already consume the original.
+        || row["execution_uncertain"] != false
+            && (["gone", "cancelled"].contains(&text(&row["status"]))
+                || row["status"] == "failed" && !row["action_receipt"].is_null())
+}
+
+fn announcement_retirement(input: &Value) -> Result<Value> {
+    let status = text(&input["status"]);
+    if !["executed", "cancelled", "gone", "failed"].contains(&status) {
+        return Err(PolicyError::invalid(
+            "invalid announcement retirement status",
+        ));
+    }
+    Ok(if status == "executed" {
+        json!({"status":status})
+    } else {
+        // Called only after the original commitment is absent. Even a failed
+        // local action cannot rule out an earlier permissionless execution.
+        json!({"status":status,"execution_uncertain":true})
+    })
 }
 
 const TRUSTED_LEAVES: &[&str] = &[
@@ -1596,10 +1619,10 @@ fn journal_transition(input: &Value) -> Result<Value> {
             {
                 return Err(PolicyError::invalid(format!(
                     "this payload {} as #{}; explicit allowRepeat is required",
-                    if executed["execution_uncertain"] == true {
-                        "may have executed"
-                    } else {
+                    if executed["status"] == "executed" && executed["execution_uncertain"] != true {
                         "already executed"
+                    } else {
+                        "may have executed"
                     },
                     number(&executed["index"]) as u64
                 )));
@@ -2145,6 +2168,7 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value> {
         "protected.refill_plan" => refill(&input),
         "protected.refill_position" => refill_position(&input),
         "protected.announcement_category" => Ok(json!(category(text(&input["op"])))),
+        "protected.announcement_retirement" => announcement_retirement(&input),
         "protected.same_commitment" => Ok(json!(same_commitment(&input["left"], &input["right"]))),
         "protected.repeat_commitment_index" => Ok(rows(&input["rows"])
             .iter()

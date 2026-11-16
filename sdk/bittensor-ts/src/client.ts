@@ -2035,9 +2035,14 @@ export class Client extends BrowserChainClient {
     return runSignerQueue(this, record.planned.resolved.ss58Address, async () => {
       options.signal?.throwIfAborted()
       const normalized = normalizeSignature(signature, record.planned.resolved.cryptoType)
+      const submissionOptions = nativeSubmitOptions(options)
+      const extrinsicHash = (await record.planned.native.assembleExternal(record.planned.plan, normalized.signature, normalized.cryptoType)).hash
+      options.signal?.throwIfAborted()
       const cancellation = nativeCancellationForSignal(options.signal)
-      const outcome = await abortableNative(record.planned.native.submitExternal(record.planned.plan, normalized.signature, nativeSubmitOptions(options), normalized.cryptoType, cancellation), options.signal, cancellation)
-      return nativeOutcomeToExtrinsicResult(outcome, options.waitForFinalization === true, this)
+      try {
+        const outcome = await abortableNative(record.planned.native.submitExternal(record.planned.plan, normalized.signature, submissionOptions, normalized.cryptoType, cancellation), options.signal, cancellation)
+        return await nativeOutcomeToExtrinsicResult(outcome, options.waitForFinalization === true, this)
+      } catch (error) { throw new SubmissionUncertainError(extrinsicHash, error) }
     }, options)
   }
 

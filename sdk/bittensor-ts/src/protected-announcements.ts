@@ -37,6 +37,7 @@ function moduleEvents(receipt: ProtectedProxyReceipt, module: string, name: stri
 function successful(receipt: ProtectedProxyReceipt): boolean { return evaluatePolicy<{successful: boolean}>('protected.receipt_state', receipt).successful }
 function approvalOnly(receipt: ProtectedProxyReceipt): boolean { return evaluatePolicy<{approval_only: boolean}>('protected.receipt_state', receipt).approval_only }
 function included(receipt: ProtectedProxyReceipt): boolean { return evaluatePolicy<{included: boolean}>('protected.receipt_state', receipt).included }
+function retired(status: string): Partial<ProxyAnnouncement> { return evaluatePolicy('protected.announcement_retirement', { status }) }
 function uncertainReceipt(error: unknown): ProtectedProxyReceipt | undefined {
   const shielded = shieldedUncertainReceipt(error)
   if (shielded) return shielded
@@ -183,8 +184,8 @@ export class ProtectedAnnouncements {
       }
       return row
     }
-    if (!successful(receipt)) return { ...row, ...(onChain ? {} : { status: 'failed' }), pending_action: null, action_receipt: receipt }
-    if (!onChain && (action.kind === 'cancel' || moduleEvents(receipt, 'Proxy', 'ProxyExecuted').length > 0)) return { ...row, status: action.kind === 'execute' ? 'executed' : 'cancelled', pending_action: null, action_receipt: receipt }
+    if (!successful(receipt)) return { ...row, ...(onChain ? {} : retired('failed')), pending_action: null, action_receipt: receipt }
+    if (!onChain && (action.kind === 'cancel' || moduleEvents(receipt, 'Proxy', 'ProxyExecuted').length > 0)) return { ...row, ...retired(action.kind === 'execute' ? 'executed' : 'cancelled'), pending_action: null, action_receipt: receipt }
     return row
   }
   /** Recover an action completed by another multisig member using its final transaction. */
@@ -258,7 +259,7 @@ export class ProtectedAnnouncements {
       if (saved.pending_action) {
         const before = saved, resolved = await this.resolveAction(saved, view, true)
         saved = resolved
-        if (persist && resolved !== before) saved = await this.journal.settleAction(record.controller_wallet, saved.index, before.pending_action, { status: resolved.status, pending_action: resolved.pending_action, action_receipt: resolved.action_receipt }, this.scope(record)) ?? resolved
+        if (persist && resolved !== before) saved = await this.journal.settleAction(record.controller_wallet, saved.index, before.pending_action, { status: resolved.status, execution_uncertain: resolved.execution_uncertain, pending_action: resolved.pending_action, action_receipt: resolved.action_receipt }, this.scope(record)) ?? resolved
       }
       const exact = history.find(row => this.journal.sameIdentity(row, item))
       merged.push({ ...saved, ...(!persist && !exact ? { index: undefined as any, provisional: true } : {}), on_chain: true, ready: view.block >= saved.executable_at_block })
@@ -270,7 +271,7 @@ export class ProtectedAnnouncements {
       if (row.pending_action) {
         const before = row, resolved = await this.resolveAction(row, view, false)
         row = resolved
-        if (persist && resolved !== before) row = await this.journal.settleAction(record.controller_wallet, row.index, before.pending_action, { status: resolved.status, pending_action: resolved.pending_action, action_receipt: resolved.action_receipt }, this.scope(record)) ?? resolved
+        if (persist && resolved !== before) row = await this.journal.settleAction(record.controller_wallet, row.index, before.pending_action, { status: resolved.status, execution_uncertain: resolved.execution_uncertain, pending_action: resolved.pending_action, action_receipt: resolved.action_receipt }, this.scope(record)) ?? resolved
         if (row.pending_action) { merged.push({ ...row, on_chain: false, ready: false, approval_state: 'action_unknown' }); continue }
         if (['executed', 'cancelled', 'failed'].includes(row.status)) continue
       }
@@ -352,7 +353,7 @@ export class ProtectedAnnouncements {
     const prior = await this.journal.executedCommitmentIndex(row)
     if (prior != null && !options.allowRepeat) {
       const previous = await this.journal.getByIndex(record.controller_wallet, prior, this.scope(record))
-      throw new Error(`this payload ${previous?.execution_uncertain ? 'may have executed' : 'already executed'} as #${prior}; explicit allowRepeat is required`)
+      throw new Error(`this payload ${previous?.status === 'executed' && !previous.execution_uncertain ? 'already executed' : 'may have executed'} as #${prior}; explicit allowRepeat is required`)
     }
     const intent = intentFromJSON({ op: 'execute_proxy_announced', delegate_ss58: row.delegate_ss58, real_ss58: row.real_ss58, inner_op: row.inner_op, inner_args: row.inner_args, force_proxy_type: row.force_proxy_type ?? 'Any', announced_call_data: row.call_data, expected_call_hash: row.call_hash, announced_spec_version: row.runtime_spec_version, announced_call_semantics: row.call_semantics })
     return this.action(record, row, 'execute', intent, options.signerAddress ?? record.controller_ss58, options.allowRepeat === true)
@@ -391,7 +392,7 @@ export class ProtectedAnnouncements {
       const absent = !live.some(item => this.journal.sameIdentity(item, row))
       complete = absent && (receipt.blockNumber == null || view.block >= receipt.blockNumber) && (kind === 'cancel' || moduleEvents(receipt, 'Proxy', 'ProxyExecuted').length > 0)
     }
-    const updates = complete ? { status: kind === 'execute' ? 'executed' : 'cancelled', pending_action: null, action_receipt: receipt } : receipt.success === false && included(receipt) ? { pending_action: null, action_receipt: receipt } : { pending_action: { kind, state: 'submission_unknown', receipt } }
+    const updates = complete ? { ...retired(kind === 'execute' ? 'executed' : 'cancelled'), pending_action: null, action_receipt: receipt } : receipt.success === false && included(receipt) ? { pending_action: null, action_receipt: receipt } : { pending_action: { kind, state: 'submission_unknown', receipt } }
     const saved = await this.journal.settleAction(record.controller_wallet, row.index, pendingAction, updates, this.scope(record)) ?? row
     return { row: saved, receipt, completed: complete }
   }

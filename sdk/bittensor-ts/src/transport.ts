@@ -102,6 +102,8 @@ export interface ActiveConnection extends EndpointAttempt {
 
 export interface ConnectingAttempt extends EndpointAttempt {
   promise: Promise<ActiveConnection>
+  waiters: number
+  cancel(error: Error): void
 }
 
 export interface SubscriptionOptions extends RpcRequestOptions {
@@ -312,6 +314,7 @@ export class JsonRpcTransport {
     method: string,
     params: unknown[] = [],
     options: RpcRequestOptions = {},
+    onResult?: (value: unknown, connection: ActiveConnection) => void,
   ): Promise<unknown> {
     if (this.closed) { const error = new ChainError('transport closed'); throw method.startsWith('author_submit') ? new SubmissionNotSentError(error) : error }
     const requestOptions = {
@@ -332,7 +335,7 @@ export class JsonRpcTransport {
           if (submitting) throw new SubmissionNotSentError(error)
           throw error
         })
-        return await this.wsRequest(endpointAttempt, method, params, requestOptions)
+        return await this.wsRequest(endpointAttempt, method, params, requestOptions, onResult)
       } catch (error) {
         if (error instanceof SubmissionNotSentError || error instanceof RequestAbortedError || error instanceof JsonRpcError) throw error
         if (error instanceof EndpointValidationError) this.validatedEndpoints.delete(endpointAttempt.endpoint)
@@ -450,7 +453,6 @@ export class JsonRpcTransport {
     this.generation += 1
     this.socket?.socket.close()
     this.socket = undefined
-    this.connecting = undefined
     this.failPending(new ChainError('transport closed'))
     for (const state of [...this.subscriptions]) this.closeSubscription(state)
   }
@@ -493,49 +495,72 @@ export class JsonRpcTransport {
     method: string,
     params: unknown[],
     options: RpcRequestOptions,
+    onResult?: (value: unknown, connection: ActiveConnection) => void,
   ): Promise<unknown> {
-    const connection = await this.connect(attempt, options).catch(error => {
-      if (method.startsWith('author_submit')) throw new SubmissionNotSentError(error)
-      throw error
-    })
-    try { throwIfAborted(options.signal) }
-    catch (error) { throw method.startsWith('author_submit') ? new SubmissionNotSentError(error) : error }
-    const id = this.id++
-    const promise = new Promise<unknown>((resolve, reject) => {
-      const request = withRequestSignal(options)
-      const cleanup = () => request.cleanup()
-      const fail = (error: Error) => {
-        if (!this.pending.delete(id)) return
-        cleanup()
-        reject(error)
+    // Every caller owns its budget, including time spent waiting for a shared
+    // connection. Keep the same timer until its response arrives.
+    const request = withRequestSignal(options)
+    const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    const deadline = timeoutMs === 0 ? undefined : performance.now() + timeoutMs
+    const checkRequest = () => {
+      if (request.signal?.aborted) throw request.error()
+      if (deadline != null && performance.now() >= deadline) {
+        throw new RequestTimeoutError(`request timed out after ${timeoutMs}ms`)
       }
-      this.pending.set(id, {
-        generation: connection.generation,
-        resolve(value) {
-          cleanup()
-          resolve(value)
-        },
-        reject(error) {
+    }
+    let handedOff = false
+    try {
+      const connection = await this.connect(attempt, request)
+      checkRequest()
+      if (!this.isCurrentConnection(connection) || connection.socket.readyState !== 1) {
+        throw new ChainError(`connection closed before request handoff: ${attempt.endpoint}`)
+      }
+      const id = this.id++
+      return await new Promise<unknown>((resolve, reject) => {
+        const cleanup = () => request.cleanup()
+        const fail = (error: Error) => {
+          if (!this.pending.delete(id)) return
           cleanup()
           reject(error)
-        },
-        cleanup,
+        }
+        this.pending.set(id, {
+          generation: connection.generation,
+          resolve(value) {
+            checkRequest()
+            // Install subscription routing before resolving: a notification can
+            // follow this response in the same WebSocket message callback turn.
+            onResult?.(value, connection)
+            cleanup()
+            resolve(value)
+          },
+          reject(error) {
+            cleanup()
+            reject(error)
+          },
+          cleanup,
+        })
+        request.onAbort(error => fail(error))
+        if (!this.pending.has(id)) return
+        try {
+          const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params })
+          checkRequest()
+          handedOff = true
+          connection.socket.send(payload)
+        } catch (error) {
+          fail(error instanceof Error ? error : new ChainError(String(error)))
+        }
       })
-      request.onAbort((error) => fail(error))
-    })
-    try {
-      connection.socket.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }))
     } catch (error) {
-      const pending = this.pending.get(id)
-      this.pending.delete(id)
-      pending?.cleanup()
+      if (!handedOff && method.startsWith('author_submit')) throw new SubmissionNotSentError(error)
       throw error
+    } finally {
+      request.cleanup()
     }
-    return promise
   }
 
-  private async connect(attempt: EndpointAttempt, options: RpcRequestOptions = {}): Promise<ActiveConnection> {
+  private async connect(attempt: EndpointAttempt, request: RequestSignal): Promise<ActiveConnection> {
     if (this.closed) throw new ChainError('transport closed')
+    if (request.signal?.aborted) throw request.error()
     if (
       this.socket?.generation === attempt.generation &&
       this.socket.endpoint === attempt.endpoint &&
@@ -544,7 +569,7 @@ export class JsonRpcTransport {
     if (
       this.connecting?.generation === attempt.generation &&
       this.connecting.endpoint === attempt.endpoint
-    ) return this.connecting.promise
+    ) return this.waitForConnection(this.connecting, request)
     if (this.generation !== attempt.generation || this.endpoint !== attempt.endpoint) {
       throw new ChainError(`stale endpoint attempt for ${attempt.endpoint}`)
     }
@@ -552,29 +577,24 @@ export class JsonRpcTransport {
     const connecting: ConnectingAttempt = {
       ...attempt,
       promise: undefined as unknown as Promise<ActiveConnection>,
+      waiters: 0,
+      cancel: () => undefined,
     }
     this.connecting = connecting
     connecting.promise = new Promise((resolve, reject) => {
-      const request = withRequestSignal(options)
       let socket: WebSocketLike
       try {
         socket = this.createWebSocket(attempt.endpoint)
       } catch (error) {
-        request.cleanup()
         if (this.connecting === connecting) this.connecting = undefined
         reject(error)
         return
       }
       let settled = false
-      const cleanup = () => request.cleanup()
       const fail = (error: Error) => {
         if (settled) return
         settled = true
-        cleanup()
-        if (this.generation === attempt.generation) {
-          this.socket = undefined
-          if (this.connecting === connecting) this.connecting = undefined
-        }
+        if (this.connecting === connecting) this.connecting = undefined
         try {
           socket.close()
         } catch {
@@ -582,12 +602,11 @@ export class JsonRpcTransport {
         }
         reject(error)
       }
-      request.onAbort((error) => fail(error))
+      connecting.cancel = fail
       socket.addEventListener('open', () => {
         if (settled) return
         settled = true
-        cleanup()
-        if (this.generation !== attempt.generation || this.endpoint !== attempt.endpoint) {
+        if (this.closed || this.generation !== attempt.generation || this.endpoint !== attempt.endpoint) {
           if (this.connecting === connecting) this.connecting = undefined
           try {
             socket.close()
@@ -610,7 +629,31 @@ export class JsonRpcTransport {
       })
       socket.addEventListener('message', (event) => this.handleMessage({ ...attempt, socket }, event.data))
     })
-    return connecting.promise
+    return this.waitForConnection(connecting, request)
+  }
+
+  private waitForConnection(connecting: ConnectingAttempt, request: RequestSignal): Promise<ActiveConnection> {
+    connecting.waiters += 1
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const finish = (): boolean => {
+        if (settled) return false
+        settled = true
+        connecting.waiters -= 1
+        return true
+      }
+      request.onAbort(error => {
+        if (!finish()) return
+        reject(error)
+        // An abandoned handshake has no owner. Other callers keep their shared
+        // connection alive with their own independent deadlines and signals.
+        if (connecting.waiters === 0) connecting.cancel(error)
+      })
+      connecting.promise.then(
+        connection => { if (finish()) resolve(connection) },
+        error => { if (finish()) reject(error) },
+      )
+    })
   }
 
   private createWebSocket(url: string): WebSocketLike {
@@ -701,7 +744,10 @@ export class JsonRpcTransport {
 
   private failPending(error: Error, generation?: number): void {
     if (generation == null || this.socket?.generation === generation) this.socket = undefined
-    if (generation == null || this.connecting?.generation === generation) this.connecting = undefined
+    if (generation == null || this.connecting?.generation === generation) {
+      this.connecting?.cancel(error)
+      this.connecting = undefined
+    }
     for (const [id, pending] of this.pending) {
       if (generation != null && pending.generation !== generation) continue
       this.pending.delete(id)
@@ -754,16 +800,25 @@ export class JsonRpcTransport {
   }
 
   private async activateSubscription(state: SubscriptionState): Promise<void> {
-    const subscription = String(
-      await this.requestWebSocketOnly(state.subscribeMethod, state.params, state.requestOptions),
-    )
-    if (state.closed) {
-      await this.requestWebSocketOnly(state.unsubscribeMethod, [subscription]).catch(() => undefined)
-      return
+    let activated: ActiveConnection | undefined
+    const subscription = String(await this.requestWebSocketOnly(
+      state.subscribeMethod,
+      state.params,
+      state.requestOptions,
+      (value, connection) => {
+        activated = connection
+        if (state.closed) return
+        const subscription = String(value)
+        state.subscription = subscription
+        state.subscriptionGeneration = connection.generation
+        this.subscriptionsById.set(subscription, { state, generation: connection.generation })
+      },
+    ))
+    if (state.closed && activated != null && this.isCurrentConnection(activated)) {
+      await this.wsRequest(activated, state.unsubscribeMethod, [subscription], {
+        timeoutMs: this.requestTimeoutMs,
+      }).catch(() => undefined)
     }
-    state.subscription = subscription
-    state.subscriptionGeneration = this.generation
-    this.subscriptionsById.set(subscription, { state, generation: this.generation })
   }
 
   private resubscribe(state: SubscriptionState): Promise<void> {

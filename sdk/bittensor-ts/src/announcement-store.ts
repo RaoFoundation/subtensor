@@ -28,7 +28,7 @@ export interface ProxyAnnouncement {
   on_chain?: boolean
   ready?: boolean
   multisig_announcement?: AnnouncementMultisig
-  /** A recovered cancellation cannot exclude an earlier permissionless execution. */
+  /** Absence or hash-based cancellation cannot exclude earlier execution. */
   execution_uncertain?: boolean
   [key: string]: any
 }
@@ -131,7 +131,10 @@ export class ProxyAnnouncementStore {
     const saved = normalizeCallSemantics(updates)
     return this.mutate(rows => { const i = rows.findIndex(row => row.index === index && row.controller_wallet === wallet && this.scope(row, scope)); if (i < 0) return undefined; return rows[i] = { ...rows[i], ...saved, index } })
   }
-  markStatus(wallet: string, index: number, status: string, scope: AnnouncementScope = {}) { return this.update(wallet, index, { status, updated_at: this.now() }, scope) }
+  markStatus(wallet: string, index: number, status: string, scope: AnnouncementScope = {}) {
+    const state = ['gone', 'cancelled'].includes(status) ? evaluatePolicy<Partial<ProxyAnnouncement>>('protected.announcement_retirement', { status }) : { status }
+    return this.update(wallet, index, { ...state, updated_at: this.now() }, scope)
+  }
   claimAction(wallet: string, index: number, kind: 'execute' | 'cancel', scope: AnnouncementScope, allowRepeat = false): Promise<ProxyAnnouncement> {
     return this.mutate(rows => this.transition(rows, { action: 'claim', wallet, index, kind, genesis_hash: scope.genesisHash, allow_repeat: allowRepeat }))
   }

@@ -382,6 +382,11 @@ pub fn save_keypair_pair_to_keyfiles(
             "public keyfile pair member must not contain a private key",
         ));
     }
+    if private_keypair.public_key_bytes() != public_keypair.public_key_bytes()
+        || private_keypair.crypto_type() != public_keypair.crypto_type()
+    {
+        return Err(key_err("private and public keyfile identities differ"));
+    }
 
     prepare_keyfile_target(private_path, overwrite)?;
     prepare_keyfile_target(public_path, overwrite)?;
