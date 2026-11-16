@@ -584,6 +584,15 @@ export const READ_CATALOG = [
     "summary": "Proxy delegations of an account: who may sign on its behalf, and the reserved deposit."
   },
   {
+    "name": "proxy_announcements",
+    "category": "Accounts & keys",
+    "params": {
+      "delegate_ss58": "string"
+    },
+    "defaults": {},
+    "summary": "Pending delayed-proxy announcements made by a delegate, plus reserved deposit."
+  },
+  {
     "name": "quote_mint_gamma",
     "category": "Gamma",
     "params": {
@@ -819,6 +828,15 @@ export const READ_CATALOG = [
     },
     "defaults": {},
     "summary": "The subnet's emission weight vector ``[burn, recycle, owner, validator,"
+  },
+  {
+    "name": "subnet_gamma_emission_whitelisted",
+    "category": "Hyperparameters",
+    "params": {
+      "netuid": "integer"
+    },
+    "defaults": {},
+    "summary": "Root-controlled gamma emission whitelist flag for a subnet (1 = whitelisted); other subnets' gamma shares may name it only while it is set (see the set_subnet_gamma_emission_whitelisted intent)."
   },
   {
     "name": "subnet_hyperparameters",
@@ -1067,6 +1085,7 @@ export interface ReadParams {
   parents: { hotkey_ss58: ReadAddress; netuid: number }
   pending_children: { hotkey_ss58: ReadAddress; netuid: number }
   proxies: { coldkey_ss58: ReadAddress }
+  proxy_announcements: { delegate_ss58: ReadAddress }
   quote_mint_gamma: { netuid: number; amount_tao: number | string }
   quote_mint_gamma_with_stake: { netuid: number; amount_alpha: number | string }
   quote_stake: { netuid: number; amount_tao: number | string }
@@ -1093,6 +1112,7 @@ export interface ReadParams {
   subnet_convictions: { netuid: number }
   subnet_emission_enabled: { netuid: number }
   subnet_emission_weights: { netuid: number }
+  subnet_gamma_emission_whitelisted: { netuid: number }
   subnet_hyperparameters: { netuid: number }
   subnet_identity: { netuid: number }
   subnet_names: {  }

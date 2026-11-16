@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from .._generated import runtime_apis as api
 from .._generated import storage as st
+from .._transport.errors import StorageFunctionNotFound
 from .base import read
 
 # Chain default for UnlockRate/MaturityRate (blocks); used when the storage
@@ -16,6 +17,13 @@ _DEFAULT_LOCK_RATE = 934_866
 
 # The pallet's ONE_YEAR: a subnet's ownership can only change after this age.
 _ONE_YEAR_BLOCKS = 7200 * 365 + 1800
+
+# Runtimes before the one-aggregate-per-hotkey layout keep the owner hotkey's
+# aggregates here, keyed by whether the aggregate is perpetual.
+_OWNER_LOCKS = {
+    True: st.Item("SubtensorModule", "OwnerLock", "LockState"),
+    False: st.Item("SubtensorModule", "DecayingOwnerLock", "LockState"),
+}
 
 # Bit 0 of `AccountFlags`: the coldkey opted into receiving locked alpha
 # (the pallet's ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA).
@@ -286,6 +294,23 @@ def _blocks_until_conviction(
     return None
 
 
+async def _owner_locks(view, netuid: int) -> dict[bool, Any]:
+    """The owner aggregates the runtime stores apart, keyed like ``_OWNER_LOCKS``.
+
+    A map the runtime does not have is left out, so the result is empty where
+    the owner hotkey's locks are in its own aggregates.
+    """
+
+    async def _stored(perpetual: bool, item: st.Item) -> dict[bool, Any]:
+        try:
+            return {perpetual: await view.query(item, [netuid])}
+        except StorageFunctionNotFound:
+            return {}
+
+    stored = await asyncio.gather(*(_stored(*entry) for entry in _OWNER_LOCKS.items()))
+    return {perpetual: value for part in stored for perpetual, value in part.items()}
+
+
 @read(
     "subnet_convictions",
     {"netuid": "integer"},
@@ -313,8 +338,7 @@ async def subnet_convictions(view, netuid: int) -> dict:
     (
         hotkey_rows,
         decaying_rows,
-        owner_lock,
-        decaying_owner_lock,
+        owner_locks,
         owner_hotkey,
         alpha_out,
         protocol_alpha,
@@ -325,8 +349,7 @@ async def subnet_convictions(view, netuid: int) -> dict:
     ) = await asyncio.gather(
         view.query_map(st.SubtensorModule.HotkeyLock, [netuid]),
         view.query_map(st.SubtensorModule.DecayingHotkeyLock, [netuid]),
-        view.query(st.SubtensorModule.OwnerLock, [netuid]),
-        view.query(st.SubtensorModule.DecayingOwnerLock, [netuid]),
+        _owner_locks(view, netuid),
         view.query(st.SubtensorModule.SubnetOwnerHotkey, [netuid]),
         view.query(st.SubtensorModule.SubnetAlphaOut, [netuid]),
         view.query(st.SubtensorModule.SubnetProtocolAlpha, [netuid]),
@@ -356,23 +379,20 @@ async def subnet_convictions(view, netuid: int) -> dict:
     def _hotkey_of(key: Any) -> str:
         return str(key[0]) if isinstance(key, (tuple, list)) else str(key)
 
+    # Where the owner aggregates are stored apart, the hotkey rows are not the owner's.
+    row_owner = None if owner_locks else owner_hotkey
     buckets: dict[str, list[_LockBucket]] = {}
-    for key, value in hotkey_rows:
-        buckets.setdefault(_hotkey_of(key), []).append(
-            _rolled_bucket(value, perpetual=True, owner=False)
-        )
-    for key, value in decaying_rows:
-        buckets.setdefault(_hotkey_of(key), []).append(
-            _rolled_bucket(value, perpetual=False, owner=False)
-        )
-    if owner_hotkey and owner_lock:
-        buckets.setdefault(owner_hotkey, []).append(
-            _rolled_bucket(owner_lock, perpetual=True, owner=True)
-        )
-    if owner_hotkey and decaying_owner_lock:
-        buckets.setdefault(owner_hotkey, []).append(
-            _rolled_bucket(decaying_owner_lock, perpetual=False, owner=True)
-        )
+    for rows, perpetual in ((hotkey_rows, True), (decaying_rows, False)):
+        for key, value in rows:
+            hotkey = _hotkey_of(key)
+            buckets.setdefault(hotkey, []).append(
+                _rolled_bucket(value, perpetual=perpetual, owner=hotkey == row_owner)
+            )
+    for perpetual, value in owner_locks.items():
+        if owner_hotkey and value:
+            buckets.setdefault(owner_hotkey, []).append(
+                _rolled_bucket(value, perpetual=perpetual, owner=True)
+            )
 
     eligible_alpha = _eligible_alpha(alpha_out, protocol_alpha, alpha_burned)
     threshold = eligible_alpha * 18 / 100

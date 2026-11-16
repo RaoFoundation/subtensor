@@ -9,6 +9,7 @@ import { prepareWeights, type EncryptWeightsV2Options } from './intent-weights'
 import { prepareHyperparameter } from './intent-hyperparameters'
 import { rootClaimChargedFeeRao, quoteRootClaimPreviews, readRootClaimRelationships, type RootClaimPreview } from './root-claim'
 import type { IntentArguments, IntentBuilders, IntentInputMap } from './intent-inputs'
+import { announcedCallRequiresDirect, decodedCallDescriptor, sameCallSemantics, announcedCallLeaves, validateAnnouncedCall } from './proxy-announcements'
 export type { IntentInputMap, IntentJSON, IntentArguments, IntentBuilders, IntentAmountInput, BasketSwapLegInput, IntentTimepointInput } from './intent-inputs'
 
 export type IntentOperation = typeof INTENT_CATALOG[number]['name']
@@ -21,6 +22,10 @@ export interface IntentDescriptor {
   readonly params: Readonly<Record<string, unknown>>
   /** Exact semantic call required to verify a hash-only multisig wrapper. */
   readonly semanticCall?: IntentDescriptor
+  /** Exact saved SCALE bytes; must match re-encoding this descriptor before use. */
+  readonly callData?: string | Uint8Array
+  /** Explicit account choice is supported only for Proxy.add_proxy. */
+  readonly signerRole?: 'coldkey' | 'hotkey'
 }
 export interface IntentContext {
   accountMode?: 'legacy' | 'safe'
@@ -37,6 +42,9 @@ export interface IntentReader {
   supportsPqProfile?(profile: number): boolean | Promise<boolean>
   finalizedHead?(): Promise<string>
   composeCall?(call: IntentDescriptor): Promise<Uint8Array>
+  decodeCall?(data: Uint8Array): Promise<unknown>
+  hashCallData?(data: Uint8Array): Uint8Array | Promise<Uint8Array>
+  specVersion?(): number | Promise<number>
   query(pallet: string, item: string, params?: unknown[], block?: number | string | null): Promise<unknown>
   /** Inspect the selected block's metadata before using legacy registration constants. */
   hasStorage?(pallet: string, item: string, block: string): boolean | Promise<boolean>
@@ -201,6 +209,10 @@ export function intentSignerRole(intent: Intent): 'coldkey' | 'hotkey' {
     if (roles.size !== 1) throw new RangeError('all batch intents must share a signer')
     return roles.values().next().value!
   }
+  if (intent.op === 'add_proxy' && intent.args.from_hotkey != null) {
+    if (typeof intent.args.from_hotkey !== 'boolean') throw new TypeError('from_hotkey must be boolean')
+    return intent.args.from_hotkey ? 'hotkey' : 'coldkey'
+  }
   if (intent.op === 'add_proxy' || intent.op === 'remove_proxy') return ['Validate', 'Weights'].includes(String(intent.args.proxy_type)) ? 'hotkey' : 'coldkey'
   if (intent.op === 'remove_proxies') return intent.args.from_hotkey ? 'hotkey' : 'coldkey'
   return catalog.get(intent.op)!.signer
@@ -223,15 +235,20 @@ export async function encodeIntentCall(call: IntentDescriptor, compose: (pallet:
     if (value != null && typeof value === 'object' && !(value instanceof Uint8Array)) return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key, child]) => [key, await visit(child)])))
     return value
   }
-  return compose(call.pallet, call.call, await visit(call.params) as Record<string, unknown>)
+  const encoded = await compose(call.pallet, call.call, await visit(call.params) as Record<string, unknown>)
+  if (call.callData != null) {
+    const saved = bytes(call.callData)
+    if (hex(encoded) !== hex(saved)) throw new Error('saved call bytes do not match the decoded semantic call')
+    return saved
+  }
+  return encoded
 }
 
 type MutablePlan = { -readonly [K in keyof PreparedIntent]: PreparedIntent[K] }
 async function prepare(intent: Intent, reader: IntentReader, context: IntentContext): Promise<MutablePlan> {
   const op = intent.op, tool = catalog.get(op)!
   const receiving = await prepareRecipients(op, intent.args, reader, context.coldkey), a = receiving.args
-  const role = (op === 'add_proxy' || op === 'remove_proxy') && ['Validate', 'Weights'].includes(a.proxy_type)
-    ? 'hotkey' : op === 'remove_proxies' ? a.from_hotkey ? 'hotkey' : 'coldkey' : tool.signer
+  const role = intentSignerRole(intent)
   const plan: MutablePlan = {
     op, call: descriptor('', ''), signerRole: role, dispatchOrigin: role === 'hotkey' ? context.hotkey ?? context.coldkey : context.coldkey,
     feePayer: context.feePayer ?? (role === 'hotkey' ? context.hotkey ?? context.coldkey : context.coldkey), origin: tool.origin,
@@ -433,6 +450,11 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
       const calls = a.netuids.map((n: unknown) => descriptor('AdminUtils', 'sudo_set_subnet_emission_enabled', { netuid: netuid(n), enabled: a.enabled }))
       plan.call = calls.length === 1 ? calls[0] : batchCall(calls); break
     }
+    case 'set_subnet_gamma_emission_whitelisted': {
+      plan.call = descriptor('AdminUtils', 'sudo_set_subnet_gamma_emission_whitelisted', { netuid: a.netuid, whitelisted: a.whitelisted })
+      plan.affectsAllSubnets = !a.whitelisted
+      break
+    }
     case 'set_root_claim_threshold': plan.call = sub('sudo_set_root_claim_threshold', { netuid: 0, new_value: rao(a.threshold) }); break
     case 'register_leased_network': plan.call = sub(op, { emissions_share: small(a.emissions_share, 100, 'emissions_share'), end_block: a.end_block }); break
     case 'terminate_lease': plan.call = sub(op, { lease_id: a.lease_id, hotkey: hotkey() }); break
@@ -458,17 +480,50 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
         }
         plan.requiredFreeByAccount = [{address:context.coldkey,requiredRao:reserve,availableRao:await freeBalance(reader,context.coldkey)}]
       }
-      const call = descriptor('Proxy', fn, params)
+      const call = { ...descriptor('Proxy', fn, params), ...(op === 'add_proxy' && a.from_hotkey != null ? { signerRole: role } : {}) }
       plan.call = depositGuard ? batchCall([depositGuard, call]) : call; break
     }
     case 'remove_proxies': plan.call = descriptor('Proxy', op); break
+    case 'announce_proxy_call': case 'remove_proxy_announcement': case 'reject_proxy_announcement': {
+      if (typeof a.call_hash !== 'string' || !/^0x[0-9a-f]{64}$/i.test(a.call_hash)) throw new TypeError('call_hash must be a 0x-prefixed Blake2-256 hash')
+      const reject = op === 'reject_proxy_announcement'
+      plan.call = descriptor('Proxy', op === 'announce_proxy_call' ? 'announce' : reject ? 'reject_announcement' : 'remove_announcement', { [reject ? 'delegate' : 'real']: reject ? a.delegate_ss58 : a.real_ss58, call_hash: a.call_hash })
+      if (op === 'announce_proxy_call') plan.warnings = [...plan.warnings, 'reserves an announcement deposit, returned on execution, removal or rejection']
+      break
+    }
     case 'execute_proxy_announced': {
       if (a.force_proxy_type != null && !PROXY_TYPES.includes(a.force_proxy_type)) throw new RangeError('unknown force_proxy_type')
       const innerIntent = new Intent(a.inner_op, a.inner_args), hotkey = intentSignerRole(innerIntent) === 'hotkey'
-      const inner = await innerIntent.prepare(reader, { coldkey: a.real_ss58, hotkey: hotkey ? a.real_ss58 : undefined, hotkeyPublicKey: hotkey ? required(reader.decodeAddress, 'decodeAddress').call(reader, a.real_ss58) : undefined, feePayer: plan.feePayer, accountMode: context.accountMode })
-      mergeChild(plan, inner)
-      plan.dispatchOrigin = inner.dispatchOrigin
-      plan.call = descriptor('Proxy', 'proxy_announced', { delegate: a.delegate_ss58, real: a.real_ss58, force_proxy_type: a.force_proxy_type, call: inner.call }); break
+      let call: IntentDescriptor
+      if (a.announced_call_data != null) {
+        if (typeof a.announced_call_data !== 'string' || !/^0x(?:[0-9a-f]{2})+$/i.test(a.announced_call_data)) throw new TypeError('announced_call_data must be nonempty 0x-prefixed byte hex')
+        const data = bytes(a.announced_call_data)
+        const hash = await required(reader.hashCallData, 'hashCallData').call(reader, data)
+        if (hash.length !== 32) throw new RangeError('call hash must be 32 bytes')
+        if (a.expected_call_hash != null && (typeof a.expected_call_hash !== 'string' || a.expected_call_hash.toLowerCase() !== hex(hash))) throw new Error('saved call bytes do not match the selected announcement hash')
+        const decoded = await required(reader.decodeCall, 'decodeCall').call(reader, data)
+        if (a.announced_spec_version != null && unsigned(await required(reader.specVersion, 'specVersion').call(reader), 'runtime spec version') !== unsigned(a.announced_spec_version, 'announced spec version')) {
+          if (a.announced_call_semantics == null) throw new Error('runtime changed since announcement without original decoded semantics; cancel and re-announce')
+          if (!sameCallSemantics(decoded, a.announced_call_semantics)) throw new Error('runtime metadata now decodes the announced bytes differently; cancel and re-announce')
+        }
+        call = { ...decodedCallDescriptor(decoded), callData: hex(data) }
+        validateAnnouncedCall(call)
+        // Replay exact approved bytes. Never infer bounded spending or subnet scope
+        // from the user's descriptive intent, which can differ from those bytes.
+        plan.spendRao = 'unbounded'; plan.affectsAllSubnets = true; plan.global = true
+        plan.dispatchOrigin = a.real_ss58
+        const shielding = announcedShielding(innerIntent, call)
+        plan.mevShieldDefault ||= shielding.default; plan.mevShieldRequired ||= shielding.required
+        plan.extras = { ...plan.extras, announced_call_hash: hex(hash) }
+      } else {
+        if (a.expected_call_hash != null || a.announced_spec_version != null || a.announced_call_semantics != null) throw new TypeError('saved announcement checks require announced_call_data')
+        const inner = await innerIntent.prepare(reader, { coldkey: a.real_ss58, hotkey: hotkey ? a.real_ss58 : undefined, hotkeyPublicKey: hotkey ? required(reader.decodeAddress, 'decodeAddress').call(reader, a.real_ss58) : undefined, feePayer: plan.feePayer, accountMode: context.accountMode })
+        mergeChild(plan, inner)
+        plan.dispatchOrigin = inner.dispatchOrigin
+        call = inner.call
+      }
+      if (announcedCallRequiresDirect(call)) plan.extras = { ...plan.extras, requires_direct_submission: true }
+      plan.call = descriptor('Proxy', 'proxy_announced', { delegate: a.delegate_ss58, real: a.real_ss58, force_proxy_type: a.force_proxy_type, call }); break
     }
     case 'multisig_threshold_1': case 'multisig_execute': case 'multisig_approve': case 'multisig_cancel': await multisig(plan, reader, context, a); break
     case 'batch': {
@@ -479,6 +534,7 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
         if (child.op === 'batch') throw new RangeError('nested batches are not supported')
         children.push(await child.prepare(reader, context))
       }
+      if (children.some(child => child.extras.requires_direct_submission)) throw new RangeError('announced proxy with an inner batch or uninspectable payload: submit it directly')
       if (children.some(child => child.signerRole !== children[0].signerRole)) throw new RangeError('all batch intents must share a signer')
       plan.signerRole = children[0].signerRole; plan.dispatchOrigin = children[0].dispatchOrigin; plan.feePayer = children[0].feePayer
       plan.spendRao = null; plan.netuids = []; plan.global = false
@@ -734,6 +790,7 @@ function mergeChild(plan: MutablePlan, child: PreparedIntent): void {
   plan.violations = [...plan.violations, ...child.violations]
   plan.effects = [...plan.effects, ...child.effects]
   plan.extras = { ...plan.extras, [child.op]: child.extras, registrationSponsorships:[...((plan.extras.registrationSponsorships as unknown[]) ?? []),...((child.extras.registrationSponsorships as unknown[]) ?? [])] }
+  if (child.extras.requires_direct_submission) plan.extras = { ...plan.extras, requires_direct_submission: true }
   plan.requiredFreeByAccount = [...plan.requiredFreeByAccount, ...child.requiredFreeByAccount]
 }
 
@@ -825,18 +882,51 @@ async function claimPreflight(plan: MutablePlan, reader: IntentReader, context: 
   } catch { plan.warnings = [...plan.warnings, 'basket yield preview unavailable; admission and fee reserve were checked separately'] }
 }
 function signedInteger(value: unknown): bigint { if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new RangeError('unsafe signed integer'); if (typeof value !== 'number' && typeof value !== 'bigint' && !(typeof value === 'string' && /^-?\d+$/.test(value))) throw new TypeError('invalid signed integer'); return BigInt(value) }
+function announcedShielding(intent: Intent, call: IntentDescriptor): { default: boolean; required: boolean } {
+  const result = { default: false, required: false }
+  const add = (tool: CatalogEntry) => { result.default ||= tool.mev_shield_default; result.required ||= tool.mev_shield_required }
+  const semantic = (value: Intent, depth = 0): void => {
+    if (depth > 64) throw new RangeError('announced intent nesting exceeds 64')
+    add(catalog.get(value.op)!)
+    if (value.op === 'batch') for (const child of value.args.intents as Array<Intent | Record<string, unknown>>) semantic(intentFromJSON(child), depth + 1)
+    else if (['multisig_approve', 'multisig_execute', 'multisig_threshold_1'].includes(value.op)) semantic(intentFromJSON(value.args.call as Intent | Record<string, unknown>), depth + 1)
+    else if (value.op === 'execute_proxy_announced') semantic(new Intent(value.args.inner_op as IntentOperation, value.args.inner_args as Record<string, unknown>), depth + 1)
+  }
+  semantic(intent)
+  for (const leaf of announcedCallLeaves(call)) {
+    const tools = [...catalog.values()].filter(tool => tool.wraps.some(([pallet, fn]) => pallet === leaf.pallet && fn === leaf.call))
+    // Opaque-to-the-catalog calls cannot weaken shielding declared by an inner call.
+    if (!tools.length) result.default = result.required = true
+    else tools.forEach(add)
+  }
+  return result
+}
 async function emissionWeights(plan: MutablePlan, reader: IntentReader, context: IntentContext, a: Record<string, any>): Promise<void> {
-  if (!Array.isArray(a.slots) || !a.slots.length || !Array.isArray(a.values) || a.slots.length !== a.values.length) throw new RangeError('emission slots and values must have the same nonzero length')
+  if (!Array.isArray(a.slots) || !Array.isArray(a.values) || a.slots.length !== a.values.length) throw new RangeError('emission slots and values must have the same length')
+  const gammaUpdates = emission.parseGammaUpdates(a.gamma ?? {})
+  if (!a.slots.length && !Object.keys(gammaUpdates).length) throw new RangeError('name at least one emission slot or Gamma share to set')
   const slots = a.slots.map(emission.slotIndex)
   if (new Set(slots).size !== slots.length) throw new RangeError('each emission slot may appear only once')
   const updates: Record<string, bigint> = Object.fromEntries(slots.map((slot: number, index: number) => [slot, emission.parseShare(a.values[index])]))
+  if (a.netuid === 0) throw new Error('root has no emission vector')
   const current = rec(await reader.runtimeCall('SubnetInfoRuntimeApi', 'get_subnet_emission_weights', [a.netuid]))
   if (!Array.isArray(current.weights)) throw new Error('subnet emission vector unavailable; root has no emission vector')
   const before = current.weights.map((value: unknown) => unsigned(value, 'emission share'))
-  const gammaShare = emission.gammaEmissionShare(await reader.query('SubtensorModule', 'SubnetGammaEmission', [a.netuid]))
-  const after = a.renormalize ? emission.renormalize(before, updates, gammaShare) : emission.mergeWeights(before, updates)
+  const gammaBefore = emission.gammaEmissionShares(await reader.query('SubtensorModule', 'SubnetGammaEmission', [a.netuid]))
+  const gammaAfter = emission.mergeGamma(gammaBefore, gammaUpdates)
+  const gammaShare = Object.values(gammaAfter).reduce((sum, value) => sum + value, 0n)
+  const after = a.renormalize ? emission.renormalize(before, updates, gammaShare) : emission.absorbRounding(emission.mergeWeights(before, updates), gammaShare)
+  const [whitelist, enabled, lease] = await Promise.all([
+    required(reader.queryMap, 'queryMap').call(reader, 'SubtensorModule', 'SubnetGammaEmissionWhitelisted', []),
+    required(reader.queryMap, 'queryMap').call(reader, 'SubtensorModule', 'SubnetGammaEnabled', []),
+    reader.query('SubtensorModule', 'SubnetUidToLeaseId', [a.netuid]),
+  ])
+  const key = (value: unknown) => emission.gammaTarget(Array.isArray(value) && value.length === 1 ? value[0] : value)
+  const active = new Set(enabled.filter(([, value]) => Boolean(value)).map(([id]) => key(id)))
+  const targets = Object.fromEntries(whitelist.filter(([, value]) => Boolean(value)).map(([id]) => [key(id), active.has(key(id))]))
   const baseline = unsigned(current.root_baseline_share, 'root baseline share')
-  const violations = emission.validate(after, { min_validator: emission.minValidatorParts(baseline), min_owner: emission.DEFAULT_OWNER, created_via_lease: Boolean(current.created_via_lease), gamma_share: gammaShare })
+  const rules: emission.EmissionRules = { min_validator: emission.minValidatorParts(baseline), min_owner: emission.DEFAULT_OWNER, created_via_lease: Boolean(current.created_via_lease), gamma_share: gammaShare, gamma_targets: targets, leased: lease != null }
+  const violations = [...emission.validate(after, rules), ...emission.validateGamma(a.netuid, gammaAfter, rules)]
   plan.violations = [...plan.violations, ...violations.map(violation => `${violation.error}: ${violation.message}`)]
   const [owner, last, block] = await Promise.all([
     reader.query('SubtensorModule', 'SubnetOwner', [a.netuid]),
@@ -847,9 +937,12 @@ async function emissionWeights(plan: MutablePlan, reader: IntentReader, context:
   if (!isOwner) plan.violations = [...plan.violations, `dispatch account is not the owner of subnet ${a.netuid}`]
   const rateLimit = emission.rateLimitStatus(Number(unsigned(last ?? 0, 'last emission change')), block)
   if (!rateLimit.owner_can_change_now) plan.violations = [...plan.violations, `owner emission update rate-limited until block ${rateLimit.next_allowed_block}`]
-  const ids: number[] = a.renormalize ? [0, 1, 2, 3, 4] : slots.slice().sort((left: number, right: number) => left - right)
-  plan.call = descriptor('AdminUtils', 'sudo_set_subnet_emission_weights', { netuid: a.netuid, uids: ids, values: ids.map(id => a.renormalize ? after[id] : updates[id]) })
-  plan.preview = { before, after, gamma_share: gammaShare, baselineRootShare: baseline, rateLimit, changed: emission.SLOT_NAMES.filter((_, index) => before[index] !== after[index]) }
+  const split: Array<[unknown, bigint]> = emission.SLOT_NAMES.map((name, index) => [name[0].toUpperCase() + name.slice(1), after[index]])
+  split.push(...Object.entries(gammaAfter).map(([target, share]): [unknown, bigint] => [{ Gamma: { netuid: Number(target) } }, share]))
+  plan.call = descriptor('AdminUtils', 'sudo_set_subnet_emission_weights_v2', { netuid: a.netuid, split })
+  plan.netuids = [...new Set([...plan.netuids, ...Object.keys(gammaAfter).map(Number), ...Object.keys(gammaUpdates).map(Number)])].sort((a, b) => a - b)
+  if (Object.entries(gammaBefore).some(([target, share]) => share > 0n && !Object.hasOwn(gammaAfter, target))) plan.warnings = [...plan.warnings, 'removed Gamma targets return their unconverted alpha to miners']
+  plan.preview = { before, after, gamma_share: gammaShare, gamma: { before: gammaBefore, after: gammaAfter }, gamma_targets: targets, leased: lease != null, baselineRootShare: baseline, rateLimit, changed: emission.SLOT_NAMES.filter((_, index) => before[index] !== after[index]) }
 }
 
 async function multisig(plan: MutablePlan, reader: IntentReader, context: IntentContext, a: Record<string, any>): Promise<void> {

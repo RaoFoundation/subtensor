@@ -186,7 +186,11 @@ impl IntentCall {
             "AdminUtils.sudo_set_mechanism_count" => &["netuid", "mechanism_count"],
             "AdminUtils.sudo_set_subnet_emission_enabled" => &["netuid", "enabled"],
             "AdminUtils.sudo_set_subnet_emission_weights" => &["netuid", "uids", "values"],
+            "AdminUtils.sudo_set_subnet_emission_weights_v2" => &["netuid", "split"],
+            "AdminUtils.sudo_set_subnet_gamma_emission_whitelisted" => &["netuid", "whitelisted"],
             "Proxy.add_proxy" | "Proxy.remove_proxy" => &["delegate", "proxy_type", "delay"],
+            "Proxy.announce" | "Proxy.remove_announcement" => &["real", "call_hash"],
+            "Proxy.reject_announcement" => &["delegate", "call_hash"],
             "Proxy.create_pure" | "Proxy.create_safe_pure" | "Proxy.create_protected_pure" => {
                 &["proxy_type", "delay", "index"]
             }
@@ -240,6 +244,11 @@ impl IntentCall {
         validate_fields(&params, allowed)?;
         if operation == "HashedAccounts.check_registration_deposit" {
             number(field(&params, "max_deposit")?)?;
+        }
+        if operation == "AdminUtils.sudo_set_subnet_gamma_emission_whitelisted"
+            && !matches!(field(&params, "whitelisted")?, Value::Bool(_))
+        {
+            return Err(invalid("whitelisted must be a boolean"));
         }
         let mut scope = Vec::new();
         for field in ["netuid", "origin_netuid", "destination_netuid"] {
@@ -341,6 +350,11 @@ impl IntentCall {
                 | "claim_root_with_hotkey"
                 | "stake_into_basket"
         ) || operation == "Crowdloan.finalize"
+            // A full split can remove targets absent from its parameters. Only
+            // the state-aware descriptor constructor can prove its full scope.
+            || operation == "AdminUtils.sudo_set_subnet_emission_weights_v2"
+            || operation == "AdminUtils.sudo_set_subnet_gamma_emission_whitelisted"
+                && matches!(field(&params, "whitelisted")?, Value::Bool(false))
             || function == "swap_hotkey" && matches!(field(&params, "netuid")?, Value::Null);
         let global = scope.is_empty() && !all;
         let constructor = if global {
@@ -356,7 +370,7 @@ impl IntentCall {
     /// Build nested trusted descriptors, encoding each child from the same live metadata.
     /// Wrappers inherit their child's immutable policy rather than trusting annotations.
     pub fn from_descriptor(client: &Client, descriptor: &Value) -> Result<Self, CoreError> {
-        descriptor_inner(client, descriptor, 0)
+        descriptor_inner(client, descriptor, 0, &mut None)
     }
 }
 
@@ -364,6 +378,34 @@ fn descriptor_inner(
     client: &Client,
     descriptor: &Value,
     depth: usize,
+    scope_block: &mut Option<String>,
+) -> Result<IntentCall, CoreError> {
+    let mut call = descriptor_unchecked(client, descriptor, depth, scope_block)?;
+    if let Some(role) = optional_field(descriptor, "signerRole")? {
+        if call.pallet != "Proxy" || call.function != "add_proxy" {
+            return Err(invalid(
+                "explicit signer role is only supported for Proxy.add_proxy",
+            ));
+        }
+        call.signer = match string(role)? {
+            "coldkey" => SignerRole::Coldkey,
+            "hotkey" => SignerRole::Hotkey,
+            _ => return Err(invalid("invalid explicit signer role")),
+        };
+    }
+    if let Some(data) = optional_field(descriptor, "callData")? {
+        if call.encode(client)? != value_bytes(data)? {
+            return Err(invalid("saved call bytes do not match the decoded call"));
+        }
+    }
+    Ok(call)
+}
+
+fn descriptor_unchecked(
+    client: &Client,
+    descriptor: &Value,
+    depth: usize,
+    scope_block: &mut Option<String>,
 ) -> Result<IntentCall, CoreError> {
     if depth > 64 {
         return Err(invalid("intent descriptor nesting exceeds 64"));
@@ -376,7 +418,7 @@ fn descriptor_inner(
         validate_fields(&params, &["calls"])?;
         let children = as_list(field(&params, "calls")?)?
             .iter()
-            .map(|child| descriptor_inner(client, child, depth + 1))
+            .map(|child| descriptor_inner(client, child, depth + 1, scope_block))
             .collect::<Result<Vec<_>, _>>()?;
         let mut result = IntentCall::batch(client, children)?;
         // A composite semantic operation can contain its own atomic batch.
@@ -418,7 +460,26 @@ fn descriptor_inner(
             "call",
             "target_address",
         ],
-        _ => return IntentCall::operation(&operation, params),
+        _ => {
+            let mut call = IntentCall::operation(&operation, params)?;
+            if operation == "AdminUtils.sudo_set_subnet_emission_weights_v2" {
+                // Keep all replacements in a nested descriptor on one chain
+                // snapshot. RPC/metadata/decoding failures must not narrow scope.
+                let hash = match scope_block {
+                    Some(hash) => hash,
+                    None => scope_block.insert(client.block_hash(None)?),
+                };
+                let previous = client.query(
+                    "SubtensorModule",
+                    "SubnetGammaEmission",
+                    &[field(&call.params, "netuid")?.clone()],
+                    Some(hash),
+                )?;
+                call.security.netuids = emission_split_scope(&call.params, &previous)?;
+                call.security.affects_all_subnets = false;
+            }
+            return Ok(call);
+        }
     };
     validate_fields(&params, wrapper_fields)?;
     if operation == "Crowdloan.create" && matches!(field(&params, "call")?, Value::Null) {
@@ -452,8 +513,13 @@ fn descriptor_inner(
     if operation == "Sudo.sudo" && !root_descriptor(inner_descriptor)? {
         return Err(invalid("trusted sudo only wraps declared root operations"));
     }
-    let child = descriptor_inner(client, inner_descriptor, depth + 1)?;
-    let encoded = child.encode(client)?;
+    let child = descriptor_inner(client, inner_descriptor, depth + 1, scope_block)?;
+    // descriptor_inner verified saved bytes against the decoded constructor.
+    // Preserve that immutable payload instead of composing it a second time.
+    let encoded = match optional_field(inner_descriptor, "callData")? {
+        Some(data) => value_bytes(data)?,
+        None => child.encode(client)?,
+    };
     let mut params = params;
     if hash_only {
         let supplied_hash = value_bytes(field(&params, "call_hash")?)?;
@@ -480,7 +546,7 @@ fn descriptor_inner(
     ) {
         security = SecuritySemantics::trusted(Spend::None, [], false).global();
     }
-    let signer = if pallet == "Proxy" {
+    let signer = if operation == "Proxy.proxy" {
         child.signer
     } else {
         SignerRole::Coldkey
@@ -488,6 +554,38 @@ fn descriptor_inner(
     Ok(IntentCall::from_parts(
         operation, signer, pallet, function, params, security,
     ))
+}
+
+fn emission_split_scope(params: &Value, previous: &Value) -> Result<Vec<u16>, CoreError> {
+    let mut scope = BTreeSet::from([as_netuid(field(params, "netuid")?)?]);
+    for row in as_list(previous)? {
+        let [target, share] = as_list(row)?.as_slice() else {
+            return Err(invalid("invalid stored Gamma emission share"));
+        };
+        scope.insert(as_netuid(target)?);
+        u64::try_from(number(share)?).map_err(|_| invalid("Gamma share exceeds u64"))?;
+    }
+    for row in as_list(field(params, "split")?)? {
+        let [slot, share] = as_list(row)?.as_slice() else {
+            return Err(invalid("invalid emission split entry"));
+        };
+        u64::try_from(number(share)?).map_err(|_| invalid("emission share exceeds u64"))?;
+        match slot {
+            Value::Str(name)
+                if matches!(
+                    name.as_str(),
+                    "Burn" | "Recycle" | "Owner" | "Validator" | "Miner"
+                ) => {}
+            Value::Dict(_) => {
+                validate_fields(slot, &["Gamma"])?;
+                let gamma = field(slot, "Gamma")?;
+                validate_fields(gamma, &["netuid"])?;
+                scope.insert(as_netuid(field(gamma, "netuid")?)?);
+            }
+            _ => return Err(invalid("invalid emission slot")),
+        }
+    }
+    Ok(scope.into_iter().collect())
 }
 
 fn order_netuid(order: &Value) -> Result<u16, CoreError> {
@@ -511,6 +609,7 @@ fn root_descriptor(value: &Value) -> Result<bool, CoreError> {
     if matches!(
         operation.as_str(),
         "AdminUtils.sudo_set_subnet_emission_enabled"
+            | "AdminUtils.sudo_set_subnet_gamma_emission_whitelisted"
             | "SubtensorModule.sudo_set_root_claim_threshold"
             | "AdminUtils.sudo_set_evm_chain_id"
             | "EVM.disable_whitelist"
@@ -574,6 +673,7 @@ fn owner_hyperparameter(operation: &str, params: Value) -> Result<IntentCall, Co
         "sudo_set_commit_reveal_weights_enabled"
         | "sudo_set_liquid_alpha_enabled"
         | "sudo_set_yuma3_enabled"
+        | "sudo_set_subnet_gamma_enabled"
         | "sudo_set_bonds_reset_enabled"
         | "sudo_set_owner_cut_auto_lock_enabled" => &["netuid", "enabled"],
         _ => return Err(invalid(format!("unknown trusted operation {operation}"))),
@@ -798,5 +898,112 @@ mod tests {
             ])
         )
         .is_err());
+    }
+
+    #[test]
+    fn release_491_operations_enforce_target_scope() -> Result<(), CoreError> {
+        assert!(IntentCall::operation(
+            "AdminUtils.sudo_set_subnet_gamma_emission_whitelisted",
+            record(&[("netuid", Value::Int(7)), ("whitelisted", Value::Int(0))]),
+        )
+        .is_err());
+        let policy = Policy {
+            allowed_netuids: Some([7].into_iter().collect()),
+            ..Default::default()
+        };
+        for whitelisted in [false, true] {
+            let call = IntentCall::operation(
+                "AdminUtils.sudo_set_subnet_gamma_emission_whitelisted",
+                record(&[
+                    ("netuid", Value::Int(7)),
+                    ("whitelisted", Value::Bool(whitelisted)),
+                ]),
+            )?;
+            assert_eq!(call.security.affects_all_subnets, !whitelisted);
+            assert_eq!(policy.check(&call, None).is_empty(), whitelisted);
+        }
+        let split = IntentCall::operation(
+            "AdminUtils.sudo_set_subnet_emission_weights_v2",
+            record(&[("netuid", Value::Int(8)), ("split", Value::List(vec![]))]),
+        )?;
+        assert!(!policy.check(&split, None).is_empty());
+        for (operation, account) in [
+            ("Proxy.announce", "real"),
+            ("Proxy.remove_announcement", "real"),
+            ("Proxy.reject_announcement", "delegate"),
+        ] {
+            let call = IntentCall::operation(
+                operation,
+                record(&[
+                    (account, Value::str("account")),
+                    ("call_hash", Value::Bytes(vec![0; 32])),
+                ]),
+            )?;
+            assert!(!call.security.raw);
+            assert_eq!(call.security.spend, Spend::None);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn gamma_enabled_owner_hyperparameter_retains_exact_subnet_scope() -> Result<(), CoreError> {
+        for enabled in [false, true] {
+            let call = IntentCall::operation(
+                "AdminUtils.sudo_set_subnet_gamma_enabled",
+                record(&[("netuid", Value::Int(7)), ("enabled", Value::Bool(enabled))]),
+            )?;
+            assert_eq!(call.security.netuids, vec![7]);
+            assert!(!call.security.affects_all_subnets);
+            assert_eq!(call.signer_role(), SignerRole::Coldkey);
+            for (allowed, accepted) in [(7, true), (8, false)] {
+                let policy = Policy {
+                    allowed_netuids: Some([allowed].into_iter().collect()),
+                    ..Default::default()
+                };
+                assert_eq!(policy.check(&call, None).is_empty(), accepted);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn gamma_v2_scope_rejects_malformed_split_or_previous_shares() {
+        let params = |slot| {
+            record(&[
+                ("netuid", Value::Int(1)),
+                (
+                    "split",
+                    Value::List(vec![Value::Tuple(vec![slot, Value::Uint(1)])]),
+                ),
+            ])
+        };
+        let valid = params(Value::str("Miner"));
+        for previous in [
+            Value::Null,
+            Value::List(vec![Value::Tuple(vec![Value::Int(7)])]),
+            Value::List(vec![Value::Tuple(vec![Value::Int(-1), Value::Int(1)])]),
+            Value::List(vec![Value::Tuple(vec![Value::Int(65536), Value::Int(1)])]),
+            Value::List(vec![Value::Tuple(vec![
+                Value::Int(7),
+                Value::Uint(u128::MAX),
+            ])]),
+        ] {
+            assert!(emission_split_scope(&valid, &previous).is_err());
+        }
+        for slot in [
+            Value::str("Unknown"),
+            record(&[("Gamma", Value::Int(7))]),
+            record(&[("Gamma", record(&[("netuid", Value::Int(65536))]))]),
+            record(&[(
+                "Gamma",
+                record(&[("netuid", Value::Int(7)), ("extra", Value::Int(8))]),
+            )]),
+            record(&[
+                ("Gamma", record(&[("netuid", Value::Int(7))])),
+                ("Miner", Value::Null),
+            ]),
+        ] {
+            assert!(emission_split_scope(&params(slot), &Value::List(vec![])).is_err());
+        }
     }
 }

@@ -100,6 +100,361 @@ fn test_client(endpoints: Vec<String>, validated: HashMap<usize, Instant>) -> Cl
     }
 }
 
+mod gamma_scope {
+    use super::*;
+    use crate::transaction::{IntentCall, Policy};
+    use scale_info::{
+        Field, Path, PortableType, Type, TypeDef, TypeDefSequence, TypeDefTuple, TypeDefVariant,
+        Variant,
+    };
+    use std::io::{BufRead, BufReader};
+
+    fn add_type(runtime: &mut Runtime, type_def: TypeDef<scale_info::form::PortableForm>) -> u32 {
+        let id = u32::try_from(runtime.types.types.len()).unwrap();
+        runtime.types.types.push(PortableType {
+            id,
+            ty: Type {
+                path: Path::default(),
+                type_params: vec![],
+                type_def,
+                docs: vec![],
+            },
+        });
+        id
+    }
+
+    // Extend only the legacy fixture's missing V2 call and storage types. The
+    // descriptor uses the real RPC, SCALE storage decoder and batch encoder.
+    fn client(endpoint: String) -> Client {
+        let mut client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
+        let runtime = Arc::get_mut(client.runtime.get_mut().unwrap()).unwrap();
+        let u16_ty = add_type(
+            runtime,
+            TypeDef::Primitive(scale_info::TypeDefPrimitive::U16),
+        );
+        let u64_ty = add_type(
+            runtime,
+            TypeDef::Primitive(scale_info::TypeDefPrimitive::U64),
+        );
+        let pair = add_type(
+            runtime,
+            TypeDef::Tuple(TypeDefTuple {
+                fields: vec![u16_ty.into(), u64_ty.into()],
+            }),
+        );
+        let shares = add_type(
+            runtime,
+            TypeDef::Sequence(TypeDefSequence {
+                type_param: pair.into(),
+            }),
+        );
+        runtime
+            .pallets
+            .iter_mut()
+            .find(|p| p.name == "SubtensorModule")
+            .unwrap()
+            .storage
+            .push(StorageInfo {
+                name: "SubnetGammaEmission".into(),
+                prefix: "SubtensorModule".into(),
+                modifier: "Default".into(),
+                hashers: vec!["Identity".into()],
+                key_types: vec![u16_ty],
+                value_type: shares,
+                default_bytes: vec![0],
+            });
+        let field = |name: &str, ty: u32| Field {
+            name: Some(name.into()),
+            ty: ty.into(),
+            type_name: None,
+            docs: vec![],
+        };
+        let mut variants = ["Burn", "Recycle", "Owner", "Validator", "Miner"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| Variant {
+                name: name.into(),
+                fields: vec![],
+                index: u8::try_from(index).unwrap(),
+                docs: vec![],
+            })
+            .collect::<Vec<_>>();
+        variants.push(Variant {
+            name: "Gamma".into(),
+            fields: vec![field("netuid", u16_ty)],
+            index: 5,
+            docs: vec![],
+        });
+        let slot = add_type(runtime, TypeDef::Variant(TypeDefVariant { variants }));
+        let entry = add_type(
+            runtime,
+            TypeDef::Tuple(TypeDefTuple {
+                fields: vec![slot.into(), u64_ty.into()],
+            }),
+        );
+        let split = add_type(
+            runtime,
+            TypeDef::Sequence(TypeDefSequence {
+                type_param: entry.into(),
+            }),
+        );
+        let call_type = runtime.pallet("AdminUtils").unwrap().calls_type.unwrap();
+        let TypeDef::Variant(calls) = &mut runtime.types.types[call_type as usize].ty.type_def
+        else {
+            panic!("AdminUtils call variants")
+        };
+        calls.variants.push(Variant {
+            name: "sudo_set_subnet_emission_weights_v2".into(),
+            index: 120,
+            fields: vec![field("netuid", u16_ty), field("split", split)],
+            docs: vec![],
+        });
+        client
+    }
+
+    fn server(
+        replies: Vec<(&'static str, JsonValue, JsonValue)>,
+    ) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let worker = thread::spawn(move || {
+            for (method, params, reply) in replies {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = BufReader::new(&mut stream);
+                let mut length = None;
+                loop {
+                    let mut line = String::new();
+                    assert!(reader.read_line(&mut line).unwrap() > 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some((name, value)) = line.split_once(':') {
+                        if name.eq_ignore_ascii_case("content-length") {
+                            length = Some(value.trim().parse::<usize>().unwrap());
+                        }
+                    }
+                }
+                let mut body = vec![0; length.unwrap()];
+                reader.read_exact(&mut body).unwrap();
+                let request: JsonValue = serde_json::from_slice(&body).unwrap();
+                assert_eq!(request["method"], method);
+                assert_eq!(
+                    request["params"], params,
+                    "scope reads must stay on the selected block"
+                );
+                let response = if reply.get("error").is_some() {
+                    json!({"jsonrpc":"2.0", "id":request["id"], "error":reply["error"]})
+                } else {
+                    json!({"jsonrpc":"2.0", "id":request["id"], "result":reply})
+                }
+                .to_string();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).unwrap();
+            }
+        });
+        (endpoint, worker)
+    }
+
+    fn storage_key(netuid: u16) -> String {
+        let mut key = sp_core::hashing::twox_128(b"SubtensorModule").to_vec();
+        key.extend(sp_core::hashing::twox_128(b"SubnetGammaEmission"));
+        key.extend(netuid.to_le_bytes());
+        hex_prefixed(&key)
+    }
+
+    fn descriptor(netuid: u16, target: Option<u16>) -> Value {
+        let mut split = vec![Value::Tuple(vec![Value::str("Miner"), Value::Uint(1)])];
+        if let Some(target) = target {
+            split.push(Value::Tuple(vec![
+                Value::record(vec![(
+                    "Gamma".into(),
+                    Value::record(vec![("netuid".into(), Value::Uint(u128::from(target)))]),
+                )]),
+                Value::Uint(1),
+            ]));
+        }
+        Value::record(vec![
+            ("pallet".into(), Value::str("AdminUtils")),
+            (
+                "call".into(),
+                Value::str("sudo_set_subnet_emission_weights_v2"),
+            ),
+            (
+                "params".into(),
+                Value::record(vec![
+                    ("netuid".into(), Value::Uint(u128::from(netuid))),
+                    ("split".into(), Value::List(split)),
+                ]),
+            ),
+        ])
+    }
+
+    fn policy(netuids: &[u16]) -> Policy {
+        Policy {
+            allowed_netuids: Some(netuids.iter().copied().collect()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn gamma_v2_scope_includes_removed_and_new_targets_at_one_block() {
+        let hash = hex_prefixed(&[7; 32]);
+        let (endpoint, worker) = server(vec![
+            ("chain_getBlockHash", json!([]), json!(hash)),
+            ("state_getRuntimeVersion", json!([hash]), version()),
+            (
+                "state_getStorage",
+                json!([storage_key(1), hash]),
+                json!(hex_prefixed(&vec![(7u16, 10u64)].encode())),
+            ),
+            ("state_getRuntimeVersion", json!([hash]), version()),
+            (
+                "state_getStorage",
+                json!([storage_key(2), hash]),
+                json!(hex_prefixed(&vec![(9u16, 20u64)].encode())),
+            ),
+            ("state_getRuntimeVersion", json!([]), version()),
+            ("state_getRuntimeVersion", json!([]), version()),
+        ]);
+        let client = client(endpoint);
+        let first = descriptor(1, Some(8));
+        let static_call = IntentCall::operation(
+            "AdminUtils.sudo_set_subnet_emission_weights_v2",
+            field(&first, "params").unwrap().clone(),
+        )
+        .unwrap();
+        assert!(policy(&[1, 8])
+            .check(&static_call, None)
+            .iter()
+            .any(|v| v.contains("every subnet")));
+        let batch = Value::record(vec![
+            ("pallet".into(), Value::str("Utility")),
+            ("call".into(), Value::str("batch_all")),
+            (
+                "params".into(),
+                Value::record(vec![(
+                    "calls".into(),
+                    Value::List(vec![first, descriptor(2, None)]),
+                )]),
+            ),
+        ]);
+        let call = IntentCall::from_descriptor(&client, &batch).unwrap();
+        let removed = policy(&[1, 2, 8]).check(&call, None);
+        assert!(removed.iter().any(|v| v.contains("netuid 7")));
+        assert!(removed.iter().any(|v| v.contains("netuid 9")));
+        assert!(policy(&[1, 2, 7, 9])
+            .check(&call, None)
+            .iter()
+            .any(|v| v.contains("netuid 8")));
+        assert!(policy(&[1, 2, 7, 8, 9]).check(&call, None).is_empty());
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn gamma_v2_empty_storage_preserves_source_only_policy() {
+        let hash = hex_prefixed(&[7; 32]);
+        let (endpoint, worker) = server(vec![
+            ("chain_getBlockHash", json!([]), json!(hash)),
+            ("state_getRuntimeVersion", json!([hash]), version()),
+            (
+                "state_getStorage",
+                json!([storage_key(1), hash]),
+                JsonValue::Null,
+            ),
+        ]);
+        let call = IntentCall::from_descriptor(&client(endpoint), &descriptor(1, None)).unwrap();
+        assert!(policy(&[1]).check(&call, None).is_empty());
+        assert!(!policy(&[2]).check(&call, None).is_empty());
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn gamma_v2_failed_or_malformed_storage_never_narrows_scope() {
+        for reply in [
+            json!({"error":{"code":-32000,"message":"Gamma state unavailable"}}),
+            json!("0x04"),
+        ] {
+            let hash = hex_prefixed(&[7; 32]);
+            let (endpoint, worker) = server(vec![
+                ("chain_getBlockHash", json!([]), json!(hash)),
+                ("state_getRuntimeVersion", json!([hash]), version()),
+                ("state_getStorage", json!([storage_key(1), hash]), reply),
+            ]);
+            assert!(IntentCall::from_descriptor(&client(endpoint), &descriptor(1, None)).is_err());
+            worker.join().unwrap();
+        }
+    }
+}
+
+#[test]
+fn saved_intent_descriptors_bind_bytes_and_explicit_proxy_origin() {
+    use crate::transaction::{IntentCall, SignerRole};
+    let (endpoint, worker) = server(vec![("state_getRuntimeVersion", Some(version())); 8]);
+    let client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
+    let record = |fields: Vec<(&str, Value)>| {
+        Value::record(fields.into_iter().map(|(k, v)| (k.into(), v)).collect())
+    };
+    let params = record(vec![
+        ("delegate", Value::Bytes(vec![1; 32])),
+        ("proxy_type", Value::str("Any")),
+        ("delay", Value::Uint(10)),
+    ]);
+    let bytes = client.compose_call("Proxy", "add_proxy", &params).unwrap();
+    let descriptor = |bytes: Vec<u8>, role: &str| {
+        record(vec![
+            ("pallet", Value::str("Proxy")),
+            ("call", Value::str("add_proxy")),
+            ("params", params.clone()),
+            ("callData", Value::Bytes(bytes)),
+            ("signerRole", Value::str(role)),
+        ])
+    };
+    for (role, expected) in [
+        ("coldkey", SignerRole::Coldkey),
+        ("hotkey", SignerRole::Hotkey),
+    ] {
+        let call = IntentCall::from_descriptor(&client, &descriptor(bytes.clone(), role)).unwrap();
+        assert_eq!(call.signer_role(), expected);
+        assert_eq!(call.encode(&client).unwrap(), bytes);
+    }
+    let announced = record(vec![
+        ("pallet", Value::str("Proxy")),
+        ("call", Value::str("proxy_announced")),
+        (
+            "params",
+            record(vec![
+                ("delegate", Value::Bytes(vec![2; 32])),
+                ("real", Value::Bytes(vec![3; 32])),
+                ("force_proxy_type", Value::Null),
+                ("call", descriptor(bytes.clone(), "hotkey")),
+            ]),
+        ),
+    ]);
+    let announced = IntentCall::from_descriptor(&client, &announced).unwrap();
+    assert_eq!(announced.signer_role(), SignerRole::Coldkey);
+    assert!(announced.encode(&client).unwrap().ends_with(&bytes));
+    let mut changed = bytes.clone();
+    changed.push(0);
+    assert!(IntentCall::from_descriptor(&client, &descriptor(changed, "coldkey")).is_err());
+    assert!(IntentCall::from_descriptor(&client, &descriptor(bytes, "invalid")).is_err());
+    let unsupported = record(vec![
+        ("pallet", Value::str("Balances")),
+        ("call", Value::str("transfer_keep_alive")),
+        (
+            "params",
+            record(vec![
+                ("dest", Value::Bytes(vec![1; 32])),
+                ("value", Value::Uint(10)),
+            ]),
+        ),
+        ("signerRole", Value::str("hotkey")),
+    ]);
+    assert!(IntentCall::from_descriptor(&client, &unsupported).is_err());
+    worker.join().unwrap();
+}
+
 #[test]
 fn submission_response_loss_is_uncertain_and_never_retried() {
     let (primary, worker) = server(vec![("author_submitExtrinsic", None)]);

@@ -357,6 +357,9 @@ export async function createNodeIntentReader(client: Client, native: NativeChain
   return {
     descriptorAddress: descriptor => Keypair.fromDescriptor(descriptor).ss58Address,
     composeCall: compose,
+    decodeCall: async data => runtime.decodeCall(data),
+    hashCallData: data => blake2_256(data),
+    specVersion: () => runtime.specVersion,
     parseRecipient: (address, descriptor) => parseRecipient(address, decodeReceivingAddress, Keypair.fromDescriptor, publicKeyFromSs58, descriptor),
     supportsPqProfile: profile => runtime.supportsMldsaProfile(profile),
     hasStorage: async (pallet, item, at) => (await client.runtimeAt(at)).pallet(pallet)?.storage.some(entry => entry.name === item) ?? false,

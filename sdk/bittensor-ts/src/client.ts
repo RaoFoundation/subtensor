@@ -2301,6 +2301,10 @@ export class Snapshot {
     return this.client.queryMap<K, V>(item, params, this.blockHash)
   }
 
+  async hasStorage(item: Descriptor): Promise<boolean> {
+    return (await this.client.runtimeAt(this.blockHash)).pallet(item[0])?.storage.some(entry => entry.name === item[1]) ?? false
+  }
+
   queryBatch<T extends ScaleValue = ScaleValue>(item: Descriptor, paramSets: ScaleValue[][]): Promise<Array<T | undefined>> {
     return this.client.queryBatch<T>(item, paramSets, this.blockHash)
   }

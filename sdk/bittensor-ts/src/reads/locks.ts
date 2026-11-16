@@ -32,10 +32,19 @@ export function blocksUntilConviction(buckets: Bucket[], eligible: number, unloc
   }
   return null
 }
+async function ownerLocks(view: ReadView, netuid: number): Promise<Map<boolean, ChainRecord | null>> {
+  const layouts = [[true, 'OwnerLock'], [false, 'DecayingOwnerLock']] as const
+  const rows = await Promise.all(layouts.map(async ([perpetual, name]) => {
+    const item = st(name)
+    if (view.hasStorage && await view.hasStorage(item) === false) return []
+    return [[perpetual, await view.query(item, [netuid]) ?? null] as const]
+  }))
+  return new Map(rows.flat())
+}
 export async function subnetConvictions(view: ReadView, netuid: number) {
   view = await view.at()
-  const [perpetual, decaying, ownerLock, decayingOwner, ownerValue, out, protocol, burned, unlockRaw, maturityRaw, registered] = await Promise.all([
-    view.queryMap(st('HotkeyLock'), [netuid]), view.queryMap(st('DecayingHotkeyLock'), [netuid]), view.query(st('OwnerLock'), [netuid]), view.query(st('DecayingOwnerLock'), [netuid]), view.query(st('SubnetOwnerHotkey'), [netuid]), view.query(st('SubnetAlphaOut'), [netuid]), view.query(st('SubnetProtocolAlpha'), [netuid]), view.query(['AlphaAssets', 'AlphaBurned'], [netuid]), view.query(st('UnlockRate')), view.query(st('MaturityRate')), view.query(st('NetworkRegisteredAt'), [netuid]),
+  const [perpetual, decaying, ownerBuckets, ownerValue, out, protocol, burned, unlockRaw, maturityRaw, registered] = await Promise.all([
+    view.queryMap(st('HotkeyLock'), [netuid]), view.queryMap(st('DecayingHotkeyLock'), [netuid]), ownerLocks(view, netuid), view.query(st('SubnetOwnerHotkey'), [netuid]), view.query(st('SubnetAlphaOut'), [netuid]), view.query(st('SubnetProtocolAlpha'), [netuid]), view.query(['AlphaAssets', 'AlphaBurned'], [netuid]), view.query(st('UnlockRate')), view.query(st('MaturityRate')), view.query(st('NetworkRegisteredAt'), [netuid]),
   ])
   const now = blockOf(view), unlock = num(unlockRaw) || 934866, maturity = num(maturityRaw) || 934866, owner = ownerValue ? String(ownerValue) : null
   const buckets = new Map<string, Bucket[]>()
@@ -44,10 +53,10 @@ export async function subnetConvictions(view: ReadView, netuid: number) {
     const [mass, projected] = projectLock(Number(integer(value?.locked_mass)), conviction, Math.max(0, now - num(value?.last_update)), unlock, maturity, perpetual, isOwner)
     const group = buckets.get(key) ?? []; group.push([mass, projected, perpetual, isOwner]); buckets.set(key, group)
   }
-  for (const [key, value] of perpetual) add(String(keyOf(key)), value, true, false)
-  for (const [key, value] of decaying) add(String(keyOf(key)), value, false, false)
-  if (owner && ownerLock) add(owner, ownerLock, true, true)
-  if (owner && decayingOwner) add(owner, decayingOwner, false, true)
+  const rowOwner = ownerBuckets.size ? null : owner
+  for (const [key, value] of perpetual) add(String(keyOf(key)), value, true, String(keyOf(key)) === rowOwner)
+  for (const [key, value] of decaying) add(String(keyOf(key)), value, false, String(keyOf(key)) === rowOwner)
+  for (const [perpetual, value] of ownerBuckets) if (owner && value) add(owner, value, perpetual, true)
   const eligible = max(0n, integer(out) - integer(protocol) - integer(burned)), threshold = Number(eligible) * .18
   const entries = [...buckets].map(([hotkey, group]) => {
     const locked = group.reduce((sum, b) => sum + b[0], 0), conviction = group.reduce((sum, b) => sum + b[1], 0)

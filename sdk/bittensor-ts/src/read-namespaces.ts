@@ -11,6 +11,8 @@ export interface AccountsReadNamespace {
   existentialDeposit(block?: ReadBlock): Promise<ReadResult<'existential_deposit'>>
   multisig(account_ss58: ReadAddress, call_hash: string, block?: ReadBlock): Promise<ReadResult<'multisig'>>
   proxies(coldkey_ss58: ReadAddress, block?: ReadBlock): Promise<ReadResult<'proxies'>>
+  proxy_announcements(delegate_ss58: ReadAddress, block?: ReadBlock): Promise<ReadResult<'proxy_announcements'>>
+  proxyAnnouncements(delegate_ss58: ReadAddress, block?: ReadBlock): Promise<ReadResult<'proxy_announcements'>>
 }
 export interface ChainReadNamespace {
   block_info(block: number): Promise<ReadResult<'block_info'>>
@@ -127,6 +129,8 @@ export interface HyperparametersReadNamespace {
   revealPeriod(netuid: number, block?: ReadBlock): Promise<ReadResult<'reveal_period'>>
   subnet_emission_enabled(netuid: number, block?: ReadBlock): Promise<ReadResult<'subnet_emission_enabled'>>
   subnetEmissionEnabled(netuid: number, block?: ReadBlock): Promise<ReadResult<'subnet_emission_enabled'>>
+  subnet_gamma_emission_whitelisted(netuid: number, block?: ReadBlock): Promise<ReadResult<'subnet_gamma_emission_whitelisted'>>
+  subnetGammaEmissionWhitelisted(netuid: number, block?: ReadBlock): Promise<ReadResult<'subnet_gamma_emission_whitelisted'>>
   weights_rate_limit(netuid: number, block?: ReadBlock): Promise<ReadResult<'weights_rate_limit'>>
   weightsRateLimit(netuid: number, block?: ReadBlock): Promise<ReadResult<'weights_rate_limit'>>
 }

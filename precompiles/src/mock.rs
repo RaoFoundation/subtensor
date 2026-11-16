@@ -79,6 +79,8 @@ const EVM_DECIMALS_FACTOR: u64 = 1_000_000_000;
 
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
+    // Defaults preserve the existing zero-cost mock; regressions can inject production gas costs.
+    pub static TestDbWeight: frame_support::weights::RuntimeDbWeight = frame_support::weights::RuntimeDbWeight { read: 0, write: 0 };
     pub const SS58Prefix: u8 = 42;
     pub static BlockLength: limits::BlockLength = limits::BlockLength::max_with_normal_ratio(5 * 1024 * 1024, Perbill::from_percent(75));
     pub BlockWeights: limits::BlockWeights = limits::BlockWeights::with_sensible_defaults(
@@ -190,6 +192,7 @@ parameter_types! {
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Runtime {
     type BaseCallFilter = Everything;
+    type DbWeight = TestDbWeight;
     type BlockWeights = BlockWeights;
     type BlockLength = BlockLength;
     type RuntimeOrigin = RuntimeOrigin;

@@ -39,8 +39,10 @@ function emissionReader(gammaRows = [[7, gamma]], current = weights) {
       if (item === 'SubnetGammaEmission') return gammaRows
       if (item === 'SubnetOwner') return 'cold'
       if (item === 'LastRateLimitedBlock') return 0
+      if (item === 'SubnetUidToLeaseId') return null
       throw new Error(`unexpected query ${item}`)
     },
+    queryMap: async () => [[7, true]],
   }
 }
 test('emission intent sparse and renormalized calls retain existing Gamma shares', async () => {
@@ -49,11 +51,16 @@ test('emission intent sparse and renormalized calls retain existing Gamma shares
     assert.deepEqual(plan.violations, [])
     assert.equal(plan.preview.gamma_share, gamma)
     assert.equal(plan.preview.after.reduce((sum, value) => sum + value, gamma), emission.ONE)
-    assert.equal(plan.call.call, 'sudo_set_subnet_emission_weights')
-    assert.deepEqual(plan.call.params.uids, renormalize ? [0, 1, 2, 3, 4] : [2])
-    assert.deepEqual(plan.call.params.values, renormalize ? plan.preview.after : [owner])
+    assert.equal(plan.call.call, 'sudo_set_subnet_emission_weights_v2')
+    assert.deepEqual(plan.call.params.split, [
+      ...emission.SLOT_NAMES.map((name, index) => [name[0].toUpperCase() + name.slice(1), plan.preview.after[index]]),
+      [{ Gamma: { netuid: 7 } }, gamma],
+    ])
   }
-  const invalid = await buildIntent('set_subnet_emission_weights', { netuid: 2, slots: ['owner'], values: [owner + 1n] }).prepare(emissionReader(), { coldkey: 'cold' })
+  const rounded = await buildIntent('set_subnet_emission_weights', { netuid: 2, slots: ['owner'], values: [owner + 1n] }).prepare(emissionReader(), { coldkey: 'cold' })
+  assert.deepEqual(rounded.violations, [])
+  assert.equal(rounded.preview.after[4], weights[4] - 1n)
+  const invalid = await buildIntent('set_subnet_emission_weights', { netuid: 2, slots: ['owner'], values: [owner + 1001n] }).prepare(emissionReader(), { coldkey: 'cold' })
   assert.match(invalid.violations.join(), /EmissionWeightsDoNotSumToOne/)
   const legacy = await buildIntent('set_subnet_emission_weights', { netuid: 2, slots: ['owner'], values: ['20%'], renormalize: true }).prepare(emissionReader([], emission.defaultWeights()), { coldkey: 'cold' })
   assert.deepEqual(legacy.violations, [])
@@ -69,6 +76,7 @@ test('subnet emission read exposes Gamma parts in its rule inputs at the pinned 
     block: 100, at: async () => view,
     runtime: async () => ({ netuid: 2, weights, root_baseline_share: 1n, root_share: 1n, owner, validator, miner: weights[4] }),
     query: async (item, params) => { queries.push([item, params]); return item[1] === 'SubnetGammaEmission' ? [[7, gamma]] : 0n },
+    queryMap: async () => [[7, true]],
   }
   const result = await subnetEmissionWeights(view, 2)
   assert.equal(result.gamma_share, gamma)

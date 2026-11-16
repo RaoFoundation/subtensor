@@ -74,7 +74,15 @@ def _coerce(field_annotation: str, value: Any) -> Any:
     if value is None:
         return value
     if _is_dict(field_annotation):
-        return json.loads(value) if isinstance(value, str) else value
+        if not isinstance(value, str):
+            return value
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, dict):
+            raise ValueError(f"expected a JSON object, not {value!r}")
+        return parsed
     if not _is_list(field_annotation):
         return value
     text = str(value).strip()
@@ -322,11 +330,15 @@ def _make_command(intent_cls: type[Intent]):
                         f"invalid value for `--{f.name.replace('_', '-')}`: {error}"
                     )
                     raise typer.Exit(2)
-        args = {
-            f.name: _coerce(str(f.type), kwargs[f.name])
-            for f in specs
-            if kwargs.get(f.name) is not None
-        }
+        args = {}
+        for f in specs:
+            if kwargs.get(f.name) is None:
+                continue
+            try:
+                args[f.name] = _coerce(str(f.type), kwargs[f.name])
+            except ValueError as error:
+                app_ctx.output.error(f"invalid value for `--{f.name.replace('_', '-')}`: {error}")
+                raise typer.Exit(2)
         # Flag-level resolution above only covers top-level *_ss58 options;
         # this pass reaches names inside JSON-shaped fields too (signatory
         # lists, a multisig inner --call, batch children).

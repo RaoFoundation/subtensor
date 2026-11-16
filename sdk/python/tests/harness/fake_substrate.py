@@ -57,6 +57,7 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "NetworkRegisteredAt"): 0,
     ("SubtensorModule", "SubnetLocked"): 10**9,
     ("SubtensorModule", "SubnetEmissionEnabled"): True,
+    ("SubtensorModule", "SubnetGammaEmissionWhitelisted"): False,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
 }
@@ -159,7 +160,13 @@ class FakeSubstrate:
         self._storage_defaults: dict[tuple[str, str], Any] = {}
         # Default fixtures model the legacy deposit constants; seeding this
         # storage item opts into the configurable runtime's metadata.
-        self.missing_storage = {("HashedAccounts", "HashedAccountRegistrationDeposit")}
+        # The owner lock aggregates exist only in older runtimes' metadata;
+        # seeding one opts into that layout.
+        self.missing_storage = {
+            ("HashedAccounts", "HashedAccountRegistrationDeposit"),
+            ("SubtensorModule", "OwnerLock"),
+            ("SubtensorModule", "DecayingOwnerLock"),
+        }
         # (module, item) -> [(key, value)] for query_map
         self._maps: dict[tuple[str, str], list[tuple[Any, Any]]] = {}
         self._constants: dict[tuple[str, str], Any] = dict(DEFAULT_CONSTANTS)

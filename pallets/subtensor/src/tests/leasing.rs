@@ -795,10 +795,8 @@ fn regression_terminate_lease_transfers_retained_owner_cut_and_lock() {
     });
 }
 
-// A contributor dividend deferred during the lease is paid at termination when it can be
-// transferred. A debt that still cannot be transferred keeps its row, the lease record and
-// the subnet mapping, and is paid by the owner-cut hook once the obstruction clears; only
-// then is the record removed.
+// Final lease settlement pays funded contributor debts even below the user transfer minimum.
+// Retrying the hook or raising the price afterward must not duplicate those payments.
 // PROTECTED_REGRESSION: terminate lease settles deferred dividends; changes require explicit human approval.
 #[test]
 fn test_terminate_lease_settles_deferred_dividends() {
@@ -861,6 +859,8 @@ fn test_terminate_lease_settles_deferred_dividends() {
         run_to_block(end_block);
         let hotkey = U256::from(3);
         let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
+        let source_before = stake(&lease.coldkey);
+        let dust_before = stake(&dust_contributor);
         assert_ok!(SubtensorModule::terminate_lease(
             RuntimeOrigin::signed(beneficiary),
             lease_id,
@@ -874,33 +874,42 @@ fn test_terminate_lease_settles_deferred_dividends() {
             contributor
         ));
         assert_eq!(stake(&beneficiary), AlphaBalance::ZERO);
-        // Ownership moved, but the dust debt keeps its row, the lease record and the mapping.
+        // Ownership and the full residual move now; no price increase is needed to pay dust.
         assert_eq!(SubnetOwner::<Test>::get(lease.netuid), beneficiary);
-        assert_eq!(
-            SubnetLeaseUnpaidDividends::<Test>::get(lease_id, dust_contributor),
-            dust
-        );
-        assert!(SubnetLeases::<Test>::get(lease_id).is_some());
-        assert_eq!(
-            SubnetUidToLeaseId::<Test>::get(lease.netuid),
-            Some(lease_id)
-        );
+        assert_eq!(stake(&dust_contributor) - dust_before, dust);
+        assert!(!SubnetLeaseUnpaidDividends::<Test>::contains_prefix(
+            lease_id
+        ));
+        assert!(SubnetLeases::<Test>::get(lease_id).is_none());
+        assert_eq!(SubnetUidToLeaseId::<Test>::get(lease.netuid), None);
         assert!(!SubnetLeaseShares::<Test>::contains_prefix(lease_id));
-
-        // The owner-cut hook retries but the debt is still below the minimum transfer.
+        let recovered = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &beneficiary,
+            lease.netuid,
+        );
+        assert_eq!(recovered, source_before - deferred - dust);
         SubtensorModule::distribute_leased_network_dividends(lease_id, AlphaBalance::ZERO);
-        assert_eq!(stake(&dust_contributor), AlphaBalance::ZERO);
-        assert!(SubnetLeases::<Test>::get(lease_id).is_some());
+        assert_eq!(stake(&dust_contributor) - dust_before, dust);
+        assert_eq!(stake(&contributor) - contributor_before, deferred);
 
-        // The obstruction clears (alpha is worth more), the next hook pays the debt and the
-        // record is removed.
+        // Even a later 40x price rise cannot pay either entitlement a second time.
         mock::setup_reserves(
             lease.netuid,
             TaoBalance::from(4_000_000_000_000_u64),
             AlphaBalance::from(1_000_000_000_000_u64),
         );
         SubtensorModule::distribute_leased_network_dividends(lease_id, AlphaBalance::ZERO);
-        assert_eq!(stake(&dust_contributor), dust);
+        assert_eq!(stake(&dust_contributor) - dust_before, dust);
+        assert_eq!(stake(&contributor) - contributor_before, deferred);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &beneficiary,
+                lease.netuid,
+            ),
+            recovered
+        );
         assert!(!SubnetLeaseUnpaidDividends::<Test>::contains_prefix(
             lease_id
         ));

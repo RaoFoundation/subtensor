@@ -16,6 +16,7 @@
     "subnets",
     "multisig",
     "proxies",
+    "protected-accounts",
     "wallet-crypto-types",
     "signed-requests",
     "extension-signing",

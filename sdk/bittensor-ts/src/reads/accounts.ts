@@ -10,11 +10,23 @@ export const accountReads = {
     const [rows, deposit] = await view.query(['Proxy', 'Proxies'], [p.coldkey_ss58]) ?? [[], 0n]
     return { proxies: (rows as ChainRecord[]).map((d: ChainRecord) => ({ delegate: String(d.delegate), proxy_type: typeof d.proxy_type === 'string' ? d.proxy_type : Object.keys(d.proxy_type)[0], delay: num(d.delay) })), deposit: bal(view, deposit) }
   },
+  proxy_announcements: async (view: ReadView, p: { delegate_ss58: string }) => {
+    const [rows, deposit] = await view.query(['Proxy', 'Announcements'], [p.delegate_ss58]) ?? [[], 0n]
+    return { announcements: (rows as ChainRecord[]).map(row => ({ real: String(row.real), call_hash: String(row.call_hash), height: num(row.height) })), deposit: bal(view, deposit) }
+  },
   coldkey_swap_announcement: async (view: ReadView, p: { coldkey_ss58: string }) => {
-    const [value, dispute] = await Promise.all([view.query(st('ColdkeySwapAnnouncements'), [p.coldkey_ss58]), view.query(st('ColdkeySwapDisputes'), [p.coldkey_ss58])])
+    view = await view.at()
+    const policySnapshot = async (): Promise<boolean | null> => {
+      const item = st('ColdkeySwapV2PolicySnapshots')
+      if (view.hasStorage && await view.hasStorage(item) === false) return null
+      const value = await view.query(item, [p.coldkey_ss58])
+      if (value != null && typeof value !== 'boolean') throw new TypeError('invalid coldkey swap policy snapshot')
+      return value ?? null
+    }
+    const [value, dispute, policy] = await Promise.all([view.query(st('ColdkeySwapAnnouncements'), [p.coldkey_ss58]), view.query(st('ColdkeySwapDisputes'), [p.coldkey_ss58]), policySnapshot()])
     const recovery = dispute != null && num(dispute) === 0
     if (!value && !recovery) return null
-    return { execute_block: value ? num(value[0]) : null, new_coldkey_hash: value ? String(value[1]) : null, disputed: Boolean(dispute), dispute_block: dispute ? num(dispute) : null, recovery_locked: recovery }
+    return { execute_block: value ? num(value[0]) : null, new_coldkey_hash: value ? String(value[1]) : null, import_source_policies: policy, disputed: Boolean(dispute), dispute_block: dispute ? num(dispute) : null, recovery_locked: recovery }
   },
   multisig: async (view: ReadView, p: { account_ss58: string; call_hash: string }) => {
     const hash = p.call_hash.startsWith('0x') ? p.call_hash : `0x${p.call_hash}`

@@ -542,6 +542,9 @@ export class Client {
     const reader: IntentReader = {
       descriptorAddress: descriptor => Keypair.fromDescriptor(descriptor).ss58Address,
       composeCall: call => this.compose(call, snapshot.hash),
+      decodeCall: async data => (await this.runtimeAt(snapshot.hash)).decodeCall(data),
+      hashCallData: data => blake2_256(data),
+      specVersion: async () => (await this.runtimeAt(snapshot.hash)).specVersion,
       parseRecipient: (address, descriptor) => parseRecipient(address, decodeReceivingAddress, Keypair.fromDescriptor, publicKeyFromSs58, descriptor),
       supportsPqProfile: async profile => (await this.runtimeAt(snapshot.hash)).supportsMldsaProfile(profile),
       hasStorage: async (pallet, item, at) => (await this.runtimeAt(at)).metadataIr().pallets.find(entry => entry.name === pallet)?.storage.includes(item) ?? false,
@@ -788,6 +791,7 @@ export class Snapshot implements ReadView {
   readonly gamma: GammaReadNamespace = bindReadNamespace({}, 'Gamma', block => block == null || block === this.block ? Promise.resolve(this) : this.client.at(block)) as GammaReadNamespace
   readonly prices: PricesReadNamespace = bindReadNamespace({}, 'Prices & swaps', block => block == null || block === this.block ? Promise.resolve(this) : this.client.at(block)) as PricesReadNamespace
   constructor(readonly client: Client, readonly block: number, readonly hash: string) {}
+  async hasStorage(item: Descriptor): Promise<boolean> { return (await this.client.runtimeAt(this.hash)).metadataIr().pallets.find(pallet => pallet.name === item[0])?.storage.includes(item[1]) ?? false }
   query(item: Descriptor, params: ScaleValue[] = []) { return this.client.query(item, params, this.hash) }
   queryBatch(item: Descriptor, sets: ScaleValue[][]) { return this.client.queryBatch(item, sets, this.hash) }
   queryMap(item: Descriptor, params: ScaleValue[] = []) { return this.client.queryMap(item, params, this.hash) }

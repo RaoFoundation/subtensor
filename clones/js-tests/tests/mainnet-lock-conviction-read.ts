@@ -54,15 +54,11 @@ async function main() {
     console.log("Lock entries:", individualLocks.length);
     console.log("HotkeyLock entries:", aggregateLocks.hotkeyLock.size);
     console.log("DecayingHotkeyLock entries:", aggregateLocks.decayingHotkeyLock.size);
-    console.log("OwnerLock entries:", aggregateLocks.ownerLock.size);
-    console.log("DecayingOwnerLock entries:", aggregateLocks.decayingOwnerLock.size);
     console.log("DecayingLock perpetual flag entries:", perpetualFlags.size);
 
     const expectedAggregates = {
       hotkeyLock: new Map(),
       decayingHotkeyLock: new Map(),
-      ownerLock: new Map(),
-      decayingOwnerLock: new Map(),
     };
     const seenPerpetualFlagKeys = new Set();
     const failures = [];
@@ -78,9 +74,8 @@ async function main() {
         seenPerpetualFlagKeys.add(flagKey);
       }
 
-      const aggregateName = aggregateStorageName(isOwnerLock, isPerpetual);
-      const aggregateKey = isOwnerLock ? String(lock.netuid) : netuidHotkeyKey(lock.netuid, lock.hotkey);
-      addLock(expectedAggregates[aggregateName], aggregateKey, lock);
+      const aggregateName = isPerpetual ? "hotkeyLock" : "decayingHotkeyLock";
+      addLock(expectedAggregates[aggregateName], netuidHotkeyKey(lock.netuid, lock.hotkey), lock);
 
       if (!activeOk || !lastUpdateOk) {
         failures.push(
@@ -136,8 +131,6 @@ function assertLockMetadataAvailable() {
     ["SubtensorModule.Lock", api.query.subtensorModule?.lock],
     ["SubtensorModule.HotkeyLock", api.query.subtensorModule?.hotkeyLock],
     ["SubtensorModule.DecayingHotkeyLock", api.query.subtensorModule?.decayingHotkeyLock],
-    ["SubtensorModule.OwnerLock", api.query.subtensorModule?.ownerLock],
-    ["SubtensorModule.DecayingOwnerLock", api.query.subtensorModule?.decayingOwnerLock],
     ["SubtensorModule.DecayingLock", api.query.subtensorModule?.decayingLock],
     ["SubtensorModule.UnlockRate", api.query.subtensorModule?.unlockRate],
     ["SubtensorModule.MaturityRate", api.query.subtensorModule?.maturityRate],
@@ -177,8 +170,6 @@ async function readAggregateLocks(blockHash) {
   return {
     hotkeyLock: await readNetuidHotkeyAggregates("hotkeyLock", blockHash),
     decayingHotkeyLock: await readNetuidHotkeyAggregates("decayingHotkeyLock", blockHash),
-    ownerLock: await readNetuidAggregates("ownerLock", blockHash),
-    decayingOwnerLock: await readNetuidAggregates("decayingOwnerLock", blockHash),
   };
 }
 
@@ -188,15 +179,6 @@ async function readNetuidHotkeyAggregates(storageName, blockHash) {
   for (const [key, value] of entries) {
     const [netuid, hotkey] = key.args;
     aggregates.set(netuidHotkeyKey(netuid.toNumber(), hotkey.toString()), decodeLockState(value));
-  }
-  return aggregates;
-}
-
-async function readNetuidAggregates(storageName, blockHash) {
-  const entries = await api.query.subtensorModule[storageName].entriesAt(blockHash);
-  const aggregates = new Map();
-  for (const [key, value] of entries) {
-    aggregates.set(String(key.args[0].toNumber()), decodeLockState(value));
   }
   return aggregates;
 }
@@ -283,13 +265,6 @@ function structField(value, ...names) {
   }
 
   throw new Error(`could not decode field ${names.join("/")} from ${value.toString()}`);
-}
-
-function aggregateStorageName(isOwnerLock, isPerpetual) {
-  if (isOwnerLock) {
-    return isPerpetual ? "ownerLock" : "decayingOwnerLock";
-  }
-  return isPerpetual ? "hotkeyLock" : "decayingHotkeyLock";
 }
 
 function addLock(map, key, lock) {

@@ -24,6 +24,8 @@ export interface AddProxyInput {
   proxy_type?: string
   /** Announcement delay in blocks: the delegate must announce each call and wait this long before executing it, giving you time to veto. 0 executes immediately. */
   delay?: number | bigint | `${bigint}`
+  /** Signing origin: true selects the hotkey; false selects the coldkey or proxied account. Omit to use the hotkey for Validate/Weights and the coldkey for other proxy types. */
+  from_hotkey?: boolean | null
 }
 /** Stake TAO from the coldkey onto a hotkey. */
 export interface AddStakeInput {
@@ -57,6 +59,13 @@ export interface AnnounceColdkeySwapInput {
   new_coldkey_ss58: string
   /** Public descriptor hex for a remote hashed destination's registration. */
   hashed_descriptor?: string | null
+}
+/** Commit the hash of a future proxy call (delayed-proxy announce step). */
+export interface AnnounceProxyCallInput {
+  /** Account the future call will execute as (the delegation's grantor). */
+  real_ss58: string
+  /** Blake2-256 hash of the exact call bytes that will later be passed to execute_proxy_announced (0x-prefixed hex). */
+  call_hash: string
 }
 /** Associate an EVM key with a hotkey on a subnet. */
 export interface AssociateEvmKeyInput {
@@ -222,6 +231,14 @@ export interface ExecuteProxyAnnouncedInput {
   inner_args: Readonly<Record<string, unknown>>
   /** Require the delegation to be exactly this proxy type instead of accepting any type that covers the call. */
   force_proxy_type?: string | null
+  /** Exact SCALE bytes (0x-hex) of the announced call. Prefer this over rebuilding from inner_op/inner_args so the hash still matches after pool prices or balances move. */
+  announced_call_data?: string | null
+  /** Expected on-chain Blake2-256 commitment for the saved call bytes. */
+  expected_call_hash?: string | null
+  /** Runtime spec version under which the saved call was composed. */
+  announced_spec_version?: number | bigint | `${bigint}` | null
+  /** Decoded call recorded when the announcement was composed. */
+  announced_call_semantics?: Readonly<Record<string, unknown>> | null
 }
 /** Finalize a crowdloan that reached its cap (creator only). */
 export interface FinalizeCrowdloanInput {
@@ -442,6 +459,13 @@ export interface RegisterSubnetInput {
   /** Subnet-owner hotkey for the new subnet; defaults to the wallet's hotkey. */
   hotkey_ss58?: string | null
 }
+/** Veto a delegate's pending announcement (real-account path). */
+export interface RejectProxyAnnouncementInput {
+  /** Delegate that made the announcement. */
+  delegate_ss58: string
+  /** Hash previously announced by the delegate (0x-prefixed hex). */
+  call_hash: string
+}
 /** Free a coldkey-swap destination reservation that names this account. */
 export interface ReleaseOwnColdkeySwapDestinationReservationInput {
 }
@@ -458,6 +482,13 @@ export interface RemoveProxyInput {
   proxy_type?: string
   /** Delay the delegation was granted with (must match exactly). */
   delay?: number | bigint | `${bigint}`
+}
+/** Cancel one of your own pending proxy announcements (delegate path). */
+export interface RemoveProxyAnnouncementInput {
+  /** Account the announcement targeted (the delegation's grantor). */
+  real_ss58: string
+  /** Hash previously passed to announce_proxy_call (0x-prefixed hex). */
+  call_hash: string
 }
 /** Unstake alpha from a hotkey back to the coldkey. */
 export interface RemoveStakeInput {
@@ -689,16 +720,25 @@ export interface SetSubnetEmissionEnabledInput {
   /** True to let the subnets earn their pool-side TAO emission share, false to zero the pool-side alpha_in/tao_in/excess_tao chain-buy paths. */
   enabled: boolean
 }
-/** Set slots of a subnet's emission weight vector (btcli `subnets emission`). */
+/** Set a subnet's emission split: its five slots and gamma shares (btcli `subnets emission`). */
 export interface SetSubnetEmissionWeightsInput {
   /** Subnet to configure; the signer must be its owner. */
   netuid: number | bigint | `${bigint}`
-  /** Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted slots keep their current share. */
+  /** Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted slots keep their current share. Empty, with empty `values`, to change only gamma shares. */
   slots: readonly (number | bigint | `${bigint}` | string)[]
   /** New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage ("41%"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five and the subnet's gamma shares sum to exactly 1. */
   values: readonly (number | bigint | `${bigint}` | number | string)[]
-  /** Keep the named slots as given and rescale the other slots proportionally so the vector and the subnet's gamma shares sum to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1 with them. */
+  /** Keep the named slots as given and rescale the other slots proportionally so the vector and the subnet's gamma shares sum to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1 with them (the miner slot absorbs up to 1,000 parts of rounding). */
   renormalize?: boolean
+  /** Gamma shares to set, as a JSON object mapping target netuid to share ({"3": "5%"}), in the same forms as `values`. Omitted targets keep their current share; a share of 0 removes one. Rules: at most 16, each <= 10%, to another subnet root whitelisted for gamma emission with gamma enabled; none on a leased subnet. With `renormalize` the five slots make room. */
+  gamma?: Readonly<Record<string, unknown>>
+}
+/** Whitelist a subnet for gamma emission, or remove it from the whitelist (root only). */
+export interface SetSubnetGammaEmissionWhitelistedInput {
+  /** Subnet to whitelist or remove from the whitelist. */
+  netuid: number | bigint | `${bigint}`
+  /** True to whitelist the subnet, false to remove it. */
+  whitelisted: boolean
 }
 /** Publish identity metadata for a subnet (signer must be the subnet owner). */
 export interface SetSubnetIdentityInput {
@@ -931,6 +971,7 @@ export interface IntentInputMap {
   add_stake: AddStakeInput
   add_stake_limit: AddStakeLimitInput
   announce_coldkey_swap: AnnounceColdkeySwapInput
+  announce_proxy_call: AnnounceProxyCallInput
   associate_evm_key: AssociateEvmKeyInput
   associate_hotkey: AssociateHotkeyInput
   authorize_order: AuthorizeOrderInput
@@ -971,9 +1012,11 @@ export interface IntentInputMap {
   refund_crowdloan: RefundCrowdloanInput
   register_leased_network: RegisterLeasedNetworkInput
   register_subnet: RegisterSubnetInput
+  reject_proxy_announcement: RejectProxyAnnouncementInput
   release_own_coldkey_swap_destination_reservation: ReleaseOwnColdkeySwapDestinationReservationInput
   remove_proxies: RemoveProxiesInput
   remove_proxy: RemoveProxyInput
+  remove_proxy_announcement: RemoveProxyAnnouncementInput
   remove_stake: RemoveStakeInput
   remove_stake_limit: RemoveStakeLimitInput
   reset_axon: ResetAxonInput
@@ -999,6 +1042,7 @@ export interface IntentInputMap {
   set_service: SetServiceInput
   set_subnet_emission_enabled: SetSubnetEmissionEnabledInput
   set_subnet_emission_weights: SetSubnetEmissionWeightsInput
+  set_subnet_gamma_emission_whitelisted: SetSubnetGammaEmissionWhitelistedInput
   set_subnet_identity: SetSubnetIdentityInput
   set_take: SetTakeInput
   set_weights: SetWeightsInput
@@ -1030,6 +1074,7 @@ export interface AddProxyJSON extends AddProxyInput { op: 'add_proxy' }
 export interface AddStakeJSON extends AddStakeInput { op: 'add_stake' }
 export interface AddStakeLimitJSON extends AddStakeLimitInput { op: 'add_stake_limit' }
 export interface AnnounceColdkeySwapJSON extends AnnounceColdkeySwapInput { op: 'announce_coldkey_swap' }
+export interface AnnounceProxyCallJSON extends AnnounceProxyCallInput { op: 'announce_proxy_call' }
 export interface AssociateEvmKeyJSON extends AssociateEvmKeyInput { op: 'associate_evm_key' }
 export interface AssociateHotkeyJSON extends AssociateHotkeyInput { op: 'associate_hotkey' }
 export interface AuthorizeOrderJSON extends AuthorizeOrderInput { op: 'authorize_order' }
@@ -1070,9 +1115,11 @@ export interface PowRegisterJSON extends PowRegisterInput { op: 'pow_register' }
 export interface RefundCrowdloanJSON extends RefundCrowdloanInput { op: 'refund_crowdloan' }
 export interface RegisterLeasedNetworkJSON extends RegisterLeasedNetworkInput { op: 'register_leased_network' }
 export interface RegisterSubnetJSON extends RegisterSubnetInput { op: 'register_subnet' }
+export interface RejectProxyAnnouncementJSON extends RejectProxyAnnouncementInput { op: 'reject_proxy_announcement' }
 export interface ReleaseOwnColdkeySwapDestinationReservationJSON extends ReleaseOwnColdkeySwapDestinationReservationInput { op: 'release_own_coldkey_swap_destination_reservation' }
 export interface RemoveProxiesJSON extends RemoveProxiesInput { op: 'remove_proxies' }
 export interface RemoveProxyJSON extends RemoveProxyInput { op: 'remove_proxy' }
+export interface RemoveProxyAnnouncementJSON extends RemoveProxyAnnouncementInput { op: 'remove_proxy_announcement' }
 export interface RemoveStakeJSON extends RemoveStakeInput { op: 'remove_stake' }
 export interface RemoveStakeLimitJSON extends RemoveStakeLimitInput { op: 'remove_stake_limit' }
 export interface ResetAxonJSON extends ResetAxonInput { op: 'reset_axon' }
@@ -1098,6 +1145,7 @@ export interface SetRootClaimThresholdJSON extends SetRootClaimThresholdInput { 
 export interface SetServiceJSON extends SetServiceInput { op: 'set_service' }
 export interface SetSubnetEmissionEnabledJSON extends SetSubnetEmissionEnabledInput { op: 'set_subnet_emission_enabled' }
 export interface SetSubnetEmissionWeightsJSON extends SetSubnetEmissionWeightsInput { op: 'set_subnet_emission_weights' }
+export interface SetSubnetGammaEmissionWhitelistedJSON extends SetSubnetGammaEmissionWhitelistedInput { op: 'set_subnet_gamma_emission_whitelisted' }
 export interface SetSubnetIdentityJSON extends SetSubnetIdentityInput { op: 'set_subnet_identity' }
 export interface SetTakeJSON extends SetTakeInput { op: 'set_take' }
 export interface SetWeightsJSON extends SetWeightsInput { op: 'set_weights' }
@@ -1123,6 +1171,6 @@ export interface UpdateCrowdloanEndJSON extends UpdateCrowdloanEndInput { op: 'u
 export interface UpdateCrowdloanMinContributionJSON extends UpdateCrowdloanMinContributionInput { op: 'update_crowdloan_min_contribution' }
 export interface UpdateSymbolJSON extends UpdateSymbolInput { op: 'update_symbol' }
 export interface WithdrawCrowdloanJSON extends WithdrawCrowdloanInput { op: 'withdraw_crowdloan' }
-export type IntentJSON = AddCollateralJSON | AddProxyJSON | AddStakeJSON | AddStakeLimitJSON | AnnounceColdkeySwapJSON | AssociateEvmKeyJSON | AssociateHotkeyJSON | AuthorizeOrderJSON | BatchJSON | BurnedRegisterJSON | CancelOrderJSON | ClaimRootJSON | ClaimRootWithHotkeyJSON | ClearColdkeySwapAnnouncementJSON | CloseGammaDepositJSON | CommitWeightsJSON | ContributeCrowdloanJSON | CreateCrowdloanJSON | CreatePureProxyJSON | DecreaseTakeJSON | DisputeColdkeySwapJSON | DissolveCrowdloanJSON | EvmWithdrawJSON | ExecuteBatchedOrdersJSON | ExecuteOrdersJSON | ExecuteProxyAnnouncedJSON | FinalizeCrowdloanJSON | FundEvmKeyJSON | IncreaseTakeJSON | KillPureProxyJSON | LockStakeJSON | MintGammaJSON | MintGammaWithStakeJSON | MoveGammaJSON | MoveLockJSON | MoveStakeJSON | MoveSwapStakeJSON | MultisigApproveJSON | MultisigCancelJSON | MultisigExecuteJSON | MultisigThreshold1JSON | PowRegisterJSON | RefundCrowdloanJSON | RegisterLeasedNetworkJSON | RegisterSubnetJSON | ReleaseOwnColdkeySwapDestinationReservationJSON | RemoveProxiesJSON | RemoveProxyJSON | RemoveStakeJSON | RemoveStakeLimitJSON | ResetAxonJSON | RevealWeightsJSON | RootRegisterJSON | ServeAxonJSON | ServeAxonTlsJSON | ServePrometheusJSON | SetAutoStakeJSON | SetChildkeyTakeJSON | SetChildrenJSON | SetCrowdloanMaxContributionJSON | SetGammaDepositDailySpendCapJSON | SetGammaDepositSpenderJSON | SetHyperparameterJSON | SetIdentityJSON | SetMechanismCountJSON | SetMinCollateralJSON | SetPerpetualLockJSON | SetRejectLockedAlphaJSON | SetRejectStakingHotkeyGrowthJSON | SetRootClaimThresholdJSON | SetServiceJSON | SetSubnetEmissionEnabledJSON | SetSubnetEmissionWeightsJSON | SetSubnetIdentityJSON | SetTakeJSON | SetWeightsJSON | SpendGammaJSON | StakeBurnJSON | StakeIntoBasketJSON | StartCallJSON | SwapBasketJSON | SwapBasketManyJSON | SwapColdkeyAnnouncedJSON | SwapHotkeyJSON | SwapStakeJSON | TerminateLeaseJSON | TransferJSON | TransferAllJSON | TransferStakeJSON | TrimNullSubnetBatchJSON | TrimSubnetJSON | UnstakeAllJSON | UnstakeAllAlphaJSON | UpdateCrowdloanCapJSON | UpdateCrowdloanEndJSON | UpdateCrowdloanMinContributionJSON | UpdateSymbolJSON | WithdrawCrowdloanJSON
+export type IntentJSON = AddCollateralJSON | AddProxyJSON | AddStakeJSON | AddStakeLimitJSON | AnnounceColdkeySwapJSON | AnnounceProxyCallJSON | AssociateEvmKeyJSON | AssociateHotkeyJSON | AuthorizeOrderJSON | BatchJSON | BurnedRegisterJSON | CancelOrderJSON | ClaimRootJSON | ClaimRootWithHotkeyJSON | ClearColdkeySwapAnnouncementJSON | CloseGammaDepositJSON | CommitWeightsJSON | ContributeCrowdloanJSON | CreateCrowdloanJSON | CreatePureProxyJSON | DecreaseTakeJSON | DisputeColdkeySwapJSON | DissolveCrowdloanJSON | EvmWithdrawJSON | ExecuteBatchedOrdersJSON | ExecuteOrdersJSON | ExecuteProxyAnnouncedJSON | FinalizeCrowdloanJSON | FundEvmKeyJSON | IncreaseTakeJSON | KillPureProxyJSON | LockStakeJSON | MintGammaJSON | MintGammaWithStakeJSON | MoveGammaJSON | MoveLockJSON | MoveStakeJSON | MoveSwapStakeJSON | MultisigApproveJSON | MultisigCancelJSON | MultisigExecuteJSON | MultisigThreshold1JSON | PowRegisterJSON | RefundCrowdloanJSON | RegisterLeasedNetworkJSON | RegisterSubnetJSON | RejectProxyAnnouncementJSON | ReleaseOwnColdkeySwapDestinationReservationJSON | RemoveProxiesJSON | RemoveProxyJSON | RemoveProxyAnnouncementJSON | RemoveStakeJSON | RemoveStakeLimitJSON | ResetAxonJSON | RevealWeightsJSON | RootRegisterJSON | ServeAxonJSON | ServeAxonTlsJSON | ServePrometheusJSON | SetAutoStakeJSON | SetChildkeyTakeJSON | SetChildrenJSON | SetCrowdloanMaxContributionJSON | SetGammaDepositDailySpendCapJSON | SetGammaDepositSpenderJSON | SetHyperparameterJSON | SetIdentityJSON | SetMechanismCountJSON | SetMinCollateralJSON | SetPerpetualLockJSON | SetRejectLockedAlphaJSON | SetRejectStakingHotkeyGrowthJSON | SetRootClaimThresholdJSON | SetServiceJSON | SetSubnetEmissionEnabledJSON | SetSubnetEmissionWeightsJSON | SetSubnetGammaEmissionWhitelistedJSON | SetSubnetIdentityJSON | SetTakeJSON | SetWeightsJSON | SpendGammaJSON | StakeBurnJSON | StakeIntoBasketJSON | StartCallJSON | SwapBasketJSON | SwapBasketManyJSON | SwapColdkeyAnnouncedJSON | SwapHotkeyJSON | SwapStakeJSON | TerminateLeaseJSON | TransferJSON | TransferAllJSON | TransferStakeJSON | TrimNullSubnetBatchJSON | TrimSubnetJSON | UnstakeAllJSON | UnstakeAllAlphaJSON | UpdateCrowdloanCapJSON | UpdateCrowdloanEndJSON | UpdateCrowdloanMinContributionJSON | UpdateSymbolJSON | WithdrawCrowdloanJSON
 export type IntentArguments<N extends keyof IntentInputMap> = keyof IntentInputMap[N] extends never ? [args?: Record<string, never>] : {} extends IntentInputMap[N] ? [args?: IntentInputMap[N]] : [args: IntentInputMap[N]]
 export type IntentBuilders = { readonly [N in keyof IntentInputMap]: (...args: IntentArguments<N>) => Intent }

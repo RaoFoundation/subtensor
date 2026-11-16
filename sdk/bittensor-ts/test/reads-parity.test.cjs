@@ -31,8 +31,8 @@ function view({ queries = {}, maps = {}, runtime = {}, constants = {}, block = 1
   return pinned
 }
 
-test('111 Python read contracts have concrete typed handlers and validate parameters', async () => {
-  assert.equal(READ_CATALOG.length, 111)
+test('113 Python read contracts have concrete typed handlers and validate parameters', async () => {
+  assert.equal(READ_CATALOG.length, 113)
   assert.deepEqual(READ_CATALOG.map(s => s.name).sort(), Object.keys(READ_HANDLERS).sort())
   await assert.rejects(dispatchRead(view(), 'does_not_exist'), /unknown read/)
   await assert.rejects(dispatchRead(view(), 'stake', {}), /missing parameter/)
@@ -264,14 +264,14 @@ test('Node and snapshot namespaces expose snake and camel methods at the origina
   assert.equal(await snapshot.at(), snapshot)
   assert.equal(await client.neurons.hotkeyOwner('hot'), 'owner')
   assert.equal(await snapshot.neurons.hotkey_owner('hot'), 'owner')
-  assert.equal(client.reads().length, 111)
+  assert.equal(client.reads().length, 113)
   await client.close()
 })
 
 test('generated catalogs expose every metadata category and exact call parameter names', () => {
   const descriptors = require('../dist/descriptors')
   const count = catalog => Object.values(catalog).reduce((sum, value) => sum + Object.keys(value).length, 0)
-  assert.equal(count(descriptors.storage), 438)
+  assert.equal(count(descriptors.storage), 437)
   assert.deepEqual(descriptors.storage.LimitOrders.ApprovedOrders, ['LimitOrders', 'ApprovedOrders'])
   assert.equal(descriptors.storage.LimitOrders.OrderNonces, undefined)
   for (const name of ['SubnetGammaEmission', 'PendingGammaEmission', 'UnconvertedGammaEmission', 'SubnetGammaEmissionWhitelisted']) {

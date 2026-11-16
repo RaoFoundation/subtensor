@@ -23,6 +23,7 @@ function reader(overrides = {}) {
         case 'SubnetOwner': return 'coldkey'
         case 'LastRateLimitedBlock': return 0
         case 'SubnetGammaEmission': return []
+        case 'SubnetUidToLeaseId': return null
         case 'AlphaValues': return [1000, 50000]
         case 'Uids': return 0
         case 'GammaDeposits': return { coldkey: 'coldkey', spender: 'coldkey', balance: 0n, daily_spend_cap: null }
@@ -91,6 +92,7 @@ function sample(tool) {
   for (const name of Object.keys(args)) if (name.includes('coldkey') || name === 'delegate_ss58' || name === 'spawner_ss58') args[name] = 'other'
   if ('dest_netuid' in args) args.dest_netuid = 2
   if ('ip' in args) args.ip = '::1'
+  if ('call_hash' in args) args.call_hash = '0x' + '11'.repeat(32)
   if ('evm_key' in args) args.evm_key = '0x' + '11'.repeat(20)
   if ('evm_address' in args) args.evm_address = '0x' + '11'.repeat(20)
   if ('signature' in args) args.signature = '0x' + '11'.repeat(65)
@@ -329,7 +331,7 @@ test('emission weights enforce exact sum, baseline, and owner rate limit', async
   const base = reader()
   const view = reader({ query: async (pallet, item, params) => item === 'LastRateLimitedBlock' ? 99 : base.query(pallet, item, params) })
   const plan = await buildIntent('set_subnet_emission_weights', { netuid: 1, slots: ['owner'], values: ['0.18'], renormalize: true }).prepare(view, context)
-  assert.equal(plan.call.params.values.reduce((sum, value) => sum + value, 0n), ONE)
+  assert.equal(plan.call.params.split.reduce((sum, [, value]) => sum + value, 0n), ONE)
   assert.match(plan.violations.join(), /rate-limited/)
   const alias = reader({ query: async (pallet, item, params) => item === 'SubnetOwner' ? 'same-key-other-network' : base.query(pallet, item, params), decodeAddress: () => new Uint8Array(32) })
   const sameOwner = await buildIntent('set_subnet_emission_weights', { netuid: 1, slots: ['owner'], values: ['0.18'], renormalize: true }).prepare(alias, context)

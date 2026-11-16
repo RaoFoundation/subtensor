@@ -56,6 +56,11 @@ getDefaultMinStake()
 
 These functions are `view`.
 
+The coldkey aggregate views charge gas incrementally for the hotkeys and stake
+positions actually scanned. They do not require a budget for every possible
+hotkey/subnet combination. A call with insufficient gas stops before an unpaid
+iterator step; existing selectors and return units remain unchanged.
+
 ## Relationship and ownership views
 
 ```text

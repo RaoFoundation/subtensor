@@ -189,6 +189,28 @@ _TX_FLOW = [
         ),
     ),
     (
+        "max_controller_refill",
+        Optional[str],
+        typer.Option(
+            None,
+            "--max-controller-refill",
+            help="Maximum TAO an automatic protected-account controller refill may move. "
+            "The command stops instead of exceeding this ceiling.",
+            rich_help_panel=PANEL_EXECUTION,
+        ),
+    ),
+    (
+        "no_controller_refill",
+        bool,
+        typer.Option(
+            False,
+            "--no-refill-controller",
+            help="Do not add an automatic protected-account controller refill, including "
+            "when --yes is set.",
+            rich_help_panel=PANEL_EXECUTION,
+        ),
+    ),
+    (
         "dry_run",
         bool,
         typer.Option(
@@ -396,6 +418,24 @@ def parameters(tier: Tier = "tx") -> list[inspect.Parameter]:
     ]
 
 
+def parse_controller_refill(value: str | None):
+    """Parse an optional non-negative controller-refill ceiling."""
+    if value is None:
+        return None
+    from ..balance import Balance
+
+    try:
+        amount = Balance.from_tao(value)
+    except (TypeError, ValueError) as error:
+        raise typer.BadParameter(
+            f"invalid TAO amount {value!r}: {error}",
+            param_hint="--max-controller-refill",
+        ) from error
+    if amount.rao < 0:
+        raise typer.BadParameter("must not be negative", param_hint="--max-controller-refill")
+    return amount
+
+
 def apply(
     ctx: typer.Context,
     kwargs: dict[str, Any],
@@ -438,6 +478,10 @@ def apply(
         obj.assume_yes = True
     if (v := _pop("max_registration_deposit")) is not None:
         obj.max_registration_deposit = parse_registration_deposit(v)
+    if (v := _pop("max_controller_refill")) is not None:
+        obj.max_controller_refill = parse_controller_refill(v)
+    if _pop("no_controller_refill", False):
+        obj.no_controller_refill = True
     if _pop("dry_run", False):
         obj.dry_run = True
     if (v := _pop("mev_shield")) is not None:

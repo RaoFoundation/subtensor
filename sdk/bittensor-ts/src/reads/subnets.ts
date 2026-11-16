@@ -1,4 +1,4 @@
-import { DEFAULT_OWNER, normalizeWeights, shares, shareToFloat, minValidatorParts, rateLimitStatus, gammaEmissionShare } from '../emission-weights'
+import { DEFAULT_OWNER, normalizeWeights, shares, shareToFloat, minValidatorParts, rateLimitStatus, gammaEmissionShare, gammaEmissionShares } from '../emission-weights'
 import { type ReadView, type ChainRecord, st, api, num, integer, fixed, bal, blockOf, textRecord, utf8Text, absentFeature, keyOf, min } from './base'
 export type SubnetLifecycleState = 'registered' | 'started' | 'pending_dissolution' | 'dissolving'
 function decodeState(value: any): SubnetLifecycleState | null {
@@ -50,20 +50,27 @@ export async function subnets(view: ReadView) {
   return Object.keys(states).map(Number).sort((a, b) => a - b).map(netuid => ({ netuid, tempo: num(tempos[netuid]), burn: bal(view, burns[netuid]), neuron_count: num(counts[netuid]), state: states[netuid] as SubnetLifecycleState, pool_emission_enabled: Boolean(enabled[netuid] ?? true) }))
 }
 export async function subnetEmissionWeights(view: ReadView, netuid: number) {
+  if (netuid === 0) return null
   view = await view.at()
   const info = await view.runtime(api('SubnetInfoRuntimeApi', 'get_subnet_emission_weights'), [netuid])
   if (info == null) return null
   const weights = normalizeWeights(info.weights)
-  const [root, ain, aout, reservoir, global, last, gammaRows] = await Promise.all([
+  const [root, ain, aout, reservoir, global, last, gammaRows, whitelisted, enabled, lease] = await Promise.all([
     view.query(st('SubnetTAO'), [0]), view.query(st('SubnetAlphaIn'), [netuid]), view.query(st('SubnetAlphaOut'), [netuid]),
     view.query(['Swap', 'BalancerAlphaReservoir'], [netuid]), view.query(st('TaoWeight')),
     view.query(st('LastRateLimitedBlock'), [{ OwnerHyperparamUpdate: [netuid, 'EmissionWeights'] }]),
     view.query(st('SubnetGammaEmission'), [netuid]),
+    view.queryMap(st('SubnetGammaEmissionWhitelisted')), view.queryMap(st('SubnetGammaEnabled')),
+    view.query(st('SubnetUidToLeaseId'), [netuid]),
   ])
   const gammaShare = gammaEmissionShare(gammaRows)
+  const gammaShares = gammaEmissionShares(gammaRows)
+  const gammaEnabled = new Set(enabled.filter(([, value]) => value).map(([key]) => num(keyOf(key))))
+  const gammaTargets: Record<number, boolean> = Object.fromEntries(whitelisted.filter(([, value]) => value).map(([key]) => num(keyOf(key))).sort((a, b) => a - b).map(target => [target, gammaEnabled.has(target)]))
+  const leased = lease != null
   const baseline = integer(info.root_baseline_share), rootParts = min(integer(info.root_share), weights[3]), floor = minValidatorParts(baseline)
   const block = blockOf(view), lastChange = num(last)
-  return { netuid: num(info.netuid), weights, shares: shares(weights), burn: integer(info.burn), recycle: integer(info.recycle), owner: integer(info.owner), validator: integer(info.validator), miner: integer(info.miner), gamma_share: gammaShare, global_tao_weight: shareToFloat(integer(global)), created_via_lease: Boolean(info.created_via_lease), root_tao: integer(root), alpha_issuance: integer(ain) + integer(aout) + integer(reservoir), root_share: shareToFloat(rootParts), baseline_root_share: shareToFloat(baseline), baseline_root_parts: baseline, validator_share_after_root: shareToFloat(weights[3] - rootParts), root_capped: baseline > weights[3], min_validator: floor, block, last_change_block: lastChange, rules: () => ({ min_validator: floor, min_owner: DEFAULT_OWNER, created_via_lease: Boolean(info.created_via_lease), gamma_share: gammaShare }), rate_limit: () => rateLimitStatus(lastChange, block) }
+  return { netuid: num(info.netuid), weights, shares: shares(weights), burn: integer(info.burn), recycle: integer(info.recycle), owner: integer(info.owner), validator: integer(info.validator), miner: integer(info.miner), gamma_share: gammaShare, gamma_shares: gammaShares, gamma_targets: gammaTargets, leased, global_tao_weight: shareToFloat(integer(global)), created_via_lease: Boolean(info.created_via_lease), root_tao: integer(root), alpha_issuance: integer(ain) + integer(aout) + integer(reservoir), root_share: shareToFloat(rootParts), baseline_root_share: shareToFloat(baseline), baseline_root_parts: baseline, validator_share_after_root: shareToFloat(weights[3] - rootParts), root_capped: baseline > weights[3], min_validator: floor, block, last_change_block: lastChange, rules: () => ({ min_validator: floor, min_owner: DEFAULT_OWNER, created_via_lease: Boolean(info.created_via_lease), gamma_share: gammaShare, gamma_targets: gammaTargets, leased }), rate_limit: () => rateLimitStatus(lastChange, block) }
 }
 export interface SubnetService {
   url: string
@@ -95,6 +102,7 @@ export const subnetReads = {
   subnet: (view: ReadView, p: { netuid: number }) => subnet(view, p.netuid),
   subnets: (view: ReadView) => subnets(view),
   subnet_emission_weights: (view: ReadView, p: { netuid: number }) => subnetEmissionWeights(view, p.netuid),
+  subnet_gamma_emission_whitelisted: async (view: ReadView, p: { netuid: number }) => num(await view.query(st('SubnetGammaEmissionWhitelisted'), [p.netuid])),
   burn: async (view: ReadView, p: { netuid: number }) => bal(view, await view.query(st('Burn'), [p.netuid])),
   commit_reveal_enabled: async (view: ReadView, p: { netuid: number }) => Boolean(await view.query(st('CommitRevealWeightsEnabled'), [p.netuid])),
   subnet_tao_flows: async (view: ReadView): Promise<Record<number, number>> => Object.fromEntries((await view.queryMap(st('SubnetEmaTaoFlow'))).filter(([, value]) => Array.isArray(value) && value.length === 2).map(([key, value]) => [num(keyOf(key)), fixed(value[1])])),
