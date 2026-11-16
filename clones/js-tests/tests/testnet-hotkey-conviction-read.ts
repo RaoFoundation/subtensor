@@ -90,23 +90,19 @@ async function readHotkeyLockRows(blockHash) {
   const ownerHotkeys = await readOwnerHotkeys(blockHash);
   const hotkeyLocks = await readHotkeyLocksAt(blockHash, "hotkeyLock");
   const decayingHotkeyLocks = await readHotkeyLocksAt(blockHash, "decayingHotkeyLock");
-  const ownerLocks = await readOwnerLocksForHotkeyAt(blockHash, "ownerLock", ownerHotkeys);
-  const decayingOwnerLocks = await readOwnerLocksForHotkeyAt(blockHash, "decayingOwnerLock", ownerHotkeys);
 
   return [
-    ...hotkeyLocks.map((row) => ({ ...row, storage: "HotkeyLock", perpetual: true, owner: false })),
+    ...hotkeyLocks.map((row) => ({
+      ...row,
+      storage: "HotkeyLock",
+      perpetual: true,
+      owner: ownerHotkeys.get(row.netuid) === HOTKEY,
+    })),
     ...decayingHotkeyLocks.map((row) => ({
       ...row,
       storage: "DecayingHotkeyLock",
       perpetual: false,
-      owner: false,
-    })),
-    ...ownerLocks.map((row) => ({ ...row, storage: "OwnerLock", perpetual: true, owner: true })),
-    ...decayingOwnerLocks.map((row) => ({
-      ...row,
-      storage: "DecayingOwnerLock",
-      perpetual: false,
-      owner: true,
+      owner: ownerHotkeys.get(row.netuid) === HOTKEY,
     })),
   ];
 }
@@ -119,35 +115,16 @@ async function readHotkeyLockRowsForNetuid(blockHash, netuid) {
       hotkey: HOTKEY,
       storage: "HotkeyLock",
       perpetual: true,
-      owner: false,
+      owner: ownerHotkey === HOTKEY,
     }),
     await readMaybeLockAt(blockHash, "decayingHotkeyLock", [netuid, HOTKEY], {
       netuid,
       hotkey: HOTKEY,
       storage: "DecayingHotkeyLock",
       perpetual: false,
-      owner: false,
+      owner: ownerHotkey === HOTKEY,
     }),
   ];
-
-  if (ownerHotkey === HOTKEY) {
-    rows.push(
-      await readMaybeLockAt(blockHash, "ownerLock", [netuid], {
-        netuid,
-        hotkey: HOTKEY,
-        storage: "OwnerLock",
-        perpetual: true,
-        owner: true,
-      }),
-      await readMaybeLockAt(blockHash, "decayingOwnerLock", [netuid], {
-        netuid,
-        hotkey: HOTKEY,
-        storage: "DecayingOwnerLock",
-        perpetual: false,
-        owner: true,
-      })
-    );
-  }
 
   return rows.filter(Boolean);
 }
@@ -190,20 +167,6 @@ async function readHotkeyLocksAt(blockHash, storageName) {
       return {
         netuid: netuid.toNumber(),
         hotkey: hotkey.toString(),
-        lock: decodeLockState(value),
-      };
-    })
-    .filter((row) => row.hotkey === HOTKEY);
-}
-
-async function readOwnerLocksForHotkeyAt(blockHash, storageName, ownerHotkeys) {
-  const entries = await api.query.subtensorModule[storageName].entriesAt(blockHash);
-  return entries
-    .map(([key, value]) => {
-      const netuid = key.args[0].toNumber();
-      return {
-        netuid,
-        hotkey: ownerHotkeys.get(netuid),
         lock: decodeLockState(value),
       };
     })
@@ -366,8 +329,6 @@ function assertLockMetadataAvailable() {
   const missing = [
     ["HotkeyLock", query.hotkeyLock],
     ["DecayingHotkeyLock", query.decayingHotkeyLock],
-    ["OwnerLock", query.ownerLock],
-    ["DecayingOwnerLock", query.decayingOwnerLock],
     ["SubnetOwnerHotkey", query.subnetOwnerHotkey],
     ["UnlockRate", query.unlockRate],
     ["MaturityRate", query.maturityRate],

@@ -997,9 +997,6 @@ fn test_remove_network_hotkey_and_owner_lock_maps() {
         DecayingHotkeyLock::<Test>::insert(netuid, hot_2, lock_state.clone());
         DecayingHotkeyLock::<Test>::insert(other_netuid, hot_1, lock_state.clone());
 
-        OwnerLock::<Test>::insert(netuid, lock_state.clone());
-        OwnerLock::<Test>::insert(other_netuid, lock_state);
-
         run_block_idle();
 
         assert!(!HotkeyLock::<Test>::contains_key(netuid, hot_1));
@@ -1014,14 +1011,11 @@ fn test_remove_network_hotkey_and_owner_lock_maps() {
                 .is_none()
         );
 
-        assert!(!OwnerLock::<Test>::contains_key(netuid));
-
         assert!(HotkeyLock::<Test>::contains_key(other_netuid, hot_1));
         assert!(DecayingHotkeyLock::<Test>::contains_key(
             other_netuid,
             hot_1
         ));
-        assert!(OwnerLock::<Test>::contains_key(other_netuid));
     });
 }
 

@@ -945,6 +945,7 @@ impl<T: Config> Pallet<T> {
         );
 
         let old_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
+        Self::roll_forward_subnet_owner_locks(netuid);
         SubnetOwnerHotkey::<T>::insert(netuid, hotkey.clone());
         Self::retarget_auto_parent_on_owner_change(netuid, &old_hotkey, hotkey);
         Self::deposit_event(Event::SubnetOwnerHotkeySet(netuid, hotkey.clone()));

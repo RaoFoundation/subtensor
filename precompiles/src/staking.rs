@@ -613,8 +613,7 @@ where
 
     /// Return the rolled aggregate lock and conviction for a hotkey.
     ///
-    /// This combines perpetual and decaying general buckets and, when the
-    /// hotkey is the subnet owner, both owner buckets.
+    /// This combines the hotkey's perpetual and decaying buckets.
     #[precompile::public("getHotkeyLock(bytes32,uint256)")]
     #[precompile::view]
     fn get_hotkey_lock(
@@ -651,22 +650,14 @@ where
 
         add_bucket(
             pallet_subtensor::HotkeyLock::<R>::get(netuid, &hotkey),
-            false,
+            is_owner,
             true,
         );
         add_bucket(
             pallet_subtensor::DecayingHotkeyLock::<R>::get(netuid, &hotkey),
-            false,
+            is_owner,
             false,
         );
-        if is_owner {
-            add_bucket(pallet_subtensor::OwnerLock::<R>::get(netuid), true, true);
-            add_bucket(
-                pallet_subtensor::DecayingOwnerLock::<R>::get(netuid),
-                true,
-                false,
-            );
-        }
 
         let exists = locked > AlphaBalance::ZERO || conviction > U64F64::from_bits(0);
         Ok((exists, locked.to_u64().into(), conviction.to_bits()))
@@ -3270,7 +3261,7 @@ mod tests {
             assert!(pallet_subtensor::Lock::<Runtime>::contains_key((
                 &coldkey, netuid, &hotkey
             )));
-            assert!(pallet_subtensor::DecayingOwnerLock::<Runtime>::contains_key(netuid));
+            assert!(pallet_subtensor::DecayingHotkeyLock::<Runtime>::contains_key(netuid, &hotkey));
 
             frame_system::Pallet::<Runtime>::set_block_number(100);
             let raw_lock = pallet_subtensor::Lock::<Runtime>::get((&coldkey, netuid, &hotkey))
@@ -3350,7 +3341,7 @@ mod tests {
             assert!(pallet_subtensor::Lock::<Runtime>::contains_key((
                 &coldkey, netuid, &hotkey
             )));
-            assert!(pallet_subtensor::DecayingOwnerLock::<Runtime>::contains_key(netuid));
+            assert!(pallet_subtensor::DecayingHotkeyLock::<Runtime>::contains_key(netuid, &hotkey));
         });
     }
 

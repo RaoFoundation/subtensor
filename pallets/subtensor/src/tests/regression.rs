@@ -974,7 +974,7 @@ fn lease_retry_after_conviction_takeover_recovers_funds_without_reclaiming_owner
 // PROTECTED_REGRESSION: lease termination after a conviction takeover must not leave ghost locks or debit the winner's owner bucket; changes require explicit human approval.
 #[test]
 fn lease_termination_after_conviction_takeover_preserves_lock_buckets() {
-    use crate::{DecayingHotkeyLock, DecayingOwnerLock, Lock, OwnerCutAutoLockEnabled};
+    use crate::{DecayingHotkeyLock, Lock, OwnerCutAutoLockEnabled};
     new_test_ext(1).execute_with(|| {
         let end = crate::staking::lock::ONE_YEAR + 1_000;
         let (id, lease, _contributor, destination) = lease_regression_funded(55_000_000_000, end);
@@ -1012,7 +1012,7 @@ fn lease_termination_after_conviction_takeover_preserves_lock_buckets() {
             panic!("the beneficiary must receive the actual retained lock");
         };
         assert_eq!(
-            DecayingOwnerLock::<Test>::get(lease.netuid).map(|lock| lock.locked_mass),
+            DecayingHotkeyLock::<Test>::get(lease.netuid, destination).map(|lock| lock.locked_mass),
             Some(beneficiary_lock.locked_mass)
         );
     });
@@ -1141,5 +1141,71 @@ fn proxy_controller_can_cancel_only_its_own_announcements_during_coldkey_swap() 
             .is_err()
         );
         assert_eq!(Announcements::<Test>::get(other_controller).0.len(), 1);
+    });
+}
+
+// PROTECTED_REGRESSION: a coldkey swap after the owner hotkey changes must not count a lock to that hotkey twice and hand the subnet to its coldkey (finney SN24, block 9503363); changes require explicit human approval.
+#[test]
+fn coldkey_swap_after_owner_hotkey_change_keeps_the_subnet() {
+    use crate::{
+        DecayingLock, HotkeyLock, Lock, NetworkRegisteredAt, SubnetOwner, SubnetOwnerHotkey,
+        SubnetProtocolAlpha,
+    };
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(5_001);
+        let new_owner = U256::from(5_002);
+        let hotkey_coldkey = U256::from(5_003);
+        let hotkey = U256::from(5_004);
+        let netuid = add_dynamic_network(&U256::from(5_005), &owner);
+        let locked = AlphaBalance::from(1_000_000_000u64);
+
+        // The owner locks to a hotkey of another coldkey, then makes it the owner hotkey.
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &hotkey_coldkey,
+            &hotkey
+        ));
+        register_ok_neuron(netuid, hotkey, hotkey_coldkey, 0);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &owner, netuid, locked,
+        );
+        DecayingLock::<Test>::insert(owner, netuid, false);
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &owner, netuid, &hotkey, locked
+        ));
+        assert_ok!(SubtensorModule::do_set_sn_owner_hotkey(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            &hotkey,
+        ));
+
+        // The lock is 12.5% of the eligible alpha, below the 18% takeover threshold.
+        System::set_block_number(crate::staking::lock::ONE_YEAR + 1);
+        NetworkRegisteredAt::<Test>::insert(netuid, 0);
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(8_000_000_000u64));
+        SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::ZERO);
+        let conviction = SubtensorModule::hotkey_conviction(&hotkey, netuid);
+
+        assert_ok!(SubtensorModule::set_reject_locked_alpha(
+            RuntimeOrigin::signed(new_owner),
+            false,
+        ));
+        assert_ok!(SubtensorModule::do_swap_coldkey(&owner, &new_owner));
+
+        assert_eq!(
+            Lock::<Test>::get((new_owner, netuid, hotkey)).map(|lock| lock.locked_mass),
+            Some(locked)
+        );
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, hotkey).map(|lock| lock.locked_mass),
+            Some(locked)
+        );
+        assert_eq!(
+            SubtensorModule::hotkey_conviction(&hotkey, netuid),
+            conviction
+        );
+
+        SubtensorModule::change_subnet_owner_if_needed(netuid);
+        assert_eq!(SubnetOwner::<Test>::get(netuid), new_owner);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), hotkey);
     });
 }
