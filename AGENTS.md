@@ -1,5 +1,10 @@
 # Repository Agent Guidance
 
+## SDK core
+
+Implement core SDK functionality in `sdk/bittensor-core` so all clients can
+depend on the same Rust implementation.
+
 ## CI preflight gate (mandatory before every push)
 
 Run the local gate before every push. It runs the checks CI requires, with the
