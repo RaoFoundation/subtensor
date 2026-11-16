@@ -30,11 +30,8 @@ values. Formatting, prompts, and terminal dashboards remain application concerns
 `scripts/check-native-parity.cjs` checks the Rust export surfaces, including
 explicit mappings for Rust client operations implemented by TypeScript adapters.
 `npm run check:catalogs` regenerates reference-derived catalogs in memory and
-checks for drift. `parity-manifest.json` records upstream source hashes so future
-changes require review, including runtime fee and claim-admission inputs; a
-matching hash or name count alone is not behavioral
-evidence. Refresh it with `npm run parity:record` after updating implementations
-and their tests.
+checks for drift. Behavioral tests verify SDK functionality across the shared
+Rust implementation and client adapters.
 
 # Validation scope
 

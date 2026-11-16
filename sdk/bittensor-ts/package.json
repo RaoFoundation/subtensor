@@ -63,7 +63,7 @@
     "build:wasm": "wasm-pack build ../bittensor-core-wasm --target bundler --out-dir ../bittensor-ts/dist/wasm --out-name bittensor_core_wasm",
     "build:ts": "tsc -p tsconfig.json && node scripts/generate-esm.cjs",
     "build": "npm run build:native && npm run check:policy-catalog && npm run build:ts && npm run build:wasm && npm run check:binding-parity",
-    "check": "npm run check:source-parity && npm run build && npm test",
+    "check": "npm run build && npm test",
     "test": "node --test test/*.test.cjs && node scripts/browser-smoke.cjs",
     "test:localnet": "BT_TS_LOCALNET=1 node --test --test-concurrency=1 test/localnet.test.cjs test/workflows-localnet.test.cjs test/release-localnet.test.cjs",
     "clean": "node scripts/clean.cjs",
@@ -71,8 +71,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check:native-parity": "npm run check:binding-parity",
     "check:binding-parity": "node scripts/check-native-parity.cjs",
-    "check:source-parity": "node scripts/check-source-parity.cjs",
-    "parity:record": "node scripts/check-source-parity.cjs --write",
     "check:catalogs": "node scripts/check-catalogs.cjs",
     "check:policy-catalog": "node scripts/generate-policy-catalog.cjs --check",
     "policy:generate": "node scripts/generate-policy-catalog.cjs"

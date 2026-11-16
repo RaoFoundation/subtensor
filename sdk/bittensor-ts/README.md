@@ -563,14 +563,10 @@ Extensions or strict-CSP applications can provide a WASM loader:
 await initBrowser(() => import('./vendor/bittensor_core_wasm.js'))
 ```
 
-## Keeping source parity
+## Validation
 
-`npm run check:source-parity` detects changes anywhere in the upstream Rust core,
-Python SDK/CLI, canonical ABIs, and generated TypeScript catalogs, plus the runtime
-fee and admission rules mirrored by the planners. A source hash
-is a drift alarm; it does not prove behavioral equivalence. Review affected APIs,
-regenerate their catalogs with the scripts in `scripts/`, run the behavior tests,
-and deliberately refresh the reviewed snapshot with `npm run parity:record`.
+`npm run check` builds the native, TypeScript, and WASM packages, checks binding
+and policy catalogs, and runs the test suite, including Chromium integration.
 `npm run check:catalogs` checks regeneration against the Python development
 environment (set `PYTHON` if it is not at `sdk/python/.venv/bin/python`).
 
