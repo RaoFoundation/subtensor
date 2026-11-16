@@ -353,6 +353,9 @@ fn test_swap_coldkey_bounded_and_priced_per_position() {
                     dest_locks: 0,
                     registration_queue_scan: 0,
                     gamma_deposits: 0,
+                    destination_gamma_deposits: 0,
+                    destination_has_non_balance_policy_protection: false,
+                    destination_rejects_unsolicited_policy_import: false,
                 }
             )
         );
@@ -2198,6 +2201,63 @@ fn seed_gamma_deposits(netuid: NetUid, coldkey: U256, hotkeys: core::ops::Range<
             index.try_push(U256::from(hotkey)).unwrap()
         });
     }
+}
+
+// PROTECTED_REGRESSION: a Gamma-only destination must not inherit an attacker's coldkey
+// policy or lineage; changes require explicit human approval.
+#[test]
+fn gamma_only_destination_does_not_receive_source_policy_or_lineage() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(1);
+        let destination = U256::from(2);
+        let source_hotkey = U256::from(10);
+        let auto_stake_hotkey = U256::from(20);
+        let netuid = add_dynamic_network(&source_hotkey, &source);
+
+        seed_gamma_deposits(netuid, destination, 100..101);
+        AutoStakeDestination::<Test>::insert(source, netuid, auto_stake_hotkey);
+        AutoStakeDestinationColdkeys::<Test>::insert(auto_stake_hotkey, netuid, vec![source]);
+        AccountFlags::<Test>::insert(source, ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH);
+
+        assert!(!SubtensorModule::coldkey_already_in_use(&destination));
+        assert!(SubtensorModule::coldkey_rejects_unsolicited_policy_import(
+            &destination
+        ));
+        assert_ok!(SubtensorModule::do_swap_coldkey(&source, &destination));
+
+        assert!(AutoStakeDestination::<Test>::get(destination, netuid).is_none());
+        assert!(!AccountFlags::<Test>::contains_key(destination));
+        assert!(!ColdkeyRoot::<Test>::contains_key(destination));
+        assert!(!ColdkeySuccessor::<Test>::contains_key(source));
+        assert!(!SubtensorModule::same_coldkey_lineage(
+            &source,
+            &destination
+        ));
+    });
+}
+
+// PROTECTED_REGRESSION: a funded destination must not inherit an attacker's coldkey flags
+// or lineage; changes require explicit human approval.
+#[test]
+fn funded_non_staking_destination_does_not_receive_source_flags_or_lineage() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(1);
+        let destination = U256::from(2);
+
+        add_balance_to_coldkey_account(&destination, ExistentialDeposit::get());
+        AccountFlags::<Test>::insert(source, ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH);
+
+        assert!(!SubtensorModule::coldkey_already_in_use(&destination));
+        assert_ok!(SubtensorModule::do_swap_coldkey(&source, &destination));
+
+        assert!(!AccountFlags::<Test>::contains_key(destination));
+        assert!(!ColdkeyRoot::<Test>::contains_key(destination));
+        assert!(!ColdkeySuccessor::<Test>::contains_key(source));
+        assert!(!SubtensorModule::same_coldkey_lineage(
+            &source,
+            &destination
+        ));
+    });
 }
 
 // A coldkey swap moves the coldkey's gamma deposits with their terms.

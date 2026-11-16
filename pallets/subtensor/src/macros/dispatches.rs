@@ -2479,7 +2479,7 @@ mod dispatches {
             let now = <frame_system::Pallet<T>>::block_number();
 
             // Refuse destinations that execution would still reject, before the fee.
-            let _ = Self::ensure_coldkey_swap_destination(&who, &new_coldkey)
+            let work = Self::ensure_coldkey_swap_destination(&who, &new_coldkey)
                 .map_err(|(_weight, error)| error)?;
             // Also refuse a destination another announcer already reserved —
             // before the fee, so a conflict cannot burn the swap cost.
@@ -2487,8 +2487,7 @@ mod dispatches {
             // Snapshot destination presence before the delay. Otherwise anyone
             // can transfer dust to a blank destination after announce and make
             // execution silently discard the source's auto-stake policy.
-            let import_source_policies =
-                !Self::coldkey_rejects_unsolicited_policy_import(&new_coldkey);
+            let import_source_policies = !work.destination_rejects_unsolicited_policy_import;
 
             if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
                 let reannouncement_delay = ColdkeySwapReannouncementDelay::<T>::get();
