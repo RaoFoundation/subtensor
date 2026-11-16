@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 import type { IntentContext, IntentDescriptor, IntentReader } from './intents'
 import type { EpochScheduleState } from './types'
 
@@ -37,42 +38,15 @@ function unsigned(value: unknown, name: string): bigint {
   return n
 }
 
-// Python's canonical normalize uses round-to-even rather than Math.round's tie rule.
-function roundEven(value: number): number {
-  const floor = Math.floor(value)
-  return value - floor === 0.5 ? floor + (floor % 2) : Math.round(value)
-}
-
 export function normalizeValidatorWeights(uids: readonly number[], weights: readonly number[]): [number[], number[]] {
-  if (uids.length !== weights.length) throw new RangeError('uids and weights must be equal length')
-  if (weights.some(w => !Number.isFinite(w) || w < 0)) throw new RangeError('weights must be finite and non-negative')
-  for (const uid of uids) integer(uid, 'uid')
-  const top = weights.reduce((maximum, weight) => Math.max(maximum, weight), 0)
-  if (top === 0) return [[], []]
-  const result: [number[], number[]] = [[], []]
-  weights.forEach((weight, i) => {
-    const value = roundEven((weight / top) * U16_MAX)
-    if (value !== 0) { result[0].push(uids[i]); result[1].push(value) }
-  })
-  return result
+  if (weights.some(w => !Number.isFinite(w))) throw new RangeError('weights must be finite and non-negative')
+  return evaluatePolicy('validation.weights.normalize', { uids, weights })
 }
 
 export function clipToMaxWeight(weights: readonly number[], limit: number): number[] {
-  if (!Number.isFinite(limit) || limit < 0 || limit > 1) throw new RangeError('max weight limit must be in 0..1')
-  if (weights.some(w => !Number.isFinite(w) || w < 0)) throw new RangeError('weights must be finite and non-negative')
-  const total = weights.reduce((sum, w) => sum + w, 0), n = weights.length
-  if (n === 0 || total <= 0 || !Number.isFinite(total)) throw new RangeError('weights require a finite positive total')
-  if (n * limit <= 1) return weights.map(() => 1 / n)
-  const estimation = weights.map(w => w / total).sort((a, b) => a - b)
-  if (estimation[n - 1] <= limit) return weights.map(w => w / total)
-  let cumulative = 0
-  const cumsum = estimation.map(w => { cumulative += w; return cumulative })
-  const epsilon = 1e-7
-  const count = estimation.filter((w, i) => w / ((n - i - 1) * w + cumsum[i] + epsilon) < limit).length
-  const cutoff = ((limit * cumsum[count - 1] - epsilon) / (1 - limit * (n - count))) * total
-  const clipped = weights.map(w => Math.min(w, cutoff))
-  const clippedTotal = clipped.reduce((sum, w) => sum + w, 0)
-  return clipped.map(w => w / clippedTotal)
+  if (!Number.isFinite(limit)) throw new RangeError('max weight limit must be in 0..1')
+  if (weights.some(w => !Number.isFinite(w))) throw new RangeError('weights must be finite and non-negative')
+  return evaluatePolicy('validation.weights.clip', { weights, limit })
 }
 
 function pairs(args: Record<string, unknown>): [number[], number[]] {
@@ -120,33 +94,21 @@ export async function prepareWeights(op: string, args: Record<string, unknown>, 
     query('Uids', [netuid, context.hotkey]), query('CommitRevealWeightsEnabled'), query('WeightsSetRateLimit'),
     query('LastUpdate', [mechid * GLOBAL_MAX_SUBNET_COUNT + netuid]), query('MinAllowedWeights'), query('MaxWeightsLimit'), query('SubnetEpochConsensus'),
   ])
-  if (uidRaw == null) throw new WeightPreflightError(`Hotkey ${context.hotkey} is not registered on netuid ${netuid}.`, 'NOT_REGISTERED')
-  const uid = integer(uidRaw, 'registered uid')
-  if (nullConsensus(mode)) {
-    const permits = await query('ValidatorPermit')
-    if (!Array.isArray(permits) || !permits[uid]) throw new WeightPreflightError(`Only the Null validator permit holder may set weights on netuid ${netuid}.`, 'NOT_AUTHORIZED')
-  }
-  const rate = unsigned(rateRaw ?? 0, 'rate limit')
-  if (rate && Array.isArray(last) && last[uid] != null) {
-    const previous = unsigned(last[uid], 'last update'), since = BigInt(current) - previous
-    if (previous > 0n && since < rate) throw new WeightPreflightError(`Weights are rate limited; retry in ${rate - since} blocks.`, 'RATE_LIMITED')
-  }
+  const permits = nullConsensus(mode) && uidRaw != null ? await query('ValidatorPermit') : []
+  const uid = uidRaw == null ? null : integer(uidRaw, 'registered uid')
+  const admission = evaluatePolicy<{ code: WeightPreflightError['code']; wait?: string } | null>('validation.weights.admission', {
+    uid, null: nullConsensus(mode), permit: uid != null && Array.isArray(permits) && Boolean(permits[uid]),
+    current, rate: unsigned(rateRaw ?? 0, 'rate limit'), last: uid != null && Array.isArray(last) ? unsigned(last[uid] ?? 0, 'last update') : 0n,
+  })
+  if (admission?.code === 'NOT_REGISTERED') throw new WeightPreflightError(`Hotkey ${context.hotkey} is not registered on netuid ${netuid}.`, admission.code)
+  if (admission?.code === 'NOT_AUTHORIZED') throw new WeightPreflightError(`Only the Null validator permit holder may set weights on netuid ${netuid}.`, admission.code)
+  if (admission) throw new WeightPreflightError(`Weights are rate limited; retry in ${admission.wait} blocks.`, admission.code)
   const min = integer(minRaw ?? 0, 'minimum weight count'), max = integer(maxRaw ?? U16_MAX, 'maximum weight limit')
-  const selfWeight = uids.length === 1 && uids[0] === uid
-  const raw = Boolean(args.raw_u16 ?? args.rawU16 ?? false)
-  if (raw) {
-    if (!nullConsensus(mode)) throw new TypeError('raw_u16 requires a subnet running Null consensus')
-    if (weights.some(w => !Number.isInteger(w) || w > U16_MAX)) throw new RangeError('raw weights must be integers in 0..65535')
-    const selected = uids.map((uid, i) => [uid, weights[i]]).filter(pair => pair[1] > 0)
-    uids = selected.map(pair => pair[0]); weights = selected.map(pair => pair[1])
-    const top = weights.reduce((maximum, value) => Math.max(maximum, value), 0)
-    if (!selfWeight && BigInt(top) * BigInt(U16_MAX) > BigInt(max) * weights.reduce((sum, value) => sum + BigInt(value), 0n)) throw new RangeError('raw weights exceed max_weight_limit')
-  } else {
-    if (!selfWeight && max < U16_MAX) weights = clipToMaxWeight(weights, max / U16_MAX)
-    ;[uids, weights] = normalizeValidatorWeights(uids, weights)
-  }
-  if (!uids.length) throw new RangeError('all weights are zero; nothing to set')
-  if (!selfWeight && uids.length < min) throw new WeightPreflightError(`Subnet ${netuid} requires at least ${min} nonzero weights.`, 'INVALID_ARGUMENT')
+  const selected = evaluatePolicy<{ uids: number[]; values: number[]; insufficient: boolean }>('validation.weights.finalize', {
+    uid, uids, weights, minimum: min, maximum: max, null: nullConsensus(mode), raw: Boolean(args.raw_u16 ?? args.rawU16 ?? false),
+  })
+  uids = selected.uids; weights = selected.values
+  if (selected.insufficient) throw new WeightPreflightError(`Subnet ${netuid} requires at least ${min} nonzero weights.`, 'INVALID_ARGUMENT')
   if (op === 'set_weights' && !cr) return { call: { pallet: 'SubtensorModule', call: 'set_mechanism_weights', params: { netuid, mecid: mechid, dests: uids, weights, version_key: versionKey } } }
   if (!reader.encryptWeightsV2 || !reader.blockTime) throw new TypeError('timelocked weights require encryptWeightsV2 and blockTime')
   if (context.hotkeyPublicKey?.length !== 32) throw new TypeError('timelocked weights require a 32-byte hotkey public key')

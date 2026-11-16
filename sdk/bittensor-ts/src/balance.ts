@@ -1,4 +1,6 @@
-export const RAO_PER_TAO = 1_000_000_000n
+import { POLICY_CATALOG } from './policy-catalog'
+import { evaluatePolicy } from './policy'
+export const RAO_PER_TAO = BigInt(POLICY_CATALOG.validation.RAO_PER_TAO)
 const MAX_SAFE_RAO = BigInt(Number.MAX_SAFE_INTEGER)
 const AMOUNT_UNIT = '__bittensorAmountUnit'
 
@@ -54,7 +56,7 @@ export class Balance {
   }
 
   static fromAlpha(alpha: number | string, netuid: number, symbol?: string | null): Balance {
-    if (netuid === 0) {
+    if (!evaluatePolicy<boolean>('validation.amount.units', { left: netuid, mode: 'alpha' })) {
       throw new UnitMismatchError('fromAlpha requires a non-zero netuid; use fromTao for TAO')
     }
     return Balance.fromAmount(alpha, netuid, symbol)
@@ -64,36 +66,27 @@ export class Balance {
     if (typeof amount === 'number' && !Number.isFinite(amount)) {
       throw new RangeError('balance amount must be finite')
     }
-    const text = String(amount).trim()
-    if (!/^-?\d+(\.\d+)?$/.test(text)) throw new RangeError(`invalid balance amount ${text}`)
-    const negative = text.startsWith('-')
-    const unsigned = negative ? text.slice(1) : text
-    const [whole, fraction = ''] = unsigned.split('.', 2)
-    if (fraction.length > 9) {
-      throw new RangeError('balance amount cannot have more than 9 decimal places')
-    }
-    const padded = fraction.padEnd(9, '0')
-    const rao = BigInt(whole || '0') * RAO_PER_TAO + BigInt(padded)
-    return new Balance(negative ? -rao : rao, netuid, symbol)
+    const rao = BigInt(evaluatePolicy<string>('validation.amount.parse', { text: String(amount), precision: 'strict' }))
+    return new Balance(rao, netuid, symbol)
   }
 
   get tao(): number {
-    if (this.netuid !== 0) throw new UnitMismatchError(`This balance is subnet-${this.netuid} alpha, not TAO`)
+    if (!evaluatePolicy<boolean>('validation.amount.units', { left: this.netuid, mode: 'tao' })) throw new UnitMismatchError(`This balance is subnet-${this.netuid} alpha, not TAO`)
     return this.amount
   }
 
   get taoString(): string {
-    if (this.netuid !== 0) throw new UnitMismatchError(`This balance is subnet-${this.netuid} alpha, not TAO`)
+    if (!evaluatePolicy<boolean>('validation.amount.units', { left: this.netuid, mode: 'tao' })) throw new UnitMismatchError(`This balance is subnet-${this.netuid} alpha, not TAO`)
     return this.amountString
   }
 
   get alpha(): number {
-    if (this.netuid === 0) throw new UnitMismatchError('This balance is TAO, not alpha')
+    if (!evaluatePolicy<boolean>('validation.amount.units', { left: this.netuid, mode: 'alpha' })) throw new UnitMismatchError('This balance is TAO, not alpha')
     return this.amount
   }
 
   get alphaString(): string {
-    if (this.netuid === 0) throw new UnitMismatchError('This balance is TAO, not alpha')
+    if (!evaluatePolicy<boolean>('validation.amount.units', { left: this.netuid, mode: 'alpha' })) throw new UnitMismatchError('This balance is TAO, not alpha')
     return this.amountString
   }
 
@@ -147,7 +140,7 @@ export class Balance {
 
   private raoOf(other: BalanceLike): bigint {
     if (other instanceof Balance) {
-      if (other.netuid !== this.netuid) {
+      if (!evaluatePolicy<boolean>('validation.amount.units', { left: this.netuid, right: other.netuid, mode: 'same' })) {
         throw new UnitMismatchError(`Cannot combine netuid ${this.netuid} with netuid ${other.netuid}`)
       }
       return other.rao

@@ -1,7 +1,8 @@
-import { Interface, FunctionFragment, ParamType, HDNodeWallet, Wallet as EthereumWallet, getBytes, hexlify, keccak256, type InterfaceAbi, type TransactionRequest } from 'ethers'
+import { evaluatePolicy } from './policy'
+import { Interface, FunctionFragment, ParamType, HDNodeWallet, Wallet as EthereumWallet, getBytes, hexlify, type InterfaceAbi, type TransactionRequest } from 'ethers'
 import { Balance } from './balance'
 import { PRECOMPILE_CATALOG } from './evm-catalog'
-import { bytesHex, concatBytes, integerLE, unsignedInteger, type PortableCrypto } from './portable'
+import { bytesHex, unsignedInteger, type PortableCrypto } from './portable'
 import { buildIntent, type IntentDescriptor } from './intents'
 
 export const WEI_PER_TAO = 10n ** 18n
@@ -230,13 +231,13 @@ export function createEvmWorkflows(crypto: PortableCrypto) {
 }
 export function createEvmAddressUtilities(crypto: PortableCrypto) {
   return {
-    h160ToSs58(address: string, format = 42) { return crypto.ss58FromPublic(crypto.blake2_256(concatBytes(new TextEncoder().encode('evm:'), getBytes(normalizeH160(address)))), format) },
+    h160ToSs58(address: string, format = 42) { return crypto.ss58FromPublic(getBytes(evaluatePolicy<string>('transaction.evm_mirror', { address: normalizeH160(address) })), format) },
     ss58ToPubkey(address: string) { return bytesHex(crypto.publicKeyFromSs58(address)) },
     pubkeyToSs58(key: string | Uint8Array, format = 42) { const bytes = typeof key === 'string' ? getBytes(key) : key; if (bytes.length !== 32) throw new Error('public key must be 32 bytes'); return crypto.ss58FromPublic(bytes, format) },
-    ss58ToH160Truncated(address: string) { return bytesHex(crypto.publicKeyFromSs58(address).slice(0, 20)) },
+    ss58ToH160Truncated(address: string) { return evaluatePolicy<string>('transaction.evm_truncated', { account: crypto.publicKeyFromSs58(address) }) },
     async associationProof(account: Pick<EvmAccount, 'signMessage'>, hotkey: string, block: bigint | number): Promise<{ signature: string; blockNumber: bigint }> {
       const blockNumber = unsignedInteger(block, 64, 'blockNumber')
-      return { signature: await account.signMessage(concatBytes(crypto.publicKeyFromSs58(hotkey), getBytes(keccak256(integerLE(blockNumber, 8))))), blockNumber }
+      return { signature: await account.signMessage(getBytes(evaluatePolicy<string>('transaction.evm_association_payload', { hotkey: crypto.publicKeyFromSs58(hotkey), block: blockNumber }))), blockNumber }
     },
   }
 }

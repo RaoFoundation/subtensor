@@ -1,7 +1,8 @@
+import { evaluatePolicy } from './policy'
 import { Balance } from './balance'
 import { Intent, type IntentDescriptor } from './intents'
 import { unsignedInteger } from './portable'
-import { controllerAnyDelays, protectedSetupPending, PROXY_TYPE_INTENT_OPS, type ProtectedAccountRecord, type ProtectedAnnouncementPolicyRow, type ProxyGrant } from './protected-account-config'
+import { controllerAnyDelays, protectedSetupPending, type ProtectedAccountRecord, type ProtectedAnnouncementPolicyRow, type ProxyGrant } from './protected-account-config'
 import { requireProtectedChain, sameProtectedAccount, type ProtectedProxyBackend, type ProtectedProxySnapshot, type ProtectedProxyReceipt } from './protected-proxy-types'
 
 export interface ControllerFunding {
@@ -42,27 +43,10 @@ export interface ControllerFundingInput {
   signature_estimate?: string
 }
 const amount = (value: bigint | number | string, name: string) => unsignedInteger(value, 128, name)
-const max = (left: bigint, right: bigint) => left > right ? left : right
-
 /** Reserve refundable deposits once, covering twenty transfers or ten staking operations. */
 export function fundingBudget(input: ControllerFundingInput): ControllerFunding {
-  const count = unsignedInteger(input.announcement_count, 32, 'announcement count')
-  const deposit = amount(input.announcement_deposit, 'announcement deposit'), base = amount(input.deposit_base, 'announcement deposit base'), factor = amount(input.deposit_factor, 'announcement deposit factor')
-  const ed = amount(input.existential_deposit, 'existential deposit'), announceFee = amount(input.announce_fee, 'announcement fee')
-  const transferFee = announceFee + amount(input.transfer_execution_fee, 'transfer execution fee'), stakingFee = announceFee + amount(input.staking_execution_fee, 'staking execution fee')
-  const reserve = (additional: bigint) => max(0n, base + factor * (count + additional) - deposit)
-  const target = ed + max(reserve(20n) + 20n * transferFee, reserve(10n) + 10n * stakingFee)
-  const warning = ed + max(reserve(5n) + 5n * transferFee, reserve(2n) + 2n * stakingFee)
-  const free = amount(input.account.data.free, 'free balance'), frozen = amount(input.account.data.frozen ?? 0n, 'frozen balance'), available = max(0n, free - frozen)
-  return Object.freeze({
-    controller: input.controller, free_rao: free, frozen_rao: frozen, reserved_rao: amount(input.account.data.reserved, 'reserved balance'),
-    announcement_deposit_rao: deposit, next_announcement_deposit_rao: reserve(1n), transfer_fee_rao: transferFee, staking_fee_rao: stakingFee,
-    target_rao: target, warning_rao: warning, existential_deposit_rao: ed, fee_payer: input.fee_payer,
-    signature_estimate: input.signature_estimate ?? 'standard sr25519 envelope; multisig members pay their own fees',
-    available_rao: available, low: available < warning, top_up_rao: max(0n, target - available),
-    can_announce: available >= reserve(1n) + transferFee + ed, estimate: true,
-    fee_scope: 'controller; multisig signatories also need their own fees',
-  })
+  const result = evaluatePolicy<Record<string, any>>('protected.funding', input)
+  return Object.freeze(Object.fromEntries(Object.entries(result).map(([key, value]) => [key, key.endsWith('_rao') ? BigInt(value) : value]))) as unknown as ControllerFunding
 }
 function requireRecordChain(snapshot: ProtectedProxySnapshot, record: ProtectedAccountRecord): void {
   if (!record.genesis_hash) throw new Error('bind the legacy protected account to a verified chain before using it')
@@ -105,44 +89,25 @@ export interface ControllerRefillPlan {
   readonly requires_delayed: boolean
   readonly reason: 'offered' | 'disabled' | 'unsupported_operation' | 'sufficient_funds' | 'external_funding_required' | 'already_pending' | 'unknown_pending_payload'
 }
-const refillOperations = new Set(['transfer', 'transfer_all', 'transfer_stake', 'transfer_stake_and_hotkey', 'move_stake_limit', 'swap_stake_limit', 'move_swap_stake', 'batch', ...PROXY_TYPE_INTENT_OPS.Staking])
 function pendingRefills(backend: Pick<ProtectedProxyBackend, 'accountId'>, controller: string, rows: readonly ProtectedAnnouncementPolicyRow[]): { rao: bigint; unbounded: boolean; unknown: boolean } {
-  let rao = 0n, unbounded = false, unknown = false
-  const visit = (spec: Record<string, any>, depth: number) => {
+  // Address and Balance objects are language adapters; Rust traverses and decides.
+  const adapt = (value: any, depth = 0): any => {
     if (depth > 64) throw new RangeError('protected intent nesting exceeds 64')
-    if (spec.op === 'batch') for (const child of spec.intents ?? []) visit(child instanceof Intent ? child.toJSON() : child, depth + 1)
-    else if (spec.op === 'execute_proxy_announced') visit({ ...spec.inner_args, op: spec.inner_op }, depth + 1)
-    else if (['transfer', 'transfer_all'].includes(spec.op) && typeof spec.dest_ss58 === 'string' && sameProtectedAccount(backend, spec.dest_ss58, controller)) {
-      if (spec.op === 'transfer_all' || spec.amount_tao === 'all') unbounded = true
-      else {
-        try { const value = spec.amount_tao instanceof Balance ? spec.amount_tao : Balance.fromTao(spec.amount_tao); if (value.netuid !== 0 || value.rao < 0n) throw new TypeError('invalid refill'); rao += value.rao }
-        catch { unknown = true }
-      }
-    }
+    if (value instanceof Intent) return adapt(value.toJSON(), depth)
+    if (value instanceof Balance) return { rao: value.rao, netuid: value.netuid }
+    if (Array.isArray(value)) return value.map(child => adapt(child, depth + 1))
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, key === 'dest_ss58' && typeof child === 'string' ? backend.accountId(child) : adapt(child, depth + 1)]))
+    return value
   }
-  for (const row of rows) {
-    if (row.status != null && !['pending', 'awaiting_approval', 'submitting', 'uncertain'].includes(row.status)) continue
-    if (row.plaintext_missing || !row.inner_op) { unknown = true; continue }
-    visit({ ...row.inner_args, op: row.inner_op }, 0)
-  }
-  return { rao, unbounded, unknown }
+  const result = evaluatePolicy<{rao: string; unbounded: boolean; unknown: boolean}>('protected.pending_refills', { controller: backend.accountId(controller), rows: adapt(rows) })
+  return { ...result, rao: BigInt(result.rao) }
 }
 export function pendingControllerRefillRao(backend: Pick<ProtectedProxyBackend, 'accountId'>, controller: string, rows: readonly ProtectedAnnouncementPolicyRow[]): bigint { return pendingRefills(backend, controller, rows).rao }
 
 /** Pure offer preparation; including the result is a separate explicit application decision. */
 export function planControllerRefill(backend: Pick<ProtectedProxyBackend, 'accountId'>, record: ProtectedAccountRecord, intent: Intent, state: ControllerFunding, options: { pending?: readonly ProtectedAnnouncementPolicyRow[]; maxRefillRao?: bigint; enabled?: boolean } = {}): ControllerRefillPlan {
-  if (!sameProtectedAccount(backend, record.controller_ss58, state.controller)) throw new Error('funding quote belongs to another controller')
-  const result = (reason: ControllerRefillPlan['reason'], offered = false): ControllerRefillPlan => Object.freeze({ controller_ss58: record.controller_ss58, amount_rao: offered ? state.top_up_rao : 0n, offered, requires_delayed: offered, reason })
-  if (options.enabled === false) return result('disabled')
-  if (!refillOperations.has(intent.op)) return result('unsupported_operation')
-  const projected = state.available_rao - state.next_announcement_deposit_rao - max(state.transfer_fee_rao, state.staking_fee_rao)
-  if (state.top_up_rao === 0n || !state.low && projected >= state.warning_rao) return result('sufficient_funds')
-  if (!state.can_announce) return result('external_funding_required')
-  const pending = pendingRefills(backend, record.controller_ss58, options.pending ?? [])
-  if (pending.unknown) return result('unknown_pending_payload')
-  if (pending.rao > 0n || pending.unbounded) return result('already_pending')
-  if (options.maxRefillRao != null && state.top_up_rao > amount(options.maxRefillRao, 'maximum controller refill')) throw new RangeError('controller refill exceeds maxRefillRao')
-  return result('offered', true)
+  const result = evaluatePolicy<Omit<ControllerRefillPlan, 'amount_rao'> & {amount_rao: string}>('protected.refill_plan', { controller: backend.accountId(record.controller_ss58), quote_controller: backend.accountId(state.controller), controller_address: record.controller_ss58, state, op: intent.op, enabled: options.enabled, max_refill_rao: options.maxRefillRao, pending: pendingRefills(backend, record.controller_ss58, options.pending ?? []) })
+  return Object.freeze({ ...result, amount_rao: BigInt(result.amount_rao) })
 }
 /**
  * Commit the exact offered refill in one flat atomic batch, after TAO-releasing actions.
@@ -154,16 +119,8 @@ export function includeControllerRefill(intent: Intent, offer: ControllerRefillP
   if (!offer.offered) return intent
   const refill = new Intent('transfer', { dest_ss58: offer.controller_ss58, amount_tao: Balance.fromRao(amount(offer.amount_rao, 'controller refill')) })
   const children = intent.op === 'batch' ? [...intent.args.intents as Array<Intent | Record<string, unknown>>] : [intent]
-  if (children.some(child => child.op === 'batch')) throw new RangeError('controller refill requires a flat atomic batch')
-  const staticFreeBalance = new Set(['add_stake', 'add_stake_limit', 'stake_into_basket', 'contribute_crowdloan'])
-  for (const child of children) {
-    const args = child instanceof Intent ? child.args : child
-    if (staticFreeBalance.has(String(child.op)) && typeof args.amount_tao === 'string' && args.amount_tao.trim().toLowerCase() === 'all') throw new TypeError('controller refill cannot be combined with a static free-balance amount_tao: all; use an explicit amount or fund the controller separately')
-  }
-  const release = new Set(['remove_stake', 'remove_stake_limit', 'unstake_all', 'unstake_all_alpha', 'claim_root', 'claim_root_with_hotkey'])
-  let lastRelease = -1
-  children.forEach((child, index) => { if (release.has(String(child.op))) lastRelease = index })
-  return new Intent('batch', { intents: [...children.slice(0, lastRelease + 1), refill, ...children.slice(lastRelease + 1)] })
+  const position = evaluatePolicy<number>('protected.refill_position', { children: children.map(child => child instanceof Intent ? child.toJSON() : child) })
+  return new Intent('batch', { intents: [...children.slice(0, position), refill, ...children.slice(position)] })
 }
 
 /** Fund from a separate account only after migration, with optional exact approval and ceiling. */

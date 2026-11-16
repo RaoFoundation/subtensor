@@ -629,6 +629,7 @@ export interface NativePowGpuMinerConstructor {
 }
 
 export interface NativeBinding {
+  policyEvaluate(operation: string, input: string): string
   intentOperation(op: string, params: unknown): NativeIntentCallHandle
   intentDescriptor(client: NativeClientHandle, descriptor: unknown): NativeIntentCallHandle
   NativePowGpuMiner: NativePowGpuMinerConstructor

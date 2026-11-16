@@ -25,6 +25,9 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -43,6 +46,60 @@ _ENV_LEVELS: dict[str, tuple[int, bool]] = {
 _RAW_WEBSOCKET_LOGGER = "bittensor.transport.raw_websocket"
 # Third-party loggers worth surfacing at trace level.
 _TRACE_THIRD_PARTY = ("websockets",)
+_session_handlers: ContextVar[list[logging.Handler] | None] = ContextVar(
+    "btcli_logging_handlers", default=None
+)
+
+
+@contextmanager
+def cli_logging(verbosity: int = 0, quiet: bool = False) -> Iterator[None]:
+    """Configure one invocation, then restore its embedding application's loggers.
+
+    A nested invocation temporarily replaces the outer CLI handler. Keep that
+    handler alive for restoration; only close handlers created in this scope,
+    including handlers replaced by subcommand verbosity overrides.
+    """
+    targets = [
+        logging.getLogger(name)
+        for name in ("bittensor", _RAW_WEBSOCKET_LOGGER, *_TRACE_THIRD_PARTY)
+    ]
+    previous = [
+        (target, target.level, target.propagate, tuple(target.handlers)) for target in targets
+    ]
+    # Python 3.12 exposes the named-handler registry publicly. Older versions
+    # still allow restoring the named handler attached to an affected logger.
+    get_named = getattr(logging, "getHandlerByName", None)
+    previous_named = (
+        get_named("btcli")
+        if get_named
+        else next(
+            (
+                handler
+                for _, _, _, handlers in previous
+                for handler in handlers
+                if handler.get_name() == "btcli"
+            ),
+            None,
+        )
+    )
+    created: list[logging.Handler] = []
+    token = _session_handlers.set(created)
+    try:
+        setup_logging(verbosity=verbosity, quiet=quiet)
+        yield
+    finally:
+        _session_handlers.reset(token)
+        for target, level, propagate, handlers in previous:
+            for handler in tuple(target.handlers):
+                target.removeHandler(handler)
+            for handler in handlers:
+                target.addHandler(handler)
+            target.setLevel(level)
+            target.propagate = propagate
+        for handler in created:
+            handler.close()
+        if previous_named is not None:
+            previous_named.set_name("btcli")
 
 
 def setup_logging(verbosity: int = 0, quiet: bool = False) -> None:
@@ -65,6 +122,9 @@ def setup_logging(verbosity: int = 0, quiet: bool = False) -> None:
         show_path=verbosity >= 2,
         rich_tracebacks=verbosity >= 2,
     )
+    created = _session_handlers.get()
+    if created is not None:
+        created.append(handler)
 
     root = logging.getLogger("bittensor")
     root.setLevel(level)

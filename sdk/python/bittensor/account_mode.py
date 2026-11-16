@@ -1,13 +1,12 @@
 """Explicit account derivation modes; existing account identities remain stable."""
 
 from ._generated.calls import Call
+from ._policy import evaluate_policy
 from .sp_core import is_stateless_pq
 
 
 def validate_account_mode(account_mode: str) -> str:
-    if account_mode not in ("legacy", "safe"):
-        raise ValueError("account_mode must be 'legacy' or 'safe'")
-    return account_mode
+    return evaluate_policy("transaction.account_mode", {"mode": account_mode})
 
 
 def multisig_call(function: str, *, account_mode: str = "legacy", **params) -> Call:

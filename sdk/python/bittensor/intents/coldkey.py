@@ -25,7 +25,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .._generated import calls
 from .base import Intent
 from .registry import register
 
@@ -70,9 +69,9 @@ class AnnounceColdkeySwap(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.announce_coldkey_swap_v2(new_coldkey=self.new_coldkey_ss58)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"announce coldkey swap to {self.new_coldkey_ss58}"
@@ -113,9 +112,9 @@ class SwapColdkeyAnnounced(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.swap_coldkey_announced(new_coldkey=self.new_coldkey_ss58)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"SWAP coldkey to {self.new_coldkey_ss58} (moves all ownership)"
@@ -127,7 +126,9 @@ class SwapColdkeyAnnounced(Intent):
         ]
 
     def affects_all_subnets(self) -> bool:
-        return True
+        from ._shared import metadata
+
+        return metadata(self)["affects_all_subnets"]
 
 
 @register
@@ -151,7 +152,9 @@ class ClearColdkeySwapAnnouncement(Intent):
     wraps = (("SubtensorModule", "clear_coldkey_swap_announcement"),)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.SubtensorModule.clear_coldkey_swap_announcement())
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return "clear the pending coldkey swap announcement"
@@ -179,7 +182,9 @@ class DisputeColdkeySwap(Intent):
     wraps = (("SubtensorModule", "dispute_coldkey_swap"),)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.SubtensorModule.dispute_coldkey_swap())
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return "dispute the pending coldkey swap (freezes it for governance)"
@@ -206,9 +211,9 @@ class ReleaseOwnColdkeySwapDestinationReservation(Intent):
     wraps = (("SubtensorModule", "release_own_coldkey_swap_destination_reservation"),)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.release_own_coldkey_swap_destination_reservation()
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return "release this account's coldkey-swap destination reservation"

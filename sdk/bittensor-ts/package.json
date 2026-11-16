@@ -6,6 +6,12 @@
   "license": "Apache-2.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "imports": {
+    "#bittensor-policy": {
+      "browser": "./dist/policy-wasm.js",
+      "default": "./dist/policy-native.js"
+    }
+  },
   "exports": {
     ".": {
       "browser": {
@@ -46,7 +52,8 @@
     "native.cjs",
     "native.generated.d.ts",
     "*.node",
-    "README.md"
+    "README.md",
+    "SHARED_POLICY.md"
   ],
   "engines": {
     "node": ">=22"
@@ -55,7 +62,7 @@
     "build:native": "napi build --manifest-path native/Cargo.toml --output-dir . --platform --release --all-features --js native.cjs --dts native.generated.d.ts",
     "build:wasm": "wasm-pack build ../bittensor-core-wasm --target bundler --out-dir ../bittensor-ts/dist/wasm --out-name bittensor_core_wasm",
     "build:ts": "tsc -p tsconfig.json && node scripts/generate-esm.cjs",
-    "build": "npm run build:native && npm run build:ts && npm run build:wasm && npm run check:binding-parity",
+    "build": "npm run build:native && npm run check:policy-catalog && npm run build:ts && npm run build:wasm && npm run check:binding-parity",
     "check": "npm run check:source-parity && npm run build && npm test",
     "test": "node --test test/*.test.cjs && node scripts/browser-smoke.cjs",
     "test:localnet": "BT_TS_LOCALNET=1 node --test --test-concurrency=1 test/localnet.test.cjs test/workflows-localnet.test.cjs test/release-localnet.test.cjs",
@@ -66,7 +73,9 @@
     "check:binding-parity": "node scripts/check-native-parity.cjs",
     "check:source-parity": "node scripts/check-source-parity.cjs",
     "parity:record": "node scripts/check-source-parity.cjs --write",
-    "check:catalogs": "node scripts/check-catalogs.cjs"
+    "check:catalogs": "node scripts/check-catalogs.cjs",
+    "check:policy-catalog": "node scripts/generate-policy-catalog.cjs --check",
+    "policy:generate": "node scripts/generate-policy-catalog.cjs"
   },
   "napi": {
     "binaryName": "bittensor_sdk"

@@ -39,29 +39,37 @@ def _sorted_signatories(signatories: list) -> list:
     descriptors, then use canonical SS58 for derivation and SCALE encoding.
     Different address spellings must not count as additional signatories.
     """
-    accounts = {bytes(ss58_decode(parse_recipient(s).account)) for s in signatories}
-    return [ss58_encode(account, 42) for account in sorted(accounts)]
+    from .._policy import evaluate_policy
+
+    accounts = [bytes(ss58_decode(parse_recipient(s).account)) for s in signatories]
+    result = evaluate_policy(
+        "transaction.multisig_members",
+        {
+            "members": accounts,
+            "threshold": 1,
+            "minimum_threshold": 1,
+            "deduplicate": True,
+            "others_only": True,
+        },
+    )
+    return [ss58_encode(accounts[index], 42) for index in result["indices"]]
 
 
 def _validate_multisig(threshold: int, other_signatories: list, signer_ss58: str) -> None:
     """Reject parameters the chain would refuse, before composing anything."""
-    other_signatories = _sorted_signatories(other_signatories)
-    if threshold < 2:
-        raise ValueError(
-            f"multisig threshold must be at least 2, got {threshold} "
-            "(use multisig_threshold_1 for 1-of-N)"
-        )
-    if threshold > len(other_signatories) + 1:
-        raise ValueError(
-            f"multisig threshold {threshold} exceeds the signatory count "
-            f"{len(other_signatories) + 1} (signer plus other_signatories)"
-        )
-    signer_id = bytes(ss58_decode(signer_ss58))
-    if any(bytes(ss58_decode(s)) == signer_id for s in other_signatories):
-        raise ValueError(
-            "other_signatories must not include the signer's own account "
-            f"({signer_ss58}); list only the other members"
-        )
+    from .._policy import evaluate_policy
+
+    evaluate_policy(
+        "transaction.multisig_members",
+        {
+            "members": [bytes(ss58_decode(parse_recipient(s).account)) for s in other_signatories],
+            "threshold": threshold,
+            "minimum_threshold": 2,
+            "others_only": True,
+            "deduplicate": True,
+            "signer": bytes(ss58_decode(signer_ss58)),
+        },
+    )
 
 
 def _account_view(

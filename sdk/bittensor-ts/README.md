@@ -11,7 +11,9 @@ in a frontend. Both entry points provide the full registered read and semantic
 intent catalogs, snapshots, transaction planning, external signing, and EVM APIs.
 
 Rust remains authoritative for keys, signatures, SS58, SCALE, metadata proofs,
-timelock encryption, and MEV envelopes. Node uses the native client; the browser
+timelock encryption, MEV envelopes, and the shared transaction and financial
+policy used by Python and TypeScript. See [shared policy](SHARED_POLICY.md) for
+ownership, compatibility, and binding verification. Node uses the native client; the browser
 uses WASM and the portable JSON-RPC transport. Browser code has no native addon,
 Node `Buffer`, filesystem, or HID dependency. Filesystem wallets, encrypted
 Substrate keyfile imports, native Ledger HID, the extension bridge server, and

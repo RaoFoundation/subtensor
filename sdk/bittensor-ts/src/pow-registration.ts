@@ -1,9 +1,11 @@
+import { evaluatePolicy } from './policy'
+import { POLICY_CATALOG } from './policy-catalog'
+import { hexBytes as decodeHex } from './portable'
 import { buildIntent, type Intent } from './intents'
 
-export const MAX_WORK_AGE_BLOCKS = 5
-export const CHALLENGE_REFRESH_SECONDS = 12
+export const MAX_WORK_AGE_BLOCKS = POLICY_CATALOG.validation.MAX_WORK_AGE_BLOCKS
+export const CHALLENGE_REFRESH_SECONDS = POLICY_CATALOG.validation.CHALLENGE_REFRESH_SECONDS
 const U64_MAX = (1n << 64n) - 1n
-const U256_MAX = (1n << 256n) - 1n
 export interface RegistrationReader {
   query(pallet: string, item: string, params?: unknown[], block?: string): Promise<unknown>
   blockNumber(): Promise<number>
@@ -32,10 +34,9 @@ function u64(value: unknown, fallback: bigint, name: string): bigint {
   return result
 }
 export function effectiveDifficulty(value: unknown, minimum?: unknown, maximum?: unknown): bigint {
-  const min = u64(minimum, 1n, 'minimum difficulty') || 1n
-  const suppliedMax = u64(maximum, U64_MAX, 'maximum difficulty'), max = suppliedMax < min ? min : suppliedMax
-  const difficulty = u64(value, 1n, 'difficulty') || 1n
-  return difficulty < min ? min : difficulty > max ? max : difficulty
+  return BigInt(evaluatePolicy<string>('validation.pow.difficulty', {
+    value: u64(value, 1n, 'difficulty'), minimum: u64(minimum, 1n, 'minimum difficulty'), maximum: u64(maximum, U64_MAX, 'maximum difficulty'),
+  }))
 }
 
 function hexBytes(value: string): Uint8Array {
@@ -47,16 +48,7 @@ export function registrationPrefix(netuid: number, blockHash: string, hotkey: st
   if (!Number.isInteger(netuid) || netuid <= 0 || netuid > 65535) throw new RangeError('PoW requires a non-root u16 netuid')
   const block = hexBytes(blockHash), hot = decodeAddress(hotkey), cold = decodeAddress(coldkey)
   if (hot.length !== 32 || cold.length !== 32) throw new RangeError('PoW requires AccountId32 addresses')
-  const domain = new TextEncoder().encode('subtensor-pow-register-v1'), result = new Uint8Array(123)
-  result.set(domain); new DataView(result.buffer).setUint16(domain.length, netuid, true)
-  result.set(block, domain.length + 2); result.set(hot, domain.length + 34); result.set(cold, domain.length + 66)
-  return result
-}
-function workValue(work: Uint8Array): bigint {
-  if (work.length !== 32) throw new Error('miner returned a seal with invalid length')
-  let value = 0n
-  for (let i = 31; i >= 0; i--) value = (value << 8n) + BigInt(work[i])
-  return value
+  return decodeHex(evaluatePolicy<string>('validation.pow.prefix', { netuid, block, hotkey: hot, coldkey: cold }))
 }
 function abort(signal?: AbortSignal): void { if (signal?.aborted) throw signal.reason ?? new Error('PoW mining aborted') }
 async function pause(ms: number, signal?: AbortSignal): Promise<void> {
@@ -101,11 +93,14 @@ export async function mineRegistration(
       query('NetworkPowRegistrationAllowed'), query('Difficulty'), query('MinDifficulty'), query('MaxDifficulty'),
       query('Uids', [netuid, hotkey]), query('LastPowRegistrationBlock', [hotkey]), query('RegistrationsThisBlock'), query('MaxRegistrationsPerBlock'),
     ])
-    if (!allowed) throw new Error('the subnet owner must enable PoW registration')
-    if (uid != null) throw new Error('the hotkey is already registered on this subnet')
-    const maxRegistrations = u64(limit, 0n, 'registration limit')
-    if (!maxRegistrations) throw new Error('per-block registration limit must be positive')
-    if (u64(registrations, 0n, 'registrations') >= maxRegistrations || (last != null && BigInt(head) <= u64(last, 0n, 'last registration'))) {
+    const admission = evaluatePolicy<string | null>('validation.pow.admission', {
+      allowed: Boolean(allowed), uid, head, last: last == null ? null : u64(last, 0n, 'last registration'),
+      registrations: u64(registrations, 0n, 'registrations'), limit: u64(limit, 0n, 'registration limit'),
+    })
+    if (admission === 'disabled') throw new Error('the subnet owner must enable PoW registration')
+    if (admission === 'registered') throw new Error('the hotkey is already registered on this subnet')
+    if (admission === 'limit') throw new Error('per-block registration limit must be positive')
+    if (admission === 'wait') {
       await pause(Math.min(1000, Math.max(0, deadline - performance.now())), options.signal); continue
     }
     const difficulty = effectiveDifficulty(raw, minimum, maximum)
@@ -118,14 +113,14 @@ export async function mineRegistration(
       if (performance.now() >= deadline) throw timeout()
       if (!results.some(result => result != null)) { await pause(0, options.signal); continue }
       const current = await reader.blockNumber()
-      if (current < head || current - head >= MAX_WORK_AGE_BLOCKS || await reader.blockHash(head) !== anchor) break
+      if (!evaluatePolicy<boolean>('validation.pow.fresh', { current, work: head, anchor, canonical: await reader.blockHash(head) })) break
       for (const result of results) {
         if (result == null) continue
         const nonce = u64(result.nonce, 0n, 'miner nonce'), expected = await miner.seal(prefix, nonce)
         if (result.work.length !== expected.length || result.work.some((byte, i) => byte !== expected[i])) throw new Error('miner returned an invalid registration proof')
         const latest = await reader.blockHash(current)
         const bounds = await Promise.all(['Difficulty', 'MinDifficulty', 'MaxDifficulty'].map(item => reader.query('SubtensorModule', item, [netuid], latest)))
-        if (workValue(result.work) > U256_MAX / effectiveDifficulty(...bounds as [unknown, unknown, unknown])) break
+        if (!evaluatePolicy<boolean>('validation.pow.target', { work: result.work, difficulty: effectiveDifficulty(...bounds as [unknown, unknown, unknown]) })) break
         if (performance.now() >= deadline) throw timeout()
         return buildIntent('pow_register', {
           netuid, work_block: head, nonce, work_hex: Array.from(result.work, byte => byte.toString(16).padStart(2, '0')).join(''), hotkey_ss58: hotkey,

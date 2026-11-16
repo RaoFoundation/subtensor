@@ -8,7 +8,8 @@ from typing import Any, Optional
 from .._generated import calls
 from .._generated import storage as st
 from .._pinned import approved_function, compose_staking_call
-from ..hyperparams import U64_MAX, proportion_to_raw
+from .._policy import evaluate_policy
+from ..hyperparams import proportion_to_raw
 from ..result import BittensorError
 from ..settings import U16_MAX
 from .base import Intent
@@ -70,22 +71,11 @@ class SetChildren(Intent):
     hotkey_ss58: Optional[str] = field(default=None, metadata={"help": HOTKEY_HELP})
 
     def __post_init__(self):
-        normalized = []
-        for entry in self.children:
-            try:
-                prop, child = entry
-            except (TypeError, ValueError):
-                raise ValueError(
-                    f"each child entry must be a [proportion, hotkey_ss58] pair; got {entry!r}"
-                ) from None
-            normalized.append([proportion_to_raw(prop, U64_MAX, "child proportion"), child])
-        total = sum(prop for prop, _ in normalized)
-        if total > U64_MAX:
-            raise ValueError(
-                f"child proportions sum to {total / U64_MAX:.4g} of the parent's stake "
-                "weight; together they must not exceed 1.0"
-            )
-        self.children = normalized
+        try:
+            rows = evaluate_policy("transaction.children", {"children": self.children})
+        except TypeError as error:
+            raise ValueError(str(error)) from error
+        self.children = [[int(share), child] for share, child in rows]
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
@@ -127,11 +117,27 @@ class SetChildkeyTake(Intent):
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(
-            calls.SubtensorModule.set_childkey_take(
-                hotkey=hotkey, netuid=self.netuid, take=self.take
+        current = None
+        approved = None
+        try:
+            selected = evaluate_policy(
+                "transaction.take",
+                {
+                    "op": self.op,
+                    "take": self.take,
+                    "current": current,
+                    "approved_function": approved,
+                },
             )
-        )
+        except ValueError as error:
+            if "unchanged" in str(error):
+                raise BittensorError(
+                    f"delegate take is already {current}/{U16_MAX}; nothing to change"
+                ) from error
+            raise
+        params = dict(hotkey=hotkey, take=int(selected["take"]))
+        params["netuid"] = self.netuid
+        return await substrate.compose(calls.Call("SubtensorModule", selected["call"], params))
 
     def summary(self) -> str:
         return f"set childkey take to {self.take}/{U16_MAX} on netuid {self.netuid}"
@@ -163,9 +169,26 @@ class IncreaseTake(Intent):
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await compose_staking_call(
-            substrate, "increase_take", dict(hotkey=hotkey, take=self.take)
-        )
+        current = None
+        approved = None
+        try:
+            selected = evaluate_policy(
+                "transaction.take",
+                {
+                    "op": self.op,
+                    "take": self.take,
+                    "current": current,
+                    "approved_function": approved,
+                },
+            )
+        except ValueError as error:
+            if "unchanged" in str(error):
+                raise BittensorError(
+                    f"delegate take is already {current}/{U16_MAX}; nothing to change"
+                ) from error
+            raise
+        params = dict(hotkey=hotkey, take=int(selected["take"]))
+        return await compose_staking_call(substrate, selected["call"], params)
 
     def summary(self) -> str:
         return f"increase delegate take to {self.take}/{U16_MAX}"
@@ -196,9 +219,26 @@ class DecreaseTake(Intent):
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await compose_staking_call(
-            substrate, "decrease_take", dict(hotkey=hotkey, take=self.take)
-        )
+        current = None
+        approved = None
+        try:
+            selected = evaluate_policy(
+                "transaction.take",
+                {
+                    "op": self.op,
+                    "take": self.take,
+                    "current": current,
+                    "approved_function": approved,
+                },
+            )
+        except ValueError as error:
+            if "unchanged" in str(error):
+                raise BittensorError(
+                    f"delegate take is already {current}/{U16_MAX}; nothing to change"
+                ) from error
+            raise
+        params = dict(hotkey=hotkey, take=int(selected["take"]))
+        return await compose_staking_call(substrate, selected["call"], params)
 
     def summary(self) -> str:
         return f"decrease delegate take to {self.take}/{U16_MAX}"
@@ -233,16 +273,29 @@ class SetTake(Intent):
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        function = await approved_function("SubtensorModule", ("increase_take", "decrease_take"))
-        if function is None:
-            item = st.SubtensorModule.Delegates
-            current = int(await substrate.query(item[0], item[1], [hotkey]) or 0)
-            if self.take == current:
+        current = None
+        approved = None
+        approved = await approved_function("SubtensorModule", ("increase_take", "decrease_take"))
+        if approved is None:
+            current = int(await substrate.query(*st.SubtensorModule.Delegates, [hotkey]) or 0)
+        try:
+            selected = evaluate_policy(
+                "transaction.take",
+                {
+                    "op": self.op,
+                    "take": self.take,
+                    "current": current,
+                    "approved_function": approved,
+                },
+            )
+        except ValueError as error:
+            if "unchanged" in str(error):
                 raise BittensorError(
                     f"delegate take is already {current}/{U16_MAX}; nothing to change"
-                )
-            function = "decrease_take" if self.take < current else "increase_take"
-        return await compose_staking_call(substrate, function, dict(hotkey=hotkey, take=self.take))
+                ) from error
+            raise
+        params = dict(hotkey=hotkey, take=int(selected["take"]))
+        return await compose_staking_call(substrate, selected["call"], params)
 
     def summary(self) -> str:
         return f"set delegate take to {self.take / U16_MAX:.2%} ({self.take} as u16)"

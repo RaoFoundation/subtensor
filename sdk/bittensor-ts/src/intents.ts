@@ -1,4 +1,6 @@
+import { POLICY_CATALOG } from './policy-catalog'
 import { Balance, RAO_PER_TAO, UnitMismatchError } from './balance'
+import { evaluatePolicy, evaluatePolicyPreservingValues } from './policy'
 import { gammaAmount, normalizeGammaArguments, prepareGammaIntent } from './gamma'
 import { prepareOrderIntent } from './limit-orders'
 import { prepareRecipients, registrationShieldDefault, type Recipient } from './receiving'
@@ -127,7 +129,7 @@ const catalog = new Map<string, CatalogEntry>((INTENT_CATALOG as unknown as Cata
 const preparedIntents = new WeakSet<object>()
 const U64_MAX = (1n << 64n) - 1n
 const encoder = new TextEncoder()
-export const PROXY_TYPES = Object.freeze(['Any', 'Owner', 'NonCritical', 'NonTransfer', 'Senate', 'NonFungible', 'Triumvirate', 'Governance', 'Staking', 'Registration', 'Transfer', 'SmallTransfer', 'RootWeights', 'ChildKeys', 'SudoUncheckedSetCode', 'SwapHotkey', 'SubnetLeaseBeneficiary', 'RootClaim', 'BasketTrading', 'Validate', 'Weights', 'Lock', 'GammaSpend'])
+export const PROXY_TYPES: readonly string[] = Object.freeze(POLICY_CATALOG.transaction.proxy_types)
 
 /** Machine-readable Python-compatible input schemas, defaults, safety notes and signer roles. */
 export function listIntentTools(): readonly CatalogEntry[] { return INTENT_CATALOG as unknown as readonly CatalogEntry[] }
@@ -136,23 +138,23 @@ export function isPreparedIntent(value: unknown): value is PreparedIntent {
 }
 export function checkIntentPolicy(intent: PreparedIntent, policy: IntentPolicy = {}, feeRao?: bigint): string[] {
   if (!isPreparedIntent(intent)) throw new TypeError('expected an SDK-prepared intent')
-  const violations = [...intent.violations]
-  if (policy.maxFeeRao != null) {
-    const cap = unsigned(policy.maxFeeRao, 'maxFeeRao')
-    if (feeRao == null) violations.push('fee estimate unavailable under maxFeeRao policy')
-    else if (feeRao > cap) violations.push(`fee ${feeRao} exceeds maxFeeRao ${cap}`)
-  }
-  if (policy.maxSpendRao != null) {
-    const cap = unsigned(policy.maxSpendRao, 'maxSpendRao')
-    if (intent.spendRao === 'unbounded') violations.push('unbounded spend cannot satisfy maxSpendRao')
-    else if ((intent.spendRao ?? 0n) > cap) violations.push(`spend ${intent.spendRao} exceeds maxSpendRao ${cap}`)
-  }
-  if (policy.allowedNetuids != null) {
-    if (intent.affectsAllSubnets) violations.push('operation affects all subnets and cannot satisfy a subnet allowlist')
-    if (intent.global && !policy.allowGlobal) violations.push('global operation requires allowGlobal with a subnet allowlist')
-    for (const netuid of intent.netuids) if (!policy.allowedNetuids.includes(netuid)) violations.push(`netuid ${netuid} is outside allowedNetuids`)
-  }
-  return violations
+  const result = evaluatePolicy<{ violations: Array<{ code: string; actual?: string; cap?: string; netuid?: number }> }>('transaction.intent_policy', {
+    max_fee_rao: policy.maxFeeRao == null ? null : unsigned(policy.maxFeeRao, 'maxFeeRao'), max_spend_rao: policy.maxSpendRao == null ? null : unsigned(policy.maxSpendRao, 'maxSpendRao'), allowed_netuids: policy.allowedNetuids,
+    allow_global: policy.allowGlobal, fee_rao: feeRao, spend_rao: intent.spendRao, netuids: intent.netuids,
+    affects_all_subnets: intent.affectsAllSubnets, global: intent.global,
+  })
+  return [...intent.violations, ...result.violations.map(reason => {
+    switch (reason.code) {
+      case 'fee_unknown': return 'fee estimate unavailable under maxFeeRao policy'
+      case 'fee': return `fee ${reason.actual} exceeds maxFeeRao ${reason.cap}`
+      case 'unbounded': return 'unbounded spend cannot satisfy maxSpendRao'
+      case 'spend': return `spend ${reason.actual} exceeds maxSpendRao ${reason.cap}`
+      case 'all_subnets': return 'operation affects all subnets and cannot satisfy a subnet allowlist'
+      case 'global': return 'global operation requires allowGlobal with a subnet allowlist'
+      case 'netuid': return `netuid ${reason.netuid} is outside allowedNetuids`
+      default: throw new Error(`unknown transaction policy violation ${reason.code}`)
+    }
+  })]
 }
 
 /** A semantic operation with immutable arguments. Money fields use decimal TAO/alpha, as in Python. */
@@ -183,7 +185,7 @@ export class Intent {
       if (type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) throw new TypeError(`${key} must be finite`)
     }
     for (const key of ['netuid', 'origin_netuid', 'dest_netuid']) if (normalized[key] != null) normalized[key] = netuid(normalized[key])
-    if (normalized.rate_tolerance != null && !(Number(normalized.rate_tolerance) >= 0 && Number(normalized.rate_tolerance) < 1)) throw new RangeError('rate_tolerance must be in [0, 1)')
+    if (normalized.rate_tolerance != null && !evaluatePolicy<boolean>('financial.intent.rate_valid', { rate: normalized.rate_tolerance })) throw new RangeError('rate_tolerance must be in [0, 1)')
     normalizeGammaArguments(op, normalized)
     this.op = op
     this.args = freeze(normalized)
@@ -203,19 +205,10 @@ export function buildIntent<N extends keyof IntentInputMap>(op: N, ...args: Inte
 export const intentBuilders: IntentBuilders = Object.freeze(Object.fromEntries([...catalog.keys()].map(op => [op, (args?: Record<string, unknown>) => new Intent(op as IntentOperation, args)]))) as unknown as IntentBuilders
 export function intentSignerRole(intent: Intent): 'coldkey' | 'hotkey' {
   if (intent.op === 'batch') {
-    const children = intent.args.intents as Array<Intent | Record<string, unknown>>
-    if (!children?.length) throw new RangeError('batch requires at least one intent')
-    const roles = new Set(children.map(child => intentSignerRole(child instanceof Intent ? child : intentFromJSON(child))))
-    if (roles.size !== 1) throw new RangeError('all batch intents must share a signer')
-    return roles.values().next().value!
+    const children = (intent.args.intents as Array<Intent | Record<string, unknown>>).map(child => child instanceof Intent ? child : intentFromJSON(child))
+    return evaluatePolicy<{ signer: 'coldkey' | 'hotkey' }>('transaction.merge_intents', { batch: true, children: children.map(child => ({ op: child.op, signer: intentSignerRole(child) })) }).signer
   }
-  if (intent.op === 'add_proxy' && intent.args.from_hotkey != null) {
-    if (typeof intent.args.from_hotkey !== 'boolean') throw new TypeError('from_hotkey must be boolean')
-    return intent.args.from_hotkey ? 'hotkey' : 'coldkey'
-  }
-  if (intent.op === 'add_proxy' || intent.op === 'remove_proxy') return ['Validate', 'Weights'].includes(String(intent.args.proxy_type)) ? 'hotkey' : 'coldkey'
-  if (intent.op === 'remove_proxies') return intent.args.from_hotkey ? 'hotkey' : 'coldkey'
-  return catalog.get(intent.op)!.signer
+  return intentMetadata(intent.op, intent.args).signer
 }
 export function intentFromJSON(spec: Record<string, unknown> | Intent): Intent {
   if (spec instanceof Intent) return spec
@@ -248,12 +241,12 @@ type MutablePlan = { -readonly [K in keyof PreparedIntent]: PreparedIntent[K] }
 async function prepare(intent: Intent, reader: IntentReader, context: IntentContext): Promise<MutablePlan> {
   const op = intent.op, tool = catalog.get(op)!
   const receiving = await prepareRecipients(op, intent.args, reader, context.coldkey), a = receiving.args
-  const role = intentSignerRole(intent)
+  const role = intentSignerRole(intent), metadata = intentMetadata(op, a)
   const plan: MutablePlan = {
     op, call: descriptor('', ''), signerRole: role, dispatchOrigin: role === 'hotkey' ? context.hotkey ?? context.coldkey : context.coldkey,
     feePayer: context.feePayer ?? (role === 'hotkey' ? context.hotkey ?? context.coldkey : context.coldkey), origin: tool.origin,
-    spendRao: spendFor(op, a), spendByAccount: [], netuids: scopeFor(op, a), affectsAllSubnets: ['unstake_all', 'unstake_all_alpha', 'swap_coldkey_announced', 'finalize_crowdloan', 'claim_root', 'claim_root_with_hotkey', 'stake_into_basket'].includes(op) || (op === 'swap_hotkey' && a.netuid == null),
-    global: globalOperation(op), mevShieldDefault: tool.mev_shield_default, mevShieldRequired: tool.mev_shield_required,
+    spendRao: metadata.spend_rao == null || metadata.spend_rao === 'unbounded' ? metadata.spend_rao : BigInt(metadata.spend_rao), spendByAccount: [], netuids: metadata.netuids, affectsAllSubnets: metadata.affects_all_subnets,
+    global: metadata.global, mevShieldDefault: tool.mev_shield_default, mevShieldRequired: tool.mev_shield_required,
     effects: [tool.summary], warnings: [], violations: [], requiredFreeByAccount: [], preview: {}, extras: {},
   }
   const hotkey = () => {
@@ -271,8 +264,7 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
       break
     }
     case 'transfer': case 'transfer_all': {
-      const all = op === 'transfer_all' || a.amount_tao === 'all'
-      plan.call = descriptor('Balances', all ? 'transfer_all' : a.keep_alive ? 'transfer_keep_alive' : 'transfer_allow_death', all ? { dest: a.dest_ss58, keep_alive: a.keep_alive } : { dest: a.dest_ss58, value: rao(a.amount_tao) })
+      plan.call = simpleCall(op, a)
       break
     }
     case 'fund_evm_key': {
@@ -293,60 +285,36 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
       break
     }
     case 'add_stake': case 'add_stake_limit': case 'stake_into_basket': {
-      const amount = await freeAmount(a.amount_tao, reader, context)
-      const params: Record<string, unknown> = { hotkey: hotkey(), amount_staked: amount }
-      if (op !== 'stake_into_basket') params.netuid = a.netuid
-      const limit = op === 'add_stake_limit' || (op === 'add_stake' && a.slippage_protection)
-      if (limit) { params.limit_price = op === 'add_stake_limit' ? unsigned(a.limit_price_rao, 'limit_price_rao') : await priceLimit(reader, a.netuid, a.rate_tolerance, true); params.allow_partial = op === 'add_stake_limit' ? a.allow_partial : false }
-      plan.call = sub(op === 'stake_into_basket' ? op : limit ? 'add_stake_limit' : 'add_stake', params)
+      const amount = await freeAmount(a.amount_tao, reader, context), key = hotkey()
+      const route = stakingDecision(op, a, { hotkey: key })
+      plan.call = stakingCall(op, a, { hotkey: key, amount, limit_price: await stakingLimit(route, a, reader) })
       if (a.amount_tao === 'all') plan.warnings = ['uses the entire free balance minus the existential deposit and 500000 rao fee headroom']
       break
     }
     case 'remove_stake': case 'remove_stake_limit': {
-      const claimAll = a.claim && a.netuid === 0 && a.amount_alpha === 'all'
-      const current = await stakeAmount(a.amount_alpha, reader, context, hotkey(), a.netuid)
-      const params: Record<string, unknown> = { hotkey: hotkey(), netuid: a.netuid, amount_unstaked: claimAll ? U64_MAX : current }
-      const limit = !claimAll && (op === 'remove_stake_limit' || a.slippage_protection)
-      if (limit) { params.limit_price = op === 'remove_stake_limit' ? unsigned(a.limit_price_rao, 'limit_price_rao') : await priceLimit(reader, a.netuid, a.rate_tolerance, false); params.allow_partial = op === 'remove_stake_limit' ? a.allow_partial : false }
-      plan.call = sub(limit ? 'remove_stake_limit' : 'remove_stake', params)
-      await optionalClaim(plan, a, reader, context, hotkey(), a.netuid)
+      const key = hotkey(), route = stakingDecision(op, a, { hotkey: key })
+      // Still require an actual position before choosing the claim-all sentinel.
+      const current = await stakeAmount(a.amount_alpha, reader, context, key, a.netuid)
+      plan.call = stakingCall(op, a, { hotkey: key, amount: route.amount ?? current, limit_price: await stakingLimit(route, a, reader) })
+      await optionalClaim(plan, a, reader, context, key, a.netuid)
       break
     }
     case 'move_stake': case 'move_swap_stake': case 'swap_stake': case 'transfer_stake': {
-      const originHotkey = a.origin_hotkey_ss58 ?? hotkey()
-      if (a.claim && a.origin_netuid !== 0) throw new RangeError('claim is only valid when moving from root')
-      const amount = a.claim && a.amount_alpha === 'all' ? U64_MAX : await stakeAmount(a.amount_alpha, reader, context, originHotkey, a.origin_netuid)
-      const params: Record<string, unknown> = { origin_netuid: a.origin_netuid, destination_netuid: a.dest_netuid, alpha_amount: amount }
-      if (op === 'transfer_stake') {
-        params.destination_coldkey = a.dest_coldkey_ss58
-        if (a.dest_hotkey_ss58 && a.dest_hotkey_ss58 !== hotkey()) { params.origin_hotkey = hotkey(); params.destination_hotkey = a.dest_hotkey_ss58 }
-        else params.hotkey = hotkey()
-        plan.call = sub(params.origin_hotkey ? 'transfer_stake_and_hotkey' : 'transfer_stake', params)
-        plan.warnings = ['transfers stake ownership irreversibly to another coldkey; locked alpha must land on the receiver lock hotkey']
-      } else if (op === 'move_swap_stake') {
-        if (originHotkey === a.dest_hotkey_ss58 || a.origin_netuid === a.dest_netuid) throw new RangeError('move_swap_stake requires different hotkeys and subnets')
-        if (amount <= 1n) throw new RangeError('move_swap_stake needs more than 1 rao to cover share-pool rounding')
-        const move = sub('move_stake', { ...params, destination_netuid: a.origin_netuid, origin_hotkey: originHotkey, destination_hotkey: a.dest_hotkey_ss58 })
-        const swap = await swapCall(reader, a, a.dest_hotkey_ss58, amount - 1n)
-        plan.call = batchCall([move, swap])
-        plan.warnings = ['the swap uses amount minus 1 rao to accommodate share-pool rounding; 1 rao remains on the destination hotkey at the origin subnet']
-      } else if (op === 'swap_stake') plan.call = await swapCall(reader, a, hotkey(), amount)
-      else {
-        params.origin_hotkey = originHotkey; params.destination_hotkey = a.dest_hotkey_ss58
-        const limit = a.slippage_protection && a.origin_netuid !== a.dest_netuid
-        if (limit) { params.limit_price = await ratioLimit(reader, a.origin_netuid, a.dest_netuid, a.rate_tolerance); params.allow_partial = false }
-        plan.call = sub(limit ? 'move_stake_limit' : 'move_stake', params)
-        await optionalClaim(plan, a, reader, context, originHotkey, a.origin_netuid)
-      }
+      const key = a.origin_hotkey_ss58 ?? hotkey(), originHotkey = key
+      const route = stakingDecision(op, a, { hotkey: key, origin_hotkey: originHotkey })
+      const amount = route.amount ?? await stakeAmount(a.amount_alpha, reader, context, originHotkey, a.origin_netuid)
+      plan.call = stakingCall(op, a, { hotkey: key, origin_hotkey: originHotkey, amount, limit_price: await stakingLimit(route, a, reader) })
+      if (op === 'transfer_stake') plan.warnings = ['transfers stake ownership irreversibly to another coldkey; locked alpha must land on the receiver lock hotkey']
+      else if (op === 'move_swap_stake') plan.warnings = ['the swap uses amount minus 1 rao to accommodate share-pool rounding; 1 rao remains on the destination hotkey at the origin subnet']
+      else if (op === 'move_stake') await optionalClaim(plan, a, reader, context, originHotkey, a.origin_netuid)
       break
     }
     case 'unstake_all': case 'unstake_all_alpha':
-      plan.call = sub(op, { hotkey: hotkey() })
+      plan.call = stakingCall(op, a, { hotkey: hotkey() })
       plan.warnings = ['affects every subnet position on this hotkey']
       await optionalClaim(plan, a, reader, context, hotkey(), 0)
       break
     case 'swap_basket': {
-      if (a.origin_netuid === a.dest_netuid) throw new RangeError('basket origin and destination must differ')
       let value: bigint
       if (a.amount === 'all') {
         const rows = list(await reader.runtimeCall('BetaBasketRuntimeApi', 'get_validator_basket', [hotkey()]))
@@ -354,94 +322,82 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
         value = unsigned(row?.[1] ?? 0, 'basket holding')
         if (!value) throw new RangeError('basket has no origin holding to sell')
       } else value = rao(a.amount)
-      plan.call = sub(op, { hotkey: hotkey(), origin_netuid: a.origin_netuid, destination_netuid: a.dest_netuid, amount: value, min_amount_out: rao(a.min_amount_out) })
+      plan.call = stakingCall(op, a, { hotkey: hotkey(), amount: value })
       break
     }
     case 'swap_basket_many': {
-      if (!Array.isArray(a.legs) || a.legs.length < 1 || a.legs.length > 128) throw new RangeError('swap_basket_many requires 1 to 128 legs')
-      const legs = a.legs.map((leg: Record<string, unknown>) => {
-        for (const key of Object.keys(leg)) if (!['origin_netuid', 'dest_netuid', 'amount', 'min_amount_out'].includes(key)) throw new TypeError(`unknown basket leg field ${key}`)
+      const adapted = Array.isArray(a.legs) ? a.legs.map((leg: Record<string, unknown>) => {
+        if (leg == null || typeof leg !== 'object' || Array.isArray(leg)) throw new TypeError('basket leg must be an object')
         const origin = netuid(leg.origin_netuid), dest = netuid(leg.dest_netuid)
-        if (origin === dest) throw new RangeError('basket leg origin and destination must differ')
-        return [origin, dest, rao(amount(leg.amount, origin)), rao(amount(leg.min_amount_out ?? 0, dest))]
-      })
-      plan.netuids = [...new Set<number>(legs.flatMap((leg: (number | bigint)[]) => [Number(leg[0]), Number(leg[1])]))]
-      plan.call = sub(op, { hotkey: hotkey(), legs })
+        return { origin_netuid: origin, dest_netuid: dest, amount_rao: rao(amount(leg.amount, origin)), min_out_rao: rao(amount(leg.min_amount_out ?? 0, dest)), fields: Object.keys(leg) }
+      }) : a.legs
+      const selected = evaluatePolicy<{ legs: [number, number, string, string][]; netuids: number[] }>('financial.basket_legs', { legs: adapted })
+      plan.netuids = selected.netuids
+      plan.call = sub(op, { hotkey: hotkey(), legs: selected.legs.map(([origin, dest, amount, minOut]) => [origin, dest, BigInt(amount), BigInt(minOut)]) })
       break
     }
-    case 'set_auto_stake': plan.call = sub('set_coldkey_auto_stake_hotkey', { netuid: a.netuid, hotkey: hotkey() }); break
-    case 'set_reject_staking_hotkey_growth': case 'set_reject_locked_alpha': plan.call = sub(op, { enabled: a.enabled }); break
-    case 'set_perpetual_lock': plan.call = sub(op, { netuid: a.netuid, enabled: a.enabled }); break
-    case 'move_lock': plan.call = sub(op, { netuid: a.netuid, destination_hotkey: a.destination_hotkey_ss58 }); break
+    case 'set_auto_stake': plan.call = simpleCall(op, a, { hotkey: hotkey() }); break
+    case 'set_reject_staking_hotkey_growth': case 'set_reject_locked_alpha': plan.call = simpleCall(op, a); break
+    case 'set_perpetual_lock': plan.call = simpleCall(op, a); break
+    case 'move_lock': plan.call = simpleCall(op, a); break
     case 'lock_stake': {
       const value = a.amount_alpha === 'all' ? await lockable(reader, context.coldkey, a.netuid) : rao(a.amount_alpha)
-      plan.call = sub(op, { hotkey: hotkey(), netuid: a.netuid, amount: value }); break
+      plan.call = stakingCall(op, a, { hotkey: hotkey(), amount: value }); break
     }
     case 'add_collateral': {
       const key = hotkey()
       let value: bigint
       if (a.amount_alpha === 'all') {
         const [info, collateral] = await Promise.all([reader.runtimeCall('StakeInfoRuntimeApi', 'get_stake_info_for_hotkey_coldkey_netuid', [key, context.coldkey, a.netuid]), reader.query('SubtensorModule', 'MinerCollateral', [a.netuid, key, context.coldkey])])
-        value = unsigned(rec(info).stake ?? 0, 'stake') - unsigned(rec(collateral).locked ?? 0, 'collateral')
-        if (value <= 0n) throw new RangeError('no free alpha to lock as collateral')
+        value = BigInt(evaluatePolicy<string>('financial.staking_amount', { kind: 'collateral', amount: unsigned(rec(info).stake ?? 0, 'stake'), locked: unsigned(rec(collateral).locked ?? 0, 'collateral') }))
       } else value = rao(a.amount_alpha)
-      plan.call = sub(op, { netuid: a.netuid, hotkey: key, alpha: value, limit_price: await priceLimit(reader, a.netuid, a.rate_tolerance, true) }); break
+      plan.call = stakingCall(op, a, { hotkey: key, amount: value, limit_price: await priceLimit(reader, a.netuid, a.rate_tolerance, true) }); break
     }
-    case 'set_min_collateral': plan.call = sub(op, { netuid: a.netuid, hotkey: hotkey(), min_locked: rao(a.min_alpha) }); break
-    case 'stake_burn': plan.call = sub('add_stake_burn', { netuid: a.netuid, hotkey: hotkey(), amount: rao(a.amount_tao), limit: a.limit_price == null ? await priceLimit(reader, a.netuid, a.rate_tolerance, true) : unsigned(a.limit_price, 'limit_price') }); break
+    case 'set_min_collateral': plan.call = simpleCall(op, a, { hotkey: hotkey() }); break
+    case 'stake_burn': plan.call = stakingCall(op, a, { hotkey: hotkey(), amount: rao(a.amount_tao), limit_price: a.limit_price == null ? await priceLimit(reader, a.netuid, a.rate_tolerance, true) : unsigned(a.limit_price, 'limit_price') }); break
     case 'burned_register': case 'root_register':
-      plan.call = sub(op, op === 'root_register' ? { hotkey: hotkey() } : { netuid: a.netuid, hotkey: hotkey() }); break
-    case 'register_subnet': plan.call = sub('register_network', { hotkey: hotkey() }); break
-    case 'start_call': plan.call = sub(op, { netuid: a.netuid }); break
+      plan.call = simpleCall(op, a, { hotkey: hotkey() }); break
+    case 'register_subnet': plan.call = simpleCall(op, a, { hotkey: hotkey() }); break
+    case 'start_call': plan.call = simpleCall(op, a); break
     case 'pow_register': {
       const work = bytes(a.work_hex)
       if (work.length !== 32 || a.netuid === 0) throw new RangeError('PoW requires a 32-byte seal and non-root netuid')
       plan.call = sub(op, { netuid: a.netuid, hotkey: hotkey(), nonce: u64(a.nonce, 'nonce'), work_block: u64(a.work_block, 'work_block'), work: Array.from(work) }); break
     }
     case 'claim_root': case 'claim_root_with_hotkey':
-      if (op === 'claim_root' && (!Array.isArray(a.subnets) || !a.subnets.length)) throw new RangeError('claim_root requires a nonempty subnet list')
-      plan.call = sub(op, op === 'claim_root' ? { subnets: a.subnets.map(netuid) } : { hotkey: hotkey() })
+      plan.call = stakingCall(op, a, op === 'claim_root' ? {} : { hotkey: hotkey() })
       await claimPreflight(plan, reader, context, op === 'claim_root' ? undefined : hotkey()); break
-    case 'swap_hotkey': plan.call = sub(op, { hotkey: hotkey(), new_hotkey: a.new_hotkey_ss58, netuid: a.netuid }); break
-    case 'associate_hotkey': plan.call = sub('try_associate_hotkey', { hotkey: hotkey() }); break
+    case 'swap_hotkey': plan.call = simpleCall(op, a, { hotkey: hotkey() }); break
+    case 'associate_hotkey': plan.call = simpleCall(op, a, { hotkey: hotkey() }); break
     case 'associate_evm_key': plan.call = sub(op, { netuid: a.netuid, evm_key: h160(a.evm_key), block_number: unsigned(a.block_number, 'block_number'), signature: bytes(a.signature) }); break
     case 'set_children': {
-      const children = a.children.map((entry: unknown) => {
-        if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[1] !== 'string') throw new TypeError('child must be a [proportion, address] pair')
-        return [proportion(entry[0], U64_MAX), entry[1]] as const
-      })
-      if (children.reduce((sum: bigint, child: readonly [bigint, string]) => sum + child[0], 0n) > U64_MAX) throw new RangeError('child proportions exceed 1')
+      const normalized = evaluatePolicy<Array<[string, string]>>('transaction.children', { children: a.children.map((entry: unknown) => Array.isArray(entry) ? [proportionInput(entry[0]), ...entry.slice(1)] : entry) })
+      const children = normalized.map(([share, address]) => [BigInt(share), address])
       plan.call = sub(op, { netuid: a.netuid, hotkey: hotkey(), children }); break
     }
     case 'set_take': case 'increase_take': case 'decrease_take': case 'set_childkey_take': {
-      const take = Number(proportion(a.take, 65535n)), params: Record<string, unknown> = { hotkey: hotkey(), take }
-      let fn: string = op
+      const current = op === 'set_take' ? Number(await reader.query('SubtensorModule', 'Delegates', [hotkey()]) ?? 0) : undefined
+      const selected = evaluatePolicy<{ call: string; take: string }>('transaction.take', { op, take: proportionInput(a.take), current })
+      const fn = selected.call, params: Record<string, unknown> = { hotkey: hotkey(), take: Number(selected.take) }
       if (op === 'set_childkey_take') params.netuid = a.netuid
-      if (op === 'set_take') {
-        const current = Number(await reader.query('SubtensorModule', 'Delegates', [hotkey()]) ?? 0)
-        if (current === take) throw new RangeError('delegate take is unchanged')
-        fn = take < current ? 'decrease_take' : 'increase_take'
-      }
       plan.call = sub(fn, params); break
     }
     case 'serve_axon': case 'serve_axon_tls': case 'serve_prometheus': case 'reset_axon': {
-      const reset = op === 'reset_axon', ip = reset ? { value: 0n, version: 4 } : ipAddress(a.ip)
-      const params: Record<string, unknown> = { netuid: a.netuid, version: reset ? 0 : a.version, ip: ip.value, port: reset ? 1 : small(a.port, 65535, 'port'), ip_type: ip.version }
-      if (op !== 'serve_prometheus') Object.assign(params, { protocol: reset ? 4 : small(a.protocol, 255, 'protocol'), placeholder1: 0, placeholder2: 0 })
-      if (op === 'serve_axon_tls') { const certificate = bytes(a.certificate); if (certificate.length < 1 || certificate.length > 65) throw new RangeError('neuron certificate must have one algorithm byte and at most 64 key bytes'); params.certificate = certificate }
-      plan.call = sub(reset ? 'serve_axon' : op, params); break
+      const call = evaluatePolicy<IntentDescriptor>('transaction.serving', { op, args: { ...a, ...(op === 'serve_axon_tls' ? { certificate: bytes(a.certificate) } : {}) } })
+      plan.call = { ...call, params: { ...call.params, ip: BigInt(call.params.ip as string), ...(op === 'serve_axon_tls' ? { certificate: bytes(call.params.certificate) } : {}) } }
+      break
     }
     case 'set_identity': case 'set_subnet_identity': {
       const params: Record<string, unknown> = {}
       for (const [name, value] of Object.entries(a)) params[name] = name === 'netuid' ? value : encoder.encode(String(value))
       plan.call = sub(op, params); break
     }
-    case 'announce_coldkey_swap': plan.call = sub('announce_coldkey_swap_v2', { new_coldkey: a.new_coldkey_ss58 }); plan.warnings = ['locks the source account for the announcement delay; the destination must be controlled and backed up']; break
-    case 'swap_coldkey_announced': plan.call = sub(op, { new_coldkey: a.new_coldkey_ss58 }); plan.warnings = ['irreversible: all balance, stake, and subnet ownership move to the announced destination']; break
-    case 'clear_coldkey_swap_announcement': case 'dispute_coldkey_swap': case 'release_own_coldkey_swap_destination_reservation': plan.call = sub(op); break
-    case 'trim_subnet': plan.call = descriptor('AdminUtils', 'sudo_trim_to_max_allowed_uids', { netuid: a.netuid, max_n: a.max_n }); break
-    case 'trim_null_subnet_batch': plan.call = descriptor('AdminUtils', 'sudo_trim_null_uids_batch', { netuid: a.netuid, target: a.target }); plan.warnings = ['a successful batch may only clean pending commits; read NullPruningTarget and SubnetworkN before continuing']; break
-    case 'set_mechanism_count': plan.call = descriptor('AdminUtils', 'sudo_set_mechanism_count', { netuid: a.netuid, mechanism_count: a.mechanism_count }); break
+    case 'announce_coldkey_swap': plan.call = simpleCall(op, a); plan.warnings = ['locks the source account for the announcement delay; the destination must be controlled and backed up']; break
+    case 'swap_coldkey_announced': plan.call = simpleCall(op, a); plan.warnings = ['irreversible: all balance, stake, and subnet ownership move to the announced destination']; break
+    case 'clear_coldkey_swap_announcement': case 'dispute_coldkey_swap': case 'release_own_coldkey_swap_destination_reservation': plan.call = simpleCall(op, a); break
+    case 'trim_subnet': plan.call = simpleCall(op, a); break
+    case 'trim_null_subnet_batch': plan.call = simpleCall(op, a); plan.warnings = ['a successful batch may only clean pending commits; read NullPruningTarget and SubnetworkN before continuing']; break
+    case 'set_mechanism_count': plan.call = simpleCall(op, a); break
     case 'update_symbol': plan.call = sub(op, { netuid: a.netuid, symbol: encoder.encode(a.symbol) }); break
     case 'set_hyperparameter': plan.call = await prepareHyperparameter(reader, a.netuid, a.name, a.value); break
     case 'set_subnet_emission_weights': await emissionWeights(plan, reader, context, a); break
@@ -451,25 +407,24 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
       plan.call = calls.length === 1 ? calls[0] : batchCall(calls); break
     }
     case 'set_subnet_gamma_emission_whitelisted': {
-      plan.call = descriptor('AdminUtils', 'sudo_set_subnet_gamma_emission_whitelisted', { netuid: a.netuid, whitelisted: a.whitelisted })
-      plan.affectsAllSubnets = !a.whitelisted
+      plan.call = simpleCall(op, a)
       break
     }
-    case 'set_root_claim_threshold': plan.call = sub('sudo_set_root_claim_threshold', { netuid: 0, new_value: rao(a.threshold) }); break
-    case 'register_leased_network': plan.call = sub(op, { emissions_share: small(a.emissions_share, 100, 'emissions_share'), end_block: a.end_block }); break
-    case 'terminate_lease': plan.call = sub(op, { lease_id: a.lease_id, hotkey: hotkey() }); break
+    case 'set_root_claim_threshold': plan.call = simpleCall(op, a); break
+    case 'register_leased_network': plan.call = simpleCall(op, a, { emissions_share: small(a.emissions_share, 100, 'emissions_share') }); break
+    case 'terminate_lease': plan.call = simpleCall(op, a, { hotkey: hotkey() }); break
     case 'add_proxy': case 'remove_proxy': case 'create_pure_proxy': case 'kill_pure_proxy': {
-      if (!PROXY_TYPES.includes(a.proxy_type)) throw new RangeError(`unknown proxy type ${a.proxy_type}`)
+      evaluatePolicy('transaction.proxy_type', { proxy_type: a.proxy_type })
       let params: Record<string, unknown>
       if (op === 'add_proxy' || op === 'remove_proxy') params = { delegate: a.delegate_ss58, proxy_type: a.proxy_type, delay: a.delay }
       else if (op === 'create_pure_proxy') params = { proxy_type: a.proxy_type, delay: a.delay, index: a.index }
       else params = { spawner: a.spawner_ss58, proxy_type: a.proxy_type, index: a.index, height: a.height, ext_index: a.ext_index }
       const mode = a.account_mode ?? context.accountMode ?? 'legacy'
-      if (!['legacy', 'safe'].includes(mode)) throw new RangeError('account_mode must be legacy or safe')
-      let fn = op === 'create_pure_proxy' ? mode === 'safe' ? 'create_safe_pure' : 'create_pure' : op === 'kill_pure_proxy' ? mode === 'safe' ? 'kill_safe_pure' : 'kill_pure' : op
+      evaluatePolicy('transaction.account_mode', { mode })
+      let fn = op === 'create_pure_proxy' || op === 'kill_pure_proxy' ? evaluatePolicy<{ call: string }>('transaction.pure_proxy', { op, mode, index: a.index }).call : op
       let depositGuard: IntentDescriptor | undefined
       if (fn === 'create_pure' && reader.supportsPqProfile && (await reader.query('HashedAccounts','MlDsaAccounts',[context.coldkey]) || await reader.query('HashedAccounts','DerivedAuthorities',[context.coldkey]))) {
-        fn = 'create_protected_pure'
+        fn = evaluatePolicy<{ call: string }>('transaction.pure_proxy', { op, mode, index: a.index, pq_required: true }).call
         const quote = await quoteRegistrationDeposit(reader, 'DerivedRegistrationDeposit')
         if (quote.configurable) depositGuard = registrationDepositGuard(quote)
         let reserve = quote.amountRao
@@ -483,11 +438,10 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
       const call = { ...descriptor('Proxy', fn, params), ...(op === 'add_proxy' && a.from_hotkey != null ? { signerRole: role } : {}) }
       plan.call = depositGuard ? batchCall([depositGuard, call]) : call; break
     }
-    case 'remove_proxies': plan.call = descriptor('Proxy', op); break
+    case 'remove_proxies': plan.call = simpleCall(op, a); break
     case 'announce_proxy_call': case 'remove_proxy_announcement': case 'reject_proxy_announcement': {
       if (typeof a.call_hash !== 'string' || !/^0x[0-9a-f]{64}$/i.test(a.call_hash)) throw new TypeError('call_hash must be a 0x-prefixed Blake2-256 hash')
-      const reject = op === 'reject_proxy_announcement'
-      plan.call = descriptor('Proxy', op === 'announce_proxy_call' ? 'announce' : reject ? 'reject_announcement' : 'remove_announcement', { [reject ? 'delegate' : 'real']: reject ? a.delegate_ss58 : a.real_ss58, call_hash: a.call_hash })
+      plan.call = simpleCall(op, a)
       if (op === 'announce_proxy_call') plan.warnings = [...plan.warnings, 'reserves an announcement deposit, returned on execution, removal or rejection']
       break
     }
@@ -527,15 +481,14 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
     }
     case 'multisig_threshold_1': case 'multisig_execute': case 'multisig_approve': case 'multisig_cancel': await multisig(plan, reader, context, a); break
     case 'batch': {
-      if (!Array.isArray(a.intents) || !a.intents.length) throw new RangeError('batch requires at least one intent')
+      if (!Array.isArray(a.intents)) throw new TypeError('batch intents must be an array')
       const children: PreparedIntent[] = []
       for (const item of a.intents) {
         const child = item instanceof Intent ? item : intentFromJSON(item)
-        if (child.op === 'batch') throw new RangeError('nested batches are not supported')
+        evaluatePolicy('transaction.merge_intents', { batch: true, children: [{ op: child.op, signer: intentSignerRole(child) }] })
         children.push(await child.prepare(reader, context))
       }
-      if (children.some(child => child.extras.requires_direct_submission)) throw new RangeError('announced proxy with an inner batch or uninspectable payload: submit it directly')
-      if (children.some(child => child.signerRole !== children[0].signerRole)) throw new RangeError('all batch intents must share a signer')
+      evaluatePolicy('transaction.merge_intents', { batch: true, children: children.map(child => ({ op: child.op, signer: child.signerRole, requires_direct: Boolean(child.extras.requires_direct_submission) })) })
       plan.signerRole = children[0].signerRole; plan.dispatchOrigin = children[0].dispatchOrigin; plan.feePayer = children[0].feePayer
       plan.spendRao = null; plan.netuids = []; plan.global = false
       for (const child of children) mergeChild(plan, child)
@@ -551,11 +504,11 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
     }
     case 'contribute_crowdloan': plan.call = descriptor('Crowdloan', 'contribute', { crowdloan_id: a.crowdloan_id, amount: await freeAmount(a.amount_tao, reader, context) }); break
     case 'finalize_crowdloan': case 'refund_crowdloan': case 'dissolve_crowdloan': case 'withdraw_crowdloan':
-      plan.call = descriptor('Crowdloan', op.replace('_crowdloan', ''), { crowdloan_id: a.crowdloan_id }); break
-    case 'update_crowdloan_cap': plan.call = descriptor('Crowdloan', 'update_cap', { crowdloan_id: a.crowdloan_id, new_cap: rao(a.new_cap_tao) }); break
-    case 'update_crowdloan_end': plan.call = descriptor('Crowdloan', 'update_end', { crowdloan_id: a.crowdloan_id, new_end: a.new_end }); break
-    case 'update_crowdloan_min_contribution': plan.call = descriptor('Crowdloan', 'update_min_contribution', { crowdloan_id: a.crowdloan_id, new_min_contribution: rao(a.new_min_contribution_tao) }); break
-    case 'set_crowdloan_max_contribution': plan.call = descriptor('Crowdloan', 'set_max_contribution', { crowdloan_id: a.crowdloan_id, new_max_contribution: a.new_max_contribution_tao == null ? null : rao(a.new_max_contribution_tao) }); break
+      plan.call = simpleCall(op, a); break
+    case 'update_crowdloan_cap': plan.call = simpleCall(op, a); break
+    case 'update_crowdloan_end': plan.call = simpleCall(op, a); break
+    case 'update_crowdloan_min_contribution': plan.call = simpleCall(op, a); break
+    case 'set_crowdloan_max_contribution': plan.call = simpleCall(op, a); break
     case 'set_weights': case 'commit_weights': case 'reveal_weights': {
       const weights = await prepareWeights(op, a, reader, context)
       plan.call = weights.call; plan.extras = weights.extras ?? {}; break
@@ -592,39 +545,17 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
 
 function descriptor(pallet: string, call: string, params: Record<string, unknown> = {}): IntentDescriptor { return { pallet, call, params } }
 function batchCall(calls: IntentDescriptor[]): IntentDescriptor {
-  const flattened: IntentDescriptor[] = []
-  const append = (call: IntentDescriptor): void => {
-    // Receiving guards and other compound intents already form atomic batches.
-    // Keep their order under one transaction boundary; the runtime rejects nesting.
-    if (call.pallet === 'Utility' && call.call === 'batch_all') {
-      for (const child of call.params.calls as IntentDescriptor[]) append(child)
-    } else {
-      if (proxyContainsAtomicBatch(call)) throw new RangeError('atomic batches cannot contain a proxy with an inner batch; submit the proxy intent directly')
-      flattened.push(call)
-    }
-  }
-  for (const call of calls) append(call)
-  return descriptor('Utility', 'batch_all', { calls: flattened })
+  return descriptor('Utility', 'batch_all', { calls: evaluatePolicyPreservingValues<IntentDescriptor[]>('protected.flatten_batch', { calls }) })
 }
-function proxyContainsAtomicBatch(call: IntentDescriptor): boolean {
-  if (call.pallet !== 'Proxy' || !['proxy', 'proxy_announced'].includes(call.call)) return false
-  const inner = call.params.call as IntentDescriptor
-  // Proxy preserves inherited filters. Moving its guards outside would change
-  // both the registration sponsor and the call hash approved by an announcement.
-  return inner.pallet === 'Utility' && inner.call === 'batch_all' || proxyContainsAtomicBatch(inner)
+
+function intentPolicyArgs(args: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(args).map(([key, value]) => [key, value instanceof Balance ? value.rao : value]))
 }
-function globalOperation(op: string): boolean {
-  return ['transfer', 'transfer_all', 'fund_evm_key', 'evm_withdraw', 'register_subnet', 'register_leased_network', 'terminate_lease', 'set_identity', 'set_take', 'increase_take', 'decrease_take', 'set_reject_staking_hotkey_growth', 'set_reject_locked_alpha', 'associate_hotkey'].includes(op) || op.includes('coldkey_swap') || op.includes('crowdloan') || op.includes('proxy') || op === 'remove_proxies'
+function intentMetadata(op: string, args: Readonly<Record<string, unknown>>) {
+  return evaluatePolicy<{ signer: 'coldkey' | 'hotkey'; netuids: number[]; global: boolean; affects_all_subnets: boolean; spend_rao: string | null }>('transaction.intent_metadata', { op, args: intentPolicyArgs(args), signer: catalog.get(op)?.signer })
 }
-function scopeFor(op: string, args: Record<string, any>): number[] {
-  if (op === 'root_register' || op === 'set_root_claim_threshold') return [0]
-  if (op === 'set_subnet_emission_enabled') return Array.from(new Set((args.netuids ?? []).map(netuid)))
-  return [...new Set(['netuid', 'origin_netuid', 'dest_netuid'].filter(key => args[key] != null).map(key => netuid(args[key])))]
-}
-function spendFor(op: string, args: Record<string, any>): IntentSpend {
-  if (['transfer_all', 'burned_register', 'register_subnet', 'register_leased_network', 'transfer_stake', 'add_collateral', 'finalize_crowdloan'].includes(op)) return 'unbounded'
-  const field = op === 'create_crowdloan' ? 'deposit_tao' : ['transfer', 'fund_evm_key', 'add_stake', 'add_stake_limit', 'stake_into_basket', 'stake_burn', 'contribute_crowdloan'].includes(op) ? 'amount_tao' : undefined
-  return field == null ? null : args[field] === 'all' ? 'unbounded' : rao(args[field])
+function simpleCall(op: string, args: Readonly<Record<string, unknown>>, extra: Record<string, unknown> = {}): IntentDescriptor {
+  return evaluatePolicyPreservingValues<IntentDescriptor>('transaction.simple_call', { op, args: { ...intentPolicyArgs(args), ...extra } })
 }
 function moneyNetuid(op: string, key: string, args: Record<string, any>): number {
   if (key === 'limit_price' || key.endsWith('_tao') || key === 'threshold') return 0
@@ -695,97 +626,66 @@ function bytes(value: unknown): Uint8Array {
 }
 function hex(value: Uint8Array): string { return '0x' + Array.from(value, byte => byte.toString(16).padStart(2, '0')).join('') }
 function h160(value: unknown): string { if (typeof value !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(value)) throw new TypeError('expected 0x-prefixed H160 address'); return value.toLowerCase() }
-function decimalRatio(value: number | string): [bigint, bigint] {
-  const match = /^\+?(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:e([+-]?\d+))?$/i.exec(String(value).trim())
-  if (!match) throw new RangeError('expected a finite nonnegative decimal')
-  const fraction = match[2] ?? match[3] ?? '', power = Number(match[4] ?? 0) - fraction.length
-  if (!Number.isSafeInteger(power) || Math.abs(power) > 1000) throw new RangeError('decimal exponent out of range')
-  const numerator = BigInt((match[1] ?? '0') + fraction)
-  return power < 0 ? [numerator, 10n ** BigInt(-power)] : [numerator * 10n ** BigInt(power), 1n]
+function proportionInput(value: unknown): unknown {
+  if (typeof value === 'number' && (!Number.isFinite(value) || Number.isInteger(value) && !Number.isSafeInteger(value))) throw new RangeError('unsafe proportion input; use a decimal string or bigint')
+  return value
 }
-function proportion(value: unknown, max: bigint): bigint {
-  if (typeof value !== 'number' && typeof value !== 'string' && typeof value !== 'bigint') throw new TypeError('proportion must be a fraction, percentage, or raw integer')
-  const raw = typeof value === 'string' ? value.trim().replace(/^\+/, '') : value
-  if (typeof raw === 'number' && Number.isInteger(raw) || typeof raw === 'bigint' || typeof raw === 'string' && /^\d+$/.test(raw)) {
-    const result = unsigned(raw, 'proportion'); if (result > max) throw new RangeError('proportion out of range'); return result
-  }
-  const text = String(raw).trim(), percent = text.endsWith('%')
-  let [numerator, denominator] = decimalRatio(percent ? text.slice(0, -1) : text)
-  if (percent) denominator *= 100n
-  if (numerator > denominator) throw new RangeError('proportion exceeds 1')
-  numerator *= max
-  const quotient = numerator / denominator, remainder = numerator % denominator
-  return quotient + (remainder * 2n > denominator || remainder * 2n === denominator && quotient % 2n === 1n ? 1n : 0n)
-}
-function ipAddress(value: string): { value: bigint; version: number } {
-  const ipv4 = (text: string): number[] => { const parts = text.split('.'); if (parts.length !== 4 || parts.some(part => !/^(?:0|[1-9]\d{0,2})$/.test(part) || Number(part) > 255)) throw new RangeError('invalid IPv4 address'); return parts.map(Number) }
-  if (!value.includes(':')) return { value: ipv4(value).reduce((n, byte) => n * 256n + BigInt(byte), 0n), version: 4 }
-  if (value.includes('%')) throw new RangeError('IPv6 scope identifiers cannot be advertised on chain')
-  let text = value
-  if (text.includes('.')) { const index = text.lastIndexOf(':'), parts = ipv4(text.slice(index + 1)); text = text.slice(0, index + 1) + ((parts[0] << 8) + parts[1]).toString(16) + ':' + ((parts[2] << 8) + parts[3]).toString(16) }
-  const halves = text.split('::')
-  if (halves.length > 2) throw new RangeError('invalid IPv6 address')
-  const left = halves[0] ? halves[0].split(':') : [], right = halves.length === 2 && halves[1] ? halves[1].split(':') : []
-  const missing = 8 - left.length - right.length
-  if (halves.length === 1 && left.length !== 8 || halves.length === 2 && missing < 1) throw new RangeError('invalid IPv6 address')
-  const parts = [...left, ...(halves.length === 2 ? Array(missing).fill('0') : []), ...right]
-  if (parts.some(part => !/^[a-fA-F0-9]{1,4}$/.test(part))) throw new RangeError('invalid IPv6 address')
-  return { value: parts.reduce((n, part) => n * 65536n + BigInt(parseInt(part, 16)), 0n), version: 6 }
-}
-
 async function freeBalance(reader: IntentReader, address: string): Promise<bigint> { return unsigned(rec(rec(await reader.query('System', 'Account', [address])).data).free ?? 0, 'free balance') }
 async function freeAmount(value: Balance | 'all', reader: IntentReader, context: IntentContext): Promise<bigint> {
   if (value !== 'all') return rao(value)
   const [free, deposit] = await Promise.all([freeBalance(reader, context.coldkey), required(reader.constant, 'constant').call(reader, 'Balances', 'ExistentialDeposit')])
-  const available = free - unsigned(deposit, 'existential deposit') - 500000n
-  if (available <= 0n) throw new RangeError('free balance does not cover existential deposit and fee headroom')
-  return available
+  return BigInt(evaluatePolicy<string>('financial.intent.free_amount', { free, existential_deposit: unsigned(deposit, 'existential deposit'), headroom: '500000' }))
 }
 async function stakeAmount(value: Balance | 'all', reader: IntentReader, context: IntentContext, hotkey: string, netuid: number): Promise<bigint> {
   if (value !== 'all') return rao(value)
   const info = await reader.runtimeCall('StakeInfoRuntimeApi', 'get_stake_info_for_hotkey_coldkey_netuid', [hotkey, context.coldkey, netuid])
   const amount = unsigned(rec(info).stake ?? 0, 'stake')
-  if (amount <= 0n) throw new RangeError('no stake in the selected position')
-  return amount
+  return BigInt(evaluatePolicy<string>('financial.staking_amount', { kind: 'stake', amount }))
 }
 async function lockable(reader: IntentReader, coldkey: string, netuid: number): Promise<bigint> {
   const values = rec(await reader.runtimeCall('StakeInfoRuntimeApi', 'get_stake_availability_for_coldkeys', [[coldkey], [netuid]]))
   const amount = unsigned(rec(rec(values[coldkey])[netuid]).available ?? 0, 'available alpha')
-  if (amount <= 0n) throw new RangeError('no unlocked stake available')
-  return amount
+  return BigInt(evaluatePolicy<string>('financial.staking_amount', { kind: 'lock', amount }))
 }
 async function price(reader: IntentReader, netuid: number): Promise<bigint> {
   const value = await reader.runtimeCall('SwapRuntimeApi', 'current_alpha_price', [netuid])
   if (value == null) throw new Error(`alpha price unavailable for netuid ${netuid}`)
   return unsigned(value, 'alpha price')
 }
-function tolerance(value: number): [bigint, bigint] {
-  if (typeof value !== 'number' || !(value >= 0 && value < 1)) throw new RangeError('rate_tolerance must be in [0,1)')
-  return decimalRatio(value)
-}
 async function priceLimit(reader: IntentReader, netuid: number, rate: number, buy: boolean): Promise<bigint> {
-  const spot = await price(reader, netuid), [numerator, denominator] = tolerance(rate)
-  return spot * (denominator + (buy ? numerator : -numerator)) / denominator
+  return BigInt(evaluatePolicy<string>('financial.intent.price_limit', { price: await price(reader, netuid), rate, buy }))
 }
 async function ratioLimit(reader: IntentReader, origin: number, destination: number, rate: number): Promise<bigint> {
   const [left, right] = await Promise.all([price(reader, origin), price(reader, destination)])
-  if (right <= 0n) throw new RangeError('destination alpha price is zero')
-  const [numerator, denominator] = tolerance(rate)
-  return (left * RAO_PER_TAO / right) * (denominator - numerator) / denominator
+  return BigInt(evaluatePolicy<string>('financial.intent.ratio_limit', { left, right, rate }))
 }
-async function swapCall(reader: IntentReader, a: Record<string, any>, hotkey: string, amount: bigint): Promise<IntentDescriptor> {
-  const params: Record<string, unknown> = { hotkey, origin_netuid: a.origin_netuid, destination_netuid: a.dest_netuid, alpha_amount: amount }
-  if (a.slippage_protection) Object.assign(params, { limit_price: await ratioLimit(reader, a.origin_netuid, a.dest_netuid, a.rate_tolerance), allow_partial: false })
-  return descriptor('SubtensorModule', a.slippage_protection ? 'swap_stake_limit' : 'swap_stake', params)
+interface StakingRoute { amount: string | null; needs_limit: boolean; explicit_limit: boolean; limit_direction: 'buy' | 'sell' | 'ratio' | null }
+function stakingDecision(op: string, args: Record<string, any>, facts: Record<string, unknown>): StakingRoute {
+  return evaluatePolicy<StakingRoute>('financial.staking_decision', { op, args: intentPolicyArgs(args), ...facts })
+}
+function stakingCall(op: string, args: Record<string, any>, facts: Record<string, unknown>): IntentDescriptor {
+  const selected = evaluatePolicy<{ call: IntentDescriptor; integer_paths: (string | number)[][] }>('financial.staking_call', { op, args: intentPolicyArgs(args), ...facts })
+  for (const path of selected.integer_paths) {
+    let target: any = selected.call
+    for (const key of path.slice(0, -1)) target = target[key]
+    const key = path[path.length - 1]!
+    target[key] = BigInt(target[key])
+  }
+  return selected.call
+}
+async function stakingLimit(route: StakingRoute, args: Record<string, any>, reader: IntentReader): Promise<bigint | undefined> {
+  if (!route.needs_limit) return undefined
+  if (route.explicit_limit) return unsigned(args.limit_price_rao, 'limit_price_rao')
+  if (route.limit_direction === 'ratio') return ratioLimit(reader, args.origin_netuid, args.dest_netuid, args.rate_tolerance)
+  return priceLimit(reader, args.netuid, args.rate_tolerance, route.limit_direction === 'buy')
 }
 function mergeChild(plan: MutablePlan, child: PreparedIntent): void {
-  plan.spendRao = plan.spendRao === 'unbounded' || child.spendRao === 'unbounded' ? 'unbounded' : plan.spendRao == null && child.spendRao == null ? null : (plan.spendRao ?? 0n) + (child.spendRao ?? 0n)
+  const facts = (value: PreparedIntent) => ({ spend_rao: value.spendRao, netuids: value.netuids, affects_all_subnets: value.affectsAllSubnets, global: value.global, shield_default: value.mevShieldDefault, shield_required: value.mevShieldRequired })
+  const merged = evaluatePolicy<{ spend_rao: string | null; netuids: number[]; affects_all_subnets: boolean; global: boolean; shield_default: boolean; shield_required: boolean }>('transaction.merge_intents', { children: [facts(plan), facts(child)] })
+  plan.spendRao = merged.spend_rao == null || merged.spend_rao === 'unbounded' ? merged.spend_rao : BigInt(merged.spend_rao)
   plan.spendByAccount = [...plan.spendByAccount, ...child.spendByAccount]
-  plan.netuids = [...new Set([...plan.netuids, ...child.netuids])].sort((a, b) => a - b)
-  plan.affectsAllSubnets ||= child.affectsAllSubnets
-  plan.global ||= child.global
-  plan.mevShieldDefault ||= child.mevShieldDefault
-  plan.mevShieldRequired ||= child.mevShieldRequired
+  plan.netuids = merged.netuids; plan.affectsAllSubnets = merged.affects_all_subnets; plan.global = merged.global
+  plan.mevShieldDefault = merged.shield_default; plan.mevShieldRequired = merged.shield_required
   plan.warnings = [...plan.warnings, ...child.warnings]
   plan.violations = [...plan.violations, ...child.violations]
   plan.effects = [...plan.effects, ...child.effects]
@@ -795,10 +695,11 @@ function mergeChild(plan: MutablePlan, child: PreparedIntent): void {
 }
 
 async function optionalClaim(plan: MutablePlan, args: Record<string, any>, reader: IntentReader, context: IntentContext, hotkey: string, netuid: number): Promise<void> {
-  if (!args.claim) return
-  if (netuid !== 0) throw new RangeError('claim is only valid on root')
+  const claim = evaluatePolicy<{ claim: boolean; error?: string }>('financial.staking_claim', { claim: args.claim, netuid })
+  if (claim.error === 'non_root') throw new RangeError('claim is only valid on root')
+  if (!claim.claim) return
   const hold = unsigned(await reader.query('SubtensorModule', 'RootStakeUnlockInterval', []) ?? 0, 'root hold interval')
-  if (hold > 0n) throw new RangeError('claim then unstake/move is unavailable while RootStakeUnlockInterval is nonzero; claim first and wait')
+  if (evaluatePolicy<{ error?: string }>('financial.staking_claim', { claim: true, netuid, interval: hold }).error === 'hold') throw new RangeError('claim then unstake/move is unavailable while RootStakeUnlockInterval is nonzero; claim first and wait')
   plan.call = batchCall([descriptor('SubtensorModule', 'claim_root_with_hotkey', { hotkey }), plan.call])
   plan.affectsAllSubnets = true
   plan.warnings = [...plan.warnings, 'claims the entire validator basket entitlement, not a proportional slice']
@@ -846,14 +747,15 @@ async function claimPreflight(plan: MutablePlan, reader: IntentReader, context: 
     queuedCredits += baskets.reduce((sum, basket) => sum + basket.queued, 0)
   }
   const limit = hotkey ? 130 : 256
-  if (selected.length + holdings > limit || scans > limit) plan.violations = [...plan.violations, `root claim exceeds ${limit}-unit admission limit (${selected.length} hotkeys + ${holdings} holdings, ${scans} selection scans); claim validators separately or reduce basket work`]
-  if (queuedCredits > 512) plan.violations = [...plan.violations, `root claim exceeds the 512-row pending deposit flush allowance (${queuedCredits} queued rows)`]
+  const admission = evaluatePolicy<{ too_heavy: boolean; queued_exceeded: boolean }>('financial.root_claim.admission', { hotkeys: selected.length, holdings, selection: scans, limit, queued: queuedCredits })
+  if (admission.too_heavy) plan.violations = [...plan.violations, `root claim exceeds ${limit}-unit admission limit (${selected.length} hotkeys + ${holdings} holdings, ${scans} selection scans); claim validators separately or reduce basket work`]
+  if (admission.queued_exceeded) plan.violations = [...plan.violations, `root claim exceeds the 512-row pending deposit flush allowance (${queuedCredits} queued rows)`]
   const reserveAccount = reader.resolveFeePayer ? await reader.resolveFeePayer(plan.call, plan.feePayer) : plan.feePayer
   const free = await freeBalance(reader, reserveAccount)
   let reserved: bigint, exact = false
   try { reserved = unsigned(await required(reader.estimateFee, 'estimateFee').call(reader, plan.call, plan.feePayer), 'fee'); exact = true }
   catch { reserved = rootClaimChargedFeeRao(limit); plan.warnings = [...plan.warnings, 'exact fee estimate unavailable; claim reserve uses the runtime allowance fee floor'] }
-  if (free < reserved) plan.violations = [...plan.violations, `free TAO ${free} is below reserved claim fee ${reserved}`]
+  if (!evaluatePolicy<{ affordable: boolean }>('transaction.multisig_funding', { free, deposit: 0, fee: reserved }).affordable) plan.violations = [...plan.violations, `free TAO ${free} is below reserved claim fee ${reserved}`]
   plan.requiredFreeByAccount = [...plan.requiredFreeByAccount, { address: reserveAccount, requiredRao: reserved, availableRao: free }]
   if (exact) plan.estimatedFeeRao = reserved
   plan.preview = { ...plan.preview, rootClaim: { selectedHotkeys: selected, relationships, holdings, holdingCounts, queuedCredits, selectionScans: scans, admissionLimit: limit, reservedFeeRao: reserved } }
@@ -947,19 +849,15 @@ async function emissionWeights(plan: MutablePlan, reader: IntentReader, context:
 
 async function multisig(plan: MutablePlan, reader: IntentReader, context: IntentContext, a: Record<string, any>): Promise<void> {
   const threshold = plan.op === 'multisig_threshold_1' ? 1 : small(a.threshold, 65535, 'threshold')
-  const mode = a.account_mode ?? context.accountMode ?? 'legacy'
-  if (!['legacy', 'safe'].includes(mode)) throw new RangeError('account_mode must be legacy or safe')
+  const mode = evaluatePolicy<'legacy' | 'safe'>('transaction.account_mode', { mode: a.account_mode ?? context.accountMode ?? 'legacy' })
   const suffix = mode === 'safe' ? '_safe' : ''
-  const decode = required(reader.decodeAddress, 'decodeAddress').bind(reader), signerId = hex(decode(context.coldkey))
+  const decode = required(reader.decodeAddress, 'decodeAddress').bind(reader)
   if (!Array.isArray(a.other_signatories)) throw new TypeError('other_signatories must be an array')
-  const unique = new Map<string, string>()
-  for (const address of a.other_signatories) {
-    const key = hex(decode(address))
-    if (key === signerId) throw new RangeError('other_signatories must exclude the signer')
-    unique.set(key, address)
-  }
-  const others = [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, address]) => address)
-  if (threshold < (plan.op === 'multisig_threshold_1' ? 1 : 2) || threshold > others.length + 1) throw new RangeError('invalid multisig threshold')
+  const members = evaluatePolicy<{ indices: number[] }>('transaction.multisig_members', {
+    members: a.other_signatories.map((address: string) => decode(address)), signer: decode(context.coldkey),
+    threshold, minimum_threshold: plan.op === 'multisig_threshold_1' ? 1 : 2, others_only: true, deduplicate: true,
+  })
+  const others = members.indices.map(index => a.other_signatories[index])
   const account = required(reader.multisigAccount, 'multisigAccount').call(reader, [context.coldkey, ...others], threshold, mode === 'safe')
   const semantic = intentFromJSON(a.call), innerRole = intentSignerRole(semantic)
   const inner = await semantic.prepare(reader, { coldkey: account.address, hotkey: innerRole === 'hotkey' ? account.address : undefined, hotkeyPublicKey: innerRole === 'hotkey' ? account.publicKey : undefined, feePayer: plan.feePayer, accountMode: mode })
@@ -990,15 +888,16 @@ async function multisig(plan: MutablePlan, reader: IntentReader, context: Intent
       if (timepoint == null) {
         const constant = required(reader.constant, 'constant').bind(reader)
         const [base, factor] = await Promise.all([constant('Multisig', 'DepositBase'), constant('Multisig', 'DepositFactor')])
-        deposit = unsigned(base, 'multisig deposit base') + BigInt(threshold) * unsigned(factor, 'multisig deposit factor')
+        deposit = BigInt(evaluatePolicy<string>('transaction.multisig_deposit', { base, threshold, factor }))
       }
       const fee = await required(reader.estimateFee, 'estimateFee').call(reader, plan.call, plan.feePayer)
       const feeAccount = reader.resolveFeePayer ? await reader.resolveFeePayer(plan.call, plan.feePayer) : plan.feePayer
       const [depositFree, feeFree] = await Promise.all([freeBalance(reader, context.coldkey), freeBalance(reader, feeAccount)])
       plan.requiredFreeByAccount = [...plan.requiredFreeByAccount, { address: context.coldkey, requiredRao: deposit, availableRao: depositFree }, { address: feeAccount, requiredRao: fee, availableRao: feeFree }]
       plan.estimatedFeeRao = fee
-      const sameAccount = hex(decode(context.coldkey)) === hex(decode(feeAccount))
-      if (sameAccount ? depositFree < deposit + fee : depositFree < deposit || feeFree < fee) plan.violations = [...plan.violations, `multisig dispatch account needs ${deposit} rao for deposit and fee account needs ${fee} rao for fee`]
+      const depositId = hex(decode(context.coldkey)), feeId = hex(decode(feeAccount))
+      const funding = evaluatePolicy<{ required: Array<{ affordable: boolean }> }>('financial.affordability', { spends: [{ account: depositId, amount: deposit }], charges: [{ account: feeId, amount: fee }], free: { [feeId]: feeFree, [depositId]: depositFree } })
+      if (funding.required.some(row => !row.affordable)) plan.violations = [...plan.violations, `multisig dispatch account needs ${deposit} rao for deposit and fee account needs ${fee} rao for fee`]
     }
   }
   plan.extras = { ...plan.extras, multisig_call_hash: hex(hash), multisig_account: account.address }

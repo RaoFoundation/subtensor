@@ -1,4 +1,6 @@
 export { SubmissionUncertainError, SubmissionNotSentError } from './transport'
+export { evaluatePolicy, policyEvaluate } from './policy'
+import { configurePolicyWasm } from './policy-wasm'
 import type {
   ModuleError,
   ScaleValue,
@@ -54,6 +56,7 @@ export type BrowserRuntimeApiMap = RustRuntimeApiMap
 export type BrowserMetadataIr = RustMetadataIr
 
 export interface BrowserWasmModule {
+  policyEvaluate(operation: string, input: string): string
   decodeReceivingAddress(address: string): Uint8Array
   encodeReceivingAddress(descriptor: Uint8Array): string
   verifyAuthorization(proof: Uint8Array, payload: Uint8Array, descriptor: Uint8Array, generation: bigint, commitment: Uint8Array): boolean
@@ -312,6 +315,7 @@ export async function initBrowser(
         await module.default()
       }
       wasmSync = () => module
+      configurePolicyWasm((operation, input) => module.policyEvaluate(operation, input))
       return module
     })
   }

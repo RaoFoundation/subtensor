@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import math
 from typing import Any, Optional
 
 from .._generated import runtime_apis as api
 from .._generated import storage as st
+from .._policy import evaluate_policy
 from .._transport.errors import StorageFunctionNotFound
 from .base import read
 
@@ -31,10 +31,15 @@ _ACCEPT_LOCKED_ALPHA_FLAG = 1 << 0
 
 
 def _eligible_alpha(alpha_out: Any, protocol_alpha: Any, alpha_burned: Any) -> int:
-    """Alpha that can support an ownership challenger, saturating at zero."""
-    return max(
-        0,
-        int(alpha_out or 0) - int(protocol_alpha or 0) - int(alpha_burned or 0),
+    return int(
+        evaluate_policy(
+            "financial.reads.eligible_alpha",
+            {
+                "out": int(alpha_out or 0),
+                "protocol": int(protocol_alpha or 0),
+                "burned": int(alpha_burned or 0),
+            },
+        )["eligible"]
     )
 
 
@@ -194,11 +199,7 @@ def _lock_state_parts(value: Any) -> tuple[int, float, int]:
 
 
 def _exp_decay(dt: float, tau: float) -> float:
-    if dt <= 0:
-        return 1.0
-    if tau <= 0:
-        return 0.0
-    return math.exp(-min(dt / tau, 40.0))
+    return evaluate_policy("financial.reads.lock_decay", {"dt": dt, "rate": tau})
 
 
 def _project_lock(
@@ -211,27 +212,20 @@ def _project_lock(
     perpetual: bool,
     owner: bool,
 ) -> tuple[float, float]:
-    """The (locked_mass, conviction) of one lock bucket ``dt`` blocks ahead.
-
-    Float mirror of the pallet's ``roll_forward_lock``: locked mass decays at
-    the unlock timescale (perpetual locks keep it), conviction matures toward
-    the locked mass at the maturity timescale, and owner locks always count
-    conviction equal to their locked mass.
-    """
-    unlock_decay = _exp_decay(dt, unlock_rate)
-    maturity_decay = _exp_decay(dt, maturity_rate)
-    new_mass = mass if perpetual else mass * unlock_decay
-    if perpetual:
-        from_mass = mass * (1.0 - maturity_decay)
-    elif unlock_rate == maturity_rate:
-        from_mass = mass * (dt / maturity_rate) * maturity_decay if maturity_rate else 0.0
-    elif unlock_rate <= 0 or maturity_rate <= 0:
-        from_mass = 0.0
-    else:
-        gamma = unlock_rate * (unlock_decay - maturity_decay) / (unlock_rate - maturity_rate)
-        from_mass = mass * gamma if gamma > 0 else 0.0
-    new_conviction = new_mass if owner else conviction * maturity_decay + from_mass
-    return new_mass, new_conviction
+    return tuple(
+        evaluate_policy(
+            "financial.reads.lock_project",
+            {
+                "mass": mass,
+                "conviction": conviction,
+                "dt": dt,
+                "unlock": unlock_rate,
+                "maturity": maturity_rate,
+                "perpetual": perpetual,
+                "owner": owner,
+            },
+        )
+    )
 
 
 # One rolled lock bucket: (locked_mass rao, conviction rao, perpetual, owner).
@@ -241,57 +235,30 @@ _LockBucket = tuple[float, float, bool, bool]
 def _conviction_at(
     buckets: list[_LockBucket], dt: float, unlock_rate: float, maturity_rate: float
 ) -> float:
-    return sum(
-        _project_lock(m, c, dt, unlock_rate, maturity_rate, perpetual=p, owner=o)[1]
-        for m, c, p, o in buckets
+    return evaluate_policy(
+        "financial.reads.lock_conviction",
+        {"buckets": buckets, "dt": dt, "unlock": unlock_rate, "maturity": maturity_rate},
     )
 
 
 def _clears_ownership_gate(conviction: float, eligible_alpha: int) -> bool:
-    """Strict mirror of the runtime admission check:
-    ``conviction * 100 > eligible_alpha * 18``. Exactly 18% does not pass."""
-    return conviction * 100 > eligible_alpha * 18
+    return evaluate_policy(
+        "financial.reads.lock_gate", {"conviction": conviction, "eligible": eligible_alpha}
+    )
 
 
 def _blocks_until_conviction(
-    buckets: list[_LockBucket],
-    eligible_alpha: int,
-    unlock_rate: float,
-    maturity_rate: float,
+    buckets: list[_LockBucket], eligible_alpha: int, unlock_rate: float, maturity_rate: float
 ) -> Optional[int]:
-    """Blocks until the buckets' combined conviction first clears the ownership
-    gate (strictly more than 18% of ``eligible_alpha``), 0 when already past,
-    or None when it never gets there at current locks.
-
-    Conviction is not monotonic (decaying locks mature and then fade), so this
-    scans forward over ~10 timescales and bisects the first crossing. Every
-    comparison uses the same strict predicate as the runtime gate.
-    """
-    if eligible_alpha <= 0:
-        return None
-
-    def _clears(dt: float) -> bool:
-        return _clears_ownership_gate(
-            _conviction_at(buckets, dt, unlock_rate, maturity_rate), eligible_alpha
-        )
-
-    if _clears(0):
-        return 0
-    horizon = int(10 * max(unlock_rate, maturity_rate, 1.0))
-    step = max(1, horizon // 4000)
-    previous = 0
-    for dt in range(step, horizon + 1, step):
-        if _clears(dt):
-            low, high = previous, dt
-            while high - low > 1:
-                mid = (low + high) // 2
-                if _clears(mid):
-                    high = mid
-                else:
-                    low = mid
-            return high
-        previous = dt
-    return None
+    return evaluate_policy(
+        "financial.reads.lock_blocks",
+        {
+            "buckets": buckets,
+            "eligible": eligible_alpha,
+            "unlock": unlock_rate,
+            "maturity": maturity_rate,
+        },
+    )
 
 
 async def _owner_locks(view, netuid: int) -> dict[bool, Any]:

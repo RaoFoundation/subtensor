@@ -1,4 +1,5 @@
 import { Balance } from './balance'
+import { evaluatePolicy } from './policy'
 import { hexBytes } from './portable'
 import type { Runtime } from './browser'
 const WIRE_TAG = '__bittensor_type'
@@ -169,14 +170,5 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
 
 
 export function nestedDispatchError(events: unknown[]): unknown {
-  const fields: Record<string, string> = { 'Sudo.Sudid': 'sudo_result', 'Sudo.SudoAsDone': 'sudo_result', 'Proxy.ProxyExecuted': 'result', 'Multisig.MultisigExecuted': 'result', 'Utility.BatchInterrupted': 'error', 'Utility.ItemFailed': 'error' }
-  for (const event of events) {
-    const name = eventName(event), field = fields[name]
-    if (!field) continue
-    const row = event as any, attrs = row.attributes ?? row.event?.attributes
-    const result = attrs?.[field] ?? attrs
-    if (result && typeof result === 'object' && 'Err' in result) return result.Err
-    if (name.startsWith('Utility.') && result != null) return result
-  }
-  return undefined
+  return evaluatePolicy('transaction.nested_dispatch_error', { events }) ?? undefined
 }

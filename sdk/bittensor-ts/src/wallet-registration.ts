@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 import { Balance } from './balance'
 import type { IntentDescriptor, IntentReader } from './intents'
 import { encodeIntentCall } from './intents'
@@ -101,9 +102,14 @@ export function snapshotWalletIdentity(key: WalletRegistrationKey): WalletRegist
 }
 
 export function requireWalletIdentity(key: WalletRegistrationKey, expected: WalletRegistrationKey, decode: (address: string) => Uint8Array): void {
-  if (hex(decode(key.ss58Address)) !== hex(decode(expected.ss58Address)) || hex(key.publicKey) !== hex(expected.publicKey) || key.cryptoType !== expected.cryptoType) throw new Error('unlocked signing identity does not match the public wallet')
-  if (expected.authorizationDescriptor && hex(key.authorizationDescriptor!()) !== hex(expected.authorizationDescriptor())) throw new Error('unlocked signing descriptor does not match the public wallet')
-  if (Boolean(key.requiresMetadataProof) !== Boolean(expected.requiresMetadataProof) || Boolean(key.requiresMetadataHash) !== Boolean(expected.requiresMetadataHash) || (key.genesisHash ?? null) !== (expected.genesisHash ?? null)) throw new Error('signer chain or metadata requirements changed after approval')
+  const identity = (value: WalletRegistrationKey) => ({ account: decode(value.ss58Address), public_key: value.publicKey, crypto_type: value.cryptoType })
+  if (evaluatePolicy('transaction.signer_identity', { actual: identity(key), expected: identity(expected) })) throw new Error('unlocked signing identity does not match the public wallet')
+  const expectedDescriptor = expected.authorizationDescriptor?.() ?? null
+  const facts = (value: WalletRegistrationKey, descriptor: Uint8Array | null) => ({ account: decode(value.ss58Address), public_key: value.publicKey, crypto_type: value.cryptoType, descriptor, requires_metadata_proof: Boolean(value.requiresMetadataProof), requires_metadata_hash: Boolean(value.requiresMetadataHash), genesis_hash: value.genesisHash ?? null })
+  const reason = evaluatePolicy<string | null>('transaction.signer_identity', { actual: facts(key, expectedDescriptor == null ? null : key.authorizationDescriptor?.() ?? null), expected: facts(expected, expectedDescriptor) })
+  if (reason === 'identity') throw new Error('unlocked signing identity does not match the public wallet')
+  if (reason === 'descriptor') throw new Error('unlocked signing descriptor does not match the public wallet')
+  if (reason === 'requirements') throw new Error('signer chain or metadata requirements changed after approval')
 }
 
 /** Keep remote/extension hooks attached to their original object while pinning approval. */

@@ -29,14 +29,8 @@ from hashlib import blake2b
 from typing import Any, Optional
 
 from ..sp_core import (
-    CRYPTO_ECDSA,
-    CRYPTO_ED25519,
-    CRYPTO_SR25519,
-    ECDSA_SIGNATURE_LEN,
-    ED25519_SIGNATURE_LEN,
     PQ_CRYPTO_TYPES,
     REGISTERED_CRYPTO_TYPES,
-    SR25519_SIGNATURE_LEN,
     pq_lengths,
 )
 from .codec import RuntimeCodec
@@ -294,37 +288,21 @@ def prepare_extrinsic(
     )
 
 
-# MultiSignature variant index -> raw signature length.
-_SIGNATURE_LENGTHS = {
-    CRYPTO_ED25519: ED25519_SIGNATURE_LEN,
-    CRYPTO_SR25519: SR25519_SIGNATURE_LEN,
-    CRYPTO_ECDSA: ECDSA_SIGNATURE_LEN,
-}
-
-
 def _normalize_signature(signature: bytes | str, default_version: int) -> tuple[bytes, int]:
-    """(raw signature, signature version).
+    """Normalize the existing transport signature convention in the shared core."""
+    from .._policy import evaluate_policy
 
-    Raw signatures are 64 bytes for ed25519/sr25519 and 65 bytes for ecdsa
-    (MultiSignature variant 2). A signature one byte longer than its variant's
-    raw length carries that variant in its first byte (the MultiSignature
-    convention extensions and hardware devices return); otherwise the signer's
-    crypto type is used. A 65-byte signature is therefore raw ecdsa when the
-    signer is ecdsa, and version-prefixed ed25519/sr25519 otherwise. Any other
-    shape is passed through as before; the chain rejects it as invalid.
-    """
     if isinstance(signature, str):
         signature = bytes.fromhex(signature.removeprefix("0x"))
-    signature = bytes(signature)
-    if len(signature) == _SIGNATURE_LENGTHS.get(default_version):
-        return signature, default_version
-    if signature:
-        version = signature[0]
-        if len(signature) - 1 == _SIGNATURE_LENGTHS.get(version):
-            return signature[1:], version
-    # Unrecognized shape: keep the legacy handling; don't raise an error
-    # and just return the raw signature unchanged.
-    return signature, default_version
+    result = evaluate_policy(
+        "transaction.signature_normalize",
+        {
+            "signature": bytes(signature),
+            "crypto_type": default_version,
+            "strict": False,
+        },
+    )
+    return bytes.fromhex(result["signature"][2:]), int(result["crypto_type"])
 
 
 def attach_signature(

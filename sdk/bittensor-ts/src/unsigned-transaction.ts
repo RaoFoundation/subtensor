@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 import { bytesHex, hexBytes, unsignedInteger, type PortableCrypto } from './portable'
 import type { ScaleValue } from './types'
 
@@ -77,11 +78,7 @@ export function restoreUnsignedTransaction(value: unknown, runtime: UnsignedRunt
   const publicKey = bytes(input.publicKey, 'publicKey', 32)
   if (!equal(publicKey, crypto.publicKeyFromSs58(input.address))) throw new TypeError('unsigned address and public key differ')
   const era = bytes(input.era, 'era')
-  if (!(era.length === 1 && era[0] === 0) && era.length !== 2) throw new TypeError('invalid transaction era encoding')
-  const encodedEra = era[0] | ((era[1] ?? 0) << 8)
-  const period = 2 << (encodedEra & 15), phase = (encodedEra >> 4) * Math.max(period >> 12, 1)
-  if (era.length === 2 && (period < 4 || phase >= period)) throw new TypeError('invalid mortal transaction era')
-  const decodedEra: ScaleValue = era.length === 1 ? '00' : { period, phase }
+  const decodedEra = evaluatePolicy<ScaleValue>('transaction.era', { era })
   const nonce = decimal(input.nonce, 64, 'nonce')
   if (nonce > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError('nonce exceeds JavaScript safe integer range')
   const params: UnsignedParams = { era: decodedEra, nonce, tip: decimal(input.tip, 128, 'tip'), tipAssetId: input.tipAssetId == null ? null : decimal(input.tipAssetId, 128, 'tipAssetId'), genesisHash: bytes(input.genesisHash, 'genesisHash', 32), eraBlockHash: bytes(input.eraBlockHash, 'eraBlockHash', 32), metadataHash: input.metadataHash == null ? null : bytes(input.metadataHash, 'metadataHash', 32) }

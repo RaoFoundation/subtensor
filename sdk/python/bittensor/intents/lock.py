@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional
 
-from .._generated import calls
-from .._pinned import approved_staking_amount, compose_staking_call
+from .._pinned import approved_staking_amount
 from ._money import ALL, Money, alpha_amount
+from ._shared import policy_arguments
 from .base import Intent
 from .registry import register
-from .staking import _lockable_rao
+from .staking import _compose_policy_staking, _lockable_rao
 
 
 @register
@@ -61,8 +61,8 @@ class LockStake(Intent):
                 rao = await _lockable_rao(substrate, self.coldkey_address(wallet), self.netuid)
         else:
             rao = self.amount_alpha.rao
-        return await compose_staking_call(
-            substrate, "lock_stake", dict(hotkey=hotkey, netuid=self.netuid, amount=rao)
+        return await _compose_policy_staking(
+            substrate, self.op, policy_arguments(self), hotkey=hotkey, amount=rao
         )
 
     def summary(self) -> str:
@@ -99,9 +99,9 @@ class SetPerpetualLock(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.set_perpetual_lock(netuid=self.netuid, enabled=self.enabled)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         mode = "perpetual" if self.enabled else "decaying"
@@ -135,9 +135,9 @@ class SetRejectLockedAlpha(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.set_reject_locked_alpha(enabled=self.enabled)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         action = "reject" if self.enabled else "accept"
@@ -167,11 +167,9 @@ class MoveLock(Intent):
     destination_hotkey_ss58: str = field(metadata={"help": "Hotkey the lock is moved to."})
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.move_lock(
-                destination_hotkey=self.destination_hotkey_ss58, netuid=self.netuid
-            )
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"move lock on netuid {self.netuid} to {self.destination_hotkey_ss58}"

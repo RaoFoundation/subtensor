@@ -1,6 +1,9 @@
+import { POLICY_CATALOG } from './policy-catalog'
+import { evaluatePolicy } from './policy'
+import { hexBytes } from './portable'
 /** Portable wall-clock timelock workflows; cryptography is supplied by native Rust or WASM. */
-export const QUICKNET_GENESIS = 1692803367
-export const QUICKNET_PERIOD = 3
+export const QUICKNET_GENESIS = POLICY_CATALOG.validation.QUICKNET_GENESIS
+export const QUICKNET_PERIOD = POLICY_CATALOG.validation.QUICKNET_PERIOD
 export type DurationLike = number | string
 export type WhenLike = Date | number | string
 export type TimelockedInput = Timelocked | Uint8Array | string
@@ -76,16 +79,19 @@ function roundValue(value: bigint | number | string): bigint {
   return round
 }
 
+function timelockPolicy<T>(operation: string, input: unknown): T {
+  try { return evaluatePolicy<T>(operation, input) }
+  catch (error) { throw new TimelockError(error instanceof Error ? error.message : String(error)) }
+}
 export function currentRound(at = Date.now() / 1000): bigint {
   if (!Number.isFinite(at)) throw new TimelockError('timestamp must be finite')
-  return BigInt(Math.max(1, Math.floor((at - QUICKNET_GENESIS) / QUICKNET_PERIOD) + 1))
+  return BigInt(timelockPolicy<string>('validation.timelock.round', { at, ceil: false }))
 }
 export function roundAt(when: WhenLike): bigint {
-  const elapsed = timestamp(when) - QUICKNET_GENESIS
-  return elapsed <= 0 ? 1n : BigInt(Math.ceil(elapsed / QUICKNET_PERIOD)) + 1n
+  return BigInt(timelockPolicy<string>('validation.timelock.round', { at: timestamp(when), ceil: true }))
 }
 export function revealTime(round: bigint | number | string): Date {
-  const millis = (BigInt(QUICKNET_GENESIS) + (roundValue(round) - 1n) * BigInt(QUICKNET_PERIOD)) * 1000n
+  const millis = BigInt(timelockPolicy<string>('validation.timelock.time', { round: roundValue(round) })) * 1000n
   if (millis > 8640000000000000n) throw new TimelockError('reveal round exceeds the Date range')
   return new Date(Number(millis))
 }
@@ -100,27 +106,8 @@ function bytes(value: Uint8Array | string): Uint8Array {
 // UserData is SCALE Vec<u8> followed by a u64 reveal round. Decode exactly,
 // rejecting trailing bytes just as bittensor-core does.
 function envelope(data: Uint8Array): { inner: Uint8Array; round: bigint } {
-  if (data.length < 9) throw new TimelockError('not a timelock ciphertext')
-  const mode = data[0] & 3
-  let offset = 1, length: number
-  if (mode === 0) length = data[0] >>> 2
-  else if (mode === 1) {
-    offset = 2; length = (data[0] + data[1] * 256) >>> 2
-    if (length < 64) throw new TimelockError('non-canonical ciphertext length')
-  } else if (mode === 2) {
-    offset = 4; length = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(0, true) >>> 2
-    if (length < 16384) throw new TimelockError('non-canonical ciphertext length')
-  } else {
-    const count = (data[0] >>> 2) + 4; offset = count + 1
-    if (count > 6 || offset + 8 > data.length) throw new TimelockError('ciphertext length exceeds buffer')
-    let wide = 0n
-    for (let i = count; i > 0; i--) wide = (wide << 8n) + BigInt(data[i])
-    if (wide < 1n << 30n || data[count] === 0) throw new TimelockError('non-canonical ciphertext length')
-    length = Number(wide)
-  }
-  if (offset + length + 8 !== data.length) throw new TimelockError('invalid ciphertext envelope length')
-  const round = new DataView(data.buffer, data.byteOffset + offset + length, 8).getBigUint64(0, true)
-  return { inner: data.slice(offset, offset + length), round: roundValue(round) }
+  const decoded = timelockPolicy<{ inner: string; round: string }>('validation.timelock.envelope', { data })
+  return { inner: hexBytes(decoded.inner), round: BigInt(decoded.round) }
 }
 
 export class Timelocked {

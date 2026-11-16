@@ -2443,16 +2443,17 @@ impl Client {
 
         if error.is_none() {
             for event in &events {
-                let Some((_, _, result_field)) = [
-                    ("Sudo", "Sudid", "sudo_result"),
-                    ("Sudo", "SudoAsDone", "sudo_result"),
-                    ("Proxy", "ProxyExecuted", "result"),
-                    ("Multisig", "MultisigExecuted", "result"),
-                    ("Utility", "BatchInterrupted", "error"),
-                    ("Utility", "ItemFailed", "error"),
-                ]
-                .into_iter()
-                .find(|(module, name, _)| event_is(event, module, name)) else {
+                let module = field(event, "module_id")
+                    .or_else(|| field(event, "event").and_then(|row| field(row, "module_id")))
+                    .and_then(as_str)
+                    .unwrap_or("");
+                let name = field(event, "event_id")
+                    .or_else(|| field(event, "event").and_then(|row| field(row, "event_id")))
+                    .and_then(as_str)
+                    .unwrap_or("");
+                let Some(result_field) =
+                    crate::policy::transaction::nested_result_field(module, name)
+                else {
                     continue;
                 };
                 let Some(attributes) = event_attributes(event) else {

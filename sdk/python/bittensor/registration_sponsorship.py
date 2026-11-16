@@ -6,6 +6,7 @@ import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
+from ._policy import evaluate_policy
 from .balance import Balance
 from .result import BittensorError
 
@@ -45,8 +46,14 @@ def validate_registration_deposit_limit(maximum: Balance | None) -> None:
         return
     if not isinstance(maximum, Balance):
         raise TypeError("max_registration_deposit must be a native TAO Balance")
-    if maximum.netuid != 0 or maximum.rao < 0:
+    if maximum.netuid != 0:
         raise ValueError("max_registration_deposit must be a nonnegative native TAO Balance")
+    try:
+        evaluate_policy("financial.registration.deposit", {"value": maximum.rao})
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "max_registration_deposit must be a nonnegative native TAO Balance"
+        ) from error
 
 
 def registration_sponsorship_quote(
@@ -57,8 +64,12 @@ def registration_sponsorship_quote(
         "hashed_registration_max_deposit_rao",
         extras.get("hashed_registration_deposit_rao", 0),
     )
-    if not isinstance(reserve, int) or isinstance(reserve, bool) or reserve < 0:
-        raise ValueError("invalid automatic registration deposit quote")
+    try:
+        if not isinstance(reserve, int) or isinstance(reserve, bool):
+            raise ValueError("deposit quote must be a Python integer")
+        reserve = int(evaluate_policy("financial.registration.deposit", {"value": reserve}))
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid automatic registration deposit quote") from error
     if reserve == 0:
         return None
     recipient = extras.get("hashed_registration")
@@ -84,7 +95,15 @@ async def authorize_registration_sponsorship(
     quote = registration_sponsorship_quote(extras, payer_account)
     if quote is None:
         return
-    if max_registration_deposit is not None and quote.deposit.rao > max_registration_deposit.rao:
+    decision = evaluate_policy(
+        "financial.registration.sponsorship",
+        {
+            "deposits": [quote.deposit.rao],
+            "maximum": None if max_registration_deposit is None else max_registration_deposit.rao,
+            "callback": on_registration_sponsorship is not None,
+        },
+    )
+    if decision["reason"] == "maximum":
         raise RegistrationSponsorshipRequired(
             quote, "registration deposit exceeds the allowed maximum"
         )
@@ -95,5 +114,5 @@ async def authorize_registration_sponsorship(
         if accepted is True:
             return
         raise RegistrationSponsorshipRequired(quote, "registration sponsorship was declined")
-    if max_registration_deposit is None:
+    if decision["reason"] == "consent":
         raise RegistrationSponsorshipRequired(quote, "registration sponsorship requires consent")

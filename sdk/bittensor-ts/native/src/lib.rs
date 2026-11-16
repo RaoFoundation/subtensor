@@ -25,6 +25,11 @@ use crate::values::{
     from_descriptor, from_wire, to_descriptor, to_js_safe_corpus_json, to_wire, WIRE_TAG,
 };
 
+#[napi(js_name = "policyEvaluate")]
+pub fn policy_evaluate(operation: String, input: String) -> String {
+    bittensor_core::policy::evaluate_json(&operation, &input)
+}
+
 #[napi(object)]
 pub struct NativeCoreValueField {
     pub name: String,

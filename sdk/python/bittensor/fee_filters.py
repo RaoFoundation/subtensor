@@ -8,27 +8,11 @@ from __future__ import annotations
 
 from typing import Any, Iterator
 
+from ._policy import evaluate_policy
+
 # (pallet, call_function) pairs whose fee is debited from the hotkey owner's coldkey.
 COLDKEY_PAYS_FEE_CALLS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("SubtensorModule", "set_weights"),
-        ("SubtensorModule", "set_mechanism_weights"),
-        ("SubtensorModule", "batch_set_weights"),
-        ("SubtensorModule", "commit_weights"),
-        ("SubtensorModule", "commit_mechanism_weights"),
-        ("SubtensorModule", "batch_commit_weights"),
-        ("SubtensorModule", "commit_crv3_mechanism_weights"),
-        ("SubtensorModule", "commit_timelocked_weights"),
-        ("SubtensorModule", "commit_timelocked_mechanism_weights"),
-        ("SubtensorModule", "reveal_weights"),
-        ("SubtensorModule", "reveal_mechanism_weights"),
-        ("SubtensorModule", "batch_reveal_weights"),
-        ("SubtensorModule", "serve_axon"),
-        ("SubtensorModule", "serve_axon_tls"),
-        ("SubtensorModule", "serve_prometheus"),
-        ("SubtensorModule", "associate_evm_key"),
-        ("Commitments", "set_commitment"),
-    }
+    tuple(name.split(".", 1)) for name in evaluate_policy("financial.fee.constants", {})
 )
 
 COLDKEY_FEE_WARNING = (
@@ -67,37 +51,28 @@ def _arg_value(call_dict: dict[str, Any], name: str) -> Any:
 
 def iter_call_leaves(call: Any) -> Iterator[tuple[str, str]]:
     """Yield (pallet, call_function) for each leaf in a possibly nested call."""
-    call_dict = _call_dict(call)
-    if call_dict is None:
-        return
-    module = call_dict["call_module"]
-    function = call_dict["call_function"]
-
-    if module == "Proxy" and function == "proxy":
-        inner = _arg_value(call_dict, "call")
-        if inner is not None:
-            yield from iter_call_leaves(inner)
-        return
-
-    if module == "Utility" and function in {"batch_all", "batch", "force_batch"}:
-        for inner in _arg_value(call_dict, "calls") or []:
-            yield from iter_call_leaves(inner)
-        return
-
-    if module == "Multisig" and function in {
-        "as_multi",
-        "as_multi_threshold_1",
-        "as_multi_safe",
-        "as_multi_threshold_1_safe",
-    }:
-        inner = _arg_value(call_dict, "call")
-        if inner is not None:
-            yield from iter_call_leaves(inner)
-        return
-
-    yield module, function
+    yield from (
+        tuple(row)
+        for row in evaluate_policy("financial.fee.leaves", {"call": _portable_call(call)})
+    )
 
 
 def charges_coldkey_fee(call: Any) -> bool:
     """True when any leaf call in ``call`` routes its fee to the owning coldkey."""
     return any(pair in COLDKEY_PAYS_FEE_CALLS for pair in iter_call_leaves(call))
+
+
+def _portable_call(value):
+    """Adapt Python call objects and codec wrappers without choosing traversal policy."""
+    if isinstance(value, dict):
+        return {key: _portable_call(child) for key, child in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_portable_call(child) for child in value]
+    call = _call_dict(value)
+    return (
+        _portable_call(call)
+        if call is not None
+        else value
+        if isinstance(value, (str, int, float, bool, type(None), bytes))
+        else None
+    )

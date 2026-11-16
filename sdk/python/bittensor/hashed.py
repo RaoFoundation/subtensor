@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ._generated import calls
+from ._policy import evaluate_policy
 from ._transport.errors import StorageFunctionNotFound
 from .keyfiles import Keyfile, KeyfileError
 from .mldsa import supports_fixed_profile
@@ -20,23 +21,11 @@ from .receiving import (
     is_receiving_address,
     parse_recipient,
 )
-from .sp_core import Keypair, is_stateless_pq, is_stateless_pq_descriptor, requires_registration
+from .sp_core import Keypair, is_stateless_pq_descriptor, requires_registration
 
-_REGISTRATION_TARGETS = {
-    "transfer": "dest_ss58",
-    "transfer_all": "dest_ss58",
-    "announce_coldkey_swap": "new_coldkey_ss58",
-    "swap_coldkey_announced": "new_coldkey_ss58",
-    "swap_hotkey": "new_hotkey_ss58",
-    "burned_register": "hotkey_ss58",
-    "pow_register": "hotkey_ss58",
-    "root_register": "hotkey_ss58",
-    "register_subnet": "hotkey_ss58",
-}
 
-# Association needs descriptor/ownership checks, but must not implicitly create
-# an account under a potentially incompatible owner.
-_DESCRIPTOR_TARGETS = {**_REGISTRATION_TARGETS, "associate_hotkey": "hotkey_ss58"}
+def _descriptor_target(op):
+    return evaluate_policy("transaction.receiving_target", {"op": op})
 
 
 async def hashed_accounts_enabled(substrate, *, block_hash=None):
@@ -76,7 +65,9 @@ async def quote_hashed_registration_deposit(substrate, legacy_constant, *, block
         value = await substrate.constant("HashedAccounts", legacy_constant, block_hash=block_hash)
     if value is None:
         raise ValueError("could not quote hashed account registration reserve")
-    return HashedRegistrationDepositQuote(int(value), configurable)
+    return HashedRegistrationDepositQuote(
+        int(evaluate_policy("financial.registration.deposit", {"value": value})), configurable
+    )
 
 
 async def hashed_registration_deposit(substrate, legacy_constant, *, block_hash=None):
@@ -89,8 +80,9 @@ async def hashed_registration_deposit(substrate, legacy_constant, *, block_hash=
 
 def descriptor_storage(descriptor: bytes) -> str:
     """Return the distinct permanent registry, validating the descriptor first."""
-    descriptor_value(descriptor)
-    return "MlDsaAccounts" if descriptor[0] == 2 else "Accounts"
+    return _descriptor_policy("transaction.descriptor", {"descriptor": bytes(descriptor)})[
+        "storage"
+    ]
 
 
 async def protected_account_record(substrate, account: str, *, block_hash=None):
@@ -127,33 +119,33 @@ async def compose_derivative(substrate, parent, index: int, call, *, account_mod
     A bare SS58 needs explicit ``account_mode="safe"``; its key type cannot
     be inferred. Legacy mode retains registered rotating-account protection.
     """
-    if not 0 <= index <= 65535:
-        raise ValueError("derivative index must fit u16")
-    from .account_mode import validate_account_mode, warn_legacy_mldsa
+    from ._policy import evaluate_policy
+    from .account_mode import warn_legacy_mldsa
     from .signing import public_view
 
+    crypto_type = None
     if not isinstance(parent, str):
         if account_mode is None:
             account_mode = getattr(parent, "account_mode", None)
         public = public_view(parent, "coldkey")
-        if account_mode is None and is_stateless_pq(public):
-            account_mode = "safe"
-        warn_legacy_mldsa(account_mode or "legacy", public, composite="derivative")
+        crypto_type = public.crypto_type
+        mode = evaluate_policy(
+            "transaction.derivative",
+            {"index": index, "mode": account_mode, "crypto_type": crypto_type},
+        )["mode"]
+        warn_legacy_mldsa(mode, public, composite="derivative")
         parent = public.ss58_address
-    if account_mode is not None:
-        validate_account_mode(account_mode)
+    selected = evaluate_policy(
+        "transaction.derivative", {"index": index, "mode": account_mode, "crypto_type": crypto_type}
+    )
     parent = parse_recipient(parent).account
-    if account_mode == "safe":
-        return await substrate.compose(
-            calls.Call("Utility", "as_safe_derivative", {"index": index, "call": call})
-        )
-    protected = await is_pq_required(substrate, parent)
+    protected = selected["mode"] != "safe" and await is_pq_required(substrate, parent)
+    selected = evaluate_policy(
+        "transaction.derivative",
+        {"index": index, "mode": selected["mode"], "pq_required": protected},
+    )
     return await substrate.compose(
-        calls.Call(
-            "Utility",
-            "as_protected_derivative" if protected else "as_derivative",
-            {"index": index, "call": call},
-        )
+        calls.Call("Utility", selected["call"], {"index": index, "call": call})
     )
 
 
@@ -173,7 +165,13 @@ async def multisig_protection_status(substrate, signatories: list[str], threshol
         if not await is_pq_required(substrate, member, block_hash=block_hash):
             weak += 1
     kind, _ = await protected_account_record(substrate, account.ss58_address, block_hash=block_hash)
-    return {"eligible": len(members) >= 2 and weak < threshold, "registered": kind == "derived"}
+    return {
+        "eligible": evaluate_policy(
+            "transaction.multisig_eligible",
+            {"count": len(members), "threshold": threshold, "weak": weak},
+        ),
+        "registered": kind == "derived",
+    }
 
 
 async def multisig_protection_call(
@@ -290,68 +288,31 @@ def raw_bytes(value: Any) -> bytes:
     return bytes.fromhex(value.removeprefix("0x")) if isinstance(value, str) else bytes(value)
 
 
+def _descriptor_policy(operation: str, value: dict):
+    from ._policy import evaluate_policy
+
+    try:
+        return evaluate_policy(operation, value)
+    except TypeError as error:
+        raise ValueError(str(error)) from error
+
+
 def descriptor_bytes(value: dict) -> bytes:
-    """Validate the versioned public descriptor decoded from chain storage."""
-    if value.get("version") == 2:
-        commitment = raw_bytes(value["initial_commitment"])
-        if (
-            value.get("algorithm") not in (4, 5, 6, 7, 8, 9)
-            or len(commitment) != 64
-            or not any(commitment)
-        ):
-            raise ValueError("unsupported post-quantum descriptor")
-        return bytes((2, value["algorithm"])) + commitment
-    scheme = value["scheme"]
-    if isinstance(scheme, dict) and len(scheme) == 1:
-        scheme = next(iter(scheme))
-    schemes = {"Sr25519": 1, "Ed25519": 3}
-    if value["version"] != 1 or not isinstance(scheme, str) or scheme not in schemes:
-        raise ValueError("unsupported hashed descriptor")
-    commitment = raw_bytes(value["initial_commitment"])
-    if len(commitment) != 32 or not any(commitment):
-        raise ValueError("hashed key commitments must contain 32 bytes")
-    return bytes((value["version"], schemes[scheme])) + commitment
+    """Validate a versioned public descriptor with the portable core."""
+    normalized = {**value, "initial_commitment": raw_bytes(value["initial_commitment"])}
+    return bytes.fromhex(
+        _descriptor_policy("transaction.descriptor_encode", {"value": normalized})[2:]
+    )
 
 
 def descriptor_value(descriptor: bytes) -> dict:
-    """Convert the native key's SCALE descriptor to its stored descriptor fields."""
-    if (
-        len(descriptor) == 66
-        and descriptor[0] == 2
-        and descriptor[1] in (4, 5, 6, 7, 8, 9)
-        and any(descriptor[2:])
-    ):
-        return {
-            "version": 2,
-            "algorithm": descriptor[1],
-            "initial_commitment": "0x" + descriptor[2:].hex(),
-        }
-    if (
-        len(descriptor) != 34
-        or (descriptor[0], descriptor[1])
-        not in (
-            (1, 1),
-            (1, 3),
-        )
-        or not any(descriptor[2:])
-    ):
-        raise ValueError("unsupported hashed descriptor")
-    return {
-        "version": descriptor[0],
-        "scheme": {1: "Sr25519", 3: "Ed25519"}[descriptor[1]],
-        "initial_commitment": "0x" + descriptor[2:].hex(),
-    }
+    """Convert the public descriptor using the canonical portable validator."""
+    return _descriptor_policy("transaction.descriptor", {"descriptor": bytes(descriptor)})["value"]
 
 
 def registration_descriptor_value(descriptor: bytes) -> dict:
-    """Select the original register/check call's explicit authentication scheme."""
-    value = descriptor_value(descriptor)
-    variant = (
-        "Falcon"
-        if descriptor[0] == 2 and descriptor[1] in (6, 7, 8, 9)
-        else ("MlDsa65" if descriptor[0] == 2 else "Classical")
-    )
-    return {variant: value}
+    result = _descriptor_policy("transaction.descriptor", {"descriptor": bytes(descriptor)})
+    return {result["variant"]: result["value"]}
 
 
 def _local_descriptor(wallet: Any, address: str) -> bytes | None:
@@ -384,7 +345,7 @@ def has_local_hashed_recipient(wallet: Any, intent: Any) -> bool:
         for _, address in intent.children
     ):
         return True
-    parameter = _DESCRIPTOR_TARGETS.get(intent.op)
+    parameter = _descriptor_target(intent.op)
     address = getattr(intent, parameter, None) if parameter else None
     if address is None and parameter == "hotkey_ss58":
         return requires_registration(public_view(wallet, "hotkey"))
@@ -467,7 +428,7 @@ async def with_recipient_registration(
                 descriptor = _local_descriptor(wallet, address)
                 if descriptor is not None:
                     recipients[name] = Recipient(address, address, descriptor)
-    parameter = _DESCRIPTOR_TARGETS.get(intent.op)
+    parameter = _descriptor_target(intent.op)
     if parameter is not None:
         address = getattr(intent, parameter, None)
         default_descriptor = None
@@ -521,10 +482,13 @@ async def with_recipient_registration(
         owner = public_view(wallet if origin is None else origin, "coldkey").ss58_address
         kind, _ = await protected_account_record(substrate, owner)
         requires_pq = any(descriptor[0] == 2 for descriptor in descriptors.values())
-        if kind is None or (requires_pq and kind not in ("mldsa", "derived")):
+        if not evaluate_policy(
+            "transaction.protected_owner",
+            {"kind": "classical" if kind == "v1" else kind, "requires_pq": requires_pq},
+        ):
             raise ValueError("a hashed hotkey requires a registered hashed coldkey owner")
     finalized_hash = None
-    direct = intent.op in ("swap_coldkey_announced", "pow_register", "execute_proxy_announced")
+    direct = evaluate_policy("transaction.receiving_direct", {"op": intent.op})
     if intent.op == "announce_coldkey_swap":
         # Existing announcements lock out Utility.batch_all, even when it only
         # checks registration. Keep first-use setup atomic, but require finality
@@ -564,12 +528,17 @@ async def with_recipient_registration(
                     "hashed destination registration is not finalized; register the recipient "
                     f"and wait for finalization before executing the {operation}"
                 )
-            if (
-                intent.op not in _REGISTRATION_TARGETS
-                or parameter not in recipients
-                or recipients[parameter].account != address
-                or len(unique) != 1
-            ):
+            if not evaluate_policy(
+                "transaction.receiving_registration",
+                {
+                    "op": intent.op,
+                    "field": parameter
+                    if parameter in recipients and recipients[parameter].account == address
+                    else None,
+                    "unique_count": len(unique),
+                    "direct": finalized_hash is not None,
+                },
+            )["may_register"]:
                 raise ValueError(
                     "recipient is not registered; send it a direct payment "
                     "before using this operation"
@@ -631,30 +600,60 @@ async def atomic_calls(substrate, call: Any) -> list[Any]:
     Recompose decoded children because the transport's display dictionaries are
     different from the enum values accepted by its SCALE encoder.
     """
-    from .fee_filters import _arg_value, _call_dict
+    from ._policy import evaluate_policy, evaluate_policy_preserving_values
+    from .fee_filters import _call_dict
 
     decoded = _call_dict(call)
     if decoded is None:
         decoded = await substrate.decode_scale("Call", call.data)
-    if (decoded.get("call_module"), decoded.get("call_function")) != ("Utility", "batch_all"):
-        if isinstance(call, dict):
-            call = await substrate.compose(
-                calls.Call(
-                    decoded["call_module"],
-                    decoded["call_function"],
-                    {arg["name"]: _call_variants(arg["value"]) for arg in decoded["call_args"]},
-                )
-            )
+
+    async def hydrate(value, depth=0):
+        if depth > 128:
+            raise ValueError("RuntimeCall nesting exceeds 128")
+        if not isinstance(value, (str, bytes, bytearray, dict)):
+            call_value = _call_dict(value)
+            if call_value is not None:
+                return await hydrate(call_value, depth + 1)
+            if hasattr(value, "data"):
+                return await hydrate(await substrate.decode_scale("Call", value.data), depth + 1)
+        if isinstance(value, dict):
+            return {key: await hydrate(child, depth + 1) for key, child in value.items()}
+        if isinstance(value, (tuple, list)):
+            return [await hydrate(child, depth + 1) for child in value]
+        return value
+
+    decoded = await hydrate(decoded)
+    paths = evaluate_policy("protected.flatten_batch_paths", {"calls": [decoded]})
+    if paths == [[0]] and not isinstance(call, dict):
         return [call]
-    flattened = []
-    for child in _arg_value(decoded, "calls"):
-        flattened.extend(await atomic_calls(substrate, child))
-    return flattened
+    leaves = evaluate_policy_preserving_values("protected.flatten_batch", {"calls": [decoded]})
+    return [
+        await substrate.compose(
+            calls.Call(
+                leaf["pallet"],
+                leaf["call"],
+                {name: _call_variants(value) for name, value in leaf["params"].items()},
+            )
+        )
+        for leaf in leaves
+    ]
 
 
 def _call_variants(value: Any) -> Any:
     """Restore nested RuntimeCall enum values without changing their wrappers."""
     if isinstance(value, dict):
+        if (
+            isinstance(value.get("pallet"), str)
+            and isinstance(value.get("call"), str)
+            and isinstance(value.get("params"), dict)
+        ):
+            return {
+                value["pallet"]: {
+                    value["call"]: {
+                        key: _call_variants(child) for key, child in value["params"].items()
+                    }
+                }
+            }
         if "call_module" in value and "call_function" in value:
             return {
                 value["call_module"]: {

@@ -1,0 +1,308 @@
+[
+  {
+    "name": "exact large decimal amount",
+    "operation": "validation.amount.parse",
+    "input": {
+      "text": "9007199254.740993001",
+      "precision": "strict"
+    },
+    "value": "9007199254740993001"
+  },
+  {
+    "name": "positive round to even",
+    "operation": "validation.amount.parse",
+    "input": {
+      "text": "0.0000000025",
+      "precision": "round"
+    },
+    "value": "2"
+  },
+  {
+    "name": "negative round to even",
+    "operation": "validation.amount.parse",
+    "input": {
+      "text": "-0.0000000035",
+      "precision": "round"
+    },
+    "value": "-4"
+  },
+  {
+    "name": "strict precision refusal",
+    "operation": "validation.amount.parse",
+    "input": {
+      "text": "0.0000000001",
+      "precision": "strict"
+    },
+    "error": {
+      "kind": "range",
+      "message": "balance amount cannot have more than 9 decimal places"
+    }
+  },
+  {
+    "name": "unit identity",
+    "operation": "validation.amount.units",
+    "input": {
+      "left": 1,
+      "right": 2,
+      "mode": "same"
+    },
+    "value": false
+  },
+  {
+    "name": "validator ties to even",
+    "operation": "validation.weights.normalize",
+    "input": {
+      "uids": [
+        1,
+        2,
+        3
+      ],
+      "weights": [
+        65535,
+        2.5,
+        3.5
+      ]
+    },
+    "value": [
+      [
+        1,
+        2,
+        3
+      ],
+      [
+        65535,
+        2,
+        4
+      ]
+    ]
+  },
+  {
+    "name": "zero weights",
+    "operation": "validation.weights.normalize",
+    "input": {
+      "uids": [
+        1,
+        2
+      ],
+      "weights": [
+        0,
+        0
+      ]
+    },
+    "value": [
+      [],
+      []
+    ]
+  },
+  {
+    "name": "rate limit wait",
+    "operation": "validation.weights.admission",
+    "input": {
+      "uid": 0,
+      "null": false,
+      "permit": true,
+      "current": 100,
+      "last": 99,
+      "rate": 10
+    },
+    "value": {
+      "code": "RATE_LIMITED",
+      "wait": "9"
+    }
+  },
+  {
+    "name": "exact half of u64 ratio",
+    "operation": "validation.hyperparameter",
+    "input": {
+      "name": "adjustment_alpha",
+      "kind": "u64",
+      "value": "0.5",
+      "human": true,
+      "minimum": "0",
+      "maximum": "18446744073709551615"
+    },
+    "value": "9223372036854775808"
+  },
+  {
+    "name": "malformed oversized exponent",
+    "operation": "validation.hyperparameter",
+    "input": {
+      "name": "burn_increase_mult",
+      "kind": "fixed128",
+      "value": "1e10000",
+      "human": true,
+      "minimum": "0",
+      "maximum": "340282366920938463463374607431768211455"
+    },
+    "error": {
+      "kind": "range",
+      "message": "decimal exponent out of range"
+    }
+  },
+  {
+    "name": "difficulty team floor",
+    "operation": "validation.pow.difficulty",
+    "input": {
+      "value": 2,
+      "minimum": 7,
+      "maximum": 3
+    },
+    "value": "7"
+  },
+  {
+    "name": "proof fresh last valid block",
+    "operation": "validation.pow.fresh",
+    "input": {
+      "current": 104,
+      "work": 100,
+      "anchor": "hash",
+      "canonical": "hash"
+    },
+    "value": true
+  },
+  {
+    "name": "proof expired",
+    "operation": "validation.pow.fresh",
+    "input": {
+      "current": 105,
+      "work": 100,
+      "anchor": "hash",
+      "canonical": "hash"
+    },
+    "value": false
+  },
+  {
+    "name": "proof reorg",
+    "operation": "validation.pow.fresh",
+    "input": {
+      "current": 100,
+      "work": 100,
+      "anchor": "hash",
+      "canonical": "other"
+    },
+    "value": false
+  },
+  {
+    "name": "target endianness",
+    "operation": "validation.pow.target",
+    "input": {
+      "work": "0x0000000000000000000000000000000000000000000000000000000000000080",
+      "difficulty": 2
+    },
+    "value": false
+  },
+  {
+    "name": "fractional timelock ceil",
+    "operation": "validation.timelock.round",
+    "input": {
+      "at": 1692803367.0001,
+      "ceil": true
+    },
+    "value": "2"
+  },
+  {
+    "name": "published timelock round",
+    "operation": "validation.timelock.round",
+    "input": {
+      "at": 1692803369.999,
+      "ceil": false
+    },
+    "value": "1"
+  },
+  {
+    "name": "timelock SCALE envelope",
+    "operation": "validation.timelock.envelope",
+    "input": {
+      "data": "0x04010100000000000000"
+    },
+    "value": {
+      "inner": "0x01",
+      "round": "1"
+    }
+  },
+  {
+    "name": "timelock trailing bytes rejected",
+    "operation": "validation.timelock.envelope",
+    "input": {
+      "data": "0x0401010000000000000000"
+    },
+    "error": {
+      "kind": "invalid",
+      "message": "invalid ciphertext envelope length"
+    }
+  },
+  {
+    "name": "pruning freeze boundary",
+    "operation": "validation.pruning.state",
+    "input": {
+      "mechanisms": 3,
+      "block": 98,
+      "tempo": 10,
+      "last": 90,
+      "pending": 0,
+      "window": 3
+    },
+    "value": {
+      "ceiling": 85,
+      "frozen": true
+    }
+  },
+  {
+    "name": "pruning bounded nonprogress",
+    "operation": "validation.pruning.progress",
+    "input": {
+      "before": 100,
+      "after": 100,
+      "target": 80,
+      "pending": 80,
+      "cleared": 0,
+      "stalled": 2
+    },
+    "value": {
+      "stalled": 3,
+      "stop": true
+    }
+  },
+  {
+    "name": "protected delay ceil",
+    "operation": "protected.delay",
+    "input": {
+      "raw": "42s",
+      "block_time": 12
+    },
+    "value": 4
+  },
+  {
+    "name": "root claim charged monetary allowance",
+    "operation": "financial.root_claim.charged_fee",
+    "input": {
+      "limit": 256
+    },
+    "value": "7473653"
+  },
+  {
+    "name": "root claim single same monetary allowance",
+    "operation": "financial.root_claim.charged_fee",
+    "input": {
+      "limit": 130
+    },
+    "value": "7473653"
+  },
+  {
+    "name": "root claim hotkey admission full capacity",
+    "operation": "financial.root_claim.admission",
+    "input": {
+      "hotkeys": 1,
+      "holdings": 129,
+      "selection": 0,
+      "limit": 130
+    },
+    "value": {
+      "too_heavy": false,
+      "work": 130,
+      "work_exceeded": false,
+      "selection_exceeded": false,
+      "queued_exceeded": false
+    }
+  }
+]

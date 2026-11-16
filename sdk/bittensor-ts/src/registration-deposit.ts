@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 import type { IntentDescriptor, IntentReader } from './intents'
 
 export interface RegistrationDepositQuote { amountRao: bigint; configurable: boolean }
@@ -10,10 +11,7 @@ export async function quoteRegistrationDeposit(reader: IntentReader, legacyConst
   const value = configurable
     ? await reader.query('HashedAccounts', 'HashedAccountRegistrationDeposit', [], block)
     : await reader.constant?.('HashedAccounts', legacyConstant, block)
-  if (value == null || !['bigint', 'number', 'string'].includes(typeof value)) throw new Error('registration deposit unavailable')
-  if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new Error('invalid registration deposit')
-  const amountRao = BigInt(value as bigint | number | string)
-  if (amountRao < 0n || amountRao > 0xffffffffffffffffn) throw new Error('invalid registration deposit')
+  const amountRao = BigInt(evaluatePolicy<string>('financial.registration.deposit', { value }))
   return { amountRao, configurable }
 }
 

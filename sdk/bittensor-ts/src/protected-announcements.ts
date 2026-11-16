@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 import { Intent, intentFromJSON, intentSignerRole, type IntentContext, type PreparedIntent } from './intents'
 import { ProxyAnnouncementStore, normalizeCallSemantics, announcementCategory, type NewProxyAnnouncement, type ProxyAnnouncement, type AnnouncementMultisig } from './announcement-store'
 import { decodedCallDescriptor, sameCallSemantics, validateAnnouncedCall, announcedCallLeaves } from './proxy-announcements'
@@ -32,14 +33,9 @@ function number(value: unknown, label: string): number { const n = typeof value 
 function hash(value: unknown): string { if (typeof value !== 'string' || !/^0x[0-9a-f]{64}$/i.test(value)) throw new TypeError('invalid announcement hash'); return value.toLowerCase() }
 function attrs(event: ProtectedProxyEvent, names: string[]): Record<string, any> { return Array.isArray(event.attributes) ? Object.fromEntries(names.map((name, i) => [name, event.attributes[i]])) : event.attributes ?? {} }
 function moduleEvents(receipt: ProtectedProxyReceipt, module: string, name: string): ProtectedProxyEvent[] { return receipt.events.filter(event => event.module_id === module && event.event_id === name) }
-function dispatchError(value: any): boolean { return value != null && typeof value === 'object' && ('Err' in value || 'err' in value) }
-function successful(receipt: ProtectedProxyReceipt): boolean {
-  if (receipt.success !== true) return false
-  return !receipt.events.some(event => event.module_id === 'System' && event.event_id === 'ExtrinsicFailed' || event.module_id === 'Utility' && ['BatchInterrupted', 'ItemFailed', 'BatchCompletedWithErrors'].includes(event.event_id) ||
-    ['Proxy', 'Multisig', 'Sudo'].includes(event.module_id) && ['ProxyExecuted', 'MultisigExecuted', 'Sudid', 'SudoAsDone'].includes(event.event_id) && dispatchError(Array.isArray(event.attributes) ? event.attributes[event.attributes.length - 1] : event.attributes?.result ?? event.attributes?.sudo_result))
-}
-function approvalOnly(receipt: ProtectedProxyReceipt): boolean { return receipt.awaitingApproval === true || (moduleEvents(receipt, 'Multisig', 'NewMultisig').length + moduleEvents(receipt, 'Multisig', 'MultisigApproval').length > 0 && !moduleEvents(receipt, 'Multisig', 'MultisigExecuted').length) }
-function included(receipt: ProtectedProxyReceipt): boolean { return !['uncertain', 'unknown', 'submitted', 'broadcast', 'pending', 'dropped', 'invalid', 'usurped', 'retracted'].includes(receipt.status) && (receipt.blockHash != null || receipt.blockNumber != null || ['inBlock', 'finalized'].includes(receipt.status)) }
+function successful(receipt: ProtectedProxyReceipt): boolean { return evaluatePolicy<{successful: boolean}>('protected.receipt_state', receipt).successful }
+function approvalOnly(receipt: ProtectedProxyReceipt): boolean { return evaluatePolicy<{approval_only: boolean}>('protected.receipt_state', receipt).approval_only }
+function included(receipt: ProtectedProxyReceipt): boolean { return evaluatePolicy<{included: boolean}>('protected.receipt_state', receipt).included }
 function uncertainReceipt(error: unknown): ProtectedProxyReceipt | undefined {
   const value = error as any
   return typeof value?.extrinsicHash === 'string' && /^0x[0-9a-f]{64}$/i.test(value.extrinsicHash) ? { status: 'unknown', success: null, events: [], extrinsicHash: value.extrinsicHash, blockHash: value.blockHash ?? undefined } : undefined

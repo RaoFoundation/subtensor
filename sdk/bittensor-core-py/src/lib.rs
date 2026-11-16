@@ -16,9 +16,15 @@ mod runtime;
 mod timelock;
 mod values;
 
+#[pyfunction]
+fn policy_evaluate(operation: &str, input: &str) -> String {
+    ::bittensor_core::policy::evaluate_json(operation, input)
+}
+
 /// The `bittensor_core` extension module (PyPI package `bittensor-core`).
 #[pymodule]
 fn bittensor_core(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(policy_evaluate, module)?)?;
     module.add("__core_version__", env!("CARGO_PKG_VERSION"))?;
     module.add("KeyfileError", py.get_type::<errors::KeyfileError>())?;
     module.add(

@@ -44,7 +44,7 @@ const sources = [
 ].sort()
 const generated = [
   'descriptors.ts', 'read-catalog.ts', 'read-namespaces.ts', 'intent-catalog.ts',
-  'intent-hyperparameter-catalog.ts', 'intent-inputs.ts', 'evm-catalog.ts', 'extension-page.ts', 'error-catalog.ts',
+  'intent-hyperparameter-catalog.ts', 'intent-inputs.ts', 'policy-catalog.ts', 'evm-catalog.ts', 'extension-page.ts', 'error-catalog.ts',
 ].map(name => `sdk/bittensor-ts/src/${name}`)
 if (fs.existsSync(path.join(sdk, 'src/basket-index-data.ts'))) generated.push('sdk/bittensor-ts/src/basket-index-data.ts')
 const digest = file => createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex')

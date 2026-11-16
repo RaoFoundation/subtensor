@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 /** Current runtime claim fee model: runtime/src/staking_fee.rs and claim_root.rs. */
 export interface RootClaimPreview {
   accrued_tao: bigint
@@ -74,61 +75,25 @@ export async function readRootClaimRelationships(reader: RootClaimStateReader, c
         const rate = record(value)
         return { netuid: subnet(id), generation: unsigned(rate.generation), rateBits: bits(rate.rate), debtCount: count(Number(unsigned(rate.debt_count))) }
       })
+      const policy = evaluatePolicy<{ selected: boolean; unquoted: boolean }>('financial.root_claim.relationship', { root: hasRootStake, basket: basketClaimed, debt: hasDeferredDebt, claimed: claimedRao, rates: deferredRates.length, cash_rate: rateBits })
       return {
         hotkey, hasRootStake, basketClaimed, hasDeferredDebt, deferredDebts, deferredRates,
         deferredCash: { rateBits, claimedRao, reserveRao },
-        selected: hasRootStake || basketClaimed < 0n || hasDeferredDebt || claimedRao < 0n,
-        hasUnquotedDeferredEntitlement: hasDeferredDebt || claimedRao < 0n || hasRootStake && (deferredRates.length > 0 || rateBits !== 0n),
+        selected: policy.selected,
+        hasUnquotedDeferredEntitlement: policy.unquoted,
       }
     })))
   }
   return result
 }
-const read = 25_000_000n, write = 100_000_000n
-const claim = (units: bigint) => 567_441_000n + 437_318_379n * units + (23n + 22n * units) * read + (18n + 16n * units) * write
-const scan = (units: bigint) => 309_208_000n + 263_604_241n * units + (6n + 21n * units) * read
-const weightFee = (refTime: bigint) => refTime / 4000n + (refTime % 4000n * 2n > 4000n ? 1n : 0n)
-
-export function rootClaimChargedFeeRao(limit = 256): bigint {
-  const units = BigInt(Math.min(count(limit), 4))
-  // The runtime combines claim and queued-credit units before applying the
-  // benchmark, so its fixed base cost is charged once.
-  const quotes = 6n * units
-  const weight = claim(2n * units) + scan(units) + (10_000_000n + 4n * read) * (quotes > 0n ? quotes : 1n)
-  return weightFee(weight < 249_856_000_000n ? weight : 249_856_000_000n)
-}
-
-/** Flush work cannot be known exactly before dispatch, so this is a spent-fee floor. */
-export function rootClaimSpentFeeRao(reserved: bigint, hotkeys: number, redeemHoldings: number, scanHoldings: number, selectionScans: number, limit = 256): bigint {
-  if (reserved < 0n) throw new RangeError('reserved fee must be nonnegative')
-  const charged = rootClaimChargedFeeRao(limit), base = reserved > charged ? reserved - charged : 0n
-  const active = BigInt(Math.max(count(hotkeys), count(redeemHoldings), count(selectionScans), 1))
-  const spent = base + weightFee(claim(active) + scan(BigInt(count(scanHoldings))))
-  return spent < reserved ? spent : reserved
-}
-
+export function rootClaimChargedFeeRao(limit = 256): bigint { return BigInt(evaluatePolicy<string>('financial.root_claim.charged_fee', { limit })) }
+export function rootClaimSpentFeeRao(reserved: bigint, hotkeys: number, redeemHoldings: number, scanHoldings: number, selectionScans: number, limit = 256): bigint { return BigInt(evaluatePolicy<string>('financial.root_claim.spent_fee', { reserved, hotkeys, redeem: redeemHoldings, scan: scanHoldings, selection: selectionScans, limit })) }
 export function quoteRootClaimPreviews(previews: readonly (RootClaimPreview | null)[], reserved: bigint, threshold: bigint, selectionScans: number, limit = 256, unquotedHotkeys = 0): RootClaimFeeQuote {
-  if (threshold < 0n) throw new RangeError('claim threshold must be nonnegative')
-  count(unquotedHotkeys)
-  if (unquotedHotkeys > previews.length) throw new RangeError('unquoted hotkeys exceed selected claim hotkeys')
-  let accruedRao = 0n, redeemableRao = 0n, forfeitedRao = 0n
-  let eligibleHotkeys = 0, belowThresholdHotkeys = 0, dustRows = 0, redeemed = 0, scanned = 0
-  for (const row of previews) {
-    if (row == null) continue
-    accruedRao += row.accrued_tao
-    forfeitedRao += row.forfeited_tao_est
-    dustRows += count(row.dust_rows)
-    const rows = count(row.rows), sold = count(row.rows_to_sell)
-    if (sold > rows) throw new RangeError('claim preview sells more rows than it scans')
-    redeemed += count(row.swept)
-    if (row.redeemable_tao > 0n && row.redeemable_tao >= threshold) {
-      eligibleHotkeys++; redeemableRao += row.redeemable_tao; redeemed += sold; scanned += rows - sold
-    } else { belowThresholdHotkeys++; scanned += rows }
-  }
-  const spentFeeFloorRao = rootClaimSpentFeeRao(reserved, previews.length, redeemed, scanned, selectionScans, limit)
-  const previewComplete = unquotedHotkeys === 0
-  return Object.freeze({ reservedFeeRao: reserved, spentFeeFloorRao, possibleRefundRao: reserved - spentFeeFloorRao, accruedRao: previewComplete ? accruedRao : null, redeemableRao: previewComplete ? redeemableRao : null, basketAccruedRao: accruedRao, basketRedeemableRao: redeemableRao, previewComplete, unquotedHotkeys, forfeitedRao, thresholdRao: threshold, eligibleHotkeys, belowThresholdHotkeys, dustRows, losesMoney: previewComplete ? spentFeeFloorRao > redeemableRao : null })
+  const result = evaluatePolicy<any>('financial.root_claim.preview', { previews, reserved, threshold, selection: selectionScans, limit, unquoted: unquotedHotkeys })
+  for (const key of ['reservedFeeRao', 'spentFeeFloorRao', 'possibleRefundRao', 'accruedRao', 'redeemableRao', 'basketAccruedRao', 'basketRedeemableRao', 'forfeitedRao', 'thresholdRao']) if (result[key] != null) result[key] = BigInt(result[key])
+  return Object.freeze(result)
 }
+
 function count(value: number): number { if (!Number.isSafeInteger(value) || value < 0) throw new RangeError('claim work count must be a nonnegative safe integer'); return value }
 function signed(value: unknown): bigint {
   if (typeof value === 'bigint') return value

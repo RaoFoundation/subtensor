@@ -1,4 +1,4 @@
-import { isPqCrypto, isRotatingCrypto } from './wallet-types'
+import { evaluatePolicy } from './policy'
 import type { ProtectedAccountClient, ProtectedKeypair } from './protected-accounts'
 import type { IntentDescriptor } from './intents'
 import { bytesHex as hex } from './portable'
@@ -13,12 +13,12 @@ export async function protectedAccountRecord(client: ProtectedAccountClient, acc
   return {kind:null,record:null,block}
 }
 export async function derivativeCall(client: ProtectedAccountClient, parent: string | ProtectedKeypair, index: number, call: IntentDescriptor | Uint8Array, mode?: AccountMode): Promise<IntentDescriptor> {
-  if (!Number.isInteger(index) || index < 0 || index > 65535) throw new RangeError('derivative index must fit u16')
-  if (mode != null && mode !== 'safe' && mode !== 'legacy') throw new RangeError('invalid account mode')
+  if (!Number.isSafeInteger(index)) throw new RangeError('derivative index must fit u16')
   const address = typeof parent === 'string' ? parent : parent.ss58Address
-  mode ??= typeof parent !== 'string' && isPqCrypto(parent.cryptoType) && !isRotatingCrypto(parent.cryptoType) ? 'safe' : 'legacy'
-  const protectedParent = mode === 'legacy' ? await protectedAccountRecord(client,address) : null
-  const fn = mode === 'safe' ? 'as_safe_derivative' : protectedParent?.kind === 'pq' || protectedParent?.kind === 'derived' ? 'as_protected_derivative' : 'as_derivative'
+  const request = { index, mode, crypto_type: typeof parent === 'string' ? undefined : parent.cryptoType }
+  const selected = evaluatePolicy<{ mode: AccountMode; call: string }>('transaction.derivative', request)
+  const protectedParent = selected.mode === 'legacy' ? await protectedAccountRecord(client,address) : null
+  const fn = evaluatePolicy<{ call: string }>('transaction.derivative', { ...request, pq_required: protectedParent?.kind === 'pq' || protectedParent?.kind === 'derived' }).call
   return {pallet:'Utility',call:fn,params:{index,call:structuredClone(call)}}
 }
 export async function multisigProtection(client: ProtectedAccountClient, signatories: string[], threshold: number, codec: { decodeAddress(address: string): Uint8Array; encodeAddress(bytes: Uint8Array): string; multisigAccount(members: string[], threshold: number): {address:string} }, depositPayer?: string) {
@@ -33,7 +33,7 @@ export async function multisigProtection(client: ProtectedAccountClient, signato
     if (kind !== 'pq' && kind !== 'derived') weak++
   }
   const {kind,record} = await protectedAccountRecord(client,address,block)
-  const eligible = signatories.length >= 2 && weak < threshold
+  const eligible = evaluatePolicy<boolean>('transaction.multisig_eligible', { count: signatories.length, weak, threshold })
   const descriptor = {Multisig:{signatories:[...signatories],threshold}}
   if (kind === 'derived') {
     const registered = record.descriptor?.Multisig

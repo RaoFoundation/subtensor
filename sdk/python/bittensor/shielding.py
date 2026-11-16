@@ -5,37 +5,11 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
+from ._policy import evaluate_policy
 from .fee_filters import _arg_value, _call_dict
 
 ACCOUNT_REGISTRATION_CALLS = frozenset(
-    {
-        ("HashedAccounts", "register"),
-        ("HashedAccounts", "register_derived"),
-        ("HashedAccounts", "register_derived_sponsored"),
-        ("Proxy", "create_protected_pure"),
-        ("Utility", "as_protected_derivative"),
-    }
-)
-
-# Only recurse through RuntimeCall arguments, never arbitrary descriptor/data fields.
-_SINGLE_CALL_WRAPPERS = frozenset(
-    {
-        ("Proxy", "proxy"),
-        ("Proxy", "proxy_announced"),
-        ("Multisig", "as_multi"),
-        ("Multisig", "as_multi_safe"),
-        ("Multisig", "as_multi_threshold_1"),
-        ("Multisig", "as_multi_threshold_1_safe"),
-        ("Utility", "as_derivative"),
-        ("Utility", "as_safe_derivative"),
-        ("Utility", "as_protected_derivative"),
-        ("Utility", "dispatch_as"),
-        ("Utility", "dispatch_as_fallible"),
-        ("Utility", "with_weight"),
-        ("Sudo", "sudo"),
-        ("Sudo", "sudo_unchecked_weight"),
-        ("Sudo", "sudo_as"),
-    }
+    tuple(pair) for pair in evaluate_policy("protected.registration_rules", {})
 )
 
 
@@ -58,16 +32,21 @@ async def contains_account_registration(substrate, call: Any) -> bool:
         if not isinstance(data, (bytes, bytearray, str)):
             return False
         decoded = await substrate.decode_scale("Call", data)
-    pair = (decoded["call_module"], decoded["call_function"])
-    if pair in ACCOUNT_REGISTRATION_CALLS:
+    node = evaluate_policy(
+        "protected.registration_node",
+        {
+            "pallet": decoded["call_module"],
+            "call": decoded["call_function"],
+            "expanded": True,
+            "registrations": sorted(ACCOUNT_REGISTRATION_CALLS),
+        },
+    )
+    if node["found"]:
         return True
     children = []
-    if pair in _SINGLE_CALL_WRAPPERS:
-        children = [_arg_value(decoded, "call")]
-    elif pair == ("Utility", "if_else"):
-        children = [_arg_value(decoded, "main"), _arg_value(decoded, "fallback")]
-    elif pair[0] == "Utility" and pair[1] in {"batch", "batch_all", "force_batch"}:
-        children = _arg_value(decoded, "calls") or []
+    for field in node["fields"]:
+        value = _arg_value(decoded, field)
+        children.extend((value or []) if field == "calls" else [value])
     for child in children:
         if child is not None and await contains_account_registration(substrate, child):
             return True

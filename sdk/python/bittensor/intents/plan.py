@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .._policy import evaluate_policy
 from ..balance import Balance
 from ..settings import tx_docs_url
 from ._money import UNBOUNDED, Money, Spend, tao_amount
@@ -44,48 +45,74 @@ class Policy:
     def check_raw_call(self) -> list[str]:
         """Violations for a raw call (``client.submit_call``), which has no intent
         to inspect — so it is refused outright unless ``allow_raw_calls`` opts in."""
-        if self.allow_raw_calls:
-            return []
-        return ["raw call submission is disabled by policy (set allow_raw_calls=True)"]
+        reasons = evaluate_policy(
+            "transaction.intent_policy", {"raw": True, "allow_raw_calls": self.allow_raw_calls}
+        )["violations"]
+        return [
+            "raw call submission is disabled by policy (set allow_raw_calls=True)" for _ in reasons
+        ]
 
     def check(
         self, intent: Intent, fee: Optional[Balance], *, additional_spend: Optional[Balance] = None
     ) -> list[str]:
         intent = intent.semantic_intent()
+        spend = intent.spend() if self.max_spend_tao is not None else None
+        result = evaluate_policy(
+            "transaction.intent_policy",
+            {
+                "max_fee_rao": None if self.max_fee_tao is None else str(self.max_fee_tao.rao),
+                "max_spend_rao": None
+                if self.max_spend_tao is None
+                else str(self.max_spend_tao.rao),
+                "fee_rao": None if fee is None else str(fee.rao),
+                "spend_rao": "unbounded"
+                if spend is UNBOUNDED
+                else None
+                if spend is None
+                else str(spend.rao),
+                "additional_spend_rao": None
+                if additional_spend is None
+                else str(additional_spend.rao),
+                "allowed_netuids": self.allowed_netuids,
+                "netuids": list(intent.touches_netuids())
+                if self.allowed_netuids is not None
+                else [],
+                "affects_all_subnets": intent.affects_all_subnets()
+                if self.allowed_netuids is not None
+                else False,
+            },
+        )
         violations: list[str] = []
-        if self.max_fee_tao is not None:
-            # A fee cap must not fail open: an unavailable estimate blocks
-            # execution rather than silently skipping the cap.
-            if fee is None:
+        for reason in result["violations"]:
+            code = reason["code"]
+            if code == "fee_unknown":
                 violations.append(
-                    f"max_fee_tao {self.max_fee_tao} is configured but the fee "
-                    "could not be estimated"
+                    f"max_fee_tao {self.max_fee_tao} is configured "
+                    "but the fee could not be estimated"
                 )
-            elif fee > self.max_fee_tao:
+            elif code == "fee":
                 violations.append(f"fee {fee} exceeds max_fee_tao {self.max_fee_tao}")
-        if self.max_spend_tao is not None:
-            spend = intent.spend()
-            if spend is not UNBOUNDED and additional_spend is not None:
-                spend = (spend or Balance.from_rao(0)) + additional_spend
-            if spend is UNBOUNDED:
+            elif code == "unbounded":
                 violations.append(
-                    f"{intent.op} spends an amount that cannot be bounded before "
-                    f"execution; max_spend_tao {self.max_spend_tao} blocks it"
+                    f"{intent.op} spends an amount that cannot be bounded before execution; "
+                    f"max_spend_tao {self.max_spend_tao} blocks it"
                 )
-            elif spend is not None and spend > self.max_spend_tao:
-                violations.append(f"spend {spend} exceeds max_spend_tao {self.max_spend_tao}")
-        if self.allowed_netuids is not None:
-            allowed = set(self.allowed_netuids)
-            if intent.affects_all_subnets():
+            elif code == "spend":
                 violations.append(
-                    f"{intent.op} acts on all subnets, not just allowed_netuids "
-                    f"{self.allowed_netuids}"
+                    f"spend {Balance.from_rao(int(reason['actual']))} "
+                    f"exceeds max_spend_tao {self.max_spend_tao}"
                 )
-            for netuid in intent.touches_netuids():
-                if netuid not in allowed:
-                    violations.append(
-                        f"netuid {netuid} not in allowed_netuids {self.allowed_netuids}"
-                    )
+            elif code == "all_subnets":
+                violations.append(
+                    f"{intent.op} acts on all subnets, "
+                    f"not just allowed_netuids {self.allowed_netuids}"
+                )
+            elif code == "netuid":
+                violations.append(
+                    f"netuid {reason['netuid']} not in allowed_netuids {self.allowed_netuids}"
+                )
+            else:
+                raise RuntimeError(f"unknown transaction policy violation {code}")
         return violations
 
 

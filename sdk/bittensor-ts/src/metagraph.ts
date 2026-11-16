@@ -1,8 +1,9 @@
+import { evaluatePolicy } from './policy'
 import { Balance } from './balance'
 import { type ReadView, type ChainRecord, st, api, integer, num, fixed, utf8Text, fromHex, toHex, blockOf, keyOf } from './reads/base'
 /** Immutable Quicknet beacon schedule; also used by sdk/bittensor-core timelock constants. */
 export function commitmentRevealTime(round: number | bigint): Date {
-  const timestamp = (1692803367n + (BigInt(round) - 1n) * 3n) * 1000n
+  const timestamp = BigInt(evaluatePolicy<string>('validation.timelock.time', { round })) * 1000n
   if (timestamp < -8640000000000000n || timestamp > 8640000000000000n) throw new RangeError('drand round outside Date range')
   return new Date(Number(timestamp))
 }

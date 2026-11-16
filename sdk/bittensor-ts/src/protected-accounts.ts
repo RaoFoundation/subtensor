@@ -1,4 +1,5 @@
-import { bytesHex as hex, hexBytes, concatBytes } from './portable'
+import { bytesHex as hex, hexBytes } from './portable'
+import { evaluatePolicy } from './policy'
 import { isPqCrypto, isRotatingCrypto, isProtectedCrypto, pqProfile, u64 } from './wallet-types'
 import type { IntentDescriptor } from './intents'
 
@@ -39,19 +40,11 @@ export function rawBytes(value: any): Uint8Array {
 }
 export function descriptorBytes(value: any): Uint8Array {
   if (value instanceof Uint8Array || Array.isArray(value) || typeof value === 'string') return rawBytes(value)
-  if (!value || !Number.isInteger(value.version)) throw new TypeError('invalid account descriptor')
-  const scheme = typeof value.scheme === 'string' ? value.scheme : Object.keys(value.scheme ?? {})[0]
-  const tag = value.version === 2 ? value.algorithm : scheme === 'Sr25519' ? 1 : scheme === 'Ed25519' ? 3 : value.scheme
-  if (![1, 3, 4, 5, 6, 7, 8, 9].includes(tag)) throw new TypeError('unsupported account descriptor')
-  return concatBytes(Uint8Array.of(value.version, tag), rawBytes(value.initial_commitment))
+  return hexBytes(evaluatePolicy<string>('transaction.descriptor_encode', { value: { ...value, initial_commitment: rawBytes(value?.initial_commitment) } }))
 }
 export function descriptorValue(descriptor: Uint8Array): Record<string, unknown> {
-  if (!descriptor.slice(2).some(byte => byte !== 0)) throw new TypeError('zero account commitment')
-  if ((descriptor[0] === 1 && descriptor.length === 34 && [1, 3].includes(descriptor[1])) ||
-      (descriptor[0] === 2 && descriptor.length === 66 && [4, 5, 6, 7, 8, 9].includes(descriptor[1]))) {
-    return { version: descriptor[0], ...(descriptor[0] === 2 ? { algorithm: descriptor[1] } : { scheme: descriptor[1] === 3 ? 'Ed25519' : 'Sr25519' }), initial_commitment: descriptor.slice(2) }
-  }
-  throw new TypeError('invalid account descriptor')
+  const { value } = evaluatePolicy<{ value: Record<string, unknown> }>('transaction.descriptor', { descriptor })
+  return { ...value, initial_commitment: hexBytes(value.initial_commitment as string) }
 }
 export async function signingAuthority(client: ProtectedAccountClient, key: ProtectedKeypair, nonce?: number | bigint, signing = true): Promise<SigningAuthority> {
   if (!isProtectedCrypto(key.cryptoType)) throw new TypeError('a protected wallet is required')
@@ -64,17 +57,20 @@ export async function signingAuthority(client: ProtectedAccountClient, key: Prot
   if (isRotatingCrypto(key.cryptoType)) {
     const record = await client.query('HashedAccounts', descriptor[0] === 2 ? 'MlDsaAccounts' : 'Accounts', [key.ss58Address], block)
     if (!record) throw new Error('rotating wallet must be registered and finalized before signing')
-    if (hex(descriptorBytes(record.descriptor)) !== hex(descriptor)) throw new Error('registered descriptor differs from wallet')
+    const reason = evaluatePolicy<string | null>('transaction.authority_snapshot', { descriptor: descriptorBytes(record.descriptor), expected_descriptor: descriptor, generation: record.generation, commitment: rawBytes(record.commitment) })
+    if (reason === 'descriptor') throw new Error('registered descriptor differs from wallet')
+    if (reason === 'generation') throw new Error('wallet generation exhausted')
+    if (reason === 'commitment') throw new Error('invalid registered commitment')
     generation = u64(record.generation)
     const account = await client.query('System', 'Account', [key.ss58Address], block)
     selectedNonce = u64(account.nonce)
-    if (pending !== selectedNonce || nonce != null && u64(nonce) !== selectedNonce) throw new Error('rotating wallet requires its finalized nonce with no pending transaction')
+    if (evaluatePolicy('transaction.authority_nonce', { pending, finalized: selectedNonce, requested: nonce == null ? null : u64(nonce) })) throw new Error('rotating wallet requires its finalized nonce with no pending transaction')
     commitment = rawBytes(record.commitment)
     if (signing) {
       active = key.atGeneration(generation)
       if (hex(commitment) !== hex(active.authorizationCurrentCommitment())) throw new Error('registered commitment differs from wallet')
     }
-  } else if (selectedNonce >= 0xffffffffn) throw new Error('account nonce exhausted')
+  } else evaluatePolicy('transaction.signing_bounds', { nonce: selectedNonce, period: null })
   return { block, nonce: selectedNonce, generation, descriptor: descriptor.slice(), commitment, key: active }
 }
 export async function assertAuthorityCurrent(client: ProtectedAccountClient, authority: SigningAuthority): Promise<void> {
@@ -90,7 +86,7 @@ export function registrationCall(key: ProtectedKeypair): IntentDescriptor {
   return { pallet: 'HashedAccounts', call: 'register', params: { descriptor: registrationDescriptor(descriptor) } }
 }
 export function registrationDescriptor(descriptor: Uint8Array): Record<string, unknown> {
-  const variant = descriptor[0] === 2 ? [6, 7, 8, 9].includes(descriptor[1]) ? 'Falcon' : 'MlDsa65' : 'Classical'
+  const { variant } = evaluatePolicy<{ variant: string }>('transaction.descriptor', { descriptor })
   return { [variant]: descriptorValue(descriptor) }
 }
 export function rotationCall(key: ProtectedKeypair): IntentDescriptor {

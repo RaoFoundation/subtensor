@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .._generated import calls
+from .._policy import evaluate_policy
 from ..balance import Balance
 from ._money import UNBOUNDED, Spend
 from .base import BuiltCall, Intent, IntentPreflight
@@ -50,12 +51,24 @@ class Batch(Intent):
     )
 
     def __post_init__(self):
-        if not self.intents:
-            raise ValueError("batch requires at least one intent")
         children: list[Intent] = []
         for item in self.intents:
-            if isinstance(item, Batch) or (isinstance(item, dict) and item.get("op") == self.op):
-                raise ValueError("nested batches are not supported")
+            evaluate_policy(
+                "transaction.merge_intents",
+                {
+                    "batch": True,
+                    "children": [
+                        {
+                            "op": item.op
+                            if isinstance(item, Intent)
+                            else item.get("op")
+                            if isinstance(item, dict)
+                            else None,
+                            "signer": "coldkey",
+                        }
+                    ],
+                },
+            )
             if isinstance(item, Intent):
                 children.append(item)
             elif isinstance(item, dict):
@@ -66,15 +79,22 @@ class Batch(Intent):
                 children.append(build_intent(op, args))
             else:
                 raise ValueError(f"batched intent must be a dict or Intent, got {type(item)!r}")
-        signers = {child.signer for child in children}
-        if len(signers) > 1:
-            raise ValueError(
-                f"all batched intents must share one signer, got {sorted(signers)}; "
-                "split into separate batches"
+        try:
+            merged = evaluate_policy(
+                "transaction.merge_intents",
+                {
+                    "batch": True,
+                    "children": [{"op": child.op, "signer": child.signer} for child in children],
+                },
             )
-        # One extrinsic has one signer: the batch takes on its children's
-        # (instance attribute shadowing the ClassVar default).
-        self.signer = signers.pop()
+        except ValueError as error:
+            if "share a signer" in str(error):
+                raise ValueError(
+                    f"all batched intents must share one signer, got "
+                    f"{sorted({child.signer for child in children})}; split into separate batches"
+                ) from error
+            raise
+        self.signer = merged["signer"]
         self.intents = [child.to_dict() for child in children]
         self._children = children
 
@@ -88,12 +108,28 @@ class Batch(Intent):
             prepared, recipients = await prepare_recipient_intent(substrate, child)
             built = await prepared.build(substrate, wallet)
             if isinstance(built, BuiltCall):
-                if built.extras.get("hashed_registration_guards"):
+                if (
+                    evaluate_policy(
+                        "transaction.batch_guard",
+                        {
+                            "registration_guards": bool(
+                                built.extras.get("hashed_registration_guards")
+                            )
+                        },
+                    )
+                    == "registration_guards"
+                ):
                     raise ValueError(
                         "this guarded account payment must be submitted directly, "
                         "not inside a batch"
                     )
-                if built.extras.get("requires_direct_submission"):
+                if (
+                    evaluate_policy(
+                        "transaction.batch_guard",
+                        {"requires_direct": bool(built.extras.get("requires_direct_submission"))},
+                    )
+                    == "requires_direct"
+                ):
                     raise ValueError(
                         "this announced payload contains or may contain an atomic batch; "
                         "submit it directly, not inside another batch"
@@ -119,7 +155,13 @@ class Batch(Intent):
             child_calls, registration = await with_recipient_registration(
                 substrate, wallet, prepared, child_call, recipients=recipients, as_calls=True
             )
-            if registration.get("hashed_registration"):
+            if (
+                evaluate_policy(
+                    "transaction.batch_guard",
+                    {"new_registration": bool(registration.get("hashed_registration"))},
+                )
+                == "new_registration"
+            ):
                 raise ValueError(
                     "first payment to this recipient must be a direct transfer; "
                     "batched first-time account setup is not supported"
@@ -202,22 +244,35 @@ class Batch(Intent):
             estimated_fee=estimated_fee,
         )
 
-    def spend(self) -> Spend:
-        """Aggregate TAO spend across children; any unbounded child makes the
-        whole batch unbounded."""
-        total = Balance.from_rao(0)
-        bounded = False
+    def _aggregate(self):
+        children = []
         for child in self._children:
-            child_spend = child.spend()
-            if child_spend is UNBOUNDED:
-                return UNBOUNDED
-            if child_spend is not None:
-                total = total + child_spend
-                bounded = True
-        return total if bounded else None
+            spend = child.spend()
+            children.append(
+                {
+                    "spend_rao": "unbounded"
+                    if spend is UNBOUNDED
+                    else None
+                    if spend is None
+                    else spend.rao,
+                    "netuids": child.touches_netuids(),
+                    "affects_all_subnets": child.affects_all_subnets(),
+                }
+            )
+        return evaluate_policy("transaction.merge_intents", {"children": children})
+
+    def spend(self) -> Spend:
+        value = self._aggregate()["spend_rao"]
+        return (
+            UNBOUNDED
+            if value == "unbounded"
+            else None
+            if value is None
+            else Balance.from_rao(int(value))
+        )
 
     def touches_netuids(self) -> list[int]:
-        return sorted({netuid for child in self._children for netuid in child.touches_netuids()})
+        return self._aggregate()["netuids"]
 
     def affects_all_subnets(self) -> bool:
-        return any(child.affects_all_subnets() for child in self._children)
+        return self._aggregate()["affects_all_subnets"]

@@ -1,3 +1,5 @@
+import { transactionAffordability } from './transaction-affordability'
+import { evaluatePolicy } from './policy'
 import { isDefiniteSubmissionRejection, markSubmissionNotSent } from './transport'
 import { Balance, assetIdValue, taoTransactionAmountRao } from './balance'
 import { nativeRustClient, type Client, type SignerLike, type ChainSigner, type ExtrinsicResult, type SubmitOptions, type CallLike } from './client'
@@ -84,10 +86,11 @@ export class WorkflowClient {
       estimateFee: (call, address) => baseReader.estimateFee!(wrappedCall(call), address),
     }
     const prepared = await intent.prepare(reader, context)
-    if (options.expectedCallHash != null && String(prepared.extras.multisig_call_hash).toLowerCase() !== options.expectedCallHash.toLowerCase()) throw new Error('multisig call changed from expectedCallHash')
+    const execution = evaluatePolicy<{ shielded: boolean; violations: string[] }>('transaction.execution', { shielded: options.mevShield, shield_default: prepared.mevShieldDefault, shield_required: prepared.mevShieldRequired, expected_hash: options.expectedCallHash, actual_hash: prepared.extras.multisig_call_hash })
+    if (execution.violations.includes('call_hash')) throw new Error('multisig call changed from expectedCallHash')
     const descriptor = wrappedCall(prepared.call)
     const call = IntentCall.fromDescriptor(native, descriptor as unknown as ScaleValue)
-    const shielded = options.mevShield ?? prepared.mevShieldDefault
+    const shielded = execution.shielded
     const estimateNonce = options.nonce ?? await native.accountNextIndex(identity.address)
     const signingOptions = nativeOptions({ ...options, nonce: estimateNonce + (shielded ? 1 : 0), period: shielded ? 8 : options.period === undefined ? 128 : options.period })
     const innerPlan = await native.externalSigningPlanForIntent(call, identity.address, identity.publicKey, identity.cryptoType, identity.requiresMetadataProof, new Policy(), signingOptions)
@@ -96,7 +99,7 @@ export class WorkflowClient {
     const innerTip = payer.dropsTip ? 0n : tip
     const innerFee = (innerPlan.feeRao == null ? await native.estimateFeeExternal(innerPlan) : BigInt(innerPlan.feeRao)) + innerTip
     const violations = [...prepared.violations]
-    if (prepared.mevShieldRequired && !shielded) violations.push(`${intent.op} requires MEV shielding`)
+    if (execution.violations.includes('shield_required')) violations.push(`${intent.op} requires MEV shielding`)
     let carrierFee = 0n
     if (shielded) {
       const carrier = await this.client.composeCall('MevShield', 'submit_encrypted', { ciphertext: new Uint8Array(8192) }, blockHash)
@@ -106,32 +109,14 @@ export class WorkflowClient {
     // The semantic policy is checked before any key is unlocked or asked to sign.
     violations.push(...checkIntentPolicy(prepared, options.policy, fee).filter(item => !violations.includes(item)))
     const feePayer = payer.address
-    const accountKey = (address: string) => publicKeyFromSs58(address).toString('hex')
-    const spends = new Map<string, { address: string; amount: bigint }>()
-    for (const debit of prepared.spendByAccount) {
-      const key = accountKey(debit.address), old = spends.get(key)
-      spends.set(key, { address: debit.address, amount: (old?.amount ?? 0n) + debit.amountRao })
-    }
-    const payerKey = accountKey(feePayer), signerKey = accountKey(identity.address)
-    const required = new Map([...spends].map(([key, value]) => [key, { ...value }]))
-    for (const [address, amount] of [[feePayer, innerFee], [identity.address, carrierFee]] as const) {
-      const key = accountKey(address), old = required.get(key)
-      required.set(key, { address, amount: (old?.amount ?? 0n) + amount })
-    }
-    for (const quote of (prepared.extras.registrationSponsorships ?? []) as Array<{payer:string;depositRao:bigint}>) {
-      const key = accountKey(quote.payer), old = required.get(key)
-      required.set(key,{address:quote.payer,amount:(old?.amount ?? 0n) + quote.depositRao})
-    }
-    for (const { address, amount } of required.values()) {
-      const free = accountFree(await this.client.query('System', 'Account', [address], blockHash))
-      if (free < amount) violations.push(`account ${address} needs ${amount} rao for fees and bounded outgoing spend, has ${free}`)
-    }
-    // Context-sensitive inner requirements (claim reserve, multisig deposit) also
-    // need carrier headroom; adding it here avoids signing an unaffordable envelope.
-    for (const reserve of prepared.requiredFreeByAccount) {
-      const reserveKey = accountKey(reserve.address)
-      if (reserve.availableRao < reserve.requiredRao + (spends.get(reserveKey)?.amount ?? 0n) + (reserveKey === signerKey ? carrierFee : 0n) + (reserveKey === payerKey ? innerTip : 0n)) violations.push(`account ${reserve.address} cannot cover the prepared reserves, outgoing spend, tip and MEV carrier fee`)
-    }
+    const affordability = await transactionAffordability({
+      spends: prepared.spendByAccount.map(row => ({ address: row.address, amount: row.amountRao })),
+      charges: [{ address: feePayer, amount: innerFee }, { address: identity.address, amount: carrierFee }, ...((prepared.extras.registrationSponsorships ?? []) as Array<{payer:string;depositRao:bigint}>).map(row => ({ address: row.payer, amount: row.depositRao }))],
+      reserves: prepared.requiredFreeByAccount.map(row => ({ address: row.address, required: row.requiredRao, available: row.availableRao })),
+      reserveCharges: [{ address: identity.address, amount: carrierFee }, { address: feePayer, amount: innerTip }],
+    }, publicKeyFromSs58, async address => accountFree(await this.client.query('System', 'Account', [address], blockHash)))
+    for (const row of affordability.required) if (!row.affordable) violations.push(`account ${row.address} needs ${row.amount} rao for fees and bounded outgoing spend, has ${row.available}`)
+    for (const row of affordability.reserves) if (!row.affordable) violations.push(`account ${row.address} cannot cover the prepared reserves, outgoing spend, tip and MEV carrier fee`)
     return Object.freeze({ intent: prepared, call, signerAddress: identity.address, feePayer, fee: Balance.fromRao(fee), carrierFee: Balance.fromRao(carrierFee), shielded, blockHash, violations: Object.freeze(violations), ok: violations.length === 0 })
   }
 

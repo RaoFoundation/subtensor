@@ -1,5 +1,5 @@
 import type { PreparedIntent } from './intents'
-import { u64 } from './wallet-types'
+import { evaluatePolicy } from './policy'
 
 export interface RegistrationSponsorship { payer: string; recipient: string; depositRao: bigint }
 export interface RegistrationSponsorshipOptions {
@@ -8,11 +8,10 @@ export interface RegistrationSponsorshipOptions {
   onRegistrationSponsorship?: (quote: RegistrationSponsorship) => boolean | Promise<boolean>
 }
 export async function authorizeRegistrationSponsorship(plan: PreparedIntent, options: RegistrationSponsorshipOptions): Promise<void> {
-  const maximum = options.maxRegistrationDepositRao == null ? undefined : u64(options.maxRegistrationDepositRao)
   const quotes = (plan.extras.registrationSponsorships ?? []) as RegistrationSponsorship[]
-  const total = quotes.reduce((amount,quote) => amount + u64(quote.depositRao),0n)
-  if (!total) return
-  if (maximum != null && total > maximum) throw new Error('registration reserve exceeds maxRegistrationDepositRao')
-  if (maximum == null && !options.onRegistrationSponsorship) throw new Error('recipient registration requires maxRegistrationDepositRao or onRegistrationSponsorship')
+  const policy = evaluatePolicy<{ required: boolean; reason: 'maximum' | 'consent' | null }>('financial.registration.sponsorship', { deposits: quotes.map(quote => quote.depositRao), maximum: options.maxRegistrationDepositRao, callback: Boolean(options.onRegistrationSponsorship) })
+  if (!policy.required) return
+  if (policy.reason === 'maximum') throw new Error('registration reserve exceeds maxRegistrationDepositRao')
+  if (policy.reason === 'consent') throw new Error('recipient registration requires maxRegistrationDepositRao or onRegistrationSponsorship')
   if (options.onRegistrationSponsorship) for (const quote of quotes) if (await options.onRegistrationSponsorship(Object.freeze({...quote})) !== true) throw new Error('registration sponsorship declined')
 }

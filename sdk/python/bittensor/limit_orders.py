@@ -13,6 +13,7 @@ from hashlib import blake2b
 from typing import Any
 
 from ._generated.calls import Call
+from ._policy import evaluate_policy
 from .receiving import parse_recipient
 from .sp_core import ss58_decode
 
@@ -24,29 +25,21 @@ def _bytes(value) -> bytes:
 
 
 def _u64(value: int, label: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < 2**64:
-        raise ValueError(f"{label} must be a u64 integer")
-    return value
+    try:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("order integer must use Python int")
+        return int(evaluate_policy("financial.registration.deposit", {"value": value}))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{label} must be a u64 integer") from error
 
 
 def order_terms(order: dict) -> dict:
-    if not isinstance(order, dict) or len(order) != 1:
-        raise ValueError("order must contain one complete VersionedOrder variant")
-    if "Authorized" in order:
-        authorized = order["Authorized"]
-        if not isinstance(authorized, dict) or set(authorized) != {"nonce", "terms"}:
-            raise ValueError("authorized order must contain nonce and complete terms")
-        _u64(authorized["nonce"], "order nonce")
-        terms = authorized["terms"]
-        if not isinstance(terms, dict) or set(terms) not in ({"V1"}, {"V2"}):
-            raise ValueError("authorized order terms must be a nonrecursive V1 or V2 variant")
-        return order_terms(terms)
-    if next(iter(order)) not in ("V1", "V2"):
-        raise ValueError("order terms must contain one complete V1 or V2 variant")
-    terms = next(iter(order.values()))
-    if not isinstance(terms, dict):
-        raise ValueError("VersionedOrder terms must be an object")
-    return terms
+    try:
+        evaluate_policy("financial.orders.terms", {"order": order, "strict": False})
+    except (TypeError, ValueError) as error:
+        raise ValueError(str(error)) from error
+    terms = order["Authorized"]["terms"] if "Authorized" in order else order
+    return next(iter(terms.values()))
 
 
 def canonical_order(order: dict) -> dict:
@@ -102,9 +95,15 @@ async def order_for_chain(substrate, order: dict) -> dict:
 
 def authorized_order(nonce: int, order: dict) -> dict:
     """Wrap complete economic terms for the original account-aware calls."""
-    if "Authorized" in order:
-        raise ValueError("provide V1 or V2 economic terms, not an already authorized order")
-    return {"Authorized": {"nonce": _u64(nonce, "order nonce"), "terms": canonical_order(order)}}
+    _u64(nonce, "order nonce")
+    canonical = canonical_order(order)
+    try:
+        result = evaluate_policy(
+            "financial.orders.authorized", {"nonce": nonce, "order": canonical, "strict": False}
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(str(error)) from error
+    return {"Authorized": {"nonce": int(result["Authorized"]["nonce"]), "terms": canonical}}
 
 
 async def encoded_order(substrate, nonce: int, order: dict) -> bytes:
@@ -120,9 +119,7 @@ async def encoded_order(substrate, nonce: int, order: dict) -> bytes:
         Call("LimitOrders", "authorize_order", {"order": authorized_order(nonce, order)})
     )
     data = _bytes(getattr(call, "data", call))
-    if len(data) <= 11 or data[2] != 2 or data[3:11] != nonce.to_bytes(8, "little"):
-        raise ValueError("runtime returned an incompatible authorized order layout")
-    return data[11:]
+    return _bytes(evaluate_policy("financial.orders.layout", {"encoded": data, "nonce": nonce}))
 
 
 @dataclass(frozen=True)
@@ -138,12 +135,16 @@ class PreparedOrder:
 
     @property
     def order_id(self) -> str:
-        payload = (
-            ORDER_ID_DOMAIN
-            + self.genesis_hash
-            + bytes(ss58_decode(self.owner))
-            + self.nonce.to_bytes(8, "little")
-            + self.encoded
+        payload = _bytes(
+            evaluate_policy(
+                "financial.orders.transcript",
+                {
+                    "genesis": self.genesis_hash,
+                    "owner": bytes(ss58_decode(self.owner)),
+                    "nonce": self.nonce,
+                    "encoded": self.encoded,
+                },
+            )
         )
         return "0x" + blake2b(payload, digest_size=32).hexdigest()
 
@@ -225,8 +226,7 @@ class LimitOrders:
     async def execute(self, orders: list[SignedOrder], wallet, *, should_fail=True, **kwargs):
         from .intents.limit_orders import ExecuteOrders
 
-        if not 1 <= len(orders) <= 8:
-            raise ValueError("authorized execution requires 1..8 orders")
+        evaluate_policy("financial.orders.approved_count", {"count": len(orders)})
         for order in orders:
             await check_prepared_order(self._client._substrate, order.prepared)
         return await self._client.execute(

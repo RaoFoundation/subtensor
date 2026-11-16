@@ -15,7 +15,7 @@ from typing import Any, ClassVar, Optional
 
 from .._generated import calls
 from .._pinned import compose_pinned_call
-from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
+from ._money import ALL, Money, tao_amount
 from .base import Intent
 from .registry import build as build_intent
 from .registry import register
@@ -125,8 +125,10 @@ class CreateCrowdloan(Intent):
     def summary(self) -> str:
         return f"create crowdloan (cap {self.cap_tao}, deposit {self.deposit_tao}, end {self.end})"
 
-    def spend(self) -> Spend:
-        return self.deposit_tao
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -184,10 +186,10 @@ class ContributeCrowdloan(Intent):
             ]
         return []
 
-    def spend(self) -> Spend:
-        if self.amount_tao == ALL:
-            return UNBOUNDED
-        return self.amount_tao
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @dataclass
@@ -214,7 +216,9 @@ class FinalizeCrowdloan(_CrowdloanId):
     wraps = (("Crowdloan", "finalize"),)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.Crowdloan.finalize(crowdloan_id=self.crowdloan_id))
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"finalize crowdloan {self.crowdloan_id}"
@@ -238,7 +242,9 @@ class RefundCrowdloan(_CrowdloanId):
     wraps = (("Crowdloan", "refund"),)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.Crowdloan.refund(crowdloan_id=self.crowdloan_id))
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"refund contributors of crowdloan {self.crowdloan_id}"
@@ -262,7 +268,9 @@ class DissolveCrowdloan(_CrowdloanId):
     wraps = (("Crowdloan", "dissolve"),)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.Crowdloan.dissolve(crowdloan_id=self.crowdloan_id))
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"dissolve crowdloan {self.crowdloan_id}"
@@ -286,7 +294,9 @@ class WithdrawCrowdloan(_CrowdloanId):
     wraps = (("Crowdloan", "withdraw"),)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.Crowdloan.withdraw(crowdloan_id=self.crowdloan_id))
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"withdraw from crowdloan {self.crowdloan_id}"
@@ -313,9 +323,9 @@ class UpdateCrowdloanCap(Intent):
         self.new_cap_tao = tao_amount(self.new_cap_tao)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Crowdloan.update_cap(crowdloan_id=self.crowdloan_id, new_cap=self.new_cap_tao.rao)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"update crowdloan {self.crowdloan_id} cap to {self.new_cap_tao}"
@@ -346,9 +356,9 @@ class UpdateCrowdloanEnd(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Crowdloan.update_end(crowdloan_id=self.crowdloan_id, new_end=self.new_end)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"update crowdloan {self.crowdloan_id} end to block {self.new_end}"
@@ -377,12 +387,9 @@ class UpdateCrowdloanMinContribution(Intent):
         self.new_min_contribution_tao = tao_amount(self.new_min_contribution_tao)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Crowdloan.update_min_contribution(
-                crowdloan_id=self.crowdloan_id,
-                new_min_contribution=self.new_min_contribution_tao.rao,
-            )
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return (
@@ -418,14 +425,9 @@ class SetCrowdloanMaxContribution(Intent):
             self.new_max_contribution_tao = tao_amount(self.new_max_contribution_tao)
 
     async def build(self, substrate, wallet: Any):
-        new_max = (
-            None if self.new_max_contribution_tao is None else self.new_max_contribution_tao.rao
-        )
-        return await substrate.compose(
-            calls.Crowdloan.set_max_contribution(
-                crowdloan_id=self.crowdloan_id, new_max_contribution=new_max
-            )
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         if self.new_max_contribution_tao is None:

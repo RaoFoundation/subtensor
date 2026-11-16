@@ -18,6 +18,11 @@ mod runtime;
 mod timelock;
 mod values;
 
+#[wasm_bindgen(js_name = policyEvaluate)]
+pub fn policy_evaluate(operation: &str, input: &str) -> String {
+    bittensor_core::policy::evaluate_json(operation, input)
+}
+
 /// This binding crate's version (mirrors the Python binding's
 /// `__core_version__`, which likewise reports the binding, not the core).
 #[wasm_bindgen(js_name = coreVersion)]

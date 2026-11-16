@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 import { SubmissionUncertainError, SubmissionNotSentError, isDefiniteSubmissionRejection } from './transport'
 export { SubmissionUncertainError, SubmissionNotSentError } from './transport'
 import { serializeUnsignedTransaction, restoreUnsignedTransaction, type SerializedUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime } from './unsigned-transaction'
@@ -1476,10 +1477,11 @@ export class BrowserChainClient {
     const cryptoType = account?.cryptoType ?? signerShape.cryptoType ?? CRYPTO_SR25519
     const publicKey = signerPublicKey(account?.publicKey ?? signerShape.publicKey, ss58Address, cryptoType)
     const addressPublicKey = publicKeyFromSs58(ss58Address)
-    if (!publicKey.equals(addressPublicKey)) {
+    const signerPolicy = evaluatePolicy<{ ordinary: boolean; identity_matches: boolean }>('transaction.external_signer', { crypto_type: cryptoType, account: addressPublicKey, public_key: publicKey })
+    if (!signerPolicy.identity_matches) {
       throw new ChainError('signer publicKey does not match signer address')
     }
-    if (cryptoType !== CRYPTO_ED25519 && cryptoType !== CRYPTO_SR25519 && cryptoType !== CRYPTO_ECDSA) {
+    if (!signerPolicy.ordinary) {
       throw new ChainError(`unsupported signer cryptoType ${cryptoType}`)
     }
     return {

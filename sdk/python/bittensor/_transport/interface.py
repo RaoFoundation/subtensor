@@ -15,6 +15,7 @@ from dataclasses import replace
 from hashlib import blake2b
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional, TypeVar
 
+from .._policy import evaluate_policy
 from ..mldsa import supports_fixed_profile
 from ..sp_core import (
     FALCON_CRYPTO_TYPES,
@@ -755,8 +756,10 @@ class SubstrateConnection:
         signing_snapshot=None,
         block_hash=None,
     ):
-        if not 0 <= nonce < 2**32 - 1:
-            raise ValueError("standard post-quantum nonce is exhausted or invalid")
+        try:
+            evaluate_policy("transaction.signing_bounds", {"nonce": nonce, "period": None})
+        except (TypeError, ValueError) as error:
+            raise ValueError("standard post-quantum nonce is exhausted or invalid") from error
         block_hash = (
             signing_snapshot.block_hash
             if signing_snapshot is not None
@@ -852,13 +855,19 @@ class SubstrateConnection:
                 "from an existing wallet, or have a sponsor register its public descriptor"
             )
         try:
-            if descriptor_bytes(state["descriptor"]) != bytes(keypair.hashed_descriptor):
-                raise ValueError("descriptor mismatch")
             generation = int(state["generation"])
             commitment = raw_bytes(state["commitment"])
             confirmed_nonce = int((account or {}).get("nonce", 0))
-            if not 0 <= generation < 2**64 - 1 or len(commitment) != (64 if mldsa else 32):
-                raise ValueError("invalid generation or commitment")
+            if evaluate_policy(
+                "transaction.authority_snapshot",
+                {
+                    "descriptor": descriptor_bytes(state["descriptor"]),
+                    "expected_descriptor": bytes(keypair.hashed_descriptor),
+                    "generation": generation,
+                    "commitment": commitment,
+                },
+            ):
+                raise ValueError("invalid registered authority")
         except (KeyError, TypeError, ValueError) as error:
             raise SubstrateRequestException(
                 "registered hashed account does not match this wallet"
@@ -936,18 +945,36 @@ class SubstrateConnection:
             snapshot.commitment,
             snapshot.nonce,
         )
-        if not 0 <= generation < 2**64 - 1 - generation_offset:
+        if evaluate_policy(
+            "transaction.authority_snapshot",
+            {
+                "descriptor": snapshot.descriptor,
+                "expected_descriptor": bytes(keypair.hashed_descriptor),
+                "generation": generation,
+                "commitment": commitment,
+                "offset": generation_offset,
+            },
+        ):
             raise SubstrateRequestException("hashed signing generation is exhausted")
         codec = await self._runtimes.codec_at(block_hash)
 
         if signature is None:
             pending_nonce = await self._nonces.next_for(keypair.ss58_address, use_cache=False)
-            if pending_nonce != confirmed_nonce:
+            nonce_reason = evaluate_policy(
+                "transaction.authority_nonce",
+                {
+                    "pending": pending_nonce,
+                    "finalized": confirmed_nonce,
+                    "requested": nonce,
+                    "offset": generation_offset,
+                },
+            )
+            if nonce_reason == "pending":
                 raise SubstrateRequestException(
                     "hashed account has a pending transaction; "
                     "wait for finalization before signing again"
                 )
-            if nonce is not None and nonce != confirmed_nonce + generation_offset:
+            if nonce_reason == "requested":
                 raise SubstrateRequestException(
                     "hashed accounts must use the current on-chain nonce; refresh and sign again"
                 )

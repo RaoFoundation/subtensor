@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from ._policy import evaluate_policy
 from .receiving import is_receiving_address, parse_recipient
 
 DEFAULT_ANNOUNCEMENTS_PATH = Path.home() / ".bittensor" / "btcli_proxy_announcements.json"
@@ -75,31 +76,22 @@ def next_index(rows: Optional[list[dict[str, Any]]] = None) -> int:
 
 
 def _scope_matches(row: dict[str, Any], genesis_hash: Optional[str]) -> bool:
-    stored = row.get("genesis_hash")
-    return (str(stored).lower() if stored is not None else None) == (
-        str(genesis_hash).lower() if genesis_hash is not None else None
+    return evaluate_policy(
+        "protected.scope_matches", {"stored": row.get("genesis_hash"), "selected": genesis_hash}
     )
 
 
 def _same_commitment(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    """Same call commitment and authority, regardless of announcement instance."""
-    return (
-        _scope_matches(left, right.get("genesis_hash"))
-        and left.get("controller_wallet") == right.get("controller_wallet")
-        and _account_identity(left.get("delegate_ss58"))
-        == _account_identity(right.get("delegate_ss58"))
-        and _account_identity(left.get("real_ss58")) == _account_identity(right.get("real_ss58"))
-        and str(left.get("call_hash") or "").lower() == str(right.get("call_hash") or "").lower()
+    return evaluate_policy(
+        "protected.same_commitment",
+        {"left": _canonical_policy_row(left), "right": _canonical_policy_row(right)},
     )
 
 
 def _same_identity(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    """One concrete on-chain announcement, including same-block duplicates."""
-    return (
-        _same_commitment(left, right)
-        and int(left.get("announced_at_block") or 0) == int(right.get("announced_at_block") or 0)
-        and int(left.get("announcement_ordinal") or 0)
-        == int(right.get("announcement_ordinal") or 0)
+    return evaluate_policy(
+        "protected.same_identity",
+        {"left": _canonical_policy_row(left), "right": _canonical_policy_row(right)},
     )
 
 
@@ -166,26 +158,9 @@ def add_announcement(
         row["runtime_spec_version"] = int(runtime_spec_version)
     if call_semantics is not None:
         row["call_semantics"] = normalize_call_semantics(call_semantics)
-    # Re-announcing the same commitment, or finishing multisig approvals, must
-    # retain the index previously shown by discovery or an earlier submission.
-    for i, existing in enumerate(rows):
-        reusable_identity = _same_identity(existing, row) and not (
-            status == "submitting"
-            and existing.get("status") not in {"submitting", "awaiting_approval"}
-        )
-        if reusable_identity:
-            row = {**existing, **row, "index": existing["index"]}
-            row.pop("plaintext_missing", None)
-            row.pop("on_chain", None)
-            rows[i] = row
-            for j, duplicate in enumerate(rows):
-                if j != i and _same_identity(duplicate, row):
-                    rows[j] = {**duplicate, "status": "superseded"}
-            break
-    else:
-        rows.append(row)
-    save_announcements(rows)
-    return row
+    result = _journal_transition(rows, row, "add")
+    save_announcements(result["rows"])
+    return result["row"]
 
 
 def upsert_on_chain_announcement(
@@ -221,58 +196,14 @@ def upsert_on_chain_announcement(
         "status": "pending",
         "on_chain": True,
     }
-    for i, existing in enumerate(rows):
-        if _same_identity(existing, chain):
-            # Older clients could append a row for each multisig approval. Keep
-            # the first displayed index while recovering any later plaintext.
-            for duplicate in rows:
-                if (
-                    not existing.get("inner_op")
-                    and duplicate.get("inner_op")
-                    and _same_identity(duplicate, chain)
-                ):
-                    existing = {**existing, **duplicate, "index": existing["index"]}
-            row = {**existing, **chain}
-            row["plaintext_missing"] = not bool(row.get("inner_op"))
-            rows[i] = row
-            for j, duplicate in enumerate(rows):
-                if j != i and _same_identity(duplicate, chain):
-                    rows[j] = {**duplicate, "status": "superseded"}
-            break
-    else:
-        templates = [existing for existing in rows if _same_commitment(existing, chain)]
-        template = next(
-            (
-                existing
-                for existing in templates
-                if existing.get("status") in {"submitting", "awaiting_approval"}
-            ),
-            next((existing for existing in reversed(templates) if existing.get("inner_op")), None),
-        )
-        reuse_provisional = bool(
-            template and template.get("status") in {"submitting", "awaiting_approval"}
-        )
-        row = {
-            **(template or {}),
-            **chain,
-            "index": (template["index"] if reuse_provisional else next_index(rows)),
-            "inner_op": (template or {}).get("inner_op", ""),
-            "inner_args": (template or {}).get("inner_args", {}),
-            "category": (template or {}).get("category", "unknown"),
-            "force_proxy_type": (template or {}).get("force_proxy_type", "Any"),
-            "summary": (template or {}).get("summary", f"on-chain announcement {call_hash}"),
-            "plaintext_missing": not bool((template or {}).get("inner_op")),
-            "created_at": int(time.time()),
-        }
-        if reuse_provisional:
-            rows[rows.index(template)] = row
-        else:
-            rows.append(row)
-    save_announcements(rows)
-    return row
+    result = _journal_transition(rows, chain, "upsert")
+    save_announcements(result["rows"])
+    return result["row"]
 
 
-ACTIVE_ANNOUNCEMENT_STATUSES = frozenset({"pending", "submitting", "awaiting_approval"})
+ACTIVE_ANNOUNCEMENT_STATUSES = frozenset(
+    evaluate_policy("protected.constants", {})["ACTIVE_ANNOUNCEMENT_STATUSES"]
+)
 
 
 def unconfirmed_commitment(
@@ -448,19 +379,33 @@ def bind_legacy_announcements(wallet_name: str, genesis_hash: str, *, real_ss58:
 
 
 def category_for_op(op: str) -> str:
-    """Short display category for pending lists."""
-    if op in {"transfer", "transfer_all"}:
-        return "transfer"
-    if op.startswith("remove_stake") or op in {"unstake_all", "unstake_all_alpha"}:
-        return "unstake"
-    if op.startswith("add_stake") or op in {"move_stake", "swap_stake", "move_swap_stake"}:
-        return "stake"
-    if "basket" in op:
-        return "basket"
-    if op in {"add_proxy", "remove_proxy", "remove_proxies", "kill_pure_proxy"}:
-        return "proxy"
-    if "coldkey" in op:
-        return "coldkey-swap"
-    if op == "batch":
-        return "batch"
-    return op.replace("_", "-")
+    return evaluate_policy("protected.announcement_category", {"op": op})
+
+
+def _canonical_policy_row(row):
+    return {
+        **row,
+        "delegate_ss58": _account_identity(row.get("delegate_ss58")),
+        "real_ss58": _account_identity(row.get("real_ss58")),
+    }
+
+
+def _journal_transition(rows, candidate, action):
+    identities = {
+        row[key]: _account_identity(row[key])
+        for row in [*rows, candidate]
+        for key in ("delegate_ss58", "real_ss58")
+        if isinstance(row.get(key), str)
+    }
+    return evaluate_policy(
+        "protected.journal_transition",
+        {
+            "rows": rows,
+            "candidate": candidate,
+            "action": action,
+            "identities": identities,
+            "now": int(time.time()),
+            "preserve_terminal": False,
+            "clear_previous_action": False,
+        },
+    )

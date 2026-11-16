@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 import { bytesHex, hexBytes, type PortableCrypto, type PortableSigner } from './portable'
 import { signingAuthority, type ProtectedAccountClient, type ProtectedKeypair } from './protected-accounts'
 
@@ -32,7 +33,7 @@ export interface AuthVerificationOptions {
 }
 const trustedSenderSchemes = new Map<string, ReadonlyMap<string, number>>()
 function trustedCryptoType(value: number): void {
-  if (!Number.isInteger(value) || ![0, 1, 4, 6].includes(value)) throw new TypeError('unsupported trusted sender crypto type; only ordinary and hashed SR/ED HTTP authentication is supported')
+  if (!Number.isInteger(value) || evaluatePolicy('transaction.http_admission', { phase: 'trusted', crypto_type: value }) != null) throw new TypeError('unsupported trusted sender crypto type; only ordinary and hashed SR/ED HTTP authentication is supported')
 }
 function verifierAddress(value: string): void {
   if (typeof value !== 'string' || value.length === 0) throw new TypeError('verifier hotkey must be a nonempty SS58 string')
@@ -48,16 +49,15 @@ export function configureVerifier(selfHotkeySs58: string, options: { trustedSend
 /** Clearing a receiver makes subsequent unconfigured verification fail closed. */
 export function clearVerifier(selfHotkeySs58: string): void { verifierAddress(selfHotkeySs58); trustedSenderSchemes.delete(selfHotkeySs58) }
 export async function buildAuthPayload(options: AuthRequest & { scheme: 'sr25519' | 'ed25519' | 'hashed-sr25519' | 'hashed-ed25519'; nonceNs: bigint; senderSs58: string }): Promise<Uint8Array> {
-  const bodyHash = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(options.body ?? []).buffer))
-  return new TextEncoder().encode([HTTP_AUTH_PROTOCOL, options.scheme, options.method.toUpperCase(), options.path, bytesHex(bodyHash).slice(2), String(options.nonceNs), options.senderSs58, options.receiverSs58 || '-'].join('\n'))
+  return hexBytes(evaluatePolicy<string>('transaction.http_payload', { scheme: options.scheme, method: options.method, path: options.path, body: options.body ?? new Uint8Array(), nonce: options.nonceNs.toString(), sender: options.senderSs58, receiver: options.receiverSs58 }))
 }
-function schemeFor(cryptoType: number): 'ed25519' | 'sr25519' | 'hashed-sr25519' | 'hashed-ed25519' { if (cryptoType === 0) return 'ed25519'; if (cryptoType === 1) return 'sr25519'; if (cryptoType === 4) return 'hashed-sr25519'; if (cryptoType === 6) return 'hashed-ed25519'; throw new MalformedAuth('unsupported signature scheme') }
-function cryptoFor(scheme: string): number { for (const type of [0,1,4,6]) if ([schemeFor(type),String(type)].includes(scheme.toLowerCase())) return type; throw new MalformedAuth('unsupported signature scheme') }
+function schemeFor(cryptoType: number): 'ed25519' | 'sr25519' | 'hashed-sr25519' | 'hashed-ed25519' { try { return evaluatePolicy('transaction.http_scheme', { crypto_type: cryptoType }) } catch (error) { throw new MalformedAuth((error as Error).message) } }
+function cryptoFor(scheme: string): number { try { return evaluatePolicy('transaction.http_crypto', { scheme }) } catch (error) { throw new MalformedAuth((error as Error).message) } }
 const preparedHashedSigners = new WeakSet<object>()
 export async function prepareHttpSigner<T extends ProtectedKeypair & PortableSigner>(client: ProtectedAccountClient, key: T): Promise<T> {
   if (![4,6].includes(key.cryptoType)) return key
   const authority = await signingAuthority(client,key)
-  if (authority.generation === 0n) throw new Error('retire generation zero in a finalized transaction before HTTP authentication')
+  if (evaluatePolicy('transaction.http_admission', { phase: 'retired', crypto_type: key.cryptoType, generation: authority.generation }) != null) throw new Error('retire generation zero in a finalized transaction before HTTP authentication')
   const prepared = authority.key as T
   preparedHashedSigners.add(prepared)
   return prepared
@@ -88,22 +88,23 @@ export function createHttpAuth(crypto: PortableCrypto) {
       if (!sender || !nonce || !/^-?\d+$/.test(nonce) || signature == null) throw new MalformedAuth('missing or malformed authentication headers')
       const nonceNs = BigInt(nonce), cryptoType = cryptoFor(h.get(HTTP_AUTH_HEADERS.crypto) ?? 'sr25519')
       const expected = options.expectedCryptoType ?? trustedSenderSchemes.get(options.selfHotkeySs58)?.get(sender)
-      if (expected === undefined) throw new BadSignature('no trusted sender scheme configured; supply expectedCryptoType or configureVerifier')
-      if (cryptoType !== expected) throw new BadSignature('declared scheme differs from trusted sender scheme')
+      const schemeAdmission = evaluatePolicy('transaction.http_admission', { phase: 'scheme', expected, declared: cryptoType })
+      if (schemeAdmission === 'missing') throw new BadSignature('no trusted sender scheme configured; supply expectedCryptoType or configureVerifier')
+      if (schemeAdmission === 'mismatch') throw new BadSignature('declared scheme differs from trusted sender scheme')
       let signatureBytes: Uint8Array
       try { signatureBytes = hexBytes(signature) } catch { throw new MalformedAuth('invalid signature encoding') }
       const receiverSs58 = h.get(HTTP_AUTH_HEADERS.receiver) ?? undefined
-      if (receiverSs58 == null ? options.requireReceiver !== false : receiverSs58 !== options.selfHotkeySs58) throw new WrongReceiver('request is not bound to this receiver')
+      if (evaluatePolicy('transaction.http_admission', { phase: 'receiver', receiver: receiverSs58, self: options.selfHotkeySs58, required: options.requireReceiver !== false }) != null) throw new WrongReceiver('request is not bound to this receiver')
       const maxAge = options.maxAge ?? 10, allowedSkew = options.allowedSkew ?? 2
       if (![maxAge, allowedSkew].every(value => Number.isFinite(value) && value >= 0)) throw new RangeError('freshness limits must be finite and nonnegative')
       const now = options.nowNs ?? BigInt(Date.now()) * 1_000_000n
-      if (now - nonceNs > BigInt(Math.round(maxAge * 1e9)) || nonceNs - now > BigInt(Math.round(allowedSkew * 1e9))) throw new StaleRequest('request is outside the freshness window')
+      if (evaluatePolicy('transaction.http_freshness', { now: now.toString(), nonce: nonceNs.toString(), max_age: BigInt(Math.round(maxAge * 1e9)).toString(), allowed_skew: BigInt(Math.round(allowedSkew * 1e9)).toString() }) !== 'fresh') throw new StaleRequest('request is outside the freshness window')
       const payload = await buildAuthPayload({ method: options.method, path: options.path, body, scheme: schemeFor(cryptoType), senderSs58: sender, receiverSs58, nonceNs })
       let valid: boolean
       try { valid = crypto.verify(payload, signatureBytes, sender, cryptoType) } catch { throw new MalformedAuth('invalid hotkey address or signature encoding') }
       if (!valid) throw new BadSignature('signature does not verify against the claimed hotkey')
       const store = options.nonceStore ?? defaultStore
-      if (store.retention != null && store.retention < maxAge + allowedSkew) throw new RangeError('nonce retention is shorter than the freshness window')
+      if (evaluatePolicy('transaction.http_admission', { phase: 'retention', retention: store.retention, max_age: maxAge, allowed_skew: allowedSkew }) != null) throw new RangeError('nonce retention is shorter than the freshness window')
       if (!await store.checkAndStore(sender, nonceNs)) throw new ReplayedRequest('request nonce was already accepted')
       return { hotkeySs58: sender, nonceNs, cryptoType }
     },

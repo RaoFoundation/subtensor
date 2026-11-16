@@ -5,6 +5,7 @@ import { blake2_256 } from './crypto'
 import { publicKeyFromSs58, ss58FromPublic, verify } from './keys'
 import { createHttpAuth } from './http-auth'
 import { createEvmAddressUtilities } from './evm'
+export { evaluatePolicy, policyEvaluate } from './policy'
 
 export * from './crypto'
 export * from './errors'

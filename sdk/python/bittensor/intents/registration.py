@@ -9,7 +9,6 @@ from typing import Any, Optional
 from .._generated import calls
 from .._generated import storage as st
 from ..balance import Balance
-from ._money import UNBOUNDED, Spend
 from ._root_claim_fee import (
     quote_root_claim_fee,
     root_claim_admission,
@@ -147,9 +146,10 @@ class BurnedRegister(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(
-            calls.SubtensorModule.burned_register(netuid=self.netuid, hotkey=hotkey)
+        from ._shared import simple_call
+
+        return await simple_call(
+            self, substrate, hotkey=self.hotkey_address(wallet, self.hotkey_ss58)
         )
 
     def summary(self) -> str:
@@ -167,10 +167,10 @@ class BurnedRegister(Intent):
             lock_line,
         ]
 
-    def spend(self) -> Spend:
-        # Pays the subnet's current registration cost from the coldkey. The exact
-        # amount isn't known without a read, so a spend cap must block until raised.
-        return UNBOUNDED
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -211,18 +211,19 @@ class RegisterSubnet(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.register_network(
-                hotkey=self.hotkey_address(wallet, self.hotkey_ss58)
-            )
+        from ._shared import simple_call
+
+        return await simple_call(
+            self, substrate, hotkey=self.hotkey_address(wallet, self.hotkey_ss58)
         )
 
     def summary(self) -> str:
         return "register a new subnet"
 
-    def spend(self) -> Spend:
-        # Locks/burns the network registration cost (can be thousands of TAO).
-        return UNBOUNDED
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -248,7 +249,9 @@ class StartCall(Intent):
     netuid: int = field(metadata={"help": "Subnet to activate; the signer must be its owner."})
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.SubtensorModule.start_call(netuid=self.netuid))
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"activate subnet {self.netuid}"
@@ -292,8 +295,11 @@ class RootRegister(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(calls.SubtensorModule.root_register(hotkey=hotkey))
+        from ._shared import simple_call
+
+        return await simple_call(
+            self, substrate, hotkey=self.hotkey_address(wallet, self.hotkey_ss58)
+        )
 
     def summary(self) -> str:
         return f"register {self.hotkey_ss58 or 'wallet hotkey'} on the root network"
@@ -580,11 +586,10 @@ class SwapHotkey(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        old = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(
-            calls.SubtensorModule.swap_hotkey(
-                hotkey=old, new_hotkey=self.new_hotkey_ss58, netuid=self.netuid
-            )
+        from ._shared import simple_call
+
+        return await simple_call(
+            self, substrate, hotkey=self.hotkey_address(wallet, self.hotkey_ss58)
         )
 
     def summary(self) -> str:

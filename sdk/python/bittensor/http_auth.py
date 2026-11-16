@@ -49,7 +49,6 @@ for the normative spec, framework recipes, and golden test vectors.
 
 from __future__ import annotations
 
-import hashlib
 import threading
 import time
 from collections import deque
@@ -57,6 +56,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
+from ._policy import evaluate_policy
 from .result import BittensorError
 from .signing import WalletLike, resolve_signer
 from .sp_core import CLASSICAL_HASHED_CRYPTO_TYPES, PQ_CRYPTO_TYPES
@@ -165,14 +165,15 @@ _trusted_sender_schemes: dict[str, dict[str, int]] = {}
 
 
 def _validate_trusted_crypto_type(crypto_type: int) -> None:
-    if (
-        not isinstance(crypto_type, int)
-        or isinstance(crypto_type, bool)
-        or crypto_type not in CRYPTO_TYPE_NAMES
-    ):
+    if not isinstance(crypto_type, int) or isinstance(crypto_type, bool):
         raise ValueError("unsupported trusted sender crypto type")
-    if crypto_type in PQ_CRYPTO_TYPES:
+    error = evaluate_policy(
+        "transaction.http_admission", {"phase": "trusted", "crypto_type": crypto_type}
+    )
+    if error == "pq":
         raise ValueError("post-quantum HTTP authentication is not supported")
+    if error is not None:
+        raise ValueError("unsupported trusted sender crypto type")
 
 
 def configure_verifier(self_hotkey_ss58: str, *, trusted_sender_schemes: Mapping[str, int]) -> None:
@@ -231,17 +232,19 @@ def build_payload(
     receiver ss58 (``-`` when unbound). Exposed so tests and other-language
     implementations can pin it byte-for-byte.
     """
-    lines = (
-        PROTOCOL,
-        scheme,
-        method.upper(),
-        path,
-        hashlib.sha256(body).hexdigest(),
-        str(nonce_ns),
-        sender_ss58,
-        receiver_ss58 or _NO_RECEIVER,
+    payload = evaluate_policy(
+        "transaction.http_payload",
+        {
+            "scheme": scheme,
+            "method": method,
+            "path": path,
+            "body": body,
+            "nonce": str(nonce_ns),
+            "sender": sender_ss58,
+            "receiver": receiver_ss58,
+        },
     )
-    return "\n".join(lines).encode()
+    return bytes.fromhex(payload[2:])
 
 
 async def prepare_signer(wallet: WalletLike, *, client):
@@ -279,7 +282,10 @@ async def prepare_signer(wallet: WalletLike, *, client):
     if state is None or descriptor_bytes(state["descriptor"]) != bytes(signer.hashed_descriptor):
         raise ValueError("hashed hotkey is not registered on the selected chain")
     generation = int(state["generation"])
-    if generation < 1:
+    if evaluate_policy(
+        "transaction.http_admission",
+        {"phase": "retired", "crypto_type": signer.crypto_type, "generation": generation},
+    ):
         raise ValueError(
             "hashed HTTP signing requires generation zero to be retired by a finalized "
             "on-chain transaction first"
@@ -412,9 +418,13 @@ def verify(
     if expected_crypto_type is None:
         with _verifier_lock:
             expected_crypto_type = _trusted_sender_schemes.get(self_hotkey_ss58, {}).get(sender)
-        if expected_crypto_type is None:
-            raise BadSignature("no trusted signature scheme configured for sender")
-    if crypto_type != expected_crypto_type:
+    scheme_admission = evaluate_policy(
+        "transaction.http_admission",
+        {"phase": "scheme", "expected": expected_crypto_type, "declared": crypto_type},
+    )
+    if scheme_admission == "missing":
+        raise BadSignature("no trusted signature scheme configured for sender")
+    if scheme_admission == "mismatch":
         raise BadSignature("declared signature scheme does not match the trusted sender scheme")
     raw_signature = lowered.get(HEADER_SIGNATURE.lower())
     if raw_signature is None:
@@ -425,19 +435,36 @@ def verify(
         raise MalformedAuth(f"{HEADER_SIGNATURE} is not hex") from None
 
     receiver = lowered.get(HEADER_RECEIVER.lower())
-    if receiver is None:
-        if require_receiver:
-            raise WrongReceiver(
-                f"missing {HEADER_RECEIVER}: this server requires receiver-bound requests"
-            )
-    elif receiver != self_hotkey_ss58:
+    receiver_admission = evaluate_policy(
+        "transaction.http_admission",
+        {
+            "phase": "receiver",
+            "receiver": receiver,
+            "self": self_hotkey_ss58,
+            "required": require_receiver,
+        },
+    )
+    if receiver_admission == "missing":
+        raise WrongReceiver(
+            f"missing {HEADER_RECEIVER}: this server requires receiver-bound requests"
+        )
+    if receiver_admission == "mismatch":
         raise WrongReceiver("request was signed for a different receiving hotkey")
 
     now = time.time_ns() if now_ns is None else now_ns
-    if now - nonce > max_age * 1e9:
+    freshness = evaluate_policy(
+        "transaction.http_freshness",
+        {
+            "now": str(now),
+            "nonce": str(nonce),
+            "max_age": str(int(max_age * 1e9)),
+            "allowed_skew": str(int(allowed_skew * 1e9)),
+        },
+    )
+    if freshness == "stale":
         raise StaleRequest(f"nonce is older than the {max_age:g}s freshness window")
-    if nonce - now > allowed_skew * 1e9:
-        raise StaleRequest(f"nonce is more than {allowed_skew:g}s in the future")
+    if freshness == "future":
+        raise StaleRequest(f"nonce is more than the {allowed_skew:g}s in the future")
 
     payload = build_payload(
         scheme=scheme,
@@ -458,7 +485,15 @@ def verify(
 
     store = nonce_store if nonce_store is not None else _default_nonce_store
     retention = getattr(store, "retention", None)
-    if retention is not None and max_age + allowed_skew > retention:
+    if evaluate_policy(
+        "transaction.http_admission",
+        {
+            "phase": "retention",
+            "retention": retention,
+            "max_age": max_age,
+            "allowed_skew": allowed_skew,
+        },
+    ):
         raise ValueError(
             f"nonce store retains entries for {retention:g}s but the freshness window is "
             f"{max_age + allowed_skew:g}s — replays inside the gap would be accepted; "

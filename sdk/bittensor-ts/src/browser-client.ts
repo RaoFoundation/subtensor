@@ -1,3 +1,5 @@
+import { transactionAffordability } from './transaction-affordability'
+import { evaluatePolicy } from './policy'
 import { isDefiniteSubmissionRejection, markSubmissionNotSent, SubmissionUncertainError, SubmissionNotSentError } from './transport'
 import { serializeUnsignedTransaction, restoreUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime, type SerializedUnsignedTransaction } from './unsigned-transaction'
 import { extrinsicSignerAccountId } from './extrinsic-signer'
@@ -295,8 +297,9 @@ export class Client {
     if (!address) throw new TypeError('signer must expose an address')
     if (signer.genesisHash && signer.genesisHash.toLowerCase() !== genesisHash.toLowerCase()) throw new ChainError('signer belongs to another chain')
     const publicKey = publicKeyFromSs58(address), cryptoType = signer.cryptoType ?? 1
-    if (signer.publicKey && hex(signerAccountId(signer.publicKey, cryptoType)) !== hex(publicKey)) throw new TypeError('signer public key does not match address')
-    if (![0, 1, 2].includes(cryptoType)) throw new TypeError('unsupported signer scheme')
+    const signerPolicy = evaluatePolicy<{ ordinary: boolean; identity_matches: boolean; metadata_required: boolean; metadata_disabled: boolean }>('transaction.external_signer', { crypto_type: cryptoType, account: publicKey, public_key: signer.publicKey ? signerAccountId(signer.publicKey, cryptoType) : publicKey, requires_metadata_hash: Boolean(signer.requiresMetadataHash), requires_metadata_proof: Boolean(signer.requiresMetadataProof), metadata_disabled: options.metadataHash === null })
+    if (!signerPolicy.identity_matches) throw new TypeError('signer public key does not match address')
+    if (!signerPolicy.ordinary) throw new TypeError('unsupported signer scheme')
     const nonce = options.nonce ?? await this.peekNonce(address)
     if (!Number.isSafeInteger(nonce) || nonce < 0) throw new TypeError('invalid nonce')
     const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
@@ -309,8 +312,8 @@ export class Client {
     const eraBlockHash = period == null ? genesisHash : await this.blockHash(eraBirth(period, eraAnchor))
     const callData = await this.compose(call, hash)
     const chain = [Number(first(properties.ss58Format ?? properties.ss58Prefix) ?? 42), Number(first(properties.tokenDecimals) ?? 9), String(first(properties.tokenSymbol) ?? 'TAO')] as const
-    const required = signer.requiresMetadataHash || signer.requiresMetadataProof
-    if (options.metadataHash === null && required) throw new ChainError('metadataHash cannot be disabled for a signer that requires metadata proof')
+    const required = signerPolicy.metadata_required
+    if (signerPolicy.metadata_disabled) throw new ChainError('metadataHash cannot be disabled for a signer that requires metadata proof')
     const metadataHash = options.metadataHash === undefined
       ? (required || runtime.signedExtensionIdentifiers().includes('CheckMetadataHash') ? metadataDigest(metadata, runtime.specVersion, version.specName, ...chain) : undefined)
       : options.metadataHash ?? undefined
@@ -329,7 +332,7 @@ export class Client {
   }
   private async signPrepared(unsigned: PreparedTransaction, signer: BrowserSigner) {
     const address = signer.ss58Address ?? signer.address
-    if (!address || hex(publicKeyFromSs58(address)) !== hex(unsigned.publicKey) || (signer.cryptoType ?? 1) !== unsigned.cryptoType) throw new ChainError('signer identity changed after preparation')
+    if (!address || evaluatePolicy('transaction.signer_identity', { actual: { account: publicKeyFromSs58(address), crypto_type: signer.cryptoType ?? 1 }, expected: { account: unsigned.publicKey, crypto_type: unsigned.cryptoType } }) != null) throw new ChainError('signer identity changed after preparation')
     const { runtime: _runtime, ...fields } = unsigned
     const context = { ...structuredClone(fields), client: this, metadataHash: structuredClone(unsigned.txParams.metadataHash), proof: unsigned.metadataProof?.slice() }
     const response = signer.signBytes ? await signer.signBytes(unsigned.payload, context) : signer.signPayload ? await signer.signPayload(unsigned.signerPayload, context) : signer.signRaw ? await signer.signRaw({ address: unsigned.address, data: hex(unsigned.payload), type: 'bytes' }) : signer.sign ? await signer.sign(unsigned.payload, context) : undefined
@@ -676,7 +679,8 @@ export class Client {
     const reader: IntentReader = { ...baseReader, resolveFeePayer: async (call, address) => (await resolveTransactionFeePayer(baseReader, wrap(call), address)).address, estimateFee: (call, address) => baseReader.estimateFee!(wrap(call), address) }
     const prepared = await intent.prepare(reader, context), call = wrap(prepared.call)
     const payer = await resolveTransactionFeePayer(baseReader, call, prepared.feePayer)
-    const shielded = options.mevShield ?? prepared.mevShieldDefault
+    const execution = evaluatePolicy<{ shielded: boolean; violations: string[] }>('transaction.execution', { shielded: options.mevShield, shield_default: prepared.mevShieldDefault, shield_required: prepared.mevShieldRequired, expected_hash: options.expectedCallHash, actual_hash: prepared.extras.multisig_call_hash })
+    const shielded = execution.shielded
     const signingOptions = shielded ? shieldOptions(options) : { ...options }
     const nonce = options.nonce ?? await this.peekNonce(prepared.feePayer)
     if (!Number.isSafeInteger(nonce) || nonce < 0 || nonce >= Number.MAX_SAFE_INTEGER) throw new TypeError('invalid nonce')
@@ -688,33 +692,24 @@ export class Client {
     const innerFee = await this.estimateFee(call, feeSigner, { ...signingOptions, nonce: nonce + (shielded ? 1 : 0) }, snapshot.hash)
     const carrierFee = shielded ? await this.estimateFee({ pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext: new Uint8Array(8192) } }, feeSigner, { ...signingOptions, nonce }, snapshot.hash) : Balance.fromRao(0)
     const fee = Balance.fromRao(innerFee.rao + carrierFee.rao), violations = checkIntentPolicy(prepared, policy, fee.rao)
-    if (prepared.mevShieldRequired && !shielded) violations.push('this intent requires MEV shielding')
-    if (options.expectedCallHash != null && String(prepared.extras.multisig_call_hash).toLowerCase() !== options.expectedCallHash.toLowerCase()) violations.push('multisig call changed from expectedCallHash')
+    if (execution.violations.includes('shield_required')) violations.push('this intent requires MEV shielding')
+    if (execution.violations.includes('call_hash')) violations.push('multisig call changed from expectedCallHash')
     const owner = payer.address
-    const accountKey = (address: string) => hex(publicKeyFromSs58(address))
-    const spendByAccount = new Map<string, { address: string; amountRao: bigint }>()
-    for (const spend of prepared.spendByAccount) {
-      const key = accountKey(spend.address), previous = spendByAccount.get(key)?.amountRao ?? 0n
-      spendByAccount.set(key, { address: spend.address, amountRao: previous + spend.amountRao })
+    const affordability = await transactionAffordability({
+      spends: [...prepared.spendByAccount.map(row => ({ address: row.address, amount: row.amountRao })), ...((prepared.extras.registrationSponsorships ?? []) as Array<{payer:string;depositRao:bigint}>).map(row => ({ address: row.payer, amount: row.depositRao }))],
+      charges: [{ address: owner, amount: innerFee.rao }, { address: prepared.feePayer, amount: carrierFee.rao }],
+      reserves: prepared.requiredFreeByAccount.map(row => ({ address: row.address, required: row.requiredRao, available: row.availableRao })),
+      reserveCharges: [{ address: prepared.feePayer, amount: carrierFee.rao }, { address: owner, amount: payer.dropsTip ? 0n : options.tip ?? 0n }],
+    }, publicKeyFromSs58, async address => BigInt((await snapshot.query(['System', 'Account'], [address]))?.data?.free ?? 0))
+    const ownerKey = hex(publicKeyFromSs58(owner)), signerKey = hex(publicKeyFromSs58(prepared.feePayer))
+    for (const row of affordability.required) {
+      if (row.affordable) continue
+      const key = hex(publicKeyFromSs58(row.address))
+      if (key === ownerKey) violations.push(`fee payer needs ${row.amount} rao; available ${row.available}`)
+      else if (shielded && key === signerKey) violations.push('signing account cannot cover the MEV carrier fee')
+      else violations.push(`dispatch account ${row.address} cannot cover outgoing spend`)
     }
-    for (const quote of (prepared.extras.registrationSponsorships ?? []) as Array<{payer:string;depositRao:bigint}>) {
-      const key = accountKey(quote.payer), previous = spendByAccount.get(key)?.amountRao ?? 0n
-      spendByAccount.set(key,{address:quote.payer,amountRao:previous + quote.depositRao})
-    }
-    const ownerKey = accountKey(owner), signerKey = accountKey(prepared.feePayer), ownerIsSigner = ownerKey === signerKey
-    const ownerSpend = spendByAccount.get(ownerKey)?.amountRao ?? 0n, signerSpend = spendByAccount.get(signerKey)?.amountRao ?? 0n
-    const free = BigInt((await snapshot.query(['System', 'Account'], [owner]))?.data?.free ?? 0)
-    const required = innerFee.rao + ownerSpend + (ownerIsSigner ? carrierFee.rao : 0n)
-    if (shielded && !ownerIsSigner && BigInt((await snapshot.query(['System', 'Account'], [prepared.feePayer]))?.data?.free ?? 0) < carrierFee.rao + signerSpend) violations.push('signing account cannot cover the MEV carrier fee')
-    if (free < required) violations.push(`fee payer needs ${required} rao; available ${free}`)
-    for (const [key, spend] of spendByAccount) {
-      if (key === ownerKey || shielded && key === signerKey) continue
-      if (spend.amountRao > BigInt((await snapshot.query(['System', 'Account'], [spend.address]))?.data?.free ?? 0)) violations.push(`dispatch account ${spend.address} cannot cover outgoing spend`)
-    }
-    for (const reserve of prepared.requiredFreeByAccount) {
-      const reserveKey = accountKey(reserve.address)
-      if (reserve.availableRao < reserve.requiredRao + (spendByAccount.get(reserveKey)?.amountRao ?? 0n) + (reserveKey === ownerKey && !payer.dropsTip ? options.tip ?? 0n : 0n) + (reserveKey === signerKey ? carrierFee.rao : 0n)) violations.push(`account ${reserve.address} cannot cover its reserves, outgoing spend, tip and MEV carrier fee`)
-    }
+    for (const row of affordability.reserves) if (!row.affordable) violations.push(`account ${row.address} cannot cover its reserves, outgoing spend, tip and MEV carrier fee`)
     return { prepared, call, fee, carrierFee, shielded, violations, ok: violations.length === 0, blockHash: snapshot.hash, nonce, signingOptions }
   }
   submitShielded(intent: Intent, signer: BrowserSigner, options: WorkflowOptions = {}) { return this.execute(intent, signer, { ...options, mevShield: true }) }
@@ -739,7 +734,7 @@ export class Client {
         const { prepared, call, violations, blockHash, signingOptions } = plan
         if (violations.length) throw new ChainError(`transaction rejected: ${violations.join('; ')}`)
         if (hex(publicKeyFromSs58(prepared.feePayer)) !== key) throw new ChainError('signer differs from intent fee payer')
-        if (prepared.mevShieldRequired && !shield) throw new ChainError('this intent requires MEV shielding')
+        if (evaluatePolicy<{ violations: string[] }>('transaction.execution', { shielded: shield, shield_required: prepared.mevShieldRequired }).violations.includes('shield_required')) throw new ChainError('this intent requires MEV shielding')
         await authorizeRegistrationSponsorship(prepared, options)
         handedOff = true
         return await this.submitPreparedCall(call, signer, { ...signingOptions, nonce: submissionNonce, mevShield: shield }, blockHash, reserved)
@@ -849,9 +844,10 @@ function pinSigner(signer: BrowserSigner): BrowserSigner {
   const requiresMetadataHash = Boolean(signer.requiresMetadataHash), requiresMetadataProof = Boolean(signer.requiresMetadataProof)
   const assertIdentity = () => {
     const current = signer.ss58Address ?? signer.address
-    if (!current || hex(publicKeyFromSs58(current)) !== hex(publicKey) || (signer.cryptoType ?? 1) !== cryptoType ||
-      signer.publicKey != null && hex(signerAccountId(signer.publicKey, cryptoType)) !== hex(publicKey) ||
-      (signer.genesisHash?.toLowerCase() ?? null) !== genesisHash || Boolean(signer.requiresMetadataHash) !== requiresMetadataHash || Boolean(signer.requiresMetadataProof) !== requiresMetadataProof) {
+    if (evaluatePolicy('transaction.signer_identity', {
+      actual: { account: current ? publicKeyFromSs58(current) : null, public_key: signer.publicKey == null ? (current ? publicKeyFromSs58(current) : null) : signerAccountId(signer.publicKey, cryptoType), crypto_type: signer.cryptoType ?? 1, genesis_hash: signer.genesisHash?.toLowerCase() ?? null, requires_metadata_hash: Boolean(signer.requiresMetadataHash), requires_metadata_proof: Boolean(signer.requiresMetadataProof) },
+      expected: { account: publicKey, public_key: publicKey, crypto_type: cryptoType, genesis_hash: genesisHash, requires_metadata_hash: requiresMetadataHash, requires_metadata_proof: requiresMetadataProof },
+    })) {
       throw new ChainError('signer identity changed while the transaction was pending')
     }
   }

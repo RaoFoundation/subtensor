@@ -1,8 +1,11 @@
+import { evaluatePolicy } from '../policy'
 import { type ReadView, type ChainRecord, st, num, integer, fixed, fixedBits, bal, max } from './base'
 function collateralRecord(view: ReadView, netuid: number, hotkey: string, coldkey: string, state: ChainRecord | null) {
   if (!state || typeof state !== 'object') return null
-  const locked = integer(state.locked), floor = integer(state.min_locked), headroom = max(locked - floor, 0n), drain = fixedBits(state.drain_ratio)
-  return { hotkey, coldkey, netuid, locked_alpha: bal(view, locked, netuid), min_locked_alpha: bal(view, floor, netuid), earned_alpha: bal(view, state.earned, netuid), drain_ratio: fixed(state.drain_ratio), headroom_alpha: bal(view, headroom, netuid), shortfall_alpha: bal(view, max(floor - locked, 0n), netuid), releasable_work_alpha: bal(view, drain > 0n ? (headroom << 64n) / drain : 0n, netuid) }
+  const locked = integer(state.locked), floor = integer(state.min_locked)
+  const derived = evaluatePolicy<{headroom: string; shortfall: string; work: string; drain_ratio: number}>('financial.reads.collateral', { locked, floor, drain_bits: fixedBits(state.drain_ratio) })
+  return { hotkey, coldkey, netuid, locked_alpha: bal(view, locked, netuid), min_locked_alpha: bal(view, floor, netuid), earned_alpha: bal(view, state.earned, netuid), drain_ratio: derived.drain_ratio, headroom_alpha: bal(view, derived.headroom, netuid), shortfall_alpha: bal(view, derived.shortfall, netuid), releasable_work_alpha: bal(view, derived.work, netuid) }
+
 }
 export const collateralReads = {
   miner_collateral: async (view: ReadView, p: { netuid: number; hotkey_ss58: string; coldkey_ss58?: string | null }) => {

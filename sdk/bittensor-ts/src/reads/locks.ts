@@ -1,3 +1,4 @@
+import { evaluatePolicy } from '../policy'
 import { type ReadView, type ChainRecord, st, api, num, integer, fixed, fixedBits, bal, blockOf, max, keyOf } from './base'
 const lockApi = (name: string) => api('StakeInfoRuntimeApi', name)
 async function lockRecord(view: ReadView, coldkey: string, netuid: number, hotkey: string) {
@@ -5,33 +6,9 @@ async function lockRecord(view: ReadView, coldkey: string, netuid: number, hotke
   return state ? { hotkey, netuid, locked_alpha: bal(view, state.locked_mass, netuid), is_perpetual: decaying != null && !decaying } : null
 }
 /** Float projection used only for estimates; on-chain lock amounts come from runtime APIs. */
-export function projectLock(mass: number, conviction: number, dt: number, unlockRate: number, maturityRate: number, perpetual: boolean, owner: boolean): [number, number] {
-  const decay = (tau: number) => dt <= 0 ? 1 : tau <= 0 ? 0 : Math.exp(-Math.min(dt / tau, 40))
-  const unlock = decay(unlockRate), maturity = decay(maturityRate), nextMass = perpetual ? mass : mass * unlock
-  let fromMass: number
-  if (perpetual) fromMass = mass * (1 - maturity)
-  else if (unlockRate === maturityRate) fromMass = maturityRate ? mass * dt / maturityRate * maturity : 0
-  else if (unlockRate <= 0 || maturityRate <= 0) fromMass = 0
-  else fromMass = mass * Math.max(0, unlockRate * (unlock - maturity) / (unlockRate - maturityRate))
-  return [nextMass, owner ? nextMass : conviction * maturity + fromMass]
-}
+export function projectLock(mass: number, conviction: number, dt: number, unlockRate: number, maturityRate: number, perpetual: boolean, owner: boolean): [number, number] { return evaluatePolicy('financial.reads.lock_project', { mass, conviction, dt, unlock: unlockRate, maturity: maturityRate, perpetual, owner }) }
 type Bucket = [number, number, boolean, boolean]
-export function blocksUntilConviction(buckets: Bucket[], eligible: number, unlock: number, maturity: number): number | null {
-  if (eligible <= 0) return null
-  const clears = (dt: number) => buckets.reduce((sum, [m, c, p, o]) => sum + projectLock(m, c, dt, unlock, maturity, p, o)[1], 0) * 100 > eligible * 18
-  if (clears(0)) return 0
-  const horizon = Math.trunc(10 * Math.max(unlock, maturity, 1)), step = Math.max(1, Math.trunc(horizon / 4000))
-  let previous = 0
-  for (let dt = step; dt <= horizon; dt += step) {
-    if (clears(dt)) {
-      let low = previous, high = dt
-      while (high - low > 1) { const mid = Math.floor((low + high) / 2); if (clears(mid)) high = mid; else low = mid }
-      return high
-    }
-    previous = dt
-  }
-  return null
-}
+export function blocksUntilConviction(buckets: Bucket[], eligible: number, unlock: number, maturity: number): number | null { return evaluatePolicy('financial.reads.lock_blocks', { buckets, eligible, unlock, maturity }) }
 async function ownerLocks(view: ReadView, netuid: number): Promise<Map<boolean, ChainRecord | null>> {
   const layouts = [[true, 'OwnerLock'], [false, 'DecayingOwnerLock']] as const
   const rows = await Promise.all(layouts.map(async ([perpetual, name]) => {
@@ -57,13 +34,13 @@ export async function subnetConvictions(view: ReadView, netuid: number) {
   for (const [key, value] of perpetual) add(String(keyOf(key)), value, true, String(keyOf(key)) === rowOwner)
   for (const [key, value] of decaying) add(String(keyOf(key)), value, false, String(keyOf(key)) === rowOwner)
   for (const [perpetual, value] of ownerBuckets) if (owner && value) add(owner, value, perpetual, true)
-  const eligible = max(0n, integer(out) - integer(protocol) - integer(burned)), threshold = Number(eligible) * .18
+  const eligibility = evaluatePolicy<{eligible: string; threshold: string}>('financial.reads.eligible_alpha', { out: integer(out), protocol: integer(protocol), burned: integer(burned) }), eligible = BigInt(eligibility.eligible), threshold = Number(eligible) * .18
   const entries = [...buckets].map(([hotkey, group]) => {
     const locked = group.reduce((sum, b) => sum + b[0], 0), conviction = group.reduce((sum, b) => sum + b[1], 0)
     return { hotkey, is_owner: hotkey === owner, locked_alpha: bal(view, BigInt(Math.trunc(locked)), netuid), conviction_alpha: bal(view, BigInt(Math.trunc(conviction)), netuid), pct_of_threshold: threshold ? conviction / threshold : null, blocks_to_threshold: blocksUntilConviction(group, Number(eligible), unlock, maturity) }
   }).sort((a, b) => a.conviction_alpha.rao > b.conviction_alpha.rao ? -1 : a.conviction_alpha.rao < b.conviction_alpha.rao ? 1 : 0)
   const all = [...buckets.values()].flat()
-  return { netuid, block: now, alpha_out: bal(view, out, netuid), protocol_alpha: bal(view, protocol, netuid), alpha_burned: bal(view, burned, netuid), eligible_alpha: bal(view, eligible, netuid), threshold_alpha: bal(view, eligible * 18n / 100n, netuid), total_locked_alpha: bal(view, BigInt(Math.trunc(all.reduce((sum, b) => sum + b[0], 0))), netuid), total_conviction_alpha: bal(view, BigInt(Math.trunc(all.reduce((sum, b) => sum + b[1], 0))), netuid), leader_hotkey: entries[0]?.hotkey ?? null, leader_blocks_to_threshold: entries[0]?.blocks_to_threshold ?? null, unlock_rate: unlock, maturity_rate: maturity, owner_hotkey: owner, registered_at: num(registered), ownership_changeable_at_block: num(registered) + 2629800, hotkeys: entries }
+  return { netuid, block: now, alpha_out: bal(view, out, netuid), protocol_alpha: bal(view, protocol, netuid), alpha_burned: bal(view, burned, netuid), eligible_alpha: bal(view, eligible, netuid), threshold_alpha: bal(view, BigInt(eligibility.threshold), netuid), total_locked_alpha: bal(view, BigInt(Math.trunc(all.reduce((sum, b) => sum + b[0], 0))), netuid), total_conviction_alpha: bal(view, BigInt(Math.trunc(all.reduce((sum, b) => sum + b[1], 0))), netuid), leader_hotkey: entries[0]?.hotkey ?? null, leader_blocks_to_threshold: entries[0]?.blocks_to_threshold ?? null, unlock_rate: unlock, maturity_rate: maturity, owner_hotkey: owner, registered_at: num(registered), ownership_changeable_at_block: num(registered) + 2629800, hotkeys: entries }
 }
 export const lockReads = {
   coldkey_lock: async (view: ReadView, p: { coldkey_ss58: string; netuid: number }) => {

@@ -1,3 +1,4 @@
+import { evaluatePolicy } from '../policy'
 import { gammaFromUnits, gammaUnits, resolveGammaQuote } from '../gamma'
 import { type ReadView, api, st, integer, num, blockOf } from './base'
 
@@ -57,11 +58,8 @@ export const gammaReads = {
     if (state == null) return { oracle: oracle == null ? null : String(oracle), accepted_usd: null, feed_usd: null, accepted_usd_string: null, feed_usd_string: null, fed_at: null, blocks_since_last_feed: null, stale: true }
     const fedAt = num(state.fed_at), blocks = Math.max(0, blockOf(view) - fedAt)
     const accepted = integer(state.accepted), feed = integer(state.feed)
-    // Runtime Permill-equivalent rate is 66,000 per billion of the stored
-    // accepted price, rounded UP once; it does not compound between feeds.
-    const step = (accepted * 66_000n + 999_999_999n) / 1_000_000_000n
-    const raised = accepted + step * BigInt(blocks)
-    const acceptedText = gammaFromUnits(raised < feed ? raised : feed), feedText = gammaFromUnits(feed)
+    const raised = evaluatePolicy<string>('financial.reads.gamma_price', { accepted, feed, blocks })
+    const acceptedText = gammaFromUnits(BigInt(raised)), feedText = gammaFromUnits(feed)
     return { oracle: oracle == null ? null : String(oracle), accepted_usd: Number(acceptedText), feed_usd: Number(feedText), accepted_usd_string: acceptedText, feed_usd_string: feedText, fed_at: fedAt, blocks_since_last_feed: blocks, stale: blocks > 300 }
   },
 }

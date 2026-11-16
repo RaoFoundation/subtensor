@@ -1066,49 +1066,52 @@ pub struct Policy {
 
 impl Policy {
     pub fn check(&self, intent: &IntentCall, fee_rao: Option<u128>) -> Vec<String> {
-        let mut violations = Vec::new();
-        if intent.security.raw && !self.allow_raw_calls {
-            violations.push("raw calls are disabled by policy".into());
-        }
-        if let Some(max_fee) = self.max_fee_rao {
-            match fee_rao {
-                Some(fee) if fee > max_fee => violations.push(format!(
-                    "estimated fee {fee} rao exceeds max_fee_rao {max_fee}"
-                )),
-                None => violations
-                    .push("fee estimation failed, so max_fee_rao cannot be enforced safely".into()),
-                _ => {}
+        let spend = match intent.security.spend {
+            Spend::None => serde_json::Value::Null,
+            Spend::Bounded(value) => serde_json::json!(value.to_string()),
+            Spend::Unbounded => serde_json::json!("unbounded"),
+        };
+        let input = serde_json::json!({
+            "raw": intent.security.raw, "allow_raw_calls": self.allow_raw_calls,
+            "max_fee_rao": self.max_fee_rao.map(|value| value.to_string()),
+            "max_spend_rao": self.max_spend_rao.map(|value| value.to_string()),
+            "fee_rao": fee_rao.map(|value| value.to_string()), "spend_rao": spend,
+            "allowed_netuids": self.allowed_netuids, "netuids": intent.security.netuids,
+            "global": intent.security.global, "allow_global": self.allow_global,
+            "affects_all_subnets": intent.security.affects_all_subnets,
+        });
+        let outcome = match crate::policy::transaction::policy_decisions(&input) {
+            Ok(outcome) => outcome,
+            Err(error) => return vec![format!("invalid transaction policy input: {error}")],
+        };
+        let mut reasons = outcome["violations"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        // Preserve the established native presentation order.
+        reasons.sort_by_key(|reason| match reason["code"].as_str() {
+            Some("raw") => 0,
+            Some("fee" | "fee_unknown") => 1,
+            Some("spend" | "unbounded") => 2,
+            Some("global") => 3,
+            Some("all_subnets") => 4,
+            _ => 5,
+        });
+        reasons.iter().map(|reason| {
+            let actual = reason["actual"].as_str().unwrap_or_default();
+            let cap = reason["cap"].as_str().unwrap_or_default();
+            match reason["code"].as_str() {
+                Some("raw") => "raw calls are disabled by policy".into(),
+                Some("fee_unknown") => "fee estimation failed, so max_fee_rao cannot be enforced safely".into(),
+                Some("fee") => format!("estimated fee {actual} rao exceeds max_fee_rao {cap}"),
+                Some("spend") => format!("spend {actual} rao exceeds max_spend_rao {cap}"),
+                Some("unbounded") => "unbounded spend is not allowed while max_spend_rao is set".into(),
+                Some("global") => "intent has global/account-wide scope but policy only allows explicit subnets".into(),
+                Some("all_subnets") => "intent affects every subnet but policy only allows an explicit subset".into(),
+                Some("netuid") => format!("netuid {} is not allowed by policy", reason["netuid"]),
+                _ => "unknown transaction policy violation".into(),
             }
-        }
-        if let Some(max_spend) = self.max_spend_rao {
-            match intent.security.spend {
-                Spend::Bounded(spend) if spend > max_spend => violations.push(format!(
-                    "spend {spend} rao exceeds max_spend_rao {max_spend}"
-                )),
-                Spend::Unbounded => violations
-                    .push("unbounded spend is not allowed while max_spend_rao is set".into()),
-                _ => {}
-            }
-        }
-        if let Some(allowed) = &self.allowed_netuids {
-            if intent.security.global && !self.allow_global {
-                violations.push(
-                    "intent has global/account-wide scope but policy only allows explicit subnets"
-                        .into(),
-                );
-            }
-            if intent.security.affects_all_subnets {
-                violations.push(
-                    "intent affects every subnet but policy only allows an explicit subset".into(),
-                );
-            }
-            for netuid in &intent.security.netuids {
-                if !allowed.contains(netuid) {
-                    violations.push(format!("netuid {netuid} is not allowed by policy"));
-                }
-            }
-        }
-        violations
+        }).collect()
     }
 }
 

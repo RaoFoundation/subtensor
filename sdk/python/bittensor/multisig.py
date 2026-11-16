@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from ._generated import calls as generated_calls
 from ._generated import constants as generated_constants
 from ._generated import storage as generated_storage
+from ._policy import evaluate_policy
 from .account_mode import multisig_call, warn_legacy_mldsa
 from .result import ChainError, ErrorCode
 from .settings import MEV_SHIELD_ERA_PERIOD
@@ -71,7 +72,12 @@ async def multisig_deposit_rao(substrate, threshold: int) -> int:
         substrate.constant(*generated_constants.Multisig.DepositBase),
         substrate.constant(*generated_constants.Multisig.DepositFactor),
     )
-    return int(base) + int(threshold) * int(factor)
+    return int(
+        evaluate_policy(
+            "transaction.multisig_deposit",
+            {"base": int(base), "threshold": threshold, "factor": int(factor)},
+        )
+    )
 
 
 def merge_approval_metadata(*parts: dict) -> dict:
@@ -189,7 +195,10 @@ async def check_multisig_funds(
                 f"could not quote complete shielded multisig approval: {error}"
             ) from error
         return
-    if free >= deposit + fee + retained:
+    if evaluate_policy(
+        "transaction.multisig_funding",
+        {"free": free, "deposit": deposit, "fee": fee, "retained": retained},
+    )["affordable"]:
         return
     raise _funding_error(
         signer_ss58=signer_ss58,

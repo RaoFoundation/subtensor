@@ -3,8 +3,7 @@
 
 mod opencl;
 
-use sha2::{Digest, Sha256};
-use sp_core::{hashing::keccak_256, U256};
+use sp_core::U256;
 
 pub use opencl::{gpu_devices, GpuDevice, GpuMiner};
 
@@ -13,30 +12,16 @@ pub const MAX_BATCH: u32 = 1_048_576;
 pub type Solution = (u64, [u8; 32]);
 
 pub fn seal(prefix: &[u8], nonce: u64) -> Result<[u8; 32], String> {
-    validate_prefix(prefix)?;
-    let mut hasher = Sha256::new();
-    hasher.update(prefix);
-    hasher.update(nonce.to_le_bytes());
-    Ok(keccak_256(&hasher.finalize()))
+    crate::policy::validation::registration_seal(prefix, nonce).map_err(|error| error.to_string())
 }
 
 fn validate_prefix(prefix: &[u8]) -> Result<(), String> {
-    if prefix.len() != PREFIX_LEN || !prefix.starts_with(b"subtensor-pow-register-v1") {
-        return Err("expected the 123-byte subnet registration challenge prefix".into());
-    }
-    if prefix.get(25..27) == Some(&[0, 0]) {
-        return Err("PoW registration is unavailable on root".into());
-    }
-    Ok(())
+    crate::policy::validation::validate_registration_prefix(prefix)
+        .map_err(|error| error.to_string())
 }
 
 fn target(difficulty: u64) -> Result<U256, String> {
-    if difficulty == 0 {
-        return Err("PoW difficulty must be positive".into());
-    }
-    U256::MAX
-        .checked_div(U256::from(difficulty))
-        .ok_or_else(|| "PoW difficulty must be positive".into())
+    crate::policy::validation::registration_target(difficulty).map_err(|error| error.to_string())
 }
 
 fn validate_batch(prefix: &[u8], difficulty: u64, attempts: u32) -> Result<U256, String> {

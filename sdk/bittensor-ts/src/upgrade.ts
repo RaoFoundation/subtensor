@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 import { bytesHex, hexBytes, concatBytes, unsignedInteger, type PortableCrypto } from './portable'
 import type { IntentDescriptor } from './intents'
 
@@ -125,62 +126,20 @@ export async function fetchUpgradeManifests(repo = DEFAULT_UPGRADE_REPO, options
   }
   return manifests
 }
-export function findUpgradeManifest(manifests: Record<string, any>[], callHash: string): Record<string, any> | null { return manifests.find(item => String(item.call_hash).toLowerCase() === callHash.toLowerCase()) ?? null }
+export function findUpgradeManifest(manifests: Record<string, any>[], callHash: string): Record<string, any> | null { return manifests.find(item => evaluatePolicy<boolean>('upgrade.hash_matches', { expected: String(item.call_hash), actual: callHash })) ?? null }
 
-function compact(value: bigint | number): Uint8Array {
-  const n = unsignedInteger(value, 64, 'compact integer')
-  if (n < 64n) return Uint8Array.of(Number(n << 2n))
-  if (n < 16384n) { const v = Number((n << 2n) | 1n); return Uint8Array.of(v & 255, v >>> 8) }
-  if (n < 1n << 30n) { const v = (n << 2n) | 2n; return Uint8Array.from({ length: 4 }, (_, i) => Number((v >> BigInt(8 * i)) & 255n)) }
-  let rest = n; const bytes: number[] = []; while (rest) { bytes.push(Number(rest & 255n)); rest >>= 8n }
-  return Uint8Array.of(((bytes.length - 4) << 2) | 3, ...bytes)
-}
-function decodeCompact(data: Uint8Array, offset: number): [bigint, number] {
-  if (offset >= data.length) throw new TypeError('truncated compact integer')
-  const mode = data[offset] & 3, length = mode === 0 ? 1 : mode === 1 ? 2 : mode === 2 ? 4 : (data[offset] >> 2) + 5
-  if (offset + length > data.length) throw new TypeError('truncated compact integer')
-  let value = 0n
-  for (let index = length - 1; index >= (mode === 3 ? 1 : 0); index--) value = (value << 8n) | BigInt(data[offset + index])
-  if (mode !== 3) value >>= 2n
-  const canonical = compact(value)
-  if (!equal(canonical, data.subarray(offset, offset + length))) throw new TypeError('non-canonical compact integer')
-  return [value, offset + length]
-}
 function weight(value: UpgradeWeight): { ref_time: bigint; proof_size: bigint } { return { ref_time: unsignedInteger(value.ref_time, 64, 'ref_time'), proof_size: unsignedInteger(value.proof_size, 64, 'proof_size') } }
 function equal(a: Uint8Array, b: Uint8Array): boolean { return a.length === b.length && a.every((byte, i) => byte === b[i]) }
-function addressEqual(adapter: UpgradeAdapter, a: string, b: string): boolean { return equal(adapter.crypto.publicKeyFromSs58(a), adapter.crypto.publicKeyFromSs58(b)) }
+function addressEqual(adapter: UpgradeAdapter, a: string, b: string): boolean { return evaluatePolicy<boolean>('upgrade.identity_matches', { expected: adapter.crypto.publicKeyFromSs58(a), actual: adapter.crypto.publicKeyFromSs58(b) }) }
 export function parseUpgradeBlob(blob: Uint8Array, proposalWeight: UpgradeWeight): { realPublicKey: Uint8Array; code: Uint8Array } {
-  if (!equal(blob.subarray(0, 3), Uint8Array.of(16, 0, 0))) throw new TypeError('call is not Proxy.proxy(MultiAddress::Id(...), ...)')
-  if (blob.length < 35) throw new TypeError('truncated proxied account')
-  if (!equal(blob.subarray(35, 40), Uint8Array.of(0, 12, 1, 0, 2))) throw new TypeError('proposal must contain exactly Sudo.sudo_unchecked_weight(System.set_code(...))')
-  const [size, offset] = decodeCompact(blob, 40)
-  if (size > BigInt(blob.length - offset)) throw new TypeError('truncated runtime bytes')
-  const end = offset + Number(size), w = weight(proposalWeight)
-  if (!equal(blob.subarray(end), concatBytes(compact(w.ref_time), compact(w.proof_size)))) throw new TypeError('proposal weight differs or call has trailing bytes')
-  return { realPublicKey: blob.slice(3, 35), code: blob.slice(offset, end) }
+  const result = evaluatePolicy<{ real: string; code: string }>('validation.upgrade.blob', { data: blob, weight: weight(proposalWeight) })
+  return { realPublicKey: hexBytes(result.real), code: hexBytes(result.code) }
 }
-/** Extract the SCALE runtime_version custom section without executing the runtime. Compressed Wasm returns null. */
+/** Extract runtime_version in Rust without executing the supplied runtime. */
 export function upgradeRuntimeSpecVersion(wasm: Uint8Array): number | null {
-  if (!equal(wasm.subarray(0, 8), Uint8Array.of(0, 97, 115, 109, 1, 0, 0, 0))) return null
-  let cursor = 8
-  const leb = (end: number): number => { let n = 0, shift = 0; for (;;) { if (cursor >= end || shift > 28) throw new TypeError('invalid Wasm section size'); const b = wasm[cursor++]; n += (b & 127) * 2 ** shift; if (!(b & 128)) return n; shift += 7 } }
-  while (cursor < wasm.length) {
-    const kind = wasm[cursor++], length = leb(wasm.length), end = cursor + length
-    if (end > wasm.length) throw new TypeError('truncated Wasm section')
-    if (kind === 0) {
-      const nameLength = leb(end)
-      if (cursor + nameLength > end) throw new TypeError('truncated Wasm custom section name')
-      const name = new TextDecoder().decode(wasm.subarray(cursor, cursor + nameLength)); cursor += nameLength
-      if (name === 'runtime_version') {
-        for (let i = 0; i < 2; i++) { const [size, next] = decodeCompact(wasm.subarray(0, end), cursor); cursor = next + Number(size); if (cursor > end) throw new TypeError('truncated runtime version') }
-        if (cursor + 8 > end) throw new TypeError('truncated runtime version')
-        return new DataView(wasm.buffer, wasm.byteOffset + cursor + 4, 4).getUint32(0, true)
-      }
-    }
-    cursor = end
-  }
-  return null
+  return evaluatePolicy('validation.upgrade.spec_version', { data: wasm })
 }
+
 function call(pallet: string, name: string, params: Record<string, unknown>): IntentDescriptor { return { pallet, call: name, params } }
 export async function reconstructUpgradeCall(adapter: UpgradeAdapter, wasm: Uint8Array, sudoKey: string, proposalWeight: UpgradeWeight): Promise<Uint8Array> {
   return adapter.compose(call('Proxy', 'proxy', { real: sudoKey, force_proxy_type: null, call: call('Sudo', 'sudo_unchecked_weight', { call: call('System', 'set_code', { code: wasm }), weight: weight(proposalWeight) }) }))
@@ -196,7 +155,8 @@ async function discover(adapter: UpgradeAdapter): Promise<PendingUpgrade[]> {
   const sudoKey = String(sudo), proxies = await adapter.query(['Proxy', 'Proxies'], [sudoKey]) as [any[], unknown] | null, records: PendingUpgrade[] = []
   for (const proxy of proxies?.[0] ?? []) {
     const variant = typeof proxy.proxy_type === 'string' ? proxy.proxy_type : Object.keys(proxy.proxy_type ?? {})[0]
-    if (variant !== 'SudoUncheckedSetCode' || Number(proxy.delay) !== 0) continue
+    const delay = Number(proxy.delay)
+    if (!evaluatePolicy<boolean>('upgrade.proxy_eligible', { proxy_type: variant, delay: Number.isFinite(delay) ? delay : null })) continue
     for (const [key, value] of await adapter.queryMap(['Multisig', 'Multisigs'], [proxy.delegate])) {
       const pending = object(value), ci = String(pending.depositor)
       if (!addressEqual(adapter, (await adapter.multisig([ci, sudoKey], 2)).address, String(proxy.delegate))) continue
@@ -223,7 +183,7 @@ export async function checkUpgradeProposal(adapter: UpgradeAdapter, bundle: Upgr
     check('re-encoding', equal(rebuilt, bundle.blob), 'reconstructed against metadata at the verification block')
     result.codeSha256 = await sha256(parsed.code)
     check('runtime match', bundle.wasm ? equal(parsed.code, bundle.wasm) : null, bundle.wasm ? `compared with ${bundle.wasmSource ?? 'supplied'} runtime bytes` : 'no independent runtime bytes supplied')
-    if (bundle.digest) check('srtool digest', normalizeDigest(bundle.digest.sha256) === result.codeSha256, 'SHA-256 compared with published digest')
+    if (bundle.digest) check('srtool digest', evaluatePolicy<boolean>('upgrade.digest_matches', { expected: String(bundle.digest.sha256), actual: result.codeSha256 }), 'SHA-256 compared with published digest')
     check('sudo key', addressEqual(adapter, real, sudoKey), 'proxied account must be the current sudo key')
     try { result.specVersion = upgradeRuntimeSpecVersion(parsed.code); check('runtime version', result.specVersion == null ? null : options.expectedSpecVersion == null || result.specVersion === options.expectedSpecVersion, result.specVersion == null ? 'runtime_version section unavailable (for compressed runtime, provide a reproduced build and expectedSpecVersion)' : `embedded spec_version ${result.specVersion}`) }
     catch (error) { check('runtime version', false, String(error)) }
@@ -231,22 +191,25 @@ export async function checkUpgradeProposal(adapter: UpgradeAdapter, bundle: Upgr
   check('on-chain proposal', pending != null, 'the exact call hash must be pending in the CI + sudo deployment multisig')
   const manifest = bundle.manifest
   if (manifest) {
-    check('manifest call hash', String(manifest.call_hash).toLowerCase() === callHash, 'manifest hash must identify these exact call bytes')
-    if (result.codeSha256) check('manifest runtime hash', normalizeDigest(manifest.wasm_sha256) === result.codeSha256, 'manifest wasm_sha256 must match embedded runtime')
+    const provenance = evaluatePolicy<Record<string, boolean>>('upgrade.manifest_checks', {
+      manifest, call_hash: callHash, code_sha256: result.codeSha256, manifest_version: Number.isFinite(Number(manifest.spec_version)) ? Number(manifest.spec_version) : null,
+      spec_version: result.specVersion, expected_spec_version: options.expectedSpecVersion, expected_commit: options.expectedCommit,
+      release: bundle.release ? { repo: bundle.release.repo, tag: bundle.release.tag, assets: Object.fromEntries(['wasm', 'digest', 'call_data', 'manifest'].map(key => [key, bundle.release!.assetUrl(UPGRADE_ASSETS[key as keyof typeof UPGRADE_ASSETS])])) } : undefined,
+    })
+    check('manifest call hash', provenance['manifest call hash'], 'manifest hash must identify these exact call bytes')
+    if (result.codeSha256) check('manifest runtime hash', provenance['manifest runtime hash'], 'manifest wasm_sha256 must match embedded runtime')
     if (pending) {
       for (const [key, expected] of [['ci_address', pending.ci_address], ['sudo_key', sudoKey], ['deployment_multisig', pending.deployment_multisig]]) {
         try { check(`manifest ${key}`, addressEqual(adapter, String(manifest[key]), expected), 'manifest account must match chain state') } catch (error) { check(`manifest ${key}`, false, String(error)) }
       }
     }
-    const version = Number(manifest.spec_version)
-    check('manifest spec version', Number.isSafeInteger(version) && version >= 0 && (result.specVersion == null || version === result.specVersion) && (options.expectedSpecVersion == null || version === options.expectedSpecVersion), 'manifest spec_version compared with embedded/expected version when available')
-    check('manifest commit', /^[0-9a-f]{40}$/i.test(String(manifest.commit)) && (options.expectedCommit == null || manifest.commit === options.expectedCommit), 'manifest commit must be an immutable Git SHA and match expectedCommit when supplied')
+    check('manifest spec version', provenance['manifest spec version'], 'manifest spec_version compared with embedded/expected version when available')
+    check('manifest commit', provenance['manifest commit'], 'manifest commit must be an immutable Git SHA and match expectedCommit when supplied')
     try { const m = weight(object(manifest.max_weight) as UpgradeWeight), supplied = weight(options.proposalWeight); check('manifest proposal weight', m.ref_time === supplied.ref_time && m.proof_size === supplied.proof_size, 'published weight must match the supplied proposal weight') } catch (error) { check('manifest proposal weight', false, String(error)) }
     try { const sudo = object(manifest.sudo), signers = signerSet(sudo.signatories, sudo.threshold, adapter); check('manifest sudo signers', addressEqual(adapter, (await adapter.multisig(signers, Number(sudo.threshold))).address, sudoKey), 'published signer set must derive the live sudo key') } catch (error) { check('manifest sudo signers', false, String(error)) }
     if (bundle.release) {
-      check('release identity', manifest.repo === bundle.release.repo && manifest.tag === bundle.release.tag, 'manifest repository/tag must match the fetched release')
-      const assets = manifest.assets ?? {}
-      for (const key of ['wasm', 'digest', 'call_data', 'manifest'] as const) check(`release ${key} asset`, assets[key] === bundle.release.assetUrl(UPGRADE_ASSETS[key]), 'manifest asset URL must refer to this exact release')
+      check('release identity', provenance['release identity'], 'manifest repository/tag must match the fetched release')
+      for (const key of ['wasm', 'digest', 'call_data', 'manifest'] as const) check(`release ${key} asset`, provenance[`release ${key} asset`], 'manifest asset URL must refer to this exact release')
     }
   } else {
     if (options.expectedCommit != null) check('manifest commit', false, 'a release manifest is required to establish expectedCommit')
@@ -255,13 +218,11 @@ export async function checkUpgradeProposal(adapter: UpgradeAdapter, bundle: Upgr
   result.ok = checks.every(item => item.ok !== false)
   return result
 }
-function normalizeDigest(value: unknown): string { const text = String(value).replace(/^0x/, '').toLowerCase(); return /^[0-9a-f]{64}$/.test(text) ? `0x${text}` : '' }
 function signerSet(value: unknown, threshold: unknown, adapter: UpgradeAdapter): string[] {
   if (!Array.isArray(value) || value.some(s => typeof s !== 'string')) throw new TypeError('signatories must be an address array')
-  const n = safeNumber(threshold, 'threshold'), unique = new Map<string, string>()
-  for (const address of value) { const key = bytesHex(adapter.crypto.publicKeyFromSs58(address)); if (unique.has(key)) throw new TypeError('duplicate signatory account'); unique.set(key, address) }
-  if (n < 2 || n > unique.size) throw new RangeError('sudo multisig threshold must be 2..signatory count')
-  return [...unique.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, address]) => address)
+  const n = safeNumber(threshold, 'threshold')
+  const indices = evaluatePolicy<number[]>('upgrade.signers', { members: value.map(address => ({ address, identity: bytesHex(adapter.crypto.publicKeyFromSs58(address)) })), threshold: n })
+  return indices.map(index => value[index])
 }
 export async function composeUpgradeFinalization(adapter: UpgradeAdapter, pending: PendingUpgrade, blob: Uint8Array, finalizeWeight: UpgradeWeight): Promise<Uint8Array> {
   return adapter.compose(call('Multisig', 'as_multi', { threshold: 2, other_signatories: [pending.ci_address], maybe_timepoint: pending.timepoint, call: blob, max_weight: weight(finalizeWeight) }))
@@ -277,12 +238,13 @@ export async function planUpgradeApproval(adapter: UpgradeAdapter, bundle: Upgra
   if (!addressEqual(adapter, (await adapter.multisig(signatories, Number(threshold))).address, checks.sudoKey)) throw new TypeError('signer set does not derive the chain sudo key')
   const finalizingCall = await composeUpgradeFinalization(adapter, checks.pending, bundle.blob, options.finalizeWeight), finalizingHash = hexHash(adapter.crypto.blake2_256(finalizingCall))
   const pending = await adapter.query(['Multisig', 'Multisigs'], [checks.sudoKey, finalizingHash]) as Record<string, any> | null
-  const approvals: string[] = (pending?.approvals ?? []).map(String), remaining = signatories.filter(s => !approvals.some(a => addressEqual(adapter, a, s)))
-  const position = approvals.some(a => addressEqual(adapter, a, options.signer)) ? 'signed' : !pending ? 'first' : approvals.length >= Number(threshold) - 1 ? 'final' : 'interior'
+  const approvals: string[] = (pending?.approvals ?? []).map(String)
+  const state = evaluatePolicy<{ position: UpgradeApprovalPlan['position']; remaining_indices: number[]; other_indices: number[] }>('upgrade.approval', { present: pending != null, threshold: Number(threshold), signer: adapter.crypto.publicKeyFromSs58(options.signer), members: signatories.map(address => adapter.crypto.publicKeyFromSs58(address)), approvals: approvals.map(address => adapter.crypto.publicKeyFromSs58(address)) })
+  const position = state.position, remaining = state.remaining_indices.map(index => signatories[index])
   let approval: IntentDescriptor | null = null
   if (position !== 'signed') {
-    const estimate = weight(await adapter.estimateWeight(finalizingCall, options.signer)), max_weight = { ref_time: estimate.ref_time * 11n / 10n, proof_size: estimate.proof_size * 11n / 10n }
-    const params = { threshold: Number(threshold), other_signatories: signatories.filter(address => !addressEqual(adapter, address, options.signer)), maybe_timepoint: pending ? timepoint(pending.when) : null, max_weight }
+    const estimate = weight(await adapter.estimateWeight(finalizingCall, options.signer)), padded = evaluatePolicy<{ ref_time: string; proof_size: string }>('upgrade.weight_pad', estimate), max_weight = { ref_time: BigInt(padded.ref_time), proof_size: BigInt(padded.proof_size) }
+    const params = { threshold: Number(threshold), other_signatories: state.other_indices.map(index => signatories[index]), maybe_timepoint: pending ? timepoint(pending.when) : null, max_weight }
     approval = position === 'final' ? call('Multisig', 'as_multi', { ...params, call: finalizingCall }) : call('Multisig', 'approve_as_multi', { ...params, call_hash: finalizingHash })
   }
   return { position, checks, finalizingCall, finalizingHash, call: approval, approvals, remaining }

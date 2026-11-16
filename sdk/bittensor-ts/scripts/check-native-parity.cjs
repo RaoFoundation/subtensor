@@ -492,6 +492,9 @@ function qualifiedSurface(prefix, surface) {
 }
 
 const coreCoverageAliases = new Map([
+  // Both Rust entrypoints share the same versioned JSON operation boundary.
+  ['policy/mod.rs#evaluate', ['policyEvaluate']],
+  ['policy/mod.rs#evaluate_json', ['policyEvaluate']],
   ['codec/extrinsic.rs#supports_mldsa_accounts', ['supportsMldsaProfile']],
   ['codec/extrinsic.rs#safe_multisig_account_id', ['multisigAccountId']],
   ['keys/falcon.rs#pq_public_key', ['authorizationPublicKey']],

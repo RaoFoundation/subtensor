@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 from ._generated import calls
+from ._policy import evaluate_policy
 
 
 @dataclass(frozen=True)
@@ -28,31 +29,26 @@ class ControllerFunding:
     fee_payer: str
     signature_estimate: str = "standard sr25519 envelope"
 
+    def _policy_state(self) -> dict:
+        return {
+            name: int(value) if name.endswith("_rao") else value
+            for name, value in evaluate_policy("protected.funding_state", asdict(self)).items()
+        }
+
     @property
     def available_rao(self) -> int:
-        return max(0, self.free_rao - self.frozen_rao)
+        return self._policy_state()["available_rao"]
 
     @property
     def low(self) -> bool:
-        return self.available_rao < self.warning_rao
+        return self._policy_state()["low"]
 
     @property
     def top_up_rao(self) -> int:
-        return max(0, self.target_rao - self.available_rao)
+        return self._policy_state()["top_up_rao"]
 
     def to_dict(self) -> dict:
-        return {
-            **asdict(self),
-            "available_rao": self.available_rao,
-            "low": self.low,
-            "top_up_rao": self.top_up_rao,
-            "can_announce": self.available_rao
-            >= self.next_announcement_deposit_rao
-            + self.transfer_fee_rao
-            + self.existential_deposit_rao,
-            "estimate": True,
-            "fee_scope": "controller; multisig signatories also need their own fees",
-        }
+        return self._policy_state()
 
 
 def funding_budget(
@@ -69,40 +65,14 @@ def funding_budget(
     staking_execution_fee,
     fee_payer,
 ) -> ControllerFunding:
-    """Allow 20 pending transfers or 10 pending staking operations, whichever costs more."""
-
-    def reserve(additional):
-        return max(
-            0,
-            deposit_base
-            + deposit_factor * (announcement_count + additional)
-            - announcement_deposit,
-        )
-
-    transfer_fee = announce_fee + transfer_execution_fee
-    staking_fee = announce_fee + staking_execution_fee
-    target = existential_deposit + max(
-        reserve(20) + 20 * transfer_fee,
-        reserve(10) + 10 * staking_fee,
+    result = evaluate_policy(
+        "protected.funding", {**locals(), "signature_estimate": "standard sr25519 envelope"}
     )
-    warning = existential_deposit + max(
-        reserve(5) + 5 * transfer_fee,
-        reserve(2) + 2 * staking_fee,
-    )
-    data = account["data"]
     return ControllerFunding(
-        controller=controller,
-        free_rao=int(data["free"]),
-        frozen_rao=int(data.get("frozen", 0)),
-        reserved_rao=int(data["reserved"]),
-        announcement_deposit_rao=announcement_deposit,
-        next_announcement_deposit_rao=reserve(1),
-        transfer_fee_rao=transfer_fee,
-        staking_fee_rao=staking_fee,
-        target_rao=target,
-        warning_rao=warning,
-        existential_deposit_rao=existential_deposit,
-        fee_payer=fee_payer,
+        **{
+            name: int(result[name]) if name.endswith("_rao") else result[name]
+            for name in ControllerFunding.__dataclass_fields__
+        }
     )
 
 

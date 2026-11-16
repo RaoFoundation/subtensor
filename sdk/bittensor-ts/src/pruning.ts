@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 import { buildIntent, type Intent } from './intents'
 import { eventName } from './receipt'
 import type { ReadView } from './reads'
@@ -21,13 +22,14 @@ export async function pruningState(client: Pick<PruningClient, 'at'>, netuid: nu
   const mechanisms = pruningInteger(count, 'mechanism count', 16), min = pruningInteger(minimum, 'minimum', 65535), max = pruningInteger(maximum, 'maximum', 65535)
   const epochTempo = pruningInteger(tempo, 'tempo'), epochLast = pruningInteger(last, 'last epoch'), epochPending = pruningInteger(pending ?? 0, 'pending epoch'), freezeWindow = pruningInteger(window, 'freeze window')
   const rawMode = consensus && typeof consensus === 'object' ? Object.keys(consensus)[0] : consensus
-  return { block: height, genesis, owner, population, pendingTarget, mechanisms, minimum: min, maximum: max, mode: ({ 0: 'Yuma', 1: 'Null' } as Record<string, string>)[String(rawMode)] ?? String(rawMode), frozen: Boolean(epochTempo) && (epochPending > height || Math.max(0, epochLast + epochTempo - height) < freezeWindow), yumaCeiling: Math.floor(256 / mechanisms) }
+  const policy = evaluatePolicy<{ frozen: boolean; ceiling: number }>('validation.pruning.state', { block: height, mechanisms, tempo: epochTempo, last: epochLast, pending: epochPending, window: freezeWindow })
+  return { block: height, genesis, owner, population, pendingTarget, mechanisms, minimum: min, maximum: max, mode: ({ 0: 'Yuma', 1: 'Null' } as Record<string, string>)[String(rawMode)] ?? String(rawMode), frozen: policy.frozen, yumaCeiling: policy.ceiling }
 }
 export async function pruningSwitchWaitReason(client: PruningClient, netuid: number): Promise<string | null> {
   const view = await client.at(), block = typeof view.block === 'function' ? await view.block() : view.block!
   for (let mechanism = 0; mechanism < 16; mechanism++) if (await client.mapHasEntries('SubtensorModule', 'TimelockedWeightCommits', [mechanism * 4096 + netuid], block)) return 'pending timelocked commitments'
   const [last, tempo, epochs] = await Promise.all([view.query(['SubtensorModule', 'LastRateLimitedBlock'], [{ OwnerHyperparamUpdate: [netuid, 'EpochConsensus'] }]), view.query(['SubtensorModule', 'Tempo'], [netuid]), view.query(['SubtensorModule', 'OwnerHyperparamRateLimit'])])
-  return Number(last) > 0 && block - Number(last) < Number(tempo) * Number(epochs) ? 'consensus-switch cooldown' : null
+  return evaluatePolicy<boolean>('validation.pruning.cooldown', { last, block, tempo, epochs }) ? 'consensus-switch cooldown' : null
 }
 export interface PruningReceipt { success?: boolean; finalized?: boolean; blockHash?: string; extrinsicIndex?: number; events: unknown[]; message?: string; chainError?: { name?: string }; error?: unknown }
 export interface PruningOptions {
@@ -49,11 +51,9 @@ export async function pruneNullSubnet(client: PruningClient, options: PruningOpt
     options.signal?.throwIfAborted()
     if (await options.journal.pending()) throw new Error('unresolved pruning submission; refusing to repeat')
     const state = await pruningState(client, options.netuid)
-    if (state.genesis !== initial.genesis || state.owner !== options.owner || state.mechanisms !== initial.mechanisms) throw new Error('chain, owner, or mechanism count changed; re-plan pruning')
-    if (state.pendingTarget != null && state.pendingTarget !== target) throw new Error('conflicting on-chain pruning target')
-    if (state.mode === 'Yuma') { if (state.population > state.yumaCeiling) throw new Error('Yuma population exceeds its ceiling'); return { state, batches } }
-    if (state.mode !== 'Null' || target < state.minimum || target > Math.min(state.maximum, state.yumaCeiling)) throw new Error('invalid Null pruning state or target')
-    let complete = state.population <= target && state.pendingTarget == null
+    const admission = evaluatePolicy<string>('validation.pruning.admission', { state, initial, owner: options.owner, target })
+    if (admission === 'finished') return { state, batches }
+    let complete = admission === 'complete'
     if (complete && !options.switchToYuma) return { state, batches }
     const reason = complete ? await pruningSwitchWaitReason(client, options.netuid) : null
     if (reason === 'pending timelocked commitments') complete = false
@@ -82,11 +82,13 @@ export async function pruneNullSubnet(client: PruningClient, options: PruningOpt
     const event = result.events.find(event => eventName(event) === 'SubtensorModule.NullUidsPruningProgress') as { attributes?: Record<string, unknown> } | undefined
     const progress = event?.attributes
     if (!progress || Number(progress.netuid) !== options.netuid || Number(progress.target) !== target) throw new Error('pruning receipt has no matching progress event')
-    const cleaned = after.population <= target && after.pendingTarget == null
-    const cleared = pruningInteger(progress.cleared_commits, 'cleared commitments')
-    stalled = after.population >= state.population && cleared === 0 && !cleaned ? stalled + 1 : 0
+    const outcome = evaluatePolicy<{ stalled: number; stop: boolean }>('validation.pruning.progress', {
+      after: after.population, before: state.population, target, pending: after.pendingTarget,
+      cleared: pruningInteger(progress.cleared_commits, 'cleared commitments'), stalled,
+    })
+    stalled = outcome.stalled
     batches++; await options.onProgress?.(after, batches)
-    if (stalled >= 3) throw new Error('three pruning batches made no progress')
+    if (outcome.stop) throw new Error('three pruning batches made no progress')
     deadline = undefined
   }
 }

@@ -6,12 +6,11 @@ the neuron networking layer itself.
 
 from __future__ import annotations
 
-import ipaddress
 from dataclasses import dataclass, field
 from typing import Any, Optional
-from urllib.parse import urlsplit
 
 from .._generated import calls
+from .._policy import evaluate_policy
 from ..result import BittensorError
 from .base import Intent
 from .registry import register
@@ -53,19 +52,18 @@ class ServeAxon(Intent):
     version: int = field(default=1, metadata={"help": VERSION_HELP})
 
     async def build(self, substrate, wallet: Any):
-        address = ipaddress.ip_address(self.ip)
-        return await substrate.compose(
-            calls.SubtensorModule.serve_axon(
-                netuid=self.netuid,
-                version=self.version,
-                ip=int(address),
-                port=self.port,
-                ip_type=address.version,
-                protocol=self.protocol,
-                placeholder1=0,
-                placeholder2=0,
-            )
-        )
+        from .._policy import evaluate_policy
+        from ._shared import policy_arguments
+
+        args = policy_arguments(self)
+        if self.op == "serve_axon_tls":
+            args["certificate"] = bytes.fromhex(self.certificate.removeprefix("0x"))
+        descriptor = evaluate_policy("transaction.serving", {"op": self.op, "args": args})
+        params = descriptor["params"]
+        params["ip"] = int(params["ip"])
+        if "certificate" in params:
+            params["certificate"] = bytes.fromhex(params["certificate"][2:])
+        return await substrate.compose(calls.Call(descriptor["pallet"], descriptor["call"], params))
 
     def summary(self) -> str:
         return f"serve axon {self.ip}:{self.port} on netuid {self.netuid}"
@@ -103,20 +101,18 @@ class ServeAxonTls(Intent):
     version: int = field(default=1, metadata={"help": VERSION_HELP})
 
     async def build(self, substrate, wallet: Any):
-        address = ipaddress.ip_address(self.ip)
-        return await substrate.compose(
-            calls.SubtensorModule.serve_axon_tls(
-                netuid=self.netuid,
-                version=self.version,
-                ip=int(address),
-                port=self.port,
-                ip_type=address.version,
-                protocol=self.protocol,
-                placeholder1=0,
-                placeholder2=0,
-                certificate=bytes.fromhex(self.certificate.removeprefix("0x")),
-            )
-        )
+        from .._policy import evaluate_policy
+        from ._shared import policy_arguments
+
+        args = policy_arguments(self)
+        if self.op == "serve_axon_tls":
+            args["certificate"] = bytes.fromhex(self.certificate.removeprefix("0x"))
+        descriptor = evaluate_policy("transaction.serving", {"op": self.op, "args": args})
+        params = descriptor["params"]
+        params["ip"] = int(params["ip"])
+        if "certificate" in params:
+            params["certificate"] = bytes.fromhex(params["certificate"][2:])
+        return await substrate.compose(calls.Call(descriptor["pallet"], descriptor["call"], params))
 
     def summary(self) -> str:
         return f"serve TLS axon {self.ip}:{self.port} on netuid {self.netuid}"
@@ -144,16 +140,18 @@ class ServePrometheus(Intent):
     version: int = field(default=1, metadata={"help": VERSION_HELP})
 
     async def build(self, substrate, wallet: Any):
-        address = ipaddress.ip_address(self.ip)
-        return await substrate.compose(
-            calls.SubtensorModule.serve_prometheus(
-                netuid=self.netuid,
-                version=self.version,
-                ip=int(address),
-                port=self.port,
-                ip_type=address.version,
-            )
-        )
+        from .._policy import evaluate_policy
+        from ._shared import policy_arguments
+
+        args = policy_arguments(self)
+        if self.op == "serve_axon_tls":
+            args["certificate"] = bytes.fromhex(self.certificate.removeprefix("0x"))
+        descriptor = evaluate_policy("transaction.serving", {"op": self.op, "args": args})
+        params = descriptor["params"]
+        params["ip"] = int(params["ip"])
+        if "certificate" in params:
+            params["certificate"] = bytes.fromhex(params["certificate"][2:])
+        return await substrate.compose(calls.Call(descriptor["pallet"], descriptor["call"], params))
 
     def summary(self) -> str:
         return f"serve prometheus {self.ip}:{self.port} on netuid {self.netuid}"
@@ -191,14 +189,10 @@ class SetService(Intent):
     )
 
     def __post_init__(self):
-        if len(self.url.encode()) > MAX_SERVICE_URL_LEN:
-            raise BittensorError(
-                f"set_service: the url is {len(self.url.encode())} bytes, "
-                f"at most {MAX_SERVICE_URL_LEN} are allowed"
-            )
-        parts = urlsplit(self.url)
-        if self.url and not (parts.scheme in ("http", "https") and parts.netloc):
-            raise BittensorError(f"set_service: {self.url!r} is not an http(s) url")
+        try:
+            evaluate_policy("financial.gamma.arguments", {"op": self.op, "args": {"url": self.url}})
+        except (TypeError, ValueError) as error:
+            raise BittensorError(str(error)) from error
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -236,18 +230,18 @@ class ResetAxon(Intent):
     netuid: int = field(metadata={"help": "Subnet whose published axon endpoint to clear."})
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.serve_axon(
-                netuid=self.netuid,
-                version=0,
-                ip=0,
-                port=1,
-                ip_type=4,
-                protocol=4,
-                placeholder1=0,
-                placeholder2=0,
-            )
-        )
+        from .._policy import evaluate_policy
+        from ._shared import policy_arguments
+
+        args = policy_arguments(self)
+        if self.op == "serve_axon_tls":
+            args["certificate"] = bytes.fromhex(self.certificate.removeprefix("0x"))
+        descriptor = evaluate_policy("transaction.serving", {"op": self.op, "args": args})
+        params = descriptor["params"]
+        params["ip"] = int(params["ip"])
+        if "certificate" in params:
+            params["certificate"] = bytes.fromhex(params["certificate"][2:])
+        return await substrate.compose(calls.Call(descriptor["pallet"], descriptor["call"], params))
 
     def summary(self) -> str:
         return f"reset axon on netuid {self.netuid}"

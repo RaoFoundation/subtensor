@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional
 
-from .._generated import calls
-from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
+from ._money import ALL, Money, tao_amount
 from .base import Intent
 from .registry import register
 
@@ -56,17 +55,9 @@ class Transfer(Intent):
         self.amount_tao = tao_amount(self.amount_tao, allow_all=True)
 
     async def build(self, substrate, wallet: Any):
-        if self.amount_tao == ALL:
-            return await substrate.compose(
-                calls.Balances.transfer_all(dest=self.dest_ss58, keep_alive=self.keep_alive)
-            )
-        value = self.amount_tao.rao
-        call = (
-            calls.Balances.transfer_keep_alive(dest=self.dest_ss58, value=value)
-            if self.keep_alive
-            else calls.Balances.transfer_allow_death(dest=self.dest_ss58, value=value)
-        )
-        return await substrate.compose(call)
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         amount = "ALL TAO" if self.amount_tao == ALL else str(self.amount_tao)
@@ -77,11 +68,10 @@ class Transfer(Intent):
             return ["transfers the entire transferable balance"]
         return []
 
-    def spend(self) -> Spend:
-        if self.amount_tao == ALL:
-            # Unbounded: a max_spend policy should block draining the whole account.
-            return UNBOUNDED
-        return self.amount_tao
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -113,9 +103,9 @@ class TransferAll(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Balances.transfer_all(dest=self.dest_ss58, keep_alive=self.keep_alive)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"transfer ALL TAO to {self.dest_ss58}"
@@ -123,6 +113,7 @@ class TransferAll(Intent):
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         return ["transfers the entire transferable balance"]
 
-    def spend(self) -> Spend:
-        # Unbounded: a max_spend policy should block draining the whole account.
-        return UNBOUNDED
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)

@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 /** Explicit application persistence. Values are never loaded or applied merely by importing the SDK. */
 export interface JsonStore {
   read(key: string): Promise<unknown | undefined>
@@ -75,7 +76,10 @@ export class SdkPreferences {
   constructor(readonly store: JsonStore) {
     this.addresses = new NamedBook(store, 'addresses', entry => { if (typeof entry.address !== 'string' || !entry.address) throw new TypeError('address entry requires an address') })
     this.proxies = new NamedBook(store, 'proxies')
-    this.multisigs = new NamedBook(store, 'multisigs', entry => { if (!Number.isInteger(entry.threshold) || entry.threshold < 1 || entry.threshold > 65535 || !Array.isArray(entry.signatories) || !entry.signatories.length || entry.signatories.some(address => typeof address !== 'string' || !address.trim()) || new Set(entry.signatories).size !== entry.signatories.length || entry.threshold > entry.signatories.length) throw new TypeError('invalid multisig signer set or threshold') })
+    this.multisigs = new NamedBook(store, 'multisigs', entry => {
+      try { evaluatePolicy('transaction.multisig_members', { opaque_members: true, members: entry.signatories, threshold: typeof entry.threshold === 'number' ? entry.threshold : null }) }
+      catch { throw new TypeError('invalid multisig signer set or threshold') }
+    })
   }
   async settings(): Promise<Partial<Record<ConfigKey, string | boolean>>> {
     const value = record(await this.store.read('config'))

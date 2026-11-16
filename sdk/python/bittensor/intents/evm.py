@@ -22,7 +22,7 @@ from ..evm.addresses import (
     resolve_evm_recipient,
 )
 from ..result import BittensorError
-from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
+from ._money import ALL, Money, tao_amount
 from .base import BuiltCall, Intent
 from .registry import register
 
@@ -104,10 +104,10 @@ class FundEvmKey(Intent):
             "only the EVM private key for this address can move the funds afterwards",
         ]
 
-    def spend(self) -> Spend:
-        if self.amount_tao == ALL:
-            return UNBOUNDED
-        return self.amount_tao
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register

@@ -1,3 +1,4 @@
+import { evaluatePolicy } from './policy'
 import { publicKeyFromSs58, accountIdFromEcdsaPublic, CRYPTO_ECDSA } from './keys'
 import { toBuffer } from './wire'
 import type { ChainSigner, SignerLike } from './client'
@@ -55,7 +56,7 @@ export function bindSignerIdentity(signer: SignerLike, identity: BoundSignerIden
       const rawPublicKey = current.publicKey == null ? undefined : toBuffer(current.publicKey, 'publicKey')
       const accountPublicKey = cryptoType === CRYPTO_ECDSA && rawPublicKey?.length === 33 ? accountIdFromEcdsaPublic(rawPublicKey) : rawPublicKey
       const requiresMetadataProof = Boolean(current.requiresMetadataProof ?? current.requiresMetadataHash ?? original.requiresMetadataProof ?? original.requiresMetadataHash)
-      if (key == null || !key.equals(publicKey) || accountPublicKey != null && !accountPublicKey.equals(publicKey) || cryptoType !== identity.cryptoType || requiresMetadataProof !== identity.requiresMetadataProof) throw new Error('signer account changed after preflight')
+      if (evaluatePolicy('transaction.signer_identity', { actual: { account: key, public_key: accountPublicKey ?? key, crypto_type: cryptoType, requires_metadata_proof: requiresMetadataProof }, expected: { account: publicKey, public_key: publicKey, crypto_type: identity.cryptoType, requires_metadata_proof: identity.requiresMetadataProof } })) throw new Error('signer account changed after preflight')
       return { address: identity.address, publicKey, cryptoType: identity.cryptoType, requiresMetadataProof: identity.requiresMetadataProof }
     },
   }

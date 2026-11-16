@@ -1,3 +1,5 @@
+import { transactionAffordability } from './transaction-affordability'
+import { evaluatePolicy } from './policy'
 import { isDefiniteSubmissionRejection, markSubmissionNotSent } from './transport'
 import { bytesHex as hex, concatBytes, hexBytes } from './portable'
 import { isProtectedCrypto, isRotatingCrypto, u64 } from './wallet-types'
@@ -65,11 +67,10 @@ export class ProtectedWalletClient {
     options.signal?.throwIfAborted()
     const runtime = await this.adapter.runtimeAt(authority.block), current = await this.adapter.blockNumber(authority.block)
     const period = options.period === undefined ? 64 : options.period
-    if (period != null && (!Number.isInteger(period) || period < 4 || period > 65536)) throw new RangeError('invalid mortality period')
+    if (period != null && !Number.isSafeInteger(period)) throw new RangeError('invalid mortality period')
     const anchor = Math.max(0, current - 1), genesisHash = hexBytes(await this.adapter.blockHash(0))
     const eraBlockHash = period == null ? genesisHash : hexBytes(await this.adapter.blockHash(this.adapter.eraBirth(period, anchor)))
-    const nonce = authority.nonce + BigInt(offset)
-    if (nonce >= 0xffffffffn) throw new RangeError('account nonce exhausted')
+    const nonce = BigInt(evaluatePolicy<string>('transaction.signing_bounds', { nonce: authority.nonce, offset, period }))
     const txParams = { era: period == null ? '00' : { period, current: anchor }, nonce, tip: u64(options.tip ?? 0n), tipAssetId: options.tipAssetId, genesisHash, eraBlockHash, metadataHash: options.metadataHash }
     const callData: Uint8Array = call instanceof Uint8Array ? call.slice() : await encodeIntentCall(call, async (p, f, params) => runtime.composeCall(p, f, params))
     const parts = runtime.signaturePayloadParts(txParams)
@@ -162,7 +163,7 @@ export class ProtectedWalletClient {
       options.signal?.throwIfAborted()
       return await submit(signed.bytes, 1, options)
     }
-    if (options.period === null || options.period != null && (options.period < 4 || options.period > 8)) throw new RangeError('shielding requires a 4..8 block era')
+    evaluatePolicy('transaction.signing_bounds', { nonce: authority.nonce, offset: 1, period: options.period === undefined ? 8 : options.period, shielded: true })
     const signing = { ...options, period: options.period ?? 8 }
     // Encryption keys rotate at the best head, independently of finalized
     // signing authority. A finalized snapshot can already contain a retired key.
@@ -225,45 +226,23 @@ export class ProtectedWalletClient {
       }
       const wrap = (call: IntentDescriptor): IntentDescriptor => options.proxyFor ? {pallet:'Proxy',call:'proxy',params:{real:options.proxyFor,force_proxy_type:options.proxyType ?? null,call}} : call
       const prepared = await intent.prepare({ ...reader, estimateFee: (call: IntentDescriptor) => this.quote(wrap(call), authority, options), resolveFeePayer: async (call: IntentDescriptor) => (await resolveTransactionFeePayer(reader,wrap(call),this.keypair.ss58Address)).address }, context)
-      if (options.expectedCallHash != null && String(prepared.extras.multisig_call_hash).toLowerCase() !== options.expectedCallHash.toLowerCase()) throw new Error('multisig call changed from expectedCallHash')
+      const execution = evaluatePolicy<{ shielded: boolean; violations: string[] }>('transaction.execution', { shielded: options.mevShield, shield_default: prepared.mevShieldDefault, shield_required: prepared.mevShieldRequired, expected_hash: options.expectedCallHash, actual_hash: prepared.extras.multisig_call_hash })
+      if (execution.violations.includes('call_hash')) throw new Error('multisig call changed from expectedCallHash')
       const call = wrap(prepared.call)
-      const shield = options.mevShield ?? prepared.mevShieldDefault
-      if (prepared.mevShieldRequired && !shield) throw new Error('operation requires shielding')
+      const shield = execution.shielded
+      if (execution.violations.includes('shield_required')) throw new Error('operation requires shielding')
       const fee = await this.quote(call, authority, { ...options, mevShield: shield })
       const innerFee = shield ? await this.quote(call,authority,{...options,mevShield:true},false) : fee
       const carrierFee = fee - innerFee
       const errors = checkIntentPolicy(prepared, options.policy, fee)
       const payer = await resolveTransactionFeePayer(reader, call, this.keypair.ss58Address)
-      const amounts = new Map<string,{address:string; amount:bigint}>()
-      const add = (address: string, amount: bigint, maximum = false) => {
-        const id = hex(this.adapter.decodeAddress(address)), prior = amounts.get(id)?.amount ?? 0n
-        amounts.set(id,{address,amount:maximum ? (prior > amount ? prior : amount) : prior + amount})
-      }
-      for (const debit of prepared.spendByAccount) add(debit.address,debit.amountRao)
-      add(payer.address,innerFee)
-      add(this.keypair.ss58Address,carrierFee)
-      for (const reserve of prepared.requiredFreeByAccount) {
-        const id = hex(this.adapter.decodeAddress(reserve.address))
-        const spend = prepared.spendByAccount.filter(debit => hex(this.adapter.decodeAddress(debit.address)) === id).reduce((total,debit) => total + debit.amountRao,0n)
-        const carrier = id === hex(this.keypair.publicKey) ? carrierFee : 0n
-        add(reserve.address,reserve.requiredRao + spend + carrier, true)
-      }
-      // New receiving deposits are additional to the transaction fee, whereas
-      // some workflow headroom constraints already include their fee quote.
-      const registrations = new Map<string,{payer:string;depositRao:bigint}>()
-      for (const quote of (prepared.extras.registrationSponsorships ?? []) as Array<{payer:string;depositRao:bigint}>) {
-        const id = hex(this.adapter.decodeAddress(quote.payer))
-        registrations.set(id,{payer:quote.payer,depositRao:quote.depositRao + (registrations.get(id)?.depositRao ?? 0n)})
-      }
-      for (const quote of registrations.values()) {
-        const samePayer = hex(this.adapter.decodeAddress(quote.payer)) === hex(this.adapter.decodeAddress(payer.address))
-        const spend = prepared.spendByAccount.filter(debit => hex(this.adapter.decodeAddress(debit.address)) === hex(this.adapter.decodeAddress(quote.payer))).reduce((total,debit) => total + debit.amountRao,0n)
-        add(quote.payer,quote.depositRao + spend + (samePayer ? innerFee : 0n) + (hex(this.adapter.decodeAddress(quote.payer)) === hex(this.keypair.publicKey) ? carrierFee : 0n),true)
-      }
-      for (const {address,amount} of amounts.values()) {
-        const account = await reader.query('System','Account',[address]) as any
-        if (BigInt(account?.data?.free ?? 0) < amount) errors.push(`account ${address} cannot cover spend, reserves and fees`)
-      }
+      const affordability = await transactionAffordability({
+        spends: prepared.spendByAccount.map(row => ({ address: row.address, amount: row.amountRao })),
+        charges: [{ address: payer.address, amount: innerFee }, { address: this.keypair.ss58Address, amount: carrierFee }, ...((prepared.extras.registrationSponsorships ?? []) as Array<{payer:string;depositRao:bigint}>).map(row => ({ address: row.payer, amount: row.depositRao }))],
+        reserves: prepared.requiredFreeByAccount.map(row => ({ address: row.address, required: row.requiredRao, available: row.availableRao })),
+        reserveCharges: [{ address: this.keypair.ss58Address, amount: carrierFee }],
+      }, this.adapter.decodeAddress.bind(this.adapter), async address => BigInt((await reader.query('System','Account',[address]) as any)?.data?.free ?? 0))
+      for (const row of [...affordability.required, ...affordability.reserves]) if (!row.affordable) errors.push(`account ${row.address} cannot cover spend, reserves and fees`)
       return {intent:prepared,call,feeRao:fee,carrierFeeRao:carrierFee,feePayer:payer.address,shielded:shield,blockHash:block,violations:errors,ok:errors.length === 0}
   }
 }

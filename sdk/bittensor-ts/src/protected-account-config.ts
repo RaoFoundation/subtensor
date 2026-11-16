@@ -1,6 +1,8 @@
+import { POLICY_CATALOG } from './policy-catalog'
+import { evaluatePolicy } from './policy'
 import type { JsonStore } from './preferences'
 import { Intent } from './intents'
-import { bytesHex, concatBytes, integerLE, unsignedInteger } from './portable'
+import { bytesHex, hexBytes, unsignedInteger } from './portable'
 import { sameProtectedAccount, type ProtectedProxyBackend, type ProtectedProxyReceipt } from './protected-proxy-types'
 import { formatDuration } from './timelock-workflow'
 
@@ -54,32 +56,12 @@ export interface ProtectedAnnouncementPolicyRow {
   rotate_to_ss58?: string
 }
 
-export const ALLOW_ITEM_TO_PROXY_TYPE: Readonly<Record<string, string>> = Object.freeze({
-  staking: 'Staking', childkeys: 'ChildKeys', childkey: 'ChildKeys', basket: 'BasketTrading',
-  'basket-swaps': 'BasketTrading', basket_swaps: 'BasketTrading', gamma: 'GammaSpend',
-  'root-claim': 'RootClaim', root_claim: 'RootClaim', rootclaim: 'RootClaim', validate: 'Validate',
-  weights: 'Weights', owner: 'Owner', 'swap-hotkey': 'SwapHotkey', swap_hotkey: 'SwapHotkey',
-  'subnet-lease': 'SubnetLeaseBeneficiary', subnet_lease: 'SubnetLeaseBeneficiary',
-})
-export const FORBIDDEN_ALLOW_ITEMS: Readonly<Record<string, string>> = Object.freeze({
-  stake: "use 'staking' after reviewing the complete Staking authority", unstake: "use 'staking' after reviewing the complete Staking authority",
-  registration: 'Registration can burn protected-account TAO immediately', lock: 'Lock can freeze protected-account stake permanently',
-  any: 'Any can transfer and change proxies immediately', transfer: 'Transfer moves free balance immediately',
-  smalltransfer: 'SmallTransfer moves free balance immediately', 'small-transfer': 'SmallTransfer moves free balance immediately', small_transfer: 'SmallTransfer moves free balance immediately',
-  nontransfer: 'NonTransfer can manage proxies and defeat the delay', 'non-transfer': 'NonTransfer can manage proxies and defeat the delay', non_transfer: 'NonTransfer can manage proxies and defeat the delay',
-  noncritical: 'NonCritical can transfer free balance immediately', 'non-critical': 'NonCritical can transfer free balance immediately', non_critical: 'NonCritical can transfer free balance immediately',
-})
-export const PROXY_TYPE_INTENT_OPS: Readonly<Record<string, readonly string[]>> = Object.freeze(Object.fromEntries(Object.entries({
-  Staking: ['add_stake', 'remove_stake', 'move_stake', 'swap_stake', 'add_stake_limit', 'remove_stake_limit', 'unstake_all', 'unstake_all_alpha', 'stake_into_basket', 'claim_root', 'claim_root_with_hotkey'],
-  ChildKeys: ['set_children', 'set_childkey_take'], BasketTrading: ['swap_basket', 'swap_basket_many'],
-  Registration: ['burned_register', 'pow_register'], Lock: ['lock_stake', 'move_lock', 'set_perpetual_lock'], GammaSpend: ['spend_gamma'],
-  RootClaim: ['claim_root', 'claim_root_with_hotkey'], Validate: ['serve_axon', 'serve_axon_tls', 'serve_prometheus', 'reset_axon', 'associate_evm_key'],
-  Weights: ['set_weights', 'commit_weights', 'reveal_weights'], Owner: ['set_hyperparameter', 'set_subnet_identity'],
-  SwapHotkey: ['swap_hotkey'], SubnetLeaseBeneficiary: ['start_call', 'set_subnet_identity', 'set_hyperparameter', 'set_service'],
-}).map(([name, ops]) => [name, Object.freeze(ops)])))
-export const DEFEATING_ZERO_DELAY_TYPES = Object.freeze(['Any', 'NonCritical', 'Transfer', 'SmallTransfer', 'NonTransfer'])
-export const PROTECTED_MANAGEMENT_OPS = Object.freeze(['add_proxy', 'remove_proxy', 'remove_proxies', 'kill_pure_proxy'])
-export const PROTECTED_BYPASS_OPS = Object.freeze(['announce_proxy_call', 'remove_proxy_announcement', 'reject_proxy_announcement', 'execute_proxy_announced', 'create_pure_proxy', 'announce_coldkey_swap', 'swap_coldkey_announced', 'clear_coldkey_swap_announcement', 'dispute_coldkey_swap', 'release_own_coldkey_swap_destination_reservation'])
+export const ALLOW_ITEM_TO_PROXY_TYPE: Readonly<Record<string, string>> = Object.freeze(POLICY_CATALOG.protected.ALLOW_ITEM_TO_PROXY_TYPE)
+export const FORBIDDEN_ALLOW_ITEMS: Readonly<Record<string, string>> = Object.freeze(POLICY_CATALOG.protected.FORBIDDEN_ALLOW_ITEMS)
+export const PROXY_TYPE_INTENT_OPS: Readonly<Record<string, readonly string[]>> = Object.freeze(Object.fromEntries(Object.entries(POLICY_CATALOG.protected.PROXY_TYPE_INTENT_OPS).map(([name, ops]) => [name, Object.freeze(ops)])))
+export const DEFEATING_ZERO_DELAY_TYPES: readonly string[] = Object.freeze(POLICY_CATALOG.protected.DEFEATING_ZERO_DELAY_TYPES)
+export const PROTECTED_MANAGEMENT_OPS: readonly string[] = Object.freeze(POLICY_CATALOG.protected.PROTECTED_MANAGEMENT_OPS)
+export const PROTECTED_BYPASS_OPS: readonly string[] = Object.freeze(POLICY_CATALOG.protected.PROTECTED_BYPASS_OPS)
 
 const queues = new WeakMap<JsonStore, Promise<unknown>>()
 function serialize<T>(store: JsonStore, action: () => Promise<T>): Promise<T> {
@@ -141,13 +123,16 @@ export class ProtectedAccountStore {
   }
   async getByController(wallet: string, genesisHash?: string): Promise<ProtectedAccountRecord | undefined> { const selected = scope(genesisHash); return (await this.list()).find(row => row.controller_wallet === wallet && scope(row.genesis_hash) === selected) }
   async getByProtectedAddress(address: string, genesisHash?: string): Promise<ProtectedAccountRecord | undefined> { const selected = scope(genesisHash); return (await this.list()).find(row => scope(row.genesis_hash) === selected && sameProtectedAccount(this.identity, row.protected_ss58, address)) }
+  private transition<R>(rows: ProtectedAccountRecord[] | ProtectedSetupReservation[], input: Record<string, any>): {value: any[]; result: R} {
+    const addresses = [...rows, input.record, input.fields].filter(Boolean).flatMap(row => [row.controller_ss58, row.protected_ss58]).concat(input.destination, input.controller_ss58).filter((value): value is string => typeof value === 'string')
+    const identities = Object.fromEntries(addresses.map(address => [address, bytesHex(this.identity.accountId(address))]))
+    const result = evaluatePolicy<{value: any[]; result: R | null}>('protected.config_transition', { ...input, rows, identities })
+    return { value: result.value, result: (result.result === null ? undefined : result.result) as R }
+  }
   upsert(record: ProtectedAccountRecord): Promise<ProtectedAccountRecord> {
     const saved = clone(record); this.validate(saved)
     if (saved.genesis_hash != null) saved.genesis_hash = scope(saved.genesis_hash)
-    return this.change('protected', current => {
-      const rows = this.records(current).filter(row => !(row.controller_wallet === saved.controller_wallet && scope(row.genesis_hash) === scope(saved.genesis_hash)))
-      return { value: [...rows, saved], result: clone(saved) }
-    })
+    return this.change('protected', current => this.transition(this.records(current), { action: 'upsert', record: saved }))
   }
   /** Recover creation once without replacing another process's setup or migration progress. */
   bindCreated(record: ProtectedAccountRecord): Promise<ProtectedAccountRecord> {
@@ -155,28 +140,16 @@ export class ProtectedAccountStore {
     const selected = scope(saved.genesis_hash)
     if (!selected) throw new TypeError('created protected account requires genesis_hash')
     saved.genesis_hash = selected
-    return this.change('protected', current => {
-      const rows = this.records(current), old = rows.find(row => row.controller_wallet === saved.controller_wallet && scope(row.genesis_hash) === selected)
-      if (old) {
-        if (!sameProtectedAccount(this.identity, old.controller_ss58, saved.controller_ss58) || !sameProtectedAccount(this.identity, old.protected_ss58, saved.protected_ss58)) throw new Error('creation recovery conflicts with an existing protected account binding; both identities preserved')
-        return { value: rows, result: old }
-      }
-      return { value: [...rows, saved], result: saved }
-    })
+    return this.change('protected', current => this.transition(this.records(current), { action: 'bind_created', record: saved }))
   }
   /** Merge workflow progress without overwriting a concurrent migration claim. */
   patch(wallet: string, genesisHash: string, fields: Partial<ProtectedAccountRecord>, expectedMigration?: { status: string; extrinsicHash?: string }): Promise<ProtectedAccountRecord> {
     const selected = scope(genesisHash), saved = clone(fields)
     if (!selected) throw new TypeError('protected update requires genesis_hash')
     return this.change('protected', current => {
-      const rows = this.records(current), index = rows.findIndex(row => row.controller_wallet === wallet && scope(row.genesis_hash) === selected)
-      if (index < 0) throw new Error('protected account binding not found on this network')
-      const old = rows[index]
-      if (expectedMigration && (old.coldkey_swap?.status !== expectedMigration.status || old.coldkey_swap?.receipt?.extrinsicHash !== expectedMigration.extrinsicHash)) return { value: rows, result: old }
-      if (Object.hasOwn(saved, 'controller_wallet') && saved.controller_wallet !== old.controller_wallet || Object.hasOwn(saved, 'genesis_hash') && scope(saved.genesis_hash) !== selected || Object.hasOwn(saved, 'protected_ss58') && (typeof saved.protected_ss58 !== 'string' || !sameProtectedAccount(this.identity, saved.protected_ss58, old.protected_ss58))) throw new Error('protected account identity cannot change in a workflow update')
-      const updated = { ...old, ...saved, controller_wallet: old.controller_wallet, genesis_hash: old.genesis_hash, protected_ss58: old.protected_ss58 }
-      this.validate(updated); rows[index] = updated
-      return { value: rows, result: updated }
+      const result = this.transition<ProtectedAccountRecord>(this.records(current), { action: 'patch', wallet, genesis_hash: selected, fields: saved, undefined_fields: Object.keys(saved).filter(key => (saved as any)[key] === undefined), expected_migration: expectedMigration })
+      this.validate(result.result)
+      return result
     })
   }
   /** Reserve a coldkey migration before broadcasting; uncertain work is never retried implicitly. */
@@ -184,45 +157,19 @@ export class ProtectedAccountStore {
     const selected = scope(genesisHash)
     if (!selected) throw new TypeError('migration reservation requires genesis_hash')
     this.identity.accountId(destination)
-    return this.change<{ record: ProtectedAccountRecord; created: boolean }>('protected', current => {
-      const rows = this.records(current), index = rows.findIndex(row => row.controller_wallet === wallet && scope(row.genesis_hash) === selected)
-      if (index < 0) throw new Error('protected account binding not found on this network')
-      const old = rows[index]
-      if (!sameProtectedAccount(this.identity, old.protected_ss58, destination)) throw new Error('migration destination differs from the bound protected account')
-      if (['submitting', 'uncertain', 'awaiting_approval', 'announced', 'executed'].includes(old.coldkey_swap?.status ?? '')) return { value: rows, result: { record: old, created: false } }
-      const updated = { ...old, coldkey_swap: { status: 'submitting', new_coldkey_ss58: destination } }
-      rows[index] = updated
-      return { value: rows, result: { record: updated, created: true } }
-    })
+    return this.change('protected', current => this.transition(this.records(current), { action: 'reserve_migration', wallet, genesis_hash: selected, destination }))
   }
-  remove(wallet: string, genesisHash?: string): Promise<boolean> {
-    const selected = scope(genesisHash)
-    return this.change('protected', current => { const rows = this.records(current), retained = rows.filter(row => !(row.controller_wallet === wallet && scope(row.genesis_hash) === selected)); return { value: retained, result: retained.length !== rows.length } })
-  }
+  remove(wallet: string, genesisHash?: string): Promise<boolean> { const selected = scope(genesisHash); return this.change('protected', current => this.transition(this.records(current), { action: 'remove', wallet, genesis_hash: selected })) }
   moveController(fromWallet: string, toWallet: string, options: { controller_ss58?: string; genesis_hash?: string } = {}): Promise<ProtectedAccountRecord | undefined> {
     walletName(toWallet); const selected = scope(options.genesis_hash)
     if (options.controller_ss58 != null) this.identity.accountId(options.controller_ss58)
-    return this.change('protected', current => {
-      const rows = this.records(current), record = rows.find(row => row.controller_wallet === fromWallet && scope(row.genesis_hash) === selected)
-      if (!record) return { value: rows, result: undefined }
-      const conflict = rows.find(row => row.controller_wallet === toWallet && scope(row.genesis_hash) === selected && !sameProtectedAccount(this.identity, row.protected_ss58, record.protected_ss58))
-      if (conflict) throw new Error(`wallet ${toWallet} already controls another protected account on this network; both bindings preserved`)
-      const moved = { ...record, controller_wallet: toWallet, ...(options.controller_ss58 ? { controller_ss58: options.controller_ss58 } : {}) }
-      return { value: [...rows.filter(row => !([fromWallet, toWallet].includes(row.controller_wallet) && scope(row.genesis_hash) === selected)), moved], result: clone(moved) }
-    })
+    return this.change('protected', current => this.transition(this.records(current), { action: 'move', wallet: fromWallet, to_wallet: toWallet, genesis_hash: selected, controller_ss58: options.controller_ss58 }))
   }
   /** Call only after explicit chain validation; legacy data is never selected as a fallback. */
   bindLegacy(wallet: string, genesisHash: string): Promise<ProtectedAccountRecord | undefined> {
     const selected = scope(genesisHash)
     if (!selected) throw new TypeError('legacy binding requires genesis_hash')
-    return this.change('protected', current => {
-      const rows = this.records(current), old = rows.find(row => row.controller_wallet === wallet && scope(row.genesis_hash) === undefined)
-      const scoped = rows.find(row => row.controller_wallet === wallet && scope(row.genesis_hash) === selected)
-      if (!old) return { value: rows, result: scoped }
-      if (scoped) throw new Error('wallet already has a protected account on this network; legacy and scoped records preserved')
-      const bound = { ...old, genesis_hash: selected }
-      return { value: rows.map(row => row === old ? bound : row), result: clone(bound) }
-    })
+    return this.change('protected', current => this.transition(this.records(current), { action: 'bind_legacy', wallet, genesis_hash: selected }))
   }
   private setups(rows: unknown): ProtectedSetupReservation[] {
     if (rows == null) return []
@@ -243,24 +190,19 @@ export class ProtectedAccountStore {
   reserveSetup(reservation: ProtectedSetupReservation): Promise<{ reservation: ProtectedSetupReservation; created: boolean }> {
     const saved = clone(reservation); saved.genesis_hash = scope(saved.genesis_hash)!
     this.setups([saved])
-    return this.change<{ reservation: ProtectedSetupReservation; created: boolean }>('protected_setups', current => {
-      const rows = this.setups(current), old = rows.find(row => row.controller_wallet === saved.controller_wallet && scope(row.genesis_hash) === saved.genesis_hash)
-      if (old) return { value: rows, result: { reservation: clone(old), created: false } }
-      return { value: [...rows.filter(row => row !== old), saved], result: { reservation: clone(saved), created: true } }
-    })
+    return this.change('protected_setups', current => this.transition(this.setups(current), { action: 'reserve_setup', record: saved }))
   }
+
   saveSetup(reservation: ProtectedSetupReservation): Promise<ProtectedSetupReservation> {
     const saved = clone(reservation); saved.genesis_hash = scope(saved.genesis_hash)!
     this.setups([saved])
-    return this.change('protected_setups', current => { const rows = this.setups(current).filter(row => !(row.controller_wallet === saved.controller_wallet && scope(row.genesis_hash) === saved.genesis_hash)); return { value: [...rows, saved], result: clone(saved) } })
+    return this.change('protected_setups', current => this.transition(this.setups(current), { action: 'save_setup', record: saved }))
   }
-  removeSetup(wallet: string, genesisHash: string): Promise<boolean> { const selected = scope(genesisHash); return this.change('protected_setups', current => { const rows = this.setups(current), retained = rows.filter(row => !(row.controller_wallet === wallet && scope(row.genesis_hash) === selected)); return { value: retained, result: rows.length !== retained.length } }) }
+  removeSetup(wallet: string, genesisHash: string): Promise<boolean> { const selected = scope(genesisHash); return this.change('protected_setups', current => this.transition(this.setups(current), { action: 'remove', wallet, genesis_hash: selected })) }
 }
 
 export function deriveLegacyPureAccountId(backend: Pick<ProtectedProxyBackend, 'hash'>, spawner: Uint8Array, options: { height: number; ext_index: number; proxy_type_scale?: number; index?: number }): Uint8Array {
-  if (spawner.length !== 32) throw new RangeError('spawner public key must be 32 bytes')
-  const prefix = new TextEncoder().encode('modlpy/proxy____')
-  const result = backend.hash(concatBytes(prefix, spawner, integerLE(options.height, 4), integerLE(options.ext_index, 4), integerLE(options.proxy_type_scale ?? 0, 1), integerLE(options.index ?? 0, 2)))
+  const result = backend.hash(hexBytes(evaluatePolicy<string>('protected.pure_preimage', { spawner, ...options })))
   if (result.length !== 32) throw new RangeError('pure account hash must be 32 bytes')
   return result
 }
@@ -268,91 +210,48 @@ export function deriveLegacyPureSs58(backend: Pick<ProtectedProxyBackend, 'hash'
   if (options.proxy_type != null && options.proxy_type !== 'Any') throw new RangeError('legacy pure address derivation supports ProxyType.Any only')
   return backend.ss58Encode(deriveLegacyPureAccountId(backend, backend.accountId(spawner), options))
 }
-export function parseDelayToBlocks(raw: string | number, blockTime = 12): number {
-  if (!Number.isFinite(blockTime) || blockTime <= 0) throw new RangeError('block time must be positive')
-  if (typeof raw === 'number') return blockCount(raw, true)
-  const match = /^\s*(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|d|day|days|m|min|mins|minute|minutes|s|sec|secs|second|seconds|b|block|blocks)?\s*$/i.exec(raw)
-  if (!match) throw new TypeError('invalid delay; use blocks or a duration such as 36h, 2d or 90m')
-  const amount = Number(match[1]), unit = (match[2] ?? 'b').toLowerCase()
-  if (['b', 'block', 'blocks'].includes(unit)) return blockCount(Math.trunc(amount), true)
-  const factor = unit.startsWith('d') ? 86400 : unit.startsWith('h') ? 3600 : unit.startsWith('m') ? 60 : 1
-  const value = amount * factor / blockTime, whole = Math.floor(value), fraction = value - whole
-  return blockCount(fraction === 0.5 ? whole + whole % 2 : Math.round(value), true)
-}
+export function parseDelayToBlocks(raw: string | number, blockTime = 12): number { return evaluatePolicy('protected.delay', { raw, block_time: blockTime }) }
 export function resolveAllowItem(item: string): string {
-  const key = item.trim().toLowerCase().replaceAll(' ', '-')
-  if (Object.hasOwn(FORBIDDEN_ALLOW_ITEMS, key)) throw new Error(`allow ${item} refused: ${FORBIDDEN_ALLOW_ITEMS[key]}; transfers and proxy changes must remain delayed`)
-  if (!Object.hasOwn(ALLOW_ITEM_TO_PROXY_TYPE, key)) throw new Error(`allow ${item} has no suitably narrow existing ProxyType`)
-  return ALLOW_ITEM_TO_PROXY_TYPE[key]
+  const result = evaluatePolicy<{kind: string; reason?: string; proxy_type?: string}>('protected.allow_resolution', { item })
+  if (result.kind === 'forbidden') throw new Error(`allow ${item} refused: ${result.reason}; transfers and proxy changes must remain delayed`)
+  if (result.kind === 'unknown') throw new Error(`allow ${item} has no suitably narrow existing ProxyType`)
+  return result.proxy_type!
 }
 export function resolveAllowItems(items: readonly string[]): string[] { return [...new Set(items.map(resolveAllowItem))] }
 function encoded(value?: Intent | Record<string, any>): Record<string, any> { return value instanceof Intent ? value.toJSON() : value ?? {} }
+const identity = (backend: Identity, address?: string | null): string | null => address ? bytesHex(backend.accountId(address)) : null
+function grantIndices(backend: Identity, grants: readonly ProxyGrant[], controller: string, mode: string, delayBlocks?: number): number[] { return evaluatePolicy('protected.grant_indices', { mode, grants: grants.map(row => ({ ...row, delegate: identity(backend, row.delegate) })), controller: identity(backend, controller), delay_blocks: delayBlocks }) }
 export function instantProxyTypeFor(backend: Identity, intentOp: string, record: Pick<ProtectedAccountRecord, 'allows' | 'pending_allows' | 'allow_key_ss58'>, options: { dispatcher_ss58?: string; intent?: Intent | Record<string, any> } = {}): string | undefined {
-  const intent = encoded(options.intent)
-  if (['remove_stake', 'remove_stake_limit', 'move_stake', 'unstake_all'].includes(intentOp) && intent.claim === true) return undefined
-  if (intentOp === 'set_hyperparameter' && intent.name === 'registration_allowed') return undefined
-  if (record.allow_key_ss58 && options.dispatcher_ss58 && !sameProtectedAccount(backend, record.allow_key_ss58, options.dispatcher_ss58)) return undefined
-  return record.allows?.find(type => PROXY_TYPE_INTENT_OPS[type]?.includes(intentOp))
+  return evaluatePolicy<string | null>('protected.instant_proxy', { op: intentOp, allows: record.allows, allow_key: identity(backend, record.allow_key_ss58), dispatcher: identity(backend, options.dispatcher_ss58), intent: encoded(options.intent) }) ?? undefined
 }
-export function defeatingZeroDelayProxies(backend: Identity, grants: readonly ProxyGrant[], controller: string): string[] { return grants.filter(row => sameProtectedAccount(backend, row.delegate, controller) && row.delay === 0 && DEFEATING_ZERO_DELAY_TYPES.includes(row.proxy_type)).map(row => row.proxy_type) }
-export function controllerGrantsBeforeDelay(backend: Identity, grants: readonly ProxyGrant[], controller: string, delayBlocks: number): ProxyGrant[] { return grants.filter(row => sameProtectedAccount(backend, row.delegate, controller) && row.delay < delayBlocks) }
-export function controllerAnyDelays(backend: Identity, grants: readonly ProxyGrant[], controller: string): number[] { return grants.filter(row => sameProtectedAccount(backend, row.delegate, controller) && row.proxy_type === 'Any').map(row => row.delay) }
-export function controllerHoldsAllows(backend: Identity, record: Pick<ProtectedAccountRecord, 'allow_key_ss58'>, controller: string): boolean { return !record.allow_key_ss58 || sameProtectedAccount(backend, record.allow_key_ss58, controller) }
-export function controllerOwnedAllowTypes(backend: Identity, record: Pick<ProtectedAccountRecord, 'allow_key_ss58' | 'allows'>, controller: string): string[] { return controllerHoldsAllows(backend, record, controller) ? [...new Set(record.allows ?? [])] : [] }
-export function allowKeyGrants(backend: Identity, grants: readonly ProxyGrant[], allowKey: string): ProxyGrant[] { return grants.filter(row => sameProtectedAccount(backend, row.delegate, allowKey) && row.proxy_type !== 'Any' && row.delay === 0) }
-export function protectedSetupPending(record: Pick<ProtectedAccountRecord, 'setup' | 'coldkey_swap'>): boolean { return record.setup != null ? record.setup.status !== 'ready' : record.coldkey_swap?.status === 'pending' }
-
-export function announcementProxyGrants(row: ProtectedAnnouncementPolicyRow): Array<{ delegate_ss58?: string; proxy_type: string; delay: number }> {
-  const grants: Array<{ delegate_ss58?: string; proxy_type: string; delay: number }> = []
-  const visit = (value: Record<string, any>, depth: number) => {
-    if (depth > 64) throw new RangeError('protected intent nesting exceeds 64')
-    if (value.op === 'add_proxy') grants.push({ delegate_ss58: value.delegate_ss58, proxy_type: value.proxy_type ?? 'Staking', delay: blockCount(Number(value.delay ?? 0)) })
-    else if (value.op === 'batch') for (const child of value.intents ?? []) visit(encoded(child), depth + 1)
-    else if (value.op === 'execute_proxy_announced') visit({ ...value.inner_args, op: value.inner_op }, depth + 1)
-    else if (['multisig_approve', 'multisig_execute', 'multisig_threshold_1'].includes(value.op) && value.call) visit(encoded(value.call), depth + 1)
-  }
-  const args = { ...row.inner_args }, op = row.inner_op ?? (row.category?.startsWith('allow:') ? 'add_proxy' : undefined)
-  if (!row.inner_op && row.category?.startsWith('allow:')) args.proxy_type ??= row.category.slice(6)
-  visit({ ...args, op }, 0); return grants
-}
+export function defeatingZeroDelayProxies(backend: Identity, grants: readonly ProxyGrant[], controller: string): string[] { return grantIndices(backend, grants, controller, 'defeating').map(index => grants[index].proxy_type) }
+export function controllerGrantsBeforeDelay(backend: Identity, grants: readonly ProxyGrant[], controller: string, delayBlocks: number): ProxyGrant[] { return grantIndices(backend, grants, controller, 'before_delay', delayBlocks).map(index => grants[index]) }
+export function controllerAnyDelays(backend: Identity, grants: readonly ProxyGrant[], controller: string): number[] { return grantIndices(backend, grants, controller, 'any').map(index => grants[index].delay) }
+export function controllerHoldsAllows(backend: Identity, record: Pick<ProtectedAccountRecord, 'allow_key_ss58'>, controller: string): boolean { return evaluatePolicy('protected.holds_allows', { allow_key: identity(backend, record.allow_key_ss58), controller: identity(backend, controller) }) }
+export function controllerOwnedAllowTypes(backend: Identity, record: Pick<ProtectedAccountRecord, 'allow_key_ss58' | 'allows'>, controller: string): string[] { return evaluatePolicy('protected.owned_allows', { allow_key: identity(backend, record.allow_key_ss58), controller: identity(backend, controller), allows: record.allows }) }
+export function allowKeyGrants(backend: Identity, grants: readonly ProxyGrant[], allowKey: string): ProxyGrant[] { return grantIndices(backend, grants, allowKey, 'allow').map(index => grants[index]) }
+export function protectedSetupPending(record: Pick<ProtectedAccountRecord, 'setup' | 'coldkey_swap'>): boolean { return evaluatePolicy('protected.setup_pending', record) }
+export function announcementProxyGrants(row: ProtectedAnnouncementPolicyRow): Array<{ delegate_ss58?: string; proxy_type: string; delay: number }> { return evaluatePolicy('protected.announcement_grants', row) }
 export function pendingAllowGrantLabels(backend: Identity, rows: readonly ProtectedAnnouncementPolicyRow[], allowKey?: string): string[] {
-  const labels: string[] = []
-  for (const row of rows) {
-    if (row.status != null && !['pending', 'awaiting_approval', 'submitting', 'uncertain'].includes(row.status)) continue
-    for (const grant of announcementProxyGrants(row)) if (grant.delay === 0 && !(allowKey && grant.delegate_ss58 && !sameProtectedAccount(backend, allowKey, grant.delegate_ss58))) labels.push(`#${row.index} allow:${grant.proxy_type} → ${grant.delegate_ss58 ?? 'unknown-delegate'}`)
-  }
-  return [...new Set(labels)]
+  const grants = rows.map(row => announcementProxyGrants(row))
+  const selected = evaluatePolicy<Array<{ row_index: number; grant_index: number }>>('protected.pending_allow_grants', { rows: rows.map((row, index) => ({ status: row.status, grants: grants[index].map(grant => ({ ...grant, identity: identity(backend, grant.delegate_ss58) })) })), allow_key: identity(backend, allowKey), include_uncertain: true })
+  return [...new Set(selected.map(({ row_index, grant_index }) => { const grant = grants[row_index][grant_index]; return `#${rows[row_index].index} allow:${grant.proxy_type} → ${grant.delegate_ss58 ?? 'unknown-delegate'}` }))]
 }
 export function allowKeyChangeBlockers(backend: Identity, options: { old_allow_key_ss58: string; new_allow_key_ss58: string; allows: readonly string[]; pending_allows: readonly string[]; delegations: readonly ProxyGrant[]; pending_allow_announcements?: readonly string[] }): string[] {
-  if (sameProtectedAccount(backend, options.old_allow_key_ss58, options.new_allow_key_ss58)) return []
-  const blockers: string[] = []
-  if (options.allows.length) blockers.push(`confirmed allows on old key: ${options.allows.join(', ')}`)
-  if (options.pending_allows.length) blockers.push(`pending allows on old key: ${options.pending_allows.join(', ')}`)
-  if (options.pending_allow_announcements?.length) blockers.push(`outstanding allow announcements: ${options.pending_allow_announcements.join(', ')}`)
-  const live = allowKeyGrants(backend, options.delegations, options.old_allow_key_ss58)
-  if (live.length) blockers.push(`on-chain zero-delay grants on old key: ${live.map(row => `${row.proxy_type}@0`).join(', ')}`)
-  return blockers
+  const selected = evaluatePolicy<{ kinds: string[]; live_indices: number[] }>('protected.allow_key_blockers', { old: identity(backend, options.old_allow_key_ss58), new: identity(backend, options.new_allow_key_ss58), allows: options.allows, pending_allows: options.pending_allows, pending_announcements: options.pending_allow_announcements, grants: options.delegations.map(row => ({ ...row, delegate: identity(backend, row.delegate) })) })
+  const labels: Record<string, string> = {
+    allows: `confirmed allows on old key: ${options.allows.join(', ')}`,
+    pending_allows: `pending allows on old key: ${options.pending_allows.join(', ')}`,
+    pending_announcements: `outstanding allow announcements: ${options.pending_allow_announcements?.join(', ')}`,
+    live: `on-chain zero-delay grants on old key: ${selected.live_indices.map(index => `${options.delegations[index].proxy_type}@0`).join(', ')}`,
+  }
+  return selected.kinds.map(kind => labels[kind])
 }
 export function rotationComplete(backend: Identity, grants: readonly ProxyGrant[], options: { new_controller_ss58: string; old_controller_ss58?: string | null; delay_blocks: number }): boolean {
-  const newGrant = grants.some(row => sameProtectedAccount(backend, row.delegate, options.new_controller_ss58) && row.proxy_type === 'Any' && row.delay === options.delay_blocks)
-  return newGrant && (!options.old_controller_ss58 || sameProtectedAccount(backend, options.old_controller_ss58, options.new_controller_ss58) || !grants.some(row => sameProtectedAccount(backend, row.delegate, options.old_controller_ss58!)))
+  return evaluatePolicy('protected.rotation_complete', { grants: grants.map(row => ({ ...row, delegate: identity(backend, row.delegate) })), new_controller: identity(backend, options.new_controller_ss58), old_controller: identity(backend, options.old_controller_ss58), delay_blocks: options.delay_blocks })
 }
-export function protectedManagementPath(value: Intent | Record<string, any>, depth = 0): string | undefined {
-  if (depth > 64) throw new RangeError('protected intent nesting exceeds 64')
-  const spec = encoded(value)
-  if (PROTECTED_MANAGEMENT_OPS.includes(spec.op)) return spec.op
-  if (spec.op === 'batch') for (const [index, child] of (spec.intents ?? []).entries()) { const found = protectedManagementPath(child, depth + 1); if (found) return `batch[${index}].${found}` }
-  if (spec.op === 'execute_proxy_announced') { const found = protectedManagementPath({ ...spec.inner_args, op: spec.inner_op }, depth + 1); if (found) return `execute_proxy_announced.${found}` }
-  if (['multisig_approve', 'multisig_execute', 'multisig_threshold_1'].includes(spec.op) && spec.call) { const found = protectedManagementPath(spec.call, depth + 1); if (found) return `${spec.op}.${found}` }
-  return undefined
-}
-export function isProtectedManagementReceipt(row: ProtectedAnnouncementPolicyRow, value: Intent | Record<string, any>): boolean {
-  const spec = encoded(value), category = row.category ?? '', children = spec.intents ?? []
-  if (category.startsWith('allow:') || category.startsWith('disallow:')) return spec.op === (category.startsWith('allow:') ? 'add_proxy' : 'remove_proxy') && spec.proxy_type === category.split(':')[1] && Number(spec.delay ?? 0) === 0
-  if (category === 'delay-change') return spec.op === 'batch' && children.length === 2 && children[0].op === 'remove_proxy' && children[1].op === 'add_proxy' && children.every((child: any) => child.proxy_type === 'Any') && children[0].delegate_ss58 === children[1].delegate_ss58
-  if (category === 'rotate-controller') return spec.op === 'batch' && Boolean(row.rotate_to_ss58) && children.length >= 2 && children[0].op === 'remove_proxies' && children.slice(1).every((child: any) => child.op === 'add_proxy')
-  return false
-}
+export function protectedManagementPath(value: Intent | Record<string, any>, depth = 0): string | undefined { return evaluatePolicy<string | null>('protected.management_path', { intent: encoded(value), depth }) ?? undefined }
+export function isProtectedManagementReceipt(row: ProtectedAnnouncementPolicyRow, value: Intent | Record<string, any>): boolean { return evaluatePolicy('protected.management_receipt', { row, intent: encoded(value) }) }
 export function assertProtectedManagementAllowed(row: ProtectedAnnouncementPolicyRow, value: Intent | Record<string, any>): void { const path = protectedManagementPath(value); if (path && !isProtectedManagementReceipt(row, value)) throw new Error(`refusing unmanaged ${path} on a keyless protected account; use protected settings or controller rotation`) }
 export function defaultProtectedName(wallet: string): string { walletName(wallet); return `${wallet}-protected` }
 export function blocksToLocalEta(blocks: number, blockTime = 12, now = new Date()): string {

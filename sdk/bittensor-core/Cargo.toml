@@ -32,6 +32,10 @@ fernet = { version = "=0.2.1", optional = true }
 # Homebrew-pathed on macOS runners (broken wheel for anyone without it).
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 hex = "0.4.3"
+num-bigint = "0.4.6"
+num-rational = "0.4.2"
+num-traits = "0.2.19"
+url = "2.5"
 libc = { version = "0.2", optional = true }
 hkdf = "0.12.4"
 subtensor-hashed = { path = "../../primitives/hashed", default-features = false, features = ["signing"] }

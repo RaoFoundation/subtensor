@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 
 from .._generated.calls import Call
+from .._policy import evaluate_policy
 from ..limit_orders import (
     _bytes,
     _u64,
@@ -112,39 +113,22 @@ class ExecuteOrders(Intent):
     )
 
     def __post_init__(self):
-        if not self.orders:
-            raise ValueError("execution requires at least one order")
         self.orders = deepcopy(self.orders)
-        authorized_count = 0
-        for signed in self.orders:
-            if set(signed) != {"order", "signature", "partial_fill"}:
-                raise ValueError(
-                    "each signed order must include order, signature, and partial_fill"
-                )
-            signed["order"] = canonical_order(signed["order"])
-            if signed["partial_fill"] is not None:
-                _u64(signed["partial_fill"], "partial fill")
-            authorized = "Authorized" in signed["order"]
-            authorized_count += authorized
-            authorization = signed["signature"]
-            if authorization == "AccountApproved" or authorization == {"AccountApproved": None}:
-                if not authorized:
-                    raise ValueError("account approval requires an Authorized order")
-                continue
-            if not isinstance(authorization, dict) or len(authorization) != 1:
-                raise ValueError("unknown order authorization")
-            scheme = next(iter(authorization))
-            if scheme in ("Ed25519", "Sr25519", "Ecdsa"):
-                if authorized:
-                    raise ValueError("classical signatures require original V1 or V2 orders")
-                signature = _bytes(authorization[scheme])
-                if len(signature) != (65 if scheme == "Ecdsa" else 64):
-                    raise ValueError("invalid classical order signature length")
-                authorization[scheme] = "0x" + signature.hex()
-                continue
-            raise ValueError("unknown order authorization")
-        if authorized_count > 8:
-            raise ValueError("authorized execution requires 1..8 orders")
+        try:
+            checked = evaluate_policy(
+                "financial.orders.signed", {"orders": self.orders, "strict": False}
+            )
+        except (TypeError, ValueError) as error:
+            message = str(error)
+            if message == "at most eight authorized orders can be relayed":
+                message = "authorized execution requires 1..8 orders"
+            raise ValueError(message) from error
+        for original, normalized in zip(self.orders, checked):
+            original["order"] = canonical_order(original["order"])
+            original["signature"] = normalized["signature"]
+            original["partial_fill"] = (
+                None if normalized["partial_fill"] is None else int(normalized["partial_fill"])
+            )
 
     async def build(self, substrate, wallet):
         orders = deepcopy(self.orders)
@@ -178,12 +162,14 @@ class ExecuteBatchedOrders(ExecuteOrders):
 
     def __post_init__(self):
         super().__post_init__()
-        if not 0 < self.netuid < 2**16 or any(
-            order_terms(signed["order"])["netuid"] != self.netuid for signed in self.orders
-        ):
-            raise ValueError("all netted orders must target the same non-root subnet")
-        if self.should_fail is not True:
-            raise ValueError("netted batches are atomic")
+        evaluate_policy(
+            "financial.orders.netted",
+            {
+                "should_fail": self.should_fail,
+                "netuid": self.netuid,
+                "netuids": [order_terms(row["order"])["netuid"] for row in self.orders],
+            },
+        )
 
     async def build(self, substrate, wallet):
         orders = deepcopy(self.orders)

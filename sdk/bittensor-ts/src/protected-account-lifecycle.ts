@@ -1,3 +1,5 @@
+import { evaluatePolicy } from './policy'
+import { hexBytes } from './portable'
 import { buildIntent, intentFromJSON, intentSignerRole, type Intent } from './intents'
 import {
   ProtectedAccountStore, type ProtectedAccountRecord, type ProxyGrant,
@@ -12,13 +14,12 @@ import { isDefiniteSubmissionRejection } from './transport'
 import { controllerFunding, planControllerRefill, includeControllerRefill, fundController, type ControllerRefillPlan } from './protected-funding'
 import { requireProtectedChain, sameProtectedAccount, type ProtectedProxyBackend, type ProtectedProxySnapshot, type ProtectedProxyReceipt } from './protected-proxy-types'
 
-const BYPASS = new Set(['announce_proxy_call', 'remove_proxy_announcement', 'reject_proxy_announcement', 'execute_proxy_announced', 'create_pure_proxy', 'announce_coldkey_swap', 'swap_coldkey_announced', 'clear_coldkey_swap_announcement', 'dispute_coldkey_swap', 'release_own_coldkey_swap_destination_reservation'])
 const hex = (bytes: Uint8Array) => '0x' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
 const object = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {}
 const unique = <T>(values: readonly T[]): T[] => [...new Set(values)]
 const sessionQueues = new WeakMap<object, Map<string, Promise<unknown>>>()
-const approvalOnly = (receipt: ProtectedProxyReceipt) => receipt.awaitingApproval === true || receipt.events.some(event => event.module_id === 'Multisig' && ['NewMultisig', 'MultisigApproval'].includes(event.event_id)) && !receipt.events.some(event => event.module_id === 'Multisig' && event.event_id === 'MultisigExecuted')
-const confirmed = (receipt: ProtectedProxyReceipt) => receipt.success === true && !approvalOnly(receipt) && nestedDispatchError([...receipt.events]) == null && (receipt.blockHash != null || receipt.blockNumber != null || receipt.status === 'finalized' || receipt.status === 'inBlock') && !['failed', 'uncertain', 'submitted', 'broadcast', 'pending', 'dropped', 'invalid', 'usurped', 'retracted'].includes(receipt.status)
+const approvalOnly = (receipt: ProtectedProxyReceipt) => evaluatePolicy<{approval_only: boolean}>('protected.receipt_state', receipt).approval_only
+const confirmed = (receipt: ProtectedProxyReceipt) => evaluatePolicy<{confirmed: boolean}>('protected.receipt_state', receipt).confirmed
 function uncertainReceipt(error: unknown): ProtectedProxyReceipt | undefined {
   const value = object(error)
   return typeof value.extrinsicHash === 'string' && /^0x[0-9a-f]{64}$/i.test(value.extrinsicHash) ? { status: 'uncertain', success: null, events: [], extrinsicHash: value.extrinsicHash, blockHash: value.blockHash } : undefined
@@ -127,10 +128,9 @@ export class ProtectedAccountSession {
     })
   }
   private liveDelay(record: ProtectedAccountRecord, grants: ProxyGrant[]): number {
-    const delays = controllerAnyDelays(this.backend, grants, record.controller_ss58)
-    if (!delays.length || delays.some(delay => delay <= 0)) throw new Error('protected controller requires a live nonzero Any delay')
-    return Math.min(...delays)
+    return evaluatePolicy('protected.live_delay', { delays: controllerAnyDelays(this.backend, grants, record.controller_ss58) })
   }
+
   private refreshed(record: ProtectedAccountRecord, grants: ProxyGrant[]): ProtectedAccountRecord {
     const delegate = record.allow_key_ss58 || record.controller_ss58
     const allows = unique(allowKeyGrants(this.backend, grants, delegate).map(grant => grant.proxy_type).filter(type => type in PROXY_TYPE_INTENT_OPS))
@@ -184,10 +184,9 @@ export class ProtectedAccountSession {
     return { address: record.protected_ss58, spawner: String(proof.spawner ?? record.spawner ?? record.controller_ss58), height: proof.height ?? record.height, ext_index: proof.ext_index ?? record.ext_index, index: proof.index ?? record.index ?? 0, account_mode: proof.account_mode ?? record.account_mode ?? 'legacy', block_hash: proof.block_hash }
   }
   private validateSetupGrants(record: ProtectedAccountRecord, grants: ProxyGrant[], allows: readonly string[]): void {
-    const delays = controllerAnyDelays(this.backend, grants, record.controller_ss58), delegate = record.allow_key_ss58 || record.controller_ss58
-    if (!delays.length || delays.some(delay => delay !== record.delay_blocks)) throw new Error('every controller Any grant must match the requested delay')
-    if (grants.some(grant => !(this.same(grant.delegate, record.controller_ss58) && grant.proxy_type === 'Any' && grant.delay === record.delay_blocks) && !(this.same(grant.delegate, delegate) && grant.delay === 0 && allows.includes(grant.proxy_type)))) throw new Error('unexpected proxy authority; refuse to migrate funds')
+    evaluatePolicy('protected.validate_setup_grants', { controller: hex(this.backend.accountId(record.controller_ss58)), allow_key: record.allow_key_ss58 ? hex(this.backend.accountId(record.allow_key_ss58)) : null, delay_blocks: record.delay_blocks, allows, grants: grants.map(grant => ({ ...grant, delegate: hex(this.backend.accountId(grant.delegate)) })) })
   }
+
   setup(options: ProtectedSetupOptions): Promise<ProtectedSetupResult> { return this.change(() => this.setupInternal(options)) }
   resumeSetup(options: ProtectedSetupOptions): Promise<ProtectedSetupResult> { return this.setup(options) }
   private async setupInternal(options: ProtectedSetupOptions): Promise<ProtectedSetupResult> {
@@ -270,12 +269,8 @@ export class ProtectedAccountSession {
     if (dispute != null) throw new Error('coldkey migration is disputed or recovery locked')
     if (value == null) return undefined
     if (!Array.isArray(value) || value.length !== 2) throw new TypeError('invalid coldkey migration announcement')
-    const account = this.backend.accountId(record.protected_ss58), expected = [hex(this.backend.hash(account))]
-    if (typeof policy === 'boolean') {
-      const domain = new TextEncoder().encode('coldkey-swap-v2-policy'), preimage = new Uint8Array(domain.length + account.length + 1)
-      preimage.set(domain); preimage.set(account, domain.length); preimage[preimage.length - 1] = Number(policy)
-      expected.push(hex(this.backend.hash(preimage)))
-    }
+    const account = this.backend.accountId(record.protected_ss58)
+    const expected = evaluatePolicy<string[]>('protected.migration_preimages', { account, policy }).map(preimage => hex(this.backend.hash(hexBytes(preimage))))
     if (!expected.includes(String(value[1]).toLowerCase())) throw new Error('controller has a different coldkey migration')
     return { execute_block: integer(value[0], 'migration execution block'), new_coldkey_hash: String(value[1]), import_source_policies: policy, ready: snapshot.block >= Number(value[0]) }
   }
@@ -318,18 +313,14 @@ export class ProtectedAccountSession {
   }) }
   async route(intent: Intent, options: { signerAddress?: string; explicitProxy?: boolean } = {}): Promise<ProtectedRoute> {
     const snapshot = await this.backend.snapshot(), stored = await this.record(snapshot), signer = options.signerAddress ?? stored.controller_ss58
-    const hotkey = intentSignerRole(intent) === 'hotkey'
-    if (hotkey && !options.signerAddress) throw new Error('hotkey operations require an explicit signerAddress; the protected controller is a coldkey')
-    if (options.explicitProxy || hotkey || BYPASS.has(intent.op)) return { kind: 'direct', intent, signerAddress: signer }
-    const dangerous = protectedManagementPath(intent)
-    if (dangerous) throw new Error(`refusing ordinary ${dangerous} on a keyless protected account; use settings or rotation`)
+    const gate = evaluatePolicy<string>('protected.route_gate', { intent: intent.toJSON(), hotkey: intentSignerRole(intent) === 'hotkey', explicit_signer: options.signerAddress != null, explicit_proxy: options.explicitProxy })
+    if (gate === 'direct') return { kind: 'direct', intent, signerAddress: signer }
     const record = this.refreshed(stored, await this.grants(snapshot, stored.protected_ss58))
-    const instant = instantProxyTypeFor(this.backend, intent.op, record, { dispatcher_ss58: signer, intent })
-    if (intent.op === 'pow_register' && instant !== 'Registration') throw new Error('PoW proof expires after five blocks; a live zero-delay Registration grant is required')
-    if (instant) return { kind: 'instant', intent, signerAddress: signer, proxyFor: record.protected_ss58, forceProxyType: instant }
-    if (!this.same(signer, record.controller_ss58)) throw new Error('delayed route requires the protected controller')
+    const route = evaluatePolicy<{kind: 'instant' | 'delayed'; proxy_type?: string}>('protected.route', { op: intent.op, intent: intent.toJSON(), allows: record.allows, allow_key: record.allow_key_ss58 ? hex(this.backend.accountId(record.allow_key_ss58)) : null, dispatcher: hex(this.backend.accountId(signer)), controller: hex(this.backend.accountId(record.controller_ss58)) })
+    if (route.kind === 'instant') return { kind: 'instant', intent, signerAddress: signer, proxyFor: record.protected_ss58, forceProxyType: route.proxy_type! }
     return { kind: 'delayed', intent, signerAddress: signer, record }
   }
+
   async funding(options: { feePayer?: string } = {}) {
     const snapshot = await this.backend.snapshot(), record = await this.record(snapshot, false)
     return controllerFunding(this.backend, record, { ...options, snapshot })
@@ -366,22 +357,13 @@ export class ProtectedAccountSession {
     const snapshot = await this.backend.snapshot(), stored = await this.record(snapshot), grants = await this.grants(snapshot, stored.protected_ss58), record = this.refreshed(stored, grants)
     const pending = await this.announcements.reconcile(record, { persist: false })
     const allow = resolveAllowItems([...(options.allow ?? [])]), disallow = resolveAllowItems([...(options.disallow ?? [])])
-    if (allow.some(type => disallow.includes(type))) throw new Error('cannot allow and disallow the same permission')
     const oldDelegate = record.allow_key_ss58 || record.controller_ss58, delegate = options.allowKey ?? record.allow_key_address ?? oldDelegate
-    this.backend.accountId(delegate)
-    if (!this.same(delegate, oldDelegate) && (allowKeyGrants(this.backend, grants, oldDelegate).length || pending.some(row => row.plaintext_missing || announcementProxyGrants(row).some(grant => grant.delegate_ss58 != null && this.same(grant.delegate_ss58, oldDelegate))))) throw new Error('old allow key still holds or may receive grants; cancel pending grants and execute revocations before changing the allow key')
-    if (disallow.length && pending.some(row => row.plaintext_missing || row.category === 'unknown')) throw new Error('cancel announcements with missing plaintext before revoking grants')
+    const id = (address: string) => hex(this.backend.accountId(address))
     const delay = options.delay == null ? record.delay_blocks : parseDelayToBlocks(options.delay, snapshot.blockTime)
-    if (delay !== record.delay_blocks && controllerAnyDelays(this.backend, grants, record.controller_ss58).some(value => value !== record.delay_blocks)) throw new Error('controller has multiple Any delays; reconcile grants before changing the delay')
-    const actions: ProtectedSettingsAction[] = [], cancels = new Set<number>()
-    if (delay !== record.delay_blocks) actions.push({ category: 'delay-change', metadata: { target_delay_blocks: delay }, intent: buildIntent('batch', { intents: [buildIntent('remove_proxy', { delegate_ss58: record.controller_ss58, proxy_type: 'Any', delay: record.delay_blocks }), buildIntent('add_proxy', { delegate_ss58: record.controller_ss58, proxy_type: 'Any', delay, from_hotkey: false })] }) })
-    for (const type of allow) if (!(record.allows ?? []).includes(type) && !pending.some(row => this.rowGrants(row, delegate, type))) actions.push({ category: `allow:${type}`, intent: buildIntent('add_proxy', { delegate_ss58: delegate, proxy_type: type, delay: 0, from_hotkey: false }) })
-    for (const type of disallow) {
-      for (const row of pending) if (this.rowGrants(row, oldDelegate, type) || row.category === `allow:${type}`) cancels.add(row.index)
-      if ((record.allows ?? []).includes(type)) actions.push({ category: `disallow:${type}`, intent: buildIntent('remove_proxy', { delegate_ss58: delegate, proxy_type: type, delay: 0 }) })
-    }
-    return { record, actions, cancelIndices: [...cancels], allowTypes: allow, disallowTypes: disallow, delegate, delayBlocks: delay }
+    const plan = evaluatePolicy<{actions: Array<{intent: Record<string, any>; category: string; metadata?: Record<string, unknown>}>; cancel_indices: number[]}>('protected.settings_plan', { record, allow, disallow, old_delegate: id(oldDelegate), delegate: id(delegate), delegate_address: delegate, delay_blocks: delay, controller_delays: controllerAnyDelays(this.backend, grants, record.controller_ss58), grants: grants.map(grant => ({ ...grant, delegate: id(grant.delegate) })), pending: pending.map(row => ({ ...row, grants: announcementProxyGrants(row).map(grant => ({ ...grant, delegate_ss58: grant.delegate_ss58 ? id(grant.delegate_ss58) : null })) })) })
+    return { record, actions: plan.actions.map(action => ({ ...action, intent: intentFromJSON(action.intent) })), cancelIndices: plan.cancel_indices, allowTypes: allow, disallowTypes: disallow, delegate, delayBlocks: delay }
   }
+
   updateSettings(options: ProtectedSettingsOptions = {}): Promise<{ record: ProtectedAccountRecord; results: ProtectedAnnouncementResult[] }> { return this.change(async () => {
     let plan = await this.planSettings(options)
     for (const index of plan.cancelIndices) {
@@ -411,19 +393,10 @@ export class ProtectedAccountSession {
     if (destination && !this.same(destination.protected_ss58, record.protected_ss58)) throw new Error('destination wallet already controls another protected account')
     const pending = await this.announcements.reconcile(record, { persist: false })
     if (pending.length) throw new Error('execute or cancel all old-controller announcements before rotation')
-    const reviewed = record.reviewed_allows ?? record.allows ?? [], delegate = record.allow_key_ss58 || record.controller_ss58
-    const ownAllows = this.same(delegate, record.controller_ss58)
-    const keep = allowKeyGrants(this.backend, grants, delegate).filter(grant => reviewed.includes(grant.proxy_type) && grant.proxy_type in PROXY_TYPE_INTENT_OPS)
-    const migrated = ownAllows ? unique(keep.map(grant => grant.proxy_type)) : []
-    const replacements = keep.map(grant => ({ ...grant, delegate: ownAllows ? toAddress : record.allow_key_address || grant.delegate }))
-    const seen = new Set<string>(), children: Intent[] = [buildIntent('remove_proxies', {}), buildIntent('add_proxy', { delegate_ss58: toAddress, proxy_type: 'Any', delay: record.delay_blocks, from_hotkey: false })]
-    for (const grant of replacements) {
-      const identity = `${hex(this.backend.accountId(grant.delegate))}:${grant.proxy_type}`
-      if (!seen.has(identity)) children.push(buildIntent('add_proxy', { delegate_ss58: grant.delegate, proxy_type: grant.proxy_type, delay: 0, from_hotkey: false }))
-      seen.add(identity)
-    }
-    return { record, intent: buildIntent('batch', { intents: children }), toWallet, toAddress, migratedAllows: migrated }
+    const plan = evaluatePolicy<{ children: Record<string, any>[]; migrated: string[] }>('protected.rotation_plan', { record, controller: hex(this.backend.accountId(record.controller_ss58)), allow_key: record.allow_key_ss58 ? hex(this.backend.accountId(record.allow_key_ss58)) : null, allow_address: record.allow_key_address, new_address: toAddress, grants: grants.map(grant => ({ ...grant, address: grant.delegate, delegate: hex(this.backend.accountId(grant.delegate)) })) })
+    return { record, intent: buildIntent('batch', { intents: plan.children.map(intentFromJSON) }), toWallet, toAddress, migratedAllows: plan.migrated }
   }
+
   rotate(toWallet: string, toAddress: string): Promise<ProtectedAnnouncementResult> { return this.change(async () => {
     const plan = await this.planRotation(toWallet, toAddress)
     const result = await this.announcements.announce(plan.record, plan.intent, { category: 'rotate-controller', allowManagement: true, metadata: { rotate_to_wallet: toWallet, rotate_to_ss58: this.identity(toAddress), rotate_migrated_allows: plan.migratedAllows } })

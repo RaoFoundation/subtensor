@@ -163,7 +163,14 @@ def _signer_identity(signer) -> tuple[bytes, bytes, int, Optional[bytes]]:
 
 def _check_signer_identity(signer, expected) -> None:
     actual = _signer_identity(signer)
-    if actual[:3] != expected[:3] or (expected[3] is not None and actual[3] != expected[3]):
+    from ._policy import evaluate_policy
+
+    def facts(value):
+        return dict(zip(("account", "public_key", "crypto_type", "descriptor"), value))
+
+    if evaluate_policy(
+        "transaction.signer_identity", {"actual": facts(actual), "expected": facts(expected)}
+    ):
         raise ValueError("unlocked signing identity does not match the public wallet")
 
 
