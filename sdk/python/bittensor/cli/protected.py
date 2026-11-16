@@ -983,6 +983,10 @@ def _recover_existing_commitment(
     delay_blocks: int,
 ) -> Optional[dict[str, Any]]:
     """Recover a lost receipt without creating a duplicate on-chain commitment."""
+    # Recovery persists a local receipt even though it submits nothing on chain.
+    # Dry runs must continue through the callers' read-only submission previews.
+    if getattr(app_ctx, "dry_run", False):
+        return None
     controller = _account_identity(record.get("controller_ss58") or _controller_ss58(app_ctx))
     matches = [
         item

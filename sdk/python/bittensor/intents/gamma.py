@@ -14,7 +14,7 @@ from .._policy import evaluate_policy
 from ..balance import Balance
 from ..hyperparams import U64_MAX
 from ..result import BittensorError, chain_error_from_dispatch
-from ..signing import coerce_address
+from ..signing import coerce_address, is_address_param
 from ..sp_core import ss58_decode
 from ._money import (
     ALL,
@@ -138,10 +138,12 @@ def _check_spender_or_service(intent) -> None:
             "financial.gamma.arguments",
             {
                 "op": intent.op,
-                "args": {
-                    "spender_ss58": intent.spender_ss58,
-                    "service_hotkey_ss58": intent.service_hotkey_ss58,
-                },
+                "args": _address_arguments(
+                    {
+                        "spender_ss58": intent.spender_ss58,
+                        "service_hotkey_ss58": intent.service_hotkey_ss58,
+                    }
+                ),
             },
         )
     except (TypeError, ValueError) as error:
@@ -711,11 +713,7 @@ class SpendGamma(Intent):
     )
 
     def __post_init__(self):
-        normalized = _arguments(self)["spends"]
-        self.spends = [
-            {**row, "hotkey_ss58": coerce_address(row["hotkey_ss58"], "hotkey_ss58")}
-            for row in normalized
-        ]
+        self.spends = _arguments(self)["spends"]
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -762,29 +760,43 @@ class SpendGamma(Intent):
         )
 
 
-def _arguments(intent):
-    fields = {
-        name: getattr(intent, name)
-        for name in (
-            "origin_hotkey_ss58",
-            "destination_hotkey_ss58",
-            "amount_gamma",
-            "spender_ss58",
-            "service_hotkey_ss58",
-            "default_spender",
-            "daily_spend_cap_gamma",
-            "remove_cap",
-            "spends",
-        )
-        if hasattr(intent, name)
+def _address_arguments(arguments):
+    """Copy public address values across the JSON boundary, retaining caller objects."""
+    return {
+        name: coerce_address(value, name)
+        if isinstance(name, str) and is_address_param(name)
+        else value
+        for name, value in arguments.items()
     }
+
+
+def _arguments(intent):
+    fields = _address_arguments(
+        {
+            name: getattr(intent, name)
+            for name in (
+                "origin_hotkey_ss58",
+                "destination_hotkey_ss58",
+                "amount_gamma",
+                "spender_ss58",
+                "service_hotkey_ss58",
+                "default_spender",
+                "daily_spend_cap_gamma",
+                "remove_cap",
+                "spends",
+            )
+            if hasattr(intent, name)
+        }
+    )
     if "spends" in fields and isinstance(fields["spends"], list):
-        fields["spends"] = [
-            {**row, "amount_gamma": gamma_amount(row["amount_gamma"])}
-            if isinstance(row, dict) and "amount_gamma" in row
-            else row
-            for row in fields["spends"]
-        ]
+        spends = []
+        for row in fields["spends"]:
+            if isinstance(row, dict):
+                row = _address_arguments(row)
+                if "amount_gamma" in row:
+                    row["amount_gamma"] = gamma_amount(row["amount_gamma"])
+            spends.append(row)
+        fields["spends"] = spends
     try:
         return evaluate_policy("financial.gamma.arguments", {"op": intent.op, "args": fields})
     except (TypeError, ValueError) as error:

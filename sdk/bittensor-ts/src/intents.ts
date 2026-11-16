@@ -545,7 +545,15 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
 
 function descriptor(pallet: string, call: string, params: Record<string, unknown> = {}): IntentDescriptor { return { pallet, call, params } }
 function batchCall(calls: IntentDescriptor[]): IntentDescriptor {
-  return descriptor('Utility', 'batch_all', { calls: evaluatePolicyPreservingValues<IntentDescriptor[]>('protected.flatten_batch', { calls }) })
+  const paths = evaluatePolicy<number[][]>('protected.flatten_batch_paths', { calls })
+  // Rust selects safe leaves; retain the original descriptors and their
+  // semanticCall, callData, signerRole, and opaque language values.
+  const leaves = paths.map(path => {
+    let leaf = calls[path[0]!]!
+    for (const index of path.slice(1)) leaf = (leaf.params.calls as IntentDescriptor[])[index]!
+    return leaf
+  })
+  return descriptor('Utility', 'batch_all', { calls: leaves })
 }
 
 function intentPolicyArgs(args: Readonly<Record<string, unknown>>): Record<string, unknown> {
