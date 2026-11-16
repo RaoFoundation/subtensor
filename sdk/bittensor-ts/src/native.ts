@@ -509,7 +509,7 @@ export interface NativeClientHandle {
   readCatalog(): string[]
   refreshRuntime(): Promise<boolean>
   runtime(): NativeRuntimeHandle
-  rpcValue(method: string, params: unknown): Promise<unknown>
+  rpcValue(method: string, params: unknown, timeoutMs?: bigint | null, cancellation?: NativeCancellationTokenHandle | null): Promise<unknown>
   chainInfo(): Promise<NativeChainInfo>
   composeCall(pallet: string, callFunction: string, params: unknown): Promise<Buffer>
   decodeScale(typeName: string, data: Buffer): unknown
@@ -556,6 +556,7 @@ export interface NativeClientHandle {
     options?: NativeExternalSigningOptions | null,
   ): Promise<NativeExternalSigningPlanHandle>
   estimateFeeExternal(plan: NativeExternalSigningPlanHandle): Promise<string>
+  cancelExternalSigningPlan(plan: NativeExternalSigningPlanHandle): Promise<void>
   assembleExternal(
     plan: NativeExternalSigningPlanHandle,
     signature: Buffer,

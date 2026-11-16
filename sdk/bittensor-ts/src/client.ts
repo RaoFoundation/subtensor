@@ -1853,16 +1853,42 @@ export class Client extends BrowserChainClient {
 
   override async rpc(method: string, params: unknown[] = [], options: RpcRequestOptions = {}): Promise<unknown> {
     throwIfAborted(options.signal)
-    try { const result = await (await this.requireNativeClient()).rpcValue(method, params); throwIfAborted(options.signal); return result }
-    catch (error) {
-      if (!this.nodeArchiveEndpoints.length || !isPrunedState(error) || !/^(?:state_(?:call|getStorage|getStorageHash|queryStorageAt|getKeysPaged|getMetadata|getRuntimeVersion)|chain_get(?:Block|Header))$/.test(method)) throw error
-      const expected = await this.genesisHash()
-      this.nodeArchiveTransport ??= new JsonRpcTransport(this.nodeArchiveEndpoints[0], this.nodeArchiveEndpoints.slice(1), this.nodeOptions.retryForever, {
-        ...this.nodeOptions,
-        validateEndpoint: async (endpoint, request) => { if (!sameHex(String(await request('chain_getBlockHash', [0])), expected)) throw new EndpointValidationError(`archive endpoint ${endpoint} belongs to another chain`) },
-      })
-      return this.nodeArchiveTransport.request(method, params, options)
+    const timeoutMs = nonNegativeNumber(options.timeoutMs, nonNegativeNumber(this.nodeOptions.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS))
+    const started = performance.now(), request = withRequestSignal({ ...options, timeoutMs }), cancellation = createNativeCancellationToken()
+    request.onAbort(() => cancellation.cancel())
+    const remaining = (): number => {
+      if (request.signal?.aborted) throw request.error()
+      if (timeoutMs === 0) return 0
+      const left = timeoutMs - (performance.now() - started)
+      if (left <= 0) {
+        cancellation.cancel()
+        throw new RequestTimeoutError(`request timed out after ${timeoutMs}ms`)
+      }
+      return Math.ceil(left)
     }
+    const run = async (): Promise<unknown> => {
+      const native = await this.requireNativeClient()
+      try {
+        const result = await native.rpcValue(method, params, BigInt(remaining()), cancellation)
+        remaining()
+        return result
+      } catch (error) {
+        remaining()
+        if (!this.nodeArchiveEndpoints.length || !isPrunedState(error) || !/^(?:state_(?:call|getStorage|getStorageHash|queryStorageAt|getKeysPaged|getMetadata|getRuntimeVersion)|chain_get(?:Block|Header))$/.test(method)) throw error
+        const expected = await this.genesisHash()
+        remaining()
+        this.nodeArchiveTransport ??= new JsonRpcTransport(this.nodeArchiveEndpoints[0], this.nodeArchiveEndpoints.slice(1), this.nodeOptions.retryForever, {
+          ...this.nodeOptions,
+          validateEndpoint: async (endpoint, request) => { if (!sameHex(String(await request('chain_getBlockHash', [0])), expected)) throw new EndpointValidationError(`archive endpoint ${endpoint} belongs to another chain`) },
+        })
+        const result = await this.nodeArchiveTransport.request(method, params, { ...options, timeoutMs: remaining(), signal: request.signal })
+        remaining()
+        return result
+      }
+    }
+    try { return await abortableNative(run(), request.signal, cancellation) }
+    catch (error) { throw normalizeAbortError(error, request) }
+    finally { request.cleanup() }
   }
 
   override async runtimeCall<T extends ScaleValue = ScaleValue>(
@@ -1960,6 +1986,18 @@ export class Client extends BrowserChainClient {
     const record = preparedCalls.get(prepared) ?? importedCalls.get(prepared)
     if (!record || record.owner !== this) throw new TypeError('expected a signing plan prepared or imported by this client')
     return serializeUnsignedTransaction(prepared as unknown as UnsignedTransactionState, { blake2_256, publicKeyFromSs58 }, prepared.runtime.metadataBytes)
+  }
+
+  /** Abandon an unused plan and release its reserved nonce. Only call this when
+   * no signed transaction derived from the plan was broadcast elsewhere.
+   * Submitted plans, including uncertain submissions, cannot be cancelled. */
+  async cancelPreparedCall(prepared: PreparedCall): Promise<void> {
+    const record = preparedCalls.get(prepared)
+    if (!record || record.owner !== this) throw new TypeError('expected an unused signing plan prepared by this client')
+    await runSignerQueue(this, record.planned.resolved.ss58Address, async () => {
+      await record.planned.native.cancelExternalSigningPlan(record.planned.plan)
+      preparedCalls.delete(prepared)
+    })
   }
 
   /** Imported bytes carry no policy approval; raw-call admission is required explicitly. */

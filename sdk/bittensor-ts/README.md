@@ -358,6 +358,12 @@ Known mainnet aliases (`finney`, `archive`) use the checked-in mainnet genesis
 hash. Custom endpoint sets, and named networks without a built-in trust anchor,
 must pass `expectedGenesisHash` when `fallbackEndpoints` are configured.
 
+Node `client.rpc(method, params, { timeoutMs, signal })` applies one deadline
+across connection setup and endpoint/archive fallback. It defaults to
+`requestTimeoutMs`; `timeoutMs: 0` disables the deadline. Aborting stops the
+request and further retries; it cannot undo an operation already received by
+the node.
+
 Transaction amount inputs are intentionally explicit. Pass `Balance.fromTao("1.25")`
 or `taoAmount("1.25")` for TAO-denominated values, and pass `123n` or
 `raoAmount("123")` for rao. Raw `number` and `string` amounts are rejected by
@@ -402,6 +408,11 @@ Native external signing plans can be submitted only once, including across
 clones. A released reservation or nonce-cache reset invalidates its plan; create
 a fresh plan after a rejected or cancelled attempt. Uncertain delivery still
 requires reconciliation by transaction hash before retrying the operation.
+For an unused `client.prepareCall()` result, call
+`await client.cancelPreparedCall(prepared)` to invalidate that plan and release
+its automatic nonce reservation. Only cancel when no transaction derived from
+the plan was broadcast elsewhere. Cancellation rejects plans already submitted
+through this client, including submissions whose delivery is uncertain.
 After reconciling an abandoned or expired transaction, use
 `await client.invalidateNonce(address)` before retrying with automatic nonces.
 Do not clear a reservation while its carrier or inner transaction may still

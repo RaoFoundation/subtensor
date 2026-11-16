@@ -1102,6 +1102,7 @@ fn intent_metadata(input: &Value) -> Result<Value, PolicyError> {
             | "claim_root"
             | "claim_root_with_hotkey"
             | "stake_into_basket"
+            | "set_subnet_emission_weights"
     ) || (op == "swap_hotkey" && args["netuid"].is_null())
         || (op == "set_subnet_gamma_emission_whitelisted" && args["whitelisted"] == false);
     let unbounded = unbounded_account_spend(op)

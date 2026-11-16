@@ -62,10 +62,10 @@ zeroize = "1"
 ark-serialize = { version = "0.4.0", features = ["derive"], default-features = false }
 codec = { package = "parity-scale-codec", version = "3.7.5", default-features = false, features = ["derive", "max-encoded-len"] }
 rand_core = "0.6.4"
-# blocking: the timelock surface is synchronous (asyncio stays in Python per
-# the spec); reqwest's blocking client runs its own internal runtime, so no
-# tokio dependency is needed here.
+# The public transport stays synchronous. Cancellable requests use one shared
+# async transport internally so aborting also drops blocked network I/O.
 reqwest = { version = "0.12.15", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"], optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "time"], optional = true }
 tle = { workspace = true, features = ["std"] }
 w3f-bls = { workspace = true, features = ["std"] }
 
@@ -129,6 +129,7 @@ host = [
     "dep:reqwest",
     "dep:scrypt",
     "dep:sodiumoxide",
+    "dep:tokio",
     "sp-core/std",
     "subtensor-hashed/std",
 ]

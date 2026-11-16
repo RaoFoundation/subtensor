@@ -3,15 +3,15 @@
 //! The codec/runtime modules deliberately remain transport agnostic. `Client`
 //! is the small blocking JSON-RPC layer that turns their metadata-driven SCALE
 //! primitives into pinned reads, signed submissions, receipts, and block
-//! streams. It uses the crate's existing rustls-backed `reqwest` dependency, so
-//! the native SDK adds no second async runtime and works in ordinary Rust tests,
+//! streams. It uses rustls-backed `reqwest` with a shared internal executor for
+//! cancellable I/O, while preserving the synchronous public API for Rust tests,
 //! command-line programs, and foreign-language bindings alike.
 
 #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -35,6 +35,9 @@ const ENDPOINT_IDENTITY_TTL: Duration = Duration::from_secs(60);
 #[cfg(test)]
 #[path = "client_endpoint_tests.rs"]
 mod endpoint_identity_tests;
+#[cfg(test)]
+#[path = "client_rpc_control_tests.rs"]
+mod rpc_control_tests;
 pub const DEFAULT_RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
 pub const DEFAULT_ERA_PERIOD: u64 = 64;
 /// The shield pallet accepts only short-lived inner transactions.
@@ -221,8 +224,18 @@ pub struct ExternalSigningPlan {
 }
 
 struct ExternalPlanLifecycle {
+    gate: Mutex<()>,
     used: AtomicBool,
+    owner: Arc<()>,
     reservation: Option<(String, u64)>,
+}
+
+impl ExternalPlanLifecycle {
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, ()>, CoreError> {
+        self.gate
+            .lock()
+            .map_err(|_| CoreError::Rpc("external signing plan lock is poisoned".into()))
+    }
 }
 
 impl TxOutcome {
@@ -322,7 +335,9 @@ impl Client {
     {
         let endpoints = normalized_endpoints(endpoints)?;
         let http = HttpClient::builder()
-            .timeout(DEFAULT_RPC_TIMEOUT)
+            // Each RPC applies its own budget; a zero timeout must also be
+            // able to disable reqwest's default 30-second client timeout.
+            .timeout(None)
             .build()
             .map_err(|error| CoreError::Rpc(format!("cannot build HTTP client: {error}")))?;
         let mut last_error = None;
@@ -518,21 +533,40 @@ impl Client {
 
     /// Escape hatch for node RPCs not yet wrapped by the SDK.
     pub fn rpc_value(&self, method: &str, params: JsonValue) -> Result<JsonValue, CoreError> {
+        self.rpc_value_with_options(method, params, None, None)
+    }
+
+    /// Apply one deadline across endpoint validation and failover. `None` keeps
+    /// the default per-request timeout; zero disables the timeout. Cancellation
+    /// drops in-flight network I/O and prevents any further endpoint attempts.
+    pub fn rpc_value_with_options(
+        &self,
+        method: &str,
+        params: JsonValue,
+        timeout: Option<Duration>,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<JsonValue, CoreError> {
+        let control = RpcRequestControl::new(timeout, cancelled)?;
         let mut last_error = None;
         for (index, endpoint) in self.endpoint_order() {
+            control.check()?;
             // A fallback must establish the same chain identity before it sees
             // any application request, especially a signed transaction.
-            if let Err(error) = self.validate_endpoint_genesis(index, &endpoint) {
+            if let Err(error) = self.validate_endpoint_genesis(index, &endpoint, &control) {
+                control.check()?;
                 last_error = Some(error);
                 continue;
             }
-            match rpc_request(
+            let result = rpc_request_controlled(
                 &self.http,
                 &endpoint,
                 self.next_id.fetch_add(1, Ordering::Relaxed),
                 method,
                 params.clone(),
-            ) {
+                &control,
+            );
+            control.check()?;
+            match result {
                 Ok(value) => {
                     self.set_active_endpoint(index)?;
                     return Ok(value);
@@ -556,7 +590,13 @@ impl Client {
         Err(error)
     }
 
-    fn validate_endpoint_genesis(&self, index: usize, endpoint: &str) -> Result<(), CoreError> {
+    fn validate_endpoint_genesis(
+        &self,
+        index: usize,
+        endpoint: &str,
+        control: &RpcRequestControl<'_>,
+    ) -> Result<(), CoreError> {
+        control.check()?;
         if self
             .validated_endpoints
             .lock()
@@ -566,13 +606,15 @@ impl Client {
         {
             return Ok(());
         }
-        let value = rpc_request(
+        let value = rpc_request_controlled(
             &self.http,
             endpoint,
             self.next_id.fetch_add(1, Ordering::Relaxed),
             "chain_getBlockHash",
             json!([0]),
+            control,
         )?;
+        control.check()?;
         let genesis = parse_h256(json_string(&value, "endpoint genesis hash")?)?;
         if genesis != self.genesis_hash {
             return Err(CoreError::Rpc(format!(
@@ -1075,7 +1117,17 @@ impl Client {
             Some(nonce) => (
                 nonce,
                 Arc::new(ExternalPlanLifecycle {
+                    gate: Mutex::new(()),
                     used: AtomicBool::new(false),
+                    owner: Arc::clone(
+                        &self
+                            .nonce_reservations
+                            .lock()
+                            .map_err(|_| {
+                                CoreError::Rpc("nonce reservation lock is poisoned".into())
+                            })?
+                            .owner,
+                    ),
                     reservation: None,
                 }),
             ),
@@ -1232,6 +1284,7 @@ impl Client {
         signature: &[u8],
         crypto_type: Option<u8>,
     ) -> Result<(Vec<u8>, String), CoreError> {
+        let _lifecycle = plan.lifecycle.lock()?;
         // Keep invalidation from racing assembly. A released plan must not
         // produce bytes authorizing a nonce now owned by a different plan.
         let reservations = self
@@ -1295,6 +1348,7 @@ impl Client {
         cancelled: Option<&AtomicBool>,
     ) -> Result<TxOutcome, CoreError> {
         {
+            let _lifecycle = plan.lifecycle.lock()?;
             let reservations = self
                 .nonce_reservations
                 .lock()
@@ -1340,6 +1394,41 @@ impl Client {
         plan: &ExternalSigningPlan,
     ) -> Result<(), CoreError> {
         self.release_external_reservation(&plan.lifecycle)
+    }
+
+    /// Permanently abandon an unused detached plan and release only its nonce.
+    /// The caller must know that no signed transaction derived from this plan
+    /// was broadcast outside this client. Submission attempts, even uncertain
+    /// ones, consume the plan and cannot be cancelled through this method.
+    pub fn cancel_external_signing_plan(
+        &self,
+        plan: &ExternalSigningPlan,
+    ) -> Result<(), CoreError> {
+        let _lifecycle = plan.lifecycle.lock()?;
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        if !Arc::ptr_eq(&reservations.owner, &plan.lifecycle.owner) {
+            return Err(CoreError::Policy(
+                "external signing plan belongs to another client".into(),
+            ));
+        }
+        reservations.check_external_plan(plan)?;
+        if plan
+            .lifecycle
+            .used
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(CoreError::Policy(
+                "external signing plan is no longer usable".into(),
+            ));
+        }
+        if let Some((account, nonce)) = &plan.lifecycle.reservation {
+            reservations.release(account.clone(), *nonce, 1);
+        }
+        Ok(())
     }
 
     fn release_external_reservation(
@@ -2799,6 +2888,56 @@ where
     decode_hex(json_string(&value, "state_getMetadata result")?)
 }
 
+struct RpcRequestControl<'a> {
+    deadline: Option<Instant>,
+    per_request_timeout: Option<Duration>,
+    cancelled: Option<&'a AtomicBool>,
+}
+
+impl<'a> RpcRequestControl<'a> {
+    fn new(
+        timeout: Option<Duration>,
+        cancelled: Option<&'a AtomicBool>,
+    ) -> Result<Self, CoreError> {
+        let deadline = timeout
+            .filter(|duration| !duration.is_zero())
+            .map(|duration| {
+                Instant::now()
+                    .checked_add(duration)
+                    .ok_or_else(|| CoreError::Rpc("RPC timeout is out of range".into()))
+            })
+            .transpose()?;
+        Ok(Self {
+            deadline,
+            per_request_timeout: timeout.is_none().then_some(DEFAULT_RPC_TIMEOUT),
+            cancelled,
+        })
+    }
+
+    fn check(&self) -> Result<(), CoreError> {
+        check_cancelled(self.cancelled)?;
+        if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            return Err(CoreError::Rpc("RPC request timed out".into()));
+        }
+        Ok(())
+    }
+
+    fn remaining(&self) -> Result<Option<Duration>, CoreError> {
+        self.check()?;
+        match self.deadline {
+            Some(deadline) => deadline
+                .checked_duration_since(Instant::now())
+                .filter(|duration| !duration.is_zero())
+                .map(Some)
+                .ok_or_else(|| CoreError::Rpc("RPC request timed out".into())),
+            None => Ok(self.per_request_timeout),
+        }
+    }
+}
+
 fn rpc_request(
     client: &HttpClient,
     endpoint: &str,
@@ -2806,21 +2945,30 @@ fn rpc_request(
     method: &str,
     params: JsonValue,
 ) -> Result<JsonValue, CoreError> {
-    let response = client
-        .post(endpoint)
-        .json(&json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params,
-        }))
-        .send()
-        .map_err(|error| CoreError::Rpc(format!("{method} request failed: {error}")))?
-        .error_for_status()
-        .map_err(|error| CoreError::Rpc(format!("{method} HTTP error: {error}")))?;
-    let body: JsonValue = response
-        .json()
-        .map_err(|error| CoreError::Rpc(format!("{method} returned invalid JSON: {error}")))?;
+    rpc_request_controlled(
+        client,
+        endpoint,
+        id,
+        method,
+        params,
+        &RpcRequestControl::new(None, None)?,
+    )
+}
+
+fn rpc_request_controlled(
+    client: &HttpClient,
+    endpoint: &str,
+    id: u64,
+    method: &str,
+    params: JsonValue,
+    control: &RpcRequestControl<'_>,
+) -> Result<JsonValue, CoreError> {
+    let body = if control.cancelled.is_some() {
+        cancellable_rpc_body(endpoint, id, method, params, control)?
+    } else {
+        blocking_rpc_body(client, endpoint, id, method, params, control)?
+    };
+    control.check()?;
     if let Some(error) = body.as_object().and_then(|object| object.get("error")) {
         return Err(CoreError::Rpc(format!("{method}: {error}")));
     }
@@ -2828,6 +2976,106 @@ fn rpc_request(
         .and_then(|object| object.get("result"))
         .cloned()
         .ok_or_else(|| CoreError::Rpc(format!("{method} response omitted result")))
+}
+
+fn blocking_rpc_body(
+    client: &HttpClient,
+    endpoint: &str,
+    id: u64,
+    method: &str,
+    params: JsonValue,
+    control: &RpcRequestControl<'_>,
+) -> Result<JsonValue, CoreError> {
+    let mut request = client.post(endpoint).json(&json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": method,
+        "params": params,
+    }));
+    if let Some(timeout) = control.remaining()? {
+        request = request.timeout(timeout);
+    }
+    control.check()?;
+    let response = request
+        .send()
+        .map_err(|error| CoreError::Rpc(format!("{method} request failed: {error}")))?
+        .error_for_status()
+        .map_err(|error| CoreError::Rpc(format!("{method} HTTP error: {error}")))?;
+    response
+        .json()
+        .map_err(|error| CoreError::Rpc(format!("{method} returned invalid JSON: {error}")))
+}
+
+struct CancellableRpcTransport {
+    runtime: tokio::runtime::Runtime,
+    http: reqwest::Client,
+}
+
+fn cancellable_rpc_body(
+    endpoint: &str,
+    id: u64,
+    method: &str,
+    params: JsonValue,
+    control: &RpcRequestControl<'_>,
+) -> Result<JsonValue, CoreError> {
+    static TRANSPORT: OnceLock<Result<CancellableRpcTransport, String>> = OnceLock::new();
+    let transport = TRANSPORT
+        .get_or_init(|| {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("bittensor-rpc")
+                .enable_all()
+                .build()
+                .map_err(|error| format!("cannot build RPC executor: {error}"))?;
+            let http = reqwest::Client::builder()
+                .build()
+                .map_err(|error| format!("cannot build cancellable HTTP client: {error}"))?;
+            Ok(CancellableRpcTransport { runtime, http })
+        })
+        .as_ref()
+        .map_err(|error| CoreError::Rpc(error.clone()))?;
+    let mut request = transport.http.post(endpoint).json(&json!({
+        "jsonrpc": "2.0", "id": id, "method": method, "params": params,
+    }));
+    if let Some(timeout) = control.remaining()? {
+        request = request.timeout(timeout);
+    }
+    control.check()?;
+    let method = method.to_owned();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let task = transport.runtime.spawn(async move {
+        let result = async {
+            request
+                .send()
+                .await
+                .map_err(|error| CoreError::Rpc(format!("{method} request failed: {error}")))?
+                .error_for_status()
+                .map_err(|error| CoreError::Rpc(format!("{method} HTTP error: {error}")))?
+                .json()
+                .await
+                .map_err(|error| CoreError::Rpc(format!("{method} returned invalid JSON: {error}")))
+        }
+        .await;
+        let _ = sender.send(result);
+    });
+    // Do not nest Runtime::block_on inside a caller's executor. The pooled
+    // executor owns the I/O task, and aborting its handle drops the entire
+    // request/body future even when the caller disabled request timeouts.
+    loop {
+        if let Err(error) = control.check() {
+            task.abort();
+            return Err(error);
+        }
+        match receiver.recv_timeout(Duration::from_millis(5)) {
+            Ok(result) => return result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(CoreError::Rpc(
+                    "RPC executor stopped before completing the request".into(),
+                ));
+            }
+        }
+    }
 }
 
 fn http_endpoint(endpoint: &str) -> String {
@@ -3521,6 +3769,7 @@ fn reserve_nonce_range(
 
 #[derive(Default)]
 struct NonceReservations {
+    owner: Arc<()>,
     tokens: HashMap<String, Arc<()>>,
     floors: HashMap<String, u64>,
     released: HashMap<String, Vec<(u64, u64)>>,
@@ -3560,7 +3809,9 @@ impl NonceReservations {
     ) -> Result<(u64, Arc<ExternalPlanLifecycle>), CoreError> {
         let nonce = self.reserve(account.clone(), chain_next, 1)?;
         let lifecycle = Arc::new(ExternalPlanLifecycle {
+            gate: Mutex::new(()),
             used: AtomicBool::new(false),
+            owner: Arc::clone(&self.owner),
             reservation: Some((account.clone(), nonce)),
         });
         let plans = self.external_plans.entry(account).or_default();

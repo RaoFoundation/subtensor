@@ -479,8 +479,8 @@ export class NativeChainClient {
     return nativeAsync(() => this.native.submitShielded(callData, nativeKeypairHandle(signer), waitForFinalization))
   }
 
-  rpcValue(method: string, params: unknown[] = []): Promise<unknown> {
-    return nativeAsync(() => this.native.rpcValue(method, params))
+  rpcValue(method: string, params: unknown[] = [], timeoutMs?: number | bigint, cancellation?: NativeCancellationToken): Promise<unknown> {
+    return nativeAsync(() => this.native.rpcValue(method, params, timeoutMs == null ? undefined : BigInt(timeoutMs), cancellation))
   }
 
   chainInfo(): Promise<NativeChainInfo> {
@@ -681,6 +681,10 @@ export class NativeChainClient {
 
   async estimateFeeExternal(plan: NativeExternalSigningPlanHandle): Promise<bigint> {
     return BigInt(await nativeAsync(() => this.native.estimateFeeExternal(plan)))
+  }
+
+  cancelExternalSigningPlan(plan: NativeExternalSigningPlanHandle): Promise<void> {
+    return nativeAsync(() => this.native.cancelExternalSigningPlan(plan))
   }
 
   assembleExternal(

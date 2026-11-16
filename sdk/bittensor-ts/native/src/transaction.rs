@@ -1213,10 +1213,19 @@ impl NativeClient {
         &self,
         method: String,
         params: JsonValue,
+        timeout_ms: Option<BigInt>,
+        cancellation: Option<&NativeCancellationToken>,
     ) -> NapiResult<AsyncTask<ClientJsonTask>> {
+        let timeout = timeout_ms
+            .as_ref()
+            .map(|value| bigint_u64("timeoutMs", value).map(Duration::from_millis))
+            .transpose()?;
+        let cancelled = cancellation.map(|token| Arc::clone(&token.cancelled));
         Ok(AsyncTask::new(ClientJsonTask::new(
             Arc::clone(&self.inner),
-            move |client| client.rpc_value(&method, params),
+            move |client| {
+                client.rpc_value_with_options(&method, params, timeout, cancelled.as_deref())
+            },
         )))
     }
 
@@ -1559,6 +1568,18 @@ impl NativeClient {
             Arc::clone(&self.inner),
             move |client| client.assemble_external_extrinsic(&plan, &signature, crypto_type),
         )))
+    }
+
+    #[napi(js_name = "cancelExternalSigningPlan")]
+    pub fn cancel_external_signing_plan(
+        &self,
+        plan: &NativeExternalSigningPlan,
+    ) -> AsyncTask<ClientUnitTask> {
+        let plan = Arc::clone(&plan.inner);
+        AsyncTask::new(ClientUnitTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.cancel_external_signing_plan(&plan),
+        ))
     }
 
     #[napi(js_name = "submitExternal")]

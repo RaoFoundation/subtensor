@@ -362,8 +362,8 @@ impl IntentCall {
                 | "claim_root_with_hotkey"
                 | "stake_into_basket"
         ) || operation == "Crowdloan.finalize"
-            // A full split can remove targets absent from its parameters. Only
-            // the state-aware descriptor constructor can prove its full scope.
+            // A full split can remove targets added after preparation. No
+            // observed snapshot constrains which targets exist at inclusion.
             || operation == "AdminUtils.sudo_set_subnet_emission_weights_v2"
             || operation == "AdminUtils.sudo_set_subnet_gamma_emission_whitelisted"
                 && matches!(field(&params, "whitelisted")?, Value::Bool(false))
@@ -493,8 +493,9 @@ fn descriptor_unchecked(
         _ => {
             let mut call = IntentCall::operation(&operation, params)?;
             if operation == "AdminUtils.sudo_set_subnet_emission_weights_v2" {
-                // Keep all replacements in a nested descriptor on one chain
-                // snapshot. RPC/metadata/decoding failures must not narrow scope.
+                // Report known targets from one preview snapshot, but retain
+                // all-subnet scope: the runtime replaces whatever map exists
+                // at inclusion, without checking this observed state.
                 let hash = match scope_block {
                     Some(hash) => hash,
                     None => scope_block.insert(client.block_hash(None)?),
@@ -506,7 +507,6 @@ fn descriptor_unchecked(
                     Some(hash),
                 )?;
                 call.security.netuids = emission_split_scope(&call.params, &previous)?;
-                call.security.affects_all_subnets = false;
             }
             return Ok(call);
         }

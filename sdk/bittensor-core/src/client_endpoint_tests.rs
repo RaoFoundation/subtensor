@@ -4,6 +4,9 @@ use super::*;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
+#[path = "client_detached_tests.rs"]
+mod detached_cancellation;
+
 fn server(replies: Vec<(&'static str, Option<JsonValue>)>) -> (String, thread::JoinHandle<()>) {
     inspected_server(replies, |_| {})
 }
@@ -348,12 +351,15 @@ mod gamma_scope {
             .check(&call, None)
             .iter()
             .any(|v| v.contains("netuid 8")));
-        assert!(policy(&[1, 2, 7, 8, 9]).check(&call, None).is_empty());
+        assert!(policy(&[1, 2, 7, 8, 9])
+            .check(&call, None)
+            .iter()
+            .any(|v| v.contains("every subnet")));
         worker.join().unwrap();
     }
 
     #[test]
-    fn gamma_v2_empty_storage_preserves_source_only_policy() {
+    fn gamma_v2_empty_storage_still_requires_unrestricted_scope() {
         let hash = hex_prefixed(&[7; 32]);
         let (endpoint, worker) = server(vec![
             ("chain_getBlockHash", json!([]), json!(hash)),
@@ -365,7 +371,10 @@ mod gamma_scope {
             ),
         ]);
         let call = IntentCall::from_descriptor(&client(endpoint), &descriptor(1, None)).unwrap();
-        assert!(policy(&[1]).check(&call, None).is_empty());
+        assert!(policy(&[1])
+            .check(&call, None)
+            .iter()
+            .any(|v| v.contains("every subnet")));
         assert!(!policy(&[2]).check(&call, None).is_empty());
         worker.join().unwrap();
     }
@@ -385,6 +394,57 @@ mod gamma_scope {
             assert!(IntentCall::from_descriptor(&client(endpoint), &descriptor(1, None)).is_err());
             worker.join().unwrap();
         }
+    }
+
+    // PROTECTED_REGRESSION: a Gamma target added after preparation must not lose emission through a finite subnet allowlist; changes require explicit human approval.
+    #[test]
+    fn gamma_replacement_rejects_allowlist_after_target_added_before_inclusion() {
+        let prepared_hash = hex_prefixed(&[7; 32]);
+        let inclusion_hash = hex_prefixed(&[8; 32]);
+        let (endpoint, worker) = server(vec![
+            ("chain_getBlockHash", json!([]), json!(prepared_hash)),
+            ("state_getRuntimeVersion", json!([prepared_hash]), version()),
+            (
+                "state_getStorage",
+                json!([storage_key(1), prepared_hash]),
+                json!(hex_prefixed(&vec![(7u16, 10u64)].encode())),
+            ),
+            (
+                "state_getRuntimeVersion",
+                json!([inclusion_hash]),
+                version(),
+            ),
+            (
+                "state_getStorage",
+                json!([storage_key(1), inclusion_hash]),
+                json!(hex_prefixed(&vec![(7u16, 10u64), (8u16, 5u64)].encode())),
+            ),
+        ]);
+        let client = client(endpoint);
+        let call = IntentCall::from_descriptor(&client, &descriptor(1, Some(7))).unwrap();
+        // Another transaction adds target 8 after preparation. This prepared
+        // replacement would omit it and redirect its unconverted alpha.
+        let changed = client
+            .query(
+                "SubtensorModule",
+                "SubnetGammaEmission",
+                &[Value::Uint(1)],
+                Some(&inclusion_hash),
+            )
+            .unwrap();
+        assert_eq!(
+            changed,
+            Value::List(vec![
+                Value::Tuple(vec![Value::Int(7), Value::Int(10)]),
+                Value::Tuple(vec![Value::Int(8), Value::Int(5)]),
+            ])
+        );
+        assert!(policy(&[1, 7])
+            .check(&call, None)
+            .iter()
+            .any(|reason| reason.contains("every subnet")));
+        assert!(Policy::default().check(&call, None).is_empty());
+        worker.join().unwrap();
     }
 }
 
