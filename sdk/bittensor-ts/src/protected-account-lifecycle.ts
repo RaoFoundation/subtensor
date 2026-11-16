@@ -12,7 +12,7 @@ import type { ProxyAnnouncement } from './announcement-store'
 import { nestedDispatchError } from './receipt'
 import { isDefiniteSubmissionRejection } from './transport'
 import { controllerFunding, planControllerRefill, includeControllerRefill, fundController, type ControllerRefillPlan } from './protected-funding'
-import { requireProtectedChain, sameProtectedAccount, type ProtectedProxyBackend, type ProtectedProxySnapshot, type ProtectedProxyReceipt } from './protected-proxy-types'
+import { requireProtectedChain, sameProtectedAccount, shieldedUncertainReceipt, type ProtectedProxyBackend, type ProtectedProxySnapshot, type ProtectedProxyReceipt } from './protected-proxy-types'
 
 const hex = (bytes: Uint8Array) => '0x' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
 const object = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {}
@@ -21,6 +21,8 @@ const sessionQueues = new WeakMap<object, Map<string, Promise<unknown>>>()
 const approvalOnly = (receipt: ProtectedProxyReceipt) => evaluatePolicy<{approval_only: boolean}>('protected.receipt_state', receipt).approval_only
 const confirmed = (receipt: ProtectedProxyReceipt) => evaluatePolicy<{confirmed: boolean}>('protected.receipt_state', receipt).confirmed
 function uncertainReceipt(error: unknown): ProtectedProxyReceipt | undefined {
+  const shielded = shieldedUncertainReceipt(error)
+  if (shielded) return shielded
   const value = object(error)
   return typeof value.extrinsicHash === 'string' && /^0x[0-9a-f]{64}$/i.test(value.extrinsicHash) ? { status: 'uncertain', success: null, events: [], extrinsicHash: value.extrinsicHash, blockHash: value.blockHash } : undefined
 }

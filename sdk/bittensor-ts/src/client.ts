@@ -19,7 +19,7 @@ import { nestedDispatchError } from './receipt'
 import { gammaReceiptData } from './gamma'
 import { extrinsicSignerAccountId } from './extrinsic-signer'
 import { WorkflowClient, type WorkflowOptions, type WorkflowPlan, type WorkflowSigner, type WorkflowResult } from './node-workflows'
-import { runSignerQueue, signerQueueOptions, bindSignerIdentity } from './signer-queue'
+import { runSignerQueue, signerQueueOptions, bindSignerIdentity, signerPublicKey } from './signer-queue'
 import { encodeIntentCall, listIntentTools, intentSignerRole, type Intent } from './intents'
 import { createNodeUpgradeClient } from './node-upgrade'
 import type { UpgradeClient } from './upgrade'
@@ -3196,13 +3196,6 @@ function isMetadataAtVersionUnavailable(error: unknown): boolean {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function signerPublicKey(value: ByteLike | undefined, ss58Address: string, cryptoType = CRYPTO_SR25519): Buffer {
-  const key = value == null
-    ? publicKeyFromSs58(ss58Address)
-    : toBuffer(value, 'signer.publicKey')
-  return cryptoType === CRYPTO_ECDSA && key.length === 33 ? accountIdFromEcdsaPublic(key) : key
 }
 
 function nativeExternalSigningOptions(options: SubmitOptions): NativeExternalSigningOptions {

@@ -344,6 +344,7 @@ async def test_opaque_legacy_saved_payload_can_replay_directly_but_cannot_bypass
 ):
     chain, _key = replay_chain
     child, original = await _announced(chain, Transfer(BOB, 5), saved=True)
+    before = dict(chain.balances)
     if failure == "unavailable":
         chain.decode_error = True
     elif failure == "malformed":
@@ -354,10 +355,13 @@ async def test_opaque_legacy_saved_payload_can_replay_directly_but_cannot_bypass
         chain.decode_scale = malformed
     else:
         chain.decode_scale = None
-    direct, _extras = await _compose_intent_call(chain, child, dev_wallet())
-    assert bytes(direct.params["call"].data) == bytes(original.data)
+    with pytest.raises(ValueError, match="cannot be inspected for registration"):
+        await _compose_intent_call(chain, child, dev_wallet())
     with pytest.raises(ValueError, match=r"direct|batch|inspect"):
         await _compose_intent_call(chain, Batch([child, Transfer(BOB, 7)]), dev_wallet())
+    assert bytes(original.call_hash) in chain.pending
+    assert chain.balances == before
+    assert not chain.submissions
 
 
 @pytest.mark.parametrize(

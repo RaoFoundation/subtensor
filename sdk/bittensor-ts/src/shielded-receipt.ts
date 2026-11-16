@@ -1,7 +1,7 @@
 import { classifyChainError, type ChainErrorInfo } from './chain-errors'
 import { Balance } from './balance'
 import { normalizeHeader } from './receipt'
-import { ChainError, withRequestSignal, type RpcRequestOptions } from './transport'
+import { ChainError, SubmissionUncertainError, withRequestSignal, type RpcRequestOptions } from './transport'
 
 export interface ShieldedReceipt {
   status: 'submitted' | 'inBlock' | 'finalized' | 'failed' | 'unknown'
@@ -16,7 +16,31 @@ export interface ShieldedReceiptAdapter {
 export interface ShieldedFollowOptions { waitForFinalization?: boolean; timeoutMs?: number; signal?: AbortSignal }
 export type ShieldedResult = ShieldedReceipt & { shielded: true; innerExtrinsicHash: string; carrierExtrinsicHash: string; carrierFee?: Balance }
 
-/** Follow an accepted carrier to the decrypted extrinsic, including nested dispatch failures. */
+/** Tracking stopped after carrier inclusion; reconcile both hashes before retrying. */
+export class ShieldedTrackingError extends SubmissionUncertainError {
+  readonly carrierExtrinsicHash: string
+  readonly carrierReceipt: ShieldedReceipt
+  readonly outcome: ShieldedResult
+
+  constructor(readonly innerExtrinsicHash: string, carrier: ShieldedReceipt, cause: unknown) {
+    super(innerExtrinsicHash, cause)
+    this.name = 'ShieldedTrackingError'
+    this.carrierExtrinsicHash = carrier.extrinsicHash
+    this.message = `shielded outcome uncertain for inner ${innerExtrinsicHash} (carrier ${carrier.extrinsicHash}); reconcile both hashes before retrying: ${cause instanceof Error ? cause.message : String(cause)}`
+    this.carrierReceipt = { ...carrier, events: [...carrier.events], data: carrier.data && { ...carrier.data } }
+    this.outcome = {
+      status: 'unknown', success: undefined, message: this.message,
+      extrinsicHash: innerExtrinsicHash, shielded: true,
+      innerExtrinsicHash, carrierExtrinsicHash: carrier.extrinsicHash,
+      carrierFee: carrier.fee, events: [], error: cause,
+      data: { ...carrier.data, shielded: true, inner_extrinsic_hash: innerExtrinsicHash,
+        carrier_extrinsic_hash: carrier.extrinsicHash, carrier_only: true,
+        submission_uncertain: true, submission_rejected: undefined, inner_expiry_finalized: undefined },
+    }
+  }
+}
+
+/** Follow an accepted carrier; interrupted tracking throws ShieldedTrackingError with a recoverable outcome. */
 export async function followShieldedResult(outer: ShieldedReceipt, innerHash: string, period: number, adapter: ShieldedReceiptAdapter, options: ShieldedFollowOptions = {}): Promise<ShieldedResult> {
   if (!Number.isSafeInteger(period) || period < 1 || period > 8) throw new RangeError('shielded receipt period must be 1 to 8 blocks')
   const metadata = { shielded: true as const, innerExtrinsicHash: innerHash, carrierExtrinsicHash: outer.extrinsicHash, carrierFee: outer.fee }
@@ -53,7 +77,7 @@ export async function followShieldedResult(outer: ShieldedReceipt, innerHash: st
       }
       await delay(1000, signal)
     }
-  } catch (error) { if (signal.aborted) throw request.error(); throw error }
+  } catch (error) { throw new ShieldedTrackingError(innerHash, outer, signal.aborted ? request.error() : error) }
   finally { request.cleanup() }
 }
 function guarded<T>(run: () => Promise<T>, signal: AbortSignal): Promise<T> {

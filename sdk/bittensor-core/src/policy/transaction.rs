@@ -550,6 +550,36 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value, PolicyErr
         },
         "transaction.multisig_members" => multisig_members(&input),
         "transaction.multisig_cancel" => multisig_cancel(&input),
+        "transaction.multisig_commitment" => {
+            let actual = bytes(&input["actual_hash"], "multisig call hash")?;
+            if actual.len() != 32 {
+                return Err(PolicyError::range_error(
+                    "multisig call hash must be 32 bytes",
+                ));
+            }
+            if !input["expected_hash"].is_null()
+                && bytes(&input["expected_hash"], "expected multisig call hash")? != actual
+            {
+                return Err(PolicyError::invalid("multisig call differs from its original commitment; use the original call_data"));
+            }
+            if !input["timepoint"].is_null() {
+                if input["pending"].is_null() {
+                    return Err(PolicyError::invalid("no pending approval matches these call bytes; use the original multisig call_data"));
+                }
+                let selected = multisig_cancel(&json!({
+                    "call_hash": input["actual_hash"], "timepoint": input["timepoint"]
+                }))?;
+                let pending = multisig_cancel(&json!({
+                    "call_hash": input["actual_hash"], "timepoint": input["pending"]["when"]
+                }))?;
+                if selected["timepoint"] != pending["timepoint"] {
+                    return Err(PolicyError::invalid(
+                        "multisig timepoint does not match the committed call",
+                    ));
+                }
+            }
+            Ok(json!(format!("0x{}", hex::encode(actual))))
+        }
         "transaction.multisig_deposit" => {
             let factor = uint(&input["factor"], "multisig deposit factor")?;
             let threshold = uint(&input["threshold"], "threshold")?;

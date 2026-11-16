@@ -13,6 +13,8 @@ import { rootClaimChargedFeeRao, quoteRootClaimPreviews, readRootClaimRelationsh
 import type { IntentArguments, IntentBuilders, IntentInputMap } from './intent-inputs'
 import { announcedCallRequiresDirect, decodedCallDescriptor, sameCallSemantics, announcedCallLeaves, validateAnnouncedCall } from './proxy-announcements'
 import { accountRecord, subnetRecord } from './staking-records'
+import { canonicalJson } from './portable'
+import { committedRegistrationSponsorships } from './committed-registration'
 export type { IntentInputMap, IntentJSON, IntentArguments, IntentBuilders, IntentAmountInput, BasketSwapLegInput, IntentTimepointInput } from './intent-inputs'
 
 export type IntentOperation = typeof INTENT_CATALOG[number]['name']
@@ -128,6 +130,9 @@ export interface CatalogEntry {
 freeze(INTENT_CATALOG)
 const catalog = new Map<string, CatalogEntry>((INTENT_CATALOG as unknown as CatalogEntry[]).map(tool => [tool.name, tool]))
 const preparedIntents = new WeakSet<object>()
+const preparedOrigins = new WeakMap<object, string>()
+const preparedSources = new WeakMap<object, string>()
+const pinnedMultisigs = new WeakMap<Intent, { inner: PreparedIntent; origin: string }>()
 const U64_MAX = (1n << 64n) - 1n
 const encoder = new TextEncoder()
 export const PROXY_TYPES: readonly string[] = Object.freeze(POLICY_CATALOG.transaction.proxy_types)
@@ -198,10 +203,21 @@ export class Intent {
     if (!context.coldkey) throw new TypeError('intent preparation needs a dispatch coldkey address')
     const result = await prepare(this, reader, context)
     preparedIntents.add(result)
+    preparedOrigins.set(result, context.coldkey)
+    preparedSources.set(result, canonicalJson({ op: this.op, ...jsonArgs(this.args) }))
     return freeze(result)
   }
 }
 export function buildIntent<N extends keyof IntentInputMap>(op: N, ...args: IntentArguments<N>): Intent { return new Intent(op, args[0] as Record<string, unknown> | undefined) }
+/** Internal workflow bridge: preserve an SDK-prepared call and its verified policy. */
+export function wrapPreparedMultisig(op: 'multisig_execute' | 'multisig_approve' | 'multisig_threshold_1', args: Record<string, unknown>, inner: PreparedIntent): Intent {
+  const origin = preparedOrigins.get(inner)
+  if (!preparedIntents.has(inner) || !origin) throw new TypeError('multisig requires an SDK-prepared inner intent')
+  if (canonicalJson(intentFromJSON(args.call as Record<string, unknown> | Intent).toJSON()) !== preparedSources.get(inner)) throw new TypeError('multisig semantic intent differs from its prepared call')
+  const intent = new Intent(op, args)
+  pinnedMultisigs.set(intent, { inner: freeze(copy(inner)), origin })
+  return intent
+}
 /** Autocompleting builders with required arguments and exact money/quantity inputs. */
 export const intentBuilders: IntentBuilders = Object.freeze(Object.fromEntries([...catalog.keys()].map(op => [op, (args?: Record<string, unknown>) => new Intent(op as IntentOperation, args)]))) as unknown as IntentBuilders
 export function intentSignerRole(intent: Intent): 'coldkey' | 'hotkey' {
@@ -463,13 +479,15 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
         }
         call = { ...decodedCallDescriptor(decoded), callData: hex(data) }
         validateAnnouncedCall(call)
+        const registration = await committedRegistrationSponsorships(call, reader, a.real_ss58)
+        plan.requiredFreeByAccount = registration.reserves
         // Replay exact approved bytes. Never infer bounded spending or subnet scope
         // from the user's descriptive intent, which can differ from those bytes.
         plan.spendRao = 'unbounded'; plan.affectsAllSubnets = true; plan.global = true
         plan.dispatchOrigin = a.real_ss58
         const shielding = announcedShielding(innerIntent, call)
         plan.mevShieldDefault ||= shielding.default; plan.mevShieldRequired ||= shielding.required
-        plan.extras = { ...plan.extras, announced_call_hash: hex(hash) }
+        plan.extras = { ...plan.extras, announced_call_hash: hex(hash), registrationSponsorships: registration.sponsorships }
       } else {
         if (a.expected_call_hash != null || a.announced_spec_version != null || a.announced_call_semantics != null) throw new TypeError('saved announcement checks require announced_call_data')
         const inner = await innerIntent.prepare(reader, { coldkey: a.real_ss58, hotkey: hotkey ? a.real_ss58 : undefined, hotkeyPublicKey: hotkey ? required(reader.decodeAddress, 'decodeAddress').call(reader, a.real_ss58) : undefined, feePayer: plan.feePayer, accountMode: context.accountMode })
@@ -480,7 +498,7 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
       if (announcedCallRequiresDirect(call)) plan.extras = { ...plan.extras, requires_direct_submission: true }
       plan.call = descriptor('Proxy', 'proxy_announced', { delegate: a.delegate_ss58, real: a.real_ss58, force_proxy_type: a.force_proxy_type, call }); break
     }
-    case 'multisig_threshold_1': case 'multisig_execute': case 'multisig_approve': case 'multisig_cancel': await multisig(plan, reader, context, a); break
+    case 'multisig_threshold_1': case 'multisig_execute': case 'multisig_approve': case 'multisig_cancel': await multisig(plan, reader, context, a, pinnedMultisigs.get(intent)); break
     case 'batch': {
       if (!Array.isArray(a.intents)) throw new TypeError('batch intents must be an array')
       const children: PreparedIntent[] = []
@@ -857,7 +875,7 @@ async function emissionWeights(plan: MutablePlan, reader: IntentReader, context:
   plan.preview = { before, after, gamma_share: gammaShare, gamma: { before: gammaBefore, after: gammaAfter }, gamma_targets: targets, leased: lease != null, baselineRootShare: baseline, rateLimit, changed: emission.SLOT_NAMES.filter((_, index) => before[index] !== after[index]) }
 }
 
-async function multisig(plan: MutablePlan, reader: IntentReader, context: IntentContext, a: Record<string, any>): Promise<void> {
+async function multisig(plan: MutablePlan, reader: IntentReader, context: IntentContext, a: Record<string, any>, pinned?: { inner: PreparedIntent; origin: string }): Promise<void> {
   const threshold = plan.op === 'multisig_threshold_1' ? 1 : small(a.threshold, 65535, 'threshold')
   const mode = evaluatePolicy<'legacy' | 'safe'>('transaction.account_mode', { mode: a.account_mode ?? context.accountMode ?? 'legacy' })
   const suffix = mode === 'safe' ? '_safe' : ''
@@ -882,23 +900,61 @@ async function multisig(plan: MutablePlan, reader: IntentReader, context: Intent
     return
   }
   const semantic = intentFromJSON(a.call), innerRole = intentSignerRole(semantic)
-  const inner = await semantic.prepare(reader, { coldkey: account.address, hotkey: innerRole === 'hotkey' ? account.address : undefined, hotkeyPublicKey: innerRole === 'hotkey' ? account.publicKey : undefined, feePayer: plan.feePayer, accountMode: mode })
-  mergeChild(plan, inner)
-  plan.dispatchOrigin = inner.dispatchOrigin
+  let innerCall: IntentDescriptor
+  if (pinned) {
+    if (hex(decode(pinned.origin)) !== hex(account.publicKey)) throw new Error('prepared call belongs to a different multisig account')
+    // Only call arguments and their verified scope are pinned. Funding is read
+    // again, and any outer-member fee obligation follows the current signer.
+    const original = pinned.inner
+    const feeOwner = reader.resolveFeePayer ? await reader.resolveFeePayer(original.call, plan.feePayer) : plan.feePayer
+    const reserves = await Promise.all(original.requiredFreeByAccount.map(async reserve => {
+      const outerFee = hex(decode(reserve.address)) === hex(decode(original.feePayer)) && hex(decode(reserve.address)) !== hex(decode(original.dispatchOrigin))
+      const address = outerFee ? feeOwner : reserve.address
+      return { address, requiredRao: outerFee ? await required(reader.estimateFee, 'estimateFee').call(reader, original.call, plan.feePayer) : reserve.requiredRao, availableRao: await freeBalance(reader, address) }
+    }))
+    mergeChild(plan, { ...original, feePayer: plan.feePayer, requiredFreeByAccount: reserves })
+    plan.dispatchOrigin = pinned.inner.dispatchOrigin
+    innerCall = pinned.inner.call
+    const registration = await committedRegistrationSponsorships(innerCall, reader, account.address)
+    plan.extras = { ...plan.extras, registrationSponsorships: registration.sponsorships }
+  } else if (a.call_data != null) {
+    const data = bytes(a.call_data)
+    if (!data.length) throw new TypeError('multisig call_data must not be empty')
+    if (a.call_spec_version != null && unsigned(await required(reader.specVersion, 'specVersion').call(reader), 'runtime spec version') !== unsigned(a.call_spec_version, 'call spec version')) throw new Error('runtime changed since multisig approval; verify the original call under the new metadata')
+    innerCall = { ...decodedCallDescriptor(await required(reader.decodeCall, 'decodeCall').call(reader, data)), callData: hex(data) }
+    validateAnnouncedCall(innerCall)
+    plan.spendRao = 'unbounded'; plan.spendByAccount = []; plan.netuids = []; plan.affectsAllSubnets = true; plan.global = true
+    plan.dispatchOrigin = account.address
+    const shielding = announcedShielding(semantic, innerCall)
+    plan.mevShieldDefault ||= shielding.default; plan.mevShieldRequired ||= shielding.required
+    const registration = await committedRegistrationSponsorships(innerCall, reader, account.address)
+    plan.requiredFreeByAccount = registration.reserves
+    plan.extras = { ...plan.extras, registrationSponsorships: registration.sponsorships }
+    if (announcedCallRequiresDirect(innerCall)) plan.extras = { ...plan.extras, requires_direct_submission: true }
+  } else {
+    const inner = await semantic.prepare(reader, { coldkey: account.address, hotkey: innerRole === 'hotkey' ? account.address : undefined, hotkeyPublicKey: innerRole === 'hotkey' ? account.publicKey : undefined, feePayer: plan.feePayer, accountMode: mode })
+    mergeChild(plan, inner)
+    plan.dispatchOrigin = inner.dispatchOrigin
+    innerCall = inner.call
+  }
   const params: Record<string, unknown> = { other_signatories: others }
-  const hash = await required(reader.hashCall, 'hashCall').call(reader, inner.call)
+  const hash = await required(reader.hashCall, 'hashCall').call(reader, innerCall)
   if (hash.length !== 32) throw new RangeError('call hash must be 32 bytes')
+  const pending = a.timepoint == null ? null : await reader.query('Multisig', 'Multisigs', [account.address, hash])
+  evaluatePolicy('transaction.multisig_commitment', { actual_hash: hash, expected_hash: a.call_hash, timepoint: a.timepoint, pending })
+  const data = innerCall.callData ?? (reader.composeCall ? hex(await reader.composeCall(innerCall)) : undefined)
+  if (data != null) plan.extras = { ...plan.extras, multisig_call_data: typeof data === 'string' ? data : hex(data), ...(reader.specVersion ? { multisig_call_spec_version: await reader.specVersion() } : {}) }
   if (plan.op === 'multisig_threshold_1') {
-    params.call = inner.call; plan.call = descriptor('Multisig', 'as_multi_threshold_1' + suffix, params)
+    params.call = innerCall; plan.call = descriptor('Multisig', 'as_multi_threshold_1' + suffix, params)
   } else {
     params.threshold = threshold
     const timepoint = a.timepoint == null ? null : { height: small(a.timepoint.height, 0xffffffff, 'timepoint height'), index: small(a.timepoint.index, 0xffffffff, 'timepoint index') }
     params.maybe_timepoint = timepoint
-    params.max_weight = await required(reader.estimateWeight, 'estimateWeight').call(reader, inner.call, plan.feePayer)
+    params.max_weight = await required(reader.estimateWeight, 'estimateWeight').call(reader, innerCall, plan.feePayer)
     const hashOnly = plan.op === 'multisig_approve' && timepoint != null
     if (hashOnly) params.call_hash = hash
-    else params.call = inner.call
-    plan.call = { ...descriptor('Multisig', (hashOnly ? 'approve_as_multi' : 'as_multi') + suffix, params), ...(hashOnly ? { semanticCall: inner.call } : {}) }
+    else params.call = innerCall
+    plan.call = { ...descriptor('Multisig', (hashOnly ? 'approve_as_multi' : 'as_multi') + suffix, params), ...(hashOnly ? { semanticCall: innerCall } : {}) }
     let deposit = 0n
     if (timepoint == null) {
       const constant = required(reader.constant, 'constant').bind(reader)

@@ -3,7 +3,7 @@ import { evaluatePolicy } from './policy'
 import { isDefiniteSubmissionRejection, markSubmissionNotSent } from './transport'
 import { Balance, assetIdValue, taoTransactionAmountRao } from './balance'
 import { nativeRustClient, type Client, type SignerLike, type ChainSigner, type ExtrinsicResult, type SubmitOptions, type CallLike } from './client'
-import { Intent, intentFromJSON, intentSignerRole, checkIntentPolicy, encodeIntentCall, type IntentContext, type IntentDescriptor, type IntentPolicy, type IntentReader, type PreparedIntent } from './intents'
+import { Intent, intentFromJSON, intentSignerRole, wrapPreparedMultisig, checkIntentPolicy, encodeIntentCall, type IntentContext, type IntentDescriptor, type IntentPolicy, type IntentReader, type PreparedIntent } from './intents'
 import { IntentCall, Policy, rawCall, type NativeChainClient } from './transaction'
 import { Wallet, type WalletPasswordOptions } from './wallet'
 import { Keypair, publicKeyFromSs58, ss58FromPublic, decodeReceivingAddress } from './keys'
@@ -17,9 +17,9 @@ import type { NativeExternalSigningOptions } from './native'
 import { generateCommitV2 } from './timelock'
 import { iterCallLeaves } from './fee-filters'
 import { resolveTransactionFeePayer } from './fee-payer'
-import { prepareMultisigApproval } from './multisig-workflow'
+import { MultisigCallCache, prepareMultisigApproval } from './multisig-workflow'
 import { followShieldedResult } from './shielded-receipt'
-import { runSignerQueue, signerQueueOptions, bindSignerIdentity, type BoundSignerIdentity, type SignerQueuePermit } from './signer-queue'
+import { runSignerQueue, signerQueueOptions, bindSignerIdentity, signerPublicKey, type BoundSignerIdentity, type SignerQueuePermit } from './signer-queue'
 import type { ScaleValue } from './types'
 
 export type WorkflowSigner = SignerLike | Wallet
@@ -234,6 +234,7 @@ export interface MultisigSubmitOptions extends WorkflowOptions { allowRawCall?: 
 
 /** A deterministic signer set. Approvals resolve the live pending timepoint. */
 export class NodeMultisig {
+  private readonly preparedCalls = new MultisigCallCache()
   readonly address: string
   readonly signatories: readonly string[]
   constructor(readonly client: Client, signatories: readonly string[], readonly threshold: number, ss58Format = 42, readonly accountMode: 'legacy' | 'safe' = 'legacy') {
@@ -253,16 +254,22 @@ export class NodeMultisig {
     const reader = await createNodeIntentReader(this.client, native)
     if (call instanceof Intent) {
       const hotkey = intentSignerRole(call) === 'hotkey'
-      const inner = await call.prepare(reader, { coldkey: this.address, feePayer: identity.address, ...(hotkey ? { hotkey: this.address, hotkeyPublicKey: publicKeyFromSs58(this.address) } : {}) })
+      const context = { coldkey: this.address, feePayer: identity.address, accountMode: this.accountMode, ...(hotkey ? { hotkey: this.address, hotkeyPublicKey: publicKeyFromSs58(this.address) } : {}) }
+      const inner = this.threshold === 1 ? await call.prepare(reader, context) : await this.preparedCalls.prepare(reader, call, context)
       const approval = await prepareMultisigApproval(reader, { accountMode: this.accountMode, call: inner.call, signatories: this.signatories, threshold: this.threshold, signerAddress: identity.address, expectedCallHash: options.expectedCallHash })
-      const wrapped = new Intent(this.threshold === 1 ? 'multisig_threshold_1' : 'multisig_execute', {
+      const wrapped = wrapPreparedMultisig(this.threshold === 1 ? 'multisig_threshold_1' : 'multisig_execute', {
         account_mode: this.accountMode,
         other_signatories: this.signatories.filter(member => !publicKeyFromSs58(member).equals(identity.publicKey)), call: call.toJSON(),
         ...(this.threshold === 1 ? {} : { threshold: this.threshold, timepoint: approval.timepoint }),
-      })
+      }, inner)
       return new WorkflowClient(this.client).execute(wrapped, planningSigner, { ...options, expectedCallHash: approval.callHash })
     }
     return runSignerQueue(this.client, identity.address, permit => this.approveDescriptor(call, planningSigner, options, identity, permit))
+  }
+
+  /** Release saved intent inputs only after its operation has completed or been cancelled. */
+  async forgetPreparedCall(call: Intent, expectedCallHash: string): Promise<void> {
+    await this.preparedCalls.forget(call, expectedCallHash)
   }
 
   private async approveDescriptor(call: IntentDescriptor, signer: WorkflowSigner, options: MultisigSubmitOptions, expectedIdentity: BoundSignerIdentity, permit: SignerQueuePermit): Promise<WorkflowResult> {
@@ -342,8 +349,8 @@ async function publicIdentity(client: Client, intent: Intent | 'coldkey' | 'hotk
   const account = candidate.getAccount ? await candidate.getAccount({ client, runtime, ss58Format: runtime.ss58Format }) : candidate
   const address = account.ss58Address ?? account.address
   if (!address) throw new TypeError('signer must provide an account address')
-  const publicKey = account.publicKey == null ? publicKeyFromSs58(address) : Buffer.from(account.publicKey)
   const cryptoType = account.cryptoType ?? candidate.cryptoType ?? 1
+  const publicKey = signerPublicKey(account.publicKey ?? candidate.publicKey, address, cryptoType)
   const requiresMetadataProof = Boolean(account.requiresMetadataProof ?? account.requiresMetadataHash ?? candidate.requiresMetadataProof ?? candidate.requiresMetadataHash)
   return { address, publicKey, cryptoType, requiresMetadataProof, hotkey: options.hotkey ?? (role === 'hotkey' ? address : undefined), hotkeyPublicKey: options.hotkeyPublicKey ?? (role === 'hotkey' ? publicKey : undefined) }
 }

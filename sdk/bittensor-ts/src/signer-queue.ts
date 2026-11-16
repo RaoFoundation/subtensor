@@ -2,6 +2,13 @@ import { evaluatePolicy } from './policy'
 import { publicKeyFromSs58, accountIdFromEcdsaPublic, CRYPTO_ECDSA } from './keys'
 import { toBuffer } from './wire'
 import type { ChainSigner, SignerLike } from './client'
+import type { ByteLike } from './types'
+
+/** Normalize external key representations with the shared Rust key primitives. */
+export function signerPublicKey(value: ByteLike | undefined, address: string, cryptoType = 1): Buffer {
+  const key = value == null ? publicKeyFromSs58(address) : toBuffer(value, 'signer.publicKey')
+  return cryptoType === CRYPTO_ECDSA && key.length === 33 ? accountIdFromEcdsaPublic(key) : key
+}
 
 declare const permitBrand: unique symbol
 export type SignerQueuePermit = { readonly [permitBrand]: true }
@@ -44,7 +51,7 @@ export interface BoundSignerIdentity {
 /** Fail before signing if an extension or hardware account changes after preflight. */
 export function bindSignerIdentity(signer: SignerLike, identity: BoundSignerIdentity): ChainSigner {
   const original = signer as ChainSigner & { beginTwoStageSigning?(): void }
-  const publicKey = Buffer.from(identity.publicKey)
+  const publicKey = signerPublicKey(identity.publicKey, identity.address, identity.cryptoType)
   if (!publicKeyFromSs58(identity.address).equals(publicKey)) throw new TypeError('signer identity public key differs from its address')
   const bound: ChainSigner & { beginTwoStageSigning?(): void } = {
     address: identity.address, publicKey, cryptoType: identity.cryptoType, requiresMetadataProof: identity.requiresMetadataProof,
@@ -53,8 +60,7 @@ export function bindSignerIdentity(signer: SignerLike, identity: BoundSignerIden
       const address = current.ss58Address ?? current.address
       const key = address == null ? null : publicKeyFromSs58(address)
       const cryptoType = current.cryptoType ?? original.cryptoType ?? 1
-      const rawPublicKey = current.publicKey == null ? undefined : toBuffer(current.publicKey, 'publicKey')
-      const accountPublicKey = cryptoType === CRYPTO_ECDSA && rawPublicKey?.length === 33 ? accountIdFromEcdsaPublic(rawPublicKey) : rawPublicKey
+      const accountPublicKey = address == null ? null : signerPublicKey(current.publicKey ?? original.publicKey, address, cryptoType)
       const requiresMetadataProof = Boolean(current.requiresMetadataProof ?? current.requiresMetadataHash ?? original.requiresMetadataProof ?? original.requiresMetadataHash)
       if (evaluatePolicy('transaction.signer_identity', { actual: { account: key, public_key: accountPublicKey ?? key, crypto_type: cryptoType, requires_metadata_proof: requiresMetadataProof }, expected: { account: publicKey, public_key: publicKey, crypto_type: identity.cryptoType, requires_metadata_proof: identity.requiresMetadataProof } })) throw new Error('signer account changed after preflight')
       return { address: identity.address, publicKey, cryptoType: identity.cryptoType, requiresMetadataProof: identity.requiresMetadataProof }

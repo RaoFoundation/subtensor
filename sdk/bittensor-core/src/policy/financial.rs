@@ -20,6 +20,7 @@ mod fees;
 mod gamma;
 mod locks;
 mod orders;
+mod registration;
 mod staking;
 
 type Result<T> = std::result::Result<T, PolicyError>;
@@ -975,6 +976,9 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value> {
         | "basket_legs" => staking::evaluate(op, &input),
         "affordability" => affordability(&input),
         "registration.deposit" => Ok(encoded(i128::from(u64_value(&input["value"])?))),
+        "registration.committed_calls" | "registration.committed_quote" => {
+            registration::evaluate(op, &input)
+        }
         "registration.sponsorship" => {
             let mut total = 0i128;
             for value in array(&input["deposits"])? {

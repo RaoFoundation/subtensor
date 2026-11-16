@@ -517,9 +517,8 @@ def _announced_mev_policy(intent: Intent) -> tuple[bool, bool]:
     return default, required
 
 
-async def _announced_call_requires_direct(substrate, call: Any) -> bool:
-    """Hydrate SCALE at the I/O boundary; shared core chooses safe replay routing."""
-    from .._policy import evaluate_policy
+async def _announced_decoded_call(substrate, call: Any):
+    """Hydrate nested SCALE calls before applying shared replay policy."""
     from ..fee_filters import _call_dict
     from ..proxy_announcements import normalize_call_semantics
 
@@ -558,8 +557,17 @@ async def _announced_call_requires_direct(substrate, call: Any) -> bool:
             decoded["call_args"] = args
         return normalize_call_semantics(decoded)
 
+    return await hydrate(call)
+
+
+async def _announced_call_requires_direct(substrate, call: Any) -> bool:
+    """Hydrate SCALE at the I/O boundary; shared core chooses safe replay routing."""
+    from .._policy import evaluate_policy
+
     try:
-        return evaluate_policy("protected.requires_direct", {"call": await hydrate(call)})
+        return evaluate_policy(
+            "protected.requires_direct", {"call": await _announced_decoded_call(substrate, call)}
+        )
     except Exception:
         return True
 
@@ -661,6 +669,26 @@ class ExecuteProxyAnnounced(Intent):
                     "saved call bytes do not match the selected announcement hash "
                     f"({actual} != {self.expected_call_hash})"
                 )
+            from .._policy import evaluate_policy
+
+            try:
+                decoded = await substrate.decode_scale("Call", data)
+                inspected = await _announced_decoded_call(substrate, decoded)
+                registrations = evaluate_policy(
+                    "financial.registration.committed_calls",
+                    {"call": inspected, "payer": await account_for_read(substrate, self.real_ss58)},
+                )
+            except Exception as error:
+                raise ValueError(
+                    "saved call cannot be inspected for registration; cancel and prepare again"
+                ) from error
+            if registrations:
+                # Ordinary nested composition applies this same restriction.
+                # Saved bytes must not bypass it by omitting sponsorship extras.
+                raise ValueError(
+                    "register the hashed recipient first using a direct sponsor wallet; "
+                    "initial registration cannot be wrapped in announced proxy"
+                )
             if self.announced_spec_version is not None and spec != self.announced_spec_version:
                 if self.announced_call_semantics is None:
                     raise ValueError(
@@ -669,9 +697,7 @@ class ExecuteProxyAnnounced(Intent):
                     )
                 from ..proxy_announcements import normalize_call_semantics
 
-                current_semantics = normalize_call_semantics(
-                    await substrate.decode_scale("Call", data)
-                )
+                current_semantics = normalize_call_semantics(decoded)
                 if current_semantics != self.announced_call_semantics:
                     raise ValueError(
                         "runtime metadata now decodes the announced bytes differently; "

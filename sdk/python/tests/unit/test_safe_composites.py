@@ -183,6 +183,14 @@ async def test_safe_mode_reaches_every_approval_stage(kind, timepoint, function)
         kwargs.update(threshold=2, timepoint=timepoint)
     if kind is MultisigCancel:
         kwargs["call_hash"] = "0x" + "11" * 32
+    if timepoint is not None and kind in (MultisigExecute, MultisigApprove):
+        from bittensor.intents.transfer import Transfer
+
+        account = substrate.multisig_account([ALICE, BOB], 2, account_mode="safe")
+        inner = await Transfer(BOB, 1).build(substrate, dev_wallet())
+        substrate.seed(
+            "Multisig", "Multisigs", [account.ss58_address, inner.call_hash], {"when": timepoint}
+        )
     built = await kind(**kwargs).build(substrate, dev_wallet())
     call = built.call if isinstance(built, BuiltCall) else built
     assert call.function == function

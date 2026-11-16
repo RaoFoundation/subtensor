@@ -39,6 +39,12 @@ async def test_direct_intents_normalize_receiving_signatories(code, intent_type,
     substrate.seed("System", "Account", [ALICE], {"data": {"free": 100 * 10**9}})
     member = Keypair.create_from_seed(bytes([code]) * 32, code)
     spec = Transfer(BOB_HOT, 1).to_dict()
+    if kwargs.get("timepoint") is not None and intent_type in (MultisigExecute, MultisigApprove):
+        account = substrate.multisig_account([ALICE, member.ss58_address, BOB], kwargs["threshold"])
+        inner = await Transfer(BOB_HOT, 1).build(substrate, dev_wallet())
+        substrate.seed(
+            "Multisig", "Multisigs", [account.ss58_address, inner.call_hash], {"when": TIMEPOINT}
+        )
     canonical, expected_extras = await _compose_intent_call(
         substrate,
         intent_type(other_signatories=[member.ss58_address, BOB], call=spec, **kwargs),

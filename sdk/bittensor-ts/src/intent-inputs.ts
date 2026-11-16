@@ -385,6 +385,12 @@ export interface MultisigApproveInput {
   account_mode?: string
   /** Block height and extrinsic index of the approval that opened the operation, as a JSON object {"height": ..., "index": ...}. Omit on the first approval; required on every later one (read it with the multisig query). */
   timepoint?: IntentTimepointInput | null
+  /** Original prepared SCALE call bytes from multisig_call_data; reuse for every later approval. */
+  call_data?: string | null
+  /** Original prepared call hash; reject any change before signing. */
+  call_hash?: string | null
+  /** Runtime spec version used to prepare the original call bytes. */
+  call_spec_version?: number | bigint | `${bigint}` | null
 }
 /** Cancel an ongoing multisig operation (only the original depositor may). */
 export interface MultisigCancelInput {
@@ -413,6 +419,12 @@ export interface MultisigExecuteInput {
   account_mode?: string
   /** Block height and extrinsic index of the approval that opened the operation, as a JSON object {"height": ..., "index": ...}. Omit on the first approval; required on every later one (read it with the multisig query). */
   timepoint?: IntentTimepointInput | null
+  /** Original prepared SCALE call bytes from multisig_call_data; reuse for every later approval. */
+  call_data?: string | null
+  /** Original prepared call hash; reject any change before signing. */
+  call_hash?: string | null
+  /** Runtime spec version used to prepare the original call bytes. */
+  call_spec_version?: number | bigint | `${bigint}` | null
 }
 /** Dispatch a 1-of-N multisig call immediately (single approval). */
 export interface MultisigThreshold1Input {

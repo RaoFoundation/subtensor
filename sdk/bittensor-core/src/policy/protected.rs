@@ -236,6 +236,7 @@ fn management_path(value: &Value, depth: usize) -> Result<Option<String>> {
         "multisig_approve",
         "multisig_execute",
         "multisig_threshold_1",
+        "create_crowdloan",
     ]
     .contains(&op)
         && !value["call"].is_null()
@@ -294,7 +295,7 @@ fn visit_grants(value: &Value, depth: usize, result: &mut Vec<Value>) -> Result<
         "execute_proxy_announced" => {
             visit_grants(&nested_intent(value), depth.saturating_add(1), result)?
         }
-        "multisig_approve" | "multisig_execute" | "multisig_threshold_1"
+        "multisig_approve" | "multisig_execute" | "multisig_threshold_1" | "create_crowdloan"
             if !value["call"].is_null() =>
         {
             visit_grants(&value["call"], depth.saturating_add(1), result)?
@@ -751,6 +752,11 @@ pub(crate) fn call_children(call: &Value) -> Result<Vec<Value>> {
     if SINGLE_CALL_WRAPPERS.contains(&op.as_str()) {
         return Ok(vec![call["params"]["call"].clone()]);
     }
+    // Finalization dispatches the saved call as the crowdloan's creator, so
+    // authority checks must inspect it even though creation only stores it.
+    if op == "Crowdloan.create" && !call["params"]["call"].is_null() {
+        return Ok(vec![call["params"]["call"].clone()]);
+    }
     if BATCHES.contains(&op.as_str()) {
         return call["params"]["calls"]
             .as_array()
@@ -837,6 +843,11 @@ fn requires_direct(value: &Value, depth: usize) -> bool {
     let op = call_operation(&call);
     if op == "Utility.batch_all" || op == "Crowdloan.finalize" {
         return true;
+    }
+    // The stored child is not dispatched during creation. It therefore cannot
+    // trigger a current-origin batch restriction until finalization itself.
+    if op == "Crowdloan.create" {
+        return false;
     }
     match call_children(&call) {
         Ok(children) => children
@@ -2003,6 +2014,30 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // PROTECTED_REGRESSION: deferred crowdloan calls must not hide authority that can strand pure-account funds; changes require explicit human approval.
+    #[test]
+    fn crowdloan_authority_checks_inspect_deferred_calls() -> Result<()> {
+        let intent = json!({"op":"create_crowdloan","call":{"op":"batch","intents":[{"op":"remove_proxies"}]}});
+        assert_eq!(
+            management_path(&intent, 0)?,
+            Some("create_crowdloan.batch[0].remove_proxies".into())
+        );
+        assert!(evaluate("protected.route_gate", json!({"intent":intent})).is_err());
+        let grant = json!({"inner_op":"create_crowdloan","inner_args":{"call":{"op":"add_proxy","delegate_ss58":"controller","proxy_type":"Any","delay":0}}});
+        assert_eq!(
+            announcement_grants(&grant)?,
+            json!([{"delegate_ss58":"controller","proxy_type":"Any","delay":0}])
+        );
+        let leaf = json!({"pallet":"Proxy","call":"remove_proxies","params":{}});
+        let call = json!({"pallet":"Crowdloan","call":"create","params":{"target_address":null,"call":{"pallet":"Utility","call":"batch_all","params":{"calls":[leaf]}}}});
+        let mut leaves = vec![];
+        call_leaves(&call, 0, &mut leaves)?;
+        assert_eq!(leaves, vec![leaf]);
+        assert!(!requires_direct(&call, 0));
+        Ok(())
+    }
+
     #[test]
     fn config_recovery_preserves_an_existing_claim_and_explicit_field_removal() -> Result<()> {
         let record = json!({"controller_wallet":"alice","controller_ss58":"controller","protected_ss58":"pure","genesis_hash":"chain","coldkey_swap":{"status":"submitting"},"pending_delay_blocks":50});

@@ -2374,6 +2374,18 @@
         "timepoint": {
           "type": "object",
           "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Omit on the first approval; required on every later one (read it with the multisig query)."
+        },
+        "call_data": {
+          "type": "string",
+          "description": "Original prepared SCALE call bytes from multisig_call_data; reuse for every later approval."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Original prepared call hash; reject any change before signing."
+        },
+        "call_spec_version": {
+          "type": "integer",
+          "description": "Runtime spec version used to prepare the original call bytes."
         }
       },
       "required": [
@@ -2484,6 +2496,18 @@
         "timepoint": {
           "type": "object",
           "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Omit on the first approval; required on every later one (read it with the multisig query)."
+        },
+        "call_data": {
+          "type": "string",
+          "description": "Original prepared SCALE call bytes from multisig_call_data; reuse for every later approval."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Original prepared call hash; reject any change before signing."
+        },
+        "call_spec_version": {
+          "type": "integer",
+          "description": "Runtime spec version used to prepare the original call bytes."
         }
       },
       "required": [

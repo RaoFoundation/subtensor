@@ -372,6 +372,12 @@ not a rejection: Node results expose `status: 'unknown'` and
 with the transaction hash. Receipt tracking attempts read-only reconciliation.
 Use the hash to reconcile inclusion before retrying the operation.
 
+If tracking stops after a Shield carrier is included, `ShieldedTrackingError`
+preserves `innerExtrinsicHash`, `carrierExtrinsicHash`, and `carrierReceipt`.
+Its `outcome` has `status: 'unknown'` and `data.submission_uncertain`; carrier
+inclusion does not establish the inner operation's result. Reconcile both hashes
+before retrying.
+
 Automatic submissions share a per-account queue. Shielded submissions reserve
 both the carrier and inner nonce, including when the caller returns before
 inclusion or loses the response. Semantic previews and fee estimates do not
@@ -481,6 +487,26 @@ rules; low-level call construction alone does not perform these checks.
 Slippage, claim admission, owner hyperparameters, Null weights, multisig deposits,
 subnet scope, mandatory shielding, and fee payer selection are checked before
 signing. MEV fee limits include the inner transaction, carrier, and both tips.
+
+For thresholds above one, `multisig.approve(intent, signer)` retains the first
+prepared call through later approvals, including when an earlier submission is
+not yet visible on chain.
+Persist the result's `multisig_call_data`, `multisig_call_hash`, and
+`multisig_call_spec_version` for co-signers in another process. Pass those as
+`call_data`, `call_hash`, and `call_spec_version` to `multisig_approve` or
+`multisig_execute`, together with the opening timepoint. Saved bytes preserve
+the approved amounts and price limits; current funding and registration consent
+are checked again. An imported byte-only call has conservative unbounded spend
+and all-subnet scope, so bounded policies require the original trusted prepared
+intent in the same multisig instance. Without saved bytes, a later-round intent
+must still hash to the pending operation at its stated timepoint.
+
+After confirming an operation completed or was cancelled, call
+`await multisig.forgetPreparedCall(intent, originalCallHash)` before starting a
+new operation with freshly resolved amounts or prices. Missing pending storage
+alone does not clear a retained call: a submitted transaction may still execute.
+Threshold-one operations execute immediately and prepare current inputs for each
+call.
 
 Additional workflow APIs include:
 

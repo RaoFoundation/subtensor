@@ -1,5 +1,50 @@
 import { evaluatePolicy } from './policy'
-import type { IntentDescriptor, IntentReader } from './intents'
+import { canonicalJson } from './portable'
+import { type Intent, type IntentContext, type PreparedIntent, type IntentDescriptor, type IntentReader } from './intents'
+
+/** Retain a commitment until the caller has reconciled and explicitly released it. */
+export class MultisigCallCache {
+  private readonly calls = new Map<string, Promise<{ prepared: PreparedIntent; hash: string; specVersion?: number }>>()
+  async prepare(reader: IntentReader, intent: Intent, context: IntentContext): Promise<PreparedIntent> {
+    if (!reader.hashCall) throw new Error('reader lacks multisig call hashing')
+    const key = intentKey(intent), savedPromise = this.calls.get(key)
+    if (savedPromise) {
+      const saved = await savedPromise
+      if (saved.specVersion != null && await reader.specVersion?.() !== saved.specVersion) throw new Error('runtime changed since multisig approval; verify the original commitment under the new metadata')
+      const hash = await reader.hashCall(saved.prepared.call)
+      if (hex(hash) !== saved.hash) throw new Error('runtime metadata changed the prepared multisig call; verify the original commitment before approving')
+      // Absence from a snapshot cannot distinguish an unfinished submission
+      // from a completed operation. Neither absence nor cache pressure may
+      // silently replace its commitment with a newly quoted call.
+      return saved.prepared
+    }
+    const preparing = (async () => {
+      const prepared = await intent.prepare(reader, context)
+      return { prepared, hash: hex(await reader.hashCall!(prepared.call)), specVersion: await reader.specVersion?.() }
+    })()
+    this.calls.set(key, preparing)
+    try {
+      const { prepared } = await preparing
+      // A refused preparation cannot have authorized an opening submission.
+      // Retry its state checks instead of retaining stale failure messages.
+      if (prepared.violations.length && this.calls.get(key) === preparing) this.calls.delete(key)
+      return prepared
+    }
+    catch (error) { if (this.calls.get(key) === preparing) this.calls.delete(key); throw error }
+  }
+
+  /** Start a new operation only after the named commitment is reconciled. */
+  async forget(intent: Intent, expectedCallHash: string): Promise<void> {
+    const key = intentKey(intent), saved = this.calls.get(key)
+    if (!saved) return
+    if ((await saved).hash !== expectedCallHash.toLowerCase()) throw new Error('prepared multisig call does not match expectedCallHash')
+    if (this.calls.get(key) === saved) this.calls.delete(key)
+  }
+}
+
+function intentKey(intent: Intent): string {
+  return canonicalJson(intent.toJSON())
+}
 
 export interface MultisigApprovalRequest {
   accountMode?: 'legacy' | 'safe'

@@ -1,4 +1,10 @@
-/** Byte helpers shared by Node and browser APIs; no Buffer or native module. */
+/** Portable helpers shared by Node and browser APIs; no Buffer or native module. */
+/** Stable object-key ordering for already JSON-compatible client state; array order is significant. */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item)
+}
+
 export function bytesHex(bytes: Uint8Array): string {
   return '0x' + Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
 }

@@ -65,7 +65,7 @@ for (const operation of ['multisig_cancel', 'multisig_approve']) {
       timepoint: { height: 1, index: 0 },
       call: { op: 'batch', intents: [{ op: 'transfer', dest_ss58: bob.ss58Address, amount_tao: '1.25' }] },
     }
-    let intent
+    let intent, reader = view
     if (operation === 'multisig_cancel') {
       const saved = await buildIntent(spec.call.op, spec.call).prepare(view, { coldkey: charlie.ss58Address })
       spec.call_hash = '0x' + Buffer.from(await view.hashCall(saved.call)).toString('hex')
@@ -78,12 +78,17 @@ for (const operation of ['multisig_cancel', 'multisig_approve']) {
         }
       }
       intent = new SavedCancellation(operation, spec)
-    } else intent = buildIntent(operation, spec)
-    const standalone = await intent.prepare(view, context)
+    } else {
+      intent = buildIntent(operation, spec)
+      const saved = await buildIntent(spec.call.op, spec.call).prepare(view, { coldkey: charlie.ss58Address })
+      const hash = await view.hashCall(saved.call)
+      reader = { ...view, query: async (pallet, item, params) => pallet === 'Multisig' && item === 'Multisigs' && params[0] === charlie.ss58Address && Buffer.from(params[1]).equals(Buffer.from(hash)) ? { when: spec.timepoint } : view.query(pallet, item, params) }
+    }
+    const standalone = await intent.prepare(reader, context)
     const original = sdk.IntentCall.fromDescriptor(client, standalone.call)
     assert.equal(original.function, operation === 'multisig_cancel' ? 'cancel_as_multi' : 'approve_as_multi')
 
-    const batched = await buildIntent('batch', { intents: [operation === 'multisig_cancel' ? intent : spec] }).prepare(view, context)
+    const batched = await buildIntent('batch', { intents: [operation === 'multisig_cancel' ? intent : spec] }).prepare(reader, context)
     const native = sdk.IntentCall.fromDescriptor(client, batched.call)
     const expected = await compose(standalone.call)
     assert.deepEqual(Buffer.from(native.params.calls[0]), Buffer.from(expected))

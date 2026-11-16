@@ -310,7 +310,9 @@ test('wrapped and mixed-batch spends retain each actual dispatch account', async
 })
 
 test('hash-only approval retains semantic descriptor for native hash verification', async () => {
-  const plan = await buildIntent('multisig_approve', { threshold: 2, other_signatories: ['other'], call: transfer, timepoint: { height: 1, index: 0 } }).prepare(reader(), context)
+  const base = reader()
+  const pending = reader({ query: async (pallet, item, params) => pallet === 'Multisig' && item === 'Multisigs' && params[0] === 'multisig' && Buffer.from(params[1]).equals(Buffer.alloc(32)) ? { when: { height: 1, index: 0 } } : base.query(pallet, item, params) })
+  const plan = await buildIntent('multisig_approve', { threshold: 2, other_signatories: ['other'], call: transfer, timepoint: { height: 1, index: 0 } }).prepare(pending, context)
   assert.equal(plan.call.call, 'approve_as_multi')
   assert.equal(plan.call.semanticCall.call, 'transfer_keep_alive')
   assert.equal(plan.spendRao, 1250000000n)

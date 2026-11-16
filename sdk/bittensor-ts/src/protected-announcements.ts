@@ -3,7 +3,7 @@ import { Intent, intentFromJSON, intentSignerRole, type IntentContext, type Prep
 import { ProxyAnnouncementStore, normalizeCallSemantics, announcementCategory, type NewProxyAnnouncement, type ProxyAnnouncement, type AnnouncementMultisig } from './announcement-store'
 import { decodedCallDescriptor, sameCallSemantics, validateAnnouncedCall, announcedCallLeaves } from './proxy-announcements'
 import { protectedManagementPath, assertProtectedManagementAllowed } from './protected-account-config'
-import { requireProtectedChain, sameProtectedAccount, type ProtectedProxyBackend, type ProtectedProxySnapshot, type ProtectedProxyReceipt, type ProtectedProxyEvent } from './protected-proxy-types'
+import { requireProtectedChain, sameProtectedAccount, shieldedUncertainReceipt, type ProtectedProxyBackend, type ProtectedProxySnapshot, type ProtectedProxyReceipt, type ProtectedProxyEvent } from './protected-proxy-types'
 import { bytesHex as hex, hexBytes } from './portable'
 import { isDefiniteSubmissionRejection } from './transport'
 
@@ -37,6 +37,8 @@ function successful(receipt: ProtectedProxyReceipt): boolean { return evaluatePo
 function approvalOnly(receipt: ProtectedProxyReceipt): boolean { return evaluatePolicy<{approval_only: boolean}>('protected.receipt_state', receipt).approval_only }
 function included(receipt: ProtectedProxyReceipt): boolean { return evaluatePolicy<{included: boolean}>('protected.receipt_state', receipt).included }
 function uncertainReceipt(error: unknown): ProtectedProxyReceipt | undefined {
+  const shielded = shieldedUncertainReceipt(error)
+  if (shielded) return shielded
   const value = error as any
   return typeof value?.extrinsicHash === 'string' && /^0x[0-9a-f]{64}$/i.test(value.extrinsicHash) ? { status: 'unknown', success: null, events: [], extrinsicHash: value.extrinsicHash, blockHash: value.blockHash ?? undefined } : undefined
 }

@@ -1,4 +1,5 @@
 import type { Intent, IntentContext, IntentDescriptor, PreparedIntent } from './intents'
+import { ShieldedTrackingError } from './shielded-receipt'
 
 /** One immutable chain view used throughout preparation and policy checks. */
 export interface ProtectedProxySnapshot {
@@ -45,6 +46,23 @@ export interface ProtectedProxyReceipt {
   message?: string
   /** Multisig approval is not evidence that the protected action executed. */
   awaitingApproval?: boolean
+  shielded?: boolean
+  innerExtrinsicHash?: string
+  carrierExtrinsicHash?: string
+  data?: Record<string, unknown>
+}
+
+/** Retain Shield reconciliation coordinates without attributing carrier inclusion to its inner call. */
+export function shieldedUncertainReceipt(error: unknown): ProtectedProxyReceipt | undefined {
+  if (!(error instanceof ShieldedTrackingError)) return undefined
+  return {
+    status: 'unknown', success: null, events: [], message: error.message,
+    extrinsicHash: error.innerExtrinsicHash, shielded: true,
+    innerExtrinsicHash: error.innerExtrinsicHash, carrierExtrinsicHash: error.carrierExtrinsicHash,
+    data: { shielded: true, submission_uncertain: true, carrier_only: true,
+      inner_extrinsic_hash: error.innerExtrinsicHash, carrier_extrinsic_hash: error.carrierExtrinsicHash,
+      carrier_block_hash: error.carrierReceipt.blockHash, carrier_block_number: error.carrierReceipt.blockNumber },
+  }
 }
 
 /** Applications may supply a multisig submitter without exposing any private keys. */

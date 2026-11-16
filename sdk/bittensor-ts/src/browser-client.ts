@@ -17,7 +17,7 @@ import { resolveEvmRecipient } from './evm-alias'
 import { authorizeRegistrationSponsorship, type RegistrationSponsorshipOptions } from './registration-sponsorship'
 import { chainErrorFromDispatch, type ChainErrorInfo } from './chain-errors'
 import { followShieldedResult } from './shielded-receipt'
-import { prepareMultisigApproval, type MultisigApprovalRequest } from './multisig-workflow'
+import { MultisigCallCache, prepareMultisigApproval, type MultisigApprovalRequest } from './multisig-workflow'
 import { UpgradeClient, type UpgradeAdapter } from './upgrade'
 import { bindReadNamespace, type AccountsReadNamespace, type SubnetsReadNamespace, type StakingReadNamespace, type NeuronsReadNamespace, type ChainReadNamespace, type EpochsReadNamespace, type HyperparametersReadNamespace, type DelegationReadNamespace, type LeasingReadNamespace, type CollateralReadNamespace, type LocksReadNamespace, type IdentityReadNamespace, type WeightsReadNamespace, type GammaReadNamespace, type PricesReadNamespace } from './read-namespaces'
 import {
@@ -31,7 +31,7 @@ import { JsonRpcTransport, ChainError, EndpointValidationError, withRequestSigna
 import { bytesHex as hex, hexBytes, concatBytes } from './portable'
 import { dispatchRead, listReads, type ReadName, type ReadArgs, type ReadParams, type ReadResult, type ReadView } from './reads'
 import { fetchMetagraph } from './metagraph'
-import { Intent, intentFromJSON, intentSignerRole, listIntentTools, checkIntentPolicy, encodeIntentCall, PROXY_TYPES, type IntentContext, type IntentDescriptor, type IntentPolicy, type IntentReader, type PreparedIntent } from './intents'
+import { Intent, wrapPreparedMultisig, intentFromJSON, intentSignerRole, listIntentTools, checkIntentPolicy, encodeIntentCall, PROXY_TYPES, type IntentContext, type IntentDescriptor, type IntentPolicy, type IntentReader, type PreparedIntent } from './intents'
 import { iterCallLeaves } from './fee-filters'
 import { resolveTransactionFeePayer } from './fee-payer'
 import { createEvmAddressUtilities } from './evm'
@@ -697,8 +697,8 @@ export class Client {
     if (execution.violations.includes('call_hash')) violations.push('multisig call changed from expectedCallHash')
     const owner = payer.address
     const affordability = await transactionAffordability({
-      spends: [...prepared.spendByAccount.map(row => ({ address: row.address, amount: row.amountRao })), ...((prepared.extras.registrationSponsorships ?? []) as Array<{payer:string;depositRao:bigint}>).map(row => ({ address: row.payer, amount: row.depositRao }))],
-      charges: [{ address: owner, amount: innerFee.rao }, { address: prepared.feePayer, amount: carrierFee.rao }],
+      spends: prepared.spendByAccount.map(row => ({ address: row.address, amount: row.amountRao })),
+      charges: [{ address: owner, amount: innerFee.rao }, { address: prepared.feePayer, amount: carrierFee.rao }, ...((prepared.extras.registrationSponsorships ?? []) as Array<{payer:string;depositRao:bigint}>).map(row => ({ address: row.payer, amount: row.depositRao }))],
       reserves: prepared.requiredFreeByAccount.map(row => ({ address: row.address, required: row.requiredRao, available: row.availableRao })),
       reserveCharges: [{ address: prepared.feePayer, amount: carrierFee.rao }, { address: owner, amount: payer.dropsTip ? 0n : options.tip ?? 0n }],
     }, publicKeyFromSs58, async address => BigInt((await snapshot.query(['System', 'Account'], [address]))?.data?.free ?? 0))
@@ -750,6 +750,7 @@ export class Client {
 
 /** Deterministic multisig approvals with live pending-state and deposit checks. */
 export class BrowserMultisig {
+  private readonly preparedCalls = new MultisigCallCache()
   readonly address: string
   readonly signatories: readonly string[]
   constructor(readonly client: Client, signatories: readonly string[], readonly threshold: number, readonly accountMode: 'legacy' | 'safe' = 'legacy') {
@@ -763,6 +764,10 @@ export class BrowserMultisig {
   async prepare(call: IntentDescriptor, signerAddress: string, expectedCallHash?: string) {
     return this.client.prepareMultisig({ accountMode: this.accountMode, call, signatories: this.signatories, threshold: this.threshold, signerAddress, expectedCallHash })
   }
+  /** Release saved intent inputs only after its operation has completed or been cancelled. */
+  async forgetPreparedCall(call: Intent, expectedCallHash: string): Promise<void> {
+    await this.preparedCalls.forget(call, expectedCallHash)
+  }
   async approve(call: Intent | IntentDescriptor, signer: BrowserSigner, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
     if (!(signer instanceof Keypair && isProtectedCrypto(signer.cryptoType))) signer = pinSigner(signer)
     const address = signer.ss58Address ?? signer.address
@@ -772,13 +777,14 @@ export class BrowserMultisig {
     if (call instanceof Intent) {
       const reader = await this.client.intentReader()
       const hotkey = intentSignerRole(call) === 'hotkey'
-      const inner = await call.prepare(reader, { coldkey: this.address, feePayer: address, ...(hotkey ? { hotkey: this.address, hotkeyPublicKey: publicKeyFromSs58(this.address) } : {}) })
+      const context = { coldkey: this.address, feePayer: address, accountMode: this.accountMode, ...(hotkey ? { hotkey: this.address, hotkeyPublicKey: publicKeyFromSs58(this.address) } : {}) }
+      const inner = this.threshold === 1 ? await call.prepare(reader, context) : await this.preparedCalls.prepare(reader, call, context)
       const approval = await prepareMultisigApproval(reader, { accountMode: this.accountMode, call: inner.call, signatories: this.signatories, threshold: this.threshold, signerAddress: address, expectedCallHash: options.expectedCallHash })
-      const wrapped = new Intent(this.threshold === 1 ? 'multisig_threshold_1' : 'multisig_execute', {
+      const wrapped = wrapPreparedMultisig(this.threshold === 1 ? 'multisig_threshold_1' : 'multisig_execute', {
         account_mode: this.accountMode,
         other_signatories: this.signatories.filter(member => hex(publicKeyFromSs58(member)) !== identity), call: call.toJSON(),
         ...(this.threshold === 1 ? {} : { threshold: this.threshold, timepoint: approval.timepoint }),
-      })
+      }, inner)
       return this.client.execute(wrapped, signer, { ...options, expectedCallHash: approval.callHash })
     }
     if (!options.allowRawCall) throw new ChainError('descriptor multisig approval requires allowRawCall: true; pass an Intent for semantic policies')

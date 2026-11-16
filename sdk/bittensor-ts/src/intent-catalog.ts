@@ -2099,6 +2099,18 @@ export const INTENT_CATALOG = [
         "timepoint": {
           "type": "object",
           "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Omit on the first approval; required on every later one (read it with the multisig query)."
+        },
+        "call_data": {
+          "type": "string",
+          "description": "Original prepared SCALE call bytes from multisig_call_data; reuse for every later approval."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Original prepared call hash; reject any change before signing."
+        },
+        "call_spec_version": {
+          "type": "integer",
+          "description": "Runtime spec version used to prepare the original call bytes."
         }
       },
       "required": [
@@ -2113,7 +2125,10 @@ export const INTENT_CATALOG = [
     "all_amount_fields": [],
     "defaults": {
       "account_mode": "legacy",
-      "timepoint": null
+      "timepoint": null,
+      "call_data": null,
+      "call_hash": null,
+      "call_spec_version": null
     },
     "money_fields": []
   },
@@ -2220,6 +2235,18 @@ export const INTENT_CATALOG = [
         "timepoint": {
           "type": "object",
           "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Omit on the first approval; required on every later one (read it with the multisig query)."
+        },
+        "call_data": {
+          "type": "string",
+          "description": "Original prepared SCALE call bytes from multisig_call_data; reuse for every later approval."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Original prepared call hash; reject any change before signing."
+        },
+        "call_spec_version": {
+          "type": "integer",
+          "description": "Runtime spec version used to prepare the original call bytes."
         }
       },
       "required": [
@@ -2234,7 +2261,10 @@ export const INTENT_CATALOG = [
     "all_amount_fields": [],
     "defaults": {
       "account_mode": "legacy",
-      "timepoint": null
+      "timepoint": null,
+      "call_data": null,
+      "call_hash": null,
+      "call_spec_version": null
     },
     "money_fields": []
   },
