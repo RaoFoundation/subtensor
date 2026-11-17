@@ -3696,6 +3696,41 @@ fn test_announce_rejects_dest_opt_outs_before_fee() {
     });
 }
 
+// PROTECTED_REGRESSION: an incompatible used destination must be rejected before the
+// coldkey-swap fee is charged; changes require explicit human approval.
+#[test]
+fn test_announce_rejects_funded_lock_rejecting_destination_before_fee() {
+    new_test_ext(1).execute_with(|| {
+        let who = U256::from(1);
+        let dest = U256::from(2);
+        let hotkey = U256::from(10);
+        let netuid = add_dynamic_network(&hotkey, &who);
+
+        let now = SubtensorModule::get_current_block_as_u64();
+        Lock::<Test>::insert(
+            (who, netuid, hotkey),
+            LockState {
+                locked_mass: AlphaBalance::from(1_000_000_u64),
+                conviction: U64F64::from_num(0),
+                last_update: now,
+            },
+        );
+
+        let swap_cost = SubtensorModule::get_key_swap_cost();
+        let ed = ExistentialDeposit::get();
+        add_balance_to_coldkey_account(&who, swap_cost + ed);
+        add_balance_to_coldkey_account(&dest, ed);
+        let before = SubtensorModule::get_coldkey_balance(&who);
+
+        assert_noop!(
+            SubtensorModule::announce_coldkey_swap_v2(RuntimeOrigin::signed(who), dest),
+            Error::<Test>::AccountRejectsLockedAlpha
+        );
+        assert_eq!(SubtensorModule::get_coldkey_balance(&who), before);
+        assert!(ColdkeySwapAnnouncements::<Test>::get(who).is_none());
+    });
+}
+
 #[test]
 fn test_fresh_destination_still_receives_source_locks() {
     new_test_ext(1).execute_with(|| {

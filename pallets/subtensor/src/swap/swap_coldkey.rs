@@ -607,6 +607,18 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> Result<ColdkeySwapWork, (Weight, Error<T>)> {
+        Self::ensure_coldkey_swap_destination_with_policy_mode(
+            old_coldkey,
+            new_coldkey,
+            ColdkeySwapPolicyImportMode::CurrentDestination,
+        )
+    }
+
+    fn ensure_coldkey_swap_destination_with_policy_mode(
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+        policy_import_mode: ColdkeySwapPolicyImportMode,
+    ) -> Result<ColdkeySwapWork, (Weight, Error<T>)> {
         let precheck = || Self::coldkey_swap_failed_weight(None, false);
         if !T::HotkeyOwnerPolicy::allows_coldkey_swap(old_coldkey, new_coldkey) {
             return Err((precheck(), Error::<T>::HotkeyOwnerPolicyViolation));
@@ -692,8 +704,16 @@ impl<T: Config> Pallet<T> {
         // (temporary accept override in execute). Destinations with staking
         // associations *or* configured AccountFlags that reject locked alpha
         // keep that preference (Auditor fid:9411d39b).
-        if (Self::coldkey_already_in_use(new_coldkey)
-            || Self::coldkey_has_configured_account_flags(new_coldkey))
+        let destination_has_presence = match policy_import_mode {
+            ColdkeySwapPolicyImportMode::CurrentDestination => {
+                work.destination_rejects_unsolicited_policy_import
+            }
+            ColdkeySwapPolicyImportMode::Reject => true,
+            ColdkeySwapPolicyImportMode::IgnoreDestinationBalance => {
+                work.destination_has_non_balance_policy_protection
+            }
+        };
+        if destination_has_presence
             && Self::account_rejects_locked_alpha(new_coldkey)
             && let Err(e) = Self::ensure_no_active_locks_for_swap(old_coldkey)
         {
@@ -793,7 +813,11 @@ impl<T: Config> Pallet<T> {
         new_coldkey: &T::AccountId,
         policy_import_mode: ColdkeySwapPolicyImportMode,
     ) -> Result<ColdkeySwapWork, (Weight, DispatchError)> {
-        let work = match Self::ensure_coldkey_swap_destination(old_coldkey, new_coldkey) {
+        let work = match Self::ensure_coldkey_swap_destination_with_policy_mode(
+            old_coldkey,
+            new_coldkey,
+            policy_import_mode,
+        ) {
             Ok(work) => work,
             Err((done, error)) => return Err((done, error.into())),
         };
