@@ -19,7 +19,7 @@ use super::*;
 use crate::staking::BasketFlushWork;
 use crate::weights::WeightInfo;
 use safe_math::*;
-use substrate_fixed::types::{I64F64, U64F64};
+use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{NetUid, TaoBalance, Token};
 impl<T: Config> Pallet<T> {
     /// Fetches the total count of root network validators
@@ -368,18 +368,7 @@ impl<T: Config> Pallet<T> {
         Self::deposit_event(Event::NetworkLockCostReductionIntervalSet(interval));
     }
     pub fn get_lock_reduction_interval() -> u64 {
-        let interval: I64F64 =
-            I64F64::saturating_from_num(NetworkLockReductionInterval::<T>::get());
-        let block_emission: I64F64 = I64F64::saturating_from_num(
-            Self::calculate_block_emission()
-                .unwrap_or(1_000_000_000.into())
-                .to_u64(),
-        );
-        let halving: I64F64 = block_emission
-            .checked_div(I64F64::saturating_from_num(1_000_000_000))
-            .unwrap_or(I64F64::saturating_from_num(0.0));
-        let halved_interval: I64F64 = interval.saturating_mul(halving);
-        halved_interval.saturating_to_num::<u64>()
+        NetworkLockReductionInterval::<T>::get()
     }
     pub fn get_rate_limited_last_block(rate_limit_key: &RateLimitKey<T::AccountId>) -> u64 {
         LastRateLimitedBlock::<T>::get(rate_limit_key)
