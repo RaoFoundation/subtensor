@@ -845,15 +845,6 @@ impl<T: Config> Pallet<T> {
         }
         with_transaction(|| {
             let result = (|| -> DispatchResult {
-                // Identity: destination wins. Always clear the source so a drained
-                // coldkey does not keep an orphaned identity row (`take` runs before
-                // the `&&` condition, so the source row is removed either way).
-                if let Some(identity) = IdentitiesV2::<T>::take(old_coldkey)
-                    && !IdentitiesV2::<T>::contains_key(new_coldkey)
-                {
-                    IdentitiesV2::<T>::insert(new_coldkey.clone(), identity);
-                }
-
                 // Decide once, before mutations, whether this is a rename onto a blank key or a
                 // merge into an existing destination. Every imported policy uses that decision.
                 let saved_dest_flags = AccountFlags::<T>::get(new_coldkey);
@@ -891,6 +882,13 @@ impl<T: Config> Pallet<T> {
                 // Existing destinations must not receive source flags or a new lineage.
                 if !destination_has_presence {
                     Self::set_accept_locked_alpha(new_coldkey, true);
+                }
+
+                // The destination keeps its identity. The source row is always cleared.
+                if let Some(identity) = IdentitiesV2::<T>::take(old_coldkey)
+                    && !IdentitiesV2::<T>::contains_key(new_coldkey)
+                {
+                    IdentitiesV2::<T>::insert(new_coldkey.clone(), identity);
                 }
 
                 // Lease rows outlive `NetworksAdded` while a dissolved subnet awaits cleanup,
