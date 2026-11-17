@@ -49,6 +49,36 @@ fn full_hotkey_swap_preserves_registration_on_unrelated_subnets() {
     });
 }
 
+// PROTECTED_REGRESSION: a historical false membership row must not block a subnet-scoped
+// hotkey swap; changes require explicit human approval.
+#[test]
+fn false_membership_row_does_not_block_subnet_hotkey_swap() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(4_211);
+        let new_hotkey = U256::from(4_212);
+        let coldkey = U256::from(4_213);
+        let netuid = NetUid::from(23);
+
+        add_network(netuid, 1, 0);
+        register_ok_neuron(netuid, old_hotkey, coldkey, 0);
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+        IsNetworkMember::<Test>::insert(new_hotkey, netuid, false);
+
+        assert!(!SubtensorModule::is_hotkey_registered_on_specific_network(
+            &new_hotkey,
+            netuid
+        ));
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &old_hotkey,
+            &new_hotkey,
+            Some(netuid),
+            false,
+        ));
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, netuid));
+    });
+}
+
 // PROTECTED_REGRESSION: a tiny volatile holding must not strand earned root dividends; changes require explicit human approval.
 #[test]
 fn small_out_of_band_holding_allows_dividend_settlement_and_actual_claim() {
