@@ -1280,7 +1280,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Transfers the lock from one coldkey to another for live subnets. This is used when a
+    /// Transfers locks between coldkeys, except on subnets undergoing dissolution, when a
     /// user swaps their coldkey and we want to preserve their locks.
     ///
     /// The hotkey and netuid remain the same, only the coldkey changes.
@@ -1306,12 +1306,13 @@ impl<T: Config> Pallet<T> {
         let new_coldkey_rejects_locked_alpha = Self::account_rejects_locked_alpha(new_coldkey);
         let decaying_locks_to_transfer: Vec<(NetUid, bool)> =
             DecayingLock::<T>::iter_prefix(old_coldkey).collect();
+        let dissolving_netuids: BTreeSet<_> = DissolveCleanupQueue::<T>::get().into_iter().collect();
 
         // Gather locks for old coldkey
         for ((netuid, hotkey), lock) in Lock::<T>::iter_prefix((old_coldkey,)) {
             // Dissolution owns these rows; its aggregate cleanup may already have run.
             // Moving them would recreate conviction after that cleanup phase.
-            if !Self::if_subnet_exist(netuid) {
+            if dissolving_netuids.contains(&netuid) {
                 continue;
             }
             locks_to_transfer.push((netuid, hotkey, lock));
@@ -1367,7 +1368,7 @@ impl<T: Config> Pallet<T> {
         // DecayingLock: destination wins on conflict. Only move source flags for
         // netuids the destination does not already configure.
         for (netuid, _) in decaying_locks_to_transfer {
-            if !Self::if_subnet_exist(netuid) {
+            if dissolving_netuids.contains(&netuid) {
                 continue;
             }
             let Some(decaying) = DecayingLock::<T>::take(old_coldkey, netuid) else {
