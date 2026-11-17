@@ -60,7 +60,7 @@ async function fixture({ realFree = reserve + transfer, delegateFree = fee } = {
   }
   const intent = browser.buildIntent('execute_proxy_announced', {
     delegate_ss58: delegate.ss58Address, real_ss58: real.ss58Address,
-    inner_op: 'transfer', inner_args: { dest_ss58: recipient, amount_tao: '999' },
+    inner_op: 'transfer', inner_args: { dest_ss58: recipient, amount_tao: '0.1', keep_alive: false },
     announced_call_data: hex(saved), expected_call_hash: hex(sdk.blake2_256(saved)),
   })
   client.blockHash = async () => block

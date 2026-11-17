@@ -32,7 +32,7 @@ import bittensor_core as _backend
 from .._transport.contract import SigningContext
 from ..result import BittensorError
 from ..settings import BLOCKTIME, SS58_FORMAT, VAULT_GUIDE_URL
-from ..sp_core import CRYPTO_ED25519, CRYPTO_SR25519, ss58_decode, verify
+from ..sp_core import CRYPTO_ED25519, CRYPTO_SR25519, ss58_decode, verify_strict
 from .qr import svg_data_uri
 from .server import VaultPageError, VaultSessionServer
 from .uos import transaction_frames, transaction_frames_with_proof
@@ -249,7 +249,7 @@ class VaultSigner:
         if crypto_type != self._crypto_type:
             raise VaultError("the scanned signature uses a different crypto type than this signer")
         try:
-            valid = verify(unsigned.payload, raw, self._address, crypto_type)
+            valid = verify_strict(unsigned.payload, raw, self._address, crypto_type)
         except Exception:
             valid = False
         if not valid:

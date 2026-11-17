@@ -703,6 +703,17 @@ class ExecuteProxyAnnounced(Intent):
                         "runtime metadata now decodes the announced bytes differently; "
                         "cancel and re-announce the operation"
                     )
+            from .._saved_call import bind_saved_intent
+
+            origin = _OriginView(await account_for_read(substrate, self.real_ss58), wallet=wallet)
+            extras = await bind_saved_intent(
+                substrate,
+                build_intent(self.inner_op, self.inner_args),
+                origin,
+                inspected,
+                data,
+                wrapper="announced proxy",
+            )
         else:
             origin = _OriginView(await account_for_read(substrate, self.real_ss58))
             origin._wallet = getattr(wallet, "_wallet", wallet)

@@ -113,7 +113,7 @@ test('batch retains saved call bytes inside wrappers and native validation still
   const hex = value => '0x' + Buffer.from(value).toString('hex')
   const args = {
     delegate_ss58: alice.ss58Address, real_ss58: bob.ss58Address,
-    inner_op: 'transfer', inner_args: { dest_ss58: bob.ss58Address, amount_tao: '1.25' },
+    inner_op: 'transfer', inner_args: { dest_ss58: bob.ss58Address, amount_tao: '9007199.254740993' },
     announced_call_data: hex(data), expected_call_hash: hex(sdk.blake2_256(data)), announced_spec_version: 419,
   }
   const plan = await buildIntent('batch', { intents: [{ op: 'execute_proxy_announced', ...args }] }).prepare(view, context)

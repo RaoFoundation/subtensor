@@ -31,7 +31,7 @@ import { storage as generatedStorage, constants as generatedConstants, runtimeAp
 import { DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_MAX_REQUEST_RETRIES, DEFAULT_RETRY_BACKOFF_MS, DEFAULT_MAX_RETRY_BACKOFF_MS, DEFAULT_ENDPOINT_VALIDATION_TTL_MS, DEFAULT_MAX_SUBSCRIPTION_QUEUE, DEFAULT_MAX_WS_MESSAGE_BYTES, IDEMPOTENT_RPC_METHODS, RpcRequestOptions, JsonRpcTransportOptions, RpcRequest, SubscriptionWaiter, SubscriptionState, EndpointAttempt, ActiveConnection, ConnectingAttempt, SubscriptionOptions, WebSocketLike, WebSocketConstructor, WebSocketFactory, EndpointRequest, EndpointValidator, JsonRpcError, ChainError, RequestTimeoutError, RequestAbortedError, EndpointValidationError, JsonRpcTransport, nonNegativeNumber, nonNegativeInteger, hasOwn, parseJsonRpcResponse, readResponseText, jsonRpcResponseResult, jsonRpcSubscriptionNotification, RequestSignal, delay, withRequestSignal, normalizeAbortError, throwIfAborted } from './transport'
 export { JsonRpcTransport, EndpointValidationError, RequestAbortedError, RequestTimeoutError, ChainError, JsonRpcError, EndpointValidator, EndpointRequest, WebSocketFactory, WebSocketConstructor, WebSocketLike, JsonRpcTransportOptions, RpcRequestOptions, DEFAULT_MAX_WS_MESSAGE_BYTES, DEFAULT_MAX_SUBSCRIPTION_QUEUE, DEFAULT_ENDPOINT_VALIDATION_TTL_MS, DEFAULT_MAX_RETRY_BACKOFF_MS, DEFAULT_RETRY_BACKOFF_MS, DEFAULT_MAX_REQUEST_RETRIES, DEFAULT_REQUEST_TIMEOUT_MS } from './transport'
 import { blake2_256, generateExtrinsicProof, hexToBytes, metadataDigest } from './crypto'
-import { CRYPTO_ED25519, CRYPTO_SR25519, CRYPTO_ECDSA, Keypair, publicKeyFromSs58, accountIdFromEcdsaPublic, ss58FromPublic, verify } from './keys'
+import { CRYPTO_ED25519, CRYPTO_SR25519, CRYPTO_ECDSA, Keypair, publicKeyFromSs58, accountIdFromEcdsaPublic, ss58FromPublic, verifyStrict } from './keys'
 import { normalizeSignatureBytes } from './signatures'
 import { LedgerDevice } from './ledger'
 import { Runtime, decodeOptionalOpaqueMetadata, eraBirth, type RuntimeSignerPayload } from './runtime'
@@ -904,11 +904,11 @@ export class BrowserChainClient {
     return new Date(Number(ms ?? 0))
   }
 
-  async blockInfo(block?: number | null): Promise<BlockInfo | null> {
-    const hash = block == null ? await this.finalizedHead() : await this.blockHash(block)
+  async blockInfo(block?: ReadBlock): Promise<BlockInfo | null> {
+    const hash = await this.resolveReadBlockHash(block)
     const raw = await this.rpc('chain_getBlock', [hash])
-    const value = raw as { block?: { header?: { number?: string; parentHash?: string }; extrinsics?: string[] } }
-    if (value.block?.header == null) return null
+    const value = raw as { block?: { header?: { number?: string; parentHash?: string }; extrinsics?: string[] } } | null
+    if (value?.block?.header == null) return null
     const number = headerNumber(value.block.header)
     const runtime = await this.runtimeAt(number === 0 ? hash : value.block.header.parentHash ?? hash)
     const extrinsics = value.block.extrinsics ?? []
@@ -919,7 +919,7 @@ export class BrowserChainClient {
     return { number, hash, header: value.block.header, extrinsics, decodedExtrinsics, timestamp: await this.timestamp(hash) }
   }
 
-  block_info(block?: number | null): Promise<BlockInfo | null> {
+  block_info(block?: ReadBlock): Promise<BlockInfo | null> {
     return this.blockInfo(block)
   }
 
@@ -2027,7 +2027,7 @@ export class Client extends BrowserChainClient {
         const runtime = await this.runtimeAt()
         const restored = restoreUnsignedTransaction(imported.serialized, runtime as unknown as UnsignedRuntime, { blake2_256, publicKeyFromSs58 }, runtime.metadataBytes, await this.genesisHash())
         const normalized = normalizeSignature(signature, restored.cryptoType)
-        if (normalized.cryptoType !== restored.cryptoType || !verify(restored.payload, normalized.signature, restored.address, restored.cryptoType)) throw new ChainError('external signature does not verify against the imported signing context')
+        if (normalized.cryptoType !== restored.cryptoType || !verifyStrict(restored.payload, normalized.signature, restored.address, restored.cryptoType)) throw new ChainError('external signature does not verify against the imported signing context')
         const signed = runtime.encodeSignedExtrinsic(restored.callData, restored.publicKey, normalized.signature, normalized.cryptoType, { ...restored.txParams, metadataHashEnabled: restored.txParams.metadataHash != null })
         return this.submitSigned(signed, restored.address, signerQueueOptions(options, permit))
       }, options)
@@ -2126,7 +2126,7 @@ export class Client extends BrowserChainClient {
     return super.waitForBlock(block, options)
   }
 
-  override blockInfo(block?: number | null): Promise<BlockInfo | null> {
+  override blockInfo(block?: ReadBlock): Promise<BlockInfo | null> {
     return super.blockInfo(block)
   }
 
@@ -2398,8 +2398,8 @@ export class Snapshot {
   block_time(): Promise<number> { return this.blockTime() }
   isFastBlocks(): Promise<boolean> { return this.client.isFastBlocks(this.blockHash) }
   is_fast_blocks(): Promise<boolean> { return this.isFastBlocks() }
-  blockInfo(block?: number | null): Promise<BlockInfo | null> { return this.client.blockInfo(block ?? this.block) }
-  block_info(block?: number | null): Promise<BlockInfo | null> { return this.blockInfo(block) }
+  blockInfo(block?: ReadBlock): Promise<BlockInfo | null> { return this.client.blockInfo(block ?? this.blockHash) }
+  block_info(block?: ReadBlock): Promise<BlockInfo | null> { return this.blockInfo(block) }
   reads() { return listReads() }
   read<Name extends ReadName>(name: Name, ...args: ReadArgs<Name>): Promise<ReadResult<Name>>
   read(name: string, params?: Record<string, unknown>): Promise<unknown>

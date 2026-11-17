@@ -160,7 +160,7 @@ test('browser preparation, offline imports and extension encoding support ECDSA 
   const f = fixture(), browser = await import('../dist/browser.mjs')
   browser.configureBrowserWasm(async () => ({
     default: async () => {}, ss58Decode: core.publicKeyFromSs58, ss58Encode: core.ss58FromPublic,
-    accountIdFromEcdsaPublic: core.accountIdFromEcdsaPublic, blake2_256: core.blake2_256, verifySignature: core.verifySignature,
+    accountIdFromEcdsaPublic: core.accountIdFromEcdsaPublic, blake2_256: core.blake2_256, verifySignature: core.verifySignature, verifyStrict: core.verifyStrict,
   }))
   await browser.initBrowser()
   const client = new browser.Client('local'), submitted = []

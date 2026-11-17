@@ -1307,7 +1307,7 @@ impl Client {
                 "signature crypto type does not match the Rust signing plan".into(),
             ));
         }
-        if !crate::keys::verify(
+        if !crate::keys::verify_strict(
             &plan.payload,
             signature,
             &plan.signer_address,

@@ -4,6 +4,7 @@ import { Balance } from './balance'
 import { PRECOMPILE_CATALOG } from './evm-catalog'
 import { bytesHex, unsignedInteger, type PortableCrypto } from './portable'
 import { buildIntent, type IntentDescriptor } from './intents'
+import { delay } from './transport'
 
 export const WEI_PER_TAO = 10n ** 18n
 export const WEI_PER_RAO = 10n ** 9n
@@ -61,16 +62,56 @@ export class EvmRpc {
   async estimateGas(tx: Record<string, unknown>): Promise<bigint> { return BigInt(await this.call<string>('eth_estimateGas', [tx])) }
   ethCall(tx: Record<string, unknown>, block = 'latest'): Promise<string> { return this.call('eth_call', [tx, block]) }
   sendRawTransaction(raw: string | Uint8Array): Promise<string> { return this.call('eth_sendRawTransaction', [typeof raw === 'string' ? raw : bytesHex(raw)]) }
+  /** One deadline covers polling and RPC I/O; a zero budget expires immediately. */
   async waitForReceipt(hash: string, options: { timeoutMs?: number; pollIntervalMs?: number; signal?: AbortSignal } = {}): Promise<EvmReceipt> {
-    const deadline = Date.now() + (options.timeoutMs ?? 120_000)
-    for (;;) {
-      options.signal?.throwIfAborted()
-      const receipt = await this.call<EvmReceipt | null>('eth_getTransactionReceipt', [hash], options.signal)
-      if (receipt) return receipt
-      if (Date.now() >= deadline) throw new Error(`receipt timeout for ${hash}`)
-      await new Promise(resolve => setTimeout(resolve, Math.min(options.pollIntervalMs ?? 3000, deadline - Date.now())))
+    const timeoutMs = options.timeoutMs ?? 120_000, pollIntervalMs = options.pollIntervalMs ?? 3000
+    for (const [name, value] of Object.entries({ timeoutMs, pollIntervalMs })) {
+      if (!Number.isFinite(value) || value < 0) throw new RangeError(`${name} must be a non-negative finite number`)
+    }
+    options.signal?.throwIfAborted()
+    const deadline = performance.now() + timeoutMs, controller = new AbortController()
+    const timeout = new Error(`receipt timeout for ${hash}`)
+    const abort = () => controller.abort(options.signal?.reason)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const check = () => {
+      if (performance.now() >= deadline && !controller.signal.aborted) controller.abort(timeout)
+      controller.signal.throwIfAborted()
+    }
+    const armDeadline = () => {
+      const left = deadline - performance.now()
+      if (left <= 0) controller.abort(timeout)
+      else timer = setTimeout(armDeadline, Math.min(left, 2_147_483_647))
+    }
+    options.signal?.addEventListener('abort', abort, { once: true })
+    armDeadline()
+    try {
+      for (;;) {
+        check()
+        const receipt = await receiptCallWithSignal(this.call<EvmReceipt | null>('eth_getTransactionReceipt', [hash], controller.signal), controller.signal)
+        check()
+        if (receipt) return receipt
+        await delay(pollIntervalMs, controller.signal)
+      }
+    } catch (error) {
+      if (controller.signal.aborted) throw controller.signal.reason
+      throw error
+    } finally {
+      if (timer != null) clearTimeout(timer)
+      options.signal?.removeEventListener('abort', abort)
     }
   }
+}
+
+// Passing the signal cancels native fetch I/O; racing it also bounds injected
+// fetchers that ignore cancellation or settle after the deadline.
+function receiptCallWithSignal<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', abort)
+    const abort = () => { cleanup(); reject(signal.reason) }
+    operation.then(value => { cleanup(); resolve(value) }, error => { cleanup(); reject(error) })
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
+  })
 }
 export interface EvmReceipt { status: string; blockNumber: string; gasUsed: string; contractAddress?: string | null; [key: string]: unknown }
 export interface EvmTxPreview { sender: string; to: string | null; valueWei: bigint; data: string; gas: bigint; gasPriceWei: bigint; nonce: number; chainId: bigint }

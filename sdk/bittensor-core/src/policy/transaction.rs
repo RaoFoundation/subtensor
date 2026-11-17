@@ -240,15 +240,16 @@ fn multisig_members(input: &Value) -> Result<Value, PolicyError> {
     Ok(json!({"indices":sorted,"other_indices":others,"count":members.len()}))
 }
 
+pub(super) fn multisig_timepoint(value: &Value) -> Result<Value, PolicyError> {
+    let height = u32::try_from(uint(&value["height"], "timepoint height")?)
+        .map_err(|_| PolicyError::range_error("timepoint height exceeds u32"))?;
+    let index = u32::try_from(uint(&value["index"], "timepoint index")?)
+        .map_err(|_| PolicyError::range_error("timepoint index exceeds u32"))?;
+    Ok(json!({"height":height,"index":index}))
+}
+
 fn multisig_cancel(input: &Value) -> Result<Value, PolicyError> {
-    let timepoint = |value: &Value| -> Result<Value, PolicyError> {
-        let height = u32::try_from(uint(&value["height"], "timepoint height")?)
-            .map_err(|_| PolicyError::range_error("timepoint height exceeds u32"))?;
-        let index = u32::try_from(uint(&value["index"], "timepoint index")?)
-            .map_err(|_| PolicyError::range_error("timepoint index exceeds u32"))?;
-        Ok(json!({"height":height,"index":index}))
-    };
-    let when = timepoint(&input["timepoint"])?;
+    let when = multisig_timepoint(&input["timepoint"])?;
     let selected = if !input["call_hash"].is_null() {
         input["call_hash"].clone()
     } else {
@@ -257,7 +258,7 @@ fn multisig_cancel(input: &Value) -> Result<Value, PolicyError> {
         })?;
         let mut selected = None;
         for row in pending {
-            if timepoint(&row["timepoint"])? == when {
+            if multisig_timepoint(&row["timepoint"])? == when {
                 if selected.is_some() {
                     return Err(PolicyError::invalid(
                         "multiple pending operations share this timepoint; pass the committed call_hash",
@@ -678,6 +679,7 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value, PolicyErr
                     }
             ))
         }
+        "transaction.bind_saved_call" => super::saved_call::evaluate(&input),
         "transaction.descriptor_encode" => {
             let value = &input["value"];
             let version = uint(&value["version"], "descriptor version")?;

@@ -21,7 +21,7 @@ export interface ReadView {
   timestamp(): Promise<Date>
   blockTime(): Promise<number>
   isFastBlocks(): Promise<boolean>
-  blockInfo(block?: number | null): Promise<any>
+  blockInfo(block?: number | string | null): Promise<any>
 }
 export const st = (name: string): ReadDescriptor => ['SubtensorModule', name]
 export const api = (name: string, method: string): ReadDescriptor => [name, method]

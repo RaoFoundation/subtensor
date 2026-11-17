@@ -1,6 +1,6 @@
-"""Reuse approved dynamic inputs while verifying an entire multisig call.
+"""Reuse approved dynamic inputs while verifying an entire saved call.
 
-This context is only used during reconstruction followed by exact byte equality.
+This context is only used during reconstruction followed by complete call comparison.
 It is not permission to accept an imported call or to skip recipient guards.
 """
 
@@ -15,9 +15,10 @@ _inputs: ContextVar[_Inputs | None] = ContextVar("multisig_pinned_inputs", defau
 
 
 class _Inputs:
-    def __init__(self, substrate, data):
+    def __init__(self, substrate, data, decoded=None):
         self.substrate = substrate
         self.data = data
+        self.decoded = decoded
         self.calls = None
         self.indices = {}
         self.positions = {}
@@ -39,7 +40,11 @@ class _Inputs:
                     for child in value:
                         visit(child)
 
-            visit(await self.substrate.decode_scale("Call", self.data))
+            visit(
+                self.decoded
+                if self.decoded is not None
+                else await self.substrate.decode_scale("Call", self.data)
+            )
             self.calls = decoded_calls
         key = (module, function)
         index = self.indices.get(key, 0)
@@ -69,8 +74,9 @@ class _Inputs:
 
 
 @contextmanager
-def pinned_inputs(substrate, data):
-    token = _inputs.set(_Inputs(substrate, data))
+def pinned_inputs(substrate, data, *, decoded=None):
+    """Use a hydrated decoded tree when the caller already inspected nested calls."""
+    token = _inputs.set(_Inputs(substrate, data, decoded))
     try:
         yield
     finally:

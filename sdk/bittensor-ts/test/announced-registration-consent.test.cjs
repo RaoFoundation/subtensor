@@ -41,7 +41,7 @@ function fixture({ current = reserve, maximum = reserve, configurable = true, re
   }
   const intent = buildIntent('execute_proxy_announced', {
     delegate_ss58: delegate.ss58Address, real_ss58: real,
-    inner_op: 'transfer', inner_args: { dest_ss58: recipient, amount_tao: '99' },
+    inner_op: 'transfer', inner_args: { dest_ss58: recipient, amount_tao: '1' },
     announced_call_data: saved, expected_call_hash: '0x' + '11'.repeat(32),
   })
   const prepare = () => intent.prepare(reader, { coldkey: delegate.ss58Address })

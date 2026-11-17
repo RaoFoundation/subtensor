@@ -45,13 +45,13 @@ function reader(runtime = nativeRuntime, overrides = {}) {
 function savedArgs(data, extra = {}) {
   return {
     delegate_ss58: alice.ss58Address, real_ss58: bob.ss58Address,
-    inner_op: 'transfer_all', inner_args: { dest_ss58: alice.ss58Address },
+    inner_op: 'transfer', inner_args: { dest_ss58: bob.ss58Address, amount_tao: '9007199.254740993', keep_alive: false },
     announced_call_data: hex(data), expected_call_hash: hex(sdk.blake2_256(data)), announced_spec_version: 419,
     ...extra,
   }
 }
 
-test('saved announcements retain exact native and WASM call bytes despite declared dynamic amount and recipient', async () => {
+test('saved announcements retain exact native and WASM call bytes for their declared payment', async () => {
   const data = nativeRuntime.composeCall('Balances', 'transfer_allow_death', transferArgs)
   for (const runtime of [nativeRuntime, await wasmRuntime()]) {
     const plan = await buildIntent('execute_proxy_announced', savedArgs(data)).prepare(reader(runtime), context)
@@ -100,12 +100,14 @@ test('announced atomic batches are directly replayable but cannot consume announ
 })
 
 test('saved payload shielding follows actual calls and nested declarations', async () => {
-  const data = nativeRuntime.composeCall('Balances', 'transfer_allow_death', transferArgs)
   const registration = nativeRuntime.composeCall('SubtensorModule', 'burned_register', { netuid: 1, hotkey: alice.ss58Address })
-  const declaredTransfer = await buildIntent('execute_proxy_announced', savedArgs(registration)).prepare(reader(), context)
-  assert.equal(declaredTransfer.mevShieldRequired, true)
+  const declaredRegistration = await buildIntent('execute_proxy_announced', savedArgs(registration, {
+    inner_op: 'burned_register', inner_args: { netuid: 1, hotkey_ss58: alice.ss58Address },
+  })).prepare(reader(), context)
+  assert.equal(declaredRegistration.mevShieldRequired, true)
+  const data = nativeRuntime.composeCall('Utility', 'batch_all', { calls: [registration] })
   const nested = await buildIntent('execute_proxy_announced', savedArgs(data, {
-    inner_op: 'batch', inner_args: { intents: [{ op: 'burned_register', netuid: 1, hotkey_ss58: bob.ss58Address }] },
+    inner_op: 'batch', inner_args: { intents: [{ op: 'burned_register', netuid: 1, hotkey_ss58: alice.ss58Address }] },
   })).prepare(reader(), context)
   assert.equal(nested.mevShieldRequired, true)
 })

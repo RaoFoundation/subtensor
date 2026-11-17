@@ -479,10 +479,11 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
         }
         call = { ...decodedCallDescriptor(decoded), callData: hex(data) }
         validateAnnouncedCall(call)
+        await bindSavedCall(innerIntent, call, reader, { coldkey: a.real_ss58, hotkey: hotkey ? a.real_ss58 : undefined, feePayer: plan.feePayer, accountMode: context.accountMode })
         const registration = await committedRegistrationSponsorships(call, reader, a.real_ss58)
         plan.requiredFreeByAccount = registration.reserves
-        // Replay exact approved bytes. Never infer bounded spending or subnet scope
-        // from the user's descriptive intent, which can differ from those bytes.
+        // Replay exact approved bytes. Resolved amounts and limits came from
+        // the original preparation, so imported calls retain conservative scope.
         plan.spendRao = 'unbounded'; plan.affectsAllSubnets = true; plan.global = true
         plan.dispatchOrigin = a.real_ss58
         const shielding = announcedShielding(innerIntent, call)
@@ -577,6 +578,57 @@ function batchCall(calls: IntentDescriptor[]): IntentDescriptor {
 
 function intentPolicyArgs(args: Readonly<Record<string, unknown>>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(args).map(([key, value]) => [key, value instanceof Balance ? value.rao : value]))
+}
+
+function savedIntentPolicy(intent: Intent, reader: IntentReader, accountMode: 'legacy' | 'safe' = 'legacy'): Record<string, unknown> {
+  const adapt = (value: unknown): unknown => {
+    if (value instanceof Balance) return value.rao
+    if (Array.isArray(value)) return value.map(adapt)
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, adapt(child)]))
+    if (typeof value === 'string' && reader.parseRecipient) {
+      try { return reader.parseRecipient(value).account } catch { /* Not an address. */ }
+    }
+    return value
+  }
+  const args = adapt(intent.args) as Record<string, unknown>
+  if (intent.op.startsWith('multisig_')) args.account_mode ??= accountMode
+  const childMode = args.account_mode as 'legacy' | 'safe' | undefined ?? accountMode
+  if (intent.op === 'batch') args.intents = (intent.args.intents as (Intent | Record<string, unknown>)[]).map(child => savedIntentPolicy(intentFromJSON(child), reader, childMode))
+  if (intent.args.call != null) args.call = savedIntentPolicy(intentFromJSON(intent.args.call as Intent | Record<string, unknown>), reader, childMode)
+  if (intent.op === 'execute_proxy_announced') args.inner = savedIntentPolicy(new Intent(intent.args.inner_op as IntentOperation, intent.args.inner_args as Record<string, unknown>), reader, childMode)
+  return { op: intent.op, origin: catalog.get(intent.op)!.origin, args }
+}
+
+/** Verify descriptions against the whole committed call before fees or signing.
+ * Rust retains approved state-derived staking values without reading live prices.
+ */
+async function bindSavedCall(intent: Intent, call: IntentDescriptor, reader: IntentReader, context: IntentContext): Promise<void> {
+  const input = { intent: savedIntentPolicy(intent, reader, context.accountMode), call, dispatch_origin: context.coldkey }
+  let snapshot: Promise<string> | undefined
+  const snapshotHash = (): Promise<string> => snapshot ??= (async () => {
+    const block = await reader.blockHash?.() ?? await reader.finalizedHead?.()
+    if (!block) throw new Error('Gamma preparation requires a block-pinned reader')
+    return block
+  })()
+  const resolveServices = async (semantic: Record<string, any>): Promise<void> => {
+    const args = semantic.args as Record<string, any>
+    if (args.service_hotkey_ss58 != null) {
+      const service = await reader.query('SubtensorModule', 'Services', [args.netuid, args.service_hotkey_ss58], await snapshotHash())
+      const spender = rec(service).spender
+      if (typeof spender !== 'string' || !spender) throw new Error(`${args.service_hotkey_ss58} publishes no service on netuid ${args.netuid}`)
+      // Resolve authority independently, while Rust retains the committed quote.
+      // This is a policy-only copy; the caller's semantic intent stays immutable.
+      args.spender_ss58 = spender
+      delete args.service_hotkey_ss58
+    }
+    if (args.call != null) await resolveServices(args.call)
+    if (args.inner != null) await resolveServices(args.inner)
+    for (const child of args.intents ?? []) await resolveServices(child)
+  }
+  await resolveServices(input.intent)
+  if (evaluatePolicy<{ verified: boolean }>('transaction.bind_saved_call', input).verified) return
+  const prepared = await intent.prepare(reader, context)
+  evaluatePolicy('transaction.bind_saved_call', { ...input, prepared: prepared.call })
 }
 function intentMetadata(op: string, args: Readonly<Record<string, unknown>>) {
   return evaluatePolicy<{ signer: 'coldkey' | 'hotkey'; netuids: number[]; global: boolean; affects_all_subnets: boolean; spend_rao: string | null }>('transaction.intent_metadata', { op, args: intentPolicyArgs(args), signer: catalog.get(op)?.signer })
@@ -923,6 +975,7 @@ async function multisig(plan: MutablePlan, reader: IntentReader, context: Intent
     if (a.call_spec_version != null && unsigned(await required(reader.specVersion, 'specVersion').call(reader), 'runtime spec version') !== unsigned(a.call_spec_version, 'call spec version')) throw new Error('runtime changed since multisig approval; verify the original call under the new metadata')
     innerCall = { ...decodedCallDescriptor(await required(reader.decodeCall, 'decodeCall').call(reader, data)), callData: hex(data) }
     validateAnnouncedCall(innerCall)
+    await bindSavedCall(semantic, innerCall, reader, { coldkey: account.address, hotkey: innerRole === 'hotkey' ? account.address : undefined, hotkeyPublicKey: innerRole === 'hotkey' ? account.publicKey : undefined, feePayer: plan.feePayer, accountMode: mode })
     plan.spendRao = 'unbounded'; plan.spendByAccount = []; plan.netuids = []; plan.affectsAllSubnets = true; plan.global = true
     plan.dispatchOrigin = account.address
     const shielding = announcedShielding(semantic, innerCall)

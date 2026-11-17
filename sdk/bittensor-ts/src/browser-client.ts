@@ -22,7 +22,7 @@ import { MultisigCallCache, prepareMultisigApproval, type MultisigApprovalReques
 import { UpgradeClient, type UpgradeAdapter } from './upgrade'
 import { bindReadNamespace, type AccountsReadNamespace, type SubnetsReadNamespace, type StakingReadNamespace, type NeuronsReadNamespace, type ChainReadNamespace, type EpochsReadNamespace, type HyperparametersReadNamespace, type DelegationReadNamespace, type LeasingReadNamespace, type CollateralReadNamespace, type LocksReadNamespace, type IdentityReadNamespace, type WeightsReadNamespace, type GammaReadNamespace, type PricesReadNamespace } from './read-namespaces'
 import {
-  Runtime, initBrowser, publicKeyFromSs58, accountIdFromEcdsaPublic, ss58FromPublic, verifySignature,
+  Runtime, initBrowser, publicKeyFromSs58, accountIdFromEcdsaPublic, ss58FromPublic, verifySignature, verifyStrict,
   blake2_256, storagePrefixFor, decodeOptionalOpaqueMetadata, eraBirth, metadataDigest,
   generateExtrinsicProof, generateCommitV2, multisigAccountId, sealMevShieldTransaction,
   type BrowserTransactionParams,
@@ -328,7 +328,7 @@ export class Client {
     const expectedPayload = unsigned.runtime.signaturePayload(unsigned.callData, unsigned.txParams)
     if (hex(expectedPayload) !== hex(unsigned.payload) || hex(publicKeyFromSs58(unsigned.address)) !== hex(unsigned.publicKey)) throw new ChainError('prepared transaction was modified after signing preparation')
     const signature = normalizeSignatureBytes(signatureBytes(response), unsigned.cryptoType)
-    if (!verifySignature(unsigned.payload, signature, unsigned.address, unsigned.cryptoType)) throw new ChainError('invalid transaction signature')
+    if (!verifyStrict(unsigned.payload, signature, unsigned.address, unsigned.cryptoType)) throw new ChainError('invalid transaction signature')
     const signed = unsigned.runtime.encodeSignedExtrinsic(unsigned.callData, unsigned.publicKey, signature, unsigned.cryptoType, { ...unsigned.txParams, metadataHashEnabled: unsigned.txParams.metadataHash != null })
     return { ...signed, hex: hex(signed.bytes), nonce: unsigned.nonce, signerAddress: unsigned.address }
   }
@@ -846,7 +846,7 @@ export class Snapshot implements ReadView {
   timestamp() { return this.client.timestamp(this.hash) }
   blockTime() { return this.client.blockTime(this.hash) }
   async isFastBlocks() { return await this.blockTime() === 0.25 }
-  blockInfo(block?: number | null) { return this.client.blockInfo(block == null ? this.hash : block) }
+  blockInfo(block?: BlockRef) { return this.client.blockInfo(block == null ? this.hash : block) }
   read<N extends ReadName>(name: N, ...args: ReadArgs<N>): Promise<ReadResult<N>> { return dispatchRead(this, name, (args[0] ?? {}) as ReadParams[N]) }
   metagraph(netuid: number, options: CommitmentReadOptions & { commitments?: boolean } = {}) { return fetchMetagraph(this, netuid, options) }
 }

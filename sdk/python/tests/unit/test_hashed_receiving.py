@@ -1077,8 +1077,8 @@ async def test_saved_announced_call_data_composes_through_executor(setup):
         delegate_ss58=delegate.ss58_address,
         real_ss58=real.ss58_address,
         inner_op="transfer",
-        # Drifted args would rebuild a different call; saved bytes win.
-        inner_args=Transfer(address, 2).to_dict(),
+        # The declared amount must match the saved call.
+        inner_args=transfer.to_dict(),
         announced_call_data=saved,
     )
     assert not hasattr(rebuilt, "inner_call_data") or rebuilt.inner_call_data is None

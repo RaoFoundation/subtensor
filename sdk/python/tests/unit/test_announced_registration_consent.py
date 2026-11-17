@@ -49,7 +49,7 @@ def replay_fixture(register=True):
         delegate_ss58=ALICE,
         real_ss58=BOB,
         inner_op="transfer",
-        inner_args={"dest_ss58": BOB, "amount_tao": 99},
+        inner_args={"dest_ss58": recipient.ss58_address, "amount_tao": 1},
         announced_call_data="0x" + bytes(inner.data).hex(),
         expected_call_hash="0x" + bytes(inner.call_hash).hex(),
     )

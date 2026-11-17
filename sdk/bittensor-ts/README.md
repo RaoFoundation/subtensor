@@ -520,8 +520,13 @@ Persist the result's `multisig_call_data`, `multisig_call_hash`, and
 `call_data`, `call_hash`, and `call_spec_version` to `multisig_approve` or
 `multisig_execute`, together with the opening timepoint. Saved bytes preserve
 the approved amounts and price limits; current funding and registration consent
-are checked again. An imported byte-only call has conservative unbounded spend
-and all-subnet scope, so bounded policies require the original trusted prepared
+are checked again. The declared intent must match the saved call's operation,
+recipients, explicit amounts, and nested calls. This also applies to saved
+announced proxy calls. A named Gamma service must still resolve to the committed
+spender. Encrypted weight payloads cannot be checked against their
+declared plaintext, so importing them fails; retain the original SDK-prepared
+multisig call for those operations. An imported byte-only call has conservative
+unbounded spend and all-subnet scope, so bounded policies require the original trusted prepared
 intent in the same multisig instance. Without saved bytes, a later-round intent
 must still hash to the pending operation at its stated timepoint.
 
