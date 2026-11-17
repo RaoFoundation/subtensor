@@ -42,6 +42,45 @@ fn run_to_block(n: u64) {
 }
 
 #[test]
+fn coldkey_swap_during_dissolution_does_not_recreate_lock_conviction() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(5001);
+        let destination = U256::from(5002);
+        let hotkey = U256::from(5003);
+        let netuid = add_dynamic_network(&hotkey, &source);
+        let lock = LockState {
+            locked_mass: 1_000_000_000u64.into(),
+            conviction: U64F64::from_num(1_000_000_000u64),
+            last_update: SubtensorModule::get_current_block_as_u64(),
+        };
+        Lock::<Test>::insert((source, netuid, hotkey), lock.clone());
+        HotkeyLock::<Test>::insert(netuid, hotkey, lock);
+        DecayingLock::<Test>::insert(source, netuid, false);
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+
+        let mut meter = frame_support::weights::WeightMeter::new();
+        assert!(SubtensorModule::remove_network_map_parameters(
+            netuid, &mut meter
+        ));
+        assert!(!HotkeyLock::<Test>::contains_key(netuid, hotkey));
+        assert!(Lock::<Test>::contains_key((source, netuid, hotkey)));
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(&source, &destination));
+        assert!(!HotkeyLock::<Test>::contains_key(netuid, hotkey));
+        assert!(!DecayingHotkeyLock::<Test>::contains_key(netuid, hotkey));
+        assert!(!Lock::<Test>::contains_key((destination, netuid, hotkey)));
+        assert!(!DecayingLock::<Test>::contains_key(destination, netuid));
+        assert!(SubtensorModule::remove_network_lock(netuid, &mut meter, None).0);
+        assert!(SubtensorModule::remove_network_decaying_lock(netuid, &mut meter, None).0);
+        assert!(!Lock::<Test>::contains_key((source, netuid, hotkey)));
+        assert_eq!(
+            SubtensorModule::hotkey_conviction(&hotkey, netuid),
+            U64F64::from_num(0)
+        );
+    });
+}
+
+#[test]
 fn test_announce_coldkey_swap_works() {
     new_test_ext(1).execute_with(|| {
         let who = U256::from(1);
