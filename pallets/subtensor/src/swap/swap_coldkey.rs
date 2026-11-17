@@ -54,7 +54,8 @@ impl<T: Config> Pallet<T> {
     /// root stake) for every admitted hotkey in the combined source∪destination set.
     fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
         base.saturating_add(Self::hotkey_owner_policy_weight())
-            .saturating_add(T::DbWeight::get().reads(1)) // destination successor lookup
+            // Destination successor lookup and the opt-in-only lock transfer check.
+            .saturating_add(T::DbWeight::get().reads(8))
             .saturating_add(
                 <T as crate::pallet::Config>::WeightInfo::transfer_stake()
                     .saturating_mul(u64::from(work.positions)),
@@ -452,8 +453,12 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         has_gamma_deposits: bool,
     ) -> bool {
+        Self::coldkey_has_configured_account_flags(coldkey)
+            || Self::coldkey_has_other_presence(coldkey, has_gamma_deposits)
+    }
+
+    fn coldkey_has_other_presence(coldkey: &T::AccountId, has_gamma_deposits: bool) -> bool {
         Self::coldkey_already_in_use(coldkey)
-            || Self::coldkey_has_configured_account_flags(coldkey)
             || Self::coldkey_has_established_lineage(coldkey)
             || IdentitiesV2::<T>::contains_key(coldkey)
             || has_gamma_deposits
@@ -868,6 +873,15 @@ impl<T: Config> Pallet<T> {
                     }
                 };
                 let import_source_policies = !destination_has_presence;
+                // An otherwise blank destination can explicitly accept an active lock
+                // on its existing terms without importing the source's other policies.
+                let retain_active_lock_terms = saved_dest_flags
+                    == crate::ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA
+                    && Self::coldkey_total_balance(new_coldkey).is_zero()
+                    && !Self::coldkey_has_other_presence(
+                        new_coldkey,
+                        work.destination_gamma_deposits != 0,
+                    );
                 // A reverse rename inside an already-established lineage may repoint its tip.
                 // Existing state must otherwise prevent an unsolicited source from asserting
                 // shared identity with the destination.
@@ -907,7 +921,12 @@ impl<T: Config> Pallet<T> {
                 Self::transfer_staking_hotkeys(old_coldkey, new_coldkey);
                 Self::transfer_hotkeys_ownership(old_coldkey, new_coldkey)?;
 
-                Self::migrate_coldkey_locks(old_coldkey, new_coldkey, import_source_policies)?;
+                Self::migrate_coldkey_locks(
+                    old_coldkey,
+                    new_coldkey,
+                    import_source_policies,
+                    retain_active_lock_terms,
+                )?;
 
                 // Clear source; restore the winning flags (dest when preserved).
                 AccountFlags::<T>::remove(old_coldkey);
