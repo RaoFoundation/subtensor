@@ -1190,7 +1190,7 @@ impl<T: Config> Pallet<T> {
     /// coldkey-swap admission until a merge can preserve conviction safely —
     /// announce validation must not mutate another account's locks.
     pub fn ensure_no_active_locks(coldkey: &T::AccountId) -> Result<(), Error<T>> {
-        Self::ensure_no_active_locks_with_limit(coldkey, u32::MAX).map(|_| ())
+        Self::ensure_no_active_locks_with_limit(coldkey, u32::MAX, &BTreeSet::new()).map(|_| ())
     }
 
     /// Coldkey-swap admission: same as [`Self::ensure_no_active_locks`], but stops after
@@ -1203,12 +1203,31 @@ impl<T: Config> Pallet<T> {
         // rejects when `scanned > limit`, so `MAX` admits at most
         // `MAX_COLDKEY_SWAP_DEST_LOCKS` rows and the first excess row fails
         // closed inside the declared weight (Auditor fid:9792420a).
-        Self::ensure_no_active_locks_with_limit(coldkey, crate::MAX_COLDKEY_SWAP_DEST_LOCKS)
+        Self::ensure_no_active_locks_with_limit(
+            coldkey,
+            crate::MAX_COLDKEY_SWAP_DEST_LOCKS,
+            &BTreeSet::new(),
+        )
+    }
+
+    pub(crate) fn ensure_no_active_locks_to_transfer(
+        coldkey: &T::AccountId,
+    ) -> Result<u32, Error<T>> {
+        Self::ensure_no_active_locks_with_limit(
+            coldkey,
+            crate::MAX_COLDKEY_SWAP_DEST_LOCKS,
+            &Self::coldkey_swap_dissolving_subnets(),
+        )
+    }
+
+    fn coldkey_swap_dissolving_subnets() -> BTreeSet<NetUid> {
+        DissolveCleanupQueue::<T>::get().into_iter().collect()
     }
 
     fn ensure_no_active_locks_with_limit(
         coldkey: &T::AccountId,
         limit: u32,
+        skipped_subnets: &BTreeSet<NetUid>,
     ) -> Result<u32, Error<T>> {
         let now = Self::get_current_block_as_u64();
         let unlock_rate = UnlockRate::<T>::get();
@@ -1219,6 +1238,9 @@ impl<T: Config> Pallet<T> {
             scanned = scanned.saturating_add(1);
             if scanned > limit {
                 return Err(Error::<T>::ColdkeySwapTooHeavy);
+            }
+            if skipped_subnets.contains(&netuid) {
+                continue;
             }
             let rolled = ConvictionModel::roll_forward_lock(
                 lock,
@@ -1306,8 +1328,7 @@ impl<T: Config> Pallet<T> {
         let new_coldkey_rejects_locked_alpha = Self::account_rejects_locked_alpha(new_coldkey);
         let decaying_locks_to_transfer: Vec<(NetUid, bool)> =
             DecayingLock::<T>::iter_prefix(old_coldkey).collect();
-        let dissolving_netuids: BTreeSet<_> =
-            DissolveCleanupQueue::<T>::get().into_iter().collect();
+        let dissolving_netuids = Self::coldkey_swap_dissolving_subnets();
 
         // Gather locks for old coldkey
         for ((netuid, hotkey), lock) in Lock::<T>::iter_prefix((old_coldkey,)) {

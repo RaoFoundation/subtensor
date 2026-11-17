@@ -53,8 +53,8 @@ impl<T: Config> Pallet<T> {
                     .saturating_mul(u64::from(work.positions)),
             )
             .saturating_add(T::DbWeight::get().reads(u64::from(work.hotkeys).saturating_mul(3)))
-            // Live reservation check at admission/execute (maps + TTL).
-            .saturating_add(T::DbWeight::get().reads(3))
+            // Live reservation check (maps + TTL) and dissolution snapshots at admission and execution.
+            .saturating_add(T::DbWeight::get().reads(5))
             // Destination lock path per exhausted row (Skeptic fid:bcf7b5a5):
             // admission walk, execute re-check in `swap_coldkey_locks`, and purge
             // scan each read Lock + SubnetOwnerHotkey + DecayingLock (3×3); cleanup
@@ -109,7 +109,8 @@ impl<T: Config> Pallet<T> {
         let lock_reads = u64::from(max.dest_locks)
             .saturating_add(1)
             .saturating_mul(3)
-            .saturating_add(u64::from(max.positions).saturating_add(1));
+            .saturating_add(u64::from(max.positions).saturating_add(1))
+            .saturating_add(1); // dissolution queue snapshot
         // Opt-out growth check re-reads dest staking + up to sentinel source
         // associations (contains_key per hotkey) after the bounded work scan.
         let opt_out_reads = u64::from(max.hotkeys)
@@ -663,7 +664,7 @@ impl<T: Config> Pallet<T> {
         if (Self::coldkey_already_in_use(new_coldkey)
             || Self::coldkey_has_configured_account_flags(new_coldkey))
             && Self::account_rejects_locked_alpha(new_coldkey)
-            && let Err(e) = Self::ensure_no_active_locks_for_swap(old_coldkey)
+            && let Err(e) = Self::ensure_no_active_locks_to_transfer(old_coldkey)
         {
             let error = match e {
                 Error::<T>::ActiveLockExists => Error::<T>::AccountRejectsLockedAlpha,
