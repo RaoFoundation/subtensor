@@ -54,13 +54,14 @@ impl<T: Config> Pallet<T> {
     /// root stake) for every admitted hotkey in the combined source∪destination set.
     fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
         base.saturating_add(Self::hotkey_owner_policy_weight())
+            .saturating_add(T::DbWeight::get().reads(1)) // destination successor lookup
             .saturating_add(
                 <T as crate::pallet::Config>::WeightInfo::transfer_stake()
                     .saturating_mul(u64::from(work.positions)),
             )
             .saturating_add(T::DbWeight::get().reads(u64::from(work.hotkeys).saturating_mul(3)))
-            // Live reservation check (maps + TTL) and destination successor lookup.
-            .saturating_add(T::DbWeight::get().reads(4))
+            // Live reservation check at admission/execute (maps + TTL).
+            .saturating_add(T::DbWeight::get().reads(3))
             // Destination lock path per exhausted row (Skeptic fid:bcf7b5a5):
             // admission walk, execute re-check in `swap_coldkey_locks`, and purge
             // scan each read Lock + SubnetOwnerHotkey + DecayingLock (3×3); cleanup
