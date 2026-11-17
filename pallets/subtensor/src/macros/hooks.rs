@@ -245,6 +245,12 @@ mod hooks {
 
         #[cfg(feature = "try-runtime")]
         fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
+            // Childkey dividend normalization still pays the original budget after recycling.
+            // Read storage because AdminUtils::sudo_set_ck_burn can override the default.
+            ensure!(
+                CKBurn::<T>::get() == 0,
+                "CKBurn is nonzero: childkey dividend payouts must conserve alpha before enabling burn"
+            );
             // Disabled: https://github.com/RaoFoundation/subtensor/pull/1166
             // Self::check_total_stake()?;
             migrations::migrate_subnet_state::subnet_state::try_state::<T>()
