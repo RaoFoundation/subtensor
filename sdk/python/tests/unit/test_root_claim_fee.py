@@ -79,19 +79,22 @@ def test_single_hotkey_admission_covers_full_subnet_limit_plus_root_basket():
     assert overloaded.too_heavy
 
 
-# Based on the spec 467 CI release-node quotes (PR #3183, commit 546d26bd9), adjusted in
-# spec 484 for the single-hotkey envelope increase from 129 to 130 units. The charged fee
-# stays fixed at the four-unit allowance. The 60_000_000 ref_time gap between the node
-# weight and the SDK's declared model is the folded dispatch-extension weight, which the
-# fee wrapper does not discount.
+# Current runtime-model vectors: claim_root_weight_for_work combines claim units
+# and flush rows, with seven stability-check reads per bounded flush quote.
+# staking_fee::root_claim_fee_weight independently retains the pre-487 monetary
+# allowance. The 60_000_000 ref_time extension fold and existing Utility batch
+# overhead are retained. These are model vectors, not fresh release-node quotes.
+# Human approval (2026-11-16): replace exactly these three declared weights and
+# charged fees, the four-unit allowance assertion, and the scan-fee cap assertion
+# per /tmp/sdk-shared-policy-fee-review.md; protected admission tests are unchanged.
 _EXTENSION_REF_TIME = 60_000_000
 _NODE_QUOTES = [
-    ("claim_root_with_hotkey", 2_051_581_040_648, 8_224_263, [fees._MAX_ROOT_CLAIM_HOTKEY_WORK]),
-    ("claim_root", 2_476_947_290_768, 8_224_263, [fees._MAX_ROOT_CLAIM_WORK]),
+    ("claim_root_with_hotkey", 2_093_438_599_648, 7_488_653, [fees._MAX_ROOT_CLAIM_HOTKEY_WORK]),
+    ("claim_root", 2_518_804_849_768, 7_488_653, [fees._MAX_ROOT_CLAIM_WORK]),
     (
         "batch_all[claim_root_with_hotkey, claim_root]",
-        4_528_660_932_786,
-        16_481_677,
+        4_612_376_050_786,
+        15_010_457,
         [fees._MAX_ROOT_CLAIM_HOTKEY_WORK, fees._MAX_ROOT_CLAIM_WORK],
     ),
 ]
@@ -111,8 +114,8 @@ def test_discount_model_matches_the_release_node_quotes(name, weight, weight_fee
 def test_charged_allowance_is_the_same_for_both_claim_paths():
     charged = fees.root_claim_charged_ref_time(fees._MAX_ROOT_CLAIM_WORK)
     assert charged == fees.root_claim_charged_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
-    assert charged == fees._claim_ref_time(4, 24, 4)
-    assert fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK) == 8_209_263
+    assert charged == 29_894_612_996
+    assert fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK) == 7_473_653
     assert fees.root_claim_fee_discount_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK) < (
         fees.root_claim_fee_discount_ref_time(fees._MAX_ROOT_CLAIM_WORK)
     )
@@ -148,8 +151,8 @@ def test_scan_only_uses_scan_ref_time():
     expected = fees._weight_fee_rao(
         fees._claim_root_ref_time(1) + fees._claim_root_scan_ref_time(32)
     )
-    assert expected < reserved.rao
-    assert spent.rao == expected
+    assert expected == 7_806_076
+    assert spent.rao == min(expected, reserved.rao) == 7_473_653
 
 
 def test_coldkey_wide_empty_baskets_floor_to_hotkey_count():

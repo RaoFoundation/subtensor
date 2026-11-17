@@ -15,6 +15,7 @@ import typer
 
 from .. import config
 from .._generated import storage as st
+from .._policy import evaluate_policy
 from ..executor import _find_event
 from ..intents import SetHyperparameter, TrimNullSubnetBatch
 
@@ -34,7 +35,17 @@ class PruningState:
 
     @property
     def yuma_ceiling(self) -> int:
-        return 256 // self.mechanisms
+        return evaluate_policy(
+            "validation.pruning.state",
+            {
+                "mechanisms": self.mechanisms,
+                "block": 0,
+                "tempo": 0,
+                "last": 0,
+                "pending": 0,
+                "window": 0,
+            },
+        )["ceiling"]
 
 
 def mode_name(value) -> str:
@@ -82,9 +93,17 @@ async def read_state(client, netuid: int) -> PruningState:
         raise ValueError(f"subnet {netuid} does not exist")
     if not 1 <= int(count) <= 16:
         raise ValueError("invalid mechanism count; cannot derive the Yuma ceiling")
-    frozen = bool(tempo) and (
-        int(pending or 0) > view.block or max(0, int(last) + int(tempo) - view.block) < int(window)
-    )
+    frozen = evaluate_policy(
+        "validation.pruning.state",
+        {
+            "mechanisms": count,
+            "block": view.block,
+            "tempo": tempo,
+            "last": last,
+            "pending": pending or 0,
+            "window": window,
+        },
+    )["frozen"]
     return PruningState(
         view.block,
         str(genesis),
@@ -121,7 +140,10 @@ async def switch_wait_reason(client, netuid: int) -> str | None:
         view.query(st.SubtensorModule.Tempo, [netuid]),
         view.query(st.SubtensorModule.OwnerHyperparamRateLimit),
     )
-    if last and view.block - int(last) < int(tempo) * int(epochs):
+    if evaluate_policy(
+        "validation.pruning.cooldown",
+        {"last": last or 0, "block": view.block, "tempo": tempo, "epochs": epochs},
+    ):
         return "consensus-switch cooldown has not elapsed"
     return None
 
@@ -274,33 +296,45 @@ def run_pruning(
 
         while True:
             state = app_ctx.run(lambda client: read_state(client, netuid))
-            if state.genesis != genesis:
-                raise ValueError("RPC chain changed; stopping")
-            if state.owner != actor:
-                raise ValueError("subnet ownership changed; stopping")
-            if state.mechanisms != mechanism_count:
-                raise ValueError(
-                    "mechanism count changed; restart to validate the new Yuma ceiling"
-                )
-            if state.pending_target is not None and state.pending_target != target:
-                raise ValueError(f"conflicting on-chain pruning target {state.pending_target}")
-            if state.mode == "Yuma":
-                if state.population > state.yuma_ceiling:
-                    raise ValueError(
-                        "Yuma population exceeds its ceiling; cannot prune using Null batches"
-                    )
+            decision = evaluate_policy(
+                "validation.pruning.decision",
+                {
+                    "state": {
+                        "genesis": state.genesis,
+                        "owner": state.owner,
+                        "mechanisms": state.mechanisms,
+                        "pendingTarget": state.pending_target,
+                        "population": state.population,
+                        "yumaCeiling": state.yuma_ceiling,
+                        "minimum": state.minimum,
+                        "maximum": state.maximum,
+                        "mode": state.mode,
+                    },
+                    "initial": {"genesis": genesis, "mechanisms": mechanism_count},
+                    "owner": actor,
+                    "target": target,
+                },
+            )
+            errors = {
+                "chain": "RPC chain changed; stopping",
+                "owner": "subnet ownership changed; stopping",
+                "mechanisms": "mechanism count changed; restart to validate the new Yuma ceiling",
+                "conflict": f"conflicting on-chain pruning target {state.pending_target}",
+                "ceiling": "Yuma population exceeds its ceiling; cannot prune using Null batches",
+                "target": (
+                    f"target must be between {state.minimum} and "
+                    f"{min(state.maximum, state.yuma_ceiling)} for return to Yuma"
+                ),
+                "mode": f"unsupported epoch consensus {state.mode}",
+            }
+            if decision.get("error"):
+                raise ValueError(errors[decision["error"]])
+            if decision["action"] == "finished":
                 app_ctx.output.detail(
                     "Null pruning", {"status": "already Yuma", "population": state.population}
                 )
                 return
-            if not state.minimum <= target <= min(state.maximum, state.yuma_ceiling):
-                raise ValueError(
-                    f"target must be between {state.minimum} and "
-                    f"{min(state.maximum, state.yuma_ceiling)} for return to Yuma"
-                )
-            if state.mode != "Null":
-                raise ValueError(f"unsupported epoch consensus {state.mode}")
-            complete = state.population <= target and state.pending_target is None
+            complete = decision["action"] == "complete"
             if complete:
                 if not switch_to_yuma:
                     app_ctx.output.detail(
@@ -369,12 +403,18 @@ def run_pruning(
                 raise ValueError("receipt pruning target does not match this workflow")
             removed = int(progress["removed"])
             cleared = int(progress["cleared_commits"])
-            cleaned = after.population <= target and after.pending_target is None
-            stalled = (
-                stalled + 1
-                if after.population >= state.population and cleared == 0 and not cleaned
-                else 0
+            outcome = evaluate_policy(
+                "validation.pruning.progress",
+                {
+                    "after": after.population,
+                    "before": state.population,
+                    "target": target,
+                    "pending": after.pending_target,
+                    "cleared": cleared,
+                    "stalled": stalled,
+                },
             )
+            stalled = outcome["stalled"]
             app_ctx.output.detail(
                 "Pruning progress",
                 {
@@ -387,6 +427,6 @@ def run_pruning(
                     "extrinsic": result.extrinsic_id,
                 },
             )
-            if stalled >= 3:
+            if outcome["stop"]:
                 raise ValueError("three batches made no progress; stopping")
             deadline = None

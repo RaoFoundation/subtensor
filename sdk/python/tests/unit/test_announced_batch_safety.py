@@ -225,7 +225,7 @@ async def test_pinned_multisig_cannot_skip_saved_announcement_batch_safety(repla
         semantic=semantic,
         inner_call_data="0x" + bytes(pinned.data).hex(),
     )
-    with pytest.raises(ValueError, match=r"direct|batch"):
+    with pytest.raises(ValueError, match=r"direct|batch|declared semantic intent"):
         await _compose_intent_call(chain, adapter, dev_wallet())
     assert bytes(inner.call_hash) in chain.pending
     assert not chain.submissions
@@ -303,7 +303,7 @@ async def test_saved_guard_is_detected_from_payload_despite_missing_or_stale_met
     child, _call = await _announced(
         chain, Transfer(receiving_address(key), 5), saved=True, stale_metadata=stale_metadata
     )
-    with pytest.raises(ValueError, match=r"direct|batch"):
+    with pytest.raises(ValueError, match=r"direct|batch|declared semantic intent"):
         await _compose_intent_call(chain, Batch([child, Transfer(BOB, 7)]), dev_wallet())
 
 
@@ -314,7 +314,7 @@ async def test_saved_direct_execution_keeps_exact_bytes_and_pays_original_amount
     chain, key = replay_chain
     recipient = receiving_address(key) if guarded else BOB
     child, original = await _announced(
-        chain, Transfer(recipient, 5), saved=True, stale_metadata=True
+        chain, Transfer(recipient, 5), saved=True, stale_metadata=False
     )
 
     result = await Executor(chain).execute(child, dev_wallet(), shielded=False)
@@ -344,6 +344,7 @@ async def test_opaque_legacy_saved_payload_can_replay_directly_but_cannot_bypass
 ):
     chain, _key = replay_chain
     child, original = await _announced(chain, Transfer(BOB, 5), saved=True)
+    before = dict(chain.balances)
     if failure == "unavailable":
         chain.decode_error = True
     elif failure == "malformed":
@@ -354,10 +355,13 @@ async def test_opaque_legacy_saved_payload_can_replay_directly_but_cannot_bypass
         chain.decode_scale = malformed
     else:
         chain.decode_scale = None
-    direct, _extras = await _compose_intent_call(chain, child, dev_wallet())
-    assert bytes(direct.params["call"].data) == bytes(original.data)
+    with pytest.raises(ValueError, match="cannot be inspected for registration"):
+        await _compose_intent_call(chain, child, dev_wallet())
     with pytest.raises(ValueError, match=r"direct|batch|inspect"):
         await _compose_intent_call(chain, Batch([child, Transfer(BOB, 7)]), dev_wallet())
+    assert bytes(original.call_hash) in chain.pending
+    assert chain.balances == before
+    assert not chain.submissions
 
 
 @pytest.mark.parametrize(
@@ -390,7 +394,7 @@ async def test_real_scale_nested_atomic_payload_requires_direct_submission(repla
         inner_args=Transfer(BOB, 1).to_dict(),
         announced_call_data="0x" + bytes(call.data).hex(),
     )
-    with pytest.raises(ValueError, match=r"direct|batch"):
+    with pytest.raises(ValueError, match=r"direct|batch|declared semantic intent"):
         await _compose_intent_call(chain, Batch([child, Transfer(BOB, 7)]), dev_wallet())
 
 
@@ -407,7 +411,7 @@ async def test_real_scale_plain_saved_transfer_remains_batchable(replay_chain):
         delegate_ss58=ALICE,
         real_ss58=PURE,
         inner_op="transfer",
-        inner_args=Transfer(BOB, 99).to_dict(),
+        inner_args=Transfer(BOB, "0.000000123").to_dict(),
         announced_call_data="0x" + bytes(saved.data).hex(),
     )
     outer, _ = await _compose_intent_call(chain, Batch([child, Transfer(BOB, 7)]), dev_wallet())

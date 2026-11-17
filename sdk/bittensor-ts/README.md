@@ -1,0 +1,637 @@
+---
+title: "Bittensor TypeScript SDK"
+description: "Chain reads, transaction workflows, signing, wallets, and EVM APIs for TypeScript backends and frontends."
+---
+
+# `@bittensor/sdk`
+
+The TypeScript SDK exposes the current Rust client and Python SDK workflows as
+application APIs. Import `@bittensor/sdk` in Node.js or `@bittensor/sdk/browser`
+in a frontend. Both entry points provide the full registered read and semantic
+intent catalogs, snapshots, transaction planning, external signing, and EVM APIs.
+
+Rust remains authoritative for keys, signatures, SS58, SCALE, metadata proofs,
+timelock encryption, MEV envelopes, and the shared transaction and financial
+policy used by Python and TypeScript. See [shared policy](SHARED_POLICY.md) for
+ownership, compatibility, and binding verification. Node uses the native client; the browser
+uses WASM and the portable JSON-RPC transport. Browser code has no native addon,
+Node `Buffer`, filesystem, or HID dependency. Filesystem wallets, encrypted
+Substrate keyfile imports, native Ledger HID, the extension bridge server, and
+CPU/OpenCL mining are Node APIs. Frontends can sign through injected extensions,
+Vault callbacks, or WASM keypairs and supply a worker/service to the portable
+registration-mining workflow.
+
+The package is monorepo-internal (`"private": true`). A public npm release still
+requires a cross-platform native binary publishing layout and CI matrix.
+
+## Release wallet and account APIs
+
+Both entry points support `sr25519`, `ed25519`, `hashed-sr25519`,
+`hashed-ed25519`, `mldsa65`, `hashed-mldsa65`, `falcon512`,
+`hashed-falcon512`, `falcon1024`, and `hashed-falcon1024` through
+`WALLET_TYPES` and the corresponding `CRYPTO_*` constants. `accountCryptoType`
+selects standard or hashed account mode independently of the signing scheme.
+Keys expose public descriptors, receiving addresses, public-only views,
+generation derivation, and transaction authorization. Node wallet files preserve
+descriptors when saving public keys. Private keys require encrypted export or an
+explicit plaintext opt-in; `serializePublic()` accepts public-only views.
+
+```ts
+const key = Keypair.fromMnemonic(mnemonic, WALLET_TYPES.falcon512)
+const session = client.protectedWallet(key)
+await client.execute(buildIntent('transfer', {
+  dest_ss58: recipient,
+  amount_tao: '1',
+}), key, { waitForFinalization: true })
+```
+
+Fixed PQ wallets receive at their ordinary SS58 address without registration.
+Rotating wallets need their descriptor registered and finalized before signing;
+use `client.registerWallet(wallet, { payer, maxRegistrationDepositRao })` with
+an existing funded payer. This workflow requires Shield, quotes the reserve and
+both transaction fees, guards the approved reserve on chain, and verifies each
+registration in finalized storage. Classical hashed roles register sequentially.
+Already registered roles are skipped on retry; `WalletRegistrationError` preserves
+the wallet, quote, and last receipt. Browser callers can pass an object with
+`coldkeypub` and `hotkeypub`, or a single public keypair. Fixed modes return without
+contacting the chain. Receiving addresses
+retain their descriptor through semantic transfers. Initial registration requires
+an explicit `maxRegistrationDepositRao` allowance or an
+`onRegistrationSponsorship` callback, separate from the payment and fees.
+Existing registrations are guarded atomically; direct coldkey-swap operations
+require finalized registration. Registration uses Shield by default when a key
+is available.
+
+Protected sessions select rotating authority from finalized storage, reject
+pending nonce conflicts, and sign the full runtime payload. Fee previews use
+dummy proofs and work with public-only descriptors. Shielded carrier/inner
+transactions use one authority snapshot and consecutive nonces/generations.
+If Shield tracking is interrupted after carrier inclusion, call
+`await session.reconcileShielded({ timeoutMs: 120_000 })` on the same client.
+It checks the saved envelope against finalized history without signing or
+broadcasting again. Finalized expiry or carrier failure releases the unused
+inner reservation; uncertain or unfinalized outcomes retain it.
+`session.submit` and `session.signExtrinsic` require `allowRawCall`; detached
+signing additionally requires an explicit nonce. External PQ wallets can submit
+their already encoded transaction with `submitSigned`.
+
+`client.multisig(members, threshold, 'safe')`, safe multisig intents,
+`derivativeCall`, and `multisigProtection` expose the new composite account
+modes. `Lock` and `GammaSpend` are included in proxy types. `session.prepareOrder` pins complete
+order terms and exposes `accountApproved()` for authorization through an on-chain
+`authorize_order` transaction. Owners need an existing System account and can
+hold eight live approvals. Choose new nonces above the owner's
+`ApprovedOrders.highest_nonce`; cancellation or expiry frees a slot on the next
+approval without resetting this watermark. Account reaping removes approvals.
+The four order intents cover authorization,
+cancellation, relay, and netted relay. Protected keys do not sign detached orders
+or arbitrary messages; the release has removed wallet capability delegation and
+PQ HTTP authentication. Classical `httpAuth.verify` requires a trusted
+`expectedCryptoType` or receiver-specific `httpAuth.configureVerifier` configuration;
+the request header is not an authority source.
+Hashed classical signers use `prepareHttpSigner` after generation zero retires.
+
+`fund_evm_key` uses the runtime's native `EVM.deposit` route when supported.
+`resolveEvmRecipient` resolves finalized protected aliases for display or
+descriptor-guarded native transfers; deterministic legacy mirrors alone are
+insufficient to identify protected deposit routes.
+
+### Creating and registering wallets
+
+`await wallet.create({ coldkey: options, hotkey: options })` writes both private
+keys and both public descriptors in one native transaction. A failed publish rolls
+back all four files; other named hotkeys are preserved. PQ key generation defaults
+to 24 mnemonic words and classical generation to 12. Explicit word counts remain
+available. Private/public identities are checked again before signing.
+
+`await client.registerWallet(wallet, { payer, maxRegistrationDepositRao })` registers
+missing rotating keys with required Shield, quotes the combined reserve and fees,
+and verifies finalized descriptors. The payer must already be funded and registered
+when using a rotating key. `Wallet.createAndRegister` combines local creation and
+registration; registration failures retain the local wallet and expose the receipt
+through `WalletRegistrationError`. Retrying skips already finalized registrations.
+An application may approve the quote with `onRegistrationSponsorship` instead of
+providing a fixed reserve allowance. Browser callers can supply public wallet views
+and an external payer without filesystem access.
+
+### External ECDSA accounts
+
+External signers may use `CRYPTO_ECDSA` with a compressed 33-byte secp256k1 public
+key or its mapped 32-byte AccountId. `accountIdFromEcdsaPublic` and
+`ss58FromEcdsaPublic` implement the chain mapping. Sign the Substrate payload using
+its Blake2 hashing rules; Ethereum personal-message signatures are different.
+Raw signatures are 65 bytes; prefixed MultiSignature values are 66 bytes with
+variant 2. Fee estimates use the selected signature length. Private ECDSA key
+creation and hardware capabilities remain the responsibility of the external signer.
+
+### Gamma credits and services
+
+Gamma uses decimal strings or numbers with at most nine decimal places; it is
+separate from TAO and alpha `Balance`. Prefer strings for exact application inputs.
+`gammaUnits` and `gammaFromUnits` convert between decimal credits and chain units.
+The `client.gamma` namespace and pinned snapshots expose deposits, mint quotes,
+and oracle prices. Quotes preserve runtime dispatch errors.
+
+```ts
+const mint = buildIntent('mint_gamma', {
+  hotkey_ss58: hotkey, netuid: 1, amount_tao: '1', rate_tolerance: 0.005,
+})
+const plan = await client.plan(mint, signer)
+if (!plan.ok) throw new Error(plan.violations.join('; '))
+const receipt = await client.execute(mint, signer, { waitForFinalization: true })
+```
+
+The seven Gamma intents cover minting from TAO or stake, moving credits, closing
+deposits, selecting spenders, changing daily caps, and batch spending. Planning
+checks ownership, limits and sequential effects of repeated spends. The
+`set_service` intent and `client.subnets.services` expose service URLs and spenders.
+Receipts expose actual minted credits and separate spent/skipped entries, including
+execution through proxy, multisig and Shield. Submission alone is not a spend receipt.
+
+Root-claim previews include deferred entitlements after stake has been removed.
+When a deferred entitlement cannot be quoted, the aggregate remains unavailable
+and the preview explains the missing valuation instead of presenting a zero claim.
+
+## Delayed protected accounts
+
+`client.protectedAccount(...)` provides the release's delayed pure-proxy workflow
+in Node and browsers. This is separate from `protectedWallet`, which manages
+rotating signing keys. A protected account holds assets behind a controller's
+nonzero `Any` proxy delay, with optional narrowly scoped immediate permissions.
+
+```ts
+import { Client, FileJsonStore, buildIntent } from '@bittensor/sdk'
+
+const client = new Client('finney')
+const account = client.protectedAccount({
+  controllerWallet: 'main',
+  store: new FileJsonStore(),
+  signerFor: address => walletsByAddress.get(address)!,
+  // Optional public descriptors for fee estimation; never unlock keys here.
+  publicKeyFor: address => publicKeysByAddress.get(address),
+})
+
+const setup = { controllerAddress, delay: '36h', allows: ['staking'] }
+const plan = await account.planSetup(setup)
+// Review plan.warnings and the complete authority granted by each allow item.
+const progress = await account.setup(setup)
+// After an interruption, call resumeSetup(setup) to recover the saved progress.
+```
+
+Setup verifies pure-account creation provenance and live proxy grants, queues
+requested permissions, and announces the coldkey migration. `status: 'ready'`
+means that configuration and migration announcement are ready; it does not mean
+the assets have moved. Inspect `migrationStatus()` and call `executeMigration()`
+once the chain's waiting period expires. **Migration moves available TAO, stake,
+and ownership to the protected account.** The controller needs its own funds for
+fees and announcement deposits. Setup will not blindly recreate a pure account
+after an uncertain submission. `creationReceipt` allows recovery using a known
+included receipt; `reuse` requires matching historical `PureCreated` provenance.
+
+```ts
+const payment = buildIntent('transfer', { dest_ss58: recipient, amount_tao: '1' })
+const announced = await account.submit(payment)
+if ('row' in announced) {
+  // Save this index. Call execute only after inspect reports ready: true.
+  const pending = (await account.inspect()).pending.find(row => row.index === announced.row.index)
+  if (pending?.ready) await account.execute(pending.index)
+}
+```
+
+`account.inspect()` is read-only and reports live grants and pending work.
+To persist newly discovered chain announcements and assign stable local indices,
+use `account.announcements.list((await account.inspect()).record)`. Persisted
+announcements retain the exact call bytes, hash, runtime version, and decoded
+semantics. Execution verifies them again, respects the live delay, and requires
+`allowRepeat: true` before repeating a payload already recorded as executed.
+Unknown submissions remain reserved. Hash-only receipts are searched across up
+to 128 finalized blocks by default (`receiptSearchBlocks`); `receiptBlockFor`
+can supply an inclusion block for older work. An unsuccessful search never proves
+that submission failed. `cancel(index)` removes an announcement;
+an unresolved multisig commitment must first be resolved by its signatories.
+If another member completes execution or cancellation, call
+`account.recoverAction(index, { extrinsicHash, blockHash })` with that final
+transaction. Recovery verifies canonical finality, the original multisig
+timepoint and call, and the protected announcement's outcome before releasing
+the journal reservation. Missing on-chain records alone do not prove success.
+Recovered cancellations retain an `execution_uncertain` replay guard: the same
+payload could have executed before being announced again. Controller rotation
+can proceed, but executing that payload again requires explicit `allowRepeat`.
+Announcement files contain public transaction details in plaintext.
+
+`route(intent)` previews direct, immediate-proxy, or delayed execution.
+Immediate routes require a matching live grant. Hotkey operations require an
+explicit `signerAddress`; ordinary protected submissions cannot change proxy
+authority. Use `planSettings` / `updateSettings` for delay and allow changes,
+and `planRotation` / `rotate` / `finalizeRotation` for controller replacement.
+Rotation verifies new authority and removal of the old controller before moving
+the local binding. Permission revocation cancels pending grant announcements
+before queuing removal, so those grants cannot quietly return later.
+
+`funding()` quotes fees, announcement deposits, usable balance, and a controller
+funding target without unlocking a key or reserving a nonce. Supply `publicKeyFor`
+for unregistered non-sr25519 payers so quotes use their authorization size.
+`planRefill(intent)`
+previews an optional refill. `submit(intent, { refill: { maxRefillRao } })`
+explicitly includes a capped refill in the same delayed atomic batch; insufficient
+funds to announce still require external funding. Use explicit amounts for
+staking or crowdloan contributions when including a refill: their static
+`amount_tao: 'all'` would otherwise be calculated before the refill.
+`transfer_all` and transfers with `amount_tao: 'all'` remain available because
+they compute the remaining balance during execution. After migration,
+`fund(fromAddress, { maxFundingRao, expectedFundingRao })` tops up the controller
+from a separate account, rechecking the approved amount before submission.
+
+Browsers use `new BrowserJsonStore(localStorage, 'my-app:')` or a transactional
+`JsonStore` implementation. The browser store uses Web Locks for atomic updates;
+Node's `FileJsonStore` locks, atomically replaces, and syncs its files. After a
+process crash, an abandoned `.lock` requires checking its recorded owner before
+removal. Custom stores shared across processes or tabs must implement atomic
+`update`; the fallback serializes only users of the same store object.
+`MemoryJsonStore` is suitable for tests and ephemeral sessions. Records are
+scoped by genesis hash and controller; importing an unscoped legacy record
+requires explicit `bindLegacy()` verification.
+
+For multisig controllers, provide `submit(intent, request)` instead of `signerFor`.
+The callback must authorize `request.signerAddress`, honor `proxyFor` and
+`forceProxyType` when present, and return the included receipt and complete
+events. Approval-only receipts stay pending until the actual action executes.
+Throw `SubmissionNotSentError` only when delivery definitely did not occur;
+ambiguous failures retain reservations, and `SubmissionUncertainError` can carry
+the extrinsic hash for recovery. The default Node and browser submitters use the
+existing transaction engine and wait for finalization.
+
+## Build locally
+
+From the repository root:
+
+```sh
+cargo test --manifest-path sdk/bittensor-ts/native/Cargo.toml --all-features
+npm --prefix sdk/bittensor-ts ci
+npm --prefix sdk/bittensor-ts run check
+```
+
+The native crate is isolated under `sdk/bittensor-ts/native`; it links
+`sdk/bittensor-core` directly and contains binding glue only. Protocol cryptography and SCALE encoding stay in Rust. Portable TypeScript
+implements application workflows and preflight calculations matching Python.
+
+Node.js 22 or newer is required for `BrowserChainClient`'s default WSS path
+because that transport uses the unflagged global `WebSocket`. Older Node
+runtimes can still use HTTP endpoints with `BrowserChainClient` or pass
+`webSocketFactory`/`webSocketConstructor` explicitly. The default Node `Client`
+delegates transport to Rust.
+Browser builds also require `wasm-pack` so `npm run build` can emit the
+`dist/wasm/bittensor_core_wasm.js` bundle used by `@bittensor/sdk/browser`.
+
+## Example
+
+```ts
+import {
+  Keypair,
+  Runtime,
+  createKeyringPairFromUri,
+  sealMevShieldTransaction,
+} from '@bittensor/sdk'
+
+const alice = Keypair.fromUri('//Alice')
+const signature = alice.sign(Buffer.from('hello'))
+console.log(alice.verify(Buffer.from('hello'), signature))
+
+// Compatible with tx.signAsync(...) and Moonwall helpers, while the secret
+// key and signing operation remain in Rust. This is signing compatibility,
+// not full Polkadot.js KeyringPair keystore compatibility: PKCS#8/JSON export,
+// lock/unlock, and VRF methods intentionally throw.
+const signer = createKeyringPairFromUri('//Alice')
+
+const runtime = new Runtime(metadataBytes, specVersion, transactionVersion)
+const call = runtime.composeCall('System', 'remark', {
+  remark: Buffer.from('hello'),
+})
+
+const ciphertext = sealMevShieldTransaction(mlKemPublicKey, call)
+```
+
+Use `asPolkadotKeypair(keypair)` to pass an existing classical key to a
+Polkadot.js or Moonwall API. It rejects protected wallet types, which require
+the protected transaction APIs above.
+
+Large SCALE integers are returned as `bigint`; byte carriers are returned as
+`Buffer`. A decoded SCALE dictionary with non-string keys is returned as a
+`Map`, so no key information is lost.
+
+## Chain client example
+
+```ts
+import { Balance, Client, Keypair, storage } from '@bittensor/sdk'
+
+const client = await new Client('finney').connect()
+// Use a wallet or external signer in production; //Alice is a development key.
+const alice = Keypair.fromUri('//Alice')
+
+const balance = await client.balances.get(alice.ss58Address)
+const subnet = await client.subnets.info(1)
+const metagraph = await client.subnets.metagraph(1)
+const events = await client.query(storage.System.Events)
+
+await client.transfer(alice, '5F...', Balance.fromTao('0.01'), {
+  waitForFinalization: true,
+})
+await client.close()
+```
+
+Revealed commitment reads preserve raw plaintext by default. For known legacy
+commitments containing a SCALE byte vector, pass `revealedEncoding: 'scale'`
+to the commitment or metagraph read options. `decodeRevealedCommitment(bytes,
+'scale')` decodes an individual legacy payload and rejects malformed frames.
+
+`Client` is the Node-native high-level client. Raw JSON-RPC calls,
+subscriptions, injected WebSockets, and endpoint fallback belong to the explicit
+`BrowserChainClient` transport client:
+
+```ts
+import { BrowserChainClient } from '@bittensor/sdk'
+
+const client = new BrowserChainClient('local', {
+  endpoint: 'wss://primary.example',
+  fallbackEndpoints: ['wss://fallback.example'],
+  expectedGenesisHash: '0x...',
+})
+```
+
+Fallback endpoints are validated against a trusted genesis hash before use.
+Known mainnet aliases (`finney`, `archive`) use the checked-in mainnet genesis
+hash. Custom endpoint sets, and named networks without a built-in trust anchor,
+must pass `expectedGenesisHash` when `fallbackEndpoints` are configured.
+
+Node `client.rpc(method, params, { timeoutMs, signal })` applies one deadline
+across connection setup and endpoint/archive fallback. It defaults to
+`requestTimeoutMs`; `timeoutMs: 0` disables the deadline. Aborting stops the
+request and further retries; it cannot undo an operation already received by
+the node.
+
+Transaction amount inputs are intentionally explicit. Pass `Balance.fromTao("1.25")`
+or `taoAmount("1.25")` for TAO-denominated values, and pass `123n` or
+`raoAmount("123")` for rao. Raw `number` and `string` amounts are rejected by
+transaction builders to avoid confusing `"1"` rao with `"1.0"` TAO. Decimal
+TAO/alpha amounts with more than nine fractional digits are rejected.
+
+`client.submit()` delegates automatic nonce selection to the Rust client when
+submitting with a native `Keypair`. Native `Client.signExtrinsic()` can also
+reserve a nonce for detached signing; the JavaScript `BrowserChainClient`
+requires an explicit nonce. Detached flows using `submitSigned()` and
+`watchSigned()` delegate encoded submission and receipt
+tracking to Rust. On `BrowserChainClient`, `watchSigned()` uses the TypeScript
+WebSocket transport for custom/browser subscription handling.
+
+Ordinary signing binds the transaction to the RFC-0078 metadata digest whenever
+`CheckMetadataHash` is declared by the runtime. The SDK never disables this check
+in response to an RPC failure. Development runtimes that declare the extension
+but omit the embedded hash require an explicit `metadataHash: null` opt-out
+(`MetadataHashMode::Disabled` for Rust external signing plans). Proof-requiring
+signers cannot opt out.
+
+Submission requests are never automatically resent. A lost response is uncertain,
+not a rejection: Node results expose `status: 'unknown'` and
+`data.submission_uncertain`; browser errors expose `SubmissionUncertainError`
+with the transaction hash. Receipt tracking attempts read-only reconciliation.
+Use the hash to reconcile inclusion before retrying the operation.
+
+If tracking stops after a Shield carrier is included, `ShieldedTrackingError`
+preserves `innerExtrinsicHash`, `carrierExtrinsicHash`, and `carrierReceipt`.
+Its `outcome` has `status: 'unknown'` and `data.submission_uncertain`; carrier
+inclusion does not establish the inner operation's result. Reconcile both hashes
+before retrying.
+
+Automatic submissions share a per-account queue. Shielded submissions reserve
+both the carrier and inner nonce, including when the caller returns before
+inclusion or loses the response. Semantic previews and fee estimates do not
+reserve nonces; detached signing plans may reserve them. Failed preparation,
+failed signing, and definite admission rejection release unused reservations.
+Protected wallets also restore the previous generation marker on definite
+rejection, while retaining it when delivery is uncertain.
+Native external signing plans can be submitted only once, including across
+clones. A released reservation or nonce-cache reset invalidates its plan; create
+a fresh plan after a rejected or cancelled attempt. Uncertain delivery still
+requires reconciliation by transaction hash before retrying the operation.
+For an unused `client.prepareCall()` result, call
+`await client.cancelPreparedCall(prepared)` to invalidate that plan and release
+its automatic nonce reservation. Only cancel when no transaction derived from
+the plan was broadcast elsewhere. Cancellation rejects plans already submitted
+through this client, including submissions whose delivery is uncertain.
+Browser `prepareCall()` requires an explicit nonce. To allocate one safely, use
+`const nonce = await client.reserveNonces(address)` and pass `{ nonce }` with
+the other preparation options. Fee estimation and ordinary automatic submission
+continue to select nonces internally.
+After reconciling an abandoned or expired transaction, use
+`await client.invalidateNonce(address)` before retrying with automatic nonces.
+Do not clear a reservation while its carrier or inner transaction may still
+execute. Explicit nonces remain the application's responsibility.
+
+Mortal transactions anchor to the previous block, whose hash is available to
+parent-state runtime validation, while using current runtime metadata.
+
+High-level transaction helpers such as `transfer()`, `staking.addStake()`,
+`setWeights()`, registration, and serving route through Rust trusted
+constructors on `IntentCall`. The same constructors are exported directly for
+advanced callers:
+
+```ts
+import { Client, IntentCall, Policy } from '@bittensor/sdk'
+
+const client = await new Client('finney').connect()
+await client.submit(
+  IntentCall.addStake(hotkey, 1, 1_000_000_000n),
+  coldkeySigner,
+  { policy: new Policy({ maxSpendRao: 1_000_000_000n, allowedNetuids: [1] }) },
+)
+```
+
+Raw pallet/function calls are an explicit escape hatch. They are treated by
+Rust as unbounded spend with unknown/all-subnet scope, so they require
+`allowRawCall: true` or a `Policy` with `allowRawCalls: true`; spend and subnet
+caps still fail closed for raw calls. Opaque pre-composed call bytes are more
+restricted because the SDK cannot prove their spend or subnet scope.
+
+`client.assertDescriptorSchema()` checks the exported storage, call, constant,
+and runtime API descriptor tables against the chain metadata loaded for a block.
+Run it in CI or application startup when relying on the convenience descriptor
+exports.
+
+Wallet private keyfiles are encrypted when `keyfilePassword` is supplied.
+Plaintext private keyfile writes require `allowPlaintext: true`; `createNewColdkey()`,
+`createNewHotkey()`, `setColdkey()`, and `setHotkey()` require one of those
+choices instead of accepting empty options. Use `Wallet.generateColdkey()` or
+`Wallet.generateHotkey()` when you need to generate key material and decide how
+to persist it later. Private/public wallet keyfile pairs are written through one
+native pair-write operation that rolls back on commit failure. Public-only
+keyfiles are still written without encryption. Keyfile, wallet persistence,
+Ledger, and Drand-backed timelock operations are Promise-based so blocking I/O
+and expensive KDF work run off the JavaScript thread. The dangerous
+compatibility helper that returns plaintext keyfile JSON is named
+`dangerouslyDecryptKeyfileData()` and is also available from
+`dangerousKeyfiles`. The environment password helpers are legacy compatibility
+APIs (`legacyGetPasswordFromEnvironment()` and
+`legacySavePasswordToEnvironment()`); they use reversible obfuscation, not
+secure password storage.
+
+`wallet.create({ coldkey: { cryptoType, keyfilePassword }, hotkey: {
+cryptoType, allowPlaintext: true } })` generates both roles and publishes all four
+keyfiles in one native transaction, rolling back on failure. It returns both
+mnemonics for application-owned backup; the SDK never prints them. PQ creation
+defaults to 24 words and rejects shorter mnemonics. `accountType: 'standard' |
+'hashed'` selects account mode independently of `cryptoType`.
+`wallet.createAndRegister(client, creationOptions, registrationOptions)` checks
+the reserve allowance before creation and preserves the files if registration
+fails. `wallet.register(client, options)` retries an existing wallet. Wallet
+signing snapshots the public identity before invoking a password provider and
+rejects any different identity returned after unlocking.
+
+## Semantic workflows
+
+`listReads()` describes all 113 registered reads. `listIntentTools()` describes
+all 102 semantic operations, their inputs, defaults, signer roles, and safety
+requirements. Calls, storage, constants, and runtime API descriptors are generated
+from the Python metadata catalog; precompile ABIs come from canonical Solidity.
+`buildIntent()` and `intentBuilders` provide operation-specific argument types,
+including nested batch and multisig calls.
+
+```ts
+import { Client, Wallet, buildIntent } from '@bittensor/sdk'
+
+const client = await new Client('finney').connect()
+const wallet = new Wallet({ name: 'builder' })
+const intent = buildIntent('add_stake', {
+  hotkey_ss58: '5F...', netuid: 1, amount_tao: '1.25',
+})
+const policy = { maxSpendRao: 1_250_000_000n, maxFeeRao: 10_000_000n, allowedNetuids: [1] }
+const plan = await client.workflows().plan(intent, wallet, { policy })
+if (!plan.ok) throw new Error(plan.violations.join('; '))
+// Execution rechecks current state before unlocking or requesting a signature.
+const result = await client.execute(intent, wallet, { policy, waitForFinalization: true })
+await client.close()
+```
+
+Semantic intent money fields accept exact decimal TAO/alpha strings or a
+unit-checked `Balance`. Integer protocol fields use `bigint`. The existing
+low-level `IntentCall` constructors continue to accept explicit rao amounts.
+Use semantic workflows when you need state-dependent admission and shielding
+rules; low-level call construction alone does not perform these checks.
+`"all"` remains unbounded for policy checks after resolving a current balance.
+Slippage, claim admission, owner hyperparameters, Null weights, multisig deposits,
+subnet scope, mandatory shielding, and fee payer selection are checked before
+signing. MEV fee limits include the inner transaction, carrier, and both tips.
+
+For thresholds above one, `multisig.approve(intent, signer)` retains the first
+prepared call through later approvals, including when an earlier submission is
+not yet visible on chain.
+Persist the result's `multisig_call_data`, `multisig_call_hash`, and
+`multisig_call_spec_version` for co-signers in another process. Pass those as
+`call_data`, `call_hash`, and `call_spec_version` to `multisig_approve` or
+`multisig_execute`, together with the opening timepoint. Saved bytes preserve
+the approved amounts and price limits; current funding and registration consent
+are checked again. The declared intent must match the saved call's operation,
+recipients, explicit amounts, and nested calls. This also applies to saved
+announced proxy calls. A named Gamma service must still resolve to the committed
+spender. Encrypted weight payloads cannot be checked against their
+declared plaintext, so importing them fails; retain the original SDK-prepared
+multisig call for those operations. An imported byte-only call has conservative
+unbounded spend and all-subnet scope, so bounded policies require the original trusted prepared
+intent in the same multisig instance. Without saved bytes, a later-round intent
+must still hash to the pending operation at its stated timepoint.
+
+After confirming an operation completed or was cancelled, call
+`await multisig.forgetPreparedCall(intent, originalCallHash)` before starting a
+new operation with freshly resolved amounts or prices. Missing pending storage
+alone does not clear a retained call: a submitted transaction may still execute.
+Threshold-one operations execute immediately and prepare current inputs for each
+call.
+
+Additional workflow APIs include:
+
+- Root baskets, allocations, claims, swaps, stake valuation and availability;
+  subnet lifecycle, emissions, collateral, conviction, locks, leases, identities,
+  commitments, and typed metagraphs.
+- Proxy/batch/sudo/multisig composition, detached signatures, extension signing,
+  Vault framing, HTTP request authentication, and Ledger signing in Node.
+- `EvmRpc`, `getPrecompile`, `EvmContract`, `createEvmWorkflows`, and Node
+  `EvmKeystore` for keys, funding, association, staking, contract deployment/calls,
+  and every canonical precompile.
+- Timelock duration/reveal APIs, bounded PoW registration, transfer history,
+  explicit application preferences/address books, runtime upgrade verification,
+  and restartable Null pruning with a persistent submission journal.
+- Basket index pricing, endpoint latency probes, and structured chain error
+  classification for all current module errors and transaction pool rejections.
+
+`sendEvmTransaction()` checks cancellation before signing and broadcasting,
+including with `wait: false`. If delivery or receipt tracking fails after
+broadcast handoff, `EvmSubmissionUncertainError.txHash` identifies the signed
+transaction. Reconcile that hash before retrying the payment.
+
+Failed receipts expose `chainError` with a semantic `code`, exact error name,
+metadata documentation, and remediation text. `classifyChainError()` also accepts
+RPC failures; `chainErrorFromDispatch()` resolves module indices against the
+execution metadata supplied by your application. Unknown historical errors stay
+unknown rather than using an unrelated current index.
+
+`SdkPreferences` accepts a browser, memory, or custom JSON store. Node
+`FileJsonStore` uses Python-compatible public book files. Preferences are applied
+only when your application asks for them; importing the SDK never changes files.
+
+## Browser example
+
+```ts
+import { Client, buildIntent, connectExtensionSigner, initBrowser } from '@bittensor/sdk/browser'
+
+await initBrowser()
+const client = await new Client('finney').connect()
+const signer = await connectExtensionSigner('My app', { address: selectedAddress })
+const snapshot = await client.at()
+const balance = await snapshot.read('balance', { coldkey_ss58: signer.address })
+const intent = buildIntent('transfer', { dest_ss58: recipient, amount_tao: '0.01' })
+const result = await client.execute(intent, signer, {
+  policy: { maxSpendRao: 10_000_000n, maxFeeRao: 10_000_000n },
+  waitForFinalization: true,
+})
+await client.close()
+```
+
+Use the same snapshot for related reads; it pins storage and runtime metadata to
+one block hash. Browser amounts are `bigint` and bytes are `Uint8Array`.
+`blocks()` is an async iterable and supports cancellation. Frontends should keep
+secret material in their chosen wallet/signing backend.
+
+Extensions or strict-CSP applications can provide a WASM loader:
+
+```ts
+await initBrowser(() => import('./vendor/bittensor_core_wasm.js'))
+```
+
+## Validation
+
+`npm run check` builds the native, TypeScript, and WASM packages, checks binding
+and policy catalogs, and runs the test suite, including Chromium integration.
+`npm run check:catalogs` checks regeneration against the Python development
+environment (set `PYTHON` if it is not at `sdk/python/.venv/bin/python`).
+
+The test suite exercises each semantic operation, read domains, fixed-point
+amounts, signing/authentication vectors, wallet storage, and real Chromium/WASM
+integration. `npm run test:localnet` additionally submits against an explicitly
+configured loopback chain with funded development accounts, working finality,
+and an MEV-capable authority. Its runtime must enable the `metadata-hash` build
+feature used in production for the default metadata-bound signing mode. The
+release feature suite also requires the development `//Alice` sudo key and changes
+Gamma and wallet feature flags, so use a disposable chain. Set `BT_CHAIN_ENDPOINT`
+to its WebSocket endpoint; the live files run serially because they share development signers. Mock RPC
+tests and browser codec tests do not establish
+that every runtime operation succeeds on a live network.
+
+## Binding parity and secret derivation
+
+Mnemonic, password, and secret-URI derivation state is retained only by the Rust
+`Keypair`; TypeScript calls the native handle's `derive(path)` method and never
+reconstructs a child secret URI. `npm run build` also generates binding
+coverage from the Rust-side `#[napi]` and `#[wasm_bindgen]` annotations, then
+checks that surface against the generated N-API declarations, `src/native.ts`,
+the generated WASM declarations, `BrowserWasmModule`, and an explicit
+public-browser-wrapper allowlist, so binding additions cannot silently
+disappear from either TypeScript boundary.

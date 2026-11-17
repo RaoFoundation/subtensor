@@ -43,6 +43,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from ._policy import evaluate_policy
 from .basket_index_data import BASELINES, EPOCH_BLOCK, GENERATED_BLOCK, INDEX, TR_INDEX
 
 # Funds below this spot NAV are too shallow to price the live index; they
@@ -67,27 +68,13 @@ def spot_beta_price(record: dict) -> float:
     haircut grows with fund size, so a large and a small fund with the same
     bag print different prices. Scaling up to spot NAV removes that.
     """
-    real = float(record.get("beta_price_tao") or 0.0)
-    nav = _as_tao(record.get("nav_tao"))
-    spot = _as_tao(record.get("spot_nav_tao"))
-    if nav > 0.0 and spot > 0.0:
-        return real * (spot / nav)
-    return real
+    return evaluate_policy("financial.basket.spot", {"record": _policy_record(record)})
 
 
 def _series_level(series: tuple[tuple[int, float], ...], block: Optional[int]) -> float:
     """Most recent sample of a frozen index series at or before ``block``
     (latest sample when omitted); 1.0 before any data."""
-    if not series:
-        return 1.0
-    if block is None:
-        return series[-1][1]
-    level = 1.0
-    for sample_block, sample_level in series:
-        if sample_block > block:
-            break
-        level = sample_level
-    return level
+    return evaluate_policy("financial.basket.level", {"series": series, "block": block})
 
 
 def index_level(block: Optional[int] = None) -> float:
@@ -129,19 +116,10 @@ def fund_pricing(hotkey: str, raw_price: float) -> DisplayPricing:
     fund's baseline rate is 0.0: a genuinely new fund starts there, and the
     real first-sighting rate is frozen on the next table rebuild.
     """
-    frozen = BASELINES.get(hotkey)
-    if frozen is not None:
-        baseline, first_block, rate0 = frozen
-        return DisplayPricing(
-            baseline=baseline,
-            first_block=first_block,
-            provisional=False,
-            baseline_rate=rate0,
-        )
-    level = index_level()
-    baseline = raw_price / level if level else raw_price
     return DisplayPricing(
-        baseline=baseline or 1.0, first_block=None, provisional=True, baseline_rate=0.0
+        **evaluate_policy(
+            "financial.basket.pricing", {"data": _policy_data(), "hotkey": hotkey, "raw": raw_price}
+        )
     )
 
 
@@ -158,12 +136,9 @@ def staker_yield(record: dict) -> Optional[float]:
     history that no current-period staker earned. ``None`` when the record
     carries no ``basket_rate``.
     """
-    rate = record.get("basket_rate")
-    if rate is None:
-        return None
-    raw = spot_beta_price(record)
-    pricing = fund_pricing(record["hotkey"], raw)
-    return max(rate - pricing.baseline_rate, 0.0) * raw
+    return evaluate_policy(
+        "financial.basket.yield", {"data": _policy_data(), "record": _policy_record(record)}
+    )
 
 
 def stake_value(record: dict) -> Optional[float]:
@@ -179,13 +154,9 @@ def stake_value(record: dict) -> Optional[float]:
     the rate delta marked at today's spot rate. ``None`` when the record
     carries no ``basket_rate``.
     """
-    rate = record.get("basket_rate")
-    if rate is None:
-        return None
-    raw = spot_beta_price(record)
-    pricing = fund_pricing(record["hotkey"], raw)
-    tr = 1.0 + max(rate - pricing.baseline_rate, 0.0) * raw
-    return tr * tr_index_level(pricing.first_block)
+    return evaluate_policy(
+        "financial.basket.stake_value", {"data": _policy_data(), "record": _policy_record(record)}
+    )
 
 
 def _apply_chain_pricing(record: dict, chain: dict) -> None:
@@ -197,48 +168,28 @@ def _apply_chain_pricing(record: dict, chain: dict) -> None:
     position's beta balance the same way the local baseline would, so
     ``display_beta * display_price_tao`` still equals the position's value.
     """
-    display = chain["display_price"]
-    level = chain["bag_index"]
-    value = chain["stake_price"]
-    tr_level = chain["stake_index"]
-    record["display_price_tao"] = display
-    if "beta" in record:
-        divisor = chain["spot_price"] / display if display else 1.0
-        record["display_beta"] = record["beta"] * divisor
-    record["vs_index"] = display / level - 1.0 if level else 0.0
-    record["index_first_block"] = chain["first_block"] or None
-    record["index_provisional"] = chain["provisional"]
-    record["basket_index"] = level
-    record["staker_yield"] = chain["staker_yield"]
-    record["stake_value"] = value
-    record["stake_vs_index"] = value / tr_level - 1.0 if tr_level else None
-    record["stake_index"] = tr_level
-    record["staker_twr"] = chain["staker_twr"]
+    record.update(
+        evaluate_policy(
+            "financial.basket.normalize",
+            {"data": _policy_data(), "record": {**_policy_record(record), "chain_pricing": chain}},
+        )
+    )
 
 
 def _apply_pricing(record: dict, raw_price: float, level: float, tr_level: float) -> DisplayPricing:
     """Write display fields on ``record`` against the index levels; return the pricing."""
-    pricing = fund_pricing(record["hotkey"], raw_price)
-    display_price = raw_price / pricing.baseline if pricing.baseline else raw_price
-    record["display_price_tao"] = display_price
-    if "beta" in record:
-        record["display_beta"] = record["beta"] * pricing.baseline
-    record["vs_index"] = display_price / level - 1.0 if level else 0.0
-    record["index_first_block"] = pricing.first_block
-    record["index_provisional"] = pricing.provisional
-    record["basket_index"] = level
-    # Staker yield pairs the rate delta with the *raw* spot price: BasketRate
-    # is denominated in raw β units per rao staked, so the index-spliced
-    # display price (raw / baseline) would misscale it.
-    rate = record.get("basket_rate")
-    record["staker_yield"] = (
-        max(rate - pricing.baseline_rate, 0.0) * raw_price if rate is not None else None
+    record.update(
+        evaluate_policy(
+            "financial.basket.apply",
+            {
+                "data": _policy_data(),
+                "record": _policy_record(record),
+                "level": level,
+                "tr_level": tr_level,
+            },
+        )
     )
-    value = stake_value(record)
-    record["stake_value"] = value
-    record["stake_vs_index"] = value / tr_level - 1.0 if value is not None and tr_level else None
-    record["stake_index"] = tr_level
-    return pricing
+    return fund_pricing(record["hotkey"], raw_price)
 
 
 def normalize_position(record: dict) -> dict:
@@ -274,12 +225,11 @@ def normalize_position(record: dict) -> dict:
     A record carrying a ``chain_pricing`` snapshot (v3+ node) passes the
     chain's canonical numbers straight through instead of computing locally.
     """
-    chain = record.get("chain_pricing")
-    if chain is not None:
-        _apply_chain_pricing(record, chain)
-        return record
-    level = index_level()
-    _apply_pricing(record, spot_beta_price(record), level, tr_index_level())
+    record.update(
+        evaluate_policy(
+            "financial.basket.normalize", {"data": _policy_data(), "record": _policy_record(record)}
+        )
+    )
     return record
 
 
@@ -300,49 +250,18 @@ def normalize_positions(records: list[dict]) -> float:
     local math below is the fallback for older nodes and pre-upgrade
     historical blocks.
     """
-    chained = next((r["chain_pricing"] for r in records if r.get("chain_pricing")), None)
-    if chained is not None:
-        level = chained["bag_index"]
-        tr_level = chained["stake_index"]
-        for record in records:
-            chain = record.get("chain_pricing")
-            if chain is not None:
-                _apply_chain_pricing(record, chain)
-            else:
-                # Fund the chain didn't price (e.g. zero shares): mark it
-                # locally against the chain's levels so the fields exist.
-                _apply_pricing(record, spot_beta_price(record), level, tr_level)
-        return level
-    priced: list[tuple[dict, float, float]] = []
-    weight_sum = 0.0
-    value_sum = 0.0
-    tr_weight_sum = 0.0
-    tr_value_sum = 0.0
-    for record in records:
-        raw = spot_beta_price(record)
-        pricing = fund_pricing(record["hotkey"], raw)
-        display = raw / pricing.baseline if pricing.baseline else raw
-        priced.append((record, raw, display))
-        spot = _as_tao(record.get("spot_nav_tao")) or _as_tao(record.get("nav_tao"))
-        if spot >= _MIN_INDEX_NAV_TAO and display > 0.0:
-            weight_sum += spot
-            value_sum += spot * display
-            value = stake_value(record)
-            if value is not None:
-                tr_weight_sum += spot
-                tr_value_sum += spot * value
-    level = value_sum / weight_sum if weight_sum else index_level()
-    tr_level = tr_value_sum / tr_weight_sum if tr_weight_sum else tr_index_level()
-    for record, raw, _display in priced:
-        _apply_pricing(record, raw, level, tr_level)
-    return level
+    result = evaluate_policy(
+        "financial.basket.normalize_many",
+        {"data": _policy_data(), "records": [_policy_record(record) for record in records]},
+    )
+    for record, values in zip(records, result["records"]):
+        record.update(values)
+    return result["level"]
 
 
 def age_days(first_block: Optional[int], current_block: int) -> Optional[float]:
     """Days since a fund's first sighting (12s blocks); ``None`` when unknown."""
-    if first_block is None:
-        return None
-    return (current_block - first_block) / 7200
+    return evaluate_policy("financial.basket.age", {"first": first_block, "current": current_block})
 
 
 __all__ = [
@@ -359,3 +278,24 @@ __all__ = [
     "staker_yield",
     "tr_index_level",
 ]
+
+
+def _policy_record(record):
+    return {
+        key: _as_tao(value) if key in {"nav_tao", "spot_nav_tao"} else value
+        for key, value in record.items()
+        if key
+        in {
+            "hotkey",
+            "nav_tao",
+            "spot_nav_tao",
+            "beta_price_tao",
+            "beta",
+            "basket_rate",
+            "chain_pricing",
+        }
+    }
+
+
+def _policy_data():
+    return {"baselines": BASELINES, "series": INDEX, "tr_series": TR_INDEX}

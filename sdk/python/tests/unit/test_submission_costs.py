@@ -451,6 +451,15 @@ async def test_multisig_approval_total_reserve_boundary_before_unlock(
         intent = dispatch_type(
             threshold=2, other_signatories=[BOB], call=semantic.to_dict(), timepoint=timepoint
         )
+        if not opening and route in ("execute", "approve"):
+            account = substrate.multisig_account([ALICE, BOB], 2)
+            inner = await semantic.build(substrate, wallet)
+            substrate.seed(
+                "Multisig",
+                "Multisigs",
+                [account.ss58_address, inner.call_hash],
+                {"when": timepoint},
+            )
         if route == "adapter":
             intent = MultisigIntentAdapter(dispatch=intent, semantic=semantic)
         preview = await client.preflight(intent, wallet, shielded=True)
@@ -542,6 +551,14 @@ async def test_nested_multisig_does_not_reserve_unexecuted_approval_branch(openi
         call=inner.to_dict(),
         timepoint=None if opening else {"height": 1, "index": 1},
     )
+    if not opening:
+        from bittensor.intents.multisig import _account_view, _compose_inner
+
+        view = _account_view(substrate, ALICE, 2, [BOB], wallet=dev_wallet())
+        call, _ = await _compose_inner(substrate, view, inner.to_dict())
+        substrate.seed(
+            "Multisig", "Multisigs", [view.ss58_address, call.call_hash], {"when": outer.timepoint}
+        )
     plan = await Executor(substrate).plan(outer, dev_wallet(), shielded=True)
     assert plan.ok
     records = plan.extras["multisig_approvals"]

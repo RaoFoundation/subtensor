@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from .._generated import storage as st
 from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi
+from .._policy import evaluate_policy
 from ..balance import Balance
 from ..sp_core import ss58_decode
 
@@ -52,73 +53,60 @@ _EXTENSION_FOLD_REF_TIME = 60_000_000
 
 def _claim_root_ref_time(units: int) -> int:
     """``WeightInfo::claim_root(h)`` ref_time."""
-    return (
-        567_441_000
-        + 437_318_379 * units
-        + (23 + 22 * units) * _ROCKSDB_READ_PS
-        + (18 + 16 * units) * _ROCKSDB_WRITE_PS
-    )
+    return int(evaluate_policy("financial.root_claim.claim_weight", {"units": units}))
 
 
 def _claim_root_scan_ref_time(units: int) -> int:
     """``WeightInfo::claim_root_scan(h)`` ref_time."""
-    return 309_208_000 + 263_604_241 * units + (6 + 21 * units) * _ROCKSDB_READ_PS
+    return int(evaluate_policy("financial.root_claim.scan_weight", {"units": units}))
 
 
 def _basket_flush_ref_time(quotes: int, rows: int) -> int:
     """``Pallet::basket_flush_weight`` ref_time: NAV-sweep quotes plus redeem-priced rows."""
-    sweep = 0 if quotes == 0 else (10_000_000 + 4 * _ROCKSDB_READ_PS) * max(quotes, 1)
-    redeem = 0 if rows == 0 else _claim_root_ref_time(rows)
-    return sweep + redeem
+    return int(
+        evaluate_policy("financial.root_claim.flush_weight", {"quotes": quotes, "rows": rows})
+    )
 
 
 def _claim_ref_time(units: int, quotes: int, rows: int) -> int:
     """``Pallet::root_claim_weight_for_work(units, flush)`` ref_time."""
-    return (
-        _claim_root_ref_time(units)
-        + _claim_root_scan_ref_time(units)
-        + _basket_flush_ref_time(quotes, rows)
+    return int(
+        evaluate_policy(
+            "financial.root_claim.combined_weight", {"units": units, "quotes": quotes, "rows": rows}
+        )
     )
 
 
 def _weight_fee_rao(ref_time: int) -> int:
     """``LinearWeightToFee`` on a ref_time: nearest rao, ties round down."""
-    scaled = ref_time * _WEIGHT_FEE_PARTS
-    quotient, remainder = divmod(scaled, _PERBILL)
-    return quotient + (1 if remainder * 2 > _PERBILL else 0)
+    return int(evaluate_policy("financial.root_claim.weight_fee", {"weight": ref_time}))
 
 
 def root_claim_declared_work(hotkeys: Optional[list[str]]) -> int:
     """Admission envelope for this claim path."""
-    if hotkeys is not None:
-        return _MAX_ROOT_CLAIM_HOTKEY_WORK
-    return _MAX_ROOT_CLAIM_WORK
+    return evaluate_policy("financial.root_claim.declared_work", {"single": hotkeys is not None})
 
 
 def _fee_units(limit: int) -> int:
     """Claim units the fee wrapper charges for a call admitted under ``limit``."""
-    return min(limit, _ROOT_CLAIM_FEE_ALLOWANCE)
+    return int(evaluate_policy("financial.root_claim.fee_units", {"limit": limit}))
 
 
 def root_claim_declared_ref_time(limit: int) -> int:
     """Declared call weight (ref_time) of a claim admitted under ``limit`` units."""
-    return _claim_ref_time(limit, _FLUSH_BOUND_QUOTES, _FLUSH_BOUND_ROWS)
+    return int(evaluate_policy("financial.root_claim.declared_weight", {"limit": limit}))
 
 
 def root_claim_charged_ref_time(limit: int) -> int:
     """Weight the fee wrapper charges: the allowance plus one hotkey's flush work for
     that many queued credits and holdings (``4Q + 2H`` quotes, ``Q`` rows)."""
-    units = _fee_units(limit)
-    return min(
-        _claim_ref_time(units, 6 * units, units),
-        _ROOT_CLAIM_CAP_459_REF_TIME - _EXTENSION_FOLD_REF_TIME,
-    )
+    return int(evaluate_policy("financial.root_claim.charged_weight", {"limit": limit}))
 
 
 def root_claim_fee_discount_ref_time(limit: int) -> int:
     """``FeeWeightDiscount`` the runtime subtracts for one claim under ``limit``. A batch or
     proxy of claims is discounted by the sum over its inner claims."""
-    return max(0, root_claim_declared_ref_time(limit) - root_claim_charged_ref_time(limit))
+    return int(evaluate_policy("financial.root_claim.discount_weight", {"limit": limit}))
 
 
 def _approx_declared_fee_rao(limit: int) -> int:
@@ -152,8 +140,12 @@ def _admission_blocks(
     limit: int,
     selection_scans: int,
 ) -> list[str]:
-    work = hotkeys + holdings
-    if work <= limit and selection_scans <= limit:
+    admission = evaluate_policy(
+        "financial.root_claim.admission",
+        {"hotkeys": hotkeys, "holdings": holdings, "limit": limit, "selection": selection_scans},
+    )
+    work = admission["work"]
+    if not admission["too_heavy"]:
         return []
     remediation = (
         "claim one validator at a time with claim_root_with_hotkey"
@@ -161,13 +153,13 @@ def _admission_blocks(
         else "the claim cannot be admitted until this basket's work is reduced"
     )
     reasons = []
-    if work > limit:
+    if admission["work_exceeded"]:
         hotkey_label = "hotkey" if hotkeys == 1 else "hotkeys"
         holding_label = "holding" if holdings == 1 else "holdings"
         reasons.append(
             f"{hotkeys} root {hotkey_label} + {holdings} basket {holding_label} = {work}"
         )
-    if selection_scans > limit:
+    if admission["selection_exceeded"]:
         reasons.append(f"{selection_scans} staking-hotkey relationships to classify")
     return [
         f"root claim exceeds the {limit:,}-unit admission limit ("
@@ -192,7 +184,15 @@ class RootClaimAdmission:
 
     @property
     def too_heavy(self) -> bool:
-        return len(self.hotkeys) + self.holdings > self.limit or self.selection_scans > self.limit
+        return evaluate_policy(
+            "financial.root_claim.admission",
+            {
+                "hotkeys": len(self.hotkeys),
+                "holdings": self.holdings,
+                "limit": self.limit,
+                "selection": self.selection_scans,
+            },
+        )["too_heavy"]
 
     def blocks(self) -> list[str]:
         return _admission_blocks(
@@ -268,10 +268,15 @@ class RootClaimFeeQuote:
 
     @property
     def too_heavy(self) -> bool:
-        return (
-            self.hotkeys + self.holdings > self.admission_limit
-            or self.selection_scans > self.admission_limit
-        )
+        return evaluate_policy(
+            "financial.root_claim.admission",
+            {
+                "hotkeys": self.hotkeys,
+                "holdings": self.holdings,
+                "limit": self.admission_limit,
+                "selection": self.selection_scans,
+            },
+        )["too_heavy"]
 
     def facts(self) -> list[tuple[str, str]]:
         """The fee picture as (label, value) pairs for structured renderers."""
@@ -554,28 +559,18 @@ async def _quote(
 
     threshold_rao = await _threshold_rao(substrate)
 
-    # The runtime is a no-op for a payout of zero (every row dust) as well as for one
-    # below the threshold; neither burns anything.
-    eligible = [payout is not None and payout > 0 and payout >= threshold_rao for payout in payouts]
-    below_threshold = [
-        payout is not None and not can_redeem for payout, can_redeem in zip(payouts, eligible)
-    ]
-    # Runtime: `claim_root(max(hotkeys, realized + swept, ..)) + claim_root_scan(rows −
-    # realized)`. Consolidation runs before the threshold check, so its swaps count even
-    # for a fund whose redemption is then a no-op; rows sold count only when it goes ahead.
-    redeem_holdings = sum(swept_counts) + sum(
-        sold for sold, can_redeem in zip(sell_counts, eligible) if can_redeem
+    work = evaluate_policy(
+        "financial.root_claim.work",
+        {
+            "payouts": payouts,
+            "sells": sell_counts,
+            "scans": scan_counts,
+            "sweeps": swept_counts,
+            "threshold": threshold_rao,
+        },
     )
-    # Every row left after preparation is scanned; the ones not sold (skipped dust, or a
-    # whole fund below the threshold) are charged at the per-row scan cost.
-    scan_holdings = sum(
-        count - sold
-        for count, sold, can_redeem in zip(scan_counts, sell_counts, eligible)
-        if can_redeem
-    ) + sum(count for count, below in zip(scan_counts, below_threshold) if below)
-    redeemable_rao = sum(
-        payout for payout, can_redeem in zip(payouts, eligible) if payout is not None and can_redeem
-    )
+    redeem_holdings, scan_holdings = work["redeem"], work["scan"]
+    redeemable_rao = int(work["redeemable"])
     holdings = sum(holding_counts)
     spent = _spent_fee(
         reserve.reserved,
@@ -597,8 +592,8 @@ async def _quote(
         free=reserve.free,
         threshold=Balance.from_rao(threshold_rao),
         hotkeys=len(selected_hotkeys),
-        eligible_hotkeys=sum(eligible),
-        below_threshold_hotkeys=sum(below_threshold),
+        eligible_hotkeys=work["eligible"],
+        below_threshold_hotkeys=work["below"],
         redeemable=Balance.from_rao(redeemable_rao),
         admission_limit=admission.limit,
         selection_scans=admission.selection_scans,
@@ -760,13 +755,18 @@ def _spent_fee(
     the charged allowance plus extrinsic base/length; the fee wrapper caps the charge
     at that allowance, so spent never exceeds reserved.
     """
-    if reserved.rao <= 0:
-        return reserved
-    charged = _approx_declared_fee_rao(declared_work)
-    weight_part = min(reserved.rao, charged)
-    base_part = reserved.rao - weight_part
-    active = max(work.redeem_holdings, work.hotkeys, work.selection_scans, 1)
-    actual = _weight_fee_rao(
-        _claim_root_ref_time(active) + _claim_root_scan_ref_time(max(work.scan_holdings, 0))
+    return Balance.from_rao(
+        int(
+            evaluate_policy(
+                "financial.root_claim.spent_fee",
+                {
+                    "reserved": reserved.rao,
+                    "hotkeys": work.hotkeys,
+                    "redeem": work.redeem_holdings,
+                    "scan": work.scan_holdings,
+                    "selection": work.selection_scans,
+                    "limit": declared_work,
+                },
+            )
+        )
     )
-    return Balance.from_rao(min(reserved.rao, base_part + actual))

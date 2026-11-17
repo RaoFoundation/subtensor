@@ -1,0 +1,175 @@
+[
+  {
+    "operation": "financial.gamma.units",
+    "input": {
+      "value": "18446744073.709551615"
+    },
+    "expected": "18446744073709551615"
+  },
+  {
+    "operation": "financial.gamma.minimum",
+    "input": {
+      "quoted": "18446744073709551615",
+      "tolerance": "0.000000001"
+    },
+    "expected": "18446744055262807541"
+  },
+  {
+    "operation": "financial.intent.proportion",
+    "input": {
+      "value": "50%",
+      "max": "65535"
+    },
+    "expected": "32768"
+  },
+  {
+    "operation": "financial.intent.ratio_limit",
+    "input": {
+      "left": "3",
+      "right": "7",
+      "rate": "0.05"
+    },
+    "expected": "407142856"
+  },
+  {
+    "operation": "financial.root_claim.charged_fee",
+    "input": {
+      "limit": 130
+    },
+    "expected": "7473653"
+  },
+  {
+    "operation": "financial.root_claim.declared_weight",
+    "input": {
+      "limit": 130
+    },
+    "expected": "2093378599648"
+  },
+  {
+    "operation": "financial.registration.sponsorship",
+    "input": {
+      "deposits": [
+        "200000000",
+        "350000000"
+      ],
+      "maximum": "500000000",
+      "callback": true
+    },
+    "expected": {
+      "total": "550000000",
+      "required": true,
+      "reason": "maximum"
+    }
+  },
+  {
+    "operation": "financial.fee.charges",
+    "input": {
+      "call": [
+        "Proxy",
+        "proxy",
+        {
+          "call": {
+            "module": "Commitments",
+            "function": "set_commitment",
+            "params": {}
+          }
+        }
+      ]
+    },
+    "expected": true
+  },
+  {
+    "operation": "financial.basket.spot",
+    "input": {
+      "record": {
+        "beta_price_tao": 2,
+        "nav_tao": 10,
+        "spot_nav_tao": 20
+      }
+    },
+    "expected": 4
+  },
+  {
+    "operation": "financial.staking_amount",
+    "input": {
+      "kind": "move_swap",
+      "amount": "1000"
+    },
+    "expected": "999"
+  },
+  {
+    "operation": "financial.staking_claim",
+    "input": {
+      "claim": true,
+      "netuid": 0,
+      "interval": 1
+    },
+    "expected": {
+      "claim": false,
+      "error": "hold"
+    }
+  },
+  {
+    "operation": "financial.affordability",
+    "input": {
+      "spends": [
+        {
+          "account": "a",
+          "amount": "9007199254740993"
+        }
+      ],
+      "charges": [
+        {
+          "account": "a",
+          "amount": "7"
+        }
+      ],
+      "free": {
+        "a": "9007199254740999"
+      }
+    },
+    "expected": {
+      "required": [
+        {
+          "account": "a",
+          "amount": "9007199254741000",
+          "available": "9007199254740999",
+          "affordable": false
+        }
+      ],
+      "reserves": []
+    }
+  },
+  {
+    "operation": "financial.basket_legs",
+    "input": {
+      "legs": [
+        {
+          "origin_netuid": 7,
+          "dest_netuid": 2,
+          "amount_rao": "9007199254740993",
+          "min_out_rao": "1",
+          "fields": [
+            "origin_netuid",
+            "dest_netuid",
+            "amount"
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "legs": [
+        [
+          7,
+          2,
+          "9007199254740993",
+          "1"
+        ]
+      ],
+      "netuids": [
+        7,
+        2
+      ]
+    }
+  }
+]

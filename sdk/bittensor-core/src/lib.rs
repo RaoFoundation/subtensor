@@ -17,6 +17,7 @@ pub mod keyfile_env;
 pub mod keyfiles;
 pub mod keys;
 pub mod mlkem;
+pub mod policy;
 #[cfg(feature = "host")]
 pub mod pow;
 pub mod runtime;

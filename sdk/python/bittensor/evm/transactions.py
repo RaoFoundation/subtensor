@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from eth_account.messages import encode_defunct
-from eth_utils import keccak, to_checksum_address
+from eth_utils import to_checksum_address
 
 from ..balance import Balance
 from .addresses import ss58_to_pubkey
@@ -135,6 +135,12 @@ def association_proof(
     r||s||v signature as 0x-hex plus the block number it was produced for.
     """
     hotkey_pubkey = bytes.fromhex(ss58_to_pubkey(hotkey_ss58)[2:])
-    block_hash = keccak(int(block_number).to_bytes(8, "little"))
-    signed = account.sign_message(encode_defunct(primitive=hotkey_pubkey + block_hash))
+    from .._policy import evaluate_policy
+
+    payload = bytes.fromhex(
+        evaluate_policy(
+            "transaction.evm_association_payload", {"hotkey": hotkey_pubkey, "block": block_number}
+        )[2:]
+    )
+    signed = account.sign_message(encode_defunct(primitive=payload))
     return "0x" + bytes(signed.signature).hex(), block_number

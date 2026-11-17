@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 from ._generated import storage as st
+from ._policy import evaluate_policy
 from .settings import BLOCKTIME, RAO_PER_TAO, TAO_SYMBOL, U16_MAX
 
 U64_MAX = 2**64 - 1
@@ -755,52 +756,27 @@ def to_raw(name: str, value: Union[int, float, str, bool]) -> int:
     fixed128. Booleans accept only true/false or 0/1.
     """
     kind = kind_of(name)
-    try:
-        return _to_raw_unchecked(name, kind, value)
-    except OverflowError:
-        raise ValueError(f"{name} value is out of range") from None
+    return _to_raw_unchecked(name, kind, value)
 
 
 def _to_raw_unchecked(name: str, kind: str, value: Union[int, float, str, bool]) -> int:
-    if isinstance(value, bool):
-        if kind != "bool":
-            raise ValueError(f"{name} takes {value_forms(name)}; got a boolean")
-        return int(value)
-    if isinstance(value, str):
-        text = value.strip().lower().removeprefix("+")
-        if kind == "bool":
-            if text in _TRUE:
-                return 1
-            if text in _FALSE:
-                return 0
-            raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}")
-        try:
-            value = float(text) if ("." in text or "e" in text) else int(text)
-        except ValueError:
-            raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}") from None
-    if kind == "bool":
-        if isinstance(value, int) and value in (0, 1):
-            return value
-        raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}")
-    denominator = _FRACTION_DENOMINATOR.get(kind)
-    if isinstance(value, int):
-        return _check_raw(name, value)
-    # A float is the human form.
-    if denominator is not None:
-        if not 0.0 <= value <= 1.0:
-            raise ValueError(
-                f"{name} is a normalized fraction: pass 0..1 (e.g. 0.5), or the "
-                f"raw integer 0..{denominator} without a decimal point"
-            )
-        return _check_raw(name, round(value * denominator))
-    if kind == "rao":
-        if value < 0:
-            raise ValueError(f"{name} cannot be negative")
-        return _check_raw(name, round(value * RAO_PER_TAO))
-    if kind == "fixed128":
-        if value < 0:
-            raise ValueError(f"{name} cannot be negative")
-        return _check_raw(name, round(value * FIXED128_ONE))
-    if value.is_integer():
-        return _check_raw(name, int(value))
-    raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}")
+    minimum, maximum = raw_bounds(name)
+    human = isinstance(value, float) or (
+        isinstance(value, str) and ("." in value or "e" in value.lower())
+    )
+    try:
+        result = evaluate_policy(
+            "validation.hyperparameter",
+            {
+                "name": name,
+                "kind": kind,
+                "value": value,
+                "minimum": minimum,
+                "maximum": maximum,
+                "human": human,
+                "aliases": False,
+            },
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(str(error)) from None
+    return int(result)

@@ -597,19 +597,20 @@ def _signing_position(
 ) -> tuple[str, str]:
     """(position, human action line) for the confirmation prompt."""
     spec = ((check_data.get("manifest") or {}).get("spec_version")) or "?"
-    if sudo_layer is None:
+    state = uh.approval_state(pending=sudo_layer, threshold=threshold, signer=signer_address)
+    if state["position"] == "first":
         return (
             "first",
             f"open the sudo-multisig approval for runtime upgrade {spec} "
             f"(approval 1 of {threshold})",
         )
     approvals = sudo_layer.get("approvals") or []
-    if signer_address in approvals:
+    if state["position"] == "signed":
         return (
             "signed",
             f"your approval is already recorded ({len(approvals)} of {threshold} so far)",
         )
-    if len(approvals) >= threshold - 1:
+    if state["position"] == "final":
         return (
             "final",
             f"submit the FINAL approval for runtime upgrade {spec} — "
@@ -629,8 +630,12 @@ def _print_share_hint(
 ) -> None:
     if app_ctx.output.json_mode or not url:
         return
-    approvals = (sudo_layer or {}).get("approvals") or []
-    remaining = [s for s in sudo_signatories if s not in approvals]
+    remaining = [
+        sudo_signatories[index]
+        for index in uh.approval_state(pending=sudo_layer, threshold=1, members=sudo_signatories)[
+            "remaining_indices"
+        ]
+    ]
     if remaining:
         app_ctx.output.message("waiting on: " + ", ".join(remaining))
         app_ctx.output.message(f"they can run: {uh.sign_command(app_ctx.network, url)}")
@@ -658,7 +663,12 @@ def _report_after_sign(
         "opened at": (f"{sudo_layer['timepoint']['height']}:{sudo_layer['timepoint']['index']}"),
         "call_hash": sudo_layer["call_hash"],
     }
-    remaining = [s for s in sudo_signatories if s not in approvals]
+    remaining = [
+        sudo_signatories[index]
+        for index in uh.approval_state(pending=sudo_layer, threshold=1, members=sudo_signatories)[
+            "remaining_indices"
+        ]
+    ]
     if remaining:
         fields["waiting on"] = ", ".join(remaining)
         if url:

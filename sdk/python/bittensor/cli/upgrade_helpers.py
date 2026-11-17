@@ -31,6 +31,7 @@ from typing import Any, Optional
 
 from .._generated import calls
 from .._generated import storage as st
+from .._policy import evaluate_policy
 from ..sp_core import ss58_decode, ss58_encode
 from . import multisig_helpers as ms_helpers
 
@@ -275,33 +276,6 @@ _SUDO_SUDO_UNCHECKED_WEIGHT = bytes([12, 1])
 _SYSTEM_SET_CODE = bytes([0, 2])
 
 
-def _compact_encode(n: int) -> bytes:
-    """SCALE compact encoding of a non-negative integer."""
-    if n < 1 << 6:
-        return bytes([n << 2])
-    if n < 1 << 14:
-        return ((n << 2) | 0b01).to_bytes(2, "little")
-    if n < 1 << 30:
-        return ((n << 2) | 0b10).to_bytes(4, "little")
-    data = n.to_bytes((n.bit_length() + 7) // 8, "little")
-    return bytes([((len(data) - 4) << 2) | 0b11]) + data
-
-
-def _compact_decode(data: bytes) -> tuple[int, int]:
-    """Decode a SCALE compact integer; returns (value, bytes consumed)."""
-    if not data:
-        raise ValueError("empty compact integer")
-    mode = data[0] & 0b11
-    if mode == 0b00:
-        return data[0] >> 2, 1
-    if mode == 0b01:
-        return int.from_bytes(data[:2], "little") >> 2, 2
-    if mode == 0b10:
-        return int.from_bytes(data[:4], "little") >> 2, 4
-    length = (data[0] >> 2) + 4
-    return int.from_bytes(data[1 : 1 + length], "little"), 1 + length
-
-
 @dataclass
 class ParsedBlob:
     """The two variable parts of a well-formed proposal blob."""
@@ -311,40 +285,18 @@ class ParsedBlob:
 
 
 def parse_proposal_blob(blob: bytes, *, ss58_format: int = 42) -> ParsedBlob:
-    """Parse a proposal blob, requiring the exact CI call shape around the wasm.
-
-    Raises ``ValueError`` when the blob is anything other than
-    ``proxy.proxy(MultiAddress::Id(real), None,
-    sudoUncheckedWeight(setCode(code), PROPOSAL_WEIGHT))`` — a batch or any
-    extra call wrapped around honest wasm bytes fails here.
-    """
-    head = _PROXY_PROXY + _MULTIADDRESS_ID
-    if blob[: len(head)] != head:
-        raise ValueError("call data is not proxy.proxy(MultiAddress::Id(...), ...)")
-    real = blob[len(head) : len(head) + 32]
-    if len(real) != 32:
-        raise ValueError("call data is truncated inside the proxied account")
-    rest = blob[len(head) + 32 :]
-    inner_head = _OPTION_NONE + _SUDO_SUDO_UNCHECKED_WEIGHT + _SYSTEM_SET_CODE
-    if rest[: len(inner_head)] != inner_head:
-        raise ValueError(
-            "call data after the proxied account is not sudoUncheckedWeight(setCode(...), ...)"
+    """Verify the exact deployment call shape with the shared Rust policy."""
+    try:
+        result = evaluate_policy(
+            "validation.upgrade.blob", {"data": blob, "weight": PROPOSAL_WEIGHT}
         )
-    rest = rest[len(inner_head) :]
-    code_len, consumed = _compact_decode(rest)
-    code = rest[consumed : consumed + code_len]
-    if len(code) != code_len:
-        raise ValueError("call data is truncated inside the runtime bytes")
-    weight = _compact_encode(PROPOSAL_WEIGHT["ref_time"]) + _compact_encode(
-        PROPOSAL_WEIGHT["proof_size"]
+    except (TypeError, ValueError) as error:
+        raise ValueError(str(error)) from None
+    real = bytes.fromhex(result["real"].removeprefix("0x"))
+    return ParsedBlob(
+        real_ss58=ss58_encode(real, ss58_format),
+        code=bytes.fromhex(result["code"].removeprefix("0x")),
     )
-    tail = rest[consumed + code_len :]
-    if tail != weight:
-        raise ValueError(
-            "call data does not end with exactly the pinned sudoUncheckedWeight "
-            f"weight {PROPOSAL_WEIGHT} (or carries trailing bytes)"
-        )
-    return ParsedBlob(real_ss58=ss58_encode(real, ss58_format), code=code)
 
 
 async def reconstruct_proxy_call(client, *, wasm: bytes, sudo_key: str):
@@ -378,9 +330,13 @@ async def discover_pending_upgrades(client) -> list[dict[str, Any]]:
     delegations = (value or ([], 0))[0]
     upgrades: list[dict[str, Any]] = []
     for delegation in delegations:
-        if str(delegation.get("proxy_type")) != SUDO_PROXY_TYPE:
-            continue
-        if int(delegation.get("delay") or 0) != 0:
+        if not evaluate_policy(
+            "upgrade.proxy_eligible",
+            {
+                "proxy_type": str(delegation.get("proxy_type")),
+                "delay": int(delegation.get("delay") or 0),
+            },
+        ):
             continue
         delegate = str(delegation.get("delegate"))
         for op in await ms_helpers.list_pending_multisig_ops(client, delegate):
@@ -389,7 +345,9 @@ async def discover_pending_upgrades(client) -> list[dict[str, Any]]:
                 derived = await client.multisig([depositor, sudo_key], 2)
             except Exception:
                 continue
-            if derived.address != delegate:
+            if not evaluate_policy(
+                "upgrade.identity_matches", {"expected": derived.address, "actual": delegate}
+            ):
                 continue  # not the CI + sudo deployment pattern
             upgrades.append(
                 {
@@ -410,7 +368,9 @@ async def find_pending_upgrade(client, call_hash: str) -> Optional[dict[str, Any
     """The discovered pending upgrade matching ``call_hash``, if any."""
     wanted = call_hash.lower()
     for upgrade in await discover_pending_upgrades(client):
-        if str(upgrade["call_hash"]).lower() == wanted:
+        if evaluate_policy(
+            "upgrade.hash_matches", {"expected": str(upgrade["call_hash"]), "actual": wanted}
+        ):
             return upgrade
     return None
 
@@ -460,16 +420,21 @@ async def finalizing_max_weight(client, finalizing, signer_address: str) -> dict
     """
 
     weight = await client.estimate_weight(finalizing, address=signer_address)
-    return {
-        "ref_time": int(weight["ref_time"] * 11 // 10),
-        "proof_size": int(weight["proof_size"] * 11 // 10),
-    }
+    padded = evaluate_policy("upgrade.weight_pad", weight)
+    return {key: int(value) for key, value in padded.items()}
 
 
 def sorted_other_signatories(signatories: list[str], self_address: str) -> list[str]:
     """Everyone but ``self_address``, sorted by raw account id (chain order)."""
-    others = [s for s in signatories if s != self_address]
-    return sorted(set(others), key=lambda s: bytes(ss58_decode(s)))
+    members = [
+        {"address": address, "identity": bytes(ss58_decode(address)).hex()}
+        for address in signatories
+        if address != self_address
+    ]
+    indices = evaluate_policy(
+        "upgrade.signers", {"members": members, "self_address": self_address, "python_others": True}
+    )
+    return [members[index]["address"] for index in indices]
 
 
 async def sudo_layer_status(
@@ -646,14 +611,16 @@ async def run_proposal_checks(client, bundle: ProposalBundle) -> CheckOutcome:
 
         # 4. digest
         if bundle.digest is not None:
-            expected = str(bundle.digest.get("sha256", "")).removeprefix("0x").lower()
             actual = sha256(parsed.code).hexdigest()
+            matches = evaluate_policy(
+                "upgrade.digest_matches",
+                {"expected": str(bundle.digest.get("sha256", "")), "actual": actual},
+            )
             checks.append(
                 Check(
                     "srtool digest",
-                    actual == expected,
-                    f"sha256 {'matches' if actual == expected else 'differs from'} "
-                    "subtensor-digest.json",
+                    matches,
+                    f"sha256 {'matches' if matches else 'differs from'} subtensor-digest.json",
                 )
             )
 
@@ -694,18 +661,27 @@ async def run_proposal_checks(client, bundle: ProposalBundle) -> CheckOutcome:
     # 7. manifest cross-checks
     manifest = bundle.manifest
     if manifest:
-        manifest_hash = str(manifest.get("call_hash", "")).lower()
+        provenance = evaluate_policy(
+            "upgrade.manifest_checks",
+            {
+                "manifest": manifest,
+                "call_hash": bundle.call_hash,
+                "pending": pending is not None,
+                "ci_address": (pending or {}).get("ci_address"),
+                "python_optional": True,
+            },
+        )
         checks.append(
             Check(
                 "manifest call hash",
-                manifest_hash == bundle.call_hash.lower(),
+                provenance["manifest call hash"],
                 "upgrade-manifest.json call_hash "
-                f"{'matches' if manifest_hash == bundle.call_hash.lower() else 'differs from'} "
+                f"{'matches' if provenance['manifest call hash'] else 'differs from'} "
                 "the call data",
             )
         )
         if pending is not None and manifest.get("ci_address"):
-            ci_matches = str(manifest["ci_address"]) == pending["ci_address"]
+            ci_matches = provenance["manifest CI key"]
             checks.append(
                 Check(
                     "manifest CI key",
@@ -720,3 +696,22 @@ async def run_proposal_checks(client, bundle: ProposalBundle) -> CheckOutcome:
         }
 
     return CheckOutcome(checks=checks, data=data)
+
+
+def approval_state(
+    *,
+    pending: Optional[dict],
+    threshold: int,
+    signer: str = "",
+    members: Optional[list[str]] = None,
+) -> dict:
+    return evaluate_policy(
+        "upgrade.approval",
+        {
+            "present": pending is not None,
+            "threshold": threshold,
+            "signer": signer,
+            "members": members or [],
+            "approvals": (pending or {}).get("approvals") or [],
+        },
+    )

@@ -20,7 +20,7 @@ import asyncio
 import ipaddress
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Literal, Optional
 
 from . import timelock
 from ._generated.runtime_apis import SubnetInfoRuntimeApi
@@ -32,6 +32,7 @@ from .settings import BLOCKTIME, GLOBAL_MAX_SUBNET_COUNT
 
 # I96F32 fixed point: 32 fractional bits (moving_price encoding).
 _I96F32_ONE = 2**32
+CommitmentEncoding = Literal["raw", "scale"]
 
 
 class _CommitmentMap(dict):
@@ -235,7 +236,9 @@ class Metagraph:
         )
 
 
-async def fetch(view, netuid: int, *, commitments: bool = True) -> Optional[Metagraph]:
+async def fetch(
+    view, netuid: int, *, commitments: bool = True, revealed_encoding: CommitmentEncoding = "raw"
+) -> Optional[Metagraph]:
     """Build a :class:`Metagraph`; None when the subnet does not exist.
 
     One runtime-API call for the graph plus (when ``commitments``) two storage
@@ -246,7 +249,7 @@ async def fetch(view, netuid: int, *, commitments: bool = True) -> Optional[Meta
     graph_task = view.runtime(SubnetInfoRuntimeApi.get_metagraph, [netuid])
     if commitments:
         graph, commitment_map = await asyncio.gather(
-            graph_task, _fetch_commitment_map(view, netuid)
+            graph_task, _fetch_commitment_map(view, netuid, revealed_encoding=revealed_encoding)
         )
     else:
         graph, commitment_map = await graph_task, {}
@@ -255,7 +258,9 @@ async def fetch(view, netuid: int, *, commitments: bool = True) -> Optional[Meta
     return _build(netuid, graph, commitment_map)
 
 
-async def fetch_commitments(view, netuid: int) -> dict[str, NeuronCommitment]:
+async def fetch_commitments(
+    view, netuid: int, *, revealed_encoding: CommitmentEncoding = "raw"
+) -> dict[str, NeuronCommitment]:
     """Every commitment on a subnet, keyed by hotkey, newest first.
 
     Batched storage map reads pinned to one block — no metagraph runtime call —
@@ -265,13 +270,19 @@ async def fetch_commitments(view, netuid: int) -> dict[str, NeuronCommitment]:
     chain has already dropped.
     """
     view = await view.at()
-    commitment_map = await _fetch_commitment_map(view, netuid, with_uids=True)
+    commitment_map = await _fetch_commitment_map(
+        view, netuid, with_uids=True, revealed_encoding=revealed_encoding
+    )
     ordered = sorted(commitment_map.values(), key=lambda c: c.block, reverse=True)
     return _CommitmentMap((c.hotkey, c) for c in ordered)
 
 
 async def _fetch_commitment_map(
-    view, netuid: int, *, with_uids: bool = False
+    view,
+    netuid: int,
+    *,
+    with_uids: bool = False,
+    revealed_encoding: CommitmentEncoding = "raw",
 ) -> dict[str, NeuronCommitment]:
     """``view`` must already be block-pinned (its ``block`` dates the entries)."""
     committed, revealed, uid_rows = await asyncio.gather(
@@ -279,7 +290,7 @@ async def _fetch_commitment_map(
         view.query_map(st_commitments.RevealedCommitments, [netuid]),
         view.query_map(st_subtensor.Uids, [netuid]) if with_uids else _none(),
     )
-    out = _commitments(netuid, committed, revealed, view.block)
+    out = _commitments(netuid, committed, revealed, view.block, revealed_encoding=revealed_encoding)
     if uid_rows:
         uids = {str(hotkey): int(uid) for hotkey, uid in uid_rows}
         for hotkey, commitment in out.items():
@@ -408,10 +419,14 @@ def _commitments(
     committed: list[tuple[Any, Any]],
     revealed: list[tuple[Any, Any]],
     queried_block: int,
+    *,
+    revealed_encoding: CommitmentEncoding = "raw",
 ) -> dict[str, NeuronCommitment]:
     revealed_map: dict[str, list[tuple[int, str]]] = {}
     for hotkey, entries in revealed or []:
-        revealed_map[str(hotkey)] = [_revealed_entry(e) for e in entries or []]
+        revealed_map[str(hotkey)] = [
+            _revealed_entry(e, encoding=revealed_encoding) for e in entries or []
+        ]
 
     out: dict[str, NeuronCommitment] = {}
     for hotkey, record in committed or []:
@@ -532,32 +547,27 @@ def _failed_timelock_round(fields: list) -> Optional[int]:
     return max(rounds) if rounds else None
 
 
-def _revealed_entry(entry: Any) -> tuple[int, str]:
-    """Decode one RevealedCommitments (data, reveal_block) pair.
+def decode_revealed_commitment(data: bytes, encoding: CommitmentEncoding = "raw") -> str:
+    """Preserve plaintext, or explicitly decode a known legacy SCALE byte vector."""
+    from ._policy import evaluate_policy
 
-    The revealed data is the SCALE bytes of the decrypted payload: a compact
-    length prefix followed by the plaintext. The transport hands it over as
-    text when the bytes happen to be valid utf-8, else as 0x-hex.
-    """
+    return evaluate_policy("validation.commitment.decode", {"data": data, "encoding": encoding})
+
+
+def _revealed_entry(entry: Any, *, encoding: CommitmentEncoding = "raw") -> tuple[int, str]:
+    """The runtime stores decrypted bytes verbatim; their encoding is not inferred."""
+    from ._policy import evaluate_policy
+
     data, reveal_block = entry
-    if isinstance(data, (bytes, bytearray)):
+    if isinstance(data, str):
+        return int(reveal_block), evaluate_policy(
+            "validation.commitment.decode", {"text": data, "encoding": encoding}
+        )
+    if isinstance(data, (bytes, bytearray, list, tuple)):
         raw = bytes(data)
-    elif isinstance(data, str) and data.startswith("0x"):
-        raw = bytes.fromhex(data[2:])
     else:
         raw = str(data).encode("utf-8")
-    if raw:
-        mode = raw[0] & 0b11
-        # Big-int compact (mode 0b11): the low byte says how many length bytes follow.
-        offset = (
-            1 + (raw[0] >> 2) + 4 if mode == 0b11 else 1 if mode == 0 else 2 if mode == 1 else 4
-        )
-        raw = raw[offset:]
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        text = "0x" + raw.hex()
-    return int(reveal_block), text
+    return int(reveal_block), decode_revealed_commitment(raw, encoding)
 
 
 def _axon_endpoint(axon: Any) -> Optional[str]:

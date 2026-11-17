@@ -10,6 +10,7 @@ import typer
 
 from .. import protected_account as pa
 from .. import proxy_announcements as ann
+from .._policy import evaluate_policy
 from ..executor import _event_parts
 from ..intents import (
     AddProxy,
@@ -55,21 +56,7 @@ PROTECTED_MANAGEMENT_OPS = frozenset(
 
 
 def _protected_management_path(encoded: dict[str, Any]) -> Optional[str]:
-    """Return the first dangerous proxy-management path in a saved intent tree."""
-    op = encoded.get("op")
-    if op in PROTECTED_MANAGEMENT_OPS:
-        return str(op)
-    if op == "batch":
-        for index, child in enumerate(encoded.get("intents") or []):
-            found = _protected_management_path(child)
-            if found:
-                return f"batch[{index}].{found}"
-    if op == "execute_proxy_announced":
-        nested = {**(encoded.get("inner_args") or {}), "op": encoded.get("inner_op")}
-        found = _protected_management_path(nested)
-        if found:
-            return f"execute_proxy_announced.{found}"
-    return None
+    return evaluate_policy("protected.management_path", {"intent": encoded})
 
 
 def _refuse_protected_management(app_ctx: AppContext, encoded: dict[str, Any], pure: str) -> None:
@@ -85,34 +72,7 @@ def _refuse_protected_management(app_ctx: AppContext, encoded: dict[str, Any], p
 
 
 def _is_protected_management_receipt(row: dict[str, Any], encoded: dict[str, Any]) -> bool:
-    """Recognize only proxy changes produced by protect/rotate itself."""
-    category = str(row.get("category") or "")
-    op = encoded.get("op")
-    if category.startswith(("allow:", "disallow:")):
-        expected_op = "add_proxy" if category.startswith("allow:") else "remove_proxy"
-        return (
-            op == expected_op
-            and str(encoded.get("proxy_type")) == category.split(":", 1)[1]
-            and int(encoded.get("delay") or 0) == 0
-        )
-    children = encoded.get("intents") or []
-    if category == "delay-change":
-        return (
-            op == "batch"
-            and len(children) == 2
-            and [child.get("op") for child in children] == ["remove_proxy", "add_proxy"]
-            and all(child.get("proxy_type") == "Any" for child in children)
-            and children[0].get("delegate_ss58") == children[1].get("delegate_ss58")
-        )
-    if category == "rotate-controller":
-        return (
-            op == "batch"
-            and bool(row.get("rotate_to_ss58"))
-            and len(children) >= 2
-            and children[0].get("op") == "remove_proxies"
-            and all(child.get("op") == "add_proxy" for child in children[1:])
-        )
-    return False
+    return evaluate_policy("protected.management_receipt", {"row": row, "intent": encoded})
 
 
 def _account_identity(address: str) -> str:
@@ -330,18 +290,7 @@ def _offer_operation_refill(app_ctx: AppContext, record: dict[str, Any], intent)
     from ..balance import Balance
     from .prompt import interactive
 
-    operations = {
-        "transfer",
-        "transfer_all",
-        "transfer_stake",
-        "transfer_stake_and_hotkey",
-        "move_stake_limit",
-        "swap_stake_limit",
-        "move_swap_stake",
-        "batch",
-        *pa.PROXY_TYPE_INTENT_OPS["Staking"],
-    }
-    if intent.op not in operations or app_ctx.dry_run:
+    if app_ctx.dry_run or not evaluate_policy("protected.refill_supported", {"op": intent.op}):
         return intent
     if getattr(app_ctx, "no_controller_refill", False):
         return intent
@@ -349,15 +298,26 @@ def _offer_operation_refill(app_ctx: AppContext, record: dict[str, Any], intent)
     if "available_rao" not in state:
         _funding_warning(app_ctx, state)
         return intent
-    projected = (
-        state["available_rao"]
-        - state["next_announcement_deposit_rao"]
-        - max(state["transfer_fee_rao"], state["staking_fee_rao"])
-    )
-    if not state["low"] and projected >= state["warning_rao"]:
+
+    def offer(pending=0, maximum=None):
+        return evaluate_policy(
+            "protected.refill_plan",
+            {
+                "controller": record["controller_ss58"],
+                "quote_controller": record["controller_ss58"],
+                "controller_address": record["controller_ss58"],
+                "op": intent.op,
+                "state": state,
+                "pending": {"rao": pending},
+                "max_refill_rao": maximum,
+            },
+        )
+
+    decision = offer()
+    if decision["reason"] == "sufficient_funds":
         return intent
     _funding_warning(app_ctx, state)
-    if not state["can_announce"]:
+    if decision["reason"] == "external_funding_required":
         app_ctx.output.message(
             "Top up the controller from another wallet first; it cannot fund a new announcement. "
             f"Use `btcli proxy fund --wallet {record['controller_wallet']} "
@@ -365,14 +325,16 @@ def _offer_operation_refill(app_ctx: AppContext, record: dict[str, Any], intent)
         )
         return intent
     pending_refill = _pending_controller_refill_rao(app_ctx, record)
-    if pending_refill:
+    if offer(pending_refill)["reason"] == "already_pending":
         app_ctx.output.message(
             f"Controller refill already pending: {Balance.from_rao(pending_refill)}; "
             "not stacking another refill. Execute or cancel the existing announcement first."
         )
         return intent
     maximum = getattr(app_ctx, "max_controller_refill", None)
-    if maximum is not None and state["top_up_rao"] > maximum.rao:
+    try:
+        offer(pending_refill, maximum.rao if maximum is not None else None)
+    except ValueError:
         app_ctx.output.error(
             f"automatic controller refill {Balance.from_rao(state['top_up_rao'])} exceeds "
             f"--max-controller-refill {maximum}",
@@ -394,46 +356,22 @@ def _offer_operation_refill(app_ctx: AppContext, record: dict[str, Any], intent)
         return intent
     children = intent.intents if isinstance(intent, Batch) else [intent.to_dict()]
     refill = Transfer(dest_ss58=record["controller_ss58"], amount_tao=amount)
-    unstaking = {"remove_stake", "remove_stake_limit", "unstake_all", "unstake_all_alpha"}
-    release_ops = unstaking | {"claim_root", "claim_root_with_hotkey"}
-    last_release = max(
-        (index for index, child in enumerate(children) if child["op"] in release_ops),
-        default=-1,
-    )
-    if last_release >= 0:
-        # Preserve the user's child order while ensuring every requested
-        # release that may fund the refill runs before the transfer.
-        return Batch(
-            intents=[
-                *children[: last_release + 1],
-                refill.to_dict(),
-                *children[last_release + 1 :],
-            ]
-        )
-    return Batch(intents=[refill.to_dict(), *children])
+    position = evaluate_policy("protected.refill_position", {"children": children})
+    return Batch(intents=[*children[:position], refill.to_dict(), *children[position:]])
 
 
 def _pending_controller_refill_rao(app_ctx: AppContext, record: dict[str, Any]) -> int:
     """Total TAO already committed from the pure account to its controller."""
-    from ..balance import Balance
 
-    controller = _account_identity(record["controller_ss58"])
-
-    def visit(encoded: dict[str, Any]) -> int:
-        if (
-            encoded.get("op") == "transfer"
-            and _account_identity(encoded.get("dest_ss58")) == controller
-        ):
-            amount = encoded.get("amount_tao")
-            if amount == "all":
-                return 0
-            try:
-                return Balance.from_tao(str(amount)).rao
-            except (TypeError, ValueError):
-                return 0
-        if encoded.get("op") == "batch":
-            return sum(visit(child) for child in encoded.get("intents") or [])
-        return 0
+    def adapt(value):
+        if isinstance(value, dict):
+            return {
+                key: _account_identity(child) if key == "dest_ss58" else adapt(child)
+                for key, child in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [adapt(child) for child in value]
+        return value
 
     if all(hasattr(app_ctx, field) for field in ("network", "run")) and record.get("genesis_hash"):
         rows = _reconcile_pending(app_ctx, record)
@@ -443,10 +381,15 @@ def _pending_controller_refill_rao(app_ctx: AppContext, record: dict[str, Any]) 
         rows = ann.list_for_wallet(
             record["controller_wallet"], genesis_hash=record.get("genesis_hash")
         )
-    return sum(
-        visit({"op": row.get("inner_op"), **(row.get("inner_args") or {})})
-        for row in rows
-        if not row.get("plaintext_missing")
+    return int(
+        evaluate_policy(
+            "protected.pending_refills",
+            {
+                "controller": _account_identity(record["controller_ss58"]),
+                "rows": adapt([row for row in rows if not row.get("plaintext_missing")]),
+                "legacy_python": True,
+            },
+        )["rao"]
     )
 
 
@@ -662,18 +605,14 @@ def _coldkey_swap_matches_destination(
     if destination is None:
         return False
     account = bytes(ss58_decode(_account_identity(destination)))
-    announced_hash = str(announcement.get("new_coldkey_hash") or "").lower()
-    if announced_hash == "0x" + blake2b(account, digest_size=32).hexdigest():
-        return True
-    # A legacy caller can announce an arbitrary hash. V2 semantics require its
-    # dedicated on-chain marker, including a stored False policy snapshot.
-    policy = announcement.get("import_source_policies")
-    if not isinstance(policy, bool):
-        return False
-    # SCALE encodes the runtime's fixed byte-array domain, AccountId32 and bool
-    # directly: no length prefix or Option tag belongs in this preimage.
-    preimage = b"coldkey-swap-v2-policy" + account + bytes([policy])
-    return announced_hash == "0x" + blake2b(preimage, digest_size=32).hexdigest()
+    preimages = evaluate_policy(
+        "protected.migration_preimages",
+        {"account": account, "policy": announcement.get("import_source_policies")},
+    )
+    expected = {
+        "0x" + blake2b(bytes.fromhex(value[2:]), digest_size=32).hexdigest() for value in preimages
+    }
+    return str(announcement.get("new_coldkey_hash") or "").lower() in expected
 
 
 def _mark_announcement_from_submit(
@@ -1044,6 +983,10 @@ def _recover_existing_commitment(
     delay_blocks: int,
 ) -> Optional[dict[str, Any]]:
     """Recover a lost receipt without creating a duplicate on-chain commitment."""
+    # Recovery persists a local receipt even though it submits nothing on chain.
+    # Dry runs must continue through the callers' read-only submission previews.
+    if getattr(app_ctx, "dry_run", False):
+        return None
     controller = _account_identity(record.get("controller_ss58") or _controller_ss58(app_ctx))
     matches = [
         item
@@ -3258,56 +3201,30 @@ def _rotation_batch_children(
     rolls back if any replacement fails.
     """
     data = app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=record["protected_ss58"]))
-    controller_ss58 = _account_identity(controller_ss58)
-    live_controller_allows = {
-        str(grant["proxy_type"])
-        for grant in pa.allow_key_grants(data["proxies"], controller_ss58)
-        if grant["proxy_type"] in pa.PROXY_TYPE_INTENT_OPS
-    }
-    reviewed_record = {
-        **record,
-        "allows": record.get("reviewed_allows", record.get("allows") or []),
-    }
-    migrate = [
-        proxy_type
-        for proxy_type in pa.controller_owned_allow_types(reviewed_record, controller_ss58)
-        if proxy_type in live_controller_allows
-    ]
-    children: list[dict[str, Any]] = [
-        RemoveProxies().to_dict(),
-        AddProxy(delegate_ss58=new_ss58, proxy_type="Any", delay=delay).to_dict(),
-    ]
-    # Preserve only grants represented by this protected record's explicit
-    # allow-key policy. An arbitrary non-controller grant may have been planted
-    # by an attacker and rotation is the recovery boundary that must clear it.
-    allow_key = _account_identity(record.get("allow_key_ss58"))
-    recorded_allows = set(record.get("reviewed_allows", record.get("allows") or []))
-    replacements = [
-        (grant["delegate"], str(grant["proxy_type"]), int(grant["delay"]))
-        for grant in data["proxies"]
-        if allow_key
-        and allow_key != controller_ss58
-        and _account_identity(grant["delegate"]) == allow_key
-        and str(grant["proxy_type"]) in recorded_allows
-        and int(grant["delay"]) == 0
-    ]
-    for proxy_type in migrate:
-        replacements.append((new_ss58, proxy_type, 0))
-    seen = {(_account_identity(new_ss58), "Any", delay)}
-    for delegate, proxy_type, grant_delay in replacements:
-        identity = (_account_identity(delegate), proxy_type, grant_delay)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        children.append(
-            AddProxy(
-                delegate_ss58=delegate,
-                proxy_type=proxy_type,
-                delay=grant_delay,
-                from_hotkey=False,
-            ).to_dict()
-        )
-    return children, migrate
+    plan = evaluate_policy(
+        "protected.rotation_plan",
+        {
+            "record": {**record, "delay_blocks": delay},
+            "controller": _account_identity(controller_ss58),
+            "allow_key": _account_identity(record.get("allow_key_ss58")),
+            "new_address": new_ss58,
+            "grants": [
+                {
+                    **grant,
+                    "address": grant["delegate"],
+                    "delegate": _account_identity(grant["delegate"]),
+                }
+                for grant in data["proxies"]
+            ],
+        },
+    )
+    children = [RemoveProxies().to_dict()]
+    for index, child in enumerate(plan["children"][1:]):
+        fields = {key: value for key, value in child.items() if key != "op"}
+        if index == 0:
+            fields.pop("from_hotkey", None)
+        children.append(AddProxy(**fields).to_dict())
+    return children, plan["migrated"]
 
 
 def _resolve_rotation_destination(app_ctx: AppContext, target: str) -> tuple[str, str, str]:

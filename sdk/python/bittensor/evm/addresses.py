@@ -22,9 +22,9 @@ sign EVM transactions and an EVM wallet cannot sign extrinsics.
 
 from __future__ import annotations
 
-from hashlib import blake2b
 from typing import Any
 
+from .._policy import evaluate_policy
 from .._transport.codec import ss58_decode, ss58_encode
 from ..receiving import (
     Recipient,
@@ -75,7 +75,9 @@ def h160_to_ss58(evm_address: str, ss58_format: int = SS58_FORMAT) -> str:
     aliases have their balance in the bound native account instead.
     """
     address_bytes = bytes.fromhex(normalize_h160(evm_address)[2:])
-    hashed = blake2b(_MIRROR_PREFIX + address_bytes, digest_size=32).digest()
+    hashed = bytes.fromhex(
+        evaluate_policy("transaction.evm_mirror", {"address": address_bytes})[2:]
+    )
     return ss58_encode(hashed, ss58_format=ss58_format)
 
 
@@ -105,8 +107,9 @@ async def resolve_evm_recipient(substrate: Any, evm_address: str) -> Recipient:
             )
         else:
             raw = bytes(bound)
-        if len(raw) != 32 or raw[:20] != bytes.fromhex(address[2:]):
-            raise ValueError("alias does not match the bound account")
+        from .._policy import evaluate_policy
+
+        evaluate_policy("transaction.evm_alias", {"alias": address, "account": raw})
         account = ss58_encode(raw, ss58_format=SS58_FORMAT)
         kind, record = await protected_account_record(substrate, account, block_hash=head)
         if record is None:
@@ -199,4 +202,4 @@ def ss58_to_h160_truncated(ss58_address: str) -> str:
     the native account with the ``evm_withdraw`` intent.
     """
     pubkey = bytes.fromhex(ss58_decode(ss58_address).removeprefix("0x"))
-    return "0x" + pubkey[:20].hex()
+    return evaluate_policy("transaction.evm_truncated", {"account": pubkey})

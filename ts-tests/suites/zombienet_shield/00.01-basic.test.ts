@@ -1,4 +1,9 @@
-import { expect, beforeAll, describeSuite } from "@moonwall/cli";
+import { hexToBytes as hexToU8a } from "@bittensor/sdk";
+import { beforeAll, describeSuite, expect } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
+import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
+import { Binary } from "@polkadot-api/substrate-bindings";
+import type { PolkadotClient, TypedApi } from "polkadot-api";
 import {
     checkRuntime,
     encryptTransaction,
@@ -6,15 +11,11 @@ import {
     getBalance,
     getNextKey,
     getSignerFromKeypair,
+    fundShieldAccounts,
+    shieldAccount,
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
-import { Binary } from "@polkadot-api/substrate-bindings";
-import { Keyring } from "@polkadot/keyring";
-import type { KeyringPair } from "@moonwall/util";
-import { hexToU8a } from "@polkadot/util";
-import { subtensor, MultiAddress } from "@polkadot-api/descriptors";
-import type { PolkadotClient, TypedApi } from "polkadot-api";
 
 describeSuite({
     id: "00.01_basic",
@@ -37,18 +38,18 @@ describeSuite({
             client = context.papi("Node");
             api = client.getTypedApi(subtensor);
 
-            const keyring = new Keyring({ type: "sr25519" });
-            alice = keyring.addFromUri("//Alice");
-            bob = keyring.addFromUri("//Bob");
-            charlie = keyring.addFromUri("//Charlie");
-            dave = keyring.addFromUri("//Dave");
-            eve = keyring.addFromUri("//Eve");
-            ferdie = keyring.addFromUri("//Ferdie");
-            one = keyring.addFromUri("//One");
-            two = keyring.addFromUri("//Two");
-            t04Recipient = keyring.addFromUri("//ShieldT04Recipient");
+            alice = shieldAccount("basic", "Alice");
+            bob = shieldAccount("basic", "Bob");
+            charlie = shieldAccount("basic", "Charlie");
+            dave = shieldAccount("basic", "Dave");
+            eve = shieldAccount("basic", "Eve");
+            ferdie = shieldAccount("basic", "Ferdie");
+            one = shieldAccount("basic", "One");
+            two = shieldAccount("basic", "Two");
+            t04Recipient = shieldAccount("basic", "ShieldT04Recipient");
 
             await checkRuntime(api);
+            await fundShieldAccounts(api, "basic", [alice, bob, charlie, dave, eve, ferdie, one, two, t04Recipient]);
 
             await waitForFinalizedBlocks(api, 3);
         }, 120000);

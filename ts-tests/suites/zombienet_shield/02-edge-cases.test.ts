@@ -1,16 +1,17 @@
-import { expect, beforeAll } from "vitest";
-import type { TypedApi } from "polkadot-api";
-import { hexToU8a } from "@polkadot/util";
-import { subtensor, MultiAddress } from "@polkadot-api/descriptors";
+import { hexToBytes as hexToU8a } from "@bittensor/sdk";
 import { describeSuite } from "@moonwall/cli";
 import type { KeyringPair } from "@moonwall/util";
-import { Keyring } from "@polkadot/keyring";
+import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
+import type { TypedApi } from "polkadot-api";
+import { beforeAll, expect } from "vitest";
 import {
     checkRuntime,
     getAccountNonce,
     getBalance,
     getNextKey,
     getSignerFromKeypair,
+    fundShieldAccounts,
+    shieldAccount,
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
@@ -28,15 +29,15 @@ describeSuite({
         let dave: KeyringPair;
 
         beforeAll(async () => {
-            const keyring = new Keyring({ type: "sr25519" });
-            alice = keyring.addFromUri("//Alice");
-            bob = keyring.addFromUri("//Bob");
-            charlie = keyring.addFromUri("//Charlie");
-            dave = keyring.addFromUri("//Dave");
+            alice = shieldAccount("edge", "Alice");
+            bob = shieldAccount("edge", "Bob");
+            charlie = shieldAccount("edge", "Charlie");
+            dave = shieldAccount("edge", "Dave");
 
             api = context.papi("Node").getTypedApi(subtensor);
 
             await checkRuntime(api);
+            await fundShieldAccounts(api, "edge", [alice, bob, charlie, dave]);
 
             await waitForFinalizedBlocks(api, 2);
         }, 120000);

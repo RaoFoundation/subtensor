@@ -28,6 +28,7 @@ from ..reads.subnets import (
     gamma_emission_targets,
     root_preservation_inputs,
 )
+from ._shared import metadata
 from .base import Intent, IntentPreflight
 from .registry import register
 
@@ -351,3 +352,6 @@ class SetSubnetEmissionWeights(Intent):
 
     def touches_netuids(self) -> list[int]:
         return [self.netuid, *sorted(set(self.gamma) - {self.netuid})]
+
+    def affects_all_subnets(self) -> bool:
+        return metadata(self)["affects_all_subnets"]

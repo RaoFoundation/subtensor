@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import bittensor_core as _backend
 
+from bittensor._policy import evaluate_policy
+from bittensor._policy_catalog import POLICY_CATALOG
+
 BACKEND = "bittensor_core"
 
 CRYPTO_ED25519 = _backend.CRYPTO_ED25519
@@ -27,93 +30,61 @@ except AttributeError as error:
         "This SDK requires the matching bittensor-core build with post-quantum account support; "
         "rebuild or upgrade bittensor-core together with bittensor."
     ) from error
-CLASSICAL_HASHED_CRYPTO_TYPES = (CRYPTO_HASHED, CRYPTO_HASHED_ED25519)
-MLDSA_CRYPTO_TYPES = (CRYPTO_MLDSA65, CRYPTO_MLDSA65_FIXED)
-FALCON512_CRYPTO_TYPES = (CRYPTO_FALCON512, CRYPTO_FALCON512_HASHED)
-FALCON1024_CRYPTO_TYPES = (CRYPTO_FALCON1024, CRYPTO_FALCON1024_HASHED)
-FALCON_CRYPTO_TYPES = (*FALCON512_CRYPTO_TYPES, *FALCON1024_CRYPTO_TYPES)
-PQ_CRYPTO_TYPES = (*MLDSA_CRYPTO_TYPES, *FALCON_CRYPTO_TYPES)
-FIXED_PQ_CRYPTO_TYPES = (CRYPTO_MLDSA65_FIXED, CRYPTO_FALCON512, CRYPTO_FALCON1024)
-HASHED_CRYPTO_TYPES = (
-    *CLASSICAL_HASHED_CRYPTO_TYPES,
-    CRYPTO_MLDSA65,
-    CRYPTO_FALCON512_HASHED,
-    CRYPTO_FALCON1024_HASHED,
-)
-# Legacy name for the variable-proof wire family; use requires_registration()
-# for lifecycle decisions because fixed PQ keys have no authority registry.
-REGISTERED_CRYPTO_TYPES = (*CLASSICAL_HASHED_CRYPTO_TYPES, *PQ_CRYPTO_TYPES)
-PQ_PROFILES = {
-    CRYPTO_MLDSA65: 4,
-    CRYPTO_MLDSA65_FIXED: 5,
-    CRYPTO_FALCON512_HASHED: 6,
-    CRYPTO_FALCON512: 7,
-    CRYPTO_FALCON1024_HASHED: 8,
-    CRYPTO_FALCON1024: 9,
+_PROFILES = {
+    profile["crypto_type"]: profile for profile in POLICY_CATALOG["transaction"]["profiles"]
 }
+CLASSICAL_HASHED_CRYPTO_TYPES = tuple(
+    code for code, profile in _PROFILES.items() if profile["hashed"]
+)
+MLDSA_CRYPTO_TYPES = tuple(code for code, profile in _PROFILES.items() if profile["mldsa"])
+FALCON512_CRYPTO_TYPES = tuple(
+    code for code, profile in _PROFILES.items() if profile["scheme"] == "Falcon512"
+)
+FALCON1024_CRYPTO_TYPES = tuple(
+    code for code, profile in _PROFILES.items() if profile["scheme"] == "Falcon1024"
+)
+FALCON_CRYPTO_TYPES = tuple(code for code, profile in _PROFILES.items() if profile["falcon"])
+PQ_CRYPTO_TYPES = tuple(code for code, profile in _PROFILES.items() if profile["pq"])
+FIXED_PQ_CRYPTO_TYPES = tuple(code for code, profile in _PROFILES.items() if profile["fixed_pq"])
+HASHED_CRYPTO_TYPES = tuple(code for code, profile in _PROFILES.items() if profile["rotating"])
+REGISTERED_CRYPTO_TYPES = tuple(code for code, profile in _PROFILES.items() if profile["protected"])
+PQ_PROFILES = {code: profile["profile"] for code, profile in _PROFILES.items() if profile["pq"]}
 
 
 def pq_lengths(crypto_type: int) -> tuple[int, int]:
-    """Canonical public-key and signature byte lengths; never infer from input."""
-    if crypto_type in MLDSA_CRYPTO_TYPES:
-        return 1952, 3309
-    if crypto_type in FALCON512_CRYPTO_TYPES:
-        return 897, 666
-    if crypto_type in FALCON1024_CRYPTO_TYPES:
-        return 1793, 1280
-    raise ValueError("unsupported post-quantum signing scheme")
+    profile = _PROFILES.get(crypto_type)
+    if not profile or profile["lengths"] is None:
+        raise ValueError("unsupported post-quantum signing scheme")
+    return tuple(profile["lengths"])
 
 
 def is_stateless_pq_descriptor(descriptor: bytes) -> bool:
-    return len(descriptor) == 66 and descriptor[0] == 2 and descriptor[1] in (5, 7, 9)
+    return evaluate_policy("transaction.fixed_descriptor", {"descriptor": bytes(descriptor)})
 
 
 def is_stateless_pq(keypair) -> bool:
-    return getattr(keypair, "crypto_type", None) in FIXED_PQ_CRYPTO_TYPES
+    return _PROFILES.get(getattr(keypair, "crypto_type", None), {}).get("fixed_pq", False)
 
 
 def is_stateless_mldsa_descriptor(descriptor: bytes) -> bool:
-    """Fixed MS authenticates its key without an authority registry."""
-    return len(descriptor) == 66 and descriptor[:2] == b"\x02\x05"
+    return evaluate_policy(
+        "transaction.fixed_descriptor", {"descriptor": bytes(descriptor), "mldsa_only": True}
+    )
 
 
 def is_stateless_mldsa(keypair) -> bool:
-    return getattr(keypair, "crypto_type", None) == CRYPTO_MLDSA65_FIXED
+    profile = _PROFILES.get(getattr(keypair, "crypto_type", None), {})
+    return profile.get("fixed_pq", False) and profile.get("mldsa", False)
 
 
 def requires_registration(keypair) -> bool:
-    """Only rotating hashed accounts require authority registration."""
-    return getattr(keypair, "crypto_type", None) in HASHED_CRYPTO_TYPES
+    return _PROFILES.get(getattr(keypair, "crypto_type", None), {}).get("rotating", False)
 
 
 def account_crypto_type(crypto_type: int, account_type: str | None = None) -> int:
-    """Compose account mode and signing scheme; None preserves legacy key codes."""
-    for fixed, hashed in (
-        (CRYPTO_MLDSA65_FIXED, CRYPTO_MLDSA65),
-        (CRYPTO_FALCON512, CRYPTO_FALCON512_HASHED),
-        (CRYPTO_FALCON1024, CRYPTO_FALCON1024_HASHED),
-    ):
-        if crypto_type not in (fixed, hashed):
-            continue
-        if account_type is None:
-            return crypto_type
-        if account_type == "hashed":
-            return hashed
-        if account_type == "standard":
-            return fixed
-        raise ValueError("account type must be standard or hashed")
-    if account_type is None and crypto_type in (0, 1, 4, 6):
-        return crypto_type
-    modes = {
-        "standard": {0: 0, 1: 1, 4: 1, 6: 0},
-        "hashed": {0: 6, 1: 4, 4: 4, 6: 6},
-    }
-    try:
-        return modes[account_type][crypto_type]
-    except KeyError:
-        raise ValueError(
-            "account type must be standard or hashed with a supported signing scheme"
-        ) from None
+    return evaluate_policy(
+        "transaction.account_type", {"crypto_type": crypto_type, "mode": account_type}
+    )
 
 
 Keypair = _backend.Keypair

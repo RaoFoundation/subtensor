@@ -34,18 +34,20 @@ checks and names the same error codes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
-from fractions import Fraction
+from dataclasses import asdict, dataclass
 from typing import Iterable, Mapping, Optional, Union
+
+from ._policy import evaluate_policy
+
+_POLICY_CONSTANTS = evaluate_policy("financial.constants", {})
 
 U64_MAX = 2**64 - 1
 
 #: Denominator of every emission weight (``u64::MAX``).
-ONE = U64_MAX
+ONE = int(_POLICY_CONSTANTS["ONE"])
 
 #: Slot order on chain; the index of a name is its ``uid``.
-SLOT_NAMES: tuple[str, ...] = ("burn", "recycle", "owner", "validator", "miner")
+SLOT_NAMES: tuple[str, ...] = tuple(_POLICY_CONSTANTS["SLOT_NAMES"])
 BURN, RECYCLE, OWNER, VALIDATOR, MINER = range(len(SLOT_NAMES))
 
 #: Slots an owner may change (all five; burn+recycle share a combined cap).
@@ -54,35 +56,39 @@ ADJUSTABLE_SLOTS: tuple[int, ...] = (BURN, RECYCLE, OWNER, VALIDATOR, MINER)
 
 def fraction(numerator: int, denominator: int) -> int:
     """``numerator / denominator`` in parts of :data:`ONE` (floor, as on chain)."""
-    return (ONE * numerator) // denominator
+    return int(
+        evaluate_policy(
+            "financial.emission.fraction", {"numerator": numerator, "denominator": denominator}
+        )
+    )
 
 
-MAX_OWNER = fraction(33, 100)
-MAX_BURN_RECYCLE = fraction(33, 100)
-MAX_VALIDATOR = fraction(50, 100)
-MIN_MINER = fraction(33, 100)
-MAX_GAMMA = fraction(10, 100)
-MAX_GAMMA_SHARES = 16
+MAX_OWNER = int(_POLICY_CONSTANTS["MAX_OWNER"])
+MAX_BURN_RECYCLE = int(_POLICY_CONSTANTS["MAX_BURN_RECYCLE"])
+MAX_VALIDATOR = int(_POLICY_CONSTANTS["MAX_VALIDATOR"])
+MIN_MINER = int(_POLICY_CONSTANTS["MIN_MINER"])
+MAX_GAMMA = int(_POLICY_CONSTANTS["MAX_GAMMA"])
+MAX_GAMMA_SHARES = int(_POLICY_CONSTANTS["MAX_GAMMA_SHARES"])
 
 #: Most parts a split may miss one by and still count as rounding: shares
 #: given as percentages or fractions floor to whole parts, so ones that add
 #: up to 100% can fall a few parts short. See :func:`absorb_rounding`.
-MAX_ROUNDING_PARTS = 1_000
+MAX_ROUNDING_PARTS = int(_POLICY_CONSTANTS["MAX_ROUNDING_PARTS"])
 
 #: Mainnet launch owner cut ``11796 / 65535`` scaled to u64 parts; also the
 #: floor for lease-created subnets and the base from which the default vector
 #: ``[0, 0, 0.18, 0.41, 0.41]`` is derived.
-DEFAULT_OWNER = (11796 * ONE) // 65535
+DEFAULT_OWNER = int(_POLICY_CONSTANTS["DEFAULT_OWNER"])
 
 #: Validator share of the default vector (``V0``, ~41% on mainnet): half of what
 #: is left after the default owner cut. Root's baseline share is anchored to
 #: it: whatever a subnet sets, root is paid what it would earn at ``V0``.
-DEFAULT_VALIDATOR = (ONE - DEFAULT_OWNER) // 2
+DEFAULT_VALIDATOR = int(_POLICY_CONSTANTS["DEFAULT_VALIDATOR"])
 
 #: How often a subnet owner may change the vector (blocks; ~7 days at 12 s).
 #: Root is exempt and a subnet's first change is always allowed. Mirrors the
 #: chain's ``SubnetEmissionWeightsRateLimit``.
-OWNER_RATE_LIMIT_BLOCKS = 50_400
+OWNER_RATE_LIMIT_BLOCKS = int(_POLICY_CONSTANTS["OWNER_RATE_LIMIT_BLOCKS"])
 BLOCK_SECONDS = 12
 
 ShareLike = Union[int, float, str]
@@ -93,22 +99,7 @@ SlotShares = Union[Mapping[int, int], Mapping[str, int]]
 
 def slot_index(slot: Union[int, str]) -> int:
     """Resolve a slot given by name (``"owner"``) or uid (``2``)."""
-    if isinstance(slot, str):
-        key = slot.strip().lower()
-        if key.isdigit():
-            return slot_index(int(key))
-        if key not in SLOT_NAMES:
-            raise ValueError(
-                f"unknown emission slot {slot!r}; slots are "
-                + ", ".join(f"{i} {name}" for i, name in enumerate(SLOT_NAMES))
-            )
-        return SLOT_NAMES.index(key)
-    if not 0 <= slot < len(SLOT_NAMES):
-        raise ValueError(
-            f"emission slot {slot} is out of range; slots are "
-            + ", ".join(f"{i} {name}" for i, name in enumerate(SLOT_NAMES))
-        )
-    return int(slot)
+    return evaluate_policy("financial.emission.slot", {"slot": slot})
 
 
 def parse_share(value: ShareLike) -> int:
@@ -118,54 +109,20 @@ def parse_share(value: ShareLike) -> int:
     or a raw integer part count (``7560000000000000000``). Integers are taken
     as raw parts; anything with a decimal point or percent sign is a fraction.
     """
-    if isinstance(value, bool):
-        raise ValueError("emission share must be a number, not a boolean")
-    if isinstance(value, int):
-        parts = value
-    elif isinstance(value, float):
-        parts = _fraction_to_parts(_exact(repr(value), value), value)
-    else:
-        text = value.strip().replace("_", "")
-        if not text:
-            raise ValueError("emission share is empty")
-        if text.endswith("%"):
-            parts = _fraction_to_parts(_exact(text[:-1], value) / 100, value)
-        elif "." in text or "e" in text.lower():
-            parts = _fraction_to_parts(_exact(text, value), value)
-        else:
-            try:
-                parts = int(text)
-            except ValueError as error:
-                raise ValueError(
-                    f"cannot read emission share {value!r}; give a 0..1 fraction "
-                    "(0.41), a percentage (41%), or raw u64 parts"
-                ) from error
-    if not 0 <= parts <= ONE:
-        raise ValueError(f"emission share {value!r} is outside 0..1 (0..{ONE} parts)")
-    return parts
-
-
-def _exact(text: str, shown: object) -> Fraction:
-    """Decimal text -> exact rational, so ``"50%"`` lands on ``fraction(50, 100)``."""
     try:
-        return Fraction(Decimal(text))
-    except (InvalidOperation, ValueError) as error:
-        raise ValueError(
-            f"cannot read emission share {shown!r}; give a 0..1 fraction "
-            "(0.41), a percentage (41%), or raw u64 parts"
-        ) from error
-
-
-def _fraction_to_parts(fraction_value: Fraction, shown: object) -> int:
-    """Exact rational -> u64 parts with the chain's floor convention."""
-    if not 0 <= fraction_value <= 1:
-        raise ValueError(f"emission share {shown!r} must be between 0 and 1 (0% and 100%)")
-    return min(ONE, fraction(fraction_value.numerator, fraction_value.denominator))
+        return int(
+            evaluate_policy(
+                "financial.emission.parse_share",
+                {"value": value, "fraction_number": isinstance(value, float)},
+            )
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"cannot read emission share {value!r}; {error}") from error
 
 
 def share_to_float(parts: int) -> float:
     """u64 parts -> 0..1 float."""
-    return parts / ONE
+    return evaluate_policy("financial.emission.float", {"parts": parts})
 
 
 def format_share(parts: int, places: int = 2) -> str:
@@ -202,7 +159,8 @@ class Rules:
         ``max_parts`` as exact u64 parts, plus ``why``. ``validator.min`` is the
         live floor (just above root's baseline share), ``None`` when unknown.
         """
-        owner_min = self.min_owner if self.created_via_lease else 0
+        limits = evaluate_policy("financial.emission.limits", {"rules": asdict(self)})
+        owner_min = int(limits["owner"]["min_parts"])
         burn_recycle_why = (
             "burn + recycle together may be at most 33%; burn destroys alpha "
             "(still counts toward issuance), recycle removes it from issuance"
@@ -293,44 +251,49 @@ class Violation:
 
 def default_weights(owner: int = DEFAULT_OWNER) -> list[int]:
     """``[0, 0, owner, rest/2, rest - rest/2]`` — the chain's seed vector."""
-    owner = min(owner, ONE)
-    validator = (ONE - owner) // 2
-    return [0, 0, owner, validator, ONE - owner - validator]
+    return [int(value) for value in evaluate_policy("financial.emission.default", {"owner": owner})]
 
 
 def normalize_weights(weights: Iterable[int]) -> list[int]:
     """Coerce a chain-shaped vector (any length <= 5, ints or Compact dicts) to five ints."""
-    out = [int(w) for w in weights]
-    if len(out) > len(SLOT_NAMES):
-        raise ValueError(f"emission weight vector has {len(out)} slots; at most 5 are known")
-    out.extend([0] * (len(SLOT_NAMES) - len(out)))
-    return out
+    return [
+        int(value)
+        for value in evaluate_policy("financial.emission.normalize", {"weights": list(weights)})
+    ]
 
 
 def merge(current: Iterable[int], updates: SlotShares) -> list[int]:
     """Apply a sparse update exactly as the chain does: named slots are
     replaced; omitted slots keep their current value."""
-    merged = normalize_weights(current)
-    for slot, value in updates.items():
-        merged[slot_index(slot)] = int(value)
-    return merged
+    return [
+        int(value)
+        for value in evaluate_policy(
+            "financial.emission.merge", {"weights": list(current), "updates": updates}
+        )
+    ]
 
 
 def absorb_rounding(weights: Iterable[int], gamma_share: int = 0) -> list[int]:
     """The vector with its rounding absorbed: when the five slots and
     ``gamma_share`` miss one by at most :data:`MAX_ROUNDING_PARTS`, the miner
     slot makes up the difference. Any other vector comes back unchanged."""
-    out = normalize_weights(weights)
-    gap = ONE - gamma_share - sum(out)
-    if -min(MAX_ROUNDING_PARTS, out[MINER]) <= gap <= MAX_ROUNDING_PARTS:
-        out[MINER] += gap
-    return out
+    return [
+        int(value)
+        for value in evaluate_policy(
+            "financial.emission.round", {"weights": list(weights), "gamma": gamma_share}
+        )
+    ]
 
 
 def merge_gamma(current: Mapping[int, int], updates: Mapping[int, int]) -> dict[int, int]:
     """The gamma shares by target netuid after ``updates``: named targets are
     replaced, a share of 0 removes one, and omitted targets keep their share."""
-    return {target: share for target, share in sorted({**current, **updates}.items()) if share}
+    return {
+        int(key): int(value)
+        for key, value in evaluate_policy(
+            "financial.emission.merge_gamma", {"current": current, "updates": updates}
+        ).items()
+    }
 
 
 def renormalize(
@@ -347,35 +310,13 @@ def renormalize(
     shares exceed one, or if every adjustable slot is pinned but the total is
     not one beyond the rounding the miner slot absorbs (:func:`absorb_rounding`).
     """
-    pinned = {slot_index(slot): int(value) for slot, value in fixed.items()}
-    base = normalize_weights(current)
-    free = [slot for slot in ADJUSTABLE_SLOTS if slot not in pinned]
-    remaining = ONE - gamma_share - sum(pinned.values())
-    if remaining < 0:
-        raise ValueError(
-            f"the pinned shares{and_gamma(gamma_share)} alone exceed 100%: "
-            + ", ".join(f"{SLOT_NAMES[s]}={format_share(v)}" for s, v in pinned.items() if v)
+    return [
+        int(value)
+        for value in evaluate_policy(
+            "financial.emission.renormalize",
+            {"weights": list(current), "fixed": fixed, "gamma": gamma_share},
         )
-    out = base[:]
-    for slot, value in pinned.items():
-        out[slot] = value
-    if not free:
-        out = absorb_rounding(out, gamma_share)
-        if sum(out) + gamma_share != ONE:
-            raise ValueError(
-                f"all adjustable slots are pinned but they{and_gamma(gamma_share)} sum to "
-                f"{format_share(ONE - remaining)}, not 100%"
-            )
-        return out
-    free_total = sum(base[slot] for slot in free)
-    if free_total == 0:
-        shares = [remaining // len(free)] * len(free)
-    else:
-        shares = [(remaining * base[slot]) // free_total for slot in free]
-    shares[-1] += remaining - sum(shares)
-    for slot, value in zip(free, shares):
-        out[slot] = value
-    return out
+    ]
 
 
 def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Violation]:
@@ -384,7 +325,13 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
     rules = rules or Rules()
     w = normalize_weights(weights)
     found: list[Violation] = []
-    if w[BURN] + w[RECYCLE] > MAX_BURN_RECYCLE:
+    errors = {
+        row["error"]
+        for row in evaluate_policy(
+            "financial.emission.validate", {"weights": w, "rules": asdict(rules)}
+        )
+    }
+    if "BurnRecycleEmissionAboveMaximum" in errors:
         found.append(
             Violation(
                 "BurnRecycleEmissionAboveMaximum",
@@ -393,7 +340,7 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
                 f"burn + recycle may be at most {format_share(MAX_BURN_RECYCLE)}",
             )
         )
-    if w[OWNER] > MAX_OWNER:
+    if "OwnerEmissionAboveMaximum" in errors:
         found.append(
             Violation(
                 "OwnerEmissionAboveMaximum",
@@ -401,7 +348,7 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
                 f"{format_share(MAX_OWNER)}",
             )
         )
-    if rules.created_via_lease and w[OWNER] < rules.min_owner:
+    if "LeasedSubnetOwnerCutBelowMinimum" in errors:
         found.append(
             Violation(
                 "LeasedSubnetOwnerCutBelowMinimum",
@@ -410,7 +357,7 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
                 "(lease contributors are paid from it)",
             )
         )
-    if w[VALIDATOR] > MAX_VALIDATOR:
+    if "ValidatorEmissionAboveMaximum" in errors:
         found.append(
             Violation(
                 "ValidatorEmissionAboveMaximum",
@@ -418,7 +365,7 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
                 f"draw at most {format_share(MAX_VALIDATOR)}",
             )
         )
-    if rules.min_validator is not None and w[VALIDATOR] < rules.min_validator:
+    if "ValidatorEmissionTooLowToPreserveRoot" in errors:
         found.append(
             Violation(
                 "ValidatorEmissionTooLowToPreserveRoot",
@@ -428,7 +375,7 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
                 "or validators would get nothing",
             )
         )
-    if w[MINER] < MIN_MINER:
+    if "MinerEmissionBelowMinimum" in errors:
         found.append(
             Violation(
                 "MinerEmissionBelowMinimum",
@@ -437,7 +384,7 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
             )
         )
     total = sum(w) + rules.gamma_share
-    if total != ONE:
+    if "EmissionWeightsDoNotSumToOne" in errors:
         found.append(
             Violation(
                 "EmissionWeightsDoNotSumToOne",
@@ -456,17 +403,23 @@ def validate_gamma(
     ``netuid`` by target netuid (empty when they are accepted). The whitelist and
     gamma checks need ``rules.gamma_targets`` and are skipped without it."""
     rules = rules or Rules()
-    targets = rules.gamma_targets
     found: list[Violation] = []
+    errors = {
+        (row["error"], row.get("target"))
+        for row in evaluate_policy(
+            "financial.emission.validate_gamma",
+            {"netuid": netuid, "shares": shares, "rules": asdict(rules)},
+        )
+    }
     for target, share in sorted(shares.items()):
-        if target == netuid:
+        if ("InvalidValue", target) in errors:
             found.append(
                 Violation(
                     "InvalidValue",
                     f"gamma:{target} names this subnet; a gamma share must name another subnet",
                 )
             )
-        elif targets is not None and target not in targets:
+        elif ("GammaEmissionTargetNotWhitelisted", target) in errors:
             found.append(
                 Violation(
                     "GammaEmissionTargetNotWhitelisted",
@@ -475,7 +428,7 @@ def validate_gamma(
                     "emission set`) or ask root to whitelist it",
                 )
             )
-        elif targets is not None and not targets[target]:
+        elif ("GammaDisabled", target) in errors:
             found.append(
                 Violation(
                     "GammaDisabled",
@@ -484,7 +437,7 @@ def validate_gamma(
                     "or wait for its owner to enable it",
                 )
             )
-        if share > MAX_GAMMA:
+        if ("GammaEmissionAboveMaximum", target) in errors:
             found.append(
                 Violation(
                     "GammaEmissionAboveMaximum",
@@ -492,14 +445,14 @@ def validate_gamma(
                     f"{format_share(MAX_GAMMA)}",
                 )
             )
-    if len(shares) > MAX_GAMMA_SHARES:
+    if ("TooManyGammaShares", None) in errors:
         found.append(
             Violation(
                 "TooManyGammaShares",
                 f"{len(shares)} gamma shares; a subnet may have at most {MAX_GAMMA_SHARES}",
             )
         )
-    if shares and rules.leased:
+    if ("GammaEmissionNotSettableOnLeasedSubnet", None) in errors:
         found.append(
             Violation(
                 "GammaEmissionNotSettableOnLeasedSubnet",
@@ -517,10 +470,15 @@ def root_emission_share(
     global ``TaoWeight`` this is root's baseline, the shape the chain pays
     every block. Inputs are 0..1 floats for ``validator`` and ``tao_weight``
     and raw balances (any common unit) for ``root_tao`` and ``alpha_issuance``."""
-    weighted = root_tao * tao_weight
-    if weighted + alpha_issuance <= 0:
-        return 0.0
-    return validator * weighted / (weighted + alpha_issuance)
+    return evaluate_policy(
+        "financial.emission.root_share",
+        {
+            "validator": validator,
+            "tao_weight": tao_weight,
+            "root_tao": root_tao,
+            "alpha_issuance": alpha_issuance,
+        },
+    )
 
 
 def baseline_root_share(global_tao_weight: float, root_tao: float, alpha_issuance: float) -> float:
@@ -545,7 +503,7 @@ def validator_floor(global_tao_weight: float, root_tao: float, alpha_issuance: f
 def min_validator_parts(baseline_parts: int) -> int:
     """Lowest validator share in parts the chain accepts given root's baseline
     share in parts (as the runtime API reports it): one part above it."""
-    return min(ONE, int(baseline_parts) + 1)
+    return int(evaluate_policy("financial.emission.min_validator", {"baseline": baseline_parts}))
 
 
 def root_share_paid(validator_parts: int, baseline_parts: int) -> float:
@@ -553,7 +511,9 @@ def root_share_paid(validator_parts: int, baseline_parts: int) -> float:
     slot at ``validator_parts`` and root's baseline at ``baseline_parts``
     (both u64 parts, as the runtime API reports them): the baseline, capped
     at the slot."""
-    return share_to_float(min(int(validator_parts), int(baseline_parts)))
+    return evaluate_policy(
+        "financial.emission.root_paid", {"validator": validator_parts, "baseline": baseline_parts}
+    )
 
 
 def describe(weights: Iterable[int]) -> dict[str, str]:
@@ -591,33 +551,22 @@ def preview(
     with ``ValidatorEmissionTooLowToPreserveRoot``. Comparisons are made in
     parts so the preview agrees with :func:`validate` to the last part.
     """
-    old = normalize_weights(before)
-    new = normalize_weights(after)
-    baseline_parts = int(baseline_parts)
-    baseline_share = share_to_float(baseline_parts)
-    share_before = root_share_paid(old[VALIDATOR], baseline_parts)
-    validators_before = share_to_float(old[VALIDATOR] - min(old[VALIDATOR], baseline_parts))
-    rejected = new[VALIDATOR] <= baseline_parts
-    share_after = None if rejected else root_share_paid(new[VALIDATOR], baseline_parts)
-    validators_after = None if rejected else share_to_float(new[VALIDATOR] - baseline_parts)
-    return {
-        "before": {"weights": old, "shares": shares(old)},
-        "after": {"weights": new, "shares": shares(new)},
-        "changed": [SLOT_NAMES[slot] for slot in range(len(SLOT_NAMES)) if old[slot] != new[slot]],
-        "root": {
-            "share_before": share_before,
-            "share_after": share_after,
-            "baseline_share": baseline_share,
-            "validators_before": validators_before,
-            "validators_after": validators_after,
-            "capped_before": baseline_parts > old[VALIDATOR],
-            "capped_after": False if rejected else baseline_parts > new[VALIDATOR],
-            "validator_floor": baseline_share,
+    result = evaluate_policy(
+        "financial.emission.preview",
+        {
+            "before": list(before),
+            "after": list(after),
+            "baseline_parts": baseline_parts,
             "global_tao_weight": global_tao_weight,
             "root_tao": root_tao,
             "alpha_issuance": alpha_issuance,
         },
-    }
+    )
+    for side in ("before", "after"):
+        result[side]["weights"] = [int(value) for value in result[side]["weights"]]
+    for field in ("root_tao", "alpha_issuance"):
+        result["root"][field] = int(result["root"][field])
+    return result
 
 
 def rate_limit_status(
@@ -629,12 +578,7 @@ def rate_limit_status(
     subnet (0 when it has never been changed, which the chain treats as "first
     change is free"). Root is never limited.
     """
-    next_block = current_block if last_change_block <= 0 else last_change_block + limit
-    blocks_left = max(0, next_block - current_block)
-    return {
-        "limit_blocks": limit,
-        "last_change_block": last_change_block,
-        "next_allowed_block": next_block,
-        "blocks_until_allowed": blocks_left,
-        "owner_can_change_now": blocks_left == 0,
-    }
+    return evaluate_policy(
+        "financial.emission.rate_limit",
+        {"last": last_change_block, "current": current_block, "limit": limit},
+    )

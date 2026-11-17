@@ -1,19 +1,7 @@
 from typing import Any, Optional
 
+from ..._policy import evaluate_policy
 from ...error_map import DISPATCH_ERRORS
-
-# Wrapper pallets that report an *inner* DispatchResult while the outer
-# extrinsic still emits System.ExtrinsicSuccess. Keyed by (module, event) →
-# attribute holding the Result (or a bare DispatchError for Utility batch).
-_NESTED_RESULT_EVENTS: dict[tuple[str, str], str] = {
-    ("Sudo", "Sudid"): "sudo_result",
-    ("Sudo", "SudoAsDone"): "sudo_result",
-    ("Proxy", "ProxyExecuted"): "result",
-    ("Multisig", "MultisigExecuted"): "result",
-    # Utility.batch stops on first failure; force_batch emits ItemFailed per item.
-    ("Utility", "BatchInterrupted"): "error",
-    ("Utility", "ItemFailed"): "error",
-}
 
 
 def _get_event_parts(event: dict) -> tuple[str, str, dict]:
@@ -28,28 +16,12 @@ def nested_dispatch_error(events: list) -> Optional[Any]:
     emits ``System.ExtrinsicSuccess``) even when the nested call fails. The
     failure lives only in the wrapper event's ``Result`` field.
     """
-    for entry in events:
-        record = entry.value if hasattr(entry, "value") else entry
-        if not isinstance(record, dict):
-            continue
-        event = record.get("event", record)
-        if not isinstance(event, dict):
-            continue
-        module_id = event.get("module_id")
-        event_id = event.get("event_id")
-        if not isinstance(module_id, str) or not isinstance(event_id, str):
-            continue
-        field = _NESTED_RESULT_EVENTS.get((module_id, event_id))
-        if field is None:
-            continue
-        attributes = event.get("attributes")
-        result = attributes.get(field) if isinstance(attributes, dict) else attributes
-        if isinstance(result, dict) and "Err" in result:
-            return result["Err"]
-        # Utility.BatchInterrupted / ItemFailed carry a bare DispatchError.
-        if module_id == "Utility" and result is not None:
-            return result
-    return None
+    return evaluate_policy(
+        "transaction.nested_dispatch_error",
+        {
+            "events": [entry.value if hasattr(entry, "value") else entry for entry in events],
+        },
+    )
 
 
 def dispatch_error_message(dispatch_error: Any, codec: Any) -> Optional[dict]:

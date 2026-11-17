@@ -56,7 +56,7 @@ from .commands import (
     weights,
 )
 from .context import AppContext
-from .logs import setup_logging
+from .logs import cli_logging
 from .output import Output
 from .prompt import run_app
 from .query import build_query_app
@@ -314,7 +314,7 @@ def main_callback(
         None, "--version", callback=_version, is_eager=True, help="Show version and exit."
     ),
 ):
-    setup_logging(verbosity=verbosity, quiet=quiet)
+    ctx.with_resource(cli_logging(verbosity=verbosity, quiet=quiet))
     wallet_source = ctx.get_parameter_source("wallet_name")
     hotkey_source = ctx.get_parameter_source("hotkey_name")
     ctx.obj = AppContext(

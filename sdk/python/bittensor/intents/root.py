@@ -114,11 +114,9 @@ class SetSubnetGammaEmissionWhitelisted(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.AdminUtils.sudo_set_subnet_gamma_emission_whitelisted(
-                netuid=self.netuid, whitelisted=self.whitelisted
-            )
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         if self.whitelisted:
@@ -167,12 +165,9 @@ class SetRootClaimThreshold(Intent):
         self.threshold = tao_amount(self.threshold)
 
     async def build(self, substrate, wallet: Any):
-        # The chain only accepts the root netuid entry for this threshold.
-        return await substrate.compose(
-            calls.SubtensorModule.sudo_set_root_claim_threshold(
-                netuid=0, new_value=self.threshold.rao
-            )
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"set the root claim threshold to {self.threshold}"

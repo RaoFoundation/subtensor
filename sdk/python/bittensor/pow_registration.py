@@ -3,61 +3,69 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 import bittensor_core
-from eth_utils import keccak
 
 from ._generated import storage as st
+from ._policy import evaluate_policy
 from ._transport.codec import ss58_decode
 from .receiving import parse_recipient
 
 DOMAIN = b"subtensor-pow-register-v1"
-MAX_WORK_AGE_BLOCKS = 5
-CHALLENGE_REFRESH_SECONDS = 12
+_POLICY_CONSTANTS = evaluate_policy("validation.constants", {})
+MAX_WORK_AGE_BLOCKS = _POLICY_CONSTANTS["MAX_WORK_AGE_BLOCKS"]
+CHALLENGE_REFRESH_SECONDS = _POLICY_CONSTANTS["CHALLENGE_REFRESH_SECONDS"]
 
 
 def registration_prefix(netuid: int, block_hash: str, hotkey: str, coldkey: str) -> bytes:
     """Match the runtime's challenge bytes, without the trailing nonce."""
-    if not 0 < netuid < 65536:
-        raise ValueError("PoW registration requires a non-root u16 netuid")
-    block = bytes.fromhex(block_hash.removeprefix("0x"))
-    hot = bytes.fromhex(ss58_decode(hotkey))
-    cold = bytes.fromhex(ss58_decode(coldkey))
-    if any(len(value) != 32 for value in (block, hot, cold)):
-        raise ValueError("PoW requires a 32-byte block hash and AccountId32 addresses")
-    return DOMAIN + netuid.to_bytes(2, "little") + block + hot + cold
+    result = evaluate_policy(
+        "validation.pow.prefix",
+        {
+            "netuid": netuid,
+            "block": block_hash,
+            "hotkey": "0x" + ss58_decode(hotkey),
+            "coldkey": "0x" + ss58_decode(coldkey),
+        },
+    )
+    return bytes.fromhex(result.removeprefix("0x"))
 
 
 def registration_seal(prefix: bytes, nonce: int) -> bytes:
-    return keccak(hashlib.sha256(prefix + nonce.to_bytes(8, "little")).digest())
+    return bytes.fromhex(
+        evaluate_policy("validation.pow.seal", {"prefix": prefix, "nonce": nonce}).removeprefix(
+            "0x"
+        )
+    )
 
 
 def effective_difficulty(value, minimum, maximum) -> int:
     """Match chain bounds; an owner ceiling cannot bypass the team's floor."""
-    minimum = max(1, int(minimum or 1))
-    maximum = max(minimum, int(maximum if maximum is not None else (1 << 64) - 1))
-    return min(max(minimum, int(value or 1)), maximum)
+    return int(
+        evaluate_policy(
+            "validation.pow.difficulty", {"value": value, "minimum": minimum, "maximum": maximum}
+        )
+    )
 
 
 def _mine_chunk(prefix: bytes, difficulty: int, start: int, attempts: int):
-    native = getattr(bittensor_core, "pow_mine_cpu", None)
-    if native is not None and 0 < difficulty < 1 << 64:
-        result = native(prefix, difficulty, start, attempts)
-        return None if result is None else (result[0], bytes(result[1]).hex())
-    # Compatibility for previously published core wheels. Updated wheels use
-    # Rust above; explicit GPU mode requires the new native API.
-    target = ((1 << 256) - 1) // max(1, difficulty)
-    for offset in range(attempts):
-        nonce = (start + offset) % (1 << 64)
-        work = registration_seal(prefix, nonce)
-        if int.from_bytes(work, "little") <= target:
-            return nonce, work.hex()
-    return None
+    if not 0 < difficulty < 1 << 64:
+        result = evaluate_policy(
+            "validation.pow.mine",
+            {
+                "prefix": prefix,
+                "difficulty": difficulty,
+                "start": start,
+                "attempts": attempts,
+            },
+        )
+        return None if result is None else (int(result["nonce"]), result["work"])
+    result = bittensor_core.pow_mine_cpu(prefix, difficulty, start, attempts)
+    return None if result is None else (result[0], bytes(result[1]).hex())
 
 
 def _create_gpu_miner(backend: str, device_ids: tuple[int, ...] | None):
@@ -164,22 +172,29 @@ async def mine_registration(
                     *st.SubtensorModule.MaxRegistrationsPerBlock, [netuid], block_hash=anchor
                 ),
             )
-            if not pow_allowed:
+            admission = evaluate_policy(
+                "validation.pow.admission",
+                {
+                    "allowed": bool(pow_allowed),
+                    "uid": uid,
+                    "head": head,
+                    "last": last,
+                    "registrations": registrations or 0,
+                    "limit": limit or 0,
+                },
+            )
+            if admission == "disabled":
                 raise ValueError("The subnet owner must enable PoW registration")
-            if uid is not None:
+            if admission == "registered":
                 raise ValueError("The hotkey is already registered on this subnet")
-            if not limit:
+            if admission == "limit":
                 raise ValueError("The subnet's per-block registration limit must be positive")
-            if int(registrations or 0) >= int(limit):
+            if admission == "wait":
                 await asyncio.sleep(1)
                 continue
             difficulty = effective_difficulty(difficulty, minimum, maximum)
-            # The pool initializes System at head + 1 before validating. Mining
-            # the published head keeps the full allowed freshness window.
+            # Mine the published head; the pool validates at head + 1.
             work_block = head
-            if last is not None and work_block <= int(last):
-                await asyncio.sleep(1)
-                continue
             block_hash = anchor
             prefix = registration_prefix(netuid, block_hash, hotkey, coldkey)
             while time.monotonic() < min(deadline, refresh_at):
@@ -212,10 +227,14 @@ async def mine_registration(
                 # Check the live chain only when a solution exists. Empty
                 # batches keep hashing until the periodic challenge refresh.
                 current = await substrate.block_number()
-                if (
-                    current < work_block
-                    or current - work_block >= MAX_WORK_AGE_BLOCKS
-                    or await substrate.block_hash(work_block) != block_hash
+                if not evaluate_policy(
+                    "validation.pow.fresh",
+                    {
+                        "current": current,
+                        "work": work_block,
+                        "anchor": block_hash,
+                        "canonical": await substrate.block_hash(work_block),
+                    },
                 ):
                     break
                 for result in results:
@@ -237,8 +256,9 @@ async def mine_registration(
                             )
                         )
                         difficulty = effective_difficulty(*bounds)
-                        target = ((1 << 256) - 1) // difficulty
-                        if int.from_bytes(bytes.fromhex(work_hex), "little") > target:
+                        if not evaluate_policy(
+                            "validation.pow.target", {"work": work_hex, "difficulty": difficulty}
+                        ):
                             break
                         if time.monotonic() >= deadline:
                             raise TimeoutError(

@@ -12,8 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .._generated import calls
-from ._money import UNBOUNDED, Spend
 from .base import Intent
 from .registry import register
 
@@ -59,20 +57,18 @@ class RegisterLeasedNetwork(Intent):
             raise ValueError(f"emissions_share must be a percent 0-100, got {self.emissions_share}")
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.register_leased_network(
-                emissions_share=self.emissions_share, end_block=self.end_block
-            )
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         horizon = f"until block {self.end_block}" if self.end_block is not None else "perpetual"
         return f"register leased subnet ({self.emissions_share}% to contributors, {horizon})"
 
-    def spend(self) -> Spend:
-        # Lock cost is drawn from crowdloan funds with a leftover charged to the
-        # beneficiary; not cheaply boundable, so a spend cap must block it.
-        return UNBOUNDED
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -102,9 +98,10 @@ class TerminateLease(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(
-            calls.SubtensorModule.terminate_lease(lease_id=self.lease_id, hotkey=hotkey)
+        from ._shared import simple_call
+
+        return await simple_call(
+            self, substrate, hotkey=self.hotkey_address(wallet, self.hotkey_ss58)
         )
 
     def summary(self) -> str:

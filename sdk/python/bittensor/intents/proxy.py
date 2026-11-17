@@ -13,49 +13,26 @@ from enum import Enum
 from typing import Any, Optional
 
 from .._generated import calls
+from .._policy import evaluate_policy
+from .._policy_catalog import POLICY_CATALOG
 from .base import BuiltCall, Intent
 from .registry import build as build_intent
 from .registry import register
 
 # Variants of the runtime's ProxyType enum (subtensor/common/src/lib.rs).
-PROXY_TYPES = (
-    "Any",
-    "Owner",
-    "NonCritical",
-    "NonTransfer",
-    "Senate",
-    "NonFungible",
-    "Triumvirate",
-    "Governance",
-    "Staking",
-    "Registration",
-    "Transfer",
-    "SmallTransfer",
-    "RootWeights",
-    "ChildKeys",
-    "SudoUncheckedSetCode",
-    "SwapHotkey",
-    "SubnetLeaseBeneficiary",
-    "RootClaim",
-    "BasketTrading",
-    "Validate",
-    "Weights",
-    "Lock",
-    "GammaSpend",
-)
+PROXY_TYPES = tuple(POLICY_CATALOG["transaction"]["proxy_types"])
 
 
-# CLI-facing choice type: Typer/Click render the variants in --help and shell
-# completion. str-mixed so members compare and format as the plain variant name.
 ProxyTypeChoice = Enum("ProxyTypeChoice", [(name, name) for name in PROXY_TYPES], type=str)
 
 
 def check_proxy_type(proxy_type: str) -> str:
-    if proxy_type not in PROXY_TYPES:
+    try:
+        return evaluate_policy("transaction.proxy_type", {"proxy_type": proxy_type})
+    except ValueError as error:
         raise ValueError(
             f"unknown proxy type {proxy_type!r}; expected one of: {', '.join(PROXY_TYPES)}"
-        )
-    return proxy_type
+        ) from error
 
 
 # Proxy types whose calls are hotkey-signed (weights, serving, commitments, EVM
@@ -66,7 +43,11 @@ HOTKEY_PROXY_TYPES = ("Validate", "Weights")
 
 def proxy_grant_signer(proxy_type: str) -> str:
     """Key that signs add/remove for ``proxy_type``: the hotkey for hotkey-scoped types."""
-    return "hotkey" if proxy_type in HOTKEY_PROXY_TYPES else "coldkey"
+    from .._policy import evaluate_policy
+
+    return evaluate_policy(
+        "transaction.intent_metadata", {"op": "add_proxy", "args": {"proxy_type": proxy_type}}
+    )["signer"]
 
 
 PROXY_TYPE_HELP = (
@@ -123,20 +104,20 @@ class AddProxy(Intent):
     def __post_init__(self):
         check_proxy_type(self.proxy_type)
         # Instance attribute shadowing the ClassVar default.
-        self.signer = (
-            proxy_grant_signer(self.proxy_type)
-            if self.from_hotkey is None
-            else "hotkey"
-            if self.from_hotkey
-            else "coldkey"
-        )
+        from .._policy import evaluate_policy
+
+        self.signer = evaluate_policy(
+            "transaction.intent_metadata",
+            {
+                "op": self.op,
+                "args": {"proxy_type": self.proxy_type, "from_hotkey": self.from_hotkey},
+            },
+        )["signer"]
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Proxy.add_proxy(
-                delegate=self.delegate_ss58, proxy_type=self.proxy_type, delay=self.delay
-            )
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"add {self.proxy_type} proxy {self.delegate_ss58} (delay {self.delay})"
@@ -188,11 +169,9 @@ class RemoveProxy(Intent):
         self.signer = proxy_grant_signer(self.proxy_type)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Proxy.remove_proxy(
-                delegate=self.delegate_ss58, proxy_type=self.proxy_type, delay=self.delay
-            )
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"remove {self.proxy_type} proxy {self.delegate_ss58} (delay {self.delay})"
@@ -225,7 +204,9 @@ class RemoveProxies(Intent):
         self.signer = "hotkey" if self.from_hotkey else "coldkey"
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.Proxy.remove_proxies())
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"remove ALL proxies for the {self.signer}"
@@ -277,22 +258,28 @@ class CreatePureProxy(Intent):
         return True
 
     async def build(self, substrate, wallet: Any):
-        from ..account_mode import validate_account_mode, warn_legacy_mldsa
+        from ..account_mode import warn_legacy_mldsa
         from ..hashed import is_pq_required, quote_hashed_registration_deposit
         from ..signing import public_view
-        from ..sp_core import is_stateless_pq
 
         payer = self.coldkey_address(wallet)
-        mode = self.account_mode or getattr(wallet, "account_mode", None)
-        if mode is None and is_stateless_pq(public_view(wallet, "coldkey")):
-            mode = "safe"
-        if mode is not None:
-            validate_account_mode(mode)
+        from .._policy import evaluate_policy
+
+        selected = evaluate_policy(
+            "transaction.pure_proxy",
+            {
+                "op": self.op,
+                "mode": self.account_mode or getattr(wallet, "account_mode", None),
+                "crypto_type": public_view(wallet, "coldkey").crypto_type,
+                "index": self.index,
+            },
+        )
+        mode = selected["mode"]
         if mode == "safe":
             call = await substrate.compose(
                 calls.Call(
                     "Proxy",
-                    "create_safe_pure",
+                    selected["call"],
                     {"proxy_type": self.proxy_type, "delay": self.delay, "index": self.index},
                 )
             )
@@ -302,7 +289,10 @@ class CreatePureProxy(Intent):
         call = await substrate.compose(
             calls.Call(
                 "Proxy",
-                "create_protected_pure" if protected else "create_pure",
+                evaluate_policy(
+                    "transaction.pure_proxy",
+                    {"op": self.op, "mode": mode, "index": self.index, "pq_required": protected},
+                )["call"],
                 {"proxy_type": self.proxy_type, "delay": self.delay, "index": self.index},
             )
         )
@@ -373,11 +363,13 @@ class KillPureProxy(Intent):
         check_proxy_type(self.proxy_type)
 
     async def build(self, substrate, wallet: Any):
-        from ..account_mode import validate_account_mode
 
-        function = (
-            "kill_safe_pure" if validate_account_mode(self.account_mode) == "safe" else "kill_pure"
-        )
+        from .._policy import evaluate_policy
+
+        function = evaluate_policy(
+            "transaction.pure_proxy",
+            {"op": self.op, "mode": self.account_mode, "index": self.index},
+        )["call"]
         return await substrate.compose(
             calls.Call(
                 "Proxy",
@@ -423,9 +415,9 @@ class AnnounceProxyCall(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Proxy.announce(real=self.real_ss58, call_hash=self.call_hash)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         short = _short_hash(self.call_hash)
@@ -460,9 +452,9 @@ class RemoveProxyAnnouncement(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Proxy.remove_announcement(real=self.real_ss58, call_hash=self.call_hash)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         short = _short_hash(self.call_hash)
@@ -490,9 +482,9 @@ class RejectProxyAnnouncement(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Proxy.reject_announcement(delegate=self.delegate_ss58, call_hash=self.call_hash)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         short = _short_hash(self.call_hash)
@@ -525,22 +517,19 @@ def _announced_mev_policy(intent: Intent) -> tuple[bool, bool]:
     return default, required
 
 
-async def _announced_call_requires_direct(substrate, call: Any) -> bool:
-    """Detect an inner atomic batch without rebuilding its committed payload.
+async def _announced_decoded_call(substrate, call: Any):
+    """Hydrate nested SCALE calls before applying shared replay policy."""
+    from ..fee_filters import _call_dict
+    from ..proxy_announcements import normalize_call_semantics
 
-    An enclosing batch_all filters nested batch_all through Proxy dispatch.
-    Proxy consumes the announcement and reports the inner failure as an event,
-    so that failure does not roll back later outer-batch calls. Inspect nested
-    dispatch wrappers conservatively, including wrappers that reset the origin.
-    Unknown payloads remain directly replayable, but cannot be safely batched.
-    """
-    from ..fee_filters import _arg_value, _call_dict
-    from ..shielding import _SINGLE_CALL_WRAPPERS
-
-    async def contains_atomic_batch(value):
+    async def hydrate(value, depth=0):
+        if depth > 64:
+            raise ValueError("announced call nesting exceeds 64")
         decoded = _call_dict(value)
-        if decoded is None and isinstance(value, dict) and len(value) == 1:
-            module, variants = next(iter(value.items()))
+        if decoded is None:
+            decoded = value
+        if isinstance(decoded, dict) and len(decoded) == 1 and "call_module" not in decoded:
+            module, variants = next(iter(decoded.items()))
             if isinstance(variants, dict) and len(variants) == 1:
                 function, params = next(iter(variants.items()))
                 if isinstance(params, dict):
@@ -549,40 +538,37 @@ async def _announced_call_requires_direct(substrate, call: Any) -> bool:
                         "call_function": function,
                         "call_args": [{"name": key, "value": item} for key, item in params.items()],
                     }
-        if decoded is None:
+        if not isinstance(decoded, dict):
             data = getattr(value, "data", value)
             if not isinstance(data, (bytes, bytearray, str)):
                 raise ValueError("announced RuntimeCall cannot be inspected")
             decoded = await substrate.decode_scale("Call", data)
-        if not isinstance(decoded, dict):
-            raise ValueError("announced RuntimeCall did not decode to a call")
-        pair = (decoded.get("call_module"), decoded.get("call_function"))
-        if not all(isinstance(part, str) and part for part in pair):
-            raise ValueError("announced RuntimeCall has no call identity")
-        if pair in {("Utility", "batch_all"), ("Crowdloan", "finalize")}:
-            # Finalize dispatches a preimage-stored RuntimeCall with inherited
-            # filters. Its encoded ID cannot prove that call is free of batches.
-            return True
-        if pair in _SINGLE_CALL_WRAPPERS:
-            children = [_arg_value(decoded, "call")]
-        elif pair == ("Utility", "if_else"):
-            children = [_arg_value(decoded, "main"), _arg_value(decoded, "fallback")]
-        elif pair[0] == "Utility" and pair[1] in {"batch", "force_batch"}:
-            children = _arg_value(decoded, "calls")
-            if not isinstance(children, (list, tuple)):
-                raise ValueError("announced batch has no inspectable calls")
-        else:
-            return False
-        for child in children:
-            if child is None or await contains_atomic_batch(child):
-                return True
-        return False
+        # Call-bearing fields are decoder data adaptation, not routing policy.
+        if isinstance(decoded, dict) and isinstance(decoded.get("call_args"), list):
+            decoded = dict(decoded)
+            args = []
+            for arg in decoded["call_args"]:
+                arg = dict(arg)
+                if arg.get("name") in ("call", "main", "fallback") and arg.get("value") is not None:
+                    arg["value"] = await hydrate(arg["value"], depth + 1)
+                elif arg.get("name") == "calls" and isinstance(arg.get("value"), (list, tuple)):
+                    arg["value"] = [await hydrate(child, depth + 1) for child in arg["value"]]
+                args.append(arg)
+            decoded["call_args"] = args
+        return normalize_call_semantics(decoded)
+
+    return await hydrate(call)
+
+
+async def _announced_call_requires_direct(substrate, call: Any) -> bool:
+    """Hydrate SCALE at the I/O boundary; shared core chooses safe replay routing."""
+    from .._policy import evaluate_policy
 
     try:
-        return await contains_atomic_batch(call)
+        return evaluate_policy(
+            "protected.requires_direct", {"call": await _announced_decoded_call(substrate, call)}
+        )
     except Exception:
-        # Metadata may be unavailable for older saved payloads. Never turn an
-        # inspection failure into permission to nest an opaque call in Batch.
         return True
 
 
@@ -683,6 +669,26 @@ class ExecuteProxyAnnounced(Intent):
                     "saved call bytes do not match the selected announcement hash "
                     f"({actual} != {self.expected_call_hash})"
                 )
+            from .._policy import evaluate_policy
+
+            try:
+                decoded = await substrate.decode_scale("Call", data)
+                inspected = await _announced_decoded_call(substrate, decoded)
+                registrations = evaluate_policy(
+                    "financial.registration.committed_calls",
+                    {"call": inspected, "payer": await account_for_read(substrate, self.real_ss58)},
+                )
+            except Exception as error:
+                raise ValueError(
+                    "saved call cannot be inspected for registration; cancel and prepare again"
+                ) from error
+            if registrations:
+                # Ordinary nested composition applies this same restriction.
+                # Saved bytes must not bypass it by omitting sponsorship extras.
+                raise ValueError(
+                    "register the hashed recipient first using a direct sponsor wallet; "
+                    "initial registration cannot be wrapped in announced proxy"
+                )
             if self.announced_spec_version is not None and spec != self.announced_spec_version:
                 if self.announced_call_semantics is None:
                     raise ValueError(
@@ -691,14 +697,23 @@ class ExecuteProxyAnnounced(Intent):
                     )
                 from ..proxy_announcements import normalize_call_semantics
 
-                current_semantics = normalize_call_semantics(
-                    await substrate.decode_scale("Call", data)
-                )
+                current_semantics = normalize_call_semantics(decoded)
                 if current_semantics != self.announced_call_semantics:
                     raise ValueError(
                         "runtime metadata now decodes the announced bytes differently; "
                         "cancel and re-announce the operation"
                     )
+            from .._saved_call import bind_saved_intent
+
+            origin = _OriginView(await account_for_read(substrate, self.real_ss58), wallet=wallet)
+            extras = await bind_saved_intent(
+                substrate,
+                build_intent(self.inner_op, self.inner_args),
+                origin,
+                inspected,
+                data,
+                wrapper="announced proxy",
+            )
         else:
             origin = _OriginView(await account_for_read(substrate, self.real_ss58))
             origin._wallet = getattr(wallet, "_wallet", wallet)

@@ -27,7 +27,7 @@ from typing import ClassVar, Optional
 
 from . import metagraph as metagraph_module
 from .balance import Balance
-from .metagraph import Metagraph, NeuronCommitment
+from .metagraph import CommitmentEncoding, Metagraph, NeuronCommitment
 from .reads import accounts as _accounts
 from .reads import neurons as _neurons
 from .reads import staking as _staking
@@ -169,7 +169,12 @@ class Subnets(_ReadNamespace):
         return await _subnets.commit_reveal_enabled(await _scoped(self._view, block), netuid)
 
     async def metagraph(
-        self, netuid: int, block: Optional[int] = None, *, commitments: bool = True
+        self,
+        netuid: int,
+        block: Optional[int] = None,
+        *,
+        commitments: bool = True,
+        revealed_encoding: CommitmentEncoding = "raw",
     ) -> Optional[Metagraph]:
         """The typed metagraph for a subnet, or None when it does not exist.
 
@@ -177,13 +182,22 @@ class Subnets(_ReadNamespace):
         ``commitments=False``) its on-chain commitment with timelock/decryption
         status. See :class:`Metagraph`. (This shadows the registry's raw
         ``metagraph`` read, which stays reachable via ``client.read("metagraph")``.)
+        Set ``revealed_encoding="scale"`` only for known legacy SCALE payloads;
+        the default preserves raw revealed plaintext.
         """
         return await metagraph_module.fetch(
-            await _scoped(self._view, block), netuid, commitments=commitments
+            await _scoped(self._view, block),
+            netuid,
+            commitments=commitments,
+            revealed_encoding=revealed_encoding,
         )
 
     async def commitments(
-        self, netuid: int, block: Optional[int] = None
+        self,
+        netuid: int,
+        block: Optional[int] = None,
+        *,
+        revealed_encoding: CommitmentEncoding = "raw",
     ) -> dict[str, NeuronCommitment]:
         """Every commitment on a subnet, keyed by hotkey, newest first.
 
@@ -193,8 +207,12 @@ class Subnets(_ReadNamespace):
         ``.age_blocks``), and its reveal state (``.is_revealed`` / ``.status``
         / ``.reveals_at``), plus the chain-decrypted history (``.revealed``).
         Much cheaper than ``metagraph()`` when commitments are all you need.
+        Set ``revealed_encoding="scale"`` only for known legacy SCALE payloads;
+        the default preserves raw revealed plaintext.
         """
-        return await metagraph_module.fetch_commitments(await _scoped(self._view, block), netuid)
+        return await metagraph_module.fetch_commitments(
+            await _scoped(self._view, block), netuid, revealed_encoding=revealed_encoding
+        )
 
     async def info(self, netuid: int, block: Optional[int] = None) -> SubnetInfo:
         """Tempo, burn, and neuron count for one subnet (the three reads run concurrently)."""

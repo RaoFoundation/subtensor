@@ -45,13 +45,15 @@ from typing import Optional, Union
 # ty cannot see into the compiled extension, so named imports fail its check.
 import bittensor_core as _core
 
+from ._policy import evaluate_policy
 from .result import BittensorError
 
 # Drand quicknet chain parameters (chain hash
 # 52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971): round 1 was
 # published at the genesis timestamp and a new round appears every period.
-QUICKNET_GENESIS = 1_692_803_367
-QUICKNET_PERIOD = 3
+_POLICY_CONSTANTS = evaluate_policy("validation.constants", {})
+QUICKNET_GENESIS = _POLICY_CONSTANTS["QUICKNET_GENESIS"]
+QUICKNET_PERIOD = _POLICY_CONSTANTS["QUICKNET_PERIOD"]
 
 # The ciphertext ends with this marker followed by the reveal round as a
 # little-endian u64, so the round never has to be carried separately.
@@ -154,28 +156,23 @@ def _parse_when(value: WhenLike) -> float:
 
 def current_round(at: Optional[float] = None) -> int:
     """The latest published beacon round (computed locally, no network)."""
-    now = time.time() if at is None else at
-    return max(1, int((now - QUICKNET_GENESIS) // QUICKNET_PERIOD) + 1)
+    return int(
+        evaluate_policy(
+            "validation.timelock.round", {"at": time.time() if at is None else at, "ceil": False}
+        )
+    )
 
 
 def round_at(when: WhenLike) -> int:
-    """The first beacon round published at or after ``when``.
-
-    Data encrypted to this round becomes decryptable at that moment (never
-    before, at most 3 seconds after).
-    """
-    ts = _parse_when(when)
-    elapsed = ts - QUICKNET_GENESIS
-    if elapsed <= 0:
-        return 1
-    # Round r is published at genesis + (r - 1) * period.
-    return -(-int(elapsed * 1000) // (QUICKNET_PERIOD * 1000)) + 1
+    """First beacon published at or after the requested moment."""
+    return int(
+        evaluate_policy("validation.timelock.round", {"at": _parse_when(when), "ceil": True})
+    )
 
 
 def reveal_time(reveal_round: int) -> datetime:
-    """The UTC moment a beacon round is published (when decryption unlocks)."""
-    ts = QUICKNET_GENESIS + (reveal_round - 1) * QUICKNET_PERIOD
-    return datetime.fromtimestamp(ts, tz=timezone.utc)
+    seconds = int(evaluate_policy("validation.timelock.time", {"round": reveal_round}))
+    return datetime.fromtimestamp(seconds, tz=timezone.utc)
 
 
 @dataclass(frozen=True)

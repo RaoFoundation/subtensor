@@ -6,6 +6,7 @@ from typing import Optional
 
 from .._generated import runtime_apis as api
 from .._generated import storage as st
+from .._policy import evaluate_policy
 from ..balance import Balance
 from ..intents._money import gamma_from_units
 from ..result import chain_error_from_dispatch
@@ -131,8 +132,9 @@ async def tao_usd_price(view) -> dict:
 
 
 def _accepted_price(state: dict, blocks: int) -> int:
-    """The accepted price `blocks` after its feed: raised by `TAO_USD_PRICE_MAX_STEP` of
-    itself, rounded up, per block, up to the feed, as the chain's `tao_usd_price_at`."""
-    accepted = int(state["accepted"])
-    step = -(-accepted * TAO_USD_PRICE_MAX_STEP // 10**9)
-    return min(int(state["feed"]), accepted + step * blocks)
+    return int(
+        evaluate_policy(
+            "financial.reads.gamma_price",
+            {"accepted": int(state["accepted"]), "feed": int(state["feed"]), "blocks": blocks},
+        )
+    )

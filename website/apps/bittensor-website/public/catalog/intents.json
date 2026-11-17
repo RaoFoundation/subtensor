@@ -2374,6 +2374,18 @@
         "timepoint": {
           "type": "object",
           "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Omit on the first approval; required on every later one (read it with the multisig query)."
+        },
+        "call_data": {
+          "type": "string",
+          "description": "Original prepared SCALE call bytes from multisig_call_data; reuse for every later approval."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Original prepared call hash; reject any change before signing."
+        },
+        "call_spec_version": {
+          "type": "integer",
+          "description": "Runtime spec version used to prepare the original call bytes."
         }
       },
       "required": [
@@ -2390,7 +2402,7 @@
   {
     "name": "multisig_cancel",
     "summary": "Cancel an ongoing multisig operation (only the original depositor may).",
-    "description": "Cancel an ongoing multisig operation (only the original depositor may).\n\nAbandons a pending operation before it collects enough approvals: the\nstored approvals are discarded and the deposit reserved at opening is\nreturned. Only the signatory who opened the operation (and paid the\ndeposit) may cancel it. The threshold, signatory set, call, and opening\n`timepoint` must all match the pending operation exactly.",
+    "description": "Cancel an ongoing multisig operation (only the original depositor may).\n\nAbandons a pending operation before it collects enough approvals: the\nstored approvals are discarded and the deposit reserved at opening is\nreturned. Only the signatory who opened the operation (and paid the\ndeposit) may cancel it. The threshold, signatory set, original call hash,\nand opening `timepoint` must all match the pending operation exactly.\nThe original `call` is retained for display, never rebuilt. Pass its\ncommitted `call_hash` or let the SDK find it by the opening timepoint.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2416,28 +2428,31 @@
           "type": "array",
           "description": "The other members of the multisig (every signatory except the signer), as a JSON list of addresses. The same set must be given on every approval; order does not matter (sorted automatically)."
         },
+        "timepoint": {
+          "type": "object",
+          "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Required \u2014 it identifies which pending operation to cancel."
+        },
         "call": {
           "type": "object",
-          "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call \u2014 it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
+          "description": "Original intent, retained for display only; never rebuilt to cancel."
         },
         "account_mode": {
           "type": "string",
           "description": "Account derivation mode: legacy or safe; must match every approval."
         },
-        "timepoint": {
-          "type": "object",
-          "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Required \u2014 it identifies which pending operation to cancel."
+        "call_hash": {
+          "type": "string",
+          "description": "Original committed 32-byte call hash as 0x-prefixed hex. When omitted, find the pending operation by its opening timepoint; never rebuild the inner call."
         }
       },
       "required": [
         "threshold",
         "other_signatories",
-        "call",
         "timepoint"
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx multisig-cancel --threshold <int> --other-signatories <a,b,c> --call '<json>' --timepoint '<json>'",
+    "cli": "btcli tx multisig-cancel --threshold <int> --other-signatories <a,b,c> --timepoint '<json>'",
     "python_class": "MultisigCancel",
     "markdown_url": "/llms.mdx/docs/tx/multisig-cancel/content.md"
   },
@@ -2481,6 +2496,18 @@
         "timepoint": {
           "type": "object",
           "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Omit on the first approval; required on every later one (read it with the multisig query)."
+        },
+        "call_data": {
+          "type": "string",
+          "description": "Original prepared SCALE call bytes from multisig_call_data; reuse for every later approval."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Original prepared call hash; reject any change before signing."
+        },
+        "call_spec_version": {
+          "type": "integer",
+          "description": "Runtime spec version used to prepare the original call bytes."
         }
       },
       "required": [

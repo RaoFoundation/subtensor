@@ -10,10 +10,11 @@ from typing import Any, ClassVar, Optional
 from .._generated import calls
 from .._generated import storage as st
 from .._generated.runtime_apis import GammaRuntimeApi, StakeInfoRuntimeApi
+from .._policy import evaluate_policy
 from ..balance import Balance
 from ..hyperparams import U64_MAX
 from ..result import BittensorError, chain_error_from_dispatch
-from ..signing import coerce_address
+from ..signing import coerce_address, is_address_param
 from ..sp_core import ss58_decode
 from ._money import (
     ALL,
@@ -62,11 +63,15 @@ async def _quote(substrate, method: tuple, netuid: int, amount: int) -> tuple[in
     quote = await substrate.runtime_call(*method, [netuid, amount])
     if "Err" in quote:
         raise chain_error_from_dispatch(quote["Err"])
-    return tuple(int(part) for part in quote["Ok"])
+    return tuple(
+        int(part) for part in evaluate_policy("financial.gamma.quote", {"value": quote["Ok"]})
+    )
 
 
 def _min_out(gamma: int, tolerance: float) -> int:
-    return int(gamma * (1 - tolerance))
+    return int(
+        evaluate_policy("financial.gamma.minimum", {"quoted": gamma, "tolerance": tolerance})
+    )
 
 
 def _daily_spend_cap(value: Optional[Money]) -> Optional[Money]:
@@ -79,15 +84,10 @@ def _cap_units(value: Optional[Money]) -> Optional[int]:
 
 def _reference(value: Optional[str]) -> str:
     """A spend entry's reference as 0x-hex: 32 bytes, all zero when none is given."""
-    if value is None:
-        return "0x" + "00" * 32
     try:
-        raw = bytes.fromhex(str(value).removeprefix("0x"))
-    except ValueError:
-        raw = b""
-    if len(raw) != 32:
-        raise BittensorError(f"a spend reference is 32 bytes as hex, not {value!r}")
-    return "0x" + raw.hex()
+        return evaluate_policy("financial.gamma.reference", {"value": value})
+    except (TypeError, ValueError) as error:
+        raise BittensorError(str(error)) from error
 
 
 async def _deposit(substrate, netuid: int, hotkey_ss58: str) -> Optional[dict]:
@@ -97,17 +97,24 @@ async def _deposit(substrate, netuid: int, hotkey_ss58: str) -> Optional[dict]:
 async def _new_deposit_blocks(substrate, hotkey_ss58: str, signer: str) -> list[str]:
     """Match runtime Owner.try_get: a stored zero account is still an owner."""
     block_hash = await substrate.block_hash()
-    if not await substrate.storage_exists(
+    exists = await substrate.storage_exists(
         *st.SubtensorModule.Owner, [hotkey_ss58], block_hash=block_hash
-    ):
-        return []
-    owner = await substrate.query(*st.SubtensorModule.Owner, [hotkey_ss58], block_hash=block_hash)
-    if bytes(ss58_decode(str(owner))) != bytes(ss58_decode(signer)):
-        return [
-            f"the hotkey {hotkey_ss58} belongs to another coldkey; "
-            "use your own or an unassociated hotkey"
-        ]
-    return []
+    )
+    owner = (
+        await substrate.query(*st.SubtensorModule.Owner, [hotkey_ss58], block_hash=block_hash)
+        if exists
+        else None
+    )
+    return evaluate_policy(
+        "financial.gamma.new_deposit",
+        {
+            "hotkey": hotkey_ss58,
+            "signer": signer,
+            "owner_exists": exists,
+            "owned": owner is not None
+            and bytes(ss58_decode(str(owner))) == bytes(ss58_decode(signer)),
+        },
+    )
 
 
 async def _service_spender(substrate, netuid: int, hotkey_ss58: str) -> str:
@@ -126,17 +133,33 @@ async def _named_spender(intent, substrate) -> Optional[str]:
 
 
 def _check_spender_or_service(intent) -> None:
-    if intent.spender_ss58 is not None and intent.service_hotkey_ss58 is not None:
-        raise BittensorError(f"{intent.op}: name a spender or a service, not both")
+    try:
+        evaluate_policy(
+            "financial.gamma.arguments",
+            {
+                "op": intent.op,
+                "args": _address_arguments(
+                    {
+                        "spender_ss58": intent.spender_ss58,
+                        "service_hotkey_ss58": intent.service_hotkey_ss58,
+                    }
+                ),
+            },
+        )
+    except (TypeError, ValueError) as error:
+        raise BittensorError(str(error)) from error
 
 
 def _own_deposit_blocks(deposit: Optional[dict], signer: str, hotkey_ss58: str) -> list[str]:
     """What stops the signer acting on the deposit at ``hotkey_ss58`` as its owner."""
-    if deposit is None:
-        return [f"there is no gamma deposit at {hotkey_ss58} on this subnet"]
-    if str(deposit["coldkey"]) != signer:
-        return [f"the gamma deposit at {hotkey_ss58} belongs to another coldkey"]
-    return []
+    return evaluate_policy(
+        "financial.gamma.own_deposit",
+        {
+            "hotkey": hotkey_ss58,
+            "exists": deposit is not None,
+            "owned": deposit is not None and str(deposit["coldkey"]) == signer,
+        },
+    )
 
 
 def _gamma_text(units: int) -> str:
@@ -162,18 +185,31 @@ async def _mint_preflight(
     deposit = await _deposit(substrate, intent.netuid, intent.hotkey_ss58)
     named = await _named_spender(intent, substrate)
     cap = _cap_units(intent.daily_spend_cap_gamma)
-    if deposit is not None and str(deposit["coldkey"]) != signer:
+    flags = evaluate_policy(
+        "financial.gamma.mint_flags",
+        {
+            "exists": deposit is not None,
+            "owned": deposit is not None and str(deposit["coldkey"]) == signer,
+            "spender_named": named is not None,
+            "same_spender": deposit is not None and str(deposit["spender"]) == named,
+            "requested_cap": cap,
+            "existing_cap": None if deposit is None else _cap(deposit),
+            "balance": 0 if deposit is None else int(deposit["balance"]),
+            "minted": gamma,
+        },
+    )
+    if flags["wrong_owner"]:
         preview.blocks.append(
             f"the gamma deposit at {intent.hotkey_ss58} belongs to another coldkey; "
             "mint to a fresh hotkey"
         )
     elif deposit is not None:
-        if named not in (None, str(deposit["spender"])):
+        if flags["wrong_spender"]:
             preview.blocks.append(
                 f"the gamma deposit at {intent.hotkey_ss58} is spent by {deposit['spender']}; "
                 "mint without naming a spender, or set its spender first"
             )
-        if cap not in (None, _cap(deposit)):
+        if flags["wrong_cap"]:
             preview.blocks.append(
                 f"the gamma deposit at {intent.hotkey_ss58} has "
                 f"{_cap_text(_cap(deposit))}; mint without a cap, or set its cap "
@@ -335,7 +371,15 @@ class MintGammaWithStake(Intent):
 
     def _burned(self, staked: int) -> int:
         """The alpha the chain burns: at most the stake held."""
-        return staked if self.amount_alpha == ALL else min(self.amount_alpha.rao, staked)
+        return int(
+            evaluate_policy(
+                "financial.gamma.burn",
+                {
+                    "stake": staked,
+                    "amount": "all" if self.amount_alpha == ALL else self.amount_alpha.rao,
+                },
+            )["burned"]
+        )
 
     def _quote(self, substrate, alpha: int):
         return _quote(substrate, GammaRuntimeApi.sim_mint_gamma_with_stake, self.netuid, alpha)
@@ -416,11 +460,8 @@ class MoveGamma(Intent):
     amount_gamma: Money = field(metadata={"help": "Gamma moved."})
 
     def __post_init__(self):
-        if self.origin_hotkey_ss58 == self.destination_hotkey_ss58:
-            raise BittensorError("move_gamma: the origin and destination hotkeys are the same")
         self.amount_gamma = gamma_amount(self.amount_gamma, allow_all=True)
-        if self.amount_gamma != ALL and not gamma_units(self.amount_gamma):
-            raise BittensorError("move_gamma: the amount must be above 0")
+        _arguments(self)
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -438,7 +479,7 @@ class MoveGamma(Intent):
             _deposit(substrate, self.netuid, self.destination_hotkey_ss58),
         )
         blocks = _own_deposit_blocks(origin, signer_address, self.origin_hotkey_ss58)
-        if not blocks and origin and not int(origin["balance"]):
+        if not blocks and _move_flags(self, origin, destination)["empty"]:
             blocks.append(f"the gamma deposit at {self.origin_hotkey_ss58} holds no gamma")
         if destination is not None:
             blocks += _own_deposit_blocks(destination, signer_address, self.destination_hotkey_ss58)
@@ -456,16 +497,17 @@ class MoveGamma(Intent):
         if origin is None:
             return []
         warnings = []
-        if self.amount_gamma == ALL or gamma_units(self.amount_gamma) >= int(origin["balance"]):
+        flags = _move_flags(self, origin, destination)
+        if flags["closes"]:
             warnings.append("moves the entire balance, which closes the origin deposit")
         if destination is None:
             return warnings
-        if str(destination["spender"]) != str(origin["spender"]):
+        if flags["spender_changes"]:
             warnings.append(
                 f"the moved gamma becomes spendable by {destination['spender']}, the destination "
                 f"deposit's spender, instead of {origin['spender']}"
             )
-        if _cap(destination) != _cap(origin):
+        if flags["cap_changes"]:
             caps = [
                 "none" if cap is None else _gamma_text(cap)
                 for cap in (_cap(destination), _cap(origin))
@@ -512,7 +554,17 @@ class CloseGammaDeposit(Intent):
     async def blocks(self, substrate, signer_address: str) -> list[str]:
         deposit = await _deposit(substrate, self.netuid, self.hotkey_ss58)
         blocks = _own_deposit_blocks(deposit, signer_address, self.hotkey_ss58)
-        if not blocks and deposit and int(deposit["balance"]):
+        if (
+            not blocks
+            and deposit is not None
+            and evaluate_policy(
+                "financial.gamma.nonempty",
+                {
+                    "exists": deposit is not None,
+                    "balance": 0 if deposit is None else int(deposit["balance"]),
+                },
+            )
+        ):
             blocks.append(
                 f"the deposit holds {_gamma_text(int(deposit['balance']))}; move it out first, "
                 "or close it once its spender has spent it"
@@ -551,12 +603,7 @@ class SetGammaDepositSpender(Intent):
     )
 
     def __post_init__(self):
-        named = [self.spender_ss58 is not None, self.service_hotkey_ss58 is not None]
-        if sum(named) + self.default_spender != 1:
-            raise BittensorError(
-                f"{self.op}: set exactly one of spender_ss58, service_hotkey_ss58 or "
-                "default_spender"
-            )
+        _arguments(self)
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -609,11 +656,8 @@ class SetGammaDepositDailySpendCap(Intent):
     remove_cap: bool = field(default=False, metadata={"help": "Remove the cap."})
 
     def __post_init__(self):
-        if (self.daily_spend_cap_gamma is None) != self.remove_cap:
-            raise BittensorError(
-                f"{self.op}: set exactly one of daily_spend_cap_gamma or remove_cap"
-            )
         self.daily_spend_cap_gamma = _daily_spend_cap(self.daily_spend_cap_gamma)
+        _arguments(self)
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -669,25 +713,7 @@ class SpendGamma(Intent):
     )
 
     def __post_init__(self):
-        if not 1 <= len(self.spends) <= MAX_GAMMA_SPENDS:
-            raise BittensorError(f"spend_gamma takes 1 to {MAX_GAMMA_SPENDS} spends")
-        for index, spend in enumerate(self.spends):
-            if not isinstance(spend, dict) or set(spend) - {"reference"} != {
-                "hotkey_ss58",
-                "amount_gamma",
-            }:
-                raise BittensorError(
-                    f"spend_gamma: entry {index + 1} must be an object of hotkey_ss58, "
-                    f"amount_gamma and an optional reference, not {spend!r}"
-                )
-        self.spends = [
-            {
-                "hotkey_ss58": coerce_address(spend["hotkey_ss58"], "hotkey_ss58"),
-                "amount_gamma": gamma_amount(spend["amount_gamma"]),
-                "reference": _reference(spend.get("reference")),
-            }
-            for spend in self.spends
-        ]
+        self.spends = _arguments(self)["spends"]
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -708,7 +734,14 @@ class SpendGamma(Intent):
         skipped = [
             spend["hotkey_ss58"]
             for spend, deposit in zip(self.spends, deposits)
-            if deposit is None or str(deposit["spender"]) != signer_address
+            if evaluate_policy(
+                "financial.gamma.own_deposit",
+                {
+                    "hotkey": spend["hotkey_ss58"],
+                    "exists": deposit is not None,
+                    "owned": deposit is not None and str(deposit["spender"]) == signer_address,
+                },
+            )
         ]
         if not skipped:
             return []
@@ -725,3 +758,64 @@ class SpendGamma(Intent):
             f"spend {format(total.normalize(), 'f')} gamma in {len(self.spends)} "
             f"{'entry' if len(self.spends) == 1 else 'entries'} on netuid {self.netuid}"
         )
+
+
+def _address_arguments(arguments):
+    """Copy public address values across the JSON boundary, retaining caller objects."""
+    return {
+        name: coerce_address(value, name)
+        if isinstance(name, str) and is_address_param(name)
+        else value
+        for name, value in arguments.items()
+    }
+
+
+def _arguments(intent):
+    fields = _address_arguments(
+        {
+            name: getattr(intent, name)
+            for name in (
+                "origin_hotkey_ss58",
+                "destination_hotkey_ss58",
+                "amount_gamma",
+                "spender_ss58",
+                "service_hotkey_ss58",
+                "default_spender",
+                "daily_spend_cap_gamma",
+                "remove_cap",
+                "spends",
+            )
+            if hasattr(intent, name)
+        }
+    )
+    if "spends" in fields and isinstance(fields["spends"], list):
+        spends = []
+        for row in fields["spends"]:
+            if isinstance(row, dict):
+                row = _address_arguments(row)
+                if "amount_gamma" in row:
+                    row["amount_gamma"] = gamma_amount(row["amount_gamma"])
+            spends.append(row)
+        fields["spends"] = spends
+    try:
+        return evaluate_policy("financial.gamma.arguments", {"op": intent.op, "args": fields})
+    except (TypeError, ValueError) as error:
+        raise BittensorError(str(error)) from error
+
+
+def _move_flags(intent, origin, destination):
+    return evaluate_policy(
+        "financial.gamma.move_flags",
+        {
+            "origin_exists": origin is not None,
+            "destination_exists": destination is not None,
+            "balance": 0 if origin is None else int(origin["balance"]),
+            "amount": U64_MAX if intent.amount_gamma == ALL else gamma_units(intent.amount_gamma),
+            "destination_balance": 0 if destination is None else int(destination["balance"]),
+            "same_spender": origin is not None
+            and destination is not None
+            and str(origin["spender"]) == str(destination["spender"]),
+            "origin_cap": None if origin is None else _cap(origin),
+            "destination_cap": None if destination is None else _cap(destination),
+        },
+    )

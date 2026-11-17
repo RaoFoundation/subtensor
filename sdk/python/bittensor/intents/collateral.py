@@ -8,19 +8,21 @@ from functools import partial
 from typing import Any, ClassVar, Optional
 
 from .._generated import storage as st
-from .._generated.calls import Call
 from .._generated.runtime_apis import StakeInfoRuntimeApi
-from .._pinned import approved_staking_amount, compose_staking_call
+from .._pinned import approved_staking_amount
+from .._policy import evaluate_policy
 from ..result import BittensorError
 from ..signing import public_view
-from ._money import ALL, UNBOUNDED, Money, Spend, alpha_amount
+from ._money import ALL, Money, alpha_amount
+from ._shared import policy_arguments
 from .base import Intent
 from .registry import register
 from .staking import (
     DEFAULT_RATE_TOLERANCE,
     RATE_TOLERANCE_HELP,
     _check_rate_tolerance,
-    _stake_limit_price_rao,
+    _compose_policy_staking,
+    _stake_price_limit_rao,
 )
 
 
@@ -40,12 +42,17 @@ async def _free_collateral_rao(substrate, wallet: Any, hotkey_ss58: str, netuid:
     )
     stake = 0 if info is None else int(info.get("stake") or 0)
     locked = int((state or {}).get("locked") or 0)
-    rao = stake - locked
-    if rao <= 0:
+    try:
+        return int(
+            evaluate_policy(
+                "financial.staking_amount",
+                {"kind": "collateral", "amount": stake, "locked": locked},
+            )
+        )
+    except (ValueError, TypeError):
         raise BittensorError(
             f"nothing to lock as collateral: no free alpha on {hotkey_ss58} at netuid {netuid}"
-        )
-    return rao
+        ) from None
 
 
 @register
@@ -109,17 +116,15 @@ class AddCollateral(Intent):
                 rao = await _free_collateral_rao(substrate, wallet, hotkey, self.netuid)
         else:
             rao = self.amount_alpha.rao
-        return await compose_staking_call(
+        return await _compose_policy_staking(
             substrate,
-            "add_collateral",
-            dict(
-                netuid=self.netuid,
-                hotkey=hotkey,
-                alpha=rao,
-            ),
+            self.op,
+            policy_arguments(self),
+            hotkey=hotkey,
+            amount=rao,
             derived={
                 "limit_price": partial(
-                    _stake_limit_price_rao, substrate, self.netuid, 1 + self.rate_tolerance
+                    _stake_price_limit_rao, substrate, self.netuid, self.rate_tolerance, True
                 )
             },
         )
@@ -136,10 +141,10 @@ class AddCollateral(Intent):
             return ["locks every free (not already collateralized) alpha on this hotkey"]
         return []
 
-    def spend(self) -> Spend:
-        # May buy a TAO shortfall when free alpha on the hotkey is insufficient;
-        # exact spend needs a stake read, so a spend cap blocks until raised.
-        return UNBOUNDED
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -171,13 +176,10 @@ class SetMinCollateral(Intent):
         self.min_alpha = alpha_amount(self.min_alpha, self.netuid)
 
     async def build(self, substrate, wallet: Any):
-        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(
-            Call(
-                "SubtensorModule",
-                "set_min_collateral",
-                {"netuid": self.netuid, "hotkey": hotkey, "min_locked": self.min_alpha.rao},
-            )
+        from ._shared import simple_call
+
+        return await simple_call(
+            self, substrate, hotkey=self.hotkey_address(wallet, self.hotkey_ss58)
         )
 
     def summary(self) -> str:

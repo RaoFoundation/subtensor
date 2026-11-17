@@ -10,6 +10,7 @@ from typing import Any, Optional
 # regenerated against spec >= 435.
 from .._generated import storage as st
 from .._generated.storage import Item
+from .._policy import evaluate_policy
 from .base import read
 
 _MINER_COLLATERAL = Item("SubtensorModule", "MinerCollateral", "MinerCollateralState")
@@ -32,12 +33,13 @@ def _collateral_record(view, netuid: int, hotkey: str, coldkey: str, state: Any)
     locked = int(state.get("locked") or 0)
     min_locked = int(state.get("min_locked") or 0)
     earned = int(state.get("earned") or 0)
-    drain_ratio = _fixed_to_float(state.get("drain_ratio"))
-    # Derived terms: headroom is the portion actively draining (locked above
-    # the floor); shortfall is capture in progress (floor above the lock);
-    # releasable work is the incentive still needed to release the headroom.
-    headroom = max(locked - min_locked, 0)
-    shortfall = max(min_locked - locked, 0)
+    drain = state.get("drain_ratio")
+    bits = int((drain.get("bits") if isinstance(drain, dict) else drain) or 0)
+    derived = evaluate_policy(
+        "financial.reads.collateral", {"locked": locked, "floor": min_locked, "drain_bits": bits}
+    )
+    drain_ratio = derived["drain_ratio"]
+    headroom, shortfall = int(derived["headroom"]), int(derived["shortfall"])
     return {
         "hotkey": hotkey,
         "coldkey": coldkey,
@@ -48,9 +50,7 @@ def _collateral_record(view, netuid: int, hotkey: str, coldkey: str, state: Any)
         "drain_ratio": drain_ratio,
         "headroom_alpha": view.balance(headroom, netuid),
         "shortfall_alpha": view.balance(shortfall, netuid),
-        "releasable_work_alpha": view.balance(
-            int(headroom / drain_ratio) if drain_ratio > 0 else 0, netuid
-        ),
+        "releasable_work_alpha": view.balance(int(derived["legacy_float_work"]), netuid),
     }
 
 

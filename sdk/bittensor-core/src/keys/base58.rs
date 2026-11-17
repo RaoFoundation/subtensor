@@ -79,6 +79,37 @@ pub fn base58_encode(input: &[u8]) -> String {
     out
 }
 
+fn alphabet_index(byte: u8) -> Option<u8> {
+    ALPHABET
+        .iter()
+        .position(|&item| item == byte)
+        .map(|index| index as u8)
+}
+
+/// Base58-decode `input` (bitcoin alphabet).
+pub fn base58_decode(input: &str) -> Option<Vec<u8>> {
+    let zeros = input.bytes().take_while(|&b| b == b'1').count();
+    let mut bytes: Vec<u8> = Vec::with_capacity(input.len());
+
+    for digit in input.bytes().map(alphabet_index) {
+        let mut carry = u32::from(digit?);
+        for byte in bytes.iter_mut().rev() {
+            carry += u32::from(*byte) * 58;
+            *byte = (carry & 0xff) as u8;
+            carry >>= 8;
+        }
+        while carry > 0 {
+            bytes.insert(0, (carry & 0xff) as u8);
+            carry >>= 8;
+        }
+    }
+
+    let mut out = Vec::with_capacity(zeros + bytes.len());
+    out.resize(zeros, 0);
+    out.extend(bytes);
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -117,5 +148,25 @@ mod tests {
                 assert_eq!(base58_encode(&data), bs58::encode(&data).into_string());
             }
         }
+    }
+
+    #[test]
+    fn decode_matches_bs58_reference() {
+        let cases = [
+            "",
+            "1",
+            "111",
+            "2",
+            "z",
+            "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        ];
+        for case in cases {
+            assert_eq!(
+                base58_decode(case).unwrap(),
+                bs58::decode(case).into_vec().unwrap(),
+            );
+        }
+        assert!(base58_decode("0").is_none());
+        assert!(base58_decode("O").is_none());
     }
 }

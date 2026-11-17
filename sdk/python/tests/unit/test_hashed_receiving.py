@@ -228,9 +228,13 @@ async def test_local_ss58_multisig_approval_bytes_keep_recipient_guard(setup, tm
 
     # Subsequent approval, execution, and cancellation must use the same guarded bytes.
     timepoint = {"height": 1, "index": 0}
+    account = chain.multisig_account([ALICE, BOB], 2)
+    chain.seed(
+        "Multisig", "Multisigs", [account.ss58_address, inner.call_hash], {"when": timepoint}
+    )
     for intent in (
         MultisigApprove(**kwargs, timepoint=timepoint),
-        MultisigCancel(**kwargs, timepoint=timepoint),
+        MultisigCancel(**kwargs, timepoint=timepoint, call_hash="0x" + inner.call_hash.hex()),
     ):
         call, _ = await _compose_intent_call(chain, intent, wallet)
         assert call.params["call_hash"] == inner.call_hash
@@ -1050,12 +1054,31 @@ async def test_saved_announced_call_data_composes_through_executor(setup):
     saved = "0x" + bytes(inner.data).hex()
     assert call_hash == "0x" + bytes(inner.call_hash).hex()
 
+    def decoded(call):
+        return {
+            "call_module": call.module,
+            "call_function": call.function,
+            "call_args": [
+                {
+                    "name": name,
+                    "value": [decoded(child) for child in value] if name == "calls" else value,
+                }
+                for name, value in call.params.items()
+            ],
+        }
+
+    async def decode_saved(kind, data):
+        assert kind == "Call"
+        assert bytes(data) == bytes(inner.data)
+        return decoded(inner)
+
+    chain.decode_scale = AsyncMock(side_effect=decode_saved)
     rebuilt = ExecuteProxyAnnounced(
         delegate_ss58=delegate.ss58_address,
         real_ss58=real.ss58_address,
         inner_op="transfer",
-        # Drifted args would rebuild a different call; saved bytes win.
-        inner_args=Transfer(address, 2).to_dict(),
+        # The declared amount must match the saved call.
+        inner_args=transfer.to_dict(),
         announced_call_data=saved,
     )
     assert not hasattr(rebuilt, "inner_call_data") or rebuilt.inner_call_data is None
@@ -1199,6 +1222,18 @@ async def test_batch_rejects_nested_recipient_guard_before_signing(
     if wrapper in ("threshold_1", "multisig_proxy"):
         child = MultisigThreshold1(other_signatories=[BOB], call=child.to_dict())
     elif wrapper == "multisig":
+        opening, _ = await _compose_intent_call(
+            chain,
+            MultisigExecute(threshold=2, other_signatories=[BOB], call=child.to_dict()),
+            wallet,
+        )
+        account = chain.multisig_account([ALICE, BOB], 2)
+        chain.seed(
+            "Multisig",
+            "Multisigs",
+            [account.ss58_address, opening.params["call"].call_hash],
+            {"when": {"height": 10, "index": 0}},
+        )
         child = MultisigExecute(
             threshold=2,
             other_signatories=[BOB],

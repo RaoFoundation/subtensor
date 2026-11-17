@@ -1,9 +1,9 @@
 name: Run TypeScript E2E suite
-description: Download a prebuilt node and run one or two isolated Moonwall environments.
+description: Download a prebuilt node and SDK and run one or two isolated Moonwall environments.
 
 inputs:
   binary:
-    description: Node artifact variant to download.
+    description: Node/runtime variant to download (release, fast, or their metadata-hash variants).
     required: true
   test:
     description: Moonwall environment to run.
@@ -16,11 +16,30 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Select matching node artifact
+      id: artifacts
+      shell: bash
+      env:
+        VARIANT: ${{ inputs.binary }}
+      run: |
+        case "$VARIANT" in
+          release|fast|release-metadata-hash|fast-metadata-hash) ;;
+          *) echo "Unsupported E2E node/runtime variant: $VARIANT" >&2; exit 1 ;;
+        esac
+        echo "node=${VARIANT%-metadata-hash}" >> "$GITHUB_OUTPUT"
+
     - name: Download binary
       uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       with:
-        name: node-subtensor-${{ inputs.binary }}
+        name: node-subtensor-${{ steps.artifacts.outputs.node }}
         path: target/release
+
+    - name: Download metadata-hash runtime
+      if: endsWith(inputs.binary, '-metadata-hash')
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        name: runtime-${{ inputs.binary }}
+        path: target/release/wbuild/node-subtensor-runtime
 
     # The node may come from the base commit (build-node-reusing-base.py), so
     # `dev` and `local` chains take this revision's runtime from the artifact.
@@ -32,20 +51,36 @@ runs:
         test -s "$wasm"
         echo "SUBTENSOR_LOCALNET_RUNTIME_WASM=$wasm" >> "$GITHUB_ENV"
 
+    - name: Verify metadata-hash runtime works with the shared node
+      if: endsWith(inputs.binary, '-metadata-hash')
+      shell: bash
+      run: |
+        python3 .github/scripts/verify-base-node-runtime.py \
+          --node "$PWD/target/release/node-subtensor" \
+          --wasm "$SUBTENSOR_LOCALNET_RUNTIME_WASM"
+
+    - name: Download bittensor-ts build
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        name: bittensor-ts
+        path: ${{ runner.temp }}/bittensor-ts
+
+    - name: Extract bittensor-ts build
+      shell: bash
+      run: |
+        tar -xzf "$RUNNER_TEMP/bittensor-ts/bittensor-ts-build.tar.gz" -C sdk/bittensor-ts
+        test -s sdk/bittensor-ts/dist/index.js
+        test -s sdk/bittensor-ts/native.cjs
+
     - name: Setup Node.js
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       with:
         node-version-file: ts-tests/.nvmrc
 
-    - name: Setup pnpm
-      uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      with:
-        version: 10
-
-    - name: Install e2e dependencies
+    # pnpm and all locked dependencies travel with the prepared harness.
+    - name: Use prepared package manager
       shell: bash
-      working-directory: ts-tests
-      run: pnpm install --frozen-lockfile
+      run: echo "$GITHUB_WORKSPACE/ts-tests/node_modules/.bin" >> "$GITHUB_PATH"
 
     - name: Install lsof (dev foundation RPC port discovery)
       if: inputs.test == 'dev'
@@ -62,6 +97,7 @@ runs:
       env:
         MOONWALL_TEST: ${{ inputs.test }}
         MOONWALL_ADDITIONAL_TEST: ${{ inputs.additional-test }}
+        BT_TS_METADATA_HASH: ${{ endsWith(inputs.binary, '-metadata-hash') && '1' || '0' }}
       run: |
         # The checked-in Moonwall file contains only canonical environments.
         # Generate shard environments from the data manifest in this disposable

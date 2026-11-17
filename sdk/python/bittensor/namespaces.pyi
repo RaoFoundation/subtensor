@@ -9,7 +9,7 @@ that dispatches any registry read).
 
 from typing import Any, Optional
 from .balance import Balance
-from .metagraph import Metagraph, NeuronCommitment
+from .metagraph import CommitmentEncoding, Metagraph, NeuronCommitment
 from .reads.delegation import DelegateInfo, DelegatedStake
 from .reads.identity import Commitment
 from .reads.neurons import Neuron
@@ -662,16 +662,18 @@ class Subnets(_ReadNamespace):
     async def commit_reveal_enabled(self, netuid: int, block: Optional[int] = None) -> bool:
         """Whether commit-reveal weights are enabled on a subnet."""
 
-    async def metagraph(self, netuid: int, block: Optional[int] = None, *, commitments: bool = True) -> Optional[Metagraph]:
+    async def metagraph(self, netuid: int, block: Optional[int] = None, *, commitments: bool = True, revealed_encoding: CommitmentEncoding = 'raw') -> Optional[Metagraph]:
         """The typed metagraph for a subnet, or None when it does not exist.
 
         Every neuron with stakes, scores, axon endpoint, identity, and (unless
         ``commitments=False``) its on-chain commitment with timelock/decryption
         status. See :class:`Metagraph`. (This shadows the registry's raw
         ``metagraph`` read, which stays reachable via ``client.read("metagraph")``.)
+        Set ``revealed_encoding="scale"`` only for known legacy SCALE payloads;
+        the default preserves raw revealed plaintext.
         """
 
-    async def commitments(self, netuid: int, block: Optional[int] = None) -> dict[str, NeuronCommitment]:
+    async def commitments(self, netuid: int, block: Optional[int] = None, *, revealed_encoding: CommitmentEncoding = 'raw') -> dict[str, NeuronCommitment]:
         """Every commitment on a subnet, keyed by hotkey, newest first.
 
         The bulk view a subnet owner polls: each entry carries the hotkey, its
@@ -680,6 +682,8 @@ class Subnets(_ReadNamespace):
         ``.age_blocks``), and its reveal state (``.is_revealed`` / ``.status``
         / ``.reveals_at``), plus the chain-decrypted history (``.revealed``).
         Much cheaper than ``metagraph()`` when commitments are all you need.
+        Set ``revealed_encoding="scale"`` only for known legacy SCALE payloads;
+        the default preserves raw revealed plaintext.
         """
 
     async def info(self, netuid: int, block: Optional[int] = None) -> SubnetInfo:

@@ -10,6 +10,13 @@ and a threshold; a call runs from it once ``threshold`` of them approve. The flo
   3. the final signer calls ``multisig_execute`` with the ``timepoint`` and the
      full inner call, which runs it.
 
+Persist the opening result's ``multisig_call_data``, ``multisig_call_hash``, and
+``multisig_call_spec_version``. Pass them as ``call_data``, ``call_hash``, and
+``call_spec_version`` on later approvals/execution, together with the original
+intent. These retain approved prices and amounts while checking current funding
+and recipient guards. A timepoint without saved bytes is accepted only when
+recomposition still matches its pending commitment.
+
 For a 1-of-N multisig, ``multisig_threshold_1`` dispatches immediately. The inner
 call is given as ``{"op": <intent op>, ...args}`` (like a batch child), and its
 args must be fully explicit — it dispatches as the multisig account, not the
@@ -18,6 +25,7 @@ signer's wallet.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
@@ -39,29 +47,37 @@ def _sorted_signatories(signatories: list) -> list:
     descriptors, then use canonical SS58 for derivation and SCALE encoding.
     Different address spellings must not count as additional signatories.
     """
-    accounts = {bytes(ss58_decode(parse_recipient(s).account)) for s in signatories}
-    return [ss58_encode(account, 42) for account in sorted(accounts)]
+    from .._policy import evaluate_policy
+
+    accounts = [bytes(ss58_decode(parse_recipient(s).account)) for s in signatories]
+    result = evaluate_policy(
+        "transaction.multisig_members",
+        {
+            "members": accounts,
+            "threshold": 1,
+            "minimum_threshold": 1,
+            "deduplicate": True,
+            "others_only": True,
+        },
+    )
+    return [ss58_encode(accounts[index], 42) for index in result["indices"]]
 
 
 def _validate_multisig(threshold: int, other_signatories: list, signer_ss58: str) -> None:
     """Reject parameters the chain would refuse, before composing anything."""
-    other_signatories = _sorted_signatories(other_signatories)
-    if threshold < 2:
-        raise ValueError(
-            f"multisig threshold must be at least 2, got {threshold} "
-            "(use multisig_threshold_1 for 1-of-N)"
-        )
-    if threshold > len(other_signatories) + 1:
-        raise ValueError(
-            f"multisig threshold {threshold} exceeds the signatory count "
-            f"{len(other_signatories) + 1} (signer plus other_signatories)"
-        )
-    signer_id = bytes(ss58_decode(signer_ss58))
-    if any(bytes(ss58_decode(s)) == signer_id for s in other_signatories):
-        raise ValueError(
-            "other_signatories must not include the signer's own account "
-            f"({signer_ss58}); list only the other members"
-        )
+    from .._policy import evaluate_policy
+
+    evaluate_policy(
+        "transaction.multisig_members",
+        {
+            "members": [bytes(ss58_decode(parse_recipient(s).account)) for s in other_signatories],
+            "threshold": threshold,
+            "minimum_threshold": 2,
+            "others_only": True,
+            "deduplicate": True,
+            "signer": bytes(ss58_decode(signer_ss58)),
+        },
+    )
 
 
 def _account_view(
@@ -113,6 +129,38 @@ async def _compose_inner(substrate, view: Any, spec: dict):
     )
 
 
+async def _committed_inner(substrate, view, dispatch):
+    """Retain approved dynamic inputs and verify the complete guarded call."""
+    from .._pinned import pinned_inputs
+    from .._policy import evaluate_policy
+
+    saved = bytes.fromhex(dispatch.call_data.removeprefix("0x")) if dispatch.call_data else None
+    spec = await substrate.spec_version() if dispatch.call_spec_version is not None else None
+    if spec is not None and int(spec) != int(dispatch.call_spec_version):
+        raise ValueError("runtime changed since multisig approval; verify the original call")
+    with pinned_inputs(substrate, saved) if saved is not None else contextlib.nullcontext():
+        inner, extras = await _compose_inner(substrate, view, dispatch.call)
+    if saved is not None and bytes(inner.data) != saved:
+        raise ValueError(
+            "saved multisig call_data differs from the verified intent and recipient guards"
+        )
+    pending = None
+    if dispatch.timepoint is not None:
+        pending = await substrate.query(
+            "Multisig", "Multisigs", [view.ss58_address, bytes(inner.call_hash)]
+        )
+    evaluate_policy(
+        "transaction.multisig_commitment",
+        {
+            "actual_hash": bytes(inner.call_hash),
+            "expected_hash": dispatch.call_hash,
+            "timepoint": dispatch.timepoint,
+            "pending": pending,
+        },
+    )
+    return inner, extras
+
+
 def _timepoint(value: Optional[dict]):
     """Normalize a timepoint dict to the chain's ``{height, index}`` (or None)."""
     if value is None:
@@ -139,6 +187,11 @@ def _inner_call_extras(inner) -> dict:
     return {
         "multisig_call_hash": "0x" + bytes(inner.call_hash).hex(),
         "multisig_call_data": _call_bytes_hex(inner.data),
+        **(
+            {"multisig_call_spec_version": inner.spec_version}
+            if getattr(inner, "spec_version", None) is not None
+            else {}
+        ),
     }
 
 
@@ -287,6 +340,25 @@ class MultisigExecute(Intent):
     )
     timepoint: Optional[dict] = field(default=None, metadata={"help": TIMEPOINT_HELP})
 
+    call_data: Optional[str] = field(
+        default=None,
+        kw_only=True,
+        metadata={
+            "help": "Original prepared SCALE call bytes from multisig_call_data; "
+            "reuse for every later approval."
+        },
+    )
+    call_hash: Optional[str] = field(
+        default=None,
+        kw_only=True,
+        metadata={"help": "Original prepared call hash; reject any change before signing."},
+    )
+    call_spec_version: Optional[int] = field(
+        default=None,
+        kw_only=True,
+        metadata={"help": "Runtime spec version used to prepare the original call bytes."},
+    )
+
     def requires_build_for_policy(self) -> bool:
         return build_intent(self.call["op"], self.call).requires_build_for_policy()
 
@@ -299,7 +371,7 @@ class MultisigExecute(Intent):
             wallet=wallet,
             account_mode=self.account_mode,
         )
-        inner, extras = await _compose_inner(substrate, view, self.call)
+        inner, extras = await _committed_inner(substrate, view, self)
         built = await self._build_with_inner(substrate, wallet, inner)
         return BuiltCall(built.call, merge_approval_metadata(extras, built.extras))
 
@@ -535,10 +607,29 @@ class MultisigApprove(Intent):
     )
     timepoint: Optional[dict] = field(default=None, metadata={"help": TIMEPOINT_HELP})
 
+    call_data: Optional[str] = field(
+        default=None,
+        kw_only=True,
+        metadata={
+            "help": "Original prepared SCALE call bytes from multisig_call_data; "
+            "reuse for every later approval."
+        },
+    )
+    call_hash: Optional[str] = field(
+        default=None,
+        kw_only=True,
+        metadata={"help": "Original prepared call hash; reject any change before signing."},
+    )
+    call_spec_version: Optional[int] = field(
+        default=None,
+        kw_only=True,
+        metadata={"help": "Runtime spec version used to prepare the original call bytes."},
+    )
+
     async def build(self, substrate, wallet: Any):
         _validate_multisig(self.threshold, self.other_signatories, self.coldkey_address(wallet))
         # This intent records approval without dispatching the inner call.
-        inner, _ = await _compose_inner(
+        inner, _ = await _committed_inner(
             substrate,
             _account_view(
                 substrate,
@@ -548,7 +639,7 @@ class MultisigApprove(Intent):
                 wallet=wallet,
                 account_mode=self.account_mode,
             ),
-            self.call,
+            self,
         )
         view = public_view(wallet, "coldkey")
         max_weight = await substrate.estimate_weight(inner, view)
@@ -621,15 +712,17 @@ class MultisigApprove(Intent):
 
 
 @register
-@dataclass
+@dataclass(init=False)
 class MultisigCancel(Intent):
     """Cancel an ongoing multisig operation (only the original depositor may).
 
     Abandons a pending operation before it collects enough approvals: the
     stored approvals are discarded and the deposit reserved at opening is
     returned. Only the signatory who opened the operation (and paid the
-    deposit) may cancel it. The threshold, signatory set, call, and opening
-    ``timepoint`` must all match the pending operation exactly.
+    deposit) may cancel it. The threshold, signatory set, original call hash,
+    and opening ``timepoint`` must all match the pending operation exactly.
+    The original ``call`` is retained for display, never rebuilt. Pass its
+    committed ``call_hash`` or let the SDK find it by the opening timepoint.
     """
 
     op = "multisig_cancel"
@@ -641,12 +734,6 @@ class MultisigCancel(Intent):
 
     threshold: int = field(metadata={"help": THRESHOLD_HELP})
     other_signatories: list = field(metadata={"help": OTHER_SIGNATORIES_HELP})
-    call: dict = field(metadata={"help": CALL_HELP})
-    account_mode: str = field(
-        default="legacy",
-        kw_only=True,
-        metadata={"help": "Account derivation mode: legacy or safe; must match every approval."},
-    )
     timepoint: dict = field(
         metadata={
             "help": "Block height and extrinsic index of the approval that opened the "
@@ -654,30 +741,86 @@ class MultisigCancel(Intent):
             "it identifies which pending operation to cancel."
         }
     )
+    call: Optional[dict] = field(
+        default=None,
+        metadata={"help": "Original intent, retained for display only; never rebuilt to cancel."},
+    )
+    account_mode: str = field(
+        default="legacy",
+        kw_only=True,
+        metadata={"help": "Account derivation mode: legacy or safe; must match every approval."},
+    )
+    call_hash: Optional[str] = field(
+        default=None,
+        kw_only=True,
+        metadata={
+            "help": "Original committed 32-byte call hash as 0x-prefixed hex. When omitted, "
+            "find the pending operation by its opening timepoint; never rebuild the inner call."
+        },
+    )
+
+    def __init__(
+        self,
+        threshold: int,
+        other_signatories: list,
+        call: Optional[dict] = None,
+        timepoint: Optional[dict] = None,
+        *,
+        account_mode: str = "legacy",
+        call_hash: Optional[str] = None,
+    ):
+        # Keep the original positional call/timepoint order while allowing a
+        # saved commitment to cancel without an available semantic intent.
+        if timepoint is None:
+            raise TypeError("cancel requires a timepoint")
+        self.threshold = threshold
+        self.other_signatories = other_signatories
+        self.call = call
+        self.timepoint = timepoint
+        self.account_mode = account_mode
+        self.call_hash = call_hash
 
     async def build(self, substrate, wallet: Any):
-        inner, _ = await _compose_inner(
-            substrate,
-            _account_view(
-                substrate,
-                self.coldkey_address(wallet),
-                self.threshold,
-                self.other_signatories,
-                wallet=wallet,
-                account_mode=self.account_mode,
-            ),
-            self.call,
+        from .._policy import evaluate_policy
+
+        signer = self.coldkey_address(wallet)
+        _validate_multisig(self.threshold, self.other_signatories, signer)
+        others = _sorted_signatories(self.other_signatories)
+        warn_legacy_mldsa(self.account_mode, public_view(wallet, "coldkey"))
+        account = substrate.multisig_account(
+            [signer, *others], self.threshold, account_mode=self.account_mode
+        )
+        pending = None
+        if self.call_hash is None:
+            rows = await substrate.query_map("Multisig", "Multisigs", [account.ss58_address])
+            entries = [row async for row in rows] if hasattr(rows, "__aiter__") else list(rows)
+            pending = [
+                {
+                    "call_hash": key[0]
+                    if isinstance(key, (list, tuple)) and len(key) == 1
+                    else key,
+                    "timepoint": value["when"],
+                }
+                for key, value in entries
+            ]
+        committed = evaluate_policy(
+            "transaction.multisig_cancel",
+            {"call_hash": self.call_hash, "timepoint": self.timepoint, "pending": pending},
         )
         return await substrate.compose(
             multisig_call(
                 "cancel_as_multi",
                 account_mode=self.account_mode,
                 threshold=self.threshold,
-                other_signatories=_sorted_signatories(self.other_signatories),
-                timepoint=_timepoint(self.timepoint),
-                call_hash=inner.call_hash,
+                other_signatories=others,
+                timepoint=committed["timepoint"],
+                call_hash=bytes.fromhex(committed["call_hash"][2:]),
             )
         )
 
     def summary(self) -> str:
-        return f"cancel multisig operation for {self.call.get('op')}"
+        return (
+            f"cancel multisig operation for {self.call.get('op')}"
+            if self.call
+            else "cancel multisig operation"
+        )

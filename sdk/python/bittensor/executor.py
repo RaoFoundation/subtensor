@@ -21,6 +21,7 @@ import bittensor_core as _core
 
 from ._generated import calls as generated_calls
 from ._pinned import pinned_inputs
+from ._policy import evaluate_policy
 from ._substrate import Substrate
 from ._transport.contract import UnsignedExtrinsic
 from ._transport.extrinsics import MAX_SHIELDED_CIPHERTEXT_BYTES
@@ -780,9 +781,22 @@ class Executor:
         )
 
     async def _use_shield(self, intent, call, shielded: bool | None) -> bool:
-        if intent.semantic_intent().mev_shield_required or shielded is True:
-            return True
-        return shielded is None and await registration_shield_default(self.substrate, call)
+        from ._policy import evaluate_policy
+
+        default = (
+            shielded is None
+            and not intent.semantic_intent().mev_shield_required
+            and await registration_shield_default(self.substrate, call)
+        )
+        return evaluate_policy(
+            "transaction.execution",
+            {
+                "shielded": shielded,
+                "shield_default": default,
+                "shield_required": intent.semantic_intent().mev_shield_required,
+                "force_required": True,
+            },
+        )["shielded"]
 
     async def _quote_submission(self, preview, intent, wallet, call, *, shielded, period):
         """Price both signed transactions before approval, without opening keys."""
@@ -1027,11 +1041,24 @@ class Executor:
                 else:
                     spend = prepared.spend()
                     amount = spend.rao if isinstance(spend, Balance) else 0
-                    required = amount + deposit.rao + fee.rao + max(frozen, minimum)
-                    preview.required_free = Balance.from_rao(required)
+                    affordability = evaluate_policy(
+                        "financial.affordability",
+                        {
+                            "spends": [{"account": dispatch_origin, "amount": amount}],
+                            "charges": [
+                                {"account": dispatch_origin, "amount": deposit.rao},
+                                {"account": dispatch_origin, "amount": fee.rao},
+                            ],
+                            "floors": [
+                                {"account": dispatch_origin, "minimum": minimum, "frozen": frozen}
+                            ],
+                            "free": {dispatch_origin: free},
+                        },
+                    )["required"][0]
+                    preview.required_free = Balance.from_rao(int(affordability["amount"]))
                     preview.available_free = Balance.from_rao(free)
                     preview.estimated_fee = fee
-                    if free < required:
+                    if not affordability["affordable"]:
                         preview.blocks.append(
                             "insufficient spendable balance for payment, account setup reserve "
                             "and transaction fee"
@@ -1066,11 +1093,11 @@ class Executor:
                 # account's balance obligations into separate checks.
                 fee_payer_id = bytes(ss58_decode(fee_payer))
                 dispatch_origin_id = bytes(ss58_decode(dispatch_origin))
-                reserves: dict[bytes, int] = {}
+                reserve_charges: list[dict] = []
                 payers: dict[bytes, str] = {}
                 for payer, reserve in extras.get("pure_proxy_reserves", {}).items():
                     payer_id = bytes(ss58_decode(payer))
-                    reserves[payer_id] = reserves.get(payer_id, 0) + int(reserve)
+                    reserve_charges.append({"account": payer_id.hex(), "amount": int(reserve)})
                     payers[payer_id] = payer
                 approval_deposit = 0
                 for approval in extras.get("multisig_approvals", []):
@@ -1082,7 +1109,7 @@ class Executor:
                         else 0
                     )
                     approval_deposit += reserve
-                    reserves[payer_id] = reserves.get(payer_id, 0) + reserve
+                    reserve_charges.append({"account": payer_id.hex(), "amount": reserve})
                     payers[payer_id] = payer
                 if approval_deposit:
                     preview.facts.append(
@@ -1091,27 +1118,46 @@ class Executor:
                             str(Balance.from_rao(approval_deposit)),
                         )
                     )
-                reserves.setdefault(fee_payer_id, 0)
+                reserve_charges.append({"account": fee_payer_id.hex(), "amount": fee.rao})
                 payers[fee_payer_id] = fee_payer
-                for payer_id, reserve in reserves.items():
-                    payer = payers[payer_id]
+                free_by_account: dict[str, int] = {}
+                floors = []
+                for payer_id, payer in payers.items():
                     account = await self.substrate.query("System", "Account", [payer])
                     data = (account or {}).get("data") or {}
-                    free = Balance.from_rao(int(data.get("free", 0)))
-                    required = Balance.from_rao(
-                        reserve
-                        + max(int(data.get("frozen", 0)), minimum)
-                        + (fee.rao if payer_id == fee_payer_id else 0)
-                        + (
-                            (spend.rao if isinstance(spend, Balance) else 0) + maximum.rao
-                            if payer_id == dispatch_origin_id
-                            else 0
-                        )
+                    free_by_account[payer_id.hex()] = int(data.get("free", 0))
+                    floors.append(
+                        {
+                            "account": payer_id.hex(),
+                            "minimum": minimum,
+                            "frozen": int(data.get("frozen", 0)),
+                        }
                     )
-                    if payer_id == fee_payer_id:
+                spends = []
+                if dispatch_origin_id in payers:
+                    spends = [
+                        {
+                            "account": dispatch_origin_id.hex(),
+                            "amount": spend.rao if isinstance(spend, Balance) else 0,
+                        },
+                        {"account": dispatch_origin_id.hex(), "amount": maximum.rao},
+                    ]
+                affordability = evaluate_policy(
+                    "financial.affordability",
+                    {
+                        "spends": spends,
+                        "charges": reserve_charges,
+                        "floors": floors,
+                        "free": free_by_account,
+                    },
+                )
+                for requirement in affordability["required"]:
+                    required = Balance.from_rao(int(requirement["amount"]))
+                    free = Balance.from_rao(int(requirement["available"]))
+                    if requirement["account"] == fee_payer_id.hex():
                         preview.required_free = max(preview.required_free or required, required)
                         preview.available_free = free
-                    if free < required:
+                    if not requirement["affordable"]:
                         preview.blocks.append(
                             "insufficient spendable balance for account reserves, "
                             "payment and transaction fee"

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from ._policy import evaluate_policy
 from .settings import ALPHA_SYMBOL, RAO_PER_TAO, TAO_SYMBOL
 
 _SUBSCRIPT_DIGITS = "₀₁₂₃₄₅₆₇₈₉"
@@ -74,7 +75,7 @@ class Balance:
 
         ``netuid`` must be a real subnet (non-zero); for TAO use :meth:`from_tao`.
         """
-        if netuid == 0:
+        if not evaluate_policy("validation.amount.units", {"left": netuid, "mode": "alpha"}):
             raise UnitMismatchError(
                 "from_alpha requires a non-zero netuid; netuid 0 is TAO — use from_tao."
             )
@@ -87,7 +88,14 @@ class Balance:
         Use this only where the netuid is genuinely variable; otherwise prefer
         the unit-named :meth:`from_tao` / :meth:`from_alpha`.
         """
-        return cls(int((Decimal(str(amount)) * RAO_PER_TAO).to_integral_value()), netuid)
+        return cls(
+            int(
+                evaluate_policy(
+                    "validation.amount.parse", {"text": str(amount), "precision": "round"}
+                )
+            ),
+            netuid,
+        )
 
     @property
     def tao(self) -> float:
@@ -96,7 +104,7 @@ class Balance:
         Alpha is not TAO: to express an alpha position in TAO, value it through
         a price or swap quote first (e.g. the ``stake_value_for_coldkey`` read).
         """
-        if self.netuid != 0:
+        if not evaluate_policy("validation.amount.units", {"left": self.netuid, "mode": "tao"}):
             raise UnitMismatchError(
                 f"This balance is subnet-{self.netuid} alpha, not TAO. Use .alpha for "
                 "the alpha amount, or value it in TAO via a price/swap quote."
@@ -106,7 +114,7 @@ class Balance:
     @property
     def alpha(self) -> float:
         """Numeric alpha amount. Raises on a TAO (netuid 0) balance."""
-        if self.netuid == 0:
+        if not evaluate_policy("validation.amount.units", {"left": self.netuid, "mode": "alpha"}):
             raise UnitMismatchError("This balance is TAO (netuid 0), not alpha. Use .tao.")
         return self.rao / RAO_PER_TAO
 
@@ -137,7 +145,9 @@ class Balance:
         return ALPHA_SYMBOL + _subscript(self.netuid)
 
     def _same_unit(self, other: "Balance") -> None:
-        if self.netuid != other.netuid:
+        if not evaluate_policy(
+            "validation.amount.units", {"left": self.netuid, "right": other.netuid, "mode": "same"}
+        ):
             raise UnitMismatchError(
                 f"Cannot combine balances of different currencies: "
                 f"netuid {self.netuid} and netuid {other.netuid}. "

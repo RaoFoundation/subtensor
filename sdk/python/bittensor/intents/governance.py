@@ -7,11 +7,16 @@ from functools import partial
 from typing import Any, Optional
 
 from .._generated import calls
-from .._pinned import compose_staking_call
-from ._money import Money, Spend, tao_amount
+from ._money import Money, tao_amount
+from ._shared import policy_arguments
 from .base import Intent
 from .registry import register
-from .staking import DEFAULT_RATE_TOLERANCE, _check_rate_tolerance, _stake_limit_price_rao
+from .staking import (
+    DEFAULT_RATE_TOLERANCE,
+    _check_rate_tolerance,
+    _compose_policy_staking,
+    _stake_price_limit_rao,
+)
 
 
 @register
@@ -50,9 +55,9 @@ class TrimSubnet(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.AdminUtils.sudo_trim_to_max_allowed_uids(netuid=self.netuid, max_n=self.max_n)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"trim netuid {self.netuid} to at most {self.max_n} UIDs"
@@ -82,9 +87,9 @@ class TrimNullSubnetBatch(Intent):
     target: int = field(metadata={"help": "Final UID count, shared by every continuation."})
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.AdminUtils.sudo_trim_null_uids_batch(netuid=self.netuid, target=self.target)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"prune one Null batch on netuid {self.netuid} toward {self.target} UIDs"
@@ -142,21 +147,27 @@ class StakeBurn(Intent):
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        params = dict(hotkey=hotkey, netuid=self.netuid, amount=self.amount_tao.rao)
         derived = {}
-        if self.limit_price is not None:
-            params["limit"] = self.limit_price
-        else:
+        if self.limit_price is None:
             derived["limit"] = partial(
-                _stake_limit_price_rao, substrate, self.netuid, 1 + self.rate_tolerance
+                _stake_price_limit_rao, substrate, self.netuid, self.rate_tolerance, True
             )
-        return await compose_staking_call(substrate, "add_stake_burn", params, derived=derived)
+        return await _compose_policy_staking(
+            substrate,
+            self.op,
+            policy_arguments(self),
+            hotkey=hotkey,
+            amount=self.amount_tao.rao,
+            derived=derived,
+        )
 
     def summary(self) -> str:
         return f"stake burn {self.amount_tao} on netuid {self.netuid}"
 
-    def spend(self) -> Spend:
-        return self.amount_tao
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -183,11 +194,9 @@ class SetMechanismCount(Intent):
     mechanism_count: int = field(metadata={"help": "Number of mechanisms the subnet should run."})
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.AdminUtils.sudo_set_mechanism_count(
-                netuid=self.netuid, mechanism_count=self.mechanism_count
-            )
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         return f"set mechanism count to {self.mechanism_count} on netuid {self.netuid}"

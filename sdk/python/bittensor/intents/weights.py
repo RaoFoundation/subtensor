@@ -7,16 +7,14 @@ count, and dispatches to the plaintext or timelocked
 commit-reveal extrinsic based on the subnet's on-chain configuration — so the
 caller never has to know which regime the subnet runs.
 
-``normalize`` (max-upscale + u16 quantize, dropping zeros) lives here as the one
-canonical implementation and is re-exported from ``bittensor.intents``.
+``normalize`` (max-upscale + u16 quantize, dropping zeros) delegates to the
+shared Rust policy and is re-exported from ``bittensor.intents``.
 """
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from itertools import accumulate
-from math import isfinite
 from typing import Any, Mapping, Optional, Sequence
 
 # Module import + attribute access (not `from bittensor_core import ...`):
@@ -25,6 +23,7 @@ import bittensor_core as _core
 
 from .._generated import calls
 from .._generated.storage import SubtensorModule as st
+from .._policy import evaluate_policy
 from ..result import BittensorError, ChainError, ErrorCode
 from ..settings import GLOBAL_MAX_SUBNET_COUNT, U16_MAX
 from .base import BuiltCall, Intent
@@ -57,61 +56,23 @@ def normalize(uids: Sequence[int], weights: Sequence[float]) -> tuple[list[int],
     Returns parallel ``(uids, values)`` ready for the chain. All-zero input
     returns two empty lists.
     """
-    if len(uids) != len(weights):
-        raise BittensorError(
-            f"uids and weights must be equal length: {len(uids)} vs {len(weights)}."
+    try:
+        result = evaluate_policy(
+            "validation.weights.normalize", {"uids": list(uids), "weights": list(weights)}
         )
-    if any(not isfinite(w) or w < 0 for w in weights):
-        raise BittensorError("Weights must be finite and non-negative.")
-    if any(u < 0 or u > U16_MAX for u in uids):
-        raise BittensorError("UIDs must be in 0..65535.")
-
-    top = max(weights) if weights else 0
-    if top == 0:
-        return [], []
-
-    out_uids: list[int] = []
-    out_vals: list[int] = []
-    for uid, weight in zip(uids, weights):
-        value = round((weight / top) * U16_MAX)
-        if value != 0:
-            out_uids.append(int(uid))
-            out_vals.append(int(value))
-    return out_uids, out_vals
+    except (ValueError, TypeError) as error:
+        raise BittensorError(str(error)) from None
+    return result[0], result[1]
 
 
 def clip_to_max_weight(weights: Sequence[float], limit: float) -> list[float]:
-    """Normalize to sum 1 with no element above ``limit`` (the chain's
-    ``max_weight_limit`` check is ``max/sum <= limit``).
-
-    Weights already within the limit are just sum-normalized. Otherwise a cutoff
-    is found such that clipping everything above it lands the largest normalized
-    weight exactly on the limit — mass is redistributed rather than discarded.
-    Empty or all-zero input raises; a limit no distribution can satisfy
-    (``len * limit <= 1``) returns the uniform distribution.
-    """
-    n = len(weights)
-    total = float(sum(weights))
-    if n == 0 or total <= 0:
-        raise BittensorError("All weights are zero; nothing to set.")
-    if n * limit <= 1:
-        return [1.0 / n] * n
-
-    estimation = sorted(w / total for w in weights)
-    if estimation[-1] <= limit:
-        return [w / total for w in weights]
-
-    epsilon = 1e-7
-    cumsum = list(accumulate(estimation))
-    n_values = sum(
-        1 for i, e in enumerate(estimation) if e / ((n - i - 1) * e + cumsum[i] + epsilon) < limit
-    )
-    cutoff_scale = (limit * cumsum[n_values - 1] - epsilon) / (1 - limit * (n - n_values))
-    cutoff = cutoff_scale * total
-
-    clipped = [min(float(w), cutoff) for w in weights]
-    clipped_total = sum(clipped)
-    return [w / clipped_total for w in clipped]
+    """Apply the same Rust normalization and clipping policy as Node and WASM."""
+    try:
+        return evaluate_policy(
+            "validation.weights.clip", {"weights": list(weights), "limit": limit}
+        )
+    except (ValueError, TypeError) as error:
+        raise BittensorError(str(error)) from None
 
 
 def _as_pairs(uids: Optional[Sequence[int]], weights: Any) -> tuple[list[int], list[float]]:
@@ -175,37 +136,52 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
         substrate.query(*st.SubnetEpochConsensus, [netuid], block_hash=block_hash),
     )
 
-    if uid_raw is None:
-        raise ChainError(
-            f"Hotkey {hotkey_ss58} is not registered on netuid {netuid}.",
-            code=ErrorCode.NOT_REGISTERED,
-        )
-    uid = int(uid_raw)
-    if mode == "Null" or mode == {"Null": None} or mode == 1:
-        permits = await substrate.query(*st.ValidatorPermit, [netuid], block_hash=block_hash)
-        if not isinstance(permits, (list, tuple)) or uid >= len(permits) or not permits[uid]:
+    uid = None if uid_raw is None else int(uid_raw)
+    null = mode == "Null" or mode == {"Null": None} or mode == 1
+    permits = (
+        await substrate.query(*st.ValidatorPermit, [netuid], block_hash=block_hash)
+        if null and uid is not None
+        else []
+    )
+    rate_limit = int(rate_raw or 0)
+    previous = (
+        int(last_raw[uid])
+        if uid is not None and isinstance(last_raw, (list, tuple)) and uid < len(last_raw)
+        else 0
+    )
+    decision = evaluate_policy(
+        "validation.weights.admission",
+        {
+            "uid": uid,
+            "null": null,
+            "permit": uid is not None
+            and isinstance(permits, (list, tuple))
+            and uid < len(permits)
+            and bool(permits[uid]),
+            "last": previous,
+            "rate": rate_limit,
+            "current": current_block,
+        },
+    )
+    if decision:
+        if decision["code"] == "NOT_REGISTERED":
+            raise ChainError(
+                f"Hotkey {hotkey_ss58} is not registered on netuid {netuid}.",
+                code=ErrorCode.NOT_REGISTERED,
+            )
+        if decision["code"] == "NOT_AUTHORIZED":
             raise ChainError(
                 f"Only the sole Null validator permit holder may set weights on netuid {netuid}.",
                 code=ErrorCode.NOT_AUTHORIZED,
             )
-
-    rate_limit = int(rate_raw or 0)
-    if (
-        rate_limit
-        and isinstance(last_raw, (list, tuple))
-        and uid < len(last_raw)
-        and int(last_raw[uid]) > 0
-    ):
-        since = current_block - int(last_raw[uid])
-        if since < rate_limit:  # chain allows when since >= rate_limit
-            remaining = rate_limit - since
-            seconds = remaining * await substrate.block_time()
-            raise ChainError(
-                f"Weights on netuid {netuid} were last set {since} blocks ago; the "
-                f"rate limit is {rate_limit} blocks. Retry in ~{remaining} blocks "
-                f"(~{int(seconds)}s).",
-                code=ErrorCode.RATE_LIMITED,
-            )
+        remaining = int(decision["wait"])
+        seconds = remaining * await substrate.block_time()
+        raise ChainError(
+            f"Weights on netuid {netuid} were last set {current_block - previous} blocks ago; the "
+            f"rate limit is {rate_limit} blocks. Retry in ~{remaining} blocks (~{int(seconds)}s).",
+            code=ErrorCode.RATE_LIMITED,
+        )
+    assert uid is not None
 
     return _Preflight(
         uid=uid,
@@ -218,44 +194,29 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
 def _conform(
     uids: list[int], weights: list[float], preflight: _Preflight, netuid: int, raw_u16: bool = False
 ) -> tuple[list[int], list[int]]:
-    """Fit the weights to the subnet's hyperparameters and quantize them.
-
-    Applies the ``max_weight_limit`` clip, quantizes to u16 (dropping zeros), and
-    enforces ``min_allowed_weights`` on what will actually be submitted. A single
-    self-weight is exempt from both constraints, matching the chain's rules.
-    """
-    is_self_weight = uids == [preflight.uid]
-    if raw_u16:
-        if len(uids) != len(weights) or any(u < 0 or u > U16_MAX for u in uids):
-            raise BittensorError("Raw weights require equal-length lists and u16 UIDs.")
-        if any(not isfinite(w) or w < 0 or w > U16_MAX or int(w) != w for w in weights):
-            raise BittensorError("Raw weights must be integers in 0..65535.")
-        pairs = [(uid, int(w)) for uid, w in zip(uids, weights) if w > 0]
-        norm_uids = [uid for uid, _ in pairs]
-        norm_vals = [value for _, value in pairs]
-        if not norm_vals:
-            raise BittensorError("All weights are zero; nothing to set.")
-        if not is_self_weight and max(norm_vals) * U16_MAX > preflight.max_weight_limit * sum(
-            norm_vals
-        ):
-            raise BittensorError(
-                "Raw weights exceed max_weight_limit; change the integer ratios or subnet limit."
-            )
-    else:
-        floats = list(weights)
-        if not is_self_weight and preflight.max_weight_limit < U16_MAX:
-            floats = clip_to_max_weight(floats, preflight.max_weight_limit / U16_MAX)
-
-        norm_uids, norm_vals = normalize(uids, floats)
-    if not norm_uids:
-        raise BittensorError("All weights are zero; nothing to set.")
-    if not is_self_weight and len(norm_uids) < preflight.min_allowed_weights:
+    """Apply the portable Rust admission, clipping, and quantization policy."""
+    try:
+        result = evaluate_policy(
+            "validation.weights.finalize",
+            {
+                "uids": uids,
+                "weights": weights,
+                "uid": preflight.uid,
+                "minimum": preflight.min_allowed_weights,
+                "maximum": preflight.max_weight_limit,
+                "raw": raw_u16,
+                "null": raw_u16,
+            },
+        )
+    except (TypeError, ValueError) as error:
+        raise BittensorError(str(error)) from None
+    if result["insufficient"]:
         raise ChainError(
             f"Subnet {netuid} requires at least {preflight.min_allowed_weights} "
-            f"weights; only {len(norm_uids)} are nonzero after normalization.",
+            f"weights; only {len(result['uids'])} are nonzero after normalization.",
             code=ErrorCode.INVALID_ARGUMENT,
         )
-    return norm_uids, norm_vals
+    return result["uids"], result["values"]
 
 
 async def _ensure_raw_null(substrate, netuid: int) -> None:

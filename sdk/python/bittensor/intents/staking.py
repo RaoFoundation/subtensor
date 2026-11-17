@@ -11,11 +11,12 @@ from .._generated import calls, constants
 from .._generated import storage as st
 from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi, SwapRuntimeApi
 from .._pinned import approved_staking_amount, compose_staking_call
+from .._policy import evaluate_policy
 from ..balance import Balance
 from ..result import BittensorError
-from ..settings import RAO_PER_TAO
 from ..signing import public_view
-from ._money import ALL, UNBOUNDED, Money, Spend, alpha_amount, call_amount
+from ._money import ALL, Money, alpha_amount, call_amount
+from ._shared import policy_arguments
 from .base import BuiltCall, Intent, IntentPreflight
 from .registry import register
 
@@ -50,20 +51,14 @@ class SetRejectStakingHotkeyGrowth(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.set_reject_staking_hotkey_growth(enabled=self.enabled)
-        )
+        from ._shared import simple_call
+
+        return await simple_call(self, substrate)
 
     def summary(self) -> str:
         action = "reject" if self.enabled else "allow"
         return f"{action} staking-hotkey list growth caused by other accounts"
 
-
-# ``remove_stake`` always caps its u64 input to the live position.
-# ``move_stake`` / ``move_stake_limit`` do the same when the input is the type
-# maximum. Using that sentinel after a root claim is the only atomic way to
-# include yield that does not exist until the preceding batch child executes.
-_MAX_ALPHA_RAO = (1 << 64) - 1
 
 NETUID_HELP = "Subnet the stake lives on (netuid 0 is the root network)."
 
@@ -98,8 +93,68 @@ RATE_TOLERANCE_HELP = (
 )
 
 
+def _staking_route(op, args, *, hotkey=None, origin_hotkey=None, amount=None):
+    try:
+        return evaluate_policy(
+            "financial.staking_decision",
+            {
+                "op": op,
+                "args": args,
+                "hotkey": hotkey,
+                "origin_hotkey": origin_hotkey,
+                "amount": amount,
+            },
+        )
+    except (ValueError, TypeError) as error:
+        raise BittensorError(
+            str(error).replace("claim is only valid", "claim=True is only valid")
+        ) from None
+
+
+async def _compose_policy_staking(
+    substrate, op, args, *, hotkey=None, origin_hotkey=None, amount=None, derived=None
+):
+    """Adapt core call shapes while preserving approved replay values and lazy reads."""
+    route = _staking_route(op, args, hotkey=hotkey, origin_hotkey=origin_hotkey, amount=amount)
+    limit = args.get("limit_price_rao", 0) if route["explicit_limit"] else 0
+    if op == "stake_burn" and args.get("limit_price") is not None:
+        limit = args["limit_price"]
+    try:
+        result = evaluate_policy(
+            "financial.staking_call",
+            {
+                "op": op,
+                "args": args,
+                "hotkey": hotkey,
+                "origin_hotkey": origin_hotkey,
+                "amount": amount,
+                "limit_price": limit,
+            },
+        )
+    except (ValueError, TypeError) as error:
+        raise BittensorError(str(error)) from None
+    descriptor = result["call"]
+    for path in result["integer_paths"]:
+        parent = descriptor
+        for key in path[:-1]:
+            parent = parent[key]
+        parent[path[-1]] = int(parent[path[-1]])
+
+    async def compose(call):
+        if call["pallet"] == "Utility":
+            children = [await compose(child) for child in call["params"]["calls"]]
+            return await substrate.compose(calls.Utility.batch_all(calls=children))
+        params = dict(call["params"])
+        lazy = {key: value for key, value in (derived or {}).items() if key in params}
+        for key in lazy:
+            del params[key]
+        return await compose_staking_call(substrate, call["call"], params, derived=lazy)
+
+    return await compose(descriptor)
+
+
 def _check_rate_tolerance(tolerance: float, *, can_disable: bool = True) -> None:
-    if not 0 <= tolerance < 1:
+    if not evaluate_policy("financial.intent.rate_valid", {"rate": str(tolerance)}):
         raise BittensorError(
             f"rate_tolerance must be a fraction in [0, 1), got {tolerance!r} (0.05 = 5%)."
             + (
@@ -185,51 +240,47 @@ async def _swap_limit_price_rao(
         )
     # The chain compares the limit against the origin/destination price
     # ratio (falling as the swap executes), scaled by 1e9.
-    ratio_rao = origin_price * RAO_PER_TAO // dest_price
-    return int(ratio_rao * (1 - rate_tolerance))
+    from .._policy import evaluate_policy
+
+    return int(
+        evaluate_policy(
+            "financial.intent.ratio_limit",
+            {"left": origin_price, "right": dest_price, "rate": rate_tolerance},
+        )
+    )
 
 
-async def _stake_limit_price_rao(substrate, netuid, multiplier):
-    return int(await _alpha_price_rao(substrate, netuid) * multiplier)
+async def _stake_price_limit_rao(substrate, netuid, rate, buy):
+    return int(
+        evaluate_policy(
+            "financial.intent.price_limit",
+            {
+                "price": await _alpha_price_rao(substrate, netuid),
+                "rate": str(rate),
+                "buy": buy,
+            },
+        )
+    )
 
 
 async def _compose_swap_stake(
-    substrate,
-    *,
-    hotkey: str,
-    origin_netuid: int,
-    dest_netuid: int,
-    rao: int,
-    slippage_protection: bool,
-    rate_tolerance: float,
+    substrate, *, hotkey, origin_netuid, dest_netuid, rao, slippage_protection, rate_tolerance
 ):
-    """``swap_stake_limit`` when protection is on, else plain ``swap_stake``."""
-    if slippage_protection:
-        return await compose_staking_call(
-            substrate,
-            "swap_stake_limit",
-            dict(
-                hotkey=hotkey,
-                origin_netuid=origin_netuid,
-                destination_netuid=dest_netuid,
-                alpha_amount=rao,
-                allow_partial=False,
-            ),
-            derived={
-                "limit_price": partial(
-                    _swap_limit_price_rao, substrate, origin_netuid, dest_netuid, rate_tolerance
-                )
-            },
-        )
-    return await compose_staking_call(
+    return await _compose_policy_staking(
         substrate,
         "swap_stake",
-        dict(
-            hotkey=hotkey,
-            origin_netuid=origin_netuid,
-            destination_netuid=dest_netuid,
-            alpha_amount=rao,
-        ),
+        {
+            "origin_netuid": origin_netuid,
+            "dest_netuid": dest_netuid,
+            "slippage_protection": slippage_protection,
+        },
+        hotkey=hotkey,
+        amount=rao,
+        derived={
+            "limit_price": partial(
+                _swap_limit_price_rao, substrate, origin_netuid, dest_netuid, rate_tolerance
+            )
+        },
     )
 
 
@@ -238,8 +289,6 @@ async def _compose_swap_stake(
 # ``swap_stake`` of the exact moved amount then fails ``NotEnoughStakeToWithdraw``.
 # Batch encoding cannot see the post-move balance, so the swap targets one rao
 # less and leaves that dust on the dest hotkey at the origin subnet.
-_SHARE_POOL_FLOOR_RAO = 1
-
 _SHARE_POOL_DUST_WARNING = (
     "same-subnet move can floor the dest position by 1 rao; the following swap "
     "uses amount-1 so the batch does not fail, and 1 rao stays on the dest "
@@ -248,53 +297,47 @@ _SHARE_POOL_DUST_WARNING = (
 
 
 def _executable_after_same_subnet_move(rao: int) -> int:
-    if rao <= _SHARE_POOL_FLOOR_RAO:
+    try:
+        return int(
+            evaluate_policy("financial.staking_amount", {"kind": "move_swap", "amount": rao})
+        )
+    except (ValueError, TypeError):
         raise BittensorError(
             f"cannot move-then-swap {rao} rao: same-subnet move_stake can lose "
             "1 rao to share-pool rounding, leaving nothing to swap. Move a "
             "larger amount, or change only the hotkey or only the subnet"
-        )
-    return rao - _SHARE_POOL_FLOOR_RAO
+        ) from None
 
 
 async def _compose_move_then_swap(
     substrate,
     *,
-    origin_hotkey: str,
-    dest_hotkey: str,
-    origin_netuid: int,
-    dest_netuid: int,
-    rao: int,
-    slippage_protection: bool,
-    rate_tolerance: float,
+    origin_hotkey,
+    dest_hotkey,
+    origin_netuid,
+    dest_netuid,
+    rao,
+    slippage_protection,
+    rate_tolerance,
 ):
-    """One extrinsic: same-subnet ``move_stake``, then a price-bounded swap.
-
-    Two-leg composition: re-delegate on the origin subnet, then
-    ``swap_stake_limit`` on the new hotkey. Prefer ``move_stake_limit`` when
-    a single cross-subnet move is enough.
-    """
-    move = await compose_staking_call(
+    _executable_after_same_subnet_move(rao)
+    return await _compose_policy_staking(
         substrate,
-        "move_stake",
-        dict(
-            origin_hotkey=origin_hotkey,
-            destination_hotkey=dest_hotkey,
-            origin_netuid=origin_netuid,
-            destination_netuid=origin_netuid,
-            alpha_amount=rao,
-        ),
+        "move_swap_stake",
+        {
+            "origin_netuid": origin_netuid,
+            "dest_netuid": dest_netuid,
+            "dest_hotkey_ss58": dest_hotkey,
+            "slippage_protection": slippage_protection,
+        },
+        origin_hotkey=origin_hotkey,
+        amount=rao,
+        derived={
+            "limit_price": partial(
+                _swap_limit_price_rao, substrate, origin_netuid, dest_netuid, rate_tolerance
+            )
+        },
     )
-    swap = await _compose_swap_stake(
-        substrate,
-        hotkey=dest_hotkey,
-        origin_netuid=origin_netuid,
-        dest_netuid=dest_netuid,
-        rao=_executable_after_same_subnet_move(rao),
-        slippage_protection=slippage_protection,
-        rate_tolerance=rate_tolerance,
-    )
-    return await substrate.compose(calls.Utility.batch_all(calls=[move, swap]))
 
 
 # Reserved on top of the existential deposit when staking ``all``, so the
@@ -317,13 +360,24 @@ async def _stakeable_rao(substrate, wallet: Any, function=None) -> int:
     account = await substrate.query(*st.System.Account, [coldkey])
     free = int(((account or {}).get("data") or {}).get("free") or 0)
     deposit = int(await substrate.constant(*constants.Balances.ExistentialDeposit))
-    rao = free - deposit - _ALL_STAKE_FEE_HEADROOM_RAO
-    if rao <= 0:
+    from .._policy import evaluate_policy
+
+    try:
+        return int(
+            evaluate_policy(
+                "financial.intent.free_amount",
+                {
+                    "free": free,
+                    "existential_deposit": deposit,
+                    "headroom": _ALL_STAKE_FEE_HEADROOM_RAO,
+                },
+            )
+        )
+    except ValueError as error:
         raise BittensorError(
             f"nothing to stake: free balance {Balance.from_rao(free)} does not cover "
             "the existential deposit plus the transaction fee"
-        )
-    return rao
+        ) from error
 
 
 async def _staked_rao(
@@ -352,9 +406,17 @@ async def _staked_rao(
         [hotkey_ss58, coldkey, netuid],
     )
     rao = 0 if info is None else int(info["stake"])
-    if rao <= 0 and not allow_empty:
-        raise BittensorError(f"nothing to {action}: no stake on {hotkey_ss58} at netuid {netuid}")
-    return rao
+    try:
+        return int(
+            evaluate_policy(
+                "financial.staking_amount",
+                {"kind": "stake", "amount": rao, "allow_empty": allow_empty},
+            )
+        )
+    except (ValueError, TypeError):
+        raise BittensorError(
+            f"nothing to {action}: no stake on {hotkey_ss58} at netuid {netuid}"
+        ) from None
 
 
 async def _resolve_unstake_amount(
@@ -368,7 +430,15 @@ async def _resolve_unstake_amount(
     function="remove_stake_limit",
 ) -> tuple[int, bool]:
     """Resolve ``all`` and identify the atomic root claim-all special case."""
-    claim_all = claim and netuid == 0 and amount_alpha == ALL
+    decision = _staking_route(
+        "remove_stake",
+        {
+            "claim": claim,
+            "netuid": netuid,
+            "amount_alpha": "all" if amount_alpha == ALL else amount_alpha.rao,
+        },
+    )
+    claim_all = decision["claim_all"]
     if amount_alpha != ALL:
         return cast(Balance, amount_alpha).rao, claim_all
 
@@ -381,7 +451,7 @@ async def _resolve_unstake_amount(
     # Preserve the no-op guard, then let plain remove_stake cap u64::MAX to
     # the post-claim balance so the just-claimed yield is included atomically.
     current_rao = await _staked_rao(substrate, wallet, hotkey_ss58, netuid)
-    return (_MAX_ALPHA_RAO if claim_all else current_rao), claim_all
+    return (int(decision["amount"]) if claim_all else current_rao), claim_all
 
 
 async def _resolve_move_amount(
@@ -402,17 +472,27 @@ async def _resolve_move_amount(
     ``all``, pass ``u64::MAX`` so the runtime caps to the live origin
     position after that claim.
     """
-    if claim and int(origin_netuid) != 0:
+    if evaluate_policy("financial.staking_claim", {"claim": claim, "netuid": origin_netuid}).get(
+        "error"
+    ):
         raise BittensorError(
             "claim=True is only valid when moving from root (netuid 0). "
             "claim_root_with_hotkey pays this validator's whole basket "
             "entitlement, not a proportional slice of the move."
         )
-    will_claim = claim and int(origin_netuid) == 0
+    decision = _staking_route(
+        "move_stake",
+        {
+            "claim": claim,
+            "origin_netuid": origin_netuid,
+            "amount_alpha": "all" if amount_alpha == ALL else amount_alpha.rao,
+        },
+    )
+    will_claim = decision["claim"]
     if amount_alpha != ALL:
         return cast(Balance, amount_alpha).rao, will_claim
     if will_claim:
-        return _MAX_ALPHA_RAO, True
+        return int(decision["amount"]), True
     approved = await approved_staking_amount(function, "alpha_amount")
     if approved is not None:
         return approved, False
@@ -433,9 +513,12 @@ async def _lockable_rao(substrate, coldkey_ss58: str, netuid: int) -> int:
     nothing is unlocked.
     """
     _total, _locked, available = await _availability_rao(substrate, coldkey_ss58, netuid)
-    if available <= 0:
-        raise BittensorError(f"nothing to lock: no unlocked stake on netuid {netuid}")
-    return available
+    try:
+        return int(
+            evaluate_policy("financial.staking_amount", {"kind": "lock", "amount": available})
+        )
+    except (ValueError, TypeError):
+        raise BittensorError(f"nothing to lock: no unlocked stake on netuid {netuid}") from None
 
 
 async def _lock_hotkey(substrate, coldkey_ss58: str, netuid: int) -> Optional[str]:
@@ -545,16 +628,22 @@ async def _compose_unstake_with_optional_claim(
     non-root ``--claim`` is refused: there is no basket on other subnets.
     Used by unstake and by same-coldkey ``move_stake``.
     """
-    if not claim:
+    decision = evaluate_policy("financial.staking_claim", {"claim": claim, "netuid": netuid})
+    if not decision.get("claim") and not decision.get("error"):
         return follow_up_call
-    if netuid is not None and int(netuid) != 0:
+    if decision.get("error") == "non_root":
         raise BittensorError(
             "claim=True is only valid when the origin is root (netuid 0). "
             "claim_root_with_hotkey pays this validator's whole basket "
             "entitlement, not a proportional slice of the follow-up."
         )
     interval = int(await substrate.query(*st.SubtensorModule.RootStakeUnlockInterval) or 0)
-    if interval > 0:
+    if (
+        evaluate_policy(
+            "financial.staking_claim", {"claim": claim, "netuid": netuid, "interval": interval}
+        ).get("error")
+        == "hold"
+    ):
         raise BittensorError(
             "claim then move/unstake cannot execute atomically while "
             f"RootStakeUnlockInterval is {interval} blocks: a successful claim "
@@ -664,36 +753,22 @@ class AddStake(Intent):
         _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
-        if self.amount_tao == ALL:
-            rao = await _stakeable_rao(
-                substrate, wallet, "add_stake_limit" if self.slippage_protection else "add_stake"
-            )
-        else:
-            rao = self.amount_tao.rao
-        if self.slippage_protection:
-            return await compose_staking_call(
-                substrate,
-                "add_stake_limit",
-                dict(
-                    hotkey=self.hotkey_ss58,
-                    netuid=self.netuid,
-                    amount_staked=rao,
-                    allow_partial=False,
-                ),
-                derived={
-                    "limit_price": partial(
-                        _stake_limit_price_rao, substrate, self.netuid, 1 + self.rate_tolerance
-                    )
-                },
-            )
-        return await compose_staking_call(
-            substrate,
-            "add_stake",
-            dict(
-                hotkey=self.hotkey_ss58,
-                netuid=self.netuid,
-                amount_staked=rao,
-            ),
+        args = policy_arguments(self)
+        route = _staking_route(self.op, args)
+        rao = (
+            await _stakeable_rao(substrate, wallet, route["function"])
+            if self.amount_tao == ALL
+            else self.amount_tao.rao
+        )
+        derived = None
+        if route["needs_limit"] and not route["explicit_limit"]:
+            derived = {
+                "limit_price": partial(
+                    _stake_price_limit_rao, substrate, self.netuid, self.rate_tolerance, True
+                )
+            }
+        return await _compose_policy_staking(
+            substrate, self.op, args, hotkey=self.hotkey_ss58, amount=rao, derived=derived
         )
 
     def summary(self) -> str:
@@ -726,11 +801,10 @@ class AddStake(Intent):
             ]
         return []
 
-    def spend(self) -> Spend:
-        if self.amount_tao == ALL:
-            # Unbounded: a max_spend policy should block draining the whole account.
-            return UNBOUNDED
-        return self.amount_tao
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -789,47 +863,29 @@ class RemoveStake(_OptionalRootClaimIntent):
         _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
-        rao, claim_all = await _resolve_unstake_amount(
+        args = policy_arguments(self)
+        route = _staking_route(self.op, args)
+        rao, _claim_all = await _resolve_unstake_amount(
             substrate,
             wallet,
             hotkey_ss58=self.hotkey_ss58,
             netuid=self.netuid,
             amount_alpha=self.amount_alpha,
             claim=self.claim,
-            function="remove_stake_limit" if self.slippage_protection else "remove_stake",
+            function=route["function"],
         )
-        if self.slippage_protection and not claim_all:
-            unstake = await compose_staking_call(
-                substrate,
-                "remove_stake_limit",
-                dict(
-                    hotkey=self.hotkey_ss58,
-                    netuid=self.netuid,
-                    amount_unstaked=rao,
-                    allow_partial=False,
-                ),
-                derived={
-                    "limit_price": partial(
-                        _stake_limit_price_rao, substrate, self.netuid, 1 - self.rate_tolerance
-                    )
-                },
-            )
-        else:
-            unstake = await compose_staking_call(
-                substrate,
-                "remove_stake",
-                dict(
-                    hotkey=self.hotkey_ss58,
-                    netuid=self.netuid,
-                    amount_unstaked=rao,
-                ),
-            )
+        derived = None
+        if route["needs_limit"] and not route["explicit_limit"]:
+            derived = {
+                "limit_price": partial(
+                    _stake_price_limit_rao, substrate, self.netuid, self.rate_tolerance, False
+                )
+            }
+        unstake = await _compose_policy_staking(
+            substrate, self.op, args, hotkey=self.hotkey_ss58, amount=rao, derived=derived
+        )
         return await _compose_unstake_with_optional_claim(
-            substrate,
-            unstake,
-            claim=self.claim,
-            hotkey_ss58=self.hotkey_ss58,
-            netuid=self.netuid,
+            substrate, unstake, claim=self.claim, hotkey_ss58=self.hotkey_ss58, netuid=self.netuid
         )
 
     def summary(self) -> str:
@@ -942,6 +998,8 @@ class MoveStake(_OptionalRootClaimIntent):
         return self.origin_netuid != self.dest_netuid
 
     async def build(self, substrate, wallet: Any):
+        args = policy_arguments(self)
+        route = _staking_route(self.op, args, origin_hotkey=self.origin_hotkey_ss58)
         rao, will_claim = await _resolve_move_amount(
             substrate,
             wallet,
@@ -949,44 +1007,24 @@ class MoveStake(_OptionalRootClaimIntent):
             origin_netuid=self.origin_netuid,
             amount_alpha=self.amount_alpha,
             claim=self.claim,
-            function="move_stake_limit"
-            if self.slippage_protection and self._changes_subnet()
-            else "move_stake",
+            function=route["function"],
         )
-        if self.slippage_protection and self._changes_subnet():
-            move = await compose_staking_call(
-                substrate,
-                "move_stake_limit",
-                dict(
-                    origin_hotkey=self.origin_hotkey_ss58,
-                    destination_hotkey=self.dest_hotkey_ss58,
-                    origin_netuid=self.origin_netuid,
-                    destination_netuid=self.dest_netuid,
-                    alpha_amount=rao,
-                    allow_partial=False,
-                ),
-                derived={
-                    "limit_price": partial(
-                        _swap_limit_price_rao,
-                        substrate,
-                        self.origin_netuid,
-                        self.dest_netuid,
-                        self.rate_tolerance,
-                    )
-                },
-            )
-        else:
-            move = await compose_staking_call(
-                substrate,
-                "move_stake",
-                dict(
-                    origin_hotkey=self.origin_hotkey_ss58,
-                    destination_hotkey=self.dest_hotkey_ss58,
-                    origin_netuid=self.origin_netuid,
-                    destination_netuid=self.dest_netuid,
-                    alpha_amount=rao,
-                ),
-            )
+        move = await _compose_policy_staking(
+            substrate,
+            self.op,
+            args,
+            origin_hotkey=self.origin_hotkey_ss58,
+            amount=rao,
+            derived={
+                "limit_price": partial(
+                    _swap_limit_price_rao,
+                    substrate,
+                    self.origin_netuid,
+                    self.dest_netuid,
+                    self.rate_tolerance,
+                )
+            },
+        )
         return await _compose_unstake_with_optional_claim(
             substrate,
             move,
@@ -1070,20 +1108,22 @@ class AddStakeLimit(Intent):
         )
 
     async def build(self, substrate, wallet: Any):
-        if self.amount_tao == ALL:
-            rao = await _stakeable_rao(substrate, wallet, "add_stake_limit")
-        else:
-            rao = self.amount_tao.rao
-        return await compose_staking_call(
-            substrate,
-            "add_stake_limit",
-            dict(
-                hotkey=self.hotkey_ss58,
-                netuid=self.netuid,
-                amount_staked=rao,
-                limit_price=self.limit_price_rao,
-                allow_partial=self.allow_partial,
-            ),
+        args = policy_arguments(self)
+        route = _staking_route(self.op, args)
+        rao = (
+            await _stakeable_rao(substrate, wallet, route["function"])
+            if self.amount_tao == ALL
+            else self.amount_tao.rao
+        )
+        derived = None
+        if route["needs_limit"] and not route["explicit_limit"]:
+            derived = {
+                "limit_price": partial(
+                    _stake_price_limit_rao, substrate, self.netuid, self.rate_tolerance, True
+                )
+            }
+        return await _compose_policy_staking(
+            substrate, self.op, args, hotkey=self.hotkey_ss58, amount=rao, derived=derived
         )
 
     def summary(self) -> str:
@@ -1100,10 +1140,10 @@ class AddStakeLimit(Intent):
             ]
         return []
 
-    def spend(self) -> Spend:
-        if self.amount_tao == ALL:
-            return UNBOUNDED
-        return self.amount_tao
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -1151,50 +1191,29 @@ class RemoveStakeLimit(_OptionalRootClaimIntent):
         )
 
     async def build(self, substrate, wallet: Any):
-        rao, claim_all = await _resolve_unstake_amount(
+        args = policy_arguments(self)
+        route = _staking_route(self.op, args)
+        rao, _claim_all = await _resolve_unstake_amount(
             substrate,
             wallet,
             hotkey_ss58=self.hotkey_ss58,
             netuid=self.netuid,
             amount_alpha=self.amount_alpha,
             claim=self.claim,
+            function=route["function"],
         )
-        if claim_all:
-            if not 0 <= self.limit_price_rao <= RAO_PER_TAO:
-                raise BittensorError(
-                    "root remove_stake_limit requires limit_price_rao in "
-                    "[0, 1000000000]; "
-                    f"got {self.limit_price_rao}"
+        derived = None
+        if route["needs_limit"] and not route["explicit_limit"]:
+            derived = {
+                "limit_price": partial(
+                    _stake_price_limit_rao, substrate, self.netuid, self.rate_tolerance, False
                 )
-            # Root has a fixed 1:1 price, so the limit is already satisfied.
-            # Plain remove_stake safely caps MAX to the post-claim position.
-            unstake = await compose_staking_call(
-                substrate,
-                "remove_stake",
-                dict(
-                    hotkey=self.hotkey_ss58,
-                    netuid=self.netuid,
-                    amount_unstaked=rao,
-                ),
-            )
-        else:
-            unstake = await compose_staking_call(
-                substrate,
-                "remove_stake_limit",
-                dict(
-                    hotkey=self.hotkey_ss58,
-                    netuid=self.netuid,
-                    amount_unstaked=rao,
-                    limit_price=self.limit_price_rao,
-                    allow_partial=self.allow_partial,
-                ),
-            )
+            }
+        unstake = await _compose_policy_staking(
+            substrate, self.op, args, hotkey=self.hotkey_ss58, amount=rao, derived=derived
+        )
         return await _compose_unstake_with_optional_claim(
-            substrate,
-            unstake,
-            claim=self.claim,
-            hotkey_ss58=self.hotkey_ss58,
-            netuid=self.netuid,
+            substrate, unstake, claim=self.claim, hotkey_ss58=self.hotkey_ss58, netuid=self.netuid
         )
 
     def summary(self) -> str:
@@ -1290,7 +1309,9 @@ class UnstakeAll(_OptionalRootClaimIntent):
         return out
 
     def affects_all_subnets(self) -> bool:
-        return True
+        from ._shared import metadata
+
+        return metadata(self)["affects_all_subnets"]
 
 
 @register
@@ -1327,7 +1348,9 @@ class UnstakeAllAlpha(Intent):
         return ["removes all alpha stake from this hotkey across every subnet"]
 
     def affects_all_subnets(self) -> bool:
-        return True
+        from ._shared import metadata
+
+        return metadata(self)["affects_all_subnets"]
 
 
 @register
@@ -1608,41 +1631,22 @@ class TransferStake(Intent):
         return self.dest_hotkey_ss58 is not None and self.dest_hotkey_ss58 != self.hotkey_ss58
 
     async def build(self, substrate, wallet: Any):
-        function = "transfer_stake_and_hotkey" if self._changes_hotkey() else "transfer_stake"
-        if self.amount_alpha == ALL:
-            rao = await _staked_rao(
+        args = policy_arguments(self)
+        route = _staking_route(self.op, args, hotkey=self.hotkey_ss58)
+        rao = (
+            await _staked_rao(
                 substrate,
                 wallet,
                 self.hotkey_ss58,
                 self.origin_netuid,
                 action="transfer",
-                pinned_function=function,
+                pinned_function=route["function"],
             )
-        else:
-            rao = self.amount_alpha.rao
-        if self._changes_hotkey():
-            return await compose_staking_call(
-                substrate,
-                function,
-                dict(
-                    destination_coldkey=self.dest_coldkey_ss58,
-                    origin_hotkey=self.hotkey_ss58,
-                    destination_hotkey=self.dest_hotkey_ss58,
-                    origin_netuid=self.origin_netuid,
-                    destination_netuid=self.dest_netuid,
-                    alpha_amount=rao,
-                ),
-            )
-        return await compose_staking_call(
-            substrate,
-            function,
-            dict(
-                destination_coldkey=self.dest_coldkey_ss58,
-                hotkey=self.hotkey_ss58,
-                origin_netuid=self.origin_netuid,
-                destination_netuid=self.dest_netuid,
-                alpha_amount=rao,
-            ),
+            if self.amount_alpha == ALL
+            else self.amount_alpha.rao
+        )
+        return await _compose_policy_staking(
+            substrate, self.op, args, hotkey=self.hotkey_ss58, amount=rao
         )
 
     def summary(self) -> str:
@@ -1726,10 +1730,10 @@ class TransferStake(Intent):
     def touches_netuids(self) -> list[int]:
         return [self.origin_netuid, self.dest_netuid]
 
-    def spend(self) -> Spend:
-        # Moves an alpha position out to another coldkey; not TAO-denominated and
-        # not cheaply bounded here, so a spend cap must block it until raised.
-        return UNBOUNDED
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -1759,9 +1763,10 @@ class SetAutoStake(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(
-            calls.SubtensorModule.set_coldkey_auto_stake_hotkey(netuid=self.netuid, hotkey=hotkey)
+        from ._shared import simple_call
+
+        return await simple_call(
+            self, substrate, hotkey=self.hotkey_address(wallet, self.hotkey_ss58)
         )
 
     def summary(self) -> str:
@@ -1812,17 +1817,22 @@ class StakeIntoBasket(Intent):
         )
 
     async def build(self, substrate, wallet: Any):
-        if self.amount_tao == ALL:
-            rao = await _stakeable_rao(substrate, wallet, "stake_into_basket")
-        else:
-            rao = self.amount_tao.rao
-        return await compose_staking_call(
-            substrate,
-            "stake_into_basket",
-            dict(
-                hotkey=self.hotkey_ss58,
-                amount_staked=rao,
-            ),
+        args = policy_arguments(self)
+        route = _staking_route(self.op, args)
+        rao = (
+            await _stakeable_rao(substrate, wallet, route["function"])
+            if self.amount_tao == ALL
+            else self.amount_tao.rao
+        )
+        derived = None
+        if route["needs_limit"] and not route["explicit_limit"]:
+            derived = {
+                "limit_price": partial(
+                    _stake_price_limit_rao, substrate, self.netuid, self.rate_tolerance, True
+                )
+            }
+        return await _compose_policy_staking(
+            substrate, self.op, args, hotkey=self.hotkey_ss58, amount=rao, derived=derived
         )
 
     def summary(self) -> str:
@@ -1836,10 +1846,10 @@ class StakeIntoBasket(Intent):
             ]
         return []
 
-    def spend(self) -> Spend:
-        if self.amount_tao == ALL:
-            return UNBOUNDED
-        return self.amount_tao
+    def spend(self):
+        from ._shared import spend
+
+        return spend(self)
 
 
 @register
@@ -1949,16 +1959,8 @@ class SwapBasket(Intent):
                 )
         else:
             rao = cast(Balance, self.amount).rao
-        return await compose_staking_call(
-            substrate,
-            "swap_basket",
-            dict(
-                hotkey=self.hotkey_ss58,
-                origin_netuid=self.origin_netuid,
-                destination_netuid=self.dest_netuid,
-                amount=rao,
-                min_amount_out=cast(Balance, self.min_amount_out).rao,
-            ),
+        return await _compose_policy_staking(
+            substrate, self.op, policy_arguments(self), hotkey=self.hotkey_ss58, amount=rao
         )
 
     def summary(self) -> str:
@@ -2000,58 +2002,67 @@ class SwapBasketMany(Intent):
     )
 
     def __post_init__(self):
-        if not self.legs:
-            raise BittensorError("swap_basket_many: at least one leg is required")
-        if len(self.legs) > 128:
-            raise BittensorError("swap_basket_many: at most 128 legs are allowed")
-
-        normalized: list[dict] = []
-        required = {"origin_netuid", "dest_netuid", "amount"}
-        allowed = required | {"min_amount_out"}
+        if not isinstance(self.legs, (list, tuple)):
+            raise BittensorError("swap_basket_many: legs must be a nonempty list")
         for index, leg in enumerate(self.legs):
             if not isinstance(leg, dict):
                 raise BittensorError(f"swap_basket_many: leg {index} must be an object")
-            missing = required - set(leg)
-            extra = set(leg) - allowed
-            if missing or extra:
-                detail = []
-                if missing:
-                    detail.append(f"missing {sorted(missing)}")
-                if extra:
-                    detail.append(f"unknown {sorted(extra)}")
-                raise BittensorError(f"swap_basket_many: leg {index} has " + ", ".join(detail))
-            origin = int(leg["origin_netuid"])
-            destination = int(leg["dest_netuid"])
-            if origin == destination:
-                raise BittensorError(
-                    f"swap_basket_many: leg {index} origin and destination must differ"
-                )
-            normalized.append(
+        try:
+            evaluate_policy(
+                "financial.basket_legs",
                 {
-                    "origin_netuid": origin,
-                    "dest_netuid": destination,
-                    "amount": alpha_amount(leg["amount"], origin),
-                    "min_amount_out": alpha_amount(leg.get("min_amount_out", 0), destination),
-                }
+                    "legs": [
+                        {
+                            "origin_netuid": leg.get("origin_netuid"),
+                            "dest_netuid": leg.get("dest_netuid"),
+                            "amount_rao": 0,
+                            "min_out_rao": 0,
+                            "fields": list(leg),
+                        }
+                        for leg in self.legs
+                    ]
+                },
             )
-        self.legs = normalized
+        except (ValueError, TypeError) as error:
+            raise BittensorError(str(error)) from None
+        self.legs = [
+            {
+                "origin_netuid": int(leg["origin_netuid"]),
+                "dest_netuid": int(leg["dest_netuid"]),
+                "amount": alpha_amount(leg["amount"], int(leg["origin_netuid"])),
+                "min_amount_out": alpha_amount(
+                    leg.get("min_amount_out", 0), int(leg["dest_netuid"])
+                ),
+            }
+            for leg in self.legs
+        ]
+
+    def _policy_legs(self):
+        try:
+            return evaluate_policy(
+                "financial.basket_legs",
+                {
+                    "legs": [
+                        {
+                            "origin_netuid": leg["origin_netuid"],
+                            "dest_netuid": leg["dest_netuid"],
+                            "amount_rao": cast(Balance, leg["amount"]).rao,
+                            "min_out_rao": cast(Balance, leg["min_amount_out"]).rao,
+                        }
+                        for leg in self.legs
+                    ]
+                },
+            )
+        except (ValueError, TypeError) as error:
+            raise BittensorError(str(error)) from None
 
     def touches_netuids(self) -> list[int]:
-        return list(
-            dict.fromkeys(
-                netuid for leg in self.legs for netuid in (leg["origin_netuid"], leg["dest_netuid"])
-            )
-        )
+        return self._policy_legs()["netuids"]
 
     async def build(self, substrate, wallet: Any):
         legs = [
-            (
-                leg["origin_netuid"],
-                leg["dest_netuid"],
-                cast(Balance, leg["amount"]).rao,
-                cast(Balance, leg["min_amount_out"]).rao,
-            )
-            for leg in self.legs
+            (origin, dest, int(amount), int(min_out))
+            for origin, dest, amount, min_out in self._policy_legs()["legs"]
         ]
         return await substrate.compose(
             calls.SubtensorModule.swap_basket_many(hotkey=self.hotkey_ss58, legs=legs)

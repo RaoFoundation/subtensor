@@ -30,6 +30,28 @@ use crate::error::CoreError;
 /// XChaCha20Poly1305 nonce length used in ML-KEM seal/open.
 pub const MLKEM_NONCE_LEN: usize = 24;
 
+/// Runtime `MevShield::MaxEncryptedCarrier`, including the complete wire envelope.
+pub const MAX_SHIELDED_CIPHERTEXT_BYTES: usize = 32_768;
+/// Key hash, KEM length, ML-KEM-768 ciphertext, XChaCha nonce, and AEAD tag.
+pub const SHIELD_ENCRYPTION_OVERHEAD: usize = 16 + 2 + 1088 + MLKEM_NONCE_LEN + 16;
+
+pub(crate) fn validate_shielded_ciphertext_size(size: usize) -> Result<usize, CoreError> {
+    if size > MAX_SHIELDED_CIPHERTEXT_BYTES {
+        return Err(CoreError::Policy(format!(
+            "encrypted transaction exceeds the {MAX_SHIELDED_CIPHERTEXT_BYTES}-byte carrier limit"
+        )));
+    }
+    Ok(size)
+}
+
+/// Exact size of a Shield envelope for an already encoded signed transaction.
+pub(crate) fn shielded_ciphertext_size(extrinsic_size: usize) -> Result<usize, CoreError> {
+    let size = extrinsic_size
+        .checked_add(SHIELD_ENCRYPTION_OVERHEAD)
+        .ok_or_else(|| CoreError::Policy("shielded ciphertext length overflow".into()))?;
+    validate_shielded_ciphertext_size(size)
+}
+
 /// KDF identifier: key = raw ML-KEM shared secret, aad = [] (empty).
 pub const KDF_ID: &[u8] = b"v1";
 
@@ -113,6 +135,28 @@ mod tests {
     use super::*;
     use ml_kem::kem::Decapsulate;
     use ml_kem::{KemCore, MlKem768};
+
+    #[test]
+    fn shield_size_matches_real_encryption_at_both_weight_tiers_and_maximum() {
+        let (_, public) = MlKem768::generate(&mut OsRng);
+        for size in [128, 8192, 8193, MAX_SHIELDED_CIPHERTEXT_BYTES] {
+            let plain_size = if size == 128 {
+                size
+            } else {
+                size - SHIELD_ENCRYPTION_OVERHEAD
+            };
+            let sealed = seal(&public.as_bytes(), &vec![0; plain_size], true).expect("seal");
+            assert_eq!(
+                shielded_ciphertext_size(plain_size).expect("accepted size"),
+                sealed.len()
+            );
+        }
+        assert!(shielded_ciphertext_size(
+            MAX_SHIELDED_CIPHERTEXT_BYTES - SHIELD_ENCRYPTION_OVERHEAD + 1
+        )
+        .is_err());
+        assert!(shielded_ciphertext_size(usize::MAX).is_err());
+    }
 
     #[test]
     fn twox_128_matches_substrate() {
