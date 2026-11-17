@@ -2260,6 +2260,44 @@ fn funded_non_staking_destination_does_not_receive_source_flags_or_lineage() {
     });
 }
 
+#[test]
+fn coldkey_swap_preserves_retired_destination_lineage() {
+    new_test_ext(1).execute_with(|| {
+        let retired = U256::from(1);
+        let successor = U256::from(2);
+        let source = U256::from(3);
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(&retired, &successor));
+        assert!(!ColdkeyRoot::<Test>::contains_key(retired));
+        assert_eq!(ColdkeySuccessor::<Test>::get(retired), Some(successor));
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(&source, &retired));
+        assert_eq!(ColdkeySuccessor::<Test>::get(retired), Some(successor));
+        assert_eq!(SubtensorModule::coldkey_root(&retired), retired);
+        assert!(!SubtensorModule::same_coldkey_lineage(&source, &retired));
+    });
+}
+
+#[test]
+fn coldkey_swap_preserves_funded_destinations_default_lock_preference() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(1);
+        let destination = U256::from(2);
+        let netuid = add_dynamic_network(&U256::from(3), &U256::from(4));
+        add_balance_to_coldkey_account(&destination, ExistentialDeposit::get());
+        assert_ok!(SubtensorModule::set_perpetual_lock(
+            RuntimeOrigin::signed(source),
+            netuid,
+            true,
+        ));
+        assert!(SubtensorModule::is_perpetual_lock(&source, netuid));
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(&source, &destination));
+        assert!(!SubtensorModule::is_perpetual_lock(&destination, netuid));
+        assert!(!DecayingLock::<Test>::contains_key(source, netuid));
+    });
+}
+
 // A coldkey swap moves the coldkey's gamma deposits with their terms.
 #[test]
 fn test_do_swap_coldkey_migrates_gamma_deposits() {

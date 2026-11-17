@@ -59,8 +59,8 @@ impl<T: Config> Pallet<T> {
                     .saturating_mul(u64::from(work.positions)),
             )
             .saturating_add(T::DbWeight::get().reads(u64::from(work.hotkeys).saturating_mul(3)))
-            // Live reservation check at admission/execute (maps + TTL).
-            .saturating_add(T::DbWeight::get().reads(3))
+            // Live reservation check (maps + TTL) and destination successor lookup.
+            .saturating_add(T::DbWeight::get().reads(4))
             // Destination lock path per exhausted row (Skeptic fid:bcf7b5a5):
             // admission walk, execute re-check in `swap_coldkey_locks`, and purge
             // scan each read Lock + SubnetOwnerHotkey + DecayingLock (3×3); cleanup
@@ -131,7 +131,7 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().writes(4));
         // Snapshot whether the destination already carries state that rejects
         // policy import: staking/basket/ownership, flags, lineage, identity, balance, proxy.
-        let policy_snapshot = T::DbWeight::get().reads_writes(8, 1);
+        let policy_snapshot = T::DbWeight::get().reads_writes(9, 1);
         // Pending-registration discovery: one queue read + total-scan sentinel
         // (not only owned rows — unrelated entries are still visited).
         let pending_reads = u64::from(max.registration_queue_scan).saturating_add(1);
@@ -438,14 +438,9 @@ impl<T: Config> Pallet<T> {
             || !OwnedHotkeys::<T>::get(coldkey).is_empty()
     }
 
-    /// Destination already carries a recorded swap-lineage root that an
-    /// unsolicited merge must not overwrite (Auditor fid:9411d39b).
-    ///
-    /// Only `ColdkeyRoot` counts: a prior root may still hold an outgoing
-    /// `ColdkeySuccessor` edge after rotation, and a reverse rename onto that
-    /// root must be allowed to clear/repoint the tip.
+    /// A retired original key can have an outgoing successor without a root row.
     fn coldkey_has_established_lineage(coldkey: &T::AccountId) -> bool {
-        ColdkeyRoot::<T>::contains_key(coldkey)
+        ColdkeyRoot::<T>::contains_key(coldkey) || ColdkeySuccessor::<T>::contains_key(coldkey)
     }
 
     /// Destination already has non-balance state that must always protect it
@@ -911,9 +906,7 @@ impl<T: Config> Pallet<T> {
                 Self::transfer_staking_hotkeys(old_coldkey, new_coldkey);
                 Self::transfer_hotkeys_ownership(old_coldkey, new_coldkey)?;
 
-                // Transfer stake locks. Destination must have no active locks (checked
-                // above); decaying-lock flags keep the destination's value on conflict.
-                Self::swap_coldkey_locks(old_coldkey, new_coldkey)?;
+                Self::migrate_coldkey_locks(old_coldkey, new_coldkey, import_source_policies)?;
 
                 // Clear source; restore the winning flags (dest when preserved).
                 AccountFlags::<T>::remove(old_coldkey);

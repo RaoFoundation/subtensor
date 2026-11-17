@@ -1288,9 +1288,10 @@ impl<T: Config> Pallet<T> {
     /// The new coldkey must have no active locks, so we can transfer the locks
     /// "as is" without rolling them forward and the
     /// HotkeyLock map does not change (because it only contains totals, not individual coldkey locks).
-    pub fn swap_coldkey_locks(
+    pub(crate) fn migrate_coldkey_locks(
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
+        import_source_policies: bool,
     ) -> DispatchResult {
         // Reject residual mass/conviction on the destination (read-only), then
         // drop fully exhausted dust rows so a source insert cannot leave two
@@ -1320,11 +1321,9 @@ impl<T: Config> Pallet<T> {
                 .iter()
                 .any(|(decaying_netuid, decaying)| *decaying_netuid == netuid && !*decaying);
             // Destination policy applies only prospectively after the hand-off.
-            let dest_perpetual = if DecayingLock::<T>::contains_key(new_coldkey, netuid) {
-                Self::is_perpetual_lock(new_coldkey, netuid)
-            } else {
-                source_perpetual
-            };
+            let dest_perpetual = DecayingLock::<T>::try_get(new_coldkey, netuid)
+                .map(|decaying| !decaying)
+                .unwrap_or(import_source_policies && source_perpetual);
             let (old_lock, _) = ConvictionModel::roll_forward_lock(
                 lock,
                 now,
@@ -1358,13 +1357,12 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        // DecayingLock: destination wins on conflict. Only move source flags for
-        // netuids the destination does not already configure.
+        // On merge, an absent destination row still means decaying.
         for (netuid, _) in decaying_locks_to_transfer {
             let Some(decaying) = DecayingLock::<T>::take(old_coldkey, netuid) else {
                 continue;
             };
-            if !DecayingLock::<T>::contains_key(new_coldkey, netuid) {
+            if import_source_policies && !DecayingLock::<T>::contains_key(new_coldkey, netuid) {
                 DecayingLock::<T>::insert(new_coldkey, netuid, decaying);
             }
         }
@@ -1391,6 +1389,14 @@ impl<T: Config> Pallet<T> {
         }
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn swap_coldkey_locks(
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+    ) -> DispatchResult {
+        Self::migrate_coldkey_locks(old_coldkey, new_coldkey, true)
     }
 
     /// Swap all locks made to the old_hotkey to new_hotkey on all netuids
