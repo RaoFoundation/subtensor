@@ -1306,7 +1306,8 @@ impl<T: Config> Pallet<T> {
         let new_coldkey_rejects_locked_alpha = Self::account_rejects_locked_alpha(new_coldkey);
         let decaying_locks_to_transfer: Vec<(NetUid, bool)> =
             DecayingLock::<T>::iter_prefix(old_coldkey).collect();
-        let dissolving_netuids: BTreeSet<_> = DissolveCleanupQueue::<T>::get().into_iter().collect();
+        let dissolving_netuids: BTreeSet<_> =
+            DissolveCleanupQueue::<T>::get().into_iter().collect();
 
         // Gather locks for old coldkey
         for ((netuid, hotkey), lock) in Lock::<T>::iter_prefix((old_coldkey,)) {
