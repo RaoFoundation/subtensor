@@ -1675,6 +1675,7 @@ export class Client extends BrowserChainClient {
       eraBirth: (period, current) => Number(eraBirth(period, current)), seal: sealMevShieldTransaction, verify: verifyAuthorization,
       intentReader: async block => createNodeIntentReader(this, await this.requireNativeClient(), block),
       submitBytes: (bytes, address, options) => this.submitSigned(bytes, address, { ...options, waitForInclusion: options.waitForInclusion ?? true }),
+      findExtrinsic: (hash, block, finalized, options) => this.findExtrinsic(hash, block, finalized, options),
       followShielded: (carrier, hash, period, options) => followShieldedResult(carrier, hash, period, this, options),
     }, keypair, this)
   }

@@ -1,10 +1,10 @@
 import { evaluatePolicy } from './policy'
-import { Interface, FunctionFragment, ParamType, HDNodeWallet, Wallet as EthereumWallet, getBytes, hexlify, type InterfaceAbi, type TransactionRequest } from 'ethers'
+import { Interface, FunctionFragment, ParamType, HDNodeWallet, Wallet as EthereumWallet, getBytes, hexlify, keccak256, type InterfaceAbi, type TransactionRequest } from 'ethers'
 import { Balance } from './balance'
 import { PRECOMPILE_CATALOG } from './evm-catalog'
 import { bytesHex, unsignedInteger, type PortableCrypto } from './portable'
 import { buildIntent, type IntentDescriptor } from './intents'
-import { delay } from './transport'
+import { delay, SubmissionUncertainError } from './transport'
 
 export const WEI_PER_TAO = 10n ** 18n
 export const WEI_PER_RAO = 10n ** 9n
@@ -41,10 +41,18 @@ export function evmNetwork(network: string): EvmNetwork {
 export class EvmRpcError extends Error {
   constructor(readonly code: number, message: string, readonly data?: unknown) { super(message); this.name = 'EvmRpcError' }
 }
+/** A signed EVM transaction may have reached the node; reconcile txHash first. */
+export class EvmSubmissionUncertainError extends SubmissionUncertainError {
+  constructor(readonly txHash: string, cause: unknown) {
+    super(txHash, cause)
+    this.name = 'EvmSubmissionUncertainError'
+  }
+}
 export class EvmRpc {
   private id = 0
   constructor(readonly url: string, readonly timeoutMs = 30_000, private readonly fetcher: typeof fetch = globalThis.fetch) {}
   async call<T = unknown>(method: string, params: unknown[] = [], signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted()
     const id = ++this.id
     const timeout = AbortSignal.timeout(this.timeoutMs)
     const response = await this.fetcher(this.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id, method, params }), signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
@@ -54,14 +62,14 @@ export class EvmRpc {
     if (payload.error) throw new EvmRpcError(payload.error.code, payload.error.message, payload.error.data)
     return payload.result as T
   }
-  async chainId(): Promise<bigint> { return BigInt(await this.call<string>('eth_chainId')) }
+  async chainId(signal?: AbortSignal): Promise<bigint> { return BigInt(await this.call<string>('eth_chainId', [], signal)) }
   async blockNumber(): Promise<number> { return Number(BigInt(await this.call<string>('eth_blockNumber'))) }
   async getBalanceWei(address: string, block = 'latest'): Promise<bigint> { return BigInt(await this.call<string>('eth_getBalance', [normalizeH160(address), block])) }
   async getNonce(address: string, block = 'pending'): Promise<number> { return Number(BigInt(await this.call<string>('eth_getTransactionCount', [normalizeH160(address), block]))) }
   async gasPrice(): Promise<bigint> { return BigInt(await this.call<string>('eth_gasPrice')) }
   async estimateGas(tx: Record<string, unknown>): Promise<bigint> { return BigInt(await this.call<string>('eth_estimateGas', [tx])) }
   ethCall(tx: Record<string, unknown>, block = 'latest'): Promise<string> { return this.call('eth_call', [tx, block]) }
-  sendRawTransaction(raw: string | Uint8Array): Promise<string> { return this.call('eth_sendRawTransaction', [typeof raw === 'string' ? raw : bytesHex(raw)]) }
+  sendRawTransaction(raw: string | Uint8Array, signal?: AbortSignal): Promise<string> { return this.call('eth_sendRawTransaction', [typeof raw === 'string' ? raw : bytesHex(raw)], signal) }
   /** One deadline covers polling and RPC I/O; a zero budget expires immediately. */
   async waitForReceipt(hash: string, options: { timeoutMs?: number; pollIntervalMs?: number; signal?: AbortSignal } = {}): Promise<EvmReceipt> {
     const timeoutMs = options.timeoutMs ?? 120_000, pollIntervalMs = options.pollIntervalMs ?? 3000
@@ -124,13 +132,33 @@ export async function prepareEvmTransaction(rpc: EvmRpc, sender: string, to: str
   return { sender, to, valueWei, data, gas, gasPriceWei, nonce, chainId }
 }
 export async function sendEvmTransaction(rpc: EvmRpc, account: Pick<EvmAccount, 'address' | 'signTransaction'>, preview: EvmTxPreview, options: { wait?: boolean; signal?: AbortSignal } = {}) {
+  const signal = options.signal
+  signal?.throwIfAborted()
   if (normalizeH160(account.address) !== preview.sender) throw new Error('transaction signer differs from preview sender')
-  if (await rpc.chainId() !== preview.chainId) throw new Error('EVM chain changed since transaction preview')
+  const readingChain = rpc.chainId(signal)
+  if (await (signal ? receiptCallWithSignal(readingChain, signal) : readingChain) !== preview.chainId) throw new Error('EVM chain changed since transaction preview')
+  signal?.throwIfAborted()
   const tx: TransactionRequest = { type: 0, to: preview.to, value: preview.valueWei, data: preview.data, gasLimit: preview.gas, gasPrice: preview.gasPriceWei, nonce: preview.nonce, chainId: preview.chainId }
-  const txHash = await rpc.sendRawTransaction(await account.signTransaction(tx))
-  if (options.wait === false) return { txHash }
-  const receipt = await rpc.waitForReceipt(txHash, options)
-  return { txHash, receipt, success: BigInt(receipt.status) === 1n, blockNumber: Number(BigInt(receipt.blockNumber)), gasUsed: BigInt(receipt.gasUsed), contractAddress: receipt.contractAddress }
+  const signing = account.signTransaction(tx)
+  const raw = await (signal ? receiptCallWithSignal(signing, signal) : signing)
+  const txHash = keccak256(raw)
+  signal?.throwIfAborted()
+  // From handoff onward a lost response or cancellation cannot prove non-send.
+  // Compute the hash locally before that boundary so every uncertain exit can
+  // be reconciled even when the node never returns its response.
+  try {
+    const sending = rpc.sendRawTransaction(raw, signal)
+    const accepted = await (signal ? receiptCallWithSignal(sending, signal) : sending)
+    if (accepted.toLowerCase() !== txHash.toLowerCase()) throw new Error('node returned a different submitted EVM transaction hash')
+    signal?.throwIfAborted()
+    if (options.wait === false) return { txHash }
+    const tracking = rpc.waitForReceipt(txHash, options)
+    const receipt = await (signal ? receiptCallWithSignal(tracking, signal) : tracking)
+    signal?.throwIfAborted()
+    return { txHash, receipt, success: BigInt(receipt.status) === 1n, blockNumber: Number(BigInt(receipt.blockNumber)), gasUsed: BigInt(receipt.gasUsed), contractAddress: receipt.contractAddress }
+  } catch (error) {
+    throw new EvmSubmissionUncertainError(txHash, error)
+  }
 }
 
 export class Precompile {

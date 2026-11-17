@@ -1065,16 +1065,41 @@ impl Client {
             }
             _ => (Value::str("00"), self.genesis_hash),
         };
-        let default_metadata_hash = signer.requires_metadata_proof
+        let (metadata_hash, chain_info) = self.metadata_hash_for_runtime(
+            runtime,
+            options.metadata_hash,
+            signer.requires_metadata_proof,
+        )?;
+        Ok((
+            TxParams {
+                era,
+                nonce,
+                tip: options.tip,
+                tip_asset_id: options.tip_asset_id,
+                genesis_hash: self.genesis_hash,
+                era_block_hash,
+                metadata_hash,
+            },
+            chain_info,
+        ))
+    }
+
+    fn metadata_hash_for_runtime(
+        &self,
+        runtime: &Runtime,
+        mode: MetadataHashMode,
+        requires_metadata_proof: bool,
+    ) -> Result<(Option<[u8; 32]>, Option<ChainInfo>), CoreError> {
+        let default_metadata_hash = requires_metadata_proof
             || runtime
                 .extrinsic
                 .signed_extensions
                 .iter()
                 .any(|ext| ext.identifier == "CheckMetadataHash");
         let mut chain_info = None;
-        let metadata_hash = match options.metadata_hash {
+        let metadata_hash = match mode {
             MetadataHashMode::Explicit(hash) => Some(hash),
-            MetadataHashMode::Disabled if signer.requires_metadata_proof => {
+            MetadataHashMode::Disabled if requires_metadata_proof => {
                 return Err(CoreError::Policy(
                     "metadataHash cannot be disabled for a signer that requires metadata proof"
                         .into(),
@@ -1089,21 +1114,10 @@ impl Client {
             }
             MetadataHashMode::Auto => None,
         };
-        if signer.requires_metadata_proof && chain_info.is_none() {
+        if requires_metadata_proof && chain_info.is_none() {
             chain_info = Some(self.chain_info_for_runtime(runtime)?);
         }
-        Ok((
-            TxParams {
-                era,
-                nonce,
-                tip: options.tip,
-                tip_asset_id: options.tip_asset_id,
-                genesis_hash: self.genesis_hash,
-                era_block_hash,
-                metadata_hash,
-            },
-            chain_info,
-        ))
+        Ok((metadata_hash, chain_info))
     }
 
     /// Create the exact payload an external signer must sign.
@@ -1459,7 +1473,27 @@ impl Client {
         nonce: u64,
         period: Option<u64>,
     ) -> Result<(Vec<u8>, String), CoreError> {
-        let context = self.prepare_signing(signer, Some(nonce), period, false)?;
+        self.sign_extrinsic_with_metadata_hash(
+            call_data,
+            signer,
+            nonce,
+            period,
+            MetadataHashMode::Auto,
+        )
+    }
+
+    /// Sign with an explicit metadata-hash mode. `Disabled` supports development
+    /// runtimes that declare `CheckMetadataHash` without embedding its digest.
+    /// The ordinary signing API continues to bind metadata automatically.
+    pub fn sign_extrinsic_with_metadata_hash(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        nonce: u64,
+        period: Option<u64>,
+        metadata_hash: MetadataHashMode,
+    ) -> Result<(Vec<u8>, String), CoreError> {
+        let context = self.prepare_signing(signer, Some(nonce), period, false, metadata_hash)?;
         self.sign_prepared(call_data, signer, &context, 0)
     }
 
@@ -1469,6 +1503,7 @@ impl Client {
         requested_nonce: Option<u64>,
         period: Option<u64>,
         shielded: bool,
+        metadata_hash: MetadataHashMode,
     ) -> Result<SigningContext, CoreError> {
         let runtime = self.current_runtime()?;
         let mut registered = None;
@@ -1585,9 +1620,22 @@ impl Client {
         let params = match authority_block {
             Some(hash) => {
                 let current = self.header(Some(&hash))?.number;
-                self.transaction_params_at(nonce, period, current)?
+                self.transaction_params_at_with_metadata_hash(
+                    nonce,
+                    period,
+                    current,
+                    metadata_hash,
+                )?
             }
-            None => self.transaction_params(nonce, period)?,
+            None => {
+                let current = self.block_number()?;
+                self.transaction_params_at_with_metadata_hash(
+                    nonce,
+                    period,
+                    current,
+                    metadata_hash,
+                )?
+            }
         };
         Ok(SigningContext {
             runtime,
@@ -1690,6 +1738,21 @@ impl Client {
         period: Option<u64>,
         current: u64,
     ) -> Result<TxParams, CoreError> {
+        self.transaction_params_at_with_metadata_hash(
+            nonce,
+            period,
+            current,
+            MetadataHashMode::Auto,
+        )
+    }
+
+    fn transaction_params_at_with_metadata_hash(
+        &self,
+        nonce: u64,
+        period: Option<u64>,
+        current: u64,
+        metadata_hash: MetadataHashMode,
+    ) -> Result<TxParams, CoreError> {
         let (era, era_block_hash) = match period {
             Some(period) if period > 0 => {
                 let (era, birth) = stored_mortal_era(period, current);
@@ -1699,19 +1762,7 @@ impl Client {
             _ => (Value::str("00"), self.genesis_hash),
         };
         let runtime = self.current_runtime()?;
-        let metadata_hash = if runtime
-            .extrinsic
-            .signed_extensions
-            .iter()
-            .any(|ext| ext.identifier == "CheckMetadataHash")
-        {
-            Some(metadata_digest(
-                &runtime.metadata_bytes,
-                &self.chain_info_for_runtime(&runtime)?,
-            )?)
-        } else {
-            None
-        };
+        let (metadata_hash, _) = self.metadata_hash_for_runtime(&runtime, metadata_hash, false)?;
         Ok(TxParams {
             era,
             nonce,
@@ -1926,9 +1977,35 @@ impl Client {
         signer: &Keypair,
         options: TxSubmitOptions<'_>,
     ) -> Result<TxOutcome, CoreError> {
+        self.submit_with_metadata_hash(call_data, signer, options, MetadataHashMode::Auto)
+    }
+
+    /// Submit a native keypair transaction with an explicit metadata-hash mode.
+    /// `Auto` is the default; opt out only for a runtime without an embedded hash.
+    ///
+    /// ```no_run
+    /// use bittensor_core::{Client, CoreError, keys::Keypair};
+    /// use bittensor_core::client::{MetadataHashMode, TxSubmitOptions};
+    /// # fn submit_on_development_chain(client: &Client, call: &[u8], key: &Keypair) -> Result<(), CoreError> {
+    /// client.submit_with_metadata_hash(
+    ///     call,
+    ///     key,
+    ///     TxSubmitOptions::default(),
+    ///     MetadataHashMode::Disabled,
+    /// )?;
+    /// # Ok(()) }
+    /// ```
+    pub fn submit_with_metadata_hash(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        options: TxSubmitOptions<'_>,
+        metadata_hash: MetadataHashMode,
+    ) -> Result<TxOutcome, CoreError> {
         if is_rotating_crypto(signer.crypto_type()) {
             check_cancelled(options.cancelled)?;
-            let context = self.prepare_signing(signer, options.nonce, options.period, false)?;
+            let context =
+                self.prepare_signing(signer, options.nonce, options.period, false, metadata_hash)?;
             let (extrinsic, hash) = self.sign_prepared(call_data, signer, &context, 0)?;
             return self.submit_encoded_with_wait_cancelled(
                 &extrinsic,
@@ -1947,16 +2024,21 @@ impl Client {
                 Some(nonce) => nonce,
                 None => self.reserve_nonce(&address)?,
             };
-            let (extrinsic, hash) =
-                match self.sign_extrinsic(call_data, signer, nonce, options.period) {
-                    Ok(signed) => signed,
-                    Err(error) => {
-                        if !explicit_nonce {
-                            self.release_nonce(&address, nonce)?;
-                        }
-                        return Err(error);
+            let (extrinsic, hash) = match self.sign_extrinsic_with_metadata_hash(
+                call_data,
+                signer,
+                nonce,
+                options.period,
+                metadata_hash.clone(),
+            ) {
+                Ok(signed) => signed,
+                Err(error) => {
+                    if !explicit_nonce {
+                        self.release_nonce(&address, nonce)?;
                     }
-                };
+                    return Err(error);
+                }
+            };
             let outcome = match self.submit_encoded_with_wait_cancelled(
                 &extrinsic,
                 hash,
@@ -2108,6 +2190,41 @@ impl Client {
         wait_for_finalization: bool,
         fee_check: Option<&dyn Fn(u128) -> Result<(), CoreError>>,
     ) -> Result<TxOutcome, CoreError> {
+        self.submit_shielded_checked_with_metadata_hash(
+            call_data,
+            signer,
+            wait_for_finalization,
+            fee_check,
+            MetadataHashMode::Auto,
+        )
+    }
+
+    /// Apply the same metadata-hash mode to both the Shield inner and carrier.
+    /// Use `Disabled` for development runtimes without an embedded digest.
+    pub fn submit_shielded_with_metadata_hash(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        wait_for_finalization: bool,
+        metadata_hash: MetadataHashMode,
+    ) -> Result<TxOutcome, CoreError> {
+        self.submit_shielded_checked_with_metadata_hash(
+            call_data,
+            signer,
+            wait_for_finalization,
+            None,
+            metadata_hash,
+        )
+    }
+
+    fn submit_shielded_checked_with_metadata_hash(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        wait_for_finalization: bool,
+        fee_check: Option<&dyn Fn(u128) -> Result<(), CoreError>>,
+        metadata_hash: MetadataHashMode,
+    ) -> Result<TxOutcome, CoreError> {
         let next_key = self.query("MevShield", "NextKey", &[], None)?;
         let public_key = value_bytes(&next_key)
             .ok_or_else(|| CoreError::Rpc("MevShield.NextKey is unavailable".into()))?;
@@ -2117,7 +2234,13 @@ impl Client {
             Some(self.reserve_nonces(&signer.ss58_address(), 2)?)
         };
         let prepared = (|| -> Result<_, CoreError> {
-            let context = self.prepare_signing(signer, nonce, Some(MEV_SHIELD_ERA_PERIOD), true)?;
+            let context = self.prepare_signing(
+                signer,
+                nonce,
+                Some(MEV_SHIELD_ERA_PERIOD),
+                true,
+                metadata_hash,
+            )?;
             // Detached reservations may move the inner nonce into a wider SCALE
             // encoding and the carrier into the runtime's larger weight tier.
             // Check the exact reserved context before exposing either signature.

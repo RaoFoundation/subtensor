@@ -14,6 +14,7 @@ pub(crate) mod financial;
 pub(crate) mod numeric;
 pub(crate) mod protected;
 mod saved_call;
+mod shielding;
 pub(crate) mod transaction;
 pub(crate) mod upgrade;
 pub(crate) mod validation;

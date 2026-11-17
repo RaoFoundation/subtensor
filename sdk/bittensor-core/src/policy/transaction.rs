@@ -454,6 +454,7 @@ pub(crate) fn evaluate(operation: &str, input: Value) -> Result<Value, PolicyErr
         "transaction.intent_metadata" => intent_metadata(&input),
         "transaction.merge_intents" => merge_intents(&input),
         "transaction.simple_call" => simple_call(&input),
+        "transaction.descriptor_shielding" => super::shielding::evaluate(&input),
         "transaction.execution" => {
             let shielded = (input["force_required"] == true && input["shield_required"] == true)
                 || input["shielded"]

@@ -71,11 +71,24 @@ class SetChildren(Intent):
     hotkey_ss58: Optional[str] = field(default=None, metadata={"help": HOTKEY_HELP})
 
     def __post_init__(self):
+        # Addresses may be public keypairs or wallet views. Keep them intact for
+        # receiving-address coercion; Rust only needs stable labels to validate
+        # the row structure and normalize/sum the proportions.
+        recipients = []
+        policy_children = self.children
+        if isinstance(self.children, (list, tuple)):
+            policy_children = []
+            for row in self.children:
+                if isinstance(row, (list, tuple)) and len(row) == 2:
+                    policy_children.append([row[0], str(len(recipients))])
+                    recipients.append(row[1])
+                else:
+                    policy_children.append(row)
         try:
-            rows = evaluate_policy("transaction.children", {"children": self.children})
+            rows = evaluate_policy("transaction.children", {"children": policy_children})
         except TypeError as error:
             raise ValueError(str(error)) from error
-        self.children = [[int(share), child] for share, child in rows]
+        self.children = [[int(share), recipients[int(index)]] for share, index in rows]
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)

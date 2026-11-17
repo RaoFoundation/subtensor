@@ -15,7 +15,6 @@ import { Runtime, multisigAccountId, storagePrefixFor } from './runtime'
 import { fromWire } from './wire'
 import type { NativeExternalSigningOptions, NativeExternalSigningPlanHandle } from './native'
 import { generateCommitV2 } from './timelock'
-import { iterCallLeaves } from './fee-filters'
 import { resolveTransactionFeePayer } from './fee-payer'
 import { MultisigCallCache, prepareMultisigApproval } from './multisig-workflow'
 import { followShieldedResult } from './shielded-receipt'
@@ -291,8 +290,10 @@ export class NodeMultisig {
       const encoded = await encodeIntentCall(call, (pallet, fn, params) => this.client.composeCall(pallet, fn, params as ScaleValue))
       trusted = rawCall(approval.call.pallet, approval.call.call, { ...approval.call.params, call: encoded } as ScaleValue)
     }
-    const shielded = options.mevShield ?? false
-    if (!shielded && [...iterCallLeaves(call)].some(([pallet, fn]) => pallet === 'SubtensorModule' && fn === 'add_collateral')) throw new Error('add_collateral requires MEV shielding')
+    // Explicit shielding also protects opaque calls that cannot be inspected.
+    const shielding = options.mevShield === true ? { required: true, operations: [] } : evaluatePolicy<{ required: boolean; operations: string[] }>('transaction.descriptor_shielding', { call })
+    const shielded = options.mevShield ?? shielding.required
+    if (!shielded && shielding.required) throw new Error(`${shielding.operations.join(', ')} requires MEV shielding`)
     let nonce = options.nonce ?? await native.accountNextIndex(identity.address)
     if (!Number.isSafeInteger(nonce) || nonce < 0 || nonce >= Number.MAX_SAFE_INTEGER) throw new RangeError('invalid multisig nonce')
     const policy = Policy.from({ ...options.policy, allowedNetuids: options.policy?.allowedNetuids == null ? undefined : [...options.policy.allowedNetuids], allowRawCalls: options.allowRawCall })
@@ -315,7 +316,10 @@ export class NodeMultisig {
     const resolved = bindSignerIdentity(signer instanceof Wallet ? await signer.signer('coldkey', options) : signer, identity)
     const submission = signerQueueOptions({ ...submitOptions(options), policy, allowRawCall: options.allowRawCall }, permit)
     const data = { multisig_account: this.address, multisig_call_hash: approval.callHash, opening: approval.opening }
-    if (!shielded) return { ...await this.client.submit(trusted, resolved, { waitForInclusion: true, ...submission }), data }
+    if (!shielded) {
+      const result = await this.client.submit(trusted, resolved, { waitForInclusion: true, ...submission })
+      return { ...result, data: { ...data, ...result.data } }
+    }
     ;(resolved as SignerLike & { beginTwoStageSigning?(): void }).beginTwoStageSigning?.()
     const signedInner = await this.client.signExtrinsic(trusted, resolved, { ...submission, nonce: nonce + 1, period: 8 })
     const ciphertext = sealMevShieldTransaction(publicKey!, signedInner.bytes)

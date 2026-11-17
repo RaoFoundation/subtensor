@@ -7,6 +7,12 @@ from typing import Any
 
 import bittensor_core
 
+if not callable(getattr(bittensor_core, "policy_evaluate", None)):
+    raise ImportError(
+        "bittensor requires bittensor-core>=0.1.12,<0.2.0 with the shared Rust policy binding; "
+        "upgrade bittensor-core or rebuild it from the same checkout as the Python SDK"
+    )
+
 
 def _json_value(value: Any) -> Any:
     if isinstance(value, (bytes, bytearray, memoryview)):

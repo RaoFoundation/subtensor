@@ -66,6 +66,11 @@ Protected sessions select rotating authority from finalized storage, reject
 pending nonce conflicts, and sign the full runtime payload. Fee previews use
 dummy proofs and work with public-only descriptors. Shielded carrier/inner
 transactions use one authority snapshot and consecutive nonces/generations.
+If Shield tracking is interrupted after carrier inclusion, call
+`await session.reconcileShielded({ timeoutMs: 120_000 })` on the same client.
+It checks the saved envelope against finalized history without signing or
+broadcasting again. Finalized expiry or carrier failure releases the unused
+inner reservation; uncertain or unfinalized outcomes retain it.
 `session.submit` and `session.signExtrinsic` require `allowRawCall`; detached
 signing additionally requires an explicit nonce. External PQ wallets can submit
 their already encoded transaction with `submitSigned`.
@@ -413,6 +418,10 @@ For an unused `client.prepareCall()` result, call
 its automatic nonce reservation. Only cancel when no transaction derived from
 the plan was broadcast elsewhere. Cancellation rejects plans already submitted
 through this client, including submissions whose delivery is uncertain.
+Browser `prepareCall()` requires an explicit nonce. To allocate one safely, use
+`const nonce = await client.reserveNonces(address)` and pass `{ nonce }` with
+the other preparation options. Fee estimation and ordinary automatic submission
+continue to select nonces internally.
 After reconciling an abandoned or expired transaction, use
 `await client.invalidateNonce(address)` before retrying with automatic nonces.
 Do not clear a reservation while its carrier or inner transaction may still
@@ -552,6 +561,11 @@ Additional workflow APIs include:
   and restartable Null pruning with a persistent submission journal.
 - Basket index pricing, endpoint latency probes, and structured chain error
   classification for all current module errors and transaction pool rejections.
+
+`sendEvmTransaction()` checks cancellation before signing and broadcasting,
+including with `wait: false`. If delivery or receipt tracking fails after
+broadcast handoff, `EvmSubmissionUncertainError.txHash` identifies the signed
+transaction. Reconcile that hash before retrying the payment.
 
 Failed receipts expose `chainError` with a semantic `code`, exact error name,
 metadata documentation, and remediation text. `classifyChainError()` also accepts

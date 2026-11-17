@@ -10,6 +10,9 @@ mod detached_cancellation;
 #[path = "client_external_signature_tests.rs"]
 mod external_signature_verification;
 
+#[path = "client_metadata_hash_tests.rs"]
+mod native_metadata_hash;
+
 fn server(replies: Vec<(&'static str, Option<JsonValue>)>) -> (String, thread::JoinHandle<()>) {
     inspected_server(replies, |_| {})
 }

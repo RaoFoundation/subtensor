@@ -1,6 +1,6 @@
 import { transactionAffordability } from './transaction-affordability'
 import { evaluatePolicy } from './policy'
-import { isDefiniteSubmissionRejection, markSubmissionNotSent } from './transport'
+import { isDefiniteSubmissionRejection, markSubmissionNotSent, withRequestSignal, type RpcRequestOptions } from './transport'
 import { bytesHex as hex, concatBytes, hexBytes } from './portable'
 import { isProtectedCrypto, isRotatingCrypto, u64 } from './wallet-types'
 import { signingAuthority, assertAuthorityCurrent, registrationCall, rotationCall, type SigningAuthority, type ProtectedAccountClient, type ProtectedKeypair } from './protected-accounts'
@@ -9,6 +9,7 @@ import { resolveTransactionFeePayer } from './fee-payer'
 import { authorizeRegistrationSponsorship, type RegistrationSponsorshipOptions } from './registration-sponsorship'
 import { prepareOrder, type PreparedOrder, type VersionedOrder } from './limit-orders'
 import { shieldedCiphertextSize, validateShieldedCiphertextSize } from './shield-size'
+import type { ShieldedReceipt, ShieldedResult } from './shielded-receipt'
 
 export interface ProtectedTransactionOptions {
   nonce?: number
@@ -33,6 +34,7 @@ export interface ProtectedWorkflowAdapter extends ProtectedAccountClient {
   intentReader(block: string): Promise<any>
   submitBytes(bytes: Uint8Array, address: string, options: ProtectedTransactionOptions): Promise<any>
   followShielded(carrier: any, innerHash: string, period: number, options: ProtectedTransactionOptions): Promise<any>
+  findExtrinsic?(hash: string, block: string, finalized: boolean, options?: RpcRequestOptions): Promise<ShieldedReceipt | null>
 }
 export interface ProtectedWorkflowOptions extends ProtectedTransactionOptions, RegistrationSponsorshipOptions {
   context?: IntentContext
@@ -44,7 +46,12 @@ export interface ProtectedWorkflowOptions extends ProtectedTransactionOptions, R
   expectedCallHash?: string
 }
 const queues = new WeakMap<object, Map<string, Promise<unknown>>>()
-const submitted = new WeakMap<object, Map<string, { nonce: bigint; generation: bigint }>>()
+interface SubmittedAuthority {
+  nonce: bigint
+  generation: bigint
+  shield?: { carrier: ShieldedReceipt; innerHash: string; period: number }
+}
+const submitted = new WeakMap<object, Map<string, SubmittedAuthority>>()
 /** A chain-bound signing session for rotating and fixed post-quantum wallets.
  * Never tracks a local generation counter: finalized chain authority selects it.
  */
@@ -64,6 +71,55 @@ export class ProtectedWalletClient {
   prepareOrder(nonce: bigint | number, order: VersionedOrder): Promise<PreparedOrder> { return prepareOrder(this.adapter,nonce,order) }
   rotationCall(): IntentDescriptor { return rotationCall(this.keypair) }
   authority(nonce?: number): Promise<SigningAuthority> { return signingAuthority(this.adapter, this.keypair, nonce) }
+  /** Resume tracking the retained Shield envelope against finalized history.
+   * Finalized expiry or carrier failure releases the unused inner reservation;
+   * no signing or resubmission occurs. The envelope belongs to this client/account.
+   */
+  async reconcileShielded(options: Pick<ProtectedTransactionOptions, 'signal' | 'timeoutMs'> = {}): Promise<ShieldedResult> {
+    return this.serial(async () => {
+      options.signal?.throwIfAborted()
+      const account = hex(this.keypair.publicKey), entries = submitted.get(this.queueOwner)
+      const reservation = entries?.get(account), pending = reservation?.shield
+      if (!reservation || !pending) throw new Error('no pending Shield envelope for this wallet on this client')
+      const request = withRequestSignal({ ...options, timeoutMs: options.timeoutMs ?? 120_000 })
+      const aborted = new Promise<never>((_resolve, reject) => request.onAbort(reject))
+      const guarded = <T>(run: () => Promise<T>): Promise<T> => {
+        if (request.signal?.aborted) throw request.error()
+        return Promise.race([run(), aborted])
+      }
+      try {
+        let carrier = pending.carrier
+        // A carrier observed on the best fork can be finalized with a dispatch
+        // failure after a reorg. Verify its actual canonical receipt before
+        // releasing the inner authorization that failure could never dispatch.
+        if (this.adapter.findExtrinsic && carrier.blockNumber != null) {
+          const finalizedHash = await guarded(() => this.adapter.finalizedHead())
+          if (await guarded(() => this.adapter.blockNumber(finalizedHash)) >= carrier.blockNumber) {
+            const block = await guarded(() => this.adapter.blockHash(carrier.blockNumber))
+            const verified = await guarded(() => this.adapter.findExtrinsic!(carrier.extrinsicHash, block, true, { signal: request.signal, timeoutMs: 0 }))
+            if (verified) {
+              if (verified.extrinsicHash !== carrier.extrinsicHash || verified.blockHash !== block || verified.blockNumber !== carrier.blockNumber || !verified.finalized) throw new Error('Shield reconciliation returned a different carrier')
+              carrier = verified
+            }
+          }
+        }
+        const result: ShieldedResult = await guarded(() => this.adapter.followShielded(carrier, pending.innerHash, pending.period, { signal: request.signal, timeoutMs: 0, waitForFinalization: true }))
+        if (result.innerExtrinsicHash !== pending.innerHash || result.carrierExtrinsicHash !== pending.carrier.extrinsicHash) throw new Error('Shield reconciliation returned a different transaction')
+        if (entries?.get(account) !== reservation) throw new Error('wallet reservation changed during Shield reconciliation')
+        const failedCarrier = carrier.success === false && carrier.finalized === true && result.extrinsicHash === carrier.extrinsicHash && result.data?.carrier_only === true
+        if (failedCarrier || result.data?.inner_expiry_finalized === true && result.data?.carrier_only === true) {
+          if (isRotatingCrypto(this.keypair.cryptoType)) entries.set(account, { nonce: reservation.nonce - 1n, generation: reservation.generation - 1n })
+          else entries.delete(account)
+        } else if (result.finalized && result.blockHash && result.extrinsicHash === pending.innerHash && result.data?.carrier_only === false) {
+          // Keep the rotating generation floor until finalized authority observes
+          // this inclusion; fixed wallets can have been reaped by the inner call.
+          if (isRotatingCrypto(this.keypair.cryptoType)) entries.set(account, { nonce: reservation.nonce, generation: reservation.generation })
+          else entries.delete(account)
+        }
+        return result
+      } finally { request.cleanup() }
+    })
+  }
   private async signingPlan(call: IntentDescriptor | Uint8Array, authority: SigningAuthority, options: ProtectedTransactionOptions, offset = 0, signing = true) {
     options.signal?.throwIfAborted()
     const runtime = await this.adapter.runtimeAt(authority.block), current = await this.adapter.blockNumber(authority.block)
@@ -179,9 +235,11 @@ export class ProtectedWalletClient {
     options.signal?.throwIfAborted()
     const carrier = await submit(outer.bytes, 2, { ...options, waitForInclusion: true })
     if (carrier.data?.submission_rejected === true || carrier.data?.submission_uncertain === true) return carrier
-    const result = await this.adapter.followShielded(carrier, typeof inner.hash === 'string' ? inner.hash : hex(inner.hash), signing.period, options)
-    if (carrier.success === false && carrier.finalized || result.data?.inner_expiry_finalized === true) markSubmitted(1)
     const innerHash = typeof inner.hash === 'string' ? inner.hash : hex(inner.hash)
+    const reservation = submitted.get(this.queueOwner)?.get(account)
+    if (reservation) reservation.shield = { carrier: { ...carrier, events: [...(carrier.events ?? [])], data: carrier.data && { ...carrier.data } }, innerHash, period: signing.period }
+    const result = await this.adapter.followShielded(carrier, innerHash, signing.period, options)
+    if (carrier.success === false && carrier.finalized || result.data?.inner_expiry_finalized === true) markSubmitted(1)
     if (!isRotatingCrypto(this.keypair.cryptoType) && result.blockHash && result.extrinsicHash === innerHash) submitted.get(this.queueOwner)?.delete(account)
     return result
     } catch (error) { throw handedOff ? error : markSubmissionNotSent(error) }

@@ -33,7 +33,6 @@ import { bytesHex as hex, hexBytes, concatBytes } from './portable'
 import { dispatchRead, listReads, type ReadName, type ReadArgs, type ReadParams, type ReadResult, type ReadView } from './reads'
 import { fetchMetagraph, type CommitmentReadOptions } from './metagraph'
 import { Intent, wrapPreparedMultisig, intentFromJSON, intentSignerRole, listIntentTools, checkIntentPolicy, encodeIntentCall, PROXY_TYPES, type IntentContext, type IntentDescriptor, type IntentPolicy, type IntentReader, type PreparedIntent } from './intents'
-import { iterCallLeaves } from './fee-filters'
 import { resolveTransactionFeePayer } from './fee-payer'
 import { createEvmAddressUtilities } from './evm'
 import { normalizeHeader, normalizeStatus, nestedDispatchError, eventName, eventExtrinsicIndex, feeFromEvent, dispatchFailureMessage, type BlockHeader } from './receipt'
@@ -291,6 +290,7 @@ export class Client {
   async prepareCall(call: Call, signer: BrowserSigner, options: SubmitOptions = {}): Promise<PreparedTransaction> {
     if (!options.allowRawCall) throw new ChainError('prepareCall requires allowRawCall: true; use prepareIntent for semantic policies')
     rejectDetachedPolicy(options)
+    if (options.nonce == null) throw new ChainError('detached preparation requires an explicit nonce; reserveNonces can allocate one')
     return this.prepareRaw(call, pinSigner(signer), options)
   }
   private async prepareRaw(call: Call, signer: BrowserSigner, options: SubmitOptions, at?: string): Promise<PreparedTransaction> {
@@ -479,6 +479,7 @@ export class Client {
       intentReader: block => this.intentReader(block),
       submitBytes: (bytes, _address, options) => this.broadcastExtrinsic(bytes, options),
       followShielded: (carrier, hash, period, options) => this.resolveShieldedInner(carrier, hash, period, options),
+      findExtrinsic: (hash, block, finalized) => this.findExtrinsic(hash, block, finalized),
     }, keypair, this)
   }
   protectedAccount(options: ProtectedAccountClientOptions<BrowserSigner, WorkflowOptions>) {
@@ -804,15 +805,18 @@ export class BrowserMultisig {
     }
     if (!options.allowRawCall) throw new ChainError('descriptor multisig approval requires allowRawCall: true; pass an Intent for semantic policies')
     if (options.policy && Object.values(options.policy).some(value => value != null)) throw new ChainError('raw multisig calls cannot establish a semantic policy')
-    const requiresShield = [...iterCallLeaves(call)].some(([pallet, fn]) => pallet === 'SubtensorModule' && fn === 'add_collateral')
-    if (requiresShield && !options.mevShield) throw new ChainError('add_collateral requires MEV shielding')
+    // Explicit shielding also protects opaque calls that cannot be inspected.
+    const shielding = options.mevShield === true ? { required: true, operations: [] } : evaluatePolicy<{ required: boolean; operations: string[] }>('transaction.descriptor_shielding', { call })
+    const mevShield = options.mevShield ?? shielding.required
+    if (shielding.required && !mevShield) throw new ChainError(`${shielding.operations.join(', ')} requires MEV shielding`)
+    const submission = { ...options, mevShield }
     const approval = await this.prepare(call, address, options.expectedCallHash)
-    const signing = options.mevShield ? shieldOptions(options) : options
-    const { innerFee: fee, carrierFee } = options.mevShield
+    const signing = mevShield ? shieldOptions(submission) : submission
+    const { innerFee: fee, carrierFee } = mevShield
       ? await this.client.estimateShieldedFees(approval.call, signer, signing)
       : { innerFee: await this.client.estimateFee(approval.call, signer, signing), carrierFee: Balance.fromRao(0) }
     if (approval.violations.length || approval.availableFreeRao < approval.depositRao + fee.rao + carrierFee.rao) throw new ChainError('multisig signer cannot cover deposit and fees')
-    return this.client.submit(approval.call, signer, options)
+    return this.client.submit(approval.call, signer, submission)
   }
 }
 
