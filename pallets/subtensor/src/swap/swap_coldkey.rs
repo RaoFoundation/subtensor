@@ -35,17 +35,22 @@ pub struct ColdkeySwapWork {
     pub destination_rejects_unsolicited_policy_import: bool,
 }
 
-/// How an authenticated coldkey-swap announcement decides whether the source's
-/// auto-stake policy may move to an otherwise-unconfigured destination.
+/// How execution applies the destination state and the V2 announcement snapshot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ColdkeySwapPolicyImportMode {
-    /// Apply the complete destination-presence check at execution.
+    /// Check the current destination. Balance protects reward and lock preferences only.
     CurrentDestination,
     /// The destination already had presence at announcement; never import.
     Reject,
     /// The original blank-destination reservation is still live, so ignore only
     /// unsolicited balance while enforcing every non-balance protection.
     IgnoreDestinationBalance,
+}
+
+impl ColdkeySwapPolicyImportMode {
+    fn preserve_destination_flags(self, work: &ColdkeySwapWork) -> bool {
+        self == Self::Reject || work.destination_has_non_balance_policy_protection
+    }
 }
 
 impl<T: Config> Pallet<T> {
@@ -608,17 +613,13 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> Result<ColdkeySwapWork, (Weight, Error<T>)> {
-        Self::ensure_coldkey_swap_destination_with_policy_mode(
-            old_coldkey,
-            new_coldkey,
-            ColdkeySwapPolicyImportMode::CurrentDestination,
-        )
+        Self::ensure_coldkey_swap_destination_with_policy_mode(old_coldkey, new_coldkey, None)
     }
 
     fn ensure_coldkey_swap_destination_with_policy_mode(
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
-        policy_import_mode: ColdkeySwapPolicyImportMode,
+        execution_policy: Option<ColdkeySwapPolicyImportMode>,
     ) -> Result<ColdkeySwapWork, (Weight, Error<T>)> {
         let precheck = || Self::coldkey_swap_failed_weight(None, false);
         if !T::HotkeyOwnerPolicy::allows_coldkey_swap(old_coldkey, new_coldkey) {
@@ -705,16 +706,12 @@ impl<T: Config> Pallet<T> {
         // (temporary accept override in execute). Destinations with staking
         // associations *or* configured AccountFlags that reject locked alpha
         // keep that preference (Auditor fid:9411d39b).
-        let destination_has_presence = match policy_import_mode {
-            ColdkeySwapPolicyImportMode::CurrentDestination => {
-                work.destination_rejects_unsolicited_policy_import
-            }
-            ColdkeySwapPolicyImportMode::Reject => true,
-            ColdkeySwapPolicyImportMode::IgnoreDestinationBalance => {
-                work.destination_has_non_balance_policy_protection
-            }
+        let preserve_destination_flags = match execution_policy {
+            Some(mode) => mode.preserve_destination_flags(&work),
+            // V2 announcement commits to whether the destination already had presence.
+            None => work.destination_rejects_unsolicited_policy_import,
         };
-        if destination_has_presence
+        if preserve_destination_flags
             && Self::account_rejects_locked_alpha(new_coldkey)
             && let Err(e) = Self::ensure_no_active_locks_for_swap(old_coldkey)
         {
@@ -807,7 +804,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Announced V2 swaps pass the destination-presence snapshot recorded at
-    /// announcement. Direct and legacy swaps pass `None` and evaluate the
+    /// announcement. Direct and legacy swaps pass `CurrentDestination` and evaluate the
     /// destination at execution as before.
     pub(crate) fn do_swap_coldkey_tracked_with_policy_snapshot(
         old_coldkey: &T::AccountId,
@@ -817,7 +814,7 @@ impl<T: Config> Pallet<T> {
         let work = match Self::ensure_coldkey_swap_destination_with_policy_mode(
             old_coldkey,
             new_coldkey,
-            policy_import_mode,
+            Some(policy_import_mode),
         ) {
             Ok(work) => work,
             Err((done, error)) => return Err((done, error.into())),
@@ -845,8 +842,7 @@ impl<T: Config> Pallet<T> {
         }
         with_transaction(|| {
             let result = (|| -> DispatchResult {
-                // Decide once, before mutations, whether this is a rename onto a blank key or a
-                // merge into an existing destination. Every imported policy uses that decision.
+                // Decide which destination policies to preserve before moving any state.
                 let saved_dest_flags = AccountFlags::<T>::get(new_coldkey);
                 let saved_source_flags = AccountFlags::<T>::get(old_coldkey);
                 // Snapshot before any balance/stake moves: source-only swaps must
@@ -854,16 +850,19 @@ impl<T: Config> Pallet<T> {
                 // grants, flags, lineage, or staking associations (Skeptic
                 // fid:93e26a58 / fid:a2c90852). Only a blank rename target imports
                 // the source policy.
-                let destination_has_presence = match policy_import_mode {
+                let import_source_preferences = match policy_import_mode {
                     ColdkeySwapPolicyImportMode::CurrentDestination => {
-                        work.destination_rejects_unsolicited_policy_import
+                        !work.destination_rejects_unsolicited_policy_import
                     }
-                    ColdkeySwapPolicyImportMode::Reject => true,
+                    ColdkeySwapPolicyImportMode::Reject => false,
                     ColdkeySwapPolicyImportMode::IgnoreDestinationBalance => {
-                        work.destination_has_non_balance_policy_protection
+                        !work.destination_has_non_balance_policy_protection
                     }
                 };
-                let import_source_policies = !destination_has_presence;
+                // TAO alone does not establish Subtensor account state. A transfer
+                // during the delay must not prevent lock migration or clear source flags.
+                let preserve_destination_flags =
+                    policy_import_mode.preserve_destination_flags(&work);
                 // An otherwise blank destination can explicitly accept an active lock
                 // on its existing terms without importing the source's other policies.
                 let retain_active_lock_terms = saved_dest_flags
@@ -876,11 +875,9 @@ impl<T: Config> Pallet<T> {
                 // A reverse rename inside an already-established lineage may repoint its tip.
                 // Existing state must otherwise prevent an unsolicited source from asserting
                 // shared identity with the destination.
-                let record_lineage = !destination_has_presence
+                let record_lineage = !preserve_destination_flags
                     || Self::same_coldkey_lineage(old_coldkey, new_coldkey);
-                // Temporary accept only on a true rename onto an empty key.
-                // Existing destinations must not receive source flags or a new lineage.
-                if !destination_has_presence {
+                if !preserve_destination_flags {
                     Self::set_accept_locked_alpha(new_coldkey, true);
                 }
 
@@ -907,7 +904,7 @@ impl<T: Config> Pallet<T> {
                         netuid,
                         old_coldkey,
                         new_coldkey,
-                        import_source_policies,
+                        import_source_preferences,
                     );
                     // Stake has moved; migrate the bond so unstake guards stay attached.
                     Self::transfer_coldkey_miner_collateral(netuid, old_coldkey, new_coldkey)?;
@@ -922,13 +919,13 @@ impl<T: Config> Pallet<T> {
                 Self::migrate_coldkey_locks(
                     old_coldkey,
                     new_coldkey,
-                    import_source_policies,
+                    import_source_preferences,
                     retain_active_lock_terms,
                 )?;
 
                 // Clear source; restore the winning flags (dest when preserved).
                 AccountFlags::<T>::remove(old_coldkey);
-                let final_flags = if destination_has_presence {
+                let final_flags = if preserve_destination_flags {
                     saved_dest_flags
                 } else {
                     saved_source_flags
