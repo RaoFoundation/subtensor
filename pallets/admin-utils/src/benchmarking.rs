@@ -232,6 +232,21 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_max_timelocked_commits_per_hotkey() {
+        let netuid = NetUid::from(1);
+        pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
+        pallet_subtensor::Pallet::<T>::init_new_network(netuid, 1u16);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, 5u8);
+
+        assert_eq!(
+            pallet_subtensor::Pallet::<T>::get_max_timelocked_commits_per_hotkey(netuid),
+            5u8
+        );
+    }
+
+    #[benchmark]
     fn sudo_set_weights_version_key() {
         // disable admin freeze window
         pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);

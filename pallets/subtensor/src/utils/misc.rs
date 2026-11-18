@@ -524,6 +524,14 @@ impl<T: Config> Pallet<T> {
         ));
     }
 
+    pub fn get_max_timelocked_commits_per_hotkey(netuid: NetUid) -> u8 {
+        MaxTimelockedCommitsPerHotkey::<T>::get(netuid)
+    }
+    pub fn set_max_timelocked_commits_per_hotkey(netuid: NetUid, max_commits: u8) {
+        MaxTimelockedCommitsPerHotkey::<T>::insert(netuid, max_commits);
+        Self::deposit_event(Event::MaxTimelockedCommitsPerHotkeySet(netuid, max_commits));
+    }
+
     pub fn get_adjustment_interval(netuid: NetUid) -> u16 {
         AdjustmentInterval::<T>::get(netuid)
     }

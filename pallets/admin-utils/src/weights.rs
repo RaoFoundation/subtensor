@@ -43,6 +43,10 @@ pub trait WeightInfo {
 	fn sudo_set_max_difficulty() -> Weight;
 	fn sudo_set_min_difficulty() -> Weight;
 	fn sudo_set_weights_set_rate_limit() -> Weight;
+	/// Reuse the comparable root-only subnet setter until reference benchmarks supply this weight.
+	fn sudo_set_max_timelocked_commits_per_hotkey() -> Weight {
+		Self::sudo_set_weights_set_rate_limit()
+	}
 	fn sudo_set_weights_version_key() -> Weight;
 	fn sudo_set_bonds_moving_average() -> Weight;
 	fn sudo_set_bonds_penalty() -> Weight;

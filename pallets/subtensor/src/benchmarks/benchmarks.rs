@@ -2377,6 +2377,14 @@ mod pallet_benchmarks {
 
         Subtensor::<T>::set_commit_reveal_weights_enabled(netuid, true);
         WeightsSetRateLimit::<T>::set(netuid, 0);
+        Subtensor::<T>::set_max_timelocked_commits_per_hotkey(netuid, u8::MAX);
+        let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, MechId::MAIN);
+        let epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
+        let mut existing = VecDeque::new();
+        for i in 0..u64::from(u8::MAX - 1) {
+            existing.push_back((hotkey.clone(), 0, commit.clone(), i));
+        }
+        TimelockedWeightCommits::<T>::insert(netuid_index, epoch, existing);
 
         #[extrinsic_call]
         _(
@@ -2385,6 +2393,11 @@ mod pallet_benchmarks {
             commit.clone(),
             round,
             Subtensor::<T>::get_commit_reveal_weights_version(),
+        );
+
+        assert_eq!(
+            TimelockedWeightCommits::<T>::get(netuid_index, epoch).len(),
+            usize::from(u8::MAX)
         );
     }
 
@@ -3321,8 +3334,9 @@ mod pallet_benchmarks {
         let commit: BoundedVec<_, _> = vec_commit.try_into().unwrap();
         let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
         let epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
+        Subtensor::<T>::set_max_timelocked_commits_per_hotkey(netuid, u8::MAX);
         let mut existing = VecDeque::new();
-        for i in 0..9u64 {
+        for i in 0..u64::from(u8::MAX - 1) {
             existing.push_back((hotkey.clone(), 0, commit.clone(), i));
         }
         TimelockedWeightCommits::<T>::insert(netuid_index, epoch, existing);
@@ -3335,6 +3349,11 @@ mod pallet_benchmarks {
             commit,
             u64::MAX,
         );
+
+        assert_eq!(
+            TimelockedWeightCommits::<T>::get(netuid_index, epoch).len(),
+            usize::from(u8::MAX)
+        );
     }
 
     #[benchmark]
@@ -3346,8 +3365,9 @@ mod pallet_benchmarks {
         let commit: BoundedVec<_, _> = vec_commit.try_into().unwrap();
         let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
         let epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
+        Subtensor::<T>::set_max_timelocked_commits_per_hotkey(netuid, u8::MAX);
         let mut existing = VecDeque::new();
-        for i in 0..9u64 {
+        for i in 0..u64::from(u8::MAX - 1) {
             existing.push_back((hotkey.clone(), 0, commit.clone(), i));
         }
         TimelockedWeightCommits::<T>::insert(netuid_index, epoch, existing);
@@ -3361,6 +3381,11 @@ mod pallet_benchmarks {
             commit,
             u64::MAX,
             version,
+        );
+
+        assert_eq!(
+            TimelockedWeightCommits::<T>::get(netuid_index, epoch).len(),
+            usize::from(u8::MAX)
         );
     }
 

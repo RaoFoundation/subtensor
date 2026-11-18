@@ -452,6 +452,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::CommitPayloadTooLarge
         );
 
+        let max_commits = usize::from(Self::get_max_timelocked_commits_per_hotkey(netuid));
+
         TimelockedWeightCommits::<T>::try_mutate(
             netuid_index,
             cur_epoch,
@@ -463,7 +465,7 @@ impl<T: Config> Pallet<T> {
                     .filter(|(account, _, _, _)| account == &who)
                     .count();
                 ensure!(
-                    unrevealed_commits_for_who < 10,
+                    unrevealed_commits_for_who < max_commits,
                     Error::<T>::TooManyUnrevealedCommits
                 );
 
