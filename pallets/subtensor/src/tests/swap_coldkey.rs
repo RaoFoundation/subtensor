@@ -3984,6 +3984,73 @@ fn test_announce_rejects_funded_lock_rejecting_destination_before_fee() {
 }
 
 #[test]
+fn live_v2_reservation_preserves_the_announced_active_lock_terms() {
+    for (funded_at_announce, reservation_live, destination_sets_decay) in [
+        (false, true, false),
+        (true, true, false),
+        (false, false, false),
+        (false, true, true),
+    ] {
+        new_test_ext(1).execute_with(|| {
+            let source = U256::from(1);
+            let destination = U256::from(2);
+            let hotkey = U256::from(10);
+            let netuid = add_dynamic_network(&hotkey, &source);
+            let locked = AlphaBalance::from(2_000_000_u64);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &source, netuid, locked,
+            );
+            assert_ok!(SubtensorModule::set_perpetual_lock(
+                RuntimeOrigin::signed(source),
+                netuid,
+                true,
+            ));
+            assert_ok!(SubtensorModule::do_lock_stake(
+                &source, netuid, &hotkey, locked
+            ));
+            assert_ok!(SubtensorModule::set_reject_locked_alpha(
+                RuntimeOrigin::signed(destination),
+                false,
+            ));
+
+            let ed = ExistentialDeposit::get();
+            if funded_at_announce {
+                add_balance_to_coldkey_account(&destination, ed);
+            }
+            announce_coldkey_swap(source, destination);
+            if !funded_at_announce {
+                add_balance_to_coldkey_account(&destination, ed);
+            }
+            if !reservation_live {
+                assert_ok!(
+                    SubtensorModule::do_release_own_coldkey_swap_destination_reservation(
+                        &destination
+                    )
+                );
+            }
+            if destination_sets_decay {
+                DecayingLock::<Test>::insert(destination, netuid, true);
+            }
+
+            let (when, _) = ColdkeySwapAnnouncements::<Test>::get(source).expect("announced");
+            System::set_block_number(when);
+            assert_ok!(SubtensorModule::swap_coldkey_announced(
+                RuntimeOrigin::signed(source),
+                destination,
+            ));
+            assert_eq!(
+                SubtensorModule::get_current_locked(&destination, netuid),
+                locked
+            );
+            assert_eq!(
+                SubtensorModule::is_perpetual_lock(&destination, netuid),
+                !funded_at_announce && reservation_live && !destination_sets_decay,
+            );
+        });
+    }
+}
+
+#[test]
 fn tao_only_destination_accepts_locks_on_current_destination_swap_paths() {
     enum SwapPath {
         Root,

@@ -2484,10 +2484,9 @@ mod dispatches {
             // Also refuse a destination another announcer already reserved —
             // before the fee, so a conflict cannot burn the swap cost.
             Self::ensure_coldkey_swap_destination_reservable(&who, &new_coldkey)?;
-            // Snapshot destination presence before the delay. Otherwise anyone
-            // can transfer dust to a blank destination after announce and make
-            // execution silently discard the source's auto-stake policy.
-            let import_source_policies = !work.destination_rejects_unsolicited_policy_import;
+            // Bind the balance-sensitive swap decisions before funds can change.
+            let (import_source_policies, retain_lock_terms) =
+                Self::coldkey_swap_announcement_policy(&new_coldkey, &work);
 
             if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
                 let reannouncement_delay = ColdkeySwapReannouncementDelay::<T>::get();
@@ -2507,7 +2506,10 @@ mod dispatches {
             let delay = ColdkeySwapAnnouncementDelay::<T>::get();
             let when = now.saturating_add(delay);
             ColdkeySwapAnnouncements::<T>::insert(who.clone(), (when, new_coldkey_hash.clone()));
-            Self::set_coldkey_swap_v2_policy_snapshot(&who, Some(import_source_policies));
+            Self::set_coldkey_swap_v2_policy_snapshot(
+                &who,
+                Some((import_source_policies, retain_lock_terms)),
+            );
 
             Self::deposit_event(Event::ColdkeySwapAnnounced {
                 who,
@@ -2551,7 +2553,7 @@ mod dispatches {
             let snapshot_read = if legacy_hash_matches {
                 Weight::zero()
             } else {
-                T::DbWeight::get().reads(4)
+                T::DbWeight::get().reads(5)
             };
             let precheck = initial_precheck.saturating_add(snapshot_read);
             let policy_import_mode = if legacy_hash_matches {

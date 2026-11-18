@@ -25,7 +25,7 @@ an unauthorized one with `dispute_coldkey_swap`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.announce_coldkey_swap_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L2469-L2517) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.announce_coldkey_swap_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L2469-L2519) |
 
 ## Parameters
 
@@ -75,7 +75,7 @@ result = sub.execute_tool("announce_coldkey_swap", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.announce_coldkey_swap_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L2474`](/code/pallets/subtensor/src/macros/dispatches.rs#L2469-L2517):
+`SubtensorModule.announce_coldkey_swap_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L2474`](/code/pallets/subtensor/src/macros/dispatches.rs#L2469-L2519):
 
 ```rust
 #[pallet::call_index(155)]
@@ -96,10 +96,9 @@ pub fn announce_coldkey_swap_v2(
     // Also refuse a destination another announcer already reserved —
     // before the fee, so a conflict cannot burn the swap cost.
     Self::ensure_coldkey_swap_destination_reservable(&who, &new_coldkey)?;
-    // Snapshot destination presence before the delay. Otherwise anyone
-    // can transfer dust to a blank destination after announce and make
-    // execution silently discard the source's auto-stake policy.
-    let import_source_policies = !work.destination_rejects_unsolicited_policy_import;
+    // Bind the balance-sensitive swap decisions before funds can change.
+    let (import_source_policies, retain_lock_terms) =
+        Self::coldkey_swap_announcement_policy(&new_coldkey, &work);
 
     if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
         let reannouncement_delay = ColdkeySwapReannouncementDelay::<T>::get();
@@ -119,7 +118,10 @@ pub fn announce_coldkey_swap_v2(
     let delay = ColdkeySwapAnnouncementDelay::<T>::get();
     let when = now.saturating_add(delay);
     ColdkeySwapAnnouncements::<T>::insert(who.clone(), (when, new_coldkey_hash.clone()));
-    Self::set_coldkey_swap_v2_policy_snapshot(&who, Some(import_source_policies));
+    Self::set_coldkey_swap_v2_policy_snapshot(
+        &who,
+        Some((import_source_policies, retain_lock_terms)),
+    );
 
     Self::deposit_event(Event::ColdkeySwapAnnounced {
         who,
@@ -129,6 +131,6 @@ pub fn announce_coldkey_swap_v2(
 }
 ```
 
-Delegates to [`ensure_coldkey_swap_destination`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L654), [`ensure_coldkey_swap_destination_reservable`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L247), [`charge_swap_cost`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L1052).
+Delegates to [`ensure_coldkey_swap_destination`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L687), [`ensure_coldkey_swap_destination_reservable`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L253), [`coldkey_swap_announcement_policy`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L538).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
