@@ -23,12 +23,10 @@ impl<T: Config> Pallet<T> {
     /// keys still resolve via [`Self::coldkey_root`]. Clears any stale
     /// outgoing successor on `new_coldkey` so it is the tip.
     ///
-    /// Callers must only invoke this for renames onto a fresh destination.
-    /// Merges into an already-used coldkey must preserve that account's
-    /// canonical root — otherwise an unsolicited source could assert shared
-    /// identity via [`Self::same_coldkey_lineage`].
+    /// Only the current tip can extend its lineage. Callers must limit
+    /// destinations to fresh keys and reversals within the same lineage.
     pub fn record_coldkey_swap_lineage(old_coldkey: &T::AccountId, new_coldkey: &T::AccountId) {
-        if old_coldkey == new_coldkey {
+        if old_coldkey == new_coldkey || ColdkeySuccessor::<T>::contains_key(old_coldkey) {
             return;
         }
         let root = Self::coldkey_root(old_coldkey);

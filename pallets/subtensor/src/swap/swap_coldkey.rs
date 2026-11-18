@@ -59,8 +59,8 @@ impl<T: Config> Pallet<T> {
     /// root stake) for every admitted hotkey in the combined source∪destination set.
     fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
         base.saturating_add(Self::hotkey_owner_policy_weight())
-            // Destination successor, reversal preferences, and opt-in-only lock transfer.
-            .saturating_add(T::DbWeight::get().reads(12))
+            // Successor checks at admission and recording, reversal preferences, and lock opt-in.
+            .saturating_add(T::DbWeight::get().reads(14))
             .saturating_add(
                 <T as crate::pallet::Config>::WeightInfo::transfer_stake()
                     .saturating_mul(u64::from(work.positions)),
@@ -139,7 +139,7 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().writes(4));
         // Snapshot whether the destination already carries state that rejects
         // policy import: staking/basket/ownership, flags, lineage, identity, balance, proxy.
-        let policy_snapshot = T::DbWeight::get().reads_writes(13, 1);
+        let policy_snapshot = T::DbWeight::get().reads_writes(14, 1);
         // Pending-registration discovery: one queue read + total-scan sentinel
         // (not only owned rows — unrelated entries are still visited).
         let pending_reads = u64::from(max.registration_queue_scan).saturating_add(1);
@@ -452,7 +452,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Protect existing non-balance state from unsolicited policy imports.
-    /// A destination in the source's lineage can be a rename target if it has
+    /// A destination in the current tip's lineage can be a rename target if it has
     /// no other state or preferences of its own.
     fn coldkey_has_non_balance_policy_protection_with_gamma(
         coldkey: &T::AccountId,
@@ -463,7 +463,8 @@ impl<T: Config> Pallet<T> {
             || Self::coldkey_has_non_lineage_presence(coldkey, has_gamma_deposits)
             || (Self::coldkey_has_established_lineage(coldkey)
                 && source.is_none_or(|source| {
-                    !Self::same_coldkey_lineage(source, coldkey)
+                    ColdkeySuccessor::<T>::contains_key(source)
+                        || !Self::same_coldkey_lineage(source, coldkey)
                         || DecayingLock::<T>::iter_key_prefix(coldkey).next().is_some()
                         || AutoStakeDestination::<T>::iter_key_prefix(coldkey)
                             .next()
@@ -792,7 +793,7 @@ impl<T: Config> Pallet<T> {
                         .saturating_add(u64::from(work.positions))
                         .saturating_add(u64::from(work.dest_locks).saturating_mul(3))
                         .saturating_add(u64::from(work.registration_queue_scan))
-                        .saturating_add(1),
+                        .saturating_add(2),
                 ),
             ),
             Some(work) => precheck.saturating_add(Self::coldkey_swap_weight(Weight::zero(), work)),
@@ -951,7 +952,7 @@ impl<T: Config> Pallet<T> {
                 // coldkey: a source-only swap never moves delegation authority.
                 Self::transfer_all_tao_and_kill(old_coldkey, new_coldkey)?;
 
-                // Owner identity continuity is valid only for a rename onto a blank destination.
+                // Recording extends the current lineage onto a fresh key or reverses a rename.
                 if record_lineage {
                     Self::record_coldkey_swap_lineage(old_coldkey, new_coldkey);
                 }
