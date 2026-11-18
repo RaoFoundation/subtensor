@@ -2961,11 +2961,10 @@ mod dispatches {
             Self::do_trigger_epoch(origin, netuid)
         }
 
-        /// Sets or clears whether the caller rejects incoming locked alpha.
+        /// Sets or clears whether the caller rejects incoming locked alpha payments.
         ///
         /// Coldkeys reject locked alpha by default. Passing `false` opts the
-        /// caller into receiving locked alpha from stake transfers or coldkey
-        /// swaps.
+        /// caller into receiving locked alpha through stake transfers.
         #[pallet::call_index(142)]
         #[pallet::weight((<T as Config>::WeightInfo::set_reject_locked_alpha(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_reject_locked_alpha(origin: OriginFor<T>, enabled: bool) -> DispatchResult {

@@ -16,7 +16,7 @@ future operations sign with the new coldkey.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_coldkey_announced`](/code/pallets/subtensor/src/macros/dispatches.rs#L2527-L2601) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_coldkey_announced`](/code/pallets/subtensor/src/macros/dispatches.rs#L2528-L2601) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("swap_coldkey_announced", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_coldkey_announced` — [`pallets/subtensor/src/macros/dispatches.rs#L2529`](/code/pallets/subtensor/src/macros/dispatches.rs#L2527-L2601):
+`SubtensorModule.swap_coldkey_announced` — [`pallets/subtensor/src/macros/dispatches.rs#L2530`](/code/pallets/subtensor/src/macros/dispatches.rs#L2528-L2601):
 
 ```rust
 #[pallet::call_index(126)]
@@ -82,9 +82,8 @@ pub fn swap_coldkey_announced(
     let base = <T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced();
     let announcement_read = T::DbWeight::get().reads(1);
     let initial_precheck = base.saturating_add(announcement_read);
-    // Read (do not take) until the swap commits. A failed execute — e.g.
-    // destination opt-outs that appeared after announce — must leave the
-    // announcement intact so the fee is not silently burned.
+    // Keep a paid announcement until the swap commits, including when
+    // the destination's lock mode changed after announcement.
     let (when, new_coldkey_hash) =
         ColdkeySwapAnnouncements::<T>::get(who.clone()).ok_or(Self::fail_with_weight(
             Error::<T>::ColdkeySwapAnnouncementNotFound,
@@ -93,13 +92,13 @@ pub fn swap_coldkey_announced(
 
     let legacy_hash_matches = new_coldkey_hash == T::Hashing::hash_of(&new_coldkey);
     let snapshot_read = if legacy_hash_matches {
-        T::DbWeight::get().reads(1)
+        Weight::zero()
     } else {
         T::DbWeight::get().reads(5)
     };
     let precheck = initial_precheck.saturating_add(snapshot_read);
     let policy_import_mode = if legacy_hash_matches {
-        Self::coldkey_swap_hash_policy(&who)
+        ColdkeySwapPolicyImportMode::CurrentDestination
     } else {
         Self::coldkey_swap_v2_policy_snapshot(&who, &new_coldkey, &new_coldkey_hash, when)
             .ok_or(Self::fail_with_weight(
@@ -145,6 +144,6 @@ pub fn swap_coldkey_announced(
 }
 ```
 
-Delegates to [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1790), [`coldkey_swap_hash_policy`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L595), [`coldkey_swap_v2_policy_snapshot`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L630).
+Delegates to [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1790), [`coldkey_swap_v2_policy_snapshot`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L605), [`do_announced_coldkey_swap`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L890).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
