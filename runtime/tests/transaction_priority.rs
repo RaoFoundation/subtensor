@@ -131,6 +131,8 @@ fn sudo_key_normal_call_keeps_normal_priority() {
     });
 }
 
+// Keep non-sudo callers from obtaining elevated Operational pool priority for MEV.
+// PROTECTED_REGRESSION: changes require explicit human approval.
 #[test]
 fn root_only_operational_call_from_other_signer_gets_normal_priority() {
     new_test_ext().execute_with(|| {
