@@ -4,8 +4,9 @@
 use super::claim_root::{fund_pool, register_on_root};
 use super::mock::*;
 use crate::{
-    BasketRate, BasketShares, BurnIncreaseMult, CheckColdkeySwap, ColdkeySwapAnnouncements,
-    ColdkeySwapDisputes, Error, FirstEmissionBlockNumber, PendingBasketDeposits,
+    BasketRate, BasketShares, BurnIncreaseMult, ChainIdentityV2, CheckColdkeySwap,
+    ColdkeySwapAnnouncements, ColdkeySwapDisputes, ColdkeySwapV2PolicySnapshots, Error,
+    FirstEmissionBlockNumber, IdentitiesV2, IsNetworkMember, PendingBasketDeposits,
     RootClaimableThreshold, SubnetAlphaOut, SubnetLimit, SubnetMechanism, SubtokenEnabled,
 };
 use frame_support::{assert_ok, traits::ExtendedDispatchable};
@@ -15,6 +16,336 @@ use sp_runtime::traits::Hash;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance, Token};
+
+// Owners must be able to rotate an active lock while refusing locked payments.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn coldkey_swap_moves_active_lock_without_payment_consent() {
+    for source_rejects_payments in [true, false] {
+        new_test_ext(1).execute_with(|| {
+            let source = U256::from(4_201);
+            let destination = U256::from(4_202);
+            let hotkey = U256::from(4_203);
+            let netuid = add_dynamic_network(&hotkey, &source);
+            let locked = AlphaBalance::from(2_000_000_u64);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &source, netuid, locked,
+            );
+            assert_ok!(SubtensorModule::do_lock_stake(
+                &source, netuid, &hotkey, locked
+            ));
+            assert_ok!(SubtensorModule::set_reject_locked_alpha(
+                RuntimeOrigin::signed(source),
+                source_rejects_payments,
+            ));
+            IdentitiesV2::<Test>::insert(destination, ChainIdentityV2::default());
+            assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+
+            assert_ok!(SubtensorModule::swap_coldkey(
+                RuntimeOrigin::root(),
+                source,
+                destination,
+                TaoBalance::ZERO,
+            ));
+            assert_eq!(
+                SubtensorModule::get_current_locked(&source, netuid),
+                AlphaBalance::ZERO
+            );
+            assert_eq!(
+                SubtensorModule::get_current_locked(&destination, netuid),
+                locked
+            );
+            assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+        });
+    }
+}
+
+// A paid, pre-upgrade V2 swap must remain executable with the active lock it accepted.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn paid_v491_v2_coldkey_swap_can_move_its_existing_lock() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(4_201);
+        let destination = U256::from(4_202);
+        let hotkey = U256::from(4_203);
+        let netuid = add_dynamic_network(&hotkey, &source);
+        let locked = AlphaBalance::from(2_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &source, netuid, locked,
+        );
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &source, netuid, &hotkey, locked
+        ));
+        let ed = ExistentialDeposit::get();
+        add_balance_to_coldkey_account(&source, ed);
+        add_balance_to_coldkey_account(&destination, ed);
+        assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+
+        // Restore the commitment and reservation that v491 stored after charging the fee.
+        let when = System::block_number();
+        let hash = <Test as frame_system::Config>::Hashing::hash_of(&(
+            b"coldkey-swap-v2-policy",
+            &destination,
+            false,
+        ));
+        ColdkeySwapAnnouncements::<Test>::insert(source, (when, hash));
+        ColdkeySwapV2PolicySnapshots::<Test>::insert(source, false);
+        assert_ok!(SubtensorModule::reserve_coldkey_swap_destination(
+            &source,
+            &destination,
+        ));
+
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(source),
+            destination,
+        ));
+        assert_eq!(
+            SubtensorModule::get_current_locked(&destination, netuid),
+            locked
+        );
+        assert!(!ColdkeySwapAnnouncements::<Test>::contains_key(source));
+    });
+}
+
+// Already-paid v491 swaps must move their locks into destinations eligible under v491.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn paid_v491_v2_coldkey_swap_preserves_legacy_lock_admission_and_live_lock_terms() {
+    for opts_into_locked_alpha in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let source = U256::from(4_201);
+            let destination = U256::from(4_202);
+            let hotkey = U256::from(4_203);
+            let netuid = add_dynamic_network(&hotkey, &source);
+            let locked = AlphaBalance::from(2_000_000_u64);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &source, netuid, locked,
+            );
+            assert_ok!(SubtensorModule::set_perpetual_lock(
+                RuntimeOrigin::signed(source),
+                netuid,
+                true,
+            ));
+            assert_ok!(SubtensorModule::do_lock_stake(
+                &source, netuid, &hotkey, locked
+            ));
+
+            if opts_into_locked_alpha {
+                assert_ok!(SubtensorModule::set_reject_locked_alpha(
+                    RuntimeOrigin::signed(destination),
+                    false,
+                ));
+            } else {
+                IdentitiesV2::<Test>::insert(destination, ChainIdentityV2::default());
+            }
+            let when = System::block_number();
+            let hash = <Test as frame_system::Config>::Hashing::hash_of(&(
+                b"coldkey-swap-v2-policy",
+                &destination,
+                false,
+            ));
+            ColdkeySwapAnnouncements::<Test>::insert(source, (when, hash));
+            ColdkeySwapV2PolicySnapshots::<Test>::insert(source, false);
+            assert_ok!(SubtensorModule::reserve_coldkey_swap_destination(
+                &source,
+                &destination,
+            ));
+            let ed = ExistentialDeposit::get();
+            add_balance_to_coldkey_account(&source, ed);
+            add_balance_to_coldkey_account(&destination, ed);
+
+            assert_ok!(SubtensorModule::swap_coldkey_announced(
+                RuntimeOrigin::signed(source),
+                destination,
+            ));
+            assert_eq!(
+                SubtensorModule::get_current_locked(&destination, netuid),
+                locked
+            );
+            assert_eq!(
+                SubtensorModule::is_perpetual_lock(&destination, netuid),
+                opts_into_locked_alpha
+            );
+            assert_eq!(
+                SubtensorModule::account_rejects_locked_alpha(&destination),
+                !opts_into_locked_alpha
+            );
+        });
+    }
+}
+
+// A paid v491 V2 swap to a previously blank destination keeps v491 lock admission.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn paid_v491_v2_coldkey_swap_to_previously_blank_destination_moves_the_lock() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(4_201);
+        let destination = U256::from(4_202);
+        let hotkey = U256::from(4_203);
+        let netuid = add_dynamic_network(&hotkey, &source);
+        let locked = AlphaBalance::from(2_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &source, netuid, locked,
+        );
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &source, netuid, &hotkey, locked
+        ));
+        add_balance_to_coldkey_account(&source, ExistentialDeposit::get());
+
+        let when = System::block_number();
+        let hash = <Test as frame_system::Config>::Hashing::hash_of(&(
+            b"coldkey-swap-v2-policy",
+            &destination,
+            true,
+        ));
+        ColdkeySwapAnnouncements::<Test>::insert(source, (when, hash));
+        ColdkeySwapV2PolicySnapshots::<Test>::insert(source, true);
+        assert_ok!(SubtensorModule::reserve_coldkey_swap_destination(
+            &source,
+            &destination,
+        ));
+        let identity = ChainIdentityV2 {
+            name: b"Destination".to_vec(),
+            ..Default::default()
+        };
+        IdentitiesV2::<Test>::insert(destination, identity.clone());
+
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(source),
+            destination,
+        ));
+        assert_eq!(
+            SubtensorModule::get_current_locked(&destination, netuid),
+            locked
+        );
+        assert_eq!(IdentitiesV2::<Test>::get(destination), Some(identity));
+        assert!(!SubtensorModule::same_coldkey_lineage(
+            &source,
+            &destination
+        ));
+    });
+}
+
+// A paid v491 hash announcement must still move eligible locks after upgrade.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+#[allow(clippy::expect_used)]
+fn paid_v491_hash_coldkey_swap_keeps_its_original_lock_admission() {
+    for pre_upgrade in [true, false] {
+        new_test_ext(1).execute_with(|| {
+            let source = U256::from(4_201);
+            let destination = U256::from(4_202);
+            let hotkey = U256::from(4_203);
+            let netuid = add_dynamic_network(&hotkey, &source);
+            let locked = AlphaBalance::from(2_000_000_u64);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &source, netuid, locked,
+            );
+            assert_ok!(SubtensorModule::do_lock_stake(
+                &source, netuid, &hotkey, locked
+            ));
+            let identity = ChainIdentityV2 {
+                name: b"Destination".to_vec(),
+                ..Default::default()
+            };
+            IdentitiesV2::<Test>::insert(destination, identity.clone());
+
+            let hash = <Test as frame_system::Config>::Hashing::hash_of(&destination);
+            let ed = ExistentialDeposit::get();
+            if pre_upgrade {
+                add_balance_to_coldkey_account(&source, ed);
+                ColdkeySwapAnnouncements::<Test>::insert(source, (System::block_number(), hash));
+            } else {
+                add_balance_to_coldkey_account(&source, ed + SubtensorModule::get_key_swap_cost());
+                assert_ok!(SubtensorModule::announce_coldkey_swap(
+                    RuntimeOrigin::signed(source),
+                    hash,
+                ));
+            }
+            let (when, _) = ColdkeySwapAnnouncements::<Test>::get(source).expect("announced");
+            System::set_block_number(when);
+            let locked_at_execution = SubtensorModule::get_current_locked(&source, netuid);
+            assert!(locked_at_execution > AlphaBalance::ZERO);
+            assert_ok!(SubtensorModule::swap_coldkey_announced(
+                RuntimeOrigin::signed(source),
+                destination,
+            ));
+            assert_eq!(
+                SubtensorModule::get_current_locked(&destination, netuid),
+                locked_at_execution
+            );
+            assert_eq!(
+                SubtensorModule::get_current_locked(&source, netuid),
+                AlphaBalance::ZERO
+            );
+            assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+            assert_eq!(IdentitiesV2::<Test>::get(destination), Some(identity));
+        });
+    }
+}
+
+// PROTECTED_REGRESSION: a full hotkey swap must not block the destination hotkey from registering on unrelated subnets; changes require explicit human approval.
+#[test]
+fn full_hotkey_swap_preserves_registration_on_unrelated_subnets() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(4_201);
+        let new_hotkey = U256::from(4_202);
+        let coldkey = U256::from(4_203);
+        let member_netuid = NetUid::from(21);
+        let unrelated_netuid = NetUid::from(22);
+
+        add_network(member_netuid, 1, 0);
+        add_network(unrelated_netuid, 1, 0);
+        register_ok_neuron(member_netuid, old_hotkey, coldkey, 0);
+
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
+            &old_hotkey,
+            &new_hotkey,
+            &coldkey,
+            &mut frame_support::weights::Weight::zero(),
+            false,
+        ));
+
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, member_netuid));
+        assert!(!IsNetworkMember::<Test>::contains_key(
+            new_hotkey,
+            unrelated_netuid
+        ));
+
+        register_ok_neuron(unrelated_netuid, new_hotkey, coldkey, 0);
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, unrelated_netuid));
+    });
+}
+
+// PROTECTED_REGRESSION: a historical false membership row must not block a subnet-scoped
+// hotkey swap; changes require explicit human approval.
+#[test]
+fn false_membership_row_does_not_block_subnet_hotkey_swap() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(4_211);
+        let new_hotkey = U256::from(4_212);
+        let coldkey = U256::from(4_213);
+        let netuid = NetUid::from(23);
+
+        add_network(netuid, 1, 0);
+        register_ok_neuron(netuid, old_hotkey, coldkey, 0);
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+        IsNetworkMember::<Test>::insert(new_hotkey, netuid, false);
+
+        assert!(!SubtensorModule::is_hotkey_registered_on_specific_network(
+            &new_hotkey,
+            netuid
+        ));
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &old_hotkey,
+            &new_hotkey,
+            Some(netuid),
+            false,
+        ));
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, netuid));
+    });
+}
 
 // PROTECTED_REGRESSION: a tiny volatile holding must not strand earned root dividends; changes require explicit human approval.
 #[test]

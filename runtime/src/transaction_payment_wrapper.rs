@@ -99,7 +99,11 @@ where
 }
 
 impl<
-    T: Config + pallet_proxy::Config + pallet_utility::Config + pallet_subtensor::Config,
+    T: Config
+        + pallet_proxy::Config
+        + pallet_utility::Config
+        + pallet_subtensor::Config
+        + pallet_sudo::Config,
     const AUTHORIZED: bool,
 > ChargeTransactionPaymentWrapper<T, AUTHORIZED>
 where
@@ -213,10 +217,25 @@ where
         let signer = origin.as_system_origin_signer()?;
         pallet_subtensor::Pallet::<T>::maybe_coldkey_for_hotkey(signer)
     }
+
+    /// Whether the transaction is signed by the sudo key.
+    ///
+    /// One read of a single storage value, made only for Operational calls;
+    /// `SudoTransactionExtension` reads the same key for top-level `Sudo` calls.
+    fn is_sudo_signer(origin: &RuntimeOriginOf<T>) -> bool {
+        let Some(signer) = origin.as_system_origin_signer() else {
+            return false;
+        };
+        pallet_sudo::Key::<T>::get().is_some_and(|key| &key == signer)
+    }
 }
 
 impl<
-    T: Config + pallet_proxy::Config + pallet_utility::Config + pallet_subtensor::Config,
+    T: Config
+        + pallet_proxy::Config
+        + pallet_utility::Config
+        + pallet_subtensor::Config
+        + pallet_sudo::Config,
     const AUTHORIZED: bool,
 > TransactionExtension<RuntimeCallOf<T>> for ChargeTransactionPaymentWrapper<T, AUTHORIZED>
 where
@@ -237,7 +256,9 @@ where
     type Pre = (Pre<T>, Weight, Weight, Option<Weight>);
 
     fn weight(&self, call: &RuntimeCallOf<T>) -> Weight {
-        // Three proxy consent reads (including a final batch lookup), plus margin.
+        // Three proxy consent reads (including a final batch lookup), plus margin. The margin
+        // also covers the sudo key read made for Operational calls, which are never proxy or
+        // batch calls (both are declared Normal).
         self.inner
             .weight(call)
             .saturating_add(T::DbWeight::get().reads(4))
@@ -254,11 +275,18 @@ where
         inherited_implication: &impl Implication,
         source: TransactionSource,
     ) -> ValidateResult<Self::Val, RuntimeCallOf<T>> {
+        // The Operational priority is reserved for the sudo key. A call's dispatch class is
+        // fixed per call and says nothing about whether the signer may use it, since most
+        // Operational calls check their origin only at dispatch. Any other signer gets the
+        // normal base priority, whatever the class of its call.
         let overridden_priority = {
             let base: TransactionPriority = match info.class {
-                DispatchClass::Normal => NORMAL_DISPATCH_BASE_PRIORITY,
-                DispatchClass::Mandatory => NORMAL_DISPATCH_BASE_PRIORITY,
-                DispatchClass::Operational => OPERATIONAL_DISPATCH_PRIORITY,
+                DispatchClass::Operational if Self::is_sudo_signer(&origin) => {
+                    OPERATIONAL_DISPATCH_PRIORITY
+                }
+                DispatchClass::Normal | DispatchClass::Mandatory | DispatchClass::Operational => {
+                    NORMAL_DISPATCH_BASE_PRIORITY
+                }
             };
             base.saturated_into::<TransactionPriority>()
         };
@@ -1239,16 +1267,82 @@ mod tests {
         });
     }
 
-    #[test]
-    fn priority_override_operational_dispatch() {
-        new_test_ext().execute_with(|| {
-            let call = call_remark();
-            let mut info = call.get_dispatch_info();
-            info.class = DispatchClass::Operational;
+    fn operational_info(call: &RuntimeCall) -> DispatchInfo {
+        let mut info = call.get_dispatch_info();
+        info.class = DispatchClass::Operational;
+        info
+    }
 
-            let (valid_tx, _val) =
-                validate_call_with_info(RuntimeOrigin::signed(signer()), &call, &info).unwrap();
+    #[test]
+    fn priority_override_operational_dispatch_from_sudo_key() {
+        new_test_ext().execute_with(|| {
+            pallet_sudo::Key::<Runtime>::put(signer());
+            let call = call_remark();
+
+            let (valid_tx, _val) = validate_call_with_info(
+                RuntimeOrigin::signed(signer()),
+                &call,
+                &operational_info(&call),
+            )
+            .unwrap();
             assert_eq!(valid_tx.priority, OPERATIONAL_DISPATCH_PRIORITY);
+        });
+    }
+
+    // Most Operational calls check their origin only at dispatch, so the class alone
+    // must not grant the Operational priority.
+    #[test]
+    fn priority_override_operational_dispatch_from_other_signer() {
+        new_test_ext().execute_with(|| {
+            pallet_sudo::Key::<Runtime>::put(other());
+            let call = call_remark();
+
+            let (valid_tx, _val) = validate_call_with_info(
+                RuntimeOrigin::signed(signer()),
+                &call,
+                &operational_info(&call),
+            )
+            .unwrap();
+            assert_eq!(valid_tx.priority, NORMAL_DISPATCH_BASE_PRIORITY);
+        });
+    }
+
+    #[test]
+    fn priority_override_operational_dispatch_without_sudo_key() {
+        new_test_ext().execute_with(|| {
+            pallet_sudo::Key::<Runtime>::kill();
+            let call = call_remark();
+
+            let (valid_tx, _val) = validate_call_with_info(
+                RuntimeOrigin::signed(signer()),
+                &call,
+                &operational_info(&call),
+            )
+            .unwrap();
+            assert_eq!(valid_tx.priority, NORMAL_DISPATCH_BASE_PRIORITY);
+        });
+    }
+
+    #[test]
+    fn priority_override_normal_dispatch_from_sudo_key() {
+        new_test_ext().execute_with(|| {
+            pallet_sudo::Key::<Runtime>::put(signer());
+            let call = call_remark();
+
+            let (valid_tx, _val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+            assert_eq!(valid_tx.priority, NORMAL_DISPATCH_BASE_PRIORITY);
+        });
+    }
+
+    #[test]
+    fn priority_override_root_only_call_from_other_signer() {
+        new_test_ext().execute_with(|| {
+            pallet_sudo::Key::<Runtime>::put(other());
+            let call = RuntimeCall::System(SystemCall::set_heap_pages { pages: 64 });
+            assert_eq!(call.get_dispatch_info().class, DispatchClass::Operational);
+
+            let (valid_tx, _val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+            assert_eq!(valid_tx.priority, NORMAL_DISPATCH_BASE_PRIORITY);
         });
     }
 
