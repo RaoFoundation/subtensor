@@ -144,6 +144,37 @@ fn coldkey_swap_leaves_dissolving_locks_for_the_next_cleanup_page() {
 }
 
 #[test]
+fn coldkey_swap_admission_ignores_only_dissolving_source_locks() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(5011);
+        let destination = U256::from(5012);
+        let hotkey = U256::from(5013);
+        let netuid = add_dynamic_network(&hotkey, &U256::from(5014));
+        assert_ok!(SubtensorModule::set_reject_staking_hotkey_growth(
+            RuntimeOrigin::signed(destination),
+            true,
+        ));
+        assert!(AccountFlags::<Test>::contains_key(destination));
+        assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+        let lock = LockState {
+            locked_mass: 1_000_000_000u64.into(),
+            conviction: U64F64::from_num(0),
+            last_update: SubtensorModule::get_current_block_as_u64(),
+        };
+        Lock::<Test>::insert((source, netuid, hotkey), lock.clone());
+
+        assert_noop!(
+            SubtensorModule::do_swap_coldkey(&source, &destination),
+            Error::<Test>::AccountRejectsLockedAlpha
+        );
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        assert_ok!(SubtensorModule::do_swap_coldkey(&source, &destination));
+        assert_eq!(Lock::<Test>::get((source, netuid, hotkey)), Some(lock));
+        assert!(!Lock::<Test>::contains_key((destination, netuid, hotkey)));
+    });
+}
+
+#[test]
 fn test_announce_coldkey_swap_works() {
     new_test_ext(1).execute_with(|| {
         let who = U256::from(1);
