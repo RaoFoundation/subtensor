@@ -1,3 +1,4 @@
+use frame_support::pallet_prelude::{Blake2_128Concat, OptionQuery};
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::traits::Currency;
 use frame_support::weights::Weight;
@@ -10,6 +11,17 @@ use sp_core::Get;
 use sp_runtime::{Saturating, traits::Hash};
 use sp_std::collections::btree_set::BTreeSet;
 use subtensor_runtime_common::TaoBalance;
+
+// New V2 rejections also protect flags and lock admission. Keep the published
+// snapshot and its commitment stable for clients and existing announcements.
+#[frame_support::storage_alias]
+type ColdkeySwapV2MergeProtection<T: Config> = StorageMap<
+    Pallet<T>,
+    Blake2_128Concat,
+    <T as frame_system::Config>::AccountId,
+    (),
+    OptionQuery,
+>;
 
 /// Stake work a coldkey swap moves: `StakingHotkeys` / basket-credit entries visited
 /// (combined across source and destination), positions moved from the source,
@@ -42,6 +54,8 @@ pub(crate) enum ColdkeySwapPolicyImportMode {
     CurrentDestination,
     /// The destination already had presence at announcement; never import.
     Reject,
+    /// A pre-v492 snapshot rejected preference imports only.
+    RejectPreferencesOnly,
     /// The original blank-destination reservation is still live, so ignore only
     /// unsolicited balance while enforcing every non-balance protection.
     IgnoreDestinationBalance,
@@ -139,7 +153,7 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().writes(4));
         // Snapshot whether the destination already carries state that rejects
         // policy import: staking/basket/ownership, flags, lineage, identity, balance, proxy.
-        let policy_snapshot = T::DbWeight::get().reads_writes(14, 1);
+        let policy_snapshot = T::DbWeight::get().reads_writes(14, 2);
         // Pending-registration discovery: one queue read + total-scan sentinel
         // (not only owned rows — unrelated entries are still visited).
         let pending_reads = u64::from(max.registration_queue_scan).saturating_add(1);
@@ -287,7 +301,7 @@ impl<T: Config> Pallet<T> {
             <T as crate::pallet::Config>::WeightInfo::swap_coldkey(),
             Self::coldkey_swap_max_work(),
         )
-        .saturating_add(T::DbWeight::get().writes(1))
+        .saturating_add(T::DbWeight::get().writes(2))
     }
 
     /// Post-dispatch weight of `swap_coldkey`.
@@ -296,7 +310,7 @@ impl<T: Config> Pallet<T> {
             <T as crate::pallet::Config>::WeightInfo::swap_coldkey(),
             work,
         )
-        .saturating_add(T::DbWeight::get().writes(1))
+        .saturating_add(T::DbWeight::get().writes(2))
     }
 
     /// Pre-dispatch weight of `swap_coldkey_announced`, refunded post-dispatch.
@@ -307,8 +321,8 @@ impl<T: Config> Pallet<T> {
         )
         // V2 commitment recovery reads the announcement-time snapshot.
         .saturating_add(T::DbWeight::get().reads(1))
-        // Successful execution removes the announcement and its V2 snapshot.
-        .saturating_add(T::DbWeight::get().writes(2))
+        // Successful execution removes the announcement and both V2 snapshot rows.
+        .saturating_add(T::DbWeight::get().writes(3))
     }
 
     /// Post-dispatch weight of `swap_coldkey_announced`.
@@ -317,7 +331,7 @@ impl<T: Config> Pallet<T> {
             <T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced(),
             work,
         )
-        .saturating_add(T::DbWeight::get().writes(2))
+        .saturating_add(T::DbWeight::get().writes(3))
     }
 
     /// Stake positions the swap has to move, plus the combined hotkey set of source and
@@ -504,6 +518,18 @@ impl<T: Config> Pallet<T> {
             || !Self::coldkey_total_balance(coldkey).is_zero()
     }
 
+    /// Store or clear both parts of the V2 announcement's destination policy.
+    pub(crate) fn set_coldkey_swap_v2_policy_snapshot(
+        announcer: &T::AccountId,
+        import_source_policies: Option<bool>,
+    ) {
+        ColdkeySwapV2PolicySnapshots::<T>::set(announcer, import_source_policies);
+        ColdkeySwapV2MergeProtection::<T>::set(
+            announcer,
+            (import_source_policies == Some(false)).then_some(()),
+        );
+    }
+
     /// V2 commits to whether the destination was blank when it was announced.
     ///
     /// Binding the stored snapshot into the announcement hash prevents balance
@@ -528,7 +554,7 @@ impl<T: Config> Pallet<T> {
     /// this exact destination reservation remains live. After release or expiry,
     /// it falls back to the complete current destination-presence check. A
     /// committed `false` remains a rejection even if the destination is later
-    /// cleared.
+    /// cleared. The original commitment rejected preference imports only.
     pub(crate) fn coldkey_swap_v2_policy_snapshot(
         announcer: &T::AccountId,
         new_coldkey: &T::AccountId,
@@ -542,7 +568,13 @@ impl<T: Config> Pallet<T> {
             return None;
         }
         if !import_source_policies {
-            return Some(ColdkeySwapPolicyImportMode::Reject);
+            return Some(
+                if ColdkeySwapV2MergeProtection::<T>::contains_key(announcer) {
+                    ColdkeySwapPolicyImportMode::Reject
+                } else {
+                    ColdkeySwapPolicyImportMode::RejectPreferencesOnly
+                },
+            );
         }
 
         let now = <frame_system::Pallet<T>>::block_number();
@@ -865,7 +897,8 @@ impl<T: Config> Pallet<T> {
                     ColdkeySwapPolicyImportMode::CurrentDestination => {
                         !work.destination_rejects_unsolicited_policy_import
                     }
-                    ColdkeySwapPolicyImportMode::Reject => false,
+                    ColdkeySwapPolicyImportMode::Reject
+                    | ColdkeySwapPolicyImportMode::RejectPreferencesOnly => false,
                     ColdkeySwapPolicyImportMode::IgnoreDestinationBalance => {
                         !work.destination_has_non_balance_policy_protection
                     }

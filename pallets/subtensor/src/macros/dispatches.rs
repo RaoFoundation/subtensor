@@ -954,7 +954,7 @@ mod dispatches {
             // We also clear any announcement, destination reservation, or dispute.
             Self::release_coldkey_swap_destination_reservation(&old_coldkey);
             ColdkeySwapAnnouncements::<T>::remove(&old_coldkey);
-            ColdkeySwapV2PolicySnapshots::<T>::remove(&old_coldkey);
+            Self::set_coldkey_swap_v2_policy_snapshot(&old_coldkey, None);
             ColdkeySwapDisputes::<T>::remove(old_coldkey);
 
             Ok((Some(Self::swap_coldkey_actual_weight(work)), Pays::Yes).into())
@@ -2418,7 +2418,7 @@ mod dispatches {
         #[pallet::call_index(125)]
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap()
-                .saturating_add(T::DbWeight::get().writes(1))
+                .saturating_add(T::DbWeight::get().writes(2))
         )]
         pub fn announce_coldkey_swap(
             origin: OriginFor<T>,
@@ -2439,7 +2439,7 @@ mod dispatches {
 
             // Hash announce cannot reserve a cleartext dest; drop any prior V2 hold.
             Self::release_coldkey_swap_destination_reservation(&who);
-            ColdkeySwapV2PolicySnapshots::<T>::remove(&who);
+            Self::set_coldkey_swap_v2_policy_snapshot(&who, None);
 
             let delay = ColdkeySwapAnnouncementDelay::<T>::get();
             let when = now.saturating_add(delay);
@@ -2507,7 +2507,7 @@ mod dispatches {
             let delay = ColdkeySwapAnnouncementDelay::<T>::get();
             let when = now.saturating_add(delay);
             ColdkeySwapAnnouncements::<T>::insert(who.clone(), (when, new_coldkey_hash.clone()));
-            ColdkeySwapV2PolicySnapshots::<T>::insert(&who, import_source_policies);
+            Self::set_coldkey_swap_v2_policy_snapshot(&who, Some(import_source_policies));
 
             Self::deposit_event(Event::ColdkeySwapAnnounced {
                 who,
@@ -2588,7 +2588,7 @@ mod dispatches {
             }
             Self::release_coldkey_swap_destination_reservation(&who);
             ColdkeySwapAnnouncements::<T>::remove(&who);
-            ColdkeySwapV2PolicySnapshots::<T>::remove(&who);
+            Self::set_coldkey_swap_v2_policy_snapshot(&who, None);
 
             Ok((
                 Some(
@@ -2638,14 +2638,14 @@ mod dispatches {
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::reset_coldkey_swap()
                 .saturating_add(Pallet::<T>::coldkey_swap_reservation_release_weight())
-                .saturating_add(T::DbWeight::get().writes(1))
+                .saturating_add(T::DbWeight::get().writes(2))
         )]
         pub fn reset_coldkey_swap(origin: OriginFor<T>, coldkey: T::AccountId) -> DispatchResult {
             ensure_root(origin)?;
 
             Self::release_coldkey_swap_destination_reservation(&coldkey);
             ColdkeySwapAnnouncements::<T>::remove(&coldkey);
-            ColdkeySwapV2PolicySnapshots::<T>::remove(&coldkey);
+            Self::set_coldkey_swap_v2_policy_snapshot(&coldkey, None);
             ColdkeySwapDisputes::<T>::remove(&coldkey);
 
             Self::deposit_event(Event::ColdkeySwapReset { who: coldkey });
@@ -2666,7 +2666,7 @@ mod dispatches {
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::reset_coldkey_swap_keep_locked()
                 .saturating_add(Pallet::<T>::coldkey_swap_reservation_release_weight())
-                .saturating_add(T::DbWeight::get().writes(1))
+                .saturating_add(T::DbWeight::get().writes(2))
         )]
         pub fn reset_coldkey_swap_keep_locked(
             origin: OriginFor<T>,
@@ -2676,7 +2676,7 @@ mod dispatches {
 
             Self::release_coldkey_swap_destination_reservation(&coldkey);
             ColdkeySwapAnnouncements::<T>::remove(&coldkey);
-            ColdkeySwapV2PolicySnapshots::<T>::remove(&coldkey);
+            Self::set_coldkey_swap_v2_policy_snapshot(&coldkey, None);
             ColdkeySwapDisputes::<T>::insert(&coldkey, BlockNumberFor::<T>::zero());
 
             Self::deposit_event(Event::ColdkeySwapReset { who: coldkey });
@@ -2778,7 +2778,7 @@ mod dispatches {
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::clear_coldkey_swap_announcement()
                 .saturating_add(Pallet::<T>::coldkey_swap_reservation_release_weight())
-                .saturating_add(T::DbWeight::get().writes(1))
+                .saturating_add(T::DbWeight::get().writes(2))
         )]
         pub fn clear_coldkey_swap_announcement(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -2793,7 +2793,7 @@ mod dispatches {
 
             Self::release_coldkey_swap_destination_reservation(&who);
             ColdkeySwapAnnouncements::<T>::remove(&who);
-            ColdkeySwapV2PolicySnapshots::<T>::remove(&who);
+            Self::set_coldkey_swap_v2_policy_snapshot(&who, None);
 
             Self::deposit_event(Event::ColdkeySwapCleared { who });
             Ok(())
