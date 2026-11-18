@@ -2279,6 +2279,87 @@ fn coldkey_swap_preserves_retired_destination_lineage() {
 }
 
 #[test]
+fn same_lineage_reverse_swap_preserves_settings_and_active_locks() {
+    new_test_ext(1).execute_with(|| {
+        let original = U256::from(1);
+        let successor = U256::from(2);
+        let hotkey = U256::from(10);
+        let netuid = add_dynamic_network(&hotkey, &original);
+        let locked = AlphaBalance::from(2_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &original, netuid, locked,
+        );
+        assert_ok!(SubtensorModule::do_swap_coldkey(&original, &successor));
+        assert_eq!(ColdkeySuccessor::<Test>::get(original), Some(successor));
+        assert!(!ColdkeyRoot::<Test>::contains_key(original));
+        assert!(!SubtensorModule::coldkey_already_in_use(&original));
+
+        assert_ok!(SubtensorModule::set_perpetual_lock(
+            RuntimeOrigin::signed(successor),
+            netuid,
+            true,
+        ));
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &successor, netuid, &hotkey, locked
+        ));
+        AccountFlags::<Test>::insert(successor, ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH);
+        AutoStakeDestination::<Test>::insert(successor, netuid, hotkey);
+        AutoStakeDestinationColdkeys::<Test>::insert(hotkey, netuid, vec![successor]);
+
+        // A same-lineage destination with a preference of its own is still a merge.
+        assert_ok!(SubtensorModule::set_perpetual_lock(
+            RuntimeOrigin::signed(original),
+            netuid,
+            true,
+        ));
+        assert_noop!(
+            SubtensorModule::do_swap_coldkey(&successor, &original),
+            Error::<Test>::AccountRejectsLockedAlpha
+        );
+        assert_ok!(SubtensorModule::set_perpetual_lock(
+            RuntimeOrigin::signed(original),
+            netuid,
+            false,
+        ));
+
+        add_balance_to_coldkey_account(
+            &successor,
+            SubtensorModule::get_key_swap_cost() + ExistentialDeposit::get(),
+        );
+        assert_ok!(SubtensorModule::announce_coldkey_swap_v2(
+            RuntimeOrigin::signed(successor),
+            original,
+        ));
+        assert_eq!(
+            ColdkeySwapV2PolicySnapshots::<Test>::get(successor),
+            Some(true)
+        );
+        let (when, _) = ColdkeySwapAnnouncements::<Test>::get(successor).expect("announced");
+        System::set_block_number(when);
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(successor),
+            original,
+        ));
+
+        assert_eq!(ColdkeySuccessor::<Test>::get(successor), Some(original));
+        assert!(!ColdkeySuccessor::<Test>::contains_key(original));
+        assert_eq!(
+            AccountFlags::<Test>::get(original),
+            ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH
+        );
+        assert_eq!(
+            SubtensorModule::get_current_locked(&original, netuid),
+            locked
+        );
+        assert!(SubtensorModule::is_perpetual_lock(&original, netuid));
+        assert_eq!(
+            AutoStakeDestination::<Test>::get(original, netuid),
+            Some(hotkey)
+        );
+    });
+}
+
+#[test]
 fn coldkey_swap_preserves_funded_destinations_default_lock_preference() {
     new_test_ext(1).execute_with(|| {
         let source = U256::from(1);

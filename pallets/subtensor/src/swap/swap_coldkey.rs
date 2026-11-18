@@ -59,8 +59,8 @@ impl<T: Config> Pallet<T> {
     /// root stake) for every admitted hotkey in the combined source∪destination set.
     fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
         base.saturating_add(Self::hotkey_owner_policy_weight())
-            // Destination successor lookup and the opt-in-only lock transfer check.
-            .saturating_add(T::DbWeight::get().reads(8))
+            // Destination successor, reversal preferences, and opt-in-only lock transfer.
+            .saturating_add(T::DbWeight::get().reads(12))
             .saturating_add(
                 <T as crate::pallet::Config>::WeightInfo::transfer_stake()
                     .saturating_mul(u64::from(work.positions)),
@@ -138,7 +138,7 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().writes(4));
         // Snapshot whether the destination already carries state that rejects
         // policy import: staking/basket/ownership, flags, lineage, identity, balance, proxy.
-        let policy_snapshot = T::DbWeight::get().reads_writes(9, 1);
+        let policy_snapshot = T::DbWeight::get().reads_writes(13, 1);
         // Pending-registration discovery: one queue read + total-scan sentinel
         // (not only owned rows — unrelated entries are still visited).
         let pending_reads = u64::from(max.registration_queue_scan).saturating_add(1);
@@ -450,21 +450,28 @@ impl<T: Config> Pallet<T> {
         ColdkeyRoot::<T>::contains_key(coldkey) || ColdkeySuccessor::<T>::contains_key(coldkey)
     }
 
-    /// Destination already has non-balance state that must always protect it
-    /// from an unsolicited policy import, even if a V2 announcement originally
-    /// targeted a blank account. Balance is deliberately separate: anyone can
-    /// add dust without the destination's authorization.
+    /// Protect existing non-balance state from unsolicited policy imports.
+    /// A destination in the source's lineage can be a rename target if it has
+    /// no other state or preferences of its own.
     fn coldkey_has_non_balance_policy_protection_with_gamma(
         coldkey: &T::AccountId,
         has_gamma_deposits: bool,
+        source: Option<&T::AccountId>,
     ) -> bool {
         Self::coldkey_has_configured_account_flags(coldkey)
-            || Self::coldkey_has_other_presence(coldkey, has_gamma_deposits)
+            || Self::coldkey_has_non_lineage_presence(coldkey, has_gamma_deposits)
+            || (Self::coldkey_has_established_lineage(coldkey)
+                && source.is_none_or(|source| {
+                    !Self::same_coldkey_lineage(source, coldkey)
+                        || DecayingLock::<T>::iter_key_prefix(coldkey).next().is_some()
+                        || AutoStakeDestination::<T>::iter_key_prefix(coldkey)
+                            .next()
+                            .is_some()
+                }))
     }
 
-    fn coldkey_has_other_presence(coldkey: &T::AccountId, has_gamma_deposits: bool) -> bool {
+    fn coldkey_has_non_lineage_presence(coldkey: &T::AccountId, has_gamma_deposits: bool) -> bool {
         Self::coldkey_already_in_use(coldkey)
-            || Self::coldkey_has_established_lineage(coldkey)
             || IdentitiesV2::<T>::contains_key(coldkey)
             || has_gamma_deposits
             || T::ProxyInterface::has_delegator_proxies(coldkey)
@@ -475,6 +482,7 @@ impl<T: Config> Pallet<T> {
         Self::coldkey_has_non_balance_policy_protection_with_gamma(
             coldkey,
             Self::coldkey_gamma_deposit_count(coldkey) != 0,
+            None,
         )
     }
 
@@ -684,6 +692,7 @@ impl<T: Config> Pallet<T> {
             Self::coldkey_has_non_balance_policy_protection_with_gamma(
                 new_coldkey,
                 work.destination_gamma_deposits != 0,
+                Some(old_coldkey),
             );
         work.destination_rejects_unsolicited_policy_import = work
             .destination_has_non_balance_policy_protection
@@ -868,7 +877,8 @@ impl<T: Config> Pallet<T> {
                 let retain_active_lock_terms = saved_dest_flags
                     == crate::ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA
                     && Self::coldkey_total_balance(new_coldkey).is_zero()
-                    && !Self::coldkey_has_other_presence(
+                    && !Self::coldkey_has_established_lineage(new_coldkey)
+                    && !Self::coldkey_has_non_lineage_presence(
                         new_coldkey,
                         work.destination_gamma_deposits != 0,
                     );
