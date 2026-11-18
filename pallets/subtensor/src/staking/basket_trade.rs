@@ -691,10 +691,12 @@ impl<T: Config> Pallet<T> {
 
     /// Test-only access to the leg bound in integer TAO per alpha, scaled by 10⁹.
     #[cfg(test)]
-    pub(crate) fn basket_trade_price_limit_for_test(netuid: NetUid, buy: bool) -> u64 {
+    pub(crate) fn basket_trade_price_limit_for_test(
+        netuid: NetUid,
+        buy: bool,
+    ) -> Result<u64, DispatchError> {
         Self::basket_trade_price_limit(netuid, if buy { Leg::Buy } else { Leg::Sell })
-            .expect("valid spot in price-limit test")
-            .to_u64()
+            .map(|limit| limit.to_u64())
     }
 
     /// Take `tao_mid` out of the fund's turnover bucket after refilling it for the blocks

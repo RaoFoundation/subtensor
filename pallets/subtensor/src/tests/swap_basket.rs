@@ -1099,11 +1099,11 @@ fn test_swap_basket_spot_only_price_limits_are_five_percent_from_spot() {
         SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(0));
         SubnetFastMovingPrice::<Test>::remove(fund.netuid_a);
         assert_eq!(
-            SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, false),
+            SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, false).unwrap(),
             949_999_999
         );
         assert_eq!(
-            SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, true),
+            SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, true).unwrap(),
             1_049_999_999
         );
     });
@@ -1127,11 +1127,11 @@ fn test_swap_basket_spot_only_uses_storage_band() {
         let fund = setup_fund();
         BasketTradeMaxSlippageBps::<Test>::put(200);
         assert_eq!(
-            SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, false),
+            SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, false).unwrap(),
             979_999_999
         );
         assert_eq!(
-            SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, true),
+            SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, true).unwrap(),
             1_019_999_999
         );
     });
