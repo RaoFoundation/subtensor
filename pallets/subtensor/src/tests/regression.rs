@@ -5,7 +5,7 @@ use super::claim_root::{fund_pool, register_on_root};
 use super::mock::*;
 use crate::{
     BasketRate, BasketShares, BurnIncreaseMult, CheckColdkeySwap, ColdkeySwapAnnouncements,
-    ColdkeySwapDisputes, Error, FirstEmissionBlockNumber, PendingBasketDeposits,
+    ColdkeySwapDisputes, Error, FirstEmissionBlockNumber, IsNetworkMember, PendingBasketDeposits,
     RootClaimableThreshold, SubnetAlphaOut, SubnetLimit, SubnetMechanism, SubtokenEnabled,
 };
 use frame_support::{assert_ok, traits::ExtendedDispatchable};
@@ -15,6 +15,69 @@ use sp_runtime::traits::Hash;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance, Token};
+
+// PROTECTED_REGRESSION: a full hotkey swap must not block the destination hotkey from registering on unrelated subnets; changes require explicit human approval.
+#[test]
+fn full_hotkey_swap_preserves_registration_on_unrelated_subnets() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(4_201);
+        let new_hotkey = U256::from(4_202);
+        let coldkey = U256::from(4_203);
+        let member_netuid = NetUid::from(21);
+        let unrelated_netuid = NetUid::from(22);
+
+        add_network(member_netuid, 1, 0);
+        add_network(unrelated_netuid, 1, 0);
+        register_ok_neuron(member_netuid, old_hotkey, coldkey, 0);
+
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
+            &old_hotkey,
+            &new_hotkey,
+            &coldkey,
+            &mut frame_support::weights::Weight::zero(),
+            false,
+        ));
+
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, member_netuid));
+        assert!(!IsNetworkMember::<Test>::contains_key(
+            new_hotkey,
+            unrelated_netuid
+        ));
+
+        register_ok_neuron(unrelated_netuid, new_hotkey, coldkey, 0);
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, unrelated_netuid));
+    });
+}
+
+// PROTECTED_REGRESSION: a historical false membership row must not block a subnet-scoped
+// hotkey swap; changes require explicit human approval.
+#[test]
+fn false_membership_row_does_not_block_subnet_hotkey_swap() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(4_211);
+        let new_hotkey = U256::from(4_212);
+        let coldkey = U256::from(4_213);
+        let netuid = NetUid::from(23);
+
+        add_network(netuid, 1, 0);
+        register_ok_neuron(netuid, old_hotkey, coldkey, 0);
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+        IsNetworkMember::<Test>::insert(new_hotkey, netuid, false);
+
+        assert!(!SubtensorModule::is_hotkey_registered_on_specific_network(
+            &new_hotkey,
+            netuid
+        ));
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &old_hotkey,
+            &new_hotkey,
+            Some(netuid),
+            false,
+        ));
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, netuid));
+    });
+}
 
 // PROTECTED_REGRESSION: a tiny volatile holding must not strand earned root dividends; changes require explicit human approval.
 #[test]
