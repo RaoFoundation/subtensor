@@ -14,7 +14,7 @@ use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 
-/// Basis-point denominator for [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`].
+/// Basis-point denominator for [`crate::BasketTradeMaxSlippageBps`].
 const BPS_DENOMINATOR: u64 = 10_000;
 
 /// Scale of the AMM `price_limit` argument (TAO per alpha × 10⁹), see `order_swap.rs`.
@@ -96,9 +96,10 @@ impl<T: Config> Pallet<T> {
     /// untouched: only the composition of the escrow holdings changes.
     ///
     /// Guardrails (see the storage docs on [`crate::BasketDailyTurnoverCap`]):
-    /// * each AMM leg must fill fully within [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of
-    ///   the strictest of the subnet's slow moving (EMA) price, its fast moving price, and
-    ///   its spot price ([`Self::basket_trade_price_limit`]);
+    /// * each AMM leg must fill fully within [`crate::BasketTradeMaxSlippageBps`] of the
+    ///   reference selected by [`crate::BasketTradePriceReferenceMode`] — spot by default,
+    ///   or the strictest of the slow EMA, fast EMA, and spot in legacy mode
+    ///   ([`Self::basket_trade_price_limit`]);
     /// * the TAO through the middle is taken from the fund's turnover bucket, sized from
     ///   the fund's guarded NAV ([`Self::guarded_basket_holding_value`]);
     /// * the destination holding may not end above [`crate::BasketLiquidityCap`] of the
@@ -627,48 +628,53 @@ impl<T: Config> Pallet<T> {
         Ok(out.amount_paid_out)
     }
 
-    /// AMM `price_limit` (TAO per alpha × 10⁹) for one trade leg: the strictest of the
-    /// subnet's slow moving (emission EMA) price, its fast moving price
-    /// ([`crate::SubnetFastMovingPrice`]), and its spot price, shifted by
-    /// [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] against the trade (up for a buy ceiling,
-    /// down for a sell floor).
+    /// AMM `price_limit` (TAO per alpha × 10⁹) for one trade leg, shifted against the trade
+    /// by [`crate::BasketTradeMaxSlippageBps`] (up for a buy ceiling, down for a sell floor).
     ///
-    /// Each anchor closes a different hole. Spot caps the trade's own price impact. The fast
-    /// EMA (two-hour half-life, updated from the previous block's closing spot) is a price
-    /// nobody can move inside a block: a key holder who lifts spot and has the fund buy, or
-    /// dumps spot and has the fund sell, finds the fund bound to within 2% of where the pool
-    /// traded before the move, so the fund never fills at the manipulated price. Pulling
-    /// the anchor along means holding the pump — and the capital behind it — against
-    /// arbitrage for several half-lives. The slow EMA (monthly) stays in the min/max as the
-    /// level cap on how far even a held pump can carry the fund. A subnet missing either
-    /// EMA (never emitted, or not yet updated since the fast series was introduced) is
-    /// refused.
+    /// [`crate::BasketTradePriceReferenceMode`] selects the reference:
+    /// * `SpotOnly` (default): current spot for both legs. The slow and fast EMAs are not
+    ///   read or required, so a subnet with a valid spot remains tradeable before its moving
+    ///   prices exist and after a spot move leaves its EMAs behind.
+    /// * `StrictestEmaAndSpot` (legacy): sell floor from `max(slow EMA, fast EMA, spot)` and
+    ///   buy ceiling from `min(slow EMA, fast EMA, spot)`. This retains the legacy anchors
+    ///   against same-block and held price manipulation, but refuses a trade when either EMA
+    ///   is missing or zero.
     ///
-    /// When spot has already crossed the anchored bound the engine would reject the order
-    /// with its own `PriceLimitExceeded`; refusing here keeps the caller-facing error
-    /// `SlippageTooHigh` for every way a leg can miss the band.
+    /// Governance can tune the band with `AdminUtils::sudo_set_basket_trade_max_slippage_bps`
+    /// and select either mode with `AdminUtils::sudo_set_basket_trade_price_reference`.
+    /// A zero or missing spot is refused in both modes. When spot has already crossed the
+    /// bound, refusing here keeps the caller-facing error `SlippageTooHigh` rather than the
+    /// engine's `PriceLimitExceeded`.
     fn basket_trade_price_limit(netuid: NetUid, leg: Leg) -> Result<TaoBalance, DispatchError> {
-        let slow: U64F64 = Self::get_moving_alpha_price(netuid);
-        ensure!(
-            slow > U64F64::saturating_from_num(0),
-            Error::<T>::SlippageTooHigh
-        );
-        let fast: U64F64 =
-            SubnetFastMovingPrice::<T>::get(netuid).ok_or(Error::<T>::SlippageTooHigh)?;
-        ensure!(
-            fast > U64F64::saturating_from_num(0),
-            Error::<T>::SlippageTooHigh
-        );
         let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
-        let (reference, bps) = match leg {
-            Leg::Buy => (
-                slow.min(fast).min(spot),
-                BPS_DENOMINATOR.saturating_add(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
-            ),
-            Leg::Sell => (
-                slow.max(fast).max(spot),
-                BPS_DENOMINATOR.saturating_sub(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
-            ),
+        ensure!(
+            spot > U64F64::saturating_from_num(0),
+            Error::<T>::SlippageTooHigh
+        );
+        let reference = match BasketTradePriceReferenceMode::<T>::get() {
+            BasketTradePriceReference::SpotOnly => spot,
+            BasketTradePriceReference::StrictestEmaAndSpot => {
+                let slow: U64F64 = Self::get_moving_alpha_price(netuid);
+                ensure!(
+                    slow > U64F64::saturating_from_num(0),
+                    Error::<T>::SlippageTooHigh
+                );
+                let fast: U64F64 =
+                    SubnetFastMovingPrice::<T>::get(netuid).ok_or(Error::<T>::SlippageTooHigh)?;
+                ensure!(
+                    fast > U64F64::saturating_from_num(0),
+                    Error::<T>::SlippageTooHigh
+                );
+                match leg {
+                    Leg::Buy => slow.min(fast).min(spot),
+                    Leg::Sell => slow.max(fast).max(spot),
+                }
+            }
+        };
+        let band = u64::from(BasketTradeMaxSlippageBps::<T>::get());
+        let bps = match leg {
+            Leg::Buy => BPS_DENOMINATOR.saturating_add(band),
+            Leg::Sell => BPS_DENOMINATOR.saturating_sub(band),
         };
         let bound: U64F64 = reference
             .saturating_mul(U64F64::saturating_from_num(bps))
@@ -683,9 +689,17 @@ impl<T: Config> Pallet<T> {
         Ok(limit.saturating_to_num::<u64>().into())
     }
 
+    /// Test-only access to the leg bound in integer TAO per alpha, scaled by 10⁹.
+    #[cfg(test)]
+    pub(crate) fn basket_trade_price_limit_for_test(netuid: NetUid, buy: bool) -> u64 {
+        Self::basket_trade_price_limit(netuid, if buy { Leg::Buy } else { Leg::Sell })
+            .expect("valid spot in price-limit test")
+            .to_u64()
+    }
+
     /// Take `tao_mid` out of the fund's turnover bucket after refilling it for the blocks
     /// elapsed (capacity `nav_before × BasketDailyTurnoverCap / u16::MAX` with `nav_before`
-    /// the guarded NAV, full refill over [`crate::BASKET_TRADE_REFILL_BLOCKS`]).
+    /// the guarded NAV, full refill over [`crate::BasketTradeRefillBlocks`]).
     fn consume_basket_trade_budget(
         hotkey: &T::AccountId,
         nav_before: u64,
@@ -702,17 +716,18 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Cumulative destination flow in the current refill window. Decays linearly
-    /// to zero over [`crate::BASKET_TRADE_REFILL_BLOCKS`]. Missing row is zero.
+    /// to zero over [`crate::BasketTradeRefillBlocks`]. Missing row is zero.
     fn basket_liquidity_used_at(hotkey: &T::AccountId, netuid: NetUid, now: u64) -> u64 {
         match BasketLiquidityUsed::<T>::get(hotkey, netuid) {
             None => 0,
             Some((used, last_block)) => {
+                let refill_blocks = BasketTradeRefillBlocks::<T>::get().max(1);
                 let elapsed = now.saturating_sub(last_block);
-                if elapsed >= crate::BASKET_TRADE_REFILL_BLOCKS {
+                if elapsed >= refill_blocks {
                     0
                 } else {
-                    let remaining = crate::BASKET_TRADE_REFILL_BLOCKS.saturating_sub(elapsed);
-                    Self::mul_div_u64(used, remaining, crate::BASKET_TRADE_REFILL_BLOCKS)
+                    let remaining = refill_blocks.saturating_sub(elapsed);
+                    Self::mul_div_u64(used, remaining, refill_blocks)
                 }
             }
         }
@@ -801,15 +816,16 @@ impl<T: Config> Pallet<T> {
     /// settlement plus the pre-trade realizable-NAV sweep and the two post-trade re-quotes
     /// (origin and destination), as benchmarked.
     ///
-    /// Plus one `BasketLiquidityUsed` get/insert on a non-root destination and
-    /// one `BasketMinTradeTao` read per leg. Do not invent
+    /// Plus one `BasketLiquidityUsed` get/insert, `BasketMinTradeTao`, price-band,
+    /// price-reference, and two refill-period reads per leg. The legacy price-reference
+    /// branch reuses the EMA reads already included in the measured envelope. Do not invent
     /// CPU time here — CI's reference `bench-patch` updates
     /// [`WeightInfo::swap_basket`](crate::weights::WeightInfo::swap_basket).
     pub fn swap_basket_weight(num_holdings: u64) -> Weight {
         <T as crate::pallet::Config>::WeightInfo::swap_basket(
             u32::try_from(num_holdings).unwrap_or(u32::MAX),
         )
-        .saturating_add(T::DbWeight::get().reads_writes(2, 1))
+        .saturating_add(T::DbWeight::get().reads_writes(6, 1))
     }
 
     /// Weight of a multi-leg call: one full basket trade envelope followed by one
@@ -822,7 +838,7 @@ impl<T: Config> Pallet<T> {
         )
         .saturating_add(
             T::DbWeight::get()
-                .reads_writes(u64::from(num_legs).saturating_mul(2), u64::from(num_legs)),
+                .reads_writes(u64::from(num_legs).saturating_mul(6), u64::from(num_legs)),
         )
     }
 

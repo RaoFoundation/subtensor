@@ -12,15 +12,15 @@ composition moves. Signed by the coldkey that owns `hotkey_ss58` or by
 a `BasketTrading` proxy of it (the intended setup for a trader
 multisig).
 
-Guardrails enforced on chain: each AMM leg must fill fully within 2% of
-the strictest of the subnet's slow moving price, its fast moving price
-(a two-hour EMA of spot written each block from the previous block's
-close, so a price someone just moved cannot be traded at) and its spot
-price (`SlippageTooHigh` otherwise); the TAO through the middle is
-taken from the fund's turnover bucket, which holds
+Guardrails enforced on chain: each AMM leg must fill fully within
+`BasketTradeMaxSlippageBps` of its configured price reference. By default
+this is 5% from spot; governance may instead select the legacy strictest of
+the slow EMA, fast EMA, and spot (`SlippageTooHigh` otherwise). The TAO
+through the middle is taken from the fund's turnover bucket, which holds
 `BasketDailyTurnoverCap` of the fund's guarded NAV (each holding at
 the lower of its realizable value and its slow-moving-price value) and
-refills over 7200 blocks (`BasketTurnoverBudgetExceeded`); the
+refills over `BasketTradeRefillBlocks` (7200 by default;
+`BasketTurnoverBudgetExceeded`); the
 destination holding may not end above the `BasketLiquidityCap` share
 of the destination pool's alpha reserve (`BasketLiquidityCapExceeded`)
 nor above the `BasketConcentrationCap` share of the guarded NAV
@@ -43,7 +43,7 @@ pre-checks and the valuation sweep it did, never the envelope.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2323-L2348) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2326-L2351) |
 
 ## Parameters
 
@@ -53,7 +53,7 @@ pre-checks and the valuation sweep it did, never the envelope.
 | `origin_netuid` | integer | yes | Subnet to sell out of (0 = the fund's TAO cash slot). |
 | `dest_netuid` | integer | yes | Subnet to buy into (0 = the fund's TAO cash slot). |
 | `amount` | number \| `"all"` | yes | How much of the origin holding to sell, in the origin subnet's alpha (TAO when the origin is netuid 0), or `all` for the whole holding. |
-| `min_amount_out` | number | no | Least amount the buy leg must credit, in the destination subnet's alpha (TAO when the destination is netuid 0), after fees; the trade rolls back with `BasketMinOutNotMet` below it. 0 (default) sets no floor. The 2% protocol band applies regardless. |
+| `min_amount_out` | number | no | Least amount the buy leg must credit, in the destination subnet's alpha (TAO when the destination is netuid 0), after fees; the trade rolls back with `BasketMinOutNotMet` below it. 0 (default) sets no floor. The configured protocol band applies regardless. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -102,7 +102,7 @@ result = sub.execute_tool("swap_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2329`](/code/pallets/subtensor/src/macros/dispatches.rs#L2323-L2348):
+`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2332`](/code/pallets/subtensor/src/macros/dispatches.rs#L2326-L2351):
 
 ```rust
 #[pallet::call_index(150)]
@@ -133,6 +133,6 @@ pub fn swap_basket(
 }
 ```
 
-Delegates to [`do_swap_basket_tracked`](/code/pallets/subtensor/src/staking/basket_trade.rs#L140), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1791).
+Delegates to [`do_swap_basket_tracked`](/code/pallets/subtensor/src/staking/basket_trade.rs#L141), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1790).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

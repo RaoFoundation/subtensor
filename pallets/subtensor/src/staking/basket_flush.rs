@@ -131,9 +131,9 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Weight of the work reported by [`Self::flush_basket_deposits_for_hotkey`]: quotes are
-    /// priced like NAV-sweep rows (read-only sim-swap valuations), plus seven reads per
-    /// stability check: existence, mechanism, fast price, and the swap price's mechanism,
-    /// two reserves and balancer. The number of checks is bounded
+    /// priced like NAV-sweep rows (read-only sim-swap valuations), plus eight reads per
+    /// stability check: existence, mechanism, fast price, the configured trade band, and
+    /// the swap price's mechanism, two reserves and balancer. The number of checks is bounded
     /// by the admitted holding rows plus executed credit rows, not every quote (the same rows
     /// are quoted repeatedly). Executed rows — stake and queue writes each — are priced like
     /// redeemed `claim_root` rows, the benchmarked figure for one swap-and-write row (an upper
@@ -144,7 +144,7 @@ impl<T: Config> Pallet<T> {
         } else {
             let price_checks = work.quotes.min(MAX_BASKET_ROWS).saturating_add(work.rows);
             Self::basket_nav_sweep_weight(work.quotes)
-                .saturating_add(T::DbWeight::get().reads(price_checks.saturating_mul(7)))
+                .saturating_add(T::DbWeight::get().reads(price_checks.saturating_mul(8)))
         };
         let rows = if work.rows == 0 {
             Weight::zero()
@@ -814,8 +814,9 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Rebase an already computed realizable quote to the fast-price anchor. Holdings
-    /// inside the existing 2% band keep their live mark; incoming credits always use the
-    /// anchor so their aggregate 2% budget includes in-band errors too. This is never the
+    /// inside [`crate::BasketTradeMaxSlippageBps`] of that anchor keep their live mark;
+    /// incoming credits always use the anchor so their aggregate impact budget includes
+    /// in-band errors too. This is never the
     /// price used to mint or redeem shares. Keep liquidity/slippage discounts from the
     /// live quote; no extra swap simulation or pool mutation is needed.
     fn basket_dividend_reference_value(
@@ -843,16 +844,13 @@ impl<T: Config> Pallet<T> {
             return Err(Error::<T>::SlippageTooHigh.into());
         }
 
+        let band = u64::from(BasketTradeMaxSlippageBps::<T>::get());
         let denominator = U64F64::saturating_from_num(10_000u64);
         let lower = fast
-            .saturating_mul(U64F64::saturating_from_num(
-                10_000u64.saturating_sub(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
-            ))
+            .saturating_mul(U64F64::saturating_from_num(10_000u64.saturating_sub(band)))
             .safe_div(denominator);
         let upper = fast
-            .saturating_mul(U64F64::saturating_from_num(
-                10_000u64.saturating_add(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
-            ))
+            .saturating_mul(U64F64::saturating_from_num(10_000u64.saturating_add(band)))
             .safe_div(denominator);
         if !incoming && spot >= lower && spot <= upper {
             return Ok(u128::from(value));
@@ -868,7 +866,7 @@ impl<T: Config> Pallet<T> {
 
     /// Bound denominator distortion, gross origin distortion, and their combined effect
     /// on B/N. A shared failure rolls back every tentative credit and requeues the batch.
-    /// Holding prices inside the stable band keep the pre-existing 2% tolerance.
+    /// Holding prices inside the stable band keep their realizable valuation.
     /// Out-of-band NAV exposure is capped at 10 bps; gross incoming exposure (including
     /// in-band errors) and the combined mint ratio are capped at 200 bps. These are
     /// admission references, not fair-market guarantees.

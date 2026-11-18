@@ -635,7 +635,7 @@
     },
     "BasketMinOutNotMet": {
       "code": "insufficient_liquidity",
-      "description": "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set (destination alpha, or TAO when the destination is netuid 0), so the whole trade rolled back; nothing moved. The pool moved between your quote and execution, or the floor was set above what the trade could ever yield. Re-quote and retry, or widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 disables this check; the 2% protocol band still applies.",
+      "description": "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set (destination alpha, or TAO when the destination is netuid 0), so the whole trade rolled back; nothing moved. The pool moved between your quote and execution, or the floor was set above what the trade could ever yield. Re-quote and retry, or widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 disables this check; the configured protocol band still applies.",
       "docs_url": "/docs/errors/chain/BasketMinOutNotMet",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketMinOutNotMet/content.md",
       "pallets": [
@@ -725,7 +725,7 @@
     },
     "BasketTurnoverBudgetExceeded": {
       "code": "rate_limited",
-      "description": "The trade would push more TAO through the fund than its turnover bucket holds. The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%); it refills continuously over 7200 blocks and each swap takes the TAO through its middle out of it, so at most one capacity can be traded at any instant. Query `basket_trading_status` for the remaining budget, the capacity, and the refill rate; trade a smaller amount or wait for the bucket to refill.",
+      "description": "The trade would push more TAO through the fund than its turnover bucket holds. The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%); it refills continuously over `BasketTradeRefillBlocks` (7200 by default) and each swap takes the TAO through its middle out of it, so at most one capacity can be traded at any instant. Query `basket_trading_status` for the remaining budget, the capacity, and the refill rate; trade a smaller amount or wait for the bucket to refill.",
       "docs_url": "/docs/errors/chain/BasketTurnoverBudgetExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketTurnoverBudgetExceeded/content.md",
       "pallets": [
@@ -825,8 +825,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 252,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L252",
+          "line": 270,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L270",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1410,8 +1410,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 276,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L276",
+          "line": 294,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L294",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1428,8 +1428,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 274,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L274",
+          "line": 292,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L292",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1779,8 +1779,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 272,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L272",
+          "line": 290,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L290",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -2551,8 +2551,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 278,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L278",
+          "line": 296,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L296",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3504,8 +3504,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 266,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L266",
+          "line": 284,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L284",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3864,8 +3864,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 250,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L250",
+          "line": 268,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L268",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3882,8 +3882,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 264,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L264",
+          "line": 282,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L282",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3900,8 +3900,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 262,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L262",
+          "line": 280,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L280",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3972,8 +3972,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 248,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L248",
+          "line": 266,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L266",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4070,8 +4070,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 258,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L258",
+          "line": 276,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L276",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4088,8 +4088,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 260,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L260",
+          "line": 278,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L278",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4205,8 +4205,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 254,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L254",
+          "line": 272,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L272",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4783,8 +4783,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 268,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L268",
+          "line": 286,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L286",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5151,8 +5151,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 270,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L270",
+          "line": 288,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L288",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -6024,8 +6024,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 246,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L246",
+          "line": 264,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L264",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -6979,8 +6979,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 256,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L256",
+          "line": 274,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L274",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

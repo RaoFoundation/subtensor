@@ -15,7 +15,7 @@ itself.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_reject_locked_alpha`](/code/pallets/subtensor/src/macros/dispatches.rs#L2969-L2976) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_reject_locked_alpha`](/code/pallets/subtensor/src/macros/dispatches.rs#L2970-L2977) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("set_reject_locked_alpha", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_reject_locked_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L2971`](/code/pallets/subtensor/src/macros/dispatches.rs#L2969-L2976):
+`SubtensorModule.set_reject_locked_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L2972`](/code/pallets/subtensor/src/macros/dispatches.rs#L2970-L2977):
 
 ```rust
 #[pallet::call_index(142)]
@@ -77,6 +77,6 @@ pub fn set_reject_locked_alpha(origin: OriginFor<T>, enabled: bool) -> DispatchR
 }
 ```
 
-Delegates to [`set_accept_locked_alpha`](/code/pallets/subtensor/src/staking/lock.rs#L503).
+Delegates to [`set_accept_locked_alpha`](/code/pallets/subtensor/src/staking/lock.rs#L455).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

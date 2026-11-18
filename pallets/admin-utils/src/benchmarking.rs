@@ -1284,6 +1284,36 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_basket_trade_max_slippage_bps() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 500u16);
+
+        assert_eq!(pallet_subtensor::BasketTradeMaxSlippageBps::<T>::get(), 500);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_trade_refill_blocks() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 7200u64);
+
+        assert_eq!(pallet_subtensor::BasketTradeRefillBlocks::<T>::get(), 7200);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_trade_price_reference() {
+        #[extrinsic_call]
+        _(
+            RawOrigin::Root,
+            pallet_subtensor::BasketTradePriceReference::StrictestEmaAndSpot,
+        );
+
+        assert_eq!(
+            pallet_subtensor::BasketTradePriceReferenceMode::<T>::get(),
+            pallet_subtensor::BasketTradePriceReference::StrictestEmaAndSpot
+        );
+    }
+
+    #[benchmark]
     fn sudo_set_basket_min_trade_tao() {
         #[extrinsic_call]
         _(RawOrigin::Root, 100_000_000u64);
