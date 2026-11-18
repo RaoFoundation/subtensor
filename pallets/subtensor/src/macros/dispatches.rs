@@ -2485,8 +2485,7 @@ mod dispatches {
             // before the fee, so a conflict cannot burn the swap cost.
             Self::ensure_coldkey_swap_destination_reservable(&who, &new_coldkey)?;
             // Bind the balance-sensitive swap decisions before funds can change.
-            let (import_source_policies, retain_lock_terms) =
-                Self::coldkey_swap_announcement_policy(&new_coldkey, &work);
+            let policy = Self::coldkey_swap_announcement_policy(&new_coldkey, &work);
 
             if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
                 let reannouncement_delay = ColdkeySwapReannouncementDelay::<T>::get();
@@ -2501,15 +2500,14 @@ mod dispatches {
             // register it as a hotkey and force NewColdKeyIsHotkey at execute.
             Self::reserve_coldkey_swap_destination(&who, &new_coldkey)?;
 
-            let new_coldkey_hash =
-                Self::coldkey_swap_v2_announcement_hash(&new_coldkey, import_source_policies);
+            let new_coldkey_hash = Self::coldkey_swap_v2_announcement_hash(
+                &new_coldkey,
+                policy.import_source_policies,
+            );
             let delay = ColdkeySwapAnnouncementDelay::<T>::get();
             let when = now.saturating_add(delay);
             ColdkeySwapAnnouncements::<T>::insert(who.clone(), (when, new_coldkey_hash.clone()));
-            Self::set_coldkey_swap_v2_policy_snapshot(
-                &who,
-                Some((import_source_policies, retain_lock_terms)),
-            );
+            Self::set_coldkey_swap_v2_policy_snapshot(&who, Some(policy));
 
             Self::deposit_event(Event::ColdkeySwapAnnounced {
                 who,
@@ -2572,10 +2570,11 @@ mod dispatches {
                 Self::fail_with_weight(Error::<T>::ColdkeySwapTooEarly, precheck)
             );
 
-            let work = Self::do_swap_coldkey_tracked_with_policy_snapshot(
+            let work = Self::do_announced_coldkey_swap(
                 &who,
                 &new_coldkey,
                 policy_import_mode,
+                !legacy_hash_matches,
             )
             .map_err(|(done, error)| {
                 Self::fail_with_weight(

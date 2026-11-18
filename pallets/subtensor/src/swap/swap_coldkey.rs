@@ -1,3 +1,4 @@
+use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::pallet_prelude::{Blake2_128Concat, OptionQuery};
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::traits::Currency;
@@ -12,14 +13,21 @@ use sp_runtime::{Saturating, traits::Hash};
 use sp_std::collections::btree_set::BTreeSet;
 use subtensor_runtime_common::TaoBalance;
 
-// Marks announcements admitted under the current rules and records whether
-// the destination agreed to retain active lock terms.
+#[derive(Clone, Copy, Decode, Default, Encode, MaxEncodedLen)]
+pub(crate) struct ColdkeySwapAnnouncementPolicy {
+    pub import_source_policies: bool,
+    preserve_destination_flags: bool,
+    retain_lock_terms: bool,
+}
+
+// Marks announcements admitted under the current rules while leaving the
+// published V2 snapshot and commitment format compatible with older clients.
 #[frame_support::storage_alias]
 type ColdkeySwapPolicySnapshotV492<T: Config> = StorageMap<
     Pallet<T>,
     Blake2_128Concat,
     <T as frame_system::Config>::AccountId,
-    bool,
+    ColdkeySwapAnnouncementPolicy,
     OptionQuery,
 >;
 
@@ -54,6 +62,8 @@ pub(crate) enum ColdkeySwapPolicyImportMode {
     CurrentDestination,
     /// The destination already had presence at announcement; never import.
     Reject,
+    /// TAO at announcement protects preferences without requiring lock consent.
+    RejectPreferencesOnly,
     /// A live reservation binds eligibility for retaining active lock terms.
     RejectWithReservation { retain_lock_terms: bool },
     /// Honor the lock admission for announcements made before the v492 rules.
@@ -162,14 +172,18 @@ impl<T: Config> Pallet<T> {
         // Snapshot whether the destination already carries state that rejects
         // policy import: staking/basket/ownership, flags, lineage, identity, balance, proxy.
         let policy_snapshot = T::DbWeight::get().reads_writes(14, 2);
-        // Read the destination's balance, flags, and other presence for the lock-terms snapshot.
-        let lock_terms_snapshot = T::DbWeight::get().reads(9);
+        // Read flags and other presence for the lock-terms snapshot. The conflict
+        // check reads the subnet, both modes, owner hotkey, one lock and a sentinel.
+        let lock_terms_snapshot = T::DbWeight::get().reads(8);
+        let networks = u64::from(TotalNetworks::<T>::get());
+        let lock_mode_check =
+            T::DbWeight::get().reads(networks.saturating_mul(6).saturating_add(7));
         // Pending-registration discovery: one queue read + total-scan sentinel
         // (not only owned rows — unrelated entries are still visited).
         let pending_reads = u64::from(max.registration_queue_scan).saturating_add(1);
         // Gamma deposit counts of both coldkeys: the subnet list plus one index length per
         // subnet, each.
-        let gamma_reads = u64::from(TotalNetworks::<T>::get()).saturating_mul(4);
+        let gamma_reads = networks.saturating_mul(4);
         T::DbWeight::get()
             .reads(4)
             .saturating_add(Self::hotkey_owner_policy_weight())
@@ -186,6 +200,7 @@ impl<T: Config> Pallet<T> {
             .saturating_add(reservation)
             .saturating_add(policy_snapshot)
             .saturating_add(lock_terms_snapshot)
+            .saturating_add(lock_mode_check)
     }
 
     /// Weight of destination-authorized reservation release (dual-map cleanup).
@@ -543,31 +558,38 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn coldkey_swap_announcement_policy(
         destination: &T::AccountId,
         work: &ColdkeySwapWork,
-    ) -> (bool, bool) {
-        let import_source_policies = !work.destination_rejects_unsolicited_policy_import;
-        let retain_lock_terms = !import_source_policies
-            && Self::coldkey_total_balance(destination).is_zero()
-            && Self::coldkey_accepts_active_lock_terms(
-                destination,
-                AccountFlags::<T>::get(destination),
-                work.destination_gamma_deposits != 0,
-            );
-        (import_source_policies, retain_lock_terms)
+    ) -> ColdkeySwapAnnouncementPolicy {
+        ColdkeySwapAnnouncementPolicy {
+            import_source_policies: !work.destination_rejects_unsolicited_policy_import,
+            preserve_destination_flags: work.destination_has_non_balance_policy_protection,
+            retain_lock_terms: work.destination_has_non_balance_policy_protection
+                && Self::coldkey_accepts_active_lock_terms(
+                    destination,
+                    AccountFlags::<T>::get(destination),
+                    work.destination_gamma_deposits != 0,
+                ),
+        }
     }
 
     /// Store or clear both parts of the V2 announcement's destination policy.
     pub(crate) fn set_coldkey_swap_v2_policy_snapshot(
         announcer: &T::AccountId,
-        policy: Option<(bool, bool)>,
+        policy: Option<ColdkeySwapAnnouncementPolicy>,
     ) {
-        ColdkeySwapV2PolicySnapshots::<T>::set(announcer, policy.map(|(import, _)| import));
-        ColdkeySwapPolicySnapshotV492::<T>::set(announcer, policy.map(|(_, retain)| retain));
+        ColdkeySwapV2PolicySnapshots::<T>::set(
+            announcer,
+            policy.map(|policy| policy.import_source_policies),
+        );
+        ColdkeySwapPolicySnapshotV492::<T>::set(announcer, policy);
     }
 
     /// Mark a newly paid hash announcement without granting V2 snapshot semantics.
     pub(crate) fn record_coldkey_swap_hash_policy(announcer: &T::AccountId) {
         ColdkeySwapV2PolicySnapshots::<T>::remove(announcer);
-        ColdkeySwapPolicySnapshotV492::<T>::insert(announcer, false);
+        ColdkeySwapPolicySnapshotV492::<T>::insert(
+            announcer,
+            ColdkeySwapAnnouncementPolicy::default(),
+        );
     }
 
     pub(crate) fn coldkey_swap_hash_policy(
@@ -633,9 +655,12 @@ impl<T: Config> Pallet<T> {
                     import_source_policies,
                     reservation_live,
                 },
-                (Some(retain_lock_terms), false, true) => {
-                    ColdkeySwapPolicyImportMode::RejectWithReservation { retain_lock_terms }
+                (Some(policy), false, _) if !policy.preserve_destination_flags => {
+                    ColdkeySwapPolicyImportMode::RejectPreferencesOnly
                 }
+                (Some(policy), false, true) => ColdkeySwapPolicyImportMode::RejectWithReservation {
+                    retain_lock_terms: policy.retain_lock_terms,
+                },
                 (Some(_), false, false) => ColdkeySwapPolicyImportMode::Reject,
                 (Some(_), true, true) => ColdkeySwapPolicyImportMode::IgnoreDestinationBalance,
                 (Some(_), true, false) => ColdkeySwapPolicyImportMode::CurrentDestination,
@@ -708,8 +733,11 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> Result<ColdkeySwapWork, (Weight, Error<T>)> {
-        Self::ensure_coldkey_swap_destination_with_policy_mode(old_coldkey, new_coldkey, None)
-            .map(|(work, _)| work)
+        let (work, _) =
+            Self::ensure_coldkey_swap_destination_with_policy_mode(old_coldkey, new_coldkey, None)?;
+        Self::ensure_coldkey_swap_lock_modes_compatible(old_coldkey, new_coldkey)
+            .map_err(|error| (Self::announce_coldkey_swap_v2_admission_weight(), error))?;
+        Ok(work)
     }
 
     fn ensure_coldkey_swap_destination_with_policy_mode(
@@ -813,8 +841,8 @@ impl<T: Config> Pallet<T> {
                     || Self::coldkey_has_configured_account_flags(new_coldkey)
             }
             Some(mode) => mode.preserve_destination_flags(&work),
-            // V2 announcement commits to whether the destination already had presence.
-            None => work.destination_rejects_unsolicited_policy_import,
+            // A TAO balance alone does not imply an existing lock policy.
+            None => work.destination_has_non_balance_policy_protection,
         };
         if requires_lock_consent
             && Self::account_rejects_locked_alpha(new_coldkey)
@@ -916,6 +944,15 @@ impl<T: Config> Pallet<T> {
         new_coldkey: &T::AccountId,
         policy_import_mode: ColdkeySwapPolicyImportMode,
     ) -> Result<ColdkeySwapWork, (Weight, DispatchError)> {
+        Self::do_announced_coldkey_swap(old_coldkey, new_coldkey, policy_import_mode, false)
+    }
+
+    pub(crate) fn do_announced_coldkey_swap(
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+        policy_import_mode: ColdkeySwapPolicyImportMode,
+        is_v2: bool,
+    ) -> Result<ColdkeySwapWork, (Weight, DispatchError)> {
         let (work, requires_lock_consent) =
             match Self::ensure_coldkey_swap_destination_with_policy_mode(
                 old_coldkey,
@@ -932,6 +969,11 @@ impl<T: Config> Pallet<T> {
             work,
             policy_import_mode,
             requires_lock_consent,
+            is_v2
+                && !matches!(
+                    policy_import_mode,
+                    ColdkeySwapPolicyImportMode::PreV492V2 { .. }
+                ),
         )
         .map_err(|error| (Self::coldkey_swap_failed_weight(Some(work), true), error))
     }
@@ -943,6 +985,7 @@ impl<T: Config> Pallet<T> {
         work: ColdkeySwapWork,
         policy_import_mode: ColdkeySwapPolicyImportMode,
         requires_lock_consent: bool,
+        reject_conflicting_lock_modes: bool,
     ) -> Result<ColdkeySwapWork, DispatchError> {
         // A self-swap moves nothing; running the merge body against one account
         // would drop state that the helpers take before re-checking the destination.
@@ -965,6 +1008,7 @@ impl<T: Config> Pallet<T> {
                 // the source policy.
                 let import_source_preferences = match policy_import_mode {
                     ColdkeySwapPolicyImportMode::Reject
+                    | ColdkeySwapPolicyImportMode::RejectPreferencesOnly
                     | ColdkeySwapPolicyImportMode::RejectWithReservation { .. }
                     | ColdkeySwapPolicyImportMode::PreV492V2 {
                         import_source_policies: false,
@@ -988,6 +1032,7 @@ impl<T: Config> Pallet<T> {
                 // An otherwise blank destination can explicitly accept an active lock
                 // on its existing terms without importing the source's other policies.
                 let retain_active_lock_terms = match policy_import_mode {
+                    ColdkeySwapPolicyImportMode::RejectPreferencesOnly => false,
                     ColdkeySwapPolicyImportMode::RejectWithReservation { retain_lock_terms } => {
                         retain_lock_terms
                     }
@@ -1050,6 +1095,7 @@ impl<T: Config> Pallet<T> {
                     new_coldkey,
                     import_source_preferences,
                     retain_active_lock_terms,
+                    reject_conflicting_lock_modes,
                 )?;
 
                 // Clear source; restore the winning flags (dest when preserved).

@@ -1220,6 +1220,48 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    pub(crate) fn ensure_coldkey_swap_lock_modes_compatible(
+        source: &T::AccountId,
+        destination: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        if DecayingLock::<T>::iter_key_prefix(destination)
+            .next()
+            .is_none()
+        {
+            return Ok(());
+        }
+        let now = Self::get_current_block_as_u64();
+        let unlock_rate = UnlockRate::<T>::get();
+        let maturity_rate = MaturityRate::<T>::get();
+        let dissolving = Self::coldkey_swap_dissolving_subnets();
+        for netuid in Self::get_all_subnet_netuids() {
+            if dissolving.contains(&netuid) {
+                continue;
+            }
+            let Some(destination_decays) = DecayingLock::<T>::get(destination, netuid) else {
+                continue;
+            };
+            let source_perpetual = Self::is_perpetual_lock(source, netuid);
+            if destination_decays != source_perpetual {
+                continue;
+            }
+            let mut locks = Lock::<T>::iter_prefix((source, netuid));
+            if let Some((hotkey, lock)) = locks.next() {
+                let (rolled, _) = ConvictionModel::roll_forward_lock(
+                    lock,
+                    now,
+                    unlock_rate,
+                    maturity_rate,
+                    Self::is_subnet_owner_hotkey(netuid, &hotkey),
+                    source_perpetual,
+                );
+                ensure!(rolled.is_zero(), Error::<T>::AccountRejectsLockedAlpha);
+                ensure!(locks.next().is_none(), Error::<T>::ColdkeySwapTooHeavy);
+            }
+        }
+        Ok(())
+    }
+
     fn coldkey_swap_dissolving_subnets() -> BTreeSet<NetUid> {
         DissolveCleanupQueue::<T>::get().into_iter().collect()
     }
@@ -1316,6 +1358,7 @@ impl<T: Config> Pallet<T> {
         new_coldkey: &T::AccountId,
         import_source_policies: bool,
         retain_active_lock_terms: bool,
+        reject_conflicting_lock_modes: bool,
     ) -> DispatchResult {
         // Reject residual mass/conviction on the destination (read-only), then
         // drop fully exhausted dust rows so a source insert cannot leave two
@@ -1361,7 +1404,15 @@ impl<T: Config> Pallet<T> {
             );
             // Admission treats sub-threshold rows as zero and `insert_lock_state`
             // drops them, so only real locks need the destination's consent.
+            let destination_perpetual =
+                DecayingLock::<T>::get(new_coldkey, netuid).map(|decays| !decays);
             if !old_lock.is_zero() {
+                ensure!(
+                    !reject_conflicting_lock_modes
+                        || destination_perpetual
+                            .is_none_or(|perpetual| perpetual == source_perpetual),
+                    Error::<T>::AccountRejectsLockedAlpha
+                );
                 Self::ensure_can_receive_locked_alpha_with_flag(
                     new_coldkey_rejects_locked_alpha,
                     old_lock.locked_mass,
@@ -1371,12 +1422,10 @@ impl<T: Config> Pallet<T> {
                 }
             }
             // Destination policy applies only prospectively after the hand-off.
-            let dest_perpetual = DecayingLock::<T>::try_get(new_coldkey, netuid)
-                .map(|decaying| !decaying)
-                .unwrap_or(
-                    (import_source_policies || retained_lock_terms.contains(&netuid))
-                        && source_perpetual,
-                );
+            let dest_perpetual = destination_perpetual.unwrap_or(
+                (import_source_policies || retained_lock_terms.contains(&netuid))
+                    && source_perpetual,
+            );
             rolled_locks_to_transfer.push((netuid, hotkey, old_lock, dest_perpetual));
         }
 
@@ -1438,7 +1487,7 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
-        Self::migrate_coldkey_locks(old_coldkey, new_coldkey, true, false)
+        Self::migrate_coldkey_locks(old_coldkey, new_coldkey, true, false, false)
     }
 
     /// Swap all locks made to the old_hotkey to new_hotkey on all netuids

@@ -3951,22 +3951,25 @@ fn test_announce_rejects_dest_opt_outs_before_fee() {
 // PROTECTED_REGRESSION: an incompatible used destination must be rejected before the
 // coldkey-swap fee is charged; changes require explicit human approval.
 #[test]
-fn test_announce_rejects_funded_lock_rejecting_destination_before_fee() {
+fn test_v2_lock_admission_distinguishes_tao_balance_from_destination_policy() {
     new_test_ext(1).execute_with(|| {
         let who = U256::from(1);
         let dest = U256::from(2);
         let hotkey = U256::from(10);
         let netuid = add_dynamic_network(&hotkey, &who);
 
-        let now = SubtensorModule::get_current_block_as_u64();
-        Lock::<Test>::insert(
-            (who, netuid, hotkey),
-            LockState {
-                locked_mass: AlphaBalance::from(1_000_000_u64),
-                conviction: U64F64::from_num(0),
-                last_update: now,
-            },
+        let locked = AlphaBalance::from(2_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &who, netuid, locked,
         );
+        assert_ok!(SubtensorModule::set_perpetual_lock(
+            RuntimeOrigin::signed(who),
+            netuid,
+            true,
+        ));
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &who, netuid, &hotkey, locked
+        ));
 
         let swap_cost = SubtensorModule::get_key_swap_cost();
         let ed = ExistentialDeposit::get();
@@ -3974,12 +3977,34 @@ fn test_announce_rejects_funded_lock_rejecting_destination_before_fee() {
         add_balance_to_coldkey_account(&dest, ed);
         let before = SubtensorModule::get_coldkey_balance(&who);
 
+        assert_ok!(SubtensorModule::set_reject_staking_hotkey_growth(
+            RuntimeOrigin::signed(dest),
+            true,
+        ));
         assert_noop!(
             SubtensorModule::announce_coldkey_swap_v2(RuntimeOrigin::signed(who), dest),
             Error::<Test>::AccountRejectsLockedAlpha
         );
         assert_eq!(SubtensorModule::get_coldkey_balance(&who), before);
         assert!(ColdkeySwapAnnouncements::<Test>::get(who).is_none());
+
+        assert_ok!(SubtensorModule::set_reject_staking_hotkey_growth(
+            RuntimeOrigin::signed(dest),
+            false,
+        ));
+        assert_ok!(SubtensorModule::announce_coldkey_swap_v2(
+            RuntimeOrigin::signed(who),
+            dest,
+        ));
+        assert_eq!(ColdkeySwapV2PolicySnapshots::<Test>::get(who), Some(false));
+        let (when, _) = ColdkeySwapAnnouncements::<Test>::get(who).expect("announced");
+        System::set_block_number(when);
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(who),
+            dest,
+        ));
+        assert_eq!(SubtensorModule::get_current_locked(&dest, netuid), locked);
+        assert!(!SubtensorModule::is_perpetual_lock(&dest, netuid));
     });
 }
 
@@ -4017,6 +4042,21 @@ fn live_v2_reservation_preserves_the_announced_active_lock_terms() {
             if funded_at_announce {
                 add_balance_to_coldkey_account(&destination, ed);
             }
+            if destination_sets_decay {
+                let swap_cost = SubtensorModule::get_key_swap_cost();
+                add_balance_to_coldkey_account(&source, swap_cost + ed);
+                let before = SubtensorModule::get_coldkey_balance(&source);
+                DecayingLock::<Test>::insert(destination, netuid, true);
+                assert_noop!(
+                    SubtensorModule::announce_coldkey_swap_v2(
+                        RuntimeOrigin::signed(source),
+                        destination,
+                    ),
+                    Error::<Test>::AccountRejectsLockedAlpha
+                );
+                assert_eq!(SubtensorModule::get_coldkey_balance(&source), before);
+                DecayingLock::<Test>::remove(destination, netuid);
+            }
             announce_coldkey_swap(source, destination);
             if !funded_at_announce {
                 add_balance_to_coldkey_account(&destination, ed);
@@ -4034,6 +4074,18 @@ fn live_v2_reservation_preserves_the_announced_active_lock_terms() {
 
             let (when, _) = ColdkeySwapAnnouncements::<Test>::get(source).expect("announced");
             System::set_block_number(when);
+            if destination_sets_decay {
+                crate::assert_noop_ignore_postinfo!(
+                    SubtensorModule::swap_coldkey_announced(
+                        RuntimeOrigin::signed(source),
+                        destination,
+                    ),
+                    Error::<Test>::AccountRejectsLockedAlpha
+                );
+                assert_eq!(SubtensorModule::get_current_locked(&source, netuid), locked);
+                assert!(ColdkeySwapAnnouncements::<Test>::contains_key(source));
+                return;
+            }
             assert_ok!(SubtensorModule::swap_coldkey_announced(
                 RuntimeOrigin::signed(source),
                 destination,
@@ -4044,7 +4096,7 @@ fn live_v2_reservation_preserves_the_announced_active_lock_terms() {
             );
             assert_eq!(
                 SubtensorModule::is_perpetual_lock(&destination, netuid),
-                !funded_at_announce && reservation_live && !destination_sets_decay,
+                reservation_live,
             );
         });
     }
