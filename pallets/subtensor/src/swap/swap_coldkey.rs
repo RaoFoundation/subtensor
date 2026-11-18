@@ -12,8 +12,8 @@ use sp_runtime::{Saturating, traits::Hash};
 use sp_std::collections::btree_set::BTreeSet;
 use subtensor_runtime_common::TaoBalance;
 
-// New V2 rejections protect flags and lock admission. The internal value also
-// records whether the destination agreed to retain active lock terms.
+// Marks announcements admitted under the current rules and records whether
+// the destination agreed to retain active lock terms.
 #[frame_support::storage_alias]
 type ColdkeySwapV2MergeProtection<T: Config> = StorageMap<
     Pallet<T>,
@@ -56,8 +56,11 @@ pub(crate) enum ColdkeySwapPolicyImportMode {
     Reject,
     /// A live reservation binds eligibility for retaining active lock terms.
     RejectWithReservation { retain_lock_terms: bool },
-    /// A pre-v492 snapshot rejected preference imports only.
-    RejectPreferencesOnly { reservation_live: bool },
+    /// Honor the lock admission for announcements made before the v492 rules.
+    PreV492V2 {
+        import_source_policies: bool,
+        reservation_live: bool,
+    },
     /// The original blank-destination reservation is still live, so ignore only
     /// unsolicited balance while enforcing every non-balance protection.
     IgnoreDestinationBalance,
@@ -556,10 +559,7 @@ impl<T: Config> Pallet<T> {
         policy: Option<(bool, bool)>,
     ) {
         ColdkeySwapV2PolicySnapshots::<T>::set(announcer, policy.map(|(import, _)| import));
-        ColdkeySwapV2MergeProtection::<T>::set(
-            announcer,
-            policy.and_then(|(import, retain)| (!import).then_some(retain)),
-        );
+        ColdkeySwapV2MergeProtection::<T>::set(announcer, policy.map(|(_, retain)| retain));
     }
 
     /// V2 commits to whether the destination was blank when it was announced.
@@ -599,30 +599,30 @@ impl<T: Config> Pallet<T> {
         {
             return None;
         }
-        let reservation_is_live = || {
-            let now = <frame_system::Pallet<T>>::block_number();
-            let ttl = ColdkeySwapReannouncementDelay::<T>::get();
-            now <= when.saturating_add(ttl)
-                && ColdkeySwapReservedDestination::<T>::get(announcer).as_ref() == Some(new_coldkey)
-                && ColdkeySwapDestinationReservations::<T>::get(new_coldkey).as_ref()
-                    == Some(announcer)
-        };
-        if !import_source_policies {
-            return Some(match ColdkeySwapV2MergeProtection::<T>::get(announcer) {
-                Some(retain_lock_terms) if reservation_is_live() => {
+        let now = <frame_system::Pallet<T>>::block_number();
+        let ttl = ColdkeySwapReannouncementDelay::<T>::get();
+        let reservation_live = now <= when.saturating_add(ttl)
+            && ColdkeySwapReservedDestination::<T>::get(announcer).as_ref() == Some(new_coldkey)
+            && ColdkeySwapDestinationReservations::<T>::get(new_coldkey).as_ref()
+                == Some(announcer);
+        Some(
+            match (
+                ColdkeySwapV2MergeProtection::<T>::get(announcer),
+                import_source_policies,
+                reservation_live,
+            ) {
+                (None, _, _) => ColdkeySwapPolicyImportMode::PreV492V2 {
+                    import_source_policies,
+                    reservation_live,
+                },
+                (Some(retain_lock_terms), false, true) => {
                     ColdkeySwapPolicyImportMode::RejectWithReservation { retain_lock_terms }
                 }
-                Some(_) => ColdkeySwapPolicyImportMode::Reject,
-                None => ColdkeySwapPolicyImportMode::RejectPreferencesOnly {
-                    reservation_live: reservation_is_live(),
-                },
-            });
-        }
-        Some(if reservation_is_live() {
-            ColdkeySwapPolicyImportMode::IgnoreDestinationBalance
-        } else {
-            ColdkeySwapPolicyImportMode::CurrentDestination
-        })
+                (Some(_), false, false) => ColdkeySwapPolicyImportMode::Reject,
+                (Some(_), true, true) => ColdkeySwapPolicyImportMode::IgnoreDestinationBalance,
+                (Some(_), true, false) => ColdkeySwapPolicyImportMode::CurrentDestination,
+            },
+        )
     }
 
     /// Free + reserved TAO on `coldkey`. Distinct from
@@ -787,7 +787,7 @@ impl<T: Config> Pallet<T> {
         // keep that preference (Auditor fid:9411d39b).
         let requires_lock_consent = match execution_policy {
             // v491 charged the fee based on these narrower lock-admission rules.
-            Some(ColdkeySwapPolicyImportMode::RejectPreferencesOnly { .. }) => {
+            Some(ColdkeySwapPolicyImportMode::PreV492V2 { .. }) => {
                 Self::coldkey_already_in_use(new_coldkey)
                     || Self::coldkey_has_configured_account_flags(new_coldkey)
             }
@@ -943,14 +943,20 @@ impl<T: Config> Pallet<T> {
                 // fid:93e26a58 / fid:a2c90852). Only a blank rename target imports
                 // the source policy.
                 let import_source_preferences = match policy_import_mode {
-                    ColdkeySwapPolicyImportMode::CurrentDestination => {
-                        !work.destination_rejects_unsolicited_policy_import
-                    }
                     ColdkeySwapPolicyImportMode::Reject
                     | ColdkeySwapPolicyImportMode::RejectWithReservation { .. }
-                    | ColdkeySwapPolicyImportMode::RejectPreferencesOnly { .. } => false,
-                    ColdkeySwapPolicyImportMode::IgnoreDestinationBalance => {
-                        !work.destination_has_non_balance_policy_protection
+                    | ColdkeySwapPolicyImportMode::PreV492V2 {
+                        import_source_policies: false,
+                        ..
+                    } => false,
+                    ColdkeySwapPolicyImportMode::IgnoreDestinationBalance
+                    | ColdkeySwapPolicyImportMode::PreV492V2 {
+                        reservation_live: true,
+                        ..
+                    } => !work.destination_has_non_balance_policy_protection,
+                    ColdkeySwapPolicyImportMode::CurrentDestination
+                    | ColdkeySwapPolicyImportMode::PreV492V2 { .. } => {
+                        !work.destination_rejects_unsolicited_policy_import
                     }
                 };
                 // TAO alone does not establish Subtensor account state. A transfer
@@ -963,8 +969,9 @@ impl<T: Config> Pallet<T> {
                     ColdkeySwapPolicyImportMode::RejectWithReservation { retain_lock_terms } => {
                         retain_lock_terms
                     }
-                    ColdkeySwapPolicyImportMode::RejectPreferencesOnly {
+                    ColdkeySwapPolicyImportMode::PreV492V2 {
                         reservation_live: true,
+                        ..
                     } => true,
                     _ => Self::coldkey_total_balance(new_coldkey).is_zero(),
                 } && Self::coldkey_accepts_active_lock_terms(

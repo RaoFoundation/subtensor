@@ -131,6 +131,58 @@ fn paid_v491_v2_coldkey_swap_preserves_legacy_lock_admission_and_live_lock_terms
     }
 }
 
+// A paid v491 V2 swap to a previously blank destination keeps v491 lock admission.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn paid_v491_v2_coldkey_swap_to_previously_blank_destination_moves_the_lock() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(4_201);
+        let destination = U256::from(4_202);
+        let hotkey = U256::from(4_203);
+        let netuid = add_dynamic_network(&hotkey, &source);
+        let locked = AlphaBalance::from(2_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &source, netuid, locked,
+        );
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &source, netuid, &hotkey, locked
+        ));
+        add_balance_to_coldkey_account(&source, ExistentialDeposit::get());
+
+        let when = System::block_number();
+        let hash = <Test as frame_system::Config>::Hashing::hash_of(&(
+            b"coldkey-swap-v2-policy",
+            &destination,
+            true,
+        ));
+        ColdkeySwapAnnouncements::<Test>::insert(source, (when, hash));
+        ColdkeySwapV2PolicySnapshots::<Test>::insert(source, true);
+        assert_ok!(SubtensorModule::reserve_coldkey_swap_destination(
+            &source,
+            &destination,
+        ));
+        let identity = ChainIdentityV2 {
+            name: b"Destination".to_vec(),
+            ..Default::default()
+        };
+        IdentitiesV2::<Test>::insert(destination, identity.clone());
+
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(source),
+            destination,
+        ));
+        assert_eq!(
+            SubtensorModule::get_current_locked(&destination, netuid),
+            locked
+        );
+        assert_eq!(IdentitiesV2::<Test>::get(destination), Some(identity));
+        assert!(!SubtensorModule::same_coldkey_lineage(
+            &source,
+            &destination
+        ));
+    });
+}
+
 // PROTECTED_REGRESSION: a full hotkey swap must not block the destination hotkey from registering on unrelated subnets; changes require explicit human approval.
 #[test]
 fn full_hotkey_swap_preserves_registration_on_unrelated_subnets() {
