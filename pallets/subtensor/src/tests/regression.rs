@@ -5,8 +5,9 @@ use super::claim_root::{fund_pool, register_on_root};
 use super::mock::*;
 use crate::{
     BasketRate, BasketShares, BurnIncreaseMult, CheckColdkeySwap, ColdkeySwapAnnouncements,
-    ColdkeySwapDisputes, Error, FirstEmissionBlockNumber, IsNetworkMember, PendingBasketDeposits,
-    RootClaimableThreshold, SubnetAlphaOut, SubnetLimit, SubnetMechanism, SubtokenEnabled,
+    ColdkeySwapDisputes, ColdkeySwapV2PolicySnapshots, Error, FirstEmissionBlockNumber,
+    IsNetworkMember, PendingBasketDeposits, RootClaimableThreshold, SubnetAlphaOut, SubnetLimit,
+    SubnetMechanism, SubtokenEnabled,
 };
 use frame_support::{assert_ok, traits::ExtendedDispatchable};
 use pallet_subtensor_proxy::{Announcements, Call as ProxyCall, Proxies};
@@ -15,6 +16,53 @@ use sp_runtime::traits::Hash;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance, Token};
+
+// A paid, pre-upgrade V2 swap must remain executable with the active lock it accepted.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn paid_v491_v2_coldkey_swap_can_move_its_existing_lock() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(4_201);
+        let destination = U256::from(4_202);
+        let hotkey = U256::from(4_203);
+        let netuid = add_dynamic_network(&hotkey, &source);
+        let locked = AlphaBalance::from(2_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &source, netuid, locked,
+        );
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &source, netuid, &hotkey, locked
+        ));
+        let ed = ExistentialDeposit::get();
+        add_balance_to_coldkey_account(&source, ed);
+        add_balance_to_coldkey_account(&destination, ed);
+        assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+
+        // Restore the commitment and reservation that v491 stored after charging the fee.
+        let when = System::block_number();
+        let hash = <Test as frame_system::Config>::Hashing::hash_of(&(
+            b"coldkey-swap-v2-policy",
+            &destination,
+            false,
+        ));
+        ColdkeySwapAnnouncements::<Test>::insert(source, (when, hash));
+        ColdkeySwapV2PolicySnapshots::<Test>::insert(source, false);
+        assert_ok!(SubtensorModule::reserve_coldkey_swap_destination(
+            &source,
+            &destination,
+        ));
+
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(source),
+            destination,
+        ));
+        assert_eq!(
+            SubtensorModule::get_current_locked(&destination, netuid),
+            locked
+        );
+        assert!(!ColdkeySwapAnnouncements::<Test>::contains_key(source));
+    });
+}
 
 // PROTECTED_REGRESSION: a full hotkey swap must not block the destination hotkey from registering on unrelated subnets; changes require explicit human approval.
 #[test]

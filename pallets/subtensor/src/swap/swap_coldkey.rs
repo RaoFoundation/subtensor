@@ -42,6 +42,8 @@ pub(crate) enum ColdkeySwapPolicyImportMode {
     CurrentDestination,
     /// The destination already had presence at announcement; never import.
     Reject,
+    /// A pre-v492 snapshot rejected preference imports only.
+    RejectPreferencesOnly,
     /// The original blank-destination reservation is still live, so ignore only
     /// unsolicited balance while enforcing every non-balance protection.
     IgnoreDestinationBalance,
@@ -513,6 +515,18 @@ impl<T: Config> Pallet<T> {
         new_coldkey: &T::AccountId,
         import_source_policies: bool,
     ) -> T::Hash {
+        if import_source_policies {
+            Self::prior_coldkey_swap_v2_announcement_hash(new_coldkey, true)
+        } else {
+            // Bind the expanded rejection policy without changing stored snapshots.
+            T::Hashing::hash_of(&(b"coldkey-swap-v2-protect-merge", new_coldkey, false))
+        }
+    }
+
+    fn prior_coldkey_swap_v2_announcement_hash(
+        new_coldkey: &T::AccountId,
+        import_source_policies: bool,
+    ) -> T::Hash {
         T::Hashing::hash_of(&(
             b"coldkey-swap-v2-policy",
             new_coldkey,
@@ -528,7 +542,7 @@ impl<T: Config> Pallet<T> {
     /// this exact destination reservation remains live. After release or expiry,
     /// it falls back to the complete current destination-presence check. A
     /// committed `false` remains a rejection even if the destination is later
-    /// cleared.
+    /// cleared. The original commitment rejected preference imports only.
     pub(crate) fn coldkey_swap_v2_policy_snapshot(
         announcer: &T::AccountId,
         new_coldkey: &T::AccountId,
@@ -539,6 +553,12 @@ impl<T: Config> Pallet<T> {
         if Self::coldkey_swap_v2_announcement_hash(new_coldkey, import_source_policies)
             != *announcement_hash
         {
+            if !import_source_policies
+                && Self::prior_coldkey_swap_v2_announcement_hash(new_coldkey, false)
+                    == *announcement_hash
+            {
+                return Some(ColdkeySwapPolicyImportMode::RejectPreferencesOnly);
+            }
             return None;
         }
         if !import_source_policies {
@@ -865,7 +885,8 @@ impl<T: Config> Pallet<T> {
                     ColdkeySwapPolicyImportMode::CurrentDestination => {
                         !work.destination_rejects_unsolicited_policy_import
                     }
-                    ColdkeySwapPolicyImportMode::Reject => false,
+                    ColdkeySwapPolicyImportMode::Reject
+                    | ColdkeySwapPolicyImportMode::RejectPreferencesOnly => false,
                     ColdkeySwapPolicyImportMode::IgnoreDestinationBalance => {
                         !work.destination_has_non_balance_policy_protection
                     }
