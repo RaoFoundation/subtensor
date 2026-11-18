@@ -27,13 +27,18 @@ pub struct ColdkeySwapWork {
     pub registration_queue_scan: u32,
     /// Gamma deposits moved from the source.
     pub gamma_deposits: u32,
+    /// Gamma deposits already held by the destination.
+    pub destination_gamma_deposits: u32,
+    /// Destination has non-balance state that makes the swap a merge.
+    pub destination_has_non_balance_policy_protection: bool,
+    /// Destination presence prevents importing source policies.
+    pub destination_rejects_unsolicited_policy_import: bool,
 }
 
-/// How an authenticated coldkey-swap announcement decides whether the source's
-/// auto-stake policy may move to an otherwise-unconfigured destination.
+/// How execution applies the destination state and the V2 announcement snapshot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ColdkeySwapPolicyImportMode {
-    /// Apply the complete destination-presence check at execution.
+    /// Check the current destination. Balance protects reward and lock preferences only.
     CurrentDestination,
     /// The destination already had presence at announcement; never import.
     Reject,
@@ -42,12 +47,20 @@ pub(crate) enum ColdkeySwapPolicyImportMode {
     IgnoreDestinationBalance,
 }
 
+impl ColdkeySwapPolicyImportMode {
+    fn preserve_destination_flags(self, work: &ColdkeySwapWork) -> bool {
+        self == Self::Reject || work.destination_has_non_balance_policy_protection
+    }
+}
+
 impl<T: Config> Pallet<T> {
     /// Weight of a coldkey swap over `base` (the benchmarked fixed part): one `transfer_stake`
     /// per position moved plus the per-hotkey bookkeeping reads (watermark, unlock age,
     /// root stake) for every admitted hotkey in the combined source∪destination set.
     fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
         base.saturating_add(Self::hotkey_owner_policy_weight())
+            // Destination successor, reversal preferences, and opt-in-only lock transfer.
+            .saturating_add(T::DbWeight::get().reads(12))
             .saturating_add(
                 <T as crate::pallet::Config>::WeightInfo::transfer_stake()
                     .saturating_mul(u64::from(work.positions)),
@@ -90,6 +103,9 @@ impl<T: Config> Pallet<T> {
             dest_locks: crate::MAX_COLDKEY_SWAP_DEST_LOCKS,
             registration_queue_scan: crate::MAX_COLDKEY_SWAP_REGISTRATION_QUEUE_SCAN,
             gamma_deposits: crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS,
+            destination_gamma_deposits: crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS,
+            destination_has_non_balance_policy_protection: true,
+            destination_rejects_unsolicited_policy_import: true,
         }
     }
 
@@ -121,8 +137,8 @@ impl<T: Config> Pallet<T> {
             .reads(3)
             .saturating_add(T::DbWeight::get().writes(4));
         // Snapshot whether the destination already carries state that rejects
-        // policy import: staking/basket/ownership, flags, lineage, balance, proxy.
-        let policy_snapshot = T::DbWeight::get().reads_writes(7, 1);
+        // policy import: staking/basket/ownership, flags, lineage, identity, balance, proxy.
+        let policy_snapshot = T::DbWeight::get().reads_writes(13, 1);
         // Pending-registration discovery: one queue read + total-scan sentinel
         // (not only owned rows — unrelated entries are still visited).
         let pending_reads = u64::from(max.registration_queue_scan).saturating_add(1);
@@ -429,25 +445,45 @@ impl<T: Config> Pallet<T> {
             || !OwnedHotkeys::<T>::get(coldkey).is_empty()
     }
 
-    /// Destination already carries a recorded swap-lineage root that an
-    /// unsolicited merge must not overwrite (Auditor fid:9411d39b).
-    ///
-    /// Only `ColdkeyRoot` counts: a prior root may still hold an outgoing
-    /// `ColdkeySuccessor` edge after rotation, and a reverse rename onto that
-    /// root must be allowed to clear/repoint the tip.
+    /// A retired original key can have an outgoing successor without a root row.
     fn coldkey_has_established_lineage(coldkey: &T::AccountId) -> bool {
-        ColdkeyRoot::<T>::contains_key(coldkey)
+        ColdkeyRoot::<T>::contains_key(coldkey) || ColdkeySuccessor::<T>::contains_key(coldkey)
     }
 
-    /// Destination already has non-balance state that must always protect it
-    /// from an unsolicited policy import, even if a V2 announcement originally
-    /// targeted a blank account. Balance is deliberately separate: anyone can
-    /// add dust without the destination's authorization.
-    fn coldkey_has_non_balance_policy_protection(coldkey: &T::AccountId) -> bool {
+    /// Protect existing non-balance state from unsolicited policy imports.
+    /// A destination in the source's lineage can be a rename target if it has
+    /// no other state or preferences of its own.
+    fn coldkey_has_non_balance_policy_protection_with_gamma(
+        coldkey: &T::AccountId,
+        has_gamma_deposits: bool,
+        source: Option<&T::AccountId>,
+    ) -> bool {
+        Self::coldkey_has_configured_account_flags(coldkey)
+            || Self::coldkey_has_non_lineage_presence(coldkey, has_gamma_deposits)
+            || (Self::coldkey_has_established_lineage(coldkey)
+                && source.is_none_or(|source| {
+                    !Self::same_coldkey_lineage(source, coldkey)
+                        || DecayingLock::<T>::iter_key_prefix(coldkey).next().is_some()
+                        || AutoStakeDestination::<T>::iter_key_prefix(coldkey)
+                            .next()
+                            .is_some()
+                }))
+    }
+
+    fn coldkey_has_non_lineage_presence(coldkey: &T::AccountId, has_gamma_deposits: bool) -> bool {
         Self::coldkey_already_in_use(coldkey)
-            || Self::coldkey_has_configured_account_flags(coldkey)
-            || Self::coldkey_has_established_lineage(coldkey)
+            || IdentitiesV2::<T>::contains_key(coldkey)
+            || has_gamma_deposits
             || T::ProxyInterface::has_delegator_proxies(coldkey)
+    }
+
+    #[cfg(test)]
+    fn coldkey_has_non_balance_policy_protection(coldkey: &T::AccountId) -> bool {
+        Self::coldkey_has_non_balance_policy_protection_with_gamma(
+            coldkey,
+            Self::coldkey_gamma_deposit_count(coldkey) != 0,
+            None,
+        )
     }
 
     /// Destination already has funds, proxy grants, flags, lineage, or staking
@@ -460,6 +496,7 @@ impl<T: Config> Pallet<T> {
     /// reserved/held deposits — not reducible/transferable only. A pending
     /// multisig (or similar) deposit with zero free balance is still prior
     /// presence.
+    #[cfg(test)]
     pub(crate) fn coldkey_rejects_unsolicited_policy_import(coldkey: &T::AccountId) -> bool {
         Self::coldkey_has_non_balance_policy_protection(coldkey)
             || !Self::coldkey_total_balance(coldkey).is_zero()
@@ -584,6 +621,14 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> Result<ColdkeySwapWork, (Weight, Error<T>)> {
+        Self::ensure_coldkey_swap_destination_with_policy_mode(old_coldkey, new_coldkey, None)
+    }
+
+    fn ensure_coldkey_swap_destination_with_policy_mode(
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+        execution_policy: Option<ColdkeySwapPolicyImportMode>,
+    ) -> Result<ColdkeySwapWork, (Weight, Error<T>)> {
         let precheck = || Self::coldkey_swap_failed_weight(None, false);
         if !T::HotkeyOwnerPolicy::allows_coldkey_swap(old_coldkey, new_coldkey) {
             return Err((precheck(), Error::<T>::HotkeyOwnerPolicyViolation));
@@ -627,13 +672,14 @@ impl<T: Config> Pallet<T> {
         let mut work = Self::coldkey_swap_work(old_coldkey, new_coldkey);
         work.dest_locks = dest_locks;
         work.gamma_deposits = Self::coldkey_gamma_deposit_count(old_coldkey);
+        work.destination_gamma_deposits = Self::coldkey_gamma_deposit_count(new_coldkey);
         if work.dest_locks > crate::MAX_COLDKEY_SWAP_DEST_LOCKS
             || work.hotkeys > crate::MAX_COLDKEY_SWAP_HOTKEYS
             || work.positions > crate::MAX_COLDKEY_SWAP_POSITIONS
             // Counting the destination's deposits too keeps every coldkey within one swap.
             || work
                 .gamma_deposits
-                .saturating_add(Self::coldkey_gamma_deposit_count(new_coldkey))
+                .saturating_add(work.destination_gamma_deposits)
                 > crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS
         {
             // Retain this scan — do not re-walk storage for the failure weight.
@@ -642,6 +688,15 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::ColdkeySwapTooHeavy,
             ));
         }
+        work.destination_has_non_balance_policy_protection =
+            Self::coldkey_has_non_balance_policy_protection_with_gamma(
+                new_coldkey,
+                work.destination_gamma_deposits != 0,
+                Some(old_coldkey),
+            );
+        work.destination_rejects_unsolicited_policy_import = work
+            .destination_has_non_balance_policy_protection
+            || !Self::coldkey_total_balance(new_coldkey).is_zero();
 
         let (owned_regs, queue_scan) = Self::coldkey_pending_registrations_bounded(old_coldkey);
         work.pending_registrations = owned_regs;
@@ -660,8 +715,12 @@ impl<T: Config> Pallet<T> {
         // (temporary accept override in execute). Destinations with staking
         // associations *or* configured AccountFlags that reject locked alpha
         // keep that preference (Auditor fid:9411d39b).
-        if (Self::coldkey_already_in_use(new_coldkey)
-            || Self::coldkey_has_configured_account_flags(new_coldkey))
+        let preserve_destination_flags = match execution_policy {
+            Some(mode) => mode.preserve_destination_flags(&work),
+            // V2 announcement commits to whether the destination already had presence.
+            None => work.destination_rejects_unsolicited_policy_import,
+        };
+        if preserve_destination_flags
             && Self::account_rejects_locked_alpha(new_coldkey)
             && let Err(e) = Self::ensure_no_active_locks_for_swap(old_coldkey)
         {
@@ -754,14 +813,18 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Announced V2 swaps pass the destination-presence snapshot recorded at
-    /// announcement. Direct and legacy swaps pass `None` and evaluate the
+    /// announcement. Direct and legacy swaps pass `CurrentDestination` and evaluate the
     /// destination at execution as before.
     pub(crate) fn do_swap_coldkey_tracked_with_policy_snapshot(
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
         policy_import_mode: ColdkeySwapPolicyImportMode,
     ) -> Result<ColdkeySwapWork, (Weight, DispatchError)> {
-        let work = match Self::ensure_coldkey_swap_destination(old_coldkey, new_coldkey) {
+        let work = match Self::ensure_coldkey_swap_destination_with_policy_mode(
+            old_coldkey,
+            new_coldkey,
+            Some(policy_import_mode),
+        ) {
             Ok(work) => work,
             Err((done, error)) => return Err((done, error.into())),
         };
@@ -788,47 +851,51 @@ impl<T: Config> Pallet<T> {
         }
         with_transaction(|| {
             let result = (|| -> DispatchResult {
-                // Identity: destination wins. Always clear the source so a drained
-                // coldkey does not keep an orphaned identity row (`take` runs before
-                // the `&&` condition, so the source row is removed either way).
-                if let Some(identity) = IdentitiesV2::<T>::take(old_coldkey)
-                    && !IdentitiesV2::<T>::contains_key(new_coldkey)
-                {
-                    IdentitiesV2::<T>::insert(new_coldkey.clone(), identity);
-                }
-
-                // AccountFlags / lineage: staking associations, configured flags,
-                // and established lineage are separate predicates (Auditor
-                // fid:9411d39b). Staking-in-use still gates the temporary
-                // accept_locked_alpha override; flags and lineage are preserved
-                // whenever the destination already carries them — even with no
-                // hotkey associations (rotated/drained or identity-only keys).
+                // Decide which destination policies to preserve before moving any state.
                 let saved_dest_flags = AccountFlags::<T>::get(new_coldkey);
                 let saved_source_flags = AccountFlags::<T>::get(old_coldkey);
-                let dest_staking_in_use = Self::coldkey_already_in_use(new_coldkey);
-                let preserve_dest_flags =
-                    dest_staking_in_use || Self::coldkey_has_configured_account_flags(new_coldkey);
-                let record_lineage =
-                    !dest_staking_in_use && !Self::coldkey_has_established_lineage(new_coldkey);
                 // Snapshot before any balance/stake moves: source-only swaps must
                 // not import auto-stake onto a destination that already has funds,
                 // grants, flags, lineage, or staking associations (Skeptic
                 // fid:93e26a58 / fid:a2c90852). Only a blank rename target imports
                 // the source policy.
-                let import_source_policies = match policy_import_mode {
+                let import_source_preferences = match policy_import_mode {
                     ColdkeySwapPolicyImportMode::CurrentDestination => {
-                        !Self::coldkey_rejects_unsolicited_policy_import(new_coldkey)
+                        !work.destination_rejects_unsolicited_policy_import
                     }
                     ColdkeySwapPolicyImportMode::Reject => false,
                     ColdkeySwapPolicyImportMode::IgnoreDestinationBalance => {
-                        !Self::coldkey_has_non_balance_policy_protection(new_coldkey)
+                        !work.destination_has_non_balance_policy_protection
                     }
                 };
-                // Temporary accept only on a true rename onto an empty key.
-                // Destinations that already carry flags (including reject-locked)
-                // must not have those flags flipped for the lock hand-off.
-                if !preserve_dest_flags {
+                // TAO alone does not establish Subtensor account state. A transfer
+                // during the delay must not prevent lock migration or clear source flags.
+                let preserve_destination_flags =
+                    policy_import_mode.preserve_destination_flags(&work);
+                // An otherwise blank destination can explicitly accept an active lock
+                // on its existing terms without importing the source's other policies.
+                let retain_active_lock_terms = saved_dest_flags
+                    == crate::ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA
+                    && Self::coldkey_total_balance(new_coldkey).is_zero()
+                    && !Self::coldkey_has_established_lineage(new_coldkey)
+                    && !Self::coldkey_has_non_lineage_presence(
+                        new_coldkey,
+                        work.destination_gamma_deposits != 0,
+                    );
+                // A reverse rename inside an already-established lineage may repoint its tip.
+                // Existing state must otherwise prevent an unsolicited source from asserting
+                // shared identity with the destination.
+                let record_lineage = !preserve_destination_flags
+                    || Self::same_coldkey_lineage(old_coldkey, new_coldkey);
+                if !preserve_destination_flags {
                     Self::set_accept_locked_alpha(new_coldkey, true);
+                }
+
+                // The destination keeps its identity. The source row is always cleared.
+                if let Some(identity) = IdentitiesV2::<T>::take(old_coldkey)
+                    && !IdentitiesV2::<T>::contains_key(new_coldkey)
+                {
+                    IdentitiesV2::<T>::insert(new_coldkey.clone(), identity);
                 }
 
                 // Lease rows outlive `NetworksAdded` while a dissolved subnet awaits cleanup,
@@ -847,7 +914,7 @@ impl<T: Config> Pallet<T> {
                         netuid,
                         old_coldkey,
                         new_coldkey,
-                        import_source_policies,
+                        import_source_preferences,
                     );
                     // Stake has moved; migrate the bond so unstake guards stay attached.
                     Self::transfer_coldkey_miner_collateral(netuid, old_coldkey, new_coldkey)?;
@@ -859,13 +926,16 @@ impl<T: Config> Pallet<T> {
                 Self::transfer_staking_hotkeys(old_coldkey, new_coldkey);
                 Self::transfer_hotkeys_ownership(old_coldkey, new_coldkey)?;
 
-                // Transfer stake locks. Destination must have no active locks (checked
-                // above); decaying-lock flags keep the destination's value on conflict.
-                Self::swap_coldkey_locks(old_coldkey, new_coldkey)?;
+                Self::migrate_coldkey_locks(
+                    old_coldkey,
+                    new_coldkey,
+                    import_source_preferences,
+                    retain_active_lock_terms,
+                )?;
 
                 // Clear source; restore the winning flags (dest when preserved).
                 AccountFlags::<T>::remove(old_coldkey);
-                let final_flags = if preserve_dest_flags {
+                let final_flags = if preserve_destination_flags {
                     saved_dest_flags
                 } else {
                     saved_source_flags
@@ -880,10 +950,7 @@ impl<T: Config> Pallet<T> {
                 // coldkey: a source-only swap never moves delegation authority.
                 Self::transfer_all_tao_and_kill(old_coldkey, new_coldkey)?;
 
-                // Owner identity continuity for indexers / coldkey-keyed policy.
-                // Only on a rename onto a key with no staking associations and no
-                // established lineage: recording onto a dest that already has a
-                // root/successor would forge same_coldkey_lineage without auth.
+                // Owner identity continuity is valid only for a rename onto a blank destination.
                 if record_lineage {
                     Self::record_coldkey_swap_lineage(old_coldkey, new_coldkey);
                 }
