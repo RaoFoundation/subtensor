@@ -57,7 +57,7 @@ pub(crate) enum ColdkeySwapPolicyImportMode {
     /// A live reservation binds eligibility for retaining active lock terms.
     RejectWithReservation { retain_lock_terms: bool },
     /// A pre-v492 snapshot rejected preference imports only.
-    RejectPreferencesOnly,
+    RejectPreferencesOnly { reservation_live: bool },
     /// The original blank-destination reservation is still live, so ignore only
     /// unsolicited balance while enforcing every non-balance protection.
     IgnoreDestinationBalance,
@@ -76,8 +76,8 @@ impl<T: Config> Pallet<T> {
     /// root stake) for every admitted hotkey in the combined source∪destination set.
     fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
         base.saturating_add(Self::hotkey_owner_policy_weight())
-            // Successor checks at admission and recording, reversal preferences, and lock opt-in.
-            .saturating_add(T::DbWeight::get().reads(14))
+            // Successor checks, reversal preferences, and lock consent (including pre-v492 swaps).
+            .saturating_add(T::DbWeight::get().reads(18))
             .saturating_add(
                 <T as crate::pallet::Config>::WeightInfo::transfer_stake()
                     .saturating_mul(u64::from(work.positions)),
@@ -613,7 +613,9 @@ impl<T: Config> Pallet<T> {
                     ColdkeySwapPolicyImportMode::RejectWithReservation { retain_lock_terms }
                 }
                 Some(_) => ColdkeySwapPolicyImportMode::Reject,
-                None => ColdkeySwapPolicyImportMode::RejectPreferencesOnly,
+                None => ColdkeySwapPolicyImportMode::RejectPreferencesOnly {
+                    reservation_live: reservation_is_live(),
+                },
             });
         }
         Some(if reservation_is_live() {
@@ -689,13 +691,14 @@ impl<T: Config> Pallet<T> {
         new_coldkey: &T::AccountId,
     ) -> Result<ColdkeySwapWork, (Weight, Error<T>)> {
         Self::ensure_coldkey_swap_destination_with_policy_mode(old_coldkey, new_coldkey, None)
+            .map(|(work, _)| work)
     }
 
     fn ensure_coldkey_swap_destination_with_policy_mode(
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
         execution_policy: Option<ColdkeySwapPolicyImportMode>,
-    ) -> Result<ColdkeySwapWork, (Weight, Error<T>)> {
+    ) -> Result<(ColdkeySwapWork, bool), (Weight, Error<T>)> {
         let precheck = || Self::coldkey_swap_failed_weight(None, false);
         if !T::HotkeyOwnerPolicy::allows_coldkey_swap(old_coldkey, new_coldkey) {
             return Err((precheck(), Error::<T>::HotkeyOwnerPolicyViolation));
@@ -782,12 +785,17 @@ impl<T: Config> Pallet<T> {
         // (temporary accept override in execute). Destinations with staking
         // associations *or* configured AccountFlags that reject locked alpha
         // keep that preference (Auditor fid:9411d39b).
-        let preserve_destination_flags = match execution_policy {
+        let requires_lock_consent = match execution_policy {
+            // v491 charged the fee based on these narrower lock-admission rules.
+            Some(ColdkeySwapPolicyImportMode::RejectPreferencesOnly { .. }) => {
+                Self::coldkey_already_in_use(new_coldkey)
+                    || Self::coldkey_has_configured_account_flags(new_coldkey)
+            }
             Some(mode) => mode.preserve_destination_flags(&work),
             // V2 announcement commits to whether the destination already had presence.
             None => work.destination_rejects_unsolicited_policy_import,
         };
-        if preserve_destination_flags
+        if requires_lock_consent
             && Self::account_rejects_locked_alpha(new_coldkey)
             && let Err(e) = Self::ensure_no_active_locks_to_transfer(old_coldkey)
         {
@@ -826,7 +834,7 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        Ok(work)
+        Ok((work, requires_lock_consent))
     }
 
     /// Transfer all assets, stakes, subnet ownerships, and hotkey associations from `old_coldkey` to
@@ -887,17 +895,24 @@ impl<T: Config> Pallet<T> {
         new_coldkey: &T::AccountId,
         policy_import_mode: ColdkeySwapPolicyImportMode,
     ) -> Result<ColdkeySwapWork, (Weight, DispatchError)> {
-        let work = match Self::ensure_coldkey_swap_destination_with_policy_mode(
+        let (work, requires_lock_consent) =
+            match Self::ensure_coldkey_swap_destination_with_policy_mode(
+                old_coldkey,
+                new_coldkey,
+                Some(policy_import_mode),
+            ) {
+                Ok(work) => work,
+                Err((done, error)) => return Err((done, error.into())),
+            };
+
+        Self::execute_swap_coldkey(
             old_coldkey,
             new_coldkey,
-            Some(policy_import_mode),
-        ) {
-            Ok(work) => work,
-            Err((done, error)) => return Err((done, error.into())),
-        };
-
-        Self::execute_swap_coldkey(old_coldkey, new_coldkey, work, policy_import_mode)
-            .map_err(|error| (Self::coldkey_swap_failed_weight(Some(work), true), error))
+            work,
+            policy_import_mode,
+            requires_lock_consent,
+        )
+        .map_err(|error| (Self::coldkey_swap_failed_weight(Some(work), true), error))
     }
 
     /// The transactional body of a coldkey swap whose `work` was admitted.
@@ -906,6 +921,7 @@ impl<T: Config> Pallet<T> {
         new_coldkey: &T::AccountId,
         work: ColdkeySwapWork,
         policy_import_mode: ColdkeySwapPolicyImportMode,
+        requires_lock_consent: bool,
     ) -> Result<ColdkeySwapWork, DispatchError> {
         // A self-swap moves nothing; running the merge body against one account
         // would drop state that the helpers take before re-checking the destination.
@@ -932,7 +948,7 @@ impl<T: Config> Pallet<T> {
                     }
                     ColdkeySwapPolicyImportMode::Reject
                     | ColdkeySwapPolicyImportMode::RejectWithReservation { .. }
-                    | ColdkeySwapPolicyImportMode::RejectPreferencesOnly => false,
+                    | ColdkeySwapPolicyImportMode::RejectPreferencesOnly { .. } => false,
                     ColdkeySwapPolicyImportMode::IgnoreDestinationBalance => {
                         !work.destination_has_non_balance_policy_protection
                     }
@@ -947,6 +963,9 @@ impl<T: Config> Pallet<T> {
                     ColdkeySwapPolicyImportMode::RejectWithReservation { retain_lock_terms } => {
                         retain_lock_terms
                     }
+                    ColdkeySwapPolicyImportMode::RejectPreferencesOnly {
+                        reservation_live: true,
+                    } => true,
                     _ => Self::coldkey_total_balance(new_coldkey).is_zero(),
                 } && Self::coldkey_accepts_active_lock_terms(
                     new_coldkey,
@@ -958,7 +977,7 @@ impl<T: Config> Pallet<T> {
                 // shared identity with the destination.
                 let record_lineage = !preserve_destination_flags
                     || Self::same_coldkey_lineage(old_coldkey, new_coldkey);
-                if !preserve_destination_flags {
+                if !requires_lock_consent {
                     Self::set_accept_locked_alpha(new_coldkey, true);
                 }
 
