@@ -15,7 +15,7 @@ use subtensor_runtime_common::TaoBalance;
 // Marks announcements admitted under the current rules and records whether
 // the destination agreed to retain active lock terms.
 #[frame_support::storage_alias]
-type ColdkeySwapV2MergeProtection<T: Config> = StorageMap<
+type ColdkeySwapPolicySnapshotV492<T: Config> = StorageMap<
     Pallet<T>,
     Blake2_128Concat,
     <T as frame_system::Config>::AccountId,
@@ -61,6 +61,8 @@ pub(crate) enum ColdkeySwapPolicyImportMode {
         import_source_policies: bool,
         reservation_live: bool,
     },
+    /// A hash announcement made before the v492 consent rules.
+    PreV492Hash,
     /// The original blank-destination reservation is still live, so ignore only
     /// unsolicited balance while enforcing every non-balance protection.
     IgnoreDestinationBalance,
@@ -559,7 +561,23 @@ impl<T: Config> Pallet<T> {
         policy: Option<(bool, bool)>,
     ) {
         ColdkeySwapV2PolicySnapshots::<T>::set(announcer, policy.map(|(import, _)| import));
-        ColdkeySwapV2MergeProtection::<T>::set(announcer, policy.map(|(_, retain)| retain));
+        ColdkeySwapPolicySnapshotV492::<T>::set(announcer, policy.map(|(_, retain)| retain));
+    }
+
+    /// Mark a newly paid hash announcement without granting V2 snapshot semantics.
+    pub(crate) fn record_coldkey_swap_hash_policy(announcer: &T::AccountId) {
+        ColdkeySwapV2PolicySnapshots::<T>::remove(announcer);
+        ColdkeySwapPolicySnapshotV492::<T>::insert(announcer, false);
+    }
+
+    pub(crate) fn coldkey_swap_hash_policy(
+        announcer: &T::AccountId,
+    ) -> ColdkeySwapPolicyImportMode {
+        if ColdkeySwapPolicySnapshotV492::<T>::contains_key(announcer) {
+            ColdkeySwapPolicyImportMode::CurrentDestination
+        } else {
+            ColdkeySwapPolicyImportMode::PreV492Hash
+        }
     }
 
     /// V2 commits to whether the destination was blank when it was announced.
@@ -607,7 +625,7 @@ impl<T: Config> Pallet<T> {
                 == Some(announcer);
         Some(
             match (
-                ColdkeySwapV2MergeProtection::<T>::get(announcer),
+                ColdkeySwapPolicySnapshotV492::<T>::get(announcer),
                 import_source_policies,
                 reservation_live,
             ) {
@@ -787,7 +805,10 @@ impl<T: Config> Pallet<T> {
         // keep that preference (Auditor fid:9411d39b).
         let requires_lock_consent = match execution_policy {
             // v491 charged the fee based on these narrower lock-admission rules.
-            Some(ColdkeySwapPolicyImportMode::PreV492V2 { .. }) => {
+            Some(
+                ColdkeySwapPolicyImportMode::PreV492V2 { .. }
+                | ColdkeySwapPolicyImportMode::PreV492Hash,
+            ) => {
                 Self::coldkey_already_in_use(new_coldkey)
                     || Self::coldkey_has_configured_account_flags(new_coldkey)
             }
@@ -955,6 +976,7 @@ impl<T: Config> Pallet<T> {
                         ..
                     } => !work.destination_has_non_balance_policy_protection,
                     ColdkeySwapPolicyImportMode::CurrentDestination
+                    | ColdkeySwapPolicyImportMode::PreV492Hash
                     | ColdkeySwapPolicyImportMode::PreV492V2 { .. } => {
                         !work.destination_rejects_unsolicited_policy_import
                     }

@@ -93,13 +93,13 @@ pub fn swap_coldkey_announced(
 
     let legacy_hash_matches = new_coldkey_hash == T::Hashing::hash_of(&new_coldkey);
     let snapshot_read = if legacy_hash_matches {
-        Weight::zero()
+        T::DbWeight::get().reads(1)
     } else {
         T::DbWeight::get().reads(5)
     };
     let precheck = initial_precheck.saturating_add(snapshot_read);
     let policy_import_mode = if legacy_hash_matches {
-        crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode::CurrentDestination
+        Self::coldkey_swap_hash_policy(&who)
     } else {
         Self::coldkey_swap_v2_policy_snapshot(&who, &new_coldkey, &new_coldkey_hash, when)
             .ok_or(Self::fail_with_weight(
@@ -144,6 +144,6 @@ pub fn swap_coldkey_announced(
 }
 ```
 
-Delegates to [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1790), [`coldkey_swap_v2_policy_snapshot`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L590), [`do_swap_coldkey_tracked_with_policy_snapshot`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L885).
+Delegates to [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1790), [`coldkey_swap_hash_policy`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L573), [`coldkey_swap_v2_policy_snapshot`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L608).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

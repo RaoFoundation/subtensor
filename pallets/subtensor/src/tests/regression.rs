@@ -183,6 +183,69 @@ fn paid_v491_v2_coldkey_swap_to_previously_blank_destination_moves_the_lock() {
     });
 }
 
+// A paid v491 hash announcement must still move eligible locks after upgrade.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+#[allow(clippy::expect_used)]
+fn paid_v491_hash_coldkey_swap_keeps_its_original_lock_admission() {
+    for pre_upgrade in [true, false] {
+        new_test_ext(1).execute_with(|| {
+            let source = U256::from(4_201);
+            let destination = U256::from(4_202);
+            let hotkey = U256::from(4_203);
+            let netuid = add_dynamic_network(&hotkey, &source);
+            let locked = AlphaBalance::from(2_000_000_u64);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &source, netuid, locked,
+            );
+            assert_ok!(SubtensorModule::do_lock_stake(
+                &source, netuid, &hotkey, locked
+            ));
+            let identity = ChainIdentityV2 {
+                name: b"Destination".to_vec(),
+                ..Default::default()
+            };
+            IdentitiesV2::<Test>::insert(destination, identity.clone());
+
+            let hash = <Test as frame_system::Config>::Hashing::hash_of(&destination);
+            let ed = ExistentialDeposit::get();
+            if pre_upgrade {
+                add_balance_to_coldkey_account(&source, ed);
+                ColdkeySwapAnnouncements::<Test>::insert(source, (System::block_number(), hash));
+            } else {
+                add_balance_to_coldkey_account(&source, ed + SubtensorModule::get_key_swap_cost());
+                assert_ok!(SubtensorModule::announce_coldkey_swap(
+                    RuntimeOrigin::signed(source),
+                    hash,
+                ));
+            }
+            let (when, _) = ColdkeySwapAnnouncements::<Test>::get(source).expect("announced");
+            System::set_block_number(when);
+            let locked_at_execution = SubtensorModule::get_current_locked(&source, netuid);
+            assert!(locked_at_execution > AlphaBalance::ZERO);
+            let result =
+                SubtensorModule::swap_coldkey_announced(RuntimeOrigin::signed(source), destination);
+            if pre_upgrade {
+                assert_ok!(result);
+                assert_eq!(
+                    SubtensorModule::get_current_locked(&destination, netuid),
+                    locked_at_execution
+                );
+            } else {
+                frame_support::assert_err_ignore_postinfo!(
+                    result,
+                    Error::<Test>::AccountRejectsLockedAlpha
+                );
+                assert_eq!(
+                    SubtensorModule::get_current_locked(&source, netuid),
+                    locked_at_execution
+                );
+            }
+            assert_eq!(IdentitiesV2::<Test>::get(destination), Some(identity));
+        });
+    }
+}
+
 // PROTECTED_REGRESSION: a full hotkey swap must not block the destination hotkey from registering on unrelated subnets; changes require explicit human approval.
 #[test]
 fn full_hotkey_swap_preserves_registration_on_unrelated_subnets() {

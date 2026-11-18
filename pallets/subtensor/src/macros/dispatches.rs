@@ -2439,7 +2439,7 @@ mod dispatches {
 
             // Hash announce cannot reserve a cleartext dest; drop any prior V2 hold.
             Self::release_coldkey_swap_destination_reservation(&who);
-            Self::set_coldkey_swap_v2_policy_snapshot(&who, None);
+            Self::record_coldkey_swap_hash_policy(&who);
 
             let delay = ColdkeySwapAnnouncementDelay::<T>::get();
             let when = now.saturating_add(delay);
@@ -2551,13 +2551,13 @@ mod dispatches {
 
             let legacy_hash_matches = new_coldkey_hash == T::Hashing::hash_of(&new_coldkey);
             let snapshot_read = if legacy_hash_matches {
-                Weight::zero()
+                T::DbWeight::get().reads(1)
             } else {
                 T::DbWeight::get().reads(5)
             };
             let precheck = initial_precheck.saturating_add(snapshot_read);
             let policy_import_mode = if legacy_hash_matches {
-                crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode::CurrentDestination
+                Self::coldkey_swap_hash_policy(&who)
             } else {
                 Self::coldkey_swap_v2_policy_snapshot(&who, &new_coldkey, &new_coldkey_hash, when)
                     .ok_or(Self::fail_with_weight(
