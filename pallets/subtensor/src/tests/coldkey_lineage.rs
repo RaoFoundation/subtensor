@@ -79,6 +79,25 @@ fn test_coldkey_swap_lineage_chain_and_tip() {
 }
 
 #[test]
+fn lineage_recording_requires_the_current_tip() {
+    new_test_ext(1).execute_with(|| {
+        let retired = U256::from(1);
+        let tip = U256::from(2);
+        let new_key = U256::from(3);
+        ColdkeySuccessor::<Test>::insert(retired, tip);
+        ColdkeyRoot::<Test>::insert(tip, retired);
+
+        SubtensorModule::record_coldkey_swap_lineage(&retired, &new_key);
+        assert_eq!(SubtensorModule::coldkey_lineage_tip(&retired), tip);
+        assert_eq!(SubtensorModule::coldkey_root(&new_key), new_key);
+
+        SubtensorModule::record_coldkey_swap_lineage(&tip, &new_key);
+        assert_eq!(SubtensorModule::coldkey_lineage_tip(&retired), new_key);
+        assert_eq!(SubtensorModule::coldkey_root(&new_key), retired);
+    });
+}
+
+#[test]
 fn test_coldkey_lineage_reverse_swap_does_not_cycle() {
     new_test_ext(1).execute_with(|| {
         let subnet_owner_coldkey = U256::from(1001);
