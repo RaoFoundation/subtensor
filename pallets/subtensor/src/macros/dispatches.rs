@@ -15,6 +15,7 @@ mod dispatches {
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
     use crate::MAX_GAMMA_SPENDS;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
+    use crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode;
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
     /// These functions materialize as "extrinsics", which are often compared to transactions.
     /// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
@@ -2439,7 +2440,7 @@ mod dispatches {
 
             // Hash announce cannot reserve a cleartext dest; drop any prior V2 hold.
             Self::release_coldkey_swap_destination_reservation(&who);
-            Self::record_coldkey_swap_hash_policy(&who);
+            Self::set_coldkey_swap_v2_policy_snapshot(&who, None);
 
             let delay = ColdkeySwapAnnouncementDelay::<T>::get();
             let when = now.saturating_add(delay);
@@ -2538,9 +2539,8 @@ mod dispatches {
             let base = <T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced();
             let announcement_read = T::DbWeight::get().reads(1);
             let initial_precheck = base.saturating_add(announcement_read);
-            // Read (do not take) until the swap commits. A failed execute — e.g.
-            // destination opt-outs that appeared after announce — must leave the
-            // announcement intact so the fee is not silently burned.
+            // Keep a paid announcement until the swap commits, including when
+            // the destination's lock mode changed after announcement.
             let (when, new_coldkey_hash) =
                 ColdkeySwapAnnouncements::<T>::get(who.clone()).ok_or(Self::fail_with_weight(
                     Error::<T>::ColdkeySwapAnnouncementNotFound,
@@ -2549,13 +2549,13 @@ mod dispatches {
 
             let legacy_hash_matches = new_coldkey_hash == T::Hashing::hash_of(&new_coldkey);
             let snapshot_read = if legacy_hash_matches {
-                T::DbWeight::get().reads(1)
+                Weight::zero()
             } else {
                 T::DbWeight::get().reads(5)
             };
             let precheck = initial_precheck.saturating_add(snapshot_read);
             let policy_import_mode = if legacy_hash_matches {
-                Self::coldkey_swap_hash_policy(&who)
+                ColdkeySwapPolicyImportMode::CurrentDestination
             } else {
                 Self::coldkey_swap_v2_policy_snapshot(&who, &new_coldkey, &new_coldkey_hash, when)
                     .ok_or(Self::fail_with_weight(

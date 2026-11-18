@@ -144,7 +144,7 @@ fn coldkey_swap_leaves_dissolving_locks_for_the_next_cleanup_page() {
 }
 
 #[test]
-fn coldkey_swap_admission_ignores_only_dissolving_source_locks() {
+fn coldkey_swap_leaves_dissolving_source_locks_in_place() {
     new_test_ext(1).execute_with(|| {
         let source = U256::from(5011);
         let destination = U256::from(5012);
@@ -163,10 +163,10 @@ fn coldkey_swap_admission_ignores_only_dissolving_source_locks() {
         };
         Lock::<Test>::insert((source, netuid, hotkey), lock.clone());
 
-        assert_noop!(
-            SubtensorModule::do_swap_coldkey(&source, &destination),
-            Error::<Test>::AccountRejectsLockedAlpha
-        );
+        assert_ok!(SubtensorModule::ensure_coldkey_swap_destination(
+            &source,
+            &destination
+        ));
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
         assert_ok!(SubtensorModule::do_swap_coldkey(&source, &destination));
         assert_eq!(Lock::<Test>::get((source, netuid, hotkey)), Some(lock));
@@ -2445,10 +2445,10 @@ fn same_lineage_reverse_swap_preserves_settings_and_active_locks() {
             netuid,
             true,
         ));
-        assert_noop!(
-            SubtensorModule::do_swap_coldkey(&successor, &original),
-            Error::<Test>::AccountRejectsLockedAlpha
-        );
+        let work = SubtensorModule::ensure_coldkey_swap_destination(&successor, &original)
+            .expect("a matching mode permits the swap");
+        assert!(work.destination_has_non_balance_policy_protection);
+        assert!(work.destination_rejects_unsolicited_policy_import);
         assert_ok!(SubtensorModule::set_perpetual_lock(
             RuntimeOrigin::signed(original),
             netuid,
@@ -3844,7 +3844,7 @@ fn test_merge_swap_root_stake_and_rate_limits() {
 }
 
 #[test]
-fn test_merge_swap_honors_dest_reject_locked_alpha() {
+fn test_merge_swap_preserves_dest_rejection_of_locked_payments() {
     new_test_ext(1).execute_with(|| {
         let old = U256::from(1);
         let dest = U256::from(2);
@@ -3872,17 +3872,15 @@ fn test_merge_swap_honors_dest_reject_locked_alpha() {
             },
         );
 
-        assert_err!(
-            SubtensorModule::do_swap_coldkey(&old, &dest),
-            Error::<Test>::AccountRejectsLockedAlpha
-        );
-        // Source lock untouched.
+        assert_ok!(SubtensorModule::do_swap_coldkey(&old, &dest));
+        assert!(!Lock::<Test>::contains_key((old, netuid, old_hot)));
         assert_eq!(
-            Lock::<Test>::get((old, netuid, old_hot))
-                .expect("source lock remains")
+            Lock::<Test>::get((dest, netuid, old_hot))
+                .expect("destination receives the existing lock")
                 .locked_mass,
             AlphaBalance::from(1_000_000_u64)
         );
+        assert!(SubtensorModule::account_rejects_locked_alpha(&dest));
     });
 }
 
@@ -3983,7 +3981,7 @@ fn test_v2_lock_admission_distinguishes_tao_balance_from_destination_policy() {
         ));
         assert_noop!(
             SubtensorModule::announce_coldkey_swap_v2(RuntimeOrigin::signed(who), dest),
-            Error::<Test>::AccountRejectsLockedAlpha
+            Error::<Test>::AccountRejectsStakingHotkeyGrowth
         );
         assert_eq!(SubtensorModule::get_coldkey_balance(&who), before);
         assert!(ColdkeySwapAnnouncements::<Test>::get(who).is_none());
@@ -4004,7 +4002,8 @@ fn test_v2_lock_admission_distinguishes_tao_balance_from_destination_policy() {
             dest,
         ));
         assert_eq!(SubtensorModule::get_current_locked(&dest, netuid), locked);
-        assert!(!SubtensorModule::is_perpetual_lock(&dest, netuid));
+        assert!(SubtensorModule::is_perpetual_lock(&dest, netuid));
+        assert!(SubtensorModule::account_rejects_locked_alpha(&dest));
     });
 }
 

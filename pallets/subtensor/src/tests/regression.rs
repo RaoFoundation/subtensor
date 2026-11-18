@@ -17,6 +17,49 @@ use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance, Token};
 
+// Owners must be able to rotate an active lock while refusing locked payments.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn coldkey_swap_moves_active_lock_without_payment_consent() {
+    for source_rejects_payments in [true, false] {
+        new_test_ext(1).execute_with(|| {
+            let source = U256::from(4_201);
+            let destination = U256::from(4_202);
+            let hotkey = U256::from(4_203);
+            let netuid = add_dynamic_network(&hotkey, &source);
+            let locked = AlphaBalance::from(2_000_000_u64);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &source, netuid, locked,
+            );
+            assert_ok!(SubtensorModule::do_lock_stake(
+                &source, netuid, &hotkey, locked
+            ));
+            assert_ok!(SubtensorModule::set_reject_locked_alpha(
+                RuntimeOrigin::signed(source),
+                source_rejects_payments,
+            ));
+            IdentitiesV2::<Test>::insert(destination, ChainIdentityV2::default());
+            assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+
+            assert_ok!(SubtensorModule::swap_coldkey(
+                RuntimeOrigin::root(),
+                source,
+                destination,
+                TaoBalance::ZERO,
+            ));
+            assert_eq!(
+                SubtensorModule::get_current_locked(&source, netuid),
+                AlphaBalance::ZERO
+            );
+            assert_eq!(
+                SubtensorModule::get_current_locked(&destination, netuid),
+                locked
+            );
+            assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+        });
+    }
+}
+
 // A paid, pre-upgrade V2 swap must remain executable with the active lock it accepted.
 // PROTECTED_REGRESSION: changes require explicit human approval.
 #[test]
@@ -223,24 +266,19 @@ fn paid_v491_hash_coldkey_swap_keeps_its_original_lock_admission() {
             System::set_block_number(when);
             let locked_at_execution = SubtensorModule::get_current_locked(&source, netuid);
             assert!(locked_at_execution > AlphaBalance::ZERO);
-            let result =
-                SubtensorModule::swap_coldkey_announced(RuntimeOrigin::signed(source), destination);
-            if pre_upgrade {
-                assert_ok!(result);
-                assert_eq!(
-                    SubtensorModule::get_current_locked(&destination, netuid),
-                    locked_at_execution
-                );
-            } else {
-                frame_support::assert_err_ignore_postinfo!(
-                    result,
-                    Error::<Test>::AccountRejectsLockedAlpha
-                );
-                assert_eq!(
-                    SubtensorModule::get_current_locked(&source, netuid),
-                    locked_at_execution
-                );
-            }
+            assert_ok!(SubtensorModule::swap_coldkey_announced(
+                RuntimeOrigin::signed(source),
+                destination,
+            ));
+            assert_eq!(
+                SubtensorModule::get_current_locked(&destination, netuid),
+                locked_at_execution
+            );
+            assert_eq!(
+                SubtensorModule::get_current_locked(&source, netuid),
+                AlphaBalance::ZERO
+            );
+            assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
             assert_eq!(IdentitiesV2::<Test>::get(destination), Some(identity));
         });
     }
