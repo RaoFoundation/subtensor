@@ -1,14 +1,14 @@
 ---
 title: Subnet services
-description: Services that validators and subnet owners publish on their subnet, with a url to a document of their services and the spender their customers name on gamma deposits.
+description: Services that validators and subnet owners publish on their subnet, with a url to a document of their services, which hotkeys pay for by spending gamma at them.
 ---
 
 A validator (a hotkey with a validator permit on a subnet) or the subnet owner,
 for its owner hotkey, can publish a service with [`set-service`](/docs/tx/set-service), so that
 apps and agents can find what the subnet serves and how it is paid for. A
-service is a url to a document of its services and the spender its customers
-name on [gamma](/docs/guides/gamma) deposits. The coldkey that owns the hotkey
-signs it, names the spender, and pays a normal fee. Publishing an empty url removes the
+service is a url to a document of its services, which customers pay for by
+spending [gamma](/docs/guides/gamma) at its hotkey. The coldkey that owns the
+hotkey signs it and pays a normal fee. Publishing an empty url removes the
 service.
 
 ```bash
@@ -18,21 +18,20 @@ btcli query services --netuid 1
 
 ```python
 await client.execute(bt.SetService(netuid=1, url="https://example.com/services.json"), wallet)
-services = await client.subnets.services(netuid=1)  # {hotkey: {url, spender, owner}}
+services = await client.subnets.services(netuid=1)  # {hotkey: {url, owner}}
 ```
 
 The permit is checked when the service is published. A service follows a hotkey
-swap and is removed when its neuron is deregistered. A coldkey swap leaves its
-spender, and changing the spender leaves deposits that name the old one until
-their coldkeys re-point them. `owner` marks the service of the subnet owner's
-hotkey while the owner owns it, whose spender new deposits name by default. A leased subnet's
-beneficiary publishes it through its `SubnetLeaseBeneficiary` proxy. Customers
-name a service's spender by minting with `--service-hotkey` (see
-[Gamma](/docs/guides/gamma#minting)).
+swap, but what was spent at it stays under the old hotkey, so list the new hotkey
+in `publishers` before swapping. It is removed when its neuron is deregistered.
+`owner` marks the service of the subnet owner's hotkey while the owner owns it.
+A leased subnet's beneficiary publishes it through its `SubnetLeaseBeneficiary`
+proxy. Customers spend gamma at a service with `btcli gamma spend` (see
+[Gamma](/docs/guides/gamma#spending)).
 
 ## The document
 
-The chain stores the url and the spender. The document says what the services
+The chain stores the url. The document says what the services
 are, how to reach them, and how they are paid for:
 
 ```json
@@ -46,7 +45,7 @@ are, how to reach them, and how they are paid for:
     { "type": "mcp", "endpoint": "https://…/mcp" }
   ],
   "payments": [
-    { "type": "gamma", "max_spend": "2", "signature": "btauth/1" },
+    { "type": "gamma", "signature": "btauth/1", "balance": "https://…/balance" },
     { "type": "x402" }
   ]
 }
@@ -54,34 +53,38 @@ are, how to reach them, and how they are paid for:
 
 - `name` and `description` say what is sold. Who sells it is the subnet's or
   the coldkey's on-chain identity.
-- `publishers` lists, by netuid and hotkey, the published services whose url
-  may point to the document. Readers ignore one that is not listed. Without
-  `publishers`, any may point to it.
-- A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma), from
-  deposits that name the service's spender.
-  `max_spend`, a decimal string in gamma, is the most the service spends at
-  once, so a customer keeps at least that much spendable in its deposit.
+- `publishers` lists, by netuid and hotkey, every published service whose url
+  may point to the document, including hotkeys it was published under before.
+  Readers ignore one that is not listed, and customers spend only at listed
+  hotkeys, since anyone can publish the url.
+  Without `publishers`, any may point to it.
+- An `http` service is an HTTP API at `endpoint`.
+- A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma), spent at
+  the service's hotkey. `balance` is the url where a hotkey reads its balance
+  at the service.
 - An [`x402`](https://www.x402.org) payment states its price and payee in each
   HTTP 402 response.
 - Readers skip service and payment types they do not know.
-- `name`, `description`, `publishers`, `max_spend` and `signature` are
-  optional, and readers skip fields they do not know.
+- `name`, `description` and `signature` are optional, and so is `publishers`
+  without a `gamma` payment. Readers skip fields they do not know.
 
 Serve the document with `Access-Control-Allow-Origin: *`, so that web apps can
 read it.
 
 A `gamma` payment with `"signature": "btauth/1"` accepts
-[signed requests](/docs/guides/signed-requests). The deposit's hotkey signs
+[signed requests](/docs/guides/signed-requests). The hotkey that spent signs
 each request, with the service's hotkey as the receiver, and the service
-charges that deposit. Without `signature`, the service's own interface says
-how a request names its deposit.
+charges what that hotkey spent at it. Without `signature`, the service's own
+interface says how a request names its hotkey.
 
-A service can name any spender, and that spender can spend the deposits that
-name it without serving, so prefer the service marked `owner`.
+## Accepting gamma
 
-While a spender's coldkey swap is announced, it cannot spend. A service that
-must never pause names a spender that never needs a swap, such as a multisig of
-several keys, and spends through a separate `GammaSpend` key, which the spender
-itself replaces by changing the proxy. A pure proxy is not such a spender, as
-the coldkey that controls it keeps that control through its own coldkey swap,
-so a leaked coldkey would keep spending.
+A service keeps each hotkey's credit itself and sends no transaction. At a
+finalized block it reads [`gamma-spent`](/docs/query/gamma-spent) for the hotkey
+at each of its hotkeys in `publishers`, and credits what each total has grown by
+since its last read. Dissolving the subnet clears the totals and the gamma, so a
+service stores the subnet's `RegisteredSubnetCounter` with each total and starts
+from zero when the counter has grown. The totals can be cleared in the block
+that removes the subnet, which emits `NetworkRemoved`, so a service takes the
+subnet's final totals as those of the block before plus that block's
+`GammaSpent` events at its hotkeys.

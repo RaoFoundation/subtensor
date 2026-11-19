@@ -356,6 +356,7 @@
     "SameAutoStakeHotkeyAlreadySet",
     "SameNetuid",
     "SenderInSignatories",
+    "ServiceDoesNotExist",
     "ServingRateLimitExceeded",
     "SettingWeightsTooFast",
     "SignatoriesOutOfOrder",

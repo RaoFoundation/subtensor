@@ -242,15 +242,21 @@ class Gamma(_ReadNamespace):
     async def gamma_deposit(self, netuid: int, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[dict]:
         """The gamma deposit at a hotkey on a subnet, or None.
 
-        Its `netuid`, `hotkey`, `coldkey`, `spender`, and `balance_gamma`,
+        Its `netuid`, `hotkey`, `coldkey`, and `balance_gamma`,
         `daily_spend_cap_gamma` and `spendable_gamma` as exact decimal strings of
         gamma. A `daily_spend_cap_gamma` of None is no cap, and "0" pauses the
         deposit. `spendable_gamma` is the balance within what its daily spend cap
-        allows now.
+        allows now, or 0 when that is below 0.1 gamma and short of the balance.
         """
 
     async def gamma_deposits(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
         """Every gamma deposit of a coldkey, on every subnet."""
+
+    async def gamma_spent(self, netuid: int, service_hotkey_ss58: str, hotkey_ss58: str, *, block: Optional[int] = None) -> str:
+        """The gamma a hotkey has spent at a service on a subnet, as an exact decimal string.
+
+        It only grows, until the subnet is dissolved, which clears it.
+        """
 
     async def quote_mint_gamma(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> dict:
         """The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.
@@ -704,11 +710,10 @@ class Subnets(_ReadNamespace):
         """Every service published on a subnet, by hotkey.
 
         Each `url` points to its hotkey's own document of its services and the
-        payments they accept; the chain does not check what it says. `spender` is
-        the spender customers name on gamma deposits for the service. `owner`
-        marks the subnet owner's hotkey while the owner owns it, whose spender new
-        deposits name by default. A url that is not printable text is returned as
-        0x-hex.
+        payments they accept; the chain does not check what it says. Gamma is
+        spent at a service's hotkey with `spend_gamma`. `owner` marks the subnet
+        owner's hotkey while the owner owns it. A url that is not printable text
+        is returned as 0x-hex.
         """
 
     async def subnet(self, netuid: int, *, block: Optional[int] = None) -> SubnetInfo:

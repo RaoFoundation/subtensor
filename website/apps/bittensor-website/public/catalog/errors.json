@@ -401,7 +401,7 @@
     },
     "AmountTooLow": {
       "code": "limit_exceeded",
-      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage, a gamma mint came to less than 0.1 gamma, or a gamma move found its origin deposit empty. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
+      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage, a gamma mint came to less than 0.1 gamma, a gamma spend took less than 0.1 gamma without emptying the deposit, or a gamma move took or left less than 0.1 gamma without emptying it, or a gamma daily spend cap was between 0 and 0.1 gamma. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
       "docs_url": "/docs/errors/chain/AmountTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/AmountTooLow/content.md",
       "pallets": [
@@ -2334,7 +2334,7 @@
     },
     "GammaDepositDailySpendCapExceeded": {
       "code": "limit_exceeded",
-      "description": "A spend entry was skipped because its amount is above what the gamma deposit's daily spend cap allows now. The cap refills over a day. The `gamma_deposit` read gives `spendable_gamma`, what an entry can spend now.",
+      "description": "The spend is above what the gamma deposit's daily spend cap allows now. The cap refills over a day. The `gamma_deposit` read gives `spendable_gamma`, what the hotkey can spend now.",
       "docs_url": "/docs/errors/chain/GammaDepositDailySpendCapExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositDailySpendCapExceeded/content.md",
       "pallets": [
@@ -2388,7 +2388,7 @@
     },
     "GammaDepositNotEmpty": {
       "code": "invalid_argument",
-      "description": "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` closes it; once its spender has spent it to zero, close it.",
+      "description": "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` closes it; once its hotkey has spent it to zero, close it.",
       "docs_url": "/docs/errors/chain/GammaDepositNotEmpty",
       "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositNotEmpty/content.md",
       "pallets": [
@@ -2406,7 +2406,7 @@
     },
     "GammaDepositSpenderMismatch": {
       "code": "invalid_argument",
-      "description": "A mint named a spender, but the gamma deposit it credits already names another. A named spender opens a new deposit and must match an existing one. Mint without naming one, or change the deposit's spender with `set_gamma_deposit_spender` first.",
+      "description": "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it.",
       "docs_url": "/docs/errors/chain/GammaDepositSpenderMismatch",
       "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositSpenderMismatch/content.md",
       "pallets": [
@@ -2838,7 +2838,7 @@
     },
     "InsufficientGammaBalance": {
       "code": "insufficient_balance",
-      "description": "A spend entry was skipped because its amount is above the gamma deposit's balance. An entry spends its whole amount or nothing. The `gamma_deposit` read gives `spendable_gamma`, what an entry can spend now.",
+      "description": "The spend is above the gamma deposit's balance. The `gamma_deposit` read gives `spendable_gamma`, what the hotkey can spend now.",
       "docs_url": "/docs/errors/chain/InsufficientGammaBalance",
       "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientGammaBalance/content.md",
       "pallets": [
@@ -3486,7 +3486,7 @@
     },
     "InvalidValue": {
       "code": "invalid_argument",
-      "description": "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the same hotkey, an empty `spend_gamma`, or a gamma share naming its own subnet.",
+      "description": "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the same hotkey, or a gamma share naming its own subnet.",
       "docs_url": "/docs/errors/chain/InvalidValue",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidValue/content.md",
       "pallets": [
@@ -4737,7 +4737,7 @@
     },
     "NotGammaDepositSpender": {
       "code": "not_authorized",
-      "description": "A spend entry was skipped because its gamma deposit names another spender. Only the deposit's spender, or its `GammaSpend` proxy, spends it.",
+      "description": "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it.",
       "docs_url": "/docs/errors/chain/NotGammaDepositSpender",
       "markdown_url": "/llms.mdx/docs/errors/chain/NotGammaDepositSpender/content.md",
       "pallets": [
@@ -5767,6 +5767,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/SenderInSignatories/content.md",
       "pallets": [
         "Multisig"
+      ]
+    },
+    "ServiceDoesNotExist": {
+      "code": "not_found",
+      "description": "Gamma is spent only at a hotkey listed as a service on the deposit's subnet, and this one is not. List the subnet's services with the `services` read.",
+      "docs_url": "/docs/errors/chain/ServiceDoesNotExist",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ServiceDoesNotExist/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 505,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L505",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
       ]
     },
     "ServingRateLimitExceeded": {

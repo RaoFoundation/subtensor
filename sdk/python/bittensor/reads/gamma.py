@@ -24,7 +24,6 @@ def _deposit_record(info: dict) -> dict:
         "netuid": int(info["netuid"]),
         "hotkey": str(info["hotkey"]),
         "coldkey": str(deposit["coldkey"]),
-        "spender": str(deposit["spender"]),
         "balance_gamma": gamma_from_units(deposit["balance"]),
         "daily_spend_cap_gamma": None if cap is None else gamma_from_units(cap),
         "spendable_gamma": gamma_from_units(info["spendable"]),
@@ -52,11 +51,11 @@ def _mint_quote(view, quote: dict, netuid: int) -> dict:
 async def gamma_deposit(view, netuid: int, hotkey_ss58: str) -> Optional[dict]:
     """The gamma deposit at a hotkey on a subnet, or None.
 
-    Its `netuid`, `hotkey`, `coldkey`, `spender`, and `balance_gamma`,
+    Its `netuid`, `hotkey`, `coldkey`, and `balance_gamma`,
     `daily_spend_cap_gamma` and `spendable_gamma` as exact decimal strings of
     gamma. A `daily_spend_cap_gamma` of None is no cap, and "0" pauses the
     deposit. `spendable_gamma` is the balance within what its daily spend cap
-    allows now.
+    allows now, or 0 when that is below 0.1 gamma and short of the balance.
     """
     info = await view.runtime(api.GammaRuntimeApi.get_gamma_deposit, [netuid, hotkey_ss58])
     return _deposit_record(info) if info else None
@@ -72,6 +71,29 @@ async def gamma_deposits(view, coldkey_ss58: str) -> list[dict]:
     """Every gamma deposit of a coldkey, on every subnet."""
     infos = await view.runtime(api.GammaRuntimeApi.get_gamma_deposits_for_coldkey, [coldkey_ss58])
     return [_deposit_record(info) for info in infos or []]
+
+
+@read(
+    "gamma_spent",
+    {"netuid": "integer", "service_hotkey_ss58": "string", "hotkey_ss58": "string"},
+    category="Gamma",
+    param_docs={
+        "netuid": "Subnet of the service.",
+        "service_hotkey_ss58": "Hotkey of the service.",
+        "hotkey_ss58": "Hotkey that spent.",
+    },
+)
+async def gamma_spent(view, netuid: int, service_hotkey_ss58: str, hotkey_ss58: str) -> str:
+    """The gamma a hotkey has spent at a service on a subnet, as an exact decimal string.
+
+    It only grows, until the subnet is dissolved, which clears it. A service crediting spends
+    reads it at a finalized block:
+    `(await client.at(await client.finalized_block())).gamma.gamma_spent(...)`.
+    """
+    spent = await view.query(
+        st.SubtensorModule.GammaSpent, [netuid, service_hotkey_ss58, hotkey_ss58]
+    )
+    return gamma_from_units(spent)
 
 
 @read(

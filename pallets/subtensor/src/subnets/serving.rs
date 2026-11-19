@@ -164,7 +164,6 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         hotkey: T::AccountId,
         url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
-        spender: T::AccountId,
     ) -> DispatchResult {
         let coldkey = ensure_signed(origin)?;
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
@@ -185,19 +184,11 @@ impl<T: Config> Pallet<T> {
                 || Self::get_validator_permit_for_uid(netuid, uid),
             Error::<T>::NeuronNoValidatorPermit
         );
-        Services::<T>::insert(
-            netuid,
-            &hotkey,
-            ServiceInfo {
-                url: url.clone(),
-                spender: spender.clone(),
-            },
-        );
+        Services::<T>::insert(netuid, &hotkey, ServiceInfo { url: url.clone() });
         Self::deposit_event(Event::ServiceSet {
             netuid,
             hotkey,
             url,
-            spender,
         });
         Ok(())
     }

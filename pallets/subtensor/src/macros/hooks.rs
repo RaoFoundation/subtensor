@@ -227,6 +227,8 @@ mod hooks {
                 // Rebuild every hotkey's lock aggregates from the individual locks and drop
                 // the former owner aggregates.
                 .saturating_add(migrations::migrate_one_lock_bucket_per_hotkey::migrate_one_lock_bucket_per_hotkey::<T>())
+                // Drop the spender from gamma deposits and services; a deposit's hotkey spends it.
+                .saturating_add(migrations::migrate_drop_gamma_spenders::migrate_drop_gamma_spenders::<T>())
                 // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
                 // on_idle weight over subsequent blocks.
                 .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>())

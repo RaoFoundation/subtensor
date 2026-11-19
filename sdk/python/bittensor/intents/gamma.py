@@ -1,4 +1,4 @@
-"""Gamma intents: minting, deposits, spenders and daily spend caps, and spending."""
+"""Gamma intents: minting, deposits and daily spend caps, and spending."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from .._generated.runtime_apis import GammaRuntimeApi, StakeInfoRuntimeApi
 from ..balance import Balance
 from ..hyperparams import U64_MAX
 from ..result import BittensorError, chain_error_from_dispatch
-from ..signing import coerce_address
 from ..sp_core import ss58_decode
 from ._money import (
     ALL,
@@ -35,26 +34,16 @@ from .staking import (
     _staked_rao,
 )
 
-# Most entries in one `spend_gamma` call (`MAX_GAMMA_SPENDS`).
-MAX_GAMMA_SPENDS = 512
+# Least gamma a spend or move takes, and a move leaves, unless it empties the deposit, in
+# units (`MIN_GAMMA_AMOUNT`).
+MIN_GAMMA_AMOUNT = 100_000_000
 
 RATE_TOLERANCE_HELP = "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
-SPENDER_HELP = (
-    "The account that spends the deposit. A new deposit opens with it, and an existing one must "
-    "already name it. Omit to keep the deposit's spender, which for a new deposit is the spender "
-    "of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a "
-    "lease owns the subnet."
-)
 DAILY_SPEND_CAP_HELP = (
-    "The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an "
-    "existing one must already have it. Omit to keep the deposit's cap, which for a new deposit "
-    "is none."
+    "The deposit's daily spend cap, in gamma: 0 pauses it, and any other cap is at least 0.1. A "
+    "new deposit opens with it, and an existing one must already have it. Omit to keep the "
+    "deposit's cap, which for a new deposit is none."
 )
-SERVICE_HELP = (
-    "Hotkey of a service published on the subnet, instead of a spender. The deposit names the "
-    "spender the service publishes."
-)
-DEFAULT_SPENDER = "the subnet owner's service spender, or the owner (a leased subnet's beneficiary)"
 
 
 async def _quote(substrate, method: tuple, netuid: int, amount: int) -> tuple[int, int, int]:
@@ -77,19 +66,6 @@ def _cap_units(value: Optional[Money]) -> Optional[int]:
     return None if value is None else gamma_units(value)
 
 
-def _reference(value: Optional[str]) -> str:
-    """A spend entry's reference as 0x-hex: 32 bytes, all zero when none is given."""
-    if value is None:
-        return "0x" + "00" * 32
-    try:
-        raw = bytes.fromhex(str(value).removeprefix("0x"))
-    except ValueError:
-        raw = b""
-    if len(raw) != 32:
-        raise BittensorError(f"a spend reference is 32 bytes as hex, not {value!r}")
-    return "0x" + raw.hex()
-
-
 async def _deposit(substrate, netuid: int, hotkey_ss58: str) -> Optional[dict]:
     return await substrate.query(*st.SubtensorModule.GammaDeposits, [netuid, hotkey_ss58])
 
@@ -108,26 +84,6 @@ async def _new_deposit_blocks(substrate, hotkey_ss58: str, signer: str) -> list[
             "use your own or an unassociated hotkey"
         ]
     return []
-
-
-async def _service_spender(substrate, netuid: int, hotkey_ss58: str) -> str:
-    """The spender a service published on the subnet names."""
-    service = await substrate.query(*st.SubtensorModule.Services, [netuid, hotkey_ss58])
-    if service is None:
-        raise BittensorError(f"{hotkey_ss58} publishes no service on netuid {netuid}")
-    return str(service["spender"])
-
-
-async def _named_spender(intent, substrate) -> Optional[str]:
-    """The spender an intent names: its own, its service's, or none."""
-    if intent.service_hotkey_ss58 is None:
-        return intent.spender_ss58
-    return await _service_spender(substrate, intent.netuid, intent.service_hotkey_ss58)
-
-
-def _check_spender_or_service(intent) -> None:
-    if intent.spender_ss58 is not None and intent.service_hotkey_ss58 is not None:
-        raise BittensorError(f"{intent.op}: name a spender or a service, not both")
 
 
 def _own_deposit_blocks(deposit: Optional[dict], signer: str, hotkey_ss58: str) -> list[str]:
@@ -160,28 +116,20 @@ async def _mint_preflight(
     would refuse it with."""
     alpha, value, gamma = await quote
     deposit = await _deposit(substrate, intent.netuid, intent.hotkey_ss58)
-    named = await _named_spender(intent, substrate)
     cap = _cap_units(intent.daily_spend_cap_gamma)
     if deposit is not None and str(deposit["coldkey"]) != signer:
         preview.blocks.append(
             f"the gamma deposit at {intent.hotkey_ss58} belongs to another coldkey; "
             "mint to a fresh hotkey"
         )
-    elif deposit is not None:
-        if named not in (None, str(deposit["spender"])):
-            preview.blocks.append(
-                f"the gamma deposit at {intent.hotkey_ss58} is spent by {deposit['spender']}; "
-                "mint without naming a spender, or set its spender first"
-            )
-        if cap not in (None, _cap(deposit)):
-            preview.blocks.append(
-                f"the gamma deposit at {intent.hotkey_ss58} has "
-                f"{_cap_text(_cap(deposit))}; mint without a cap, or set its cap "
-                "first"
-            )
+    elif deposit is not None and cap not in (None, _cap(deposit)):
+        preview.blocks.append(
+            f"the gamma deposit at {intent.hotkey_ss58} has "
+            f"{_cap_text(_cap(deposit))}; mint without a cap, or set its cap "
+            "first"
+        )
     if deposit is None:
         preview.blocks += await _new_deposit_blocks(substrate, intent.hotkey_ss58, signer)
-    spender = str(deposit["spender"]) if deposit is not None and named is None else named
     if deposit is not None:
         cap = _cap(deposit)
     minimum = _min_out(gamma, intent.rate_tolerance)
@@ -191,7 +139,6 @@ async def _mint_preflight(
         ("alpha burned", f"~{Balance.from_rao(alpha, intent.netuid)}"),
         ("value", f"~{Balance.from_rao(value)}"),
         ("deposit", "new" if deposit is None else f"holds {_gamma_text(int(deposit['balance']))}"),
-        ("spender", spender or DEFAULT_SPENDER),
         ("daily spend cap", "none" if cap is None else _gamma_text(cap)),
         *preview.facts,
     ]
@@ -202,7 +149,6 @@ async def _mint_preflight(
         "alpha_burned": format(Balance.from_rao(alpha, intent.netuid).decimal, "f"),
         "tao_value": format(Balance.from_rao(value).decimal, "f"),
         "deposit_balance_gamma": None if deposit is None else gamma_from_units(deposit["balance"]),
-        "spender_ss58": spender,
         "daily_spend_cap_gamma": None if cap is None else gamma_from_units(cap),
     }
     return preview
@@ -216,21 +162,17 @@ class MintGamma(Intent):
     Buys the subnet's alpha with ``amount_tao``, burns it, and credits its value
     in gamma, one per US dollar, to the deposit at ``hotkey_ss58``, opening it
     when absent. The alpha is valued at the lower of the subnet's gamma price
-    and its spot price before the buy.
-    A new deposit's spender is the spender of the subnet owner's service,
-    otherwise the subnet owner, or a leased subnet's beneficiary, unless
-    ``spender_ss58`` names another or ``service_hotkey_ss58`` names a service
-    published on the subnet, whose spender it takes. It has
-    no daily spend cap unless ``daily_spend_cap_gamma`` sets one. A mint
-    naming either fails on a deposit with another.
+    and its spot price before the buy. The hotkey spends the deposit with
+    ``spend_gamma``. A new deposit has no daily spend cap unless
+    ``daily_spend_cap_gamma`` sets one, and a mint naming a cap fails on a
+    deposit with another.
     Fails rather than minting less than the current quote less
     ``rate_tolerance``. A plan's ``preview`` holds the quote's ``gamma``,
     ``minimum_gamma``, ``alpha_burned`` and ``tao_value``, and the deposit's
-    balance, spender and cap as ``deposit_balance_gamma`` (None when the mint
-    opens it), ``spender_ss58`` (None for the default spender) and
-    ``daily_spend_cap_gamma``. The result's ``data["minted"]`` holds the
-    deposit's ``hotkey_ss58``, ``spender_ss58`` and ``daily_spend_cap_gamma``,
-    and the ``alpha_burned``, ``tao_value`` and ``gamma`` minted.
+    balance and cap as ``deposit_balance_gamma`` (None when the mint opens it)
+    and ``daily_spend_cap_gamma``. The result's ``data["minted"]`` holds the
+    deposit's ``hotkey_ss58`` and ``daily_spend_cap_gamma``, and the
+    ``alpha_burned``, ``tao_value`` and ``gamma`` minted.
     """
 
     op = "mint_gamma"
@@ -246,8 +188,6 @@ class MintGamma(Intent):
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
-    spender_ss58: Optional[str] = field(default=None, metadata={"help": SPENDER_HELP})
-    service_hotkey_ss58: Optional[str] = field(default=None, metadata={"help": SERVICE_HELP})
     daily_spend_cap_gamma: Optional[Money] = field(
         default=None, metadata={"help": DAILY_SPEND_CAP_HELP}
     )
@@ -255,7 +195,6 @@ class MintGamma(Intent):
     def __post_init__(self):
         self.amount_tao = tao_amount(self.amount_tao)
         _check_rate_tolerance(self.rate_tolerance, can_disable=False)
-        _check_spender_or_service(self)
         self.daily_spend_cap_gamma = _daily_spend_cap(self.daily_spend_cap_gamma)
 
     def _quote(self, substrate):
@@ -269,7 +208,6 @@ class MintGamma(Intent):
                 netuid=self.netuid,
                 amount=self.amount_tao.rao,
                 min_amount_out=_min_out(gamma, self.rate_tolerance),
-                spender=await _named_spender(self, substrate),
                 daily_spend_cap=_cap_units(self.daily_spend_cap_gamma),
             )
         )
@@ -300,9 +238,8 @@ class MintGammaWithStake(Intent):
     Burns up to ``amount_alpha`` (``all`` for the whole stake) of your stake
     on ``origin_hotkey_ss58`` and credits its value in gamma to the deposit at
     ``hotkey_ss58``, valued as ``mint_gamma`` values bought alpha. The stake is
-    destroyed, not moved. ``spender_ss58``, ``service_hotkey_ss58`` and
-    ``daily_spend_cap_gamma`` name the deposit's spender and cap as for
-    ``mint_gamma``. Fails rather than minting less than the current quote
+    destroyed, not moved. ``daily_spend_cap_gamma`` names the deposit's cap as
+    for ``mint_gamma``. Fails rather than minting less than the current quote
     less ``rate_tolerance``. Its plan's ``preview`` and result's
     ``data["minted"]`` are as for ``mint_gamma``.
     """
@@ -321,8 +258,6 @@ class MintGammaWithStake(Intent):
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
-    spender_ss58: Optional[str] = field(default=None, metadata={"help": SPENDER_HELP})
-    service_hotkey_ss58: Optional[str] = field(default=None, metadata={"help": SERVICE_HELP})
     daily_spend_cap_gamma: Optional[Money] = field(
         default=None, metadata={"help": DAILY_SPEND_CAP_HELP}
     )
@@ -330,7 +265,6 @@ class MintGammaWithStake(Intent):
     def __post_init__(self):
         self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
         _check_rate_tolerance(self.rate_tolerance, can_disable=False)
-        _check_spender_or_service(self)
         self.daily_spend_cap_gamma = _daily_spend_cap(self.daily_spend_cap_gamma)
 
     def _burned(self, staked: int) -> int:
@@ -352,7 +286,6 @@ class MintGammaWithStake(Intent):
                 netuid=self.netuid,
                 alpha_amount=U64_MAX if self.amount_alpha == ALL else self.amount_alpha.rao,
                 min_amount_out=_min_out(gamma, self.rate_tolerance),
-                spender=await _named_spender(self, substrate),
                 daily_spend_cap=_cap_units(self.daily_spend_cap_gamma),
             )
         )
@@ -400,9 +333,9 @@ class MoveGamma(Intent):
 
     Moves up to ``amount_gamma`` (``all`` for the whole balance) from the
     deposit at ``origin_hotkey_ss58`` to the one at
-    ``destination_hotkey_ss58``. A destination with no deposit is opened with
-    the origin's spender and daily spend cap, and a move that empties the
-    origin closes it.
+    ``destination_hotkey_ss58``: the whole balance, or at least 0.1 gamma
+    leaving at least as much. A destination with no deposit is opened with the
+    origin's daily spend cap, and a move that empties the origin closes it.
     """
 
     op = "move_gamma"
@@ -438,8 +371,16 @@ class MoveGamma(Intent):
             _deposit(substrate, self.netuid, self.destination_hotkey_ss58),
         )
         blocks = _own_deposit_blocks(origin, signer_address, self.origin_hotkey_ss58)
-        if not blocks and origin and not int(origin["balance"]):
-            blocks.append(f"the gamma deposit at {self.origin_hotkey_ss58} holds no gamma")
+        if not blocks and origin:
+            balance = int(origin["balance"])
+            amount = balance if self.amount_gamma == ALL else gamma_units(self.amount_gamma)
+            rest = max(balance - amount, 0)
+            if not balance:
+                blocks.append(f"the gamma deposit at {self.origin_hotkey_ss58} holds no gamma")
+            elif rest and min(amount, rest) < MIN_GAMMA_AMOUNT:
+                blocks.append(
+                    "a move takes the whole balance, or at least 0.1 gamma leaving at least as much"
+                )
         if destination is not None:
             blocks += _own_deposit_blocks(destination, signer_address, self.destination_hotkey_ss58)
         else:
@@ -460,11 +401,6 @@ class MoveGamma(Intent):
             warnings.append("moves the entire balance, which closes the origin deposit")
         if destination is None:
             return warnings
-        if str(destination["spender"]) != str(origin["spender"]):
-            warnings.append(
-                f"the moved gamma becomes spendable by {destination['spender']}, the destination "
-                f"deposit's spender, instead of {origin['spender']}"
-            )
         if _cap(destination) != _cap(origin):
             caps = [
                 "none" if cap is None else _gamma_text(cap)
@@ -515,7 +451,7 @@ class CloseGammaDeposit(Intent):
         if not blocks and deposit and int(deposit["balance"]):
             blocks.append(
                 f"the deposit holds {_gamma_text(int(deposit['balance']))}; move it out first, "
-                "or close it once its spender has spent it"
+                "or close it once its hotkey has spent it"
             )
         return blocks
 
@@ -525,75 +461,12 @@ class CloseGammaDeposit(Intent):
 
 @register
 @dataclass
-class SetGammaDepositSpender(Intent):
-    """Set who may spend your gamma deposit.
-
-    Takes effect at once; a deposit opened by a move inherits it. Set exactly
-    one of ``spender_ss58``, ``service_hotkey_ss58`` or ``default_spender``.
-    """
-
-    op = "set_gamma_deposit_spender"
-    signer = "coldkey"
-    wraps = (("SubtensorModule", "set_gamma_deposit_spender"),)
-
-    netuid: int = field(metadata={"help": "Subnet of the deposit."})
-    hotkey_ss58: str = field(metadata={"help": "Hotkey of the deposit."})
-    spender_ss58: Optional[str] = field(
-        default=None, metadata={"help": "The account that spends the deposit."}
-    )
-    service_hotkey_ss58: Optional[str] = field(default=None, metadata={"help": SERVICE_HELP})
-    default_spender: bool = field(
-        default=False,
-        metadata={
-            "help": "Name the default spender: the spender of the subnet owner's service, "
-            "otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet."
-        },
-    )
-
-    def __post_init__(self):
-        named = [self.spender_ss58 is not None, self.service_hotkey_ss58 is not None]
-        if sum(named) + self.default_spender != 1:
-            raise BittensorError(
-                f"{self.op}: set exactly one of spender_ss58, service_hotkey_ss58 or "
-                "default_spender"
-            )
-
-    async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.set_gamma_deposit_spender(
-                hotkey=self.hotkey_ss58,
-                netuid=self.netuid,
-                spender=await _named_spender(self, substrate),
-            )
-        )
-
-    async def blocks(self, substrate, signer_address: str) -> list[str]:
-        deposit = await _deposit(substrate, self.netuid, self.hotkey_ss58)
-        return _own_deposit_blocks(deposit, signer_address, self.hotkey_ss58)
-
-    def summary(self) -> str:
-        if self.service_hotkey_ss58 is not None:
-            spender = f"the spender of the service at {self.service_hotkey_ss58}"
-        else:
-            spender = self.spender_ss58 or DEFAULT_SPENDER
-        return (
-            f"let {spender} spend the gamma deposit at {self.hotkey_ss58} on netuid {self.netuid}"
-        )
-
-    def spend(self) -> Spend:
-        # Hands the deposit's whole balance to the new spender; not TAO-denominated, so a
-        # spend cap must block it until raised.
-        return UNBOUNDED
-
-
-@register
-@dataclass
 class SetGammaDepositDailySpendCap(Intent):
     """Set or remove the daily spend cap of your gamma deposit.
 
-    What the spender can spend refills linearly at the cap per 7200 blocks, up
+    What the hotkey can spend refills linearly at the cap per 7200 blocks, up
     to the cap, and a cap of zero pauses the deposit. A changed cap keeps what
-    the spender can spend now, up to the new cap. Set exactly one of
+    the hotkey can spend now, up to the new cap. Set exactly one of
     ``daily_spend_cap_gamma`` or ``remove_cap``.
     """
 
@@ -604,7 +477,8 @@ class SetGammaDepositDailySpendCap(Intent):
     netuid: int = field(metadata={"help": "Subnet of the deposit."})
     hotkey_ss58: str = field(metadata={"help": "Hotkey of the deposit."})
     daily_spend_cap_gamma: Optional[Money] = field(
-        default=None, metadata={"help": "The cap, in gamma; 0 pauses the deposit."}
+        default=None,
+        metadata={"help": "The cap, in gamma: 0 pauses the deposit, any other is at least 0.1."},
     )
     remove_cap: bool = field(default=False, metadata={"help": "Remove the cap."})
 
@@ -640,88 +514,58 @@ class SetGammaDepositDailySpendCap(Intent):
 @register
 @dataclass
 class SpendGamma(Intent):
-    """Spend gamma from the deposits you are the spender of.
+    """Spend gamma from the deposit at this hotkey, at a service on its subnet.
 
-    Spends, in order, each entry's ``amount_gamma`` from the deposit at its
-    ``hotkey_ss58``. Entries whose hotkey has no deposit, whose deposit you are
-    not the spender of, or whose amount is zero or above the deposit's balance
-    or what its daily spend cap allows, are skipped. Spent gamma is destroyed.
-    Each entry's optional ``reference``, 32 bytes as hex, is repeated in its
-    ``GammaSpent`` or ``GammaSpendSkipped`` event; by convention it is the
-    service's own id for the request it pays for, returned with its response.
-    Sign as the spender, or as its ``GammaSpend`` proxy. The result's
-    ``data["spent"]`` lists, in order, each entry that spent, with its
-    ``hotkey_ss58``, ``amount_gamma`` and ``reference``, and
-    ``data["skipped"]`` each entry that was skipped, with the chain error that
-    skipped it as ``reason``.
+    Destroys ``amount_gamma`` of the deposit and adds it to what the hotkey has
+    spent at the service at ``service_hotkey_ss58``, which credits it. The
+    amount is at least 0.1 gamma unless it empties the deposit, and within its
+    balance and what its daily spend cap allows. Signed by the hotkey, which
+    pays no fee: the chain refuses an invalid spend before it enters a block.
     """
 
     op = "spend_gamma"
-    signer = "coldkey"
+    signer = "hotkey"
     wraps = (("SubtensorModule", "spend_gamma"),)
 
-    netuid: int = field(metadata={"help": "Subnet of the deposits."})
-    spends: list[dict] = field(
-        metadata={
-            "help": f"One to {MAX_GAMMA_SPENDS} objects of hotkey_ss58, amount_gamma and an "
-            "optional 32-byte hex reference, spent in order."
-        }
-    )
+    netuid: int = field(metadata={"help": "Subnet of the deposit and the service."})
+    service_hotkey_ss58: str = field(metadata={"help": "Hotkey of the service spent at."})
+    amount_gamma: Money = field(metadata={"help": "Gamma spent."})
 
     def __post_init__(self):
-        if not 1 <= len(self.spends) <= MAX_GAMMA_SPENDS:
-            raise BittensorError(f"spend_gamma takes 1 to {MAX_GAMMA_SPENDS} spends")
-        for index, spend in enumerate(self.spends):
-            if not isinstance(spend, dict) or set(spend) - {"reference"} != {
-                "hotkey_ss58",
-                "amount_gamma",
-            }:
-                raise BittensorError(
-                    f"spend_gamma: entry {index + 1} must be an object of hotkey_ss58, "
-                    f"amount_gamma and an optional reference, not {spend!r}"
-                )
-        self.spends = [
-            {
-                "hotkey_ss58": coerce_address(spend["hotkey_ss58"], "hotkey_ss58"),
-                "amount_gamma": gamma_amount(spend["amount_gamma"]),
-                "reference": _reference(spend.get("reference")),
-            }
-            for spend in self.spends
-        ]
+        self.amount_gamma = gamma_amount(self.amount_gamma)
+        if not gamma_units(self.amount_gamma):
+            raise BittensorError("spend_gamma: the amount must be above 0")
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
             calls.SubtensorModule.spend_gamma(
+                service=self.service_hotkey_ss58,
                 netuid=self.netuid,
-                spends=[
-                    (spend["hotkey_ss58"], gamma_units(spend["amount_gamma"]), spend["reference"])
-                    for spend in self.spends
-                ],
+                amount=gamma_units(self.amount_gamma),
             )
         )
 
-    async def warnings(self, substrate, signer_address: str) -> list[str]:
-        deposits = await substrate.query_batch(
-            *st.SubtensorModule.GammaDeposits,
-            [[self.netuid, spend["hotkey_ss58"]] for spend in self.spends],
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        service, info = await asyncio.gather(
+            substrate.query(*st.SubtensorModule.Services, [self.netuid, self.service_hotkey_ss58]),
+            substrate.runtime_call(
+                *GammaRuntimeApi.get_gamma_deposit, [self.netuid, signer_address]
+            ),
         )
-        skipped = [
-            spend["hotkey_ss58"]
-            for spend, deposit in zip(self.spends, deposits)
-            if deposit is None or str(deposit["spender"]) != signer_address
-        ]
-        if not skipped:
-            return []
-        if len(skipped) == len(self.spends):
-            return ["nothing would be spent: no entry is a deposit you are the spender of"]
-        return [
-            f"{len(skipped)} of {len(self.spends)} entries would be skipped, having no deposit "
-            f"you are the spender of: {', '.join(skipped)}"
-        ]
+        if service is None:
+            return [f"{self.service_hotkey_ss58} has no service on netuid {self.netuid}"]
+        if info is None:
+            return [f"there is no gamma deposit at {signer_address} on this subnet"]
+        amount, balance = gamma_units(self.amount_gamma), int(info["deposit"]["balance"])
+        if not balance:
+            return ["the deposit holds no gamma"]
+        if amount < MIN_GAMMA_AMOUNT and amount != balance:
+            return ["a spend takes at least 0.1 gamma, or the deposit's whole balance"]
+        if amount > int(info["spendable"]):
+            return [f"the deposit can spend {_gamma_text(int(info['spendable']))} now"]
+        return []
 
     def summary(self) -> str:
-        total = sum(Decimal(spend["amount_gamma"]) for spend in self.spends)
         return (
-            f"spend {format(total.normalize(), 'f')} gamma in {len(self.spends)} "
-            f"{'entry' if len(self.spends) == 1 else 'entries'} on netuid {self.netuid}"
+            f"spend {self.amount_gamma} gamma at {self.service_hotkey_ss58} on netuid {self.netuid}"
         )
