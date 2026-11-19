@@ -1540,3 +1540,83 @@ fn coldkey_swap_after_owner_hotkey_change_keeps_the_subnet() {
         assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), hotkey);
     });
 }
+
+// Childkey dividends must remain backed by recorded alpha issuance. This scenario
+// deliberately uses different coldkey owners: CKBurn only applies to dividends
+// delegated between those owners, so same-owner fixtures cannot expose the issue.
+// get_parent_child_dividends_distribution recycles the configured burn amount,
+// reducing SubnetAlphaOut and TotalAlphaIssuance. The following dividend allocation
+// then normalizes the remaining recipient weights against the ORIGINAL pending
+// budget, and distribute_dividends_and_incentives still credits that full budget.
+// Consequently a nonzero childkey burn can reduce issuance without reducing the
+// alpha actually paid to stakers, leaving outstanding stake without backing.
+// The issue is dormant with the current default CKBurn. Do not set CKBurn here:
+// this test must exercise the configured policy and fail on actual conservation,
+// rather than merely asserting a configuration value. Before enabling childkey
+// burn, fix the payout budget and recycle accounting together, including rounding;
+// do not update this expectation to permit unbacked alpha or suppress the test.
+// PROTECTED_REGRESSION: childkey payouts must conserve issued alpha; changes require explicit human approval.
+#[test]
+fn childkey_dividend_payouts_remain_backed_by_alpha_issuance() {
+    new_test_ext(1).execute_with(|| {
+        let parent = U256::from(4_101);
+        let child = U256::from(4_102);
+        let parent_owner = U256::from(4_103);
+        let child_owner = U256::from(4_104);
+        let netuid = NetUid::from(20);
+        add_network(netuid, 1, 0);
+        register_ok_neuron(netuid, parent, parent_owner, 0);
+        register_ok_neuron(netuid, child, child_owner, 0);
+        for (hotkey, coldkey) in [(parent, parent_owner), (child, child_owner)] {
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &coldkey, netuid, 1_000_000_000u64.into(),
+            );
+        }
+        mock_set_children_no_epochs(netuid, &parent, &[(u64::MAX, child)]);
+        crate::ChildkeyTake::<Test>::insert(child, netuid, sp_runtime::PerU16::zero());
+        let stake_before = SubtensorModule::get_stake_for_hotkey_on_subnet(&parent, netuid)
+            .to_u64() + SubtensorModule::get_stake_for_hotkey_on_subnet(&child, netuid).to_u64();
+        let issuance_before = pallet_alpha_assets::TotalAlphaIssuance::<Test>::get(netuid).to_u64();
+        let outstanding_before = SubnetAlphaOut::<Test>::get(netuid).to_u64();
+        let budget = AlphaBalance::from(1_000_000_000u64);
+        SubtensorModule::resolve_to_alpha_out(SubtensorModule::mint_alpha(netuid, budget));
+        let (incentives, (dividends, root_dividends)) =
+            SubtensorModule::calculate_dividend_and_incentive_distribution(
+                netuid, AlphaBalance::ZERO, budget,
+                vec![(child, AlphaBalance::ZERO, budget)], SubtensorModule::get_tao_weight(),
+            );
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid, AlphaBalance::ZERO, incentives, dividends, root_dividends,
+        );
+        let paid = SubtensorModule::get_stake_for_hotkey_on_subnet(&parent, netuid).to_u64()
+            + SubtensorModule::get_stake_for_hotkey_on_subnet(&child, netuid).to_u64()
+            - stake_before;
+        let issued = pallet_alpha_assets::TotalAlphaIssuance::<Test>::get(netuid).to_u64()
+            - issuance_before;
+        let outstanding = SubnetAlphaOut::<Test>::get(netuid).to_u64() - outstanding_before;
+        assert!(paid > 0, "the conservation check must cover actual stake payouts");
+        assert!(paid.abs_diff(issued) <= 2,
+            "childkey stake payouts ({paid}) must match net issued alpha ({issued}); CKBurn must not recycle alpha that is still paid");
+        assert!(paid.abs_diff(outstanding) <= 2,
+            "childkey stake payouts ({paid}) must match newly outstanding alpha ({outstanding})");
+    });
+}
+
+// PROTECTED_REGRESSION: reject on-chain CKBurn overrides in try-runtime while payouts can exceed issued alpha; changes require explicit human approval.
+#[cfg(feature = "try-runtime")]
+#[test]
+fn try_state_rejects_enabled_childkey_burn() {
+    use frame_support::traits::Hooks;
+
+    new_test_ext(1).execute_with(|| {
+        assert_ok!(SubtensorModule::try_state(1));
+        SubtensorModule::set_ck_burn(1);
+        assert_eq!(
+            SubtensorModule::try_state(1),
+            Err("CKBurn is nonzero: childkey dividend payouts must conserve alpha before enabling burn"
+                .into())
+        );
+        SubtensorModule::set_ck_burn(0);
+        assert_ok!(SubtensorModule::try_state(1));
+    });
+}
