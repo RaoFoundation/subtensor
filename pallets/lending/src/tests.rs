@@ -22,6 +22,7 @@ use sp_runtime::{
     AccountId32, BuildStorage,
     traits::{BlakeTwo256, IdentityLookup},
 };
+use std::cell::RefCell;
 
 construct_runtime!(pub enum Test { System: frame_system = 0, Lending: crate = 1 });
 type Account = AccountId32;
@@ -223,6 +224,21 @@ fn weights_if_adjusted_for_add(y: u64, x: u64, dy: u64, dx: u64, w2: u64) -> u64
     .min(WEIGHT_ACCURACY as u64)
     .max(1)
 }
+// Call order for short dissolution: burn interest before terminal_split
+// (skeptic fid:83813c42). Cleared at the start of that regression test.
+thread_local! {
+    static SHORT_SETTLE_ORDER: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+}
+fn clear_short_settle_order() {
+    SHORT_SETTLE_ORDER.with(|o| o.borrow_mut().clear());
+}
+fn short_settle_order() -> Vec<&'static str> {
+    SHORT_SETTLE_ORDER.with(|o| o.borrow().clone())
+}
+fn push_short_settle_order(step: &'static str) {
+    SHORT_SETTLE_ORDER.with(|o| o.borrow_mut().push(step));
+}
+
 pub struct MockPool;
 impl MockPool {
     fn price() -> U64F64 {
@@ -469,7 +485,29 @@ impl LendingPoolInterface<Account> for MockPool {
     }
 
     fn burn_interest_tao(from: &Account, amount: TaoBalance) -> DispatchResult {
+        push_short_settle_order("burn_interest");
         Self::transfer_tao(from, &account(255), amount)
+    }
+
+    fn terminal_split_tao(
+        from: &Account,
+        vault: &Account,
+        recipient: &Account,
+        recovery: TaoBalance,
+        refund: TaoBalance,
+    ) -> Result<(TaoBalance, TaoBalance), DispatchError> {
+        push_short_settle_order("terminal_split");
+        let recovered = if recovery.is_zero() {
+            recovery
+        } else {
+            Self::refund_dissolution_tao(from, vault, recovery)?
+        };
+        let refunded = if refund.is_zero() {
+            refund
+        } else {
+            Self::refund_dissolution_tao(from, recipient, refund)?
+        };
+        Ok((recovered, refunded))
     }
 
     fn pool_tao(_: NetUid) -> TaoBalance {
@@ -11386,5 +11424,110 @@ fn max_loan_duration_change_does_not_rewrite_existing_expires_at() {
             "duration setter must not rewrite live expires_at"
         );
         assert_eq!(Lending::max_loan_duration(), 14_400);
+    });
+}
+
+/// Skeptic fid:83813c42 — burn short interest while pot+refund still pad the
+/// escrow, then terminal-split. A below-ED interest remainder must not sit on
+/// escrow after the split (production reaping would block dissolution).
+#[test]
+fn short_dissolution_burns_interest_before_terminal_split() {
+    new_test_ext().execute_with(|| {
+        clear_short_settle_order();
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        let open_block = System::block_number();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        // Age past the young-short window so r is not floored to P_open, but
+        // leave last_accrued at open so interest is due.
+        let aged = open_block.saturating_add(YoungShortWindow::get());
+        System::set_block_number(aged);
+        assert_ok!(Lending::start_dissolution(netuid()));
+        assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
+        // Mild rate: pot takes some escrow, interest still positive, refund > 0.
+        Dissolutions::<Test>::mutate(netuid(), |d| {
+            if let Some(d) = d {
+                d.rate = U64F64::from_num(1) / U64F64::from_num(4);
+            }
+        });
+        DissolutionPhase::<Test>::insert(netuid(), 1u8);
+        let burned_before = burned();
+        let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        assert!(
+            burned() > burned_before,
+            "interest must burn (got burned_after={}, before={})",
+            burned(),
+            burned_before
+        );
+        let order = short_settle_order();
+        let burn_at = order.iter().position(|s| *s == "burn_interest");
+        let split_at = order.iter().position(|s| *s == "terminal_split");
+        assert!(
+            burn_at.is_some() && split_at.is_some() && burn_at.unwrap() < split_at.unwrap(),
+            "burn_interest must precede terminal_split (fid:83813c42); order={order:?}"
+        );
+    });
+}
+
+/// Skeptic fid:600d74dc — mid-list expiry insert walks at most
+/// [`MAX_EXPIRY_BUCKET_WALK`] hops; deeper schedules reject open.
+#[test]
+fn open_rejects_when_expiry_mid_list_walk_exceeds_bound() {
+    new_test_ext().execute_with(|| {
+        let now = System::block_number();
+        let term = TestMaxLoanDuration::get();
+        let insert_at = now.saturating_add(term);
+        // Seed MAX+1 earlier buckets so the walk to `insert_at` exceeds the bound,
+        // plus a later tail so this is a mid-list (not append) insert.
+        let head = insert_at.saturating_sub(u64::from(MAX_EXPIRY_BUCKET_WALK).saturating_add(1));
+        let later = insert_at.saturating_add(100);
+        assert!(head > now, "fixture needs head after `now`");
+        NextExpiry::<Test>::put(head);
+        ExpiryTail::<Test>::put(later);
+        let mut prev = head;
+        ExpiryIndex::<Test>::insert(head, 1u32);
+        for offset in 1..=MAX_EXPIRY_BUCKET_WALK {
+            let at = head.saturating_add(u64::from(offset));
+            ExpiryNext::<Test>::insert(prev, at);
+            ExpiryPrev::<Test>::insert(at, prev);
+            ExpiryIndex::<Test>::insert(at, 1u32);
+            prev = at;
+        }
+        ExpiryNext::<Test>::insert(prev, later);
+        ExpiryPrev::<Test>::insert(later, prev);
+        ExpiryIndex::<Test>::insert(later, 1u32);
+
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(owner),
+                netuid(),
+                Side::Short,
+                5_000_000_000_000,
+                None,
+                1,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::ExpiryScheduleCongested
+        );
+        assert!(
+            Positions::<Test>::iter().next().is_none(),
+            "failed open must not leave a position"
+        );
     });
 }

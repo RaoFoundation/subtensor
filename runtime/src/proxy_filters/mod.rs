@@ -33,7 +33,8 @@ type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 
 /// `Staking`: stake position management and accumulated root-dividend claims.
 /// Loan open/close/repay/raise are **not** included (Greg Zaitsev P2-c) — use
-/// `Any` / `NonTransfer` for those. Keep this type body free of the loan pallet
+/// `Any` for those (not NonTransfer — skeptic fid:3d310144 / d3fefb26). Keep
+/// this type body free of the loan pallet
 /// name so SDK `test_protected_preparation` word-scan of the alias stays exact.
 type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
 
@@ -87,8 +88,9 @@ type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
     StakeManagementCalls,
-    LendingCalls,
-    LendingRaiseCalls,
+    // Lending / raise require ProxyType::Any (or a future dedicated grant).
+    // Existing NonTransfer delegates must not silently gain loan authority
+    // when lending is enabled (skeptic fid:3d310144 / d3fefb26).
     PowRegistrationCalls,
     BurnedRegistrationCalls,
     FaucetCalls,
@@ -163,10 +165,11 @@ fn supports_recipient_guards(proxy_type: &ProxyType) -> bool {
 }
 
 pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> bool {
-    // Raise needs Lending + stake surfaces. Staking proxies no longer grant
-    // lending (P2-c); Any / NonTransfer still do.
+    // Raise needs Lending + stake surfaces. Staking never grants lending (P2-c);
+    // NonTransfer is also excluded so existing delegates cannot open loans
+    // without a fresh Any (or future Lending) grant (skeptic fid:3d310144).
     if LendingRaiseCalls::contains(call) {
-        return matches!(proxy_type, ProxyType::Any | ProxyType::NonTransfer);
+        return matches!(proxy_type, ProxyType::Any);
     }
     if supports_recipient_guards(proxy_type) && RecipientGuardCalls::contains(call) {
         return true;
@@ -423,6 +426,9 @@ mod tests {
                 GammaDepositAuthorityCalls,
                 ServiceCalls,
             )>();
+        // Lending creates interest / settlement exposure; require ProxyType::Any
+        // (skeptic fid:3d310144). Root setters stay via AdminAll (ensure_root).
+        let denied = &denied | &group_calls::<(LendingCalls, LendingRaiseCalls)>();
         let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
@@ -1056,7 +1062,8 @@ mod tests {
                 "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
-        // P2-c: Staking must not grant lending; use Any / NonTransfer for loans.
+        // P2-c / skeptic fid:3d310144: Staking and NonTransfer must not grant
+        // lending; use ProxyType::Any (or a future dedicated grant).
         assert_eq!(
             allowed_calls(ProxyType::Staking),
             expected(&[
@@ -1897,31 +1904,29 @@ mod pow_proxy_tests {
         let warm = RuntimeCall::Lending(LendingCall::warm_reference { netuid });
         let roll = RuntimeCall::Lending(LendingCall::roll { netuid });
 
-        // NonTransfer / Any may open, close, repay, roll, raise, and warm.
-        for proxy in [ProxyType::NonTransfer, ProxyType::Any] {
-            assert!(proxy.filter(&open), "{proxy:?} must allow open");
-            assert!(proxy.filter(&open_exact), "{proxy:?} must allow open_exact");
-            assert!(proxy.filter(&close), "{proxy:?} must allow close");
-            assert!(proxy.filter(&repay), "{proxy:?} must allow repay");
-            assert!(proxy.filter(&roll), "{proxy:?} must allow roll");
-            assert!(proxy.filter(&raise), "{proxy:?} must allow raise");
-            assert!(proxy.filter(&warm), "{proxy:?} must allow warm_reference");
+        // Any may open, close, repay, roll, raise, and warm.
+        assert!(ProxyType::Any.filter(&open), "Any must allow open");
+        assert!(
+            ProxyType::Any.filter(&open_exact),
+            "Any must allow open_exact"
+        );
+        assert!(ProxyType::Any.filter(&close), "Any must allow close");
+        assert!(ProxyType::Any.filter(&repay), "Any must allow repay");
+        assert!(ProxyType::Any.filter(&roll), "Any must allow roll");
+        assert!(ProxyType::Any.filter(&raise), "Any must allow raise");
+        assert!(
+            ProxyType::Any.filter(&warm),
+            "Any must allow warm_reference"
+        );
+        // Staking and NonTransfer must not gain lending authority (P2-c /
+        // skeptic fid:3d310144).
+        for proxy in [ProxyType::Staking, ProxyType::NonTransfer] {
+            assert!(!proxy.filter(&open), "{proxy:?} must deny open");
+            assert!(!proxy.filter(&close), "{proxy:?} must deny close");
+            assert!(!proxy.filter(&roll), "{proxy:?} must deny roll");
+            assert!(!proxy.filter(&raise), "{proxy:?} must deny raise");
+            assert!(!proxy.filter(&warm), "{proxy:?} must deny warm_reference");
         }
-        // Staking proxies must not gain lending authority (P2-c).
-        assert!(!ProxyType::Staking.filter(&open), "Staking must deny open");
-        assert!(
-            !ProxyType::Staking.filter(&close),
-            "Staking must deny close"
-        );
-        assert!(!ProxyType::Staking.filter(&roll), "Staking must deny roll");
-        assert!(
-            !ProxyType::Staking.filter(&raise),
-            "Staking must deny raise"
-        );
-        assert!(
-            !ProxyType::Staking.filter(&warm),
-            "Staking must deny warm_reference"
-        );
         // Transfer-only, Registration, NonFungible, and RootClaim must not touch lending.
         for proxy in [
             ProxyType::Transfer,

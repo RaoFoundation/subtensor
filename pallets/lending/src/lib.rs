@@ -26,6 +26,10 @@ pub mod weights;
 /// every seeded subnet can age its reference / `G_ema` without exceeding the
 /// production block weight budget (`update_reference × 4096` ≪ block limit).
 pub const MAX_ACTIVE_NET_UPDATES: u64 = 4_096;
+/// Hard bound on the linear mid-list walk when inserting a new expiry bucket
+/// ahead of many later deadlines (skeptic fid:600d74dc). Append / prepend /
+/// empty paths stay O(1). Charged as worst-case reads on open / roll weight.
+pub const MAX_EXPIRY_BUCKET_WALK: u32 = 256;
 
 type MigrationKeyMaxLen = frame_support::traits::ConstU32<128>;
 
@@ -1513,6 +1517,10 @@ pub mod pallet {
         CollateralExceedsMax,
         /// Position carries a `terms_version` this runtime does not implement.
         UnsupportedTermsVersion,
+        /// Expiry-bucket linked list is too deep for a fixed-weight open/roll
+        /// insert (mid-list walk exceeded [`MAX_EXPIRY_BUCKET_WALK`]). Retry
+        /// after attrition drains earlier expiries, or open with a later term.
+        ExpiryScheduleCongested,
     }
 
     #[pallet::hooks]
@@ -3073,7 +3081,7 @@ pub mod pallet {
             Expiry::<T>::remove(old_expiry_due, (&owner, netuid));
             Self::note_expiry_removed(old_expiry_due);
             Expiry::<T>::insert(new_expires_at, (&owner, netuid), ());
-            Self::note_expiry_inserted(new_expires_at);
+            Self::note_expiry_inserted(new_expires_at)?;
 
             position.expires_at = new_expires_at;
             position.expiry_due = new_expires_at;
@@ -3382,7 +3390,7 @@ pub mod pallet {
                 Due::<T>::insert(due, (&owner, netuid), ());
                 Self::note_due_inserted(due);
                 Expiry::<T>::insert(expires_at, (&owner, netuid), ());
-                Self::note_expiry_inserted(expires_at);
+                Self::note_expiry_inserted(expires_at)?;
                 Self::note_active_net(netuid);
             }
             // Terms v2: increases and collateral top-ups keep the original
@@ -5399,7 +5407,11 @@ pub mod pallet {
                 position.expiry_due = new_expires;
                 Positions::<T>::insert(&owner, netuid, &position);
                 Expiry::<T>::insert(new_expires, (&owner, netuid), ());
-                Self::note_expiry_inserted(new_expires);
+                // Mainnet has no live lending positions at this upgrade; the
+                // walk bound still applies so a non-empty staging book cannot
+                // exceed the open/roll weight envelope.
+                Self::note_expiry_inserted(new_expires)
+                    .expect("max-duration migration expiry insert must fit walk bound");
                 BandDeferralSince::<T>::remove(&owner, netuid);
                 LastDeferral::<T>::remove(&owner, netuid);
                 weight = weight.saturating_add(T::DbWeight::get().reads_writes(4, 5));
@@ -5584,11 +5596,11 @@ pub mod pallet {
             }
         }
 
-        fn note_expiry_inserted(at: BlockNumberFor<T>) {
+        fn note_expiry_inserted(at: BlockNumberFor<T>) -> DispatchResult {
             let was_empty = ExpiryIndex::<T>::get(at) == 0;
             ExpiryIndex::<T>::mutate(at, |count| *count = count.saturating_add(1));
             if !was_empty {
-                return;
+                return Ok(());
             }
             match (NextExpiry::<T>::get(), ExpiryTail::<T>::get()) {
                 (None, _) => {
@@ -5606,8 +5618,17 @@ pub mod pallet {
                     ExpiryTail::<T>::put(at);
                 }
                 (Some(head), _) => {
+                    // Mid-list insert (shorter term ahead of many later
+                    // deadlines). Bound the walk so open/roll stay inside a
+                    // fixed weight envelope (skeptic fid:600d74dc).
                     let mut prev = head;
+                    let mut walked = 0u32;
                     loop {
+                        ensure!(
+                            walked < MAX_EXPIRY_BUCKET_WALK,
+                            Error::<T>::ExpiryScheduleCongested
+                        );
+                        walked = walked.saturating_add(1);
                         match ExpiryNext::<T>::get(prev) {
                             Some(n) if n < at => prev = n,
                             Some(n) => {
@@ -5627,6 +5648,7 @@ pub mod pallet {
                     }
                 }
             }
+            Ok(())
         }
 
         fn note_active_net(netuid: NetUid) {
@@ -6596,9 +6618,10 @@ pub mod pallet {
         /// `r` for valuation and runs [`Self::settle_expiry_as_close`] (a default
         /// close at spot); `r` is only reported on `Expired`.
         ///
-        /// Dissolution short recovery+refund are withdrawn together via
-        /// `terminal_split_tao` (Expendable transfers would otherwise reap a
-        /// below-ED refund remainder).
+        /// Dissolution short path: burn interest first while pot+refund still
+        /// pad the escrow above ED, then withdraw recovery+refund together via
+        /// `terminal_split_tao` (skeptic fid:83813c42 — a below-ED interest
+        /// remainder must not be reaped before the burn).
         #[transactional]
         fn settle_position_at_rate(
             netuid: NetUid,
@@ -6662,6 +6685,21 @@ pub mod pallet {
                     let after_pot = available.saturating_sub(to_pot);
                     let interest = due.min(after_pot);
                     let refund = after_pot.saturating_sub(interest);
+                    // Burn interest while pot+refund still pad escrow above ED.
+                    // Burning after the split can reap a below-ED interest dust
+                    // and leave dissolution stuck on burn failure (fid:83813c42).
+                    if interest > 0 {
+                        T::Pool::burn_interest_tao(&escrow, interest.into())?;
+                        Self::deposit_event(Event::InterestBurned {
+                            netuid,
+                            side: Side::Short,
+                            tao: interest,
+                        });
+                        Self::bump_stats(netuid, |s| {
+                            s.interest_burned_tao =
+                                s.interest_burned_tao.saturating_add(u128::from(interest));
+                        });
+                    }
                     // Withdraw recovery + refund in one credit split so a below-ED
                     // refund cannot be reaped by an intervening Expendable transfer.
                     let (recovered, refunded) = T::Pool::terminal_split_tao(
@@ -6681,20 +6719,6 @@ pub mod pallet {
                             recovered.into(),
                             0u64.into(),
                         )?;
-                    }
-                    if interest > 0 {
-                        // Interest TAO remains on escrow after the pot+refund
-                        // split; burn it atomically (P2-b).
-                        T::Pool::burn_interest_tao(&escrow, interest.into())?;
-                        Self::deposit_event(Event::InterestBurned {
-                            netuid,
-                            side: Side::Short,
-                            tao: interest,
-                        });
-                        Self::bump_stats(netuid, |s| {
-                            s.interest_burned_tao =
-                                s.interest_burned_tao.saturating_add(u128::from(interest));
-                        });
                     }
                     if refunded < refund {
                         Self::deposit_event(Event::DustForfeited {

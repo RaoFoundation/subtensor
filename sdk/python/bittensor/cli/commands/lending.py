@@ -858,7 +858,7 @@ def roll_loan(
     proxy: Optional[str] = typer.Option(
         None,
         "--proxy",
-        help="Proxy coldkey that submits this roll (Any / NonTransfer).",
+        help="Proxy coldkey that submits this roll (ProxyType::Any only).",
     ),
 ):
     """Extend a live loan onto a fresh MaxLoanDuration clock.
@@ -866,7 +866,8 @@ def roll_loan(
     Same open gates (lending enabled, new-subnet, warm reference, EMA band).
     Charges interest to now, re-checks LTV, and rejects when the side is over
     the current side cap. Opens-off disables rolls. Does not change principal,
-    collateral, escrow, or lift legs.
+    collateral, escrow, or lift legs. Proxy: ``Any`` only (not Staking /
+    NonTransfer).
     """
     context = ctx_of(ctx)
     owner = context.review_account()

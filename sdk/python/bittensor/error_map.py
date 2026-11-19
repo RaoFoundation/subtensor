@@ -549,6 +549,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PrincipalExceedsTaoIn": _C.INSUFFICIENT_LIQUIDITY,
     "CollateralExceedsMax": _C.INVALID_ARGUMENT,
     "UnsupportedTermsVersion": _C.POLICY_VIOLATION,
+    "ExpiryScheduleCongested": _C.LIMIT_EXCEEDED,
     "DynamicCollateral": _C.INSUFFICIENT_BALANCE,
     "TooManyPositions": _C.LIMIT_EXCEEDED,
     "BelowMinimumBorrow": _C.INVALID_ARGUMENT,

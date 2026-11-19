@@ -161,8 +161,9 @@ call_filter_group!(
     ]
 );
 
-// Open / close / increase: granted with staking management. Root setters live
-// in `LendingRootCalls` (AdminAll / RootConfigCalls pattern — inert without
+// Open / close / repay / roll / warm: ProxyType::Any only (not Staking, not
+// NonTransfer — skeptic fid:3d310144 / d3fefb26). Root setters live in
+// `LendingRootCalls` (AdminAll / RootConfigCalls pattern — inert without
 // `ensure_root`).
 call_filter_group!(
     LendingCalls,
@@ -176,9 +177,9 @@ call_filter_group!(
     ]
 );
 
-// Atomic raise (escrowed long + unlocked-alpha sale). Granted only when a
-// proxy type already allows both `LendingCalls` and `StakeManagementCalls`
-// (stricter of open and remove_stake); see `proxy_type_filter`.
+// Atomic raise (escrowed long + unlocked-alpha sale). ProxyType::Any only
+// (same as LendingCalls; needs stake removal but must not silently open loans
+// under Staking / NonTransfer).
 call_filter_group!(
     LendingRaiseCalls,
     [RuntimeCall::Lending(LendingCall::open_long_and_sell),]

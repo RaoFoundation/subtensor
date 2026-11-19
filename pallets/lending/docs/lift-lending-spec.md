@@ -10,7 +10,7 @@
   * Reject if `now >= expires_at` (`DeadlinePassed`); reject if spot outside the directional 15% EMA band (`ensure_open_ema_band` on current spot, no trade).
   * First `charge_interest` to now (`final_charge=false`, `permissionless=false`); re-check LTV at current open price as a fresh open; reject over-cap books with `ΔL = 0` so caps shrink by attrition.
   * Set `expires_at = now + max_loan_duration`; move expiry queue; clear `BandDeferralSince`. Do **not** change principal, collateral, proceeds / escrow_alpha, lift legs, or `last_exposure_added_at` (young-short age unchanged).
-  * Emit `Rolled { owner, netuid, side, old_expires_at, new_expires_at }`. Proxy: `LendingCalls` (Any / NonTransfer); **not** Staking.
+  * Emit `Rolled { owner, netuid, side, old_expires_at, new_expires_at }`. Proxy: `LendingCalls` under **`Any` only** (not Staking, not NonTransfer — existing NonTransfer delegates must not silently gain loan authority).
   * Increases / partial repay still preserve `expires_at` (no silent renewal). Roll is the explicit renew path.
 * **2026-11-19: all economic params root-settable via `LiftParams` / `set_lift_params`.**
   * Split `apr_bps` → `apr_long_bps` + `apr_short_bps` (migrate equal).
@@ -66,7 +66,7 @@
 * **Minimum loan 1 τ (Jacob, closes Karl item-1 slot DoS).** `LendingMinimumLoanValue = 1_000_000_000` rao (was `0.001 τ`). Gate is **opening value in TAO of loan size**: long principal is already TAO; short uses `tao_for_alpha(principal, coupon_price)`. Partial repay: both the repaid slice and any nonzero remainder must be 0 or ≥ this floor (`AmountTooSmall` — including 1-rao slices — never swap `ReservesTooLow`). No per-owner slot cap.
 * **Young-short dereg settlement (Jacob, closes Karl item-4 last-minute dereg short; Greg P1-b 2026-11-19).** Shorts with age `< YoungShortSettlementWindow` (25_200 blocks ≈ 3.5 days at 12 s; `Config` constant) settle alpha debt at `max(r, P_open)` instead of `r`. `P_open = proceeds / principal` (principal-weighted average open / execution VWAP across open + increases). Age = `frozen_at − last_exposure_added_at`, where `last_exposure_added_at` is set at open and on every increase that adds principal (not derived from `expires_at` — increases keep the original term end). Age `==` window keeps `r`. Extra TAO collected stays in the pot for stakers; escrow remainder still refunds to the shorter. Older shorts unchanged (full dereg at `r`).
 * **Dark launch.** `Enabled` defaults to `false`. Shipping MaxLoanDuration / young-short fixes does not open the market; a separate root `set_enabled(true)` turns lending on.
-* **Proxy surface.** `ProxyType::Staking` does **not** grant lending calls (Greg P2-c). Use `Any` or `NonTransfer`. Existing staking proxies must not silently gain loan authority.
+* **Proxy surface.** `ProxyType::Staking` and `ProxyType::NonTransfer` do **not** grant lending calls (Greg P2-c; skeptic fid:3d310144). Use `ProxyType::Any` (or a future dedicated lending grant). Existing staking / NonTransfer proxies must not silently gain loan authority.
 * **30-day term vs unwind latency (audit M1/M4).** `MaxLoanDuration` (216_000 ≈ 30 days) is the **loan term length**, not the worst-case unwind latency. Permissionless expiry drains at `MaxExpirySettlementsPerBlock` (16) per `on_initialize`, with `on_idle` as metered fallback; a large book can take many blocks to finish after term end.
 * **ActiveNets warmup (audit L2).** Warming `References` / `G_ema` for live subnets while `Enabled=false` is intentional so the EMA is ready when root enables lending. `spec_version` is the runtime-compat signal for this upgrade.
 * **Unchanged:** live AMM spot, swap math, per-loan k-neutral burn, caps, band, buyback, interest, raise, dissolution `r` construction for old shorts / longs.
@@ -936,8 +936,8 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 ### 14.4 Proxies and origins
 * All position calls (`open`, `open_exact`, `repay`, `close`, `roll`, `open_long_and_sell`) need a signed origin: the owner coldkey, or a proxy acting for it. Root setters (`set_lift_params`, `set_enabled`) are root-only.
 * Proxy filter groups:
-  * `LendingCalls` = `open`, `open_exact`, `close`, `repay`, **`roll`**, `warm_reference`. Allowed under `Any` and `NonTransfer` (not `Staking` — Greg P2-c).
-  * `LendingRaiseCalls` = `open_long_and_sell`. Allowed only under types that allow **both** `LendingCalls` and stake removal (`Any`, `Staking`, `NonTransfer`), because its sale leg is a `remove_stake` to the owner's free balance.
+  * `LendingCalls` = `open`, `open_exact`, `close`, `repay`, **`roll`**, `warm_reference`. Allowed under `Any` only (not `Staking`, not `NonTransfer`).
+  * `LendingRaiseCalls` = `open_long_and_sell`. Allowed under `Any` only (needs both lending open and stake removal; Staking / NonTransfer are excluded so existing delegates cannot open loans).
   * Every other proxy type is denied, `NonCritical` and `NonFungible` included. `NonCritical` grants stake management but not lending; that matches PR #3268's filters.
 * A proxy can never redirect funds: there is no `to`/`beneficiary` parameter on any lending call.
 

@@ -186,4 +186,9 @@ DESCRIPTIONS: dict[str, str] = {
         "the rules they opened under; upgrade the node or wait for a runtime that supports "
         "that version before closing, repaying, or settling it."
     ),
+    "ExpiryScheduleCongested": (
+        "Too many distinct loan expiry deadlines sit ahead of this open or roll for a "
+        "fixed-weight insert. Wait for earlier loans to expire, or use a later term so the "
+        "new deadline appends instead of walking mid-list."
+    ),
 }

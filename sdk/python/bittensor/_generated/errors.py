@@ -519,4 +519,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (34, 39): ErrorInfo('Lending', 'PrincipalExceedsTaoIn', 'Long principal is not strictly less than pool TAO in.'),
     (34, 40): ErrorInfo('Lending', 'CollateralExceedsMax', 'Raise / open collateral exceeds the caller’s max collateral cap.'),
     (34, 41): ErrorInfo('Lending', 'UnsupportedTermsVersion', 'Position carries a `terms_version` this runtime does not implement.'),
+    (34, 42): ErrorInfo('Lending', 'ExpiryScheduleCongested', 'Expiry-bucket linked list is too deep for a fixed-weight open/roll insert (mid-list walk exceeded [`MAX_EXPIRY_BUCKET_WALK`]). Retry after attrition drains earlier expiries, or open with a later term.'),
 }

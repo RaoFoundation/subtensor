@@ -152,6 +152,7 @@
     "ExpectedBeneficiaryOrigin",
     "Expendability",
     "ExpiredWeightCommit",
+    "ExpiryScheduleCongested",
     "FailedToExtractRuntimeVersion",
     "FailedToSchedule",
     "FaucetDisabled",
