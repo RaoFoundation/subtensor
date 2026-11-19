@@ -40,6 +40,11 @@ parameter_types! {
     pub static MinLoanValue: u64 = 1;
     /// Production is 25_200; tests use a short window so age cases stay cheap.
     pub const YoungShortWindow: u64 = 100;
+    /// Matches BlocksPerYear in tests so open-term assertions stay cheap; production
+    /// uses 216_000 (~30 days) while BlocksPerYear stays ~one year.
+    pub const TestMaxLoanDuration: u64 = 520;
+    /// Small so queue-bounding tests can exhaust the on_initialize cap.
+    pub const TestMaxExpirySettlements: u32 = 2;
 }
 
 impl Config for Test {
@@ -48,6 +53,7 @@ impl Config for Test {
     type MinimumLoanValue = MinLoanValue;
     type InterestPeriod = ConstU64<10>;
     type BlocksPerYear = ConstU64<520>;
+    type MaxLoanDuration = TestMaxLoanDuration;
     type ReferenceWarmup = ConstU64<1>;
     type MaxPositionsPerSubnet = ConstU32<8>;
     type MaxTotalPositions = ConstU32<16>;
@@ -57,6 +63,7 @@ impl Config for Test {
     type InterestRetryDelay = ConstU64<100>;
     // Short window so band-force tests stay cheap (2× ExpiryRetryDelay).
     type MaxSettlementDeferral = ConstU64<200>;
+    type MaxExpirySettlementsPerBlock = TestMaxExpirySettlements;
     type YoungShortSettlementWindow = YoungShortWindow;
     type WeightInfo = ();
 }
@@ -1056,15 +1063,22 @@ fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
             Error::<Test>::SideCapacity
         );
         // Exhaust collateral on the next interest charge → forfeit on open path.
+        // Stay strictly before expires_at (MaxLoanDuration); terms v2 rejects
+        // increases at/after expiry with DeadlinePassed.
         let now = System::block_number();
+        let before_expiry = opened.expires_at.saturating_sub(1);
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(pos) = p {
-                pos.annual_interest = opened.collateral.saturating_mul(2).max(1);
+                // One block of accrual at this coupon covers > collateral.
+                pos.annual_interest = opened
+                    .collateral
+                    .saturating_mul(pos.blocks_per_year.saturating_add(1))
+                    .max(1);
                 pos.interest_remainder = 0;
-                pos.last_accrued = 0;
+                pos.last_accrued = before_expiry.saturating_sub(1).max(now);
             }
         });
-        System::set_block_number(now.saturating_add(520));
+        System::set_block_number(before_expiry.max(now.saturating_add(1)));
         mint_tao(&owner, 10_000_000_000_000);
         let add = 50_000_000_000u64;
         let quoted = Lending::quote_open_for(&owner, netuid(), Side::Short, add, None)
@@ -3591,7 +3605,7 @@ fn fixed_term_expiry_closes_at_spot_not_reference_ema() {
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
         let opened_at = System::block_number();
-        let term = 520u64; // Test Config::BlocksPerYear
+        let term = TestMaxLoanDuration::get();
         assert_eq!(position.expires_at, opened_at.saturating_add(term));
         assert!(Expiry::<Test>::contains_key(
             position.expires_at,
@@ -4446,7 +4460,7 @@ fn closing_expiry_head_clears_bucket_cursor_so_successor_still_settles() {
         let head_exp = Positions::<Test>::get(&head_a, netuid())
             .unwrap()
             .expires_at;
-        // Open one block later → expires_at is head_exp+1 (BlocksPerYear from now).
+        // Open one block later → expires_at is head_exp+1 (MaxLoanDuration from now).
         System::set_block_number(System::block_number().saturating_add(1));
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(next_o.clone()),
@@ -4493,7 +4507,7 @@ fn closing_expiry_head_clears_bucket_cursor_so_successor_still_settles() {
 }
 
 #[test]
-fn fixed_term_partial_repay_keeps_expiry_after_increase_restart() {
+fn fixed_term_partial_repay_keeps_expiry_after_increase() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let hotkey = account(2);
@@ -4510,7 +4524,7 @@ fn fixed_term_partial_repay_keeps_expiry_after_increase_restart() {
             deadline(),
         ));
         let first = Positions::<Test>::get(&owner, netuid()).unwrap();
-        // Advance, then increase — term restarts (Skeptic short near-expiry drain).
+        // Advance, then increase — terms v2 keeps the original expires_at.
         System::set_block_number(System::block_number().saturating_add(20));
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
@@ -4524,11 +4538,11 @@ fn fixed_term_partial_repay_keeps_expiry_after_increase_restart() {
             deadline(),
         ));
         let after_add = Positions::<Test>::get(&owner, netuid()).unwrap();
-        assert!(after_add.expires_at > first.expires_at);
+        assert_eq!(after_add.expires_at, first.expires_at);
         assert!(after_add.principal > first.principal);
         let expires_at = after_add.expires_at;
 
-        // Partial repay leaves the (possibly restarted) expires_at unchanged.
+        // Partial repay also leaves expires_at unchanged.
         let half = after_add.principal / 2;
         mint_alpha(&owner, &hotkey, netuid(), half);
         assert_ok!(Lending::repay(
@@ -4547,7 +4561,7 @@ fn fixed_term_partial_repay_keeps_expiry_after_increase_restart() {
 }
 
 #[test]
-fn long_collateral_top_up_restarts_fixed_term() {
+fn long_collateral_top_up_preserves_fixed_term() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let hotkey = account(2);
@@ -4567,8 +4581,8 @@ fn long_collateral_top_up_restarts_fixed_term() {
         let opened_at = System::block_number();
         assert_eq!(
             first.expires_at,
-            opened_at.saturating_add(520),
-            "term = BlocksPerYear"
+            opened_at.saturating_add(TestMaxLoanDuration::get()),
+            "term = MaxLoanDuration"
         );
         System::set_block_number(opened_at.saturating_add(100));
         mint_alpha(&owner, &hotkey, netuid(), 20_000_000_000_000);
@@ -4584,28 +4598,20 @@ fn long_collateral_top_up_restarts_fixed_term() {
             deadline(),
         ));
         let after = Positions::<Test>::get(&owner, netuid()).unwrap();
-        let now = System::block_number();
         assert_eq!(
-            after.expires_at,
-            now.saturating_add(520),
-            "long collateral top-up must restart the term"
+            after.expires_at, first.expires_at,
+            "long collateral top-up must preserve expires_at"
         );
-        assert!(after.expires_at > first.expires_at);
-        assert!(!Expiry::<Test>::contains_key(
-            first.expires_at,
-            (&owner, netuid())
-        ));
         assert!(Expiry::<Test>::contains_key(
-            after.expires_at,
+            first.expires_at,
             (&owner, netuid())
         ));
     });
 }
 
-/// Skeptic: short increases must restart the term so fresh principal sold at
-/// live spot cannot inherit an imminent EMA settlement below that sale.
+/// Terms v2: short increases keep the original MaxLoanDuration clock.
 #[test]
-fn short_increase_restarts_fixed_term() {
+fn short_increase_preserves_fixed_term() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let _hotkey = account(2);
@@ -4623,7 +4629,10 @@ fn short_increase_restarts_fixed_term() {
         ));
         let first = Positions::<Test>::get(&owner, netuid()).unwrap();
         let opened_at = System::block_number();
-        assert_eq!(first.expires_at, opened_at.saturating_add(520));
+        assert_eq!(
+            first.expires_at,
+            opened_at.saturating_add(TestMaxLoanDuration::get())
+        );
         System::set_block_number(opened_at.saturating_add(100));
         mint_tao(&owner, 20_000_000_000_000);
         assert_ok!(Lending::open(
@@ -4638,29 +4647,20 @@ fn short_increase_restarts_fixed_term() {
             deadline(),
         ));
         let after = Positions::<Test>::get(&owner, netuid()).unwrap();
-        let now = System::block_number();
         assert_eq!(
-            after.expires_at,
-            now.saturating_add(520),
-            "short increase must restart the term"
+            after.expires_at, first.expires_at,
+            "short increase must preserve expires_at"
         );
-        assert!(after.expires_at > first.expires_at);
-        assert!(!Expiry::<Test>::contains_key(
-            first.expires_at,
-            (&owner, netuid())
-        ));
         assert!(Expiry::<Test>::contains_key(
-            after.expires_at,
+            first.expires_at,
             (&owner, netuid())
         ));
     });
 }
 
-/// Skeptic fid:b7bc4c4b — renewing a deferred past-expiry loan must reset
-/// `last_accrued` to the renew block so the deferral gap is not re-charged
-/// (especially at the increased annual_interest).
+/// Terms v2: an increase at or after expiry is rejected (no renewal).
 #[test]
-fn increase_after_deferred_expiry_resets_last_accrued() {
+fn increase_at_or_after_expiry_is_rejected() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         mint_tao(&owner, 100_000_000_000_000);
@@ -4676,175 +4676,26 @@ fn increase_after_deferred_expiry_resets_last_accrued() {
             deadline(),
         ));
         let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
-        let old_expires = snap.expires_at;
-        let annual_before = snap.annual_interest;
-        // Simulate band-deferred past expiry: accrued through term end, head
-        // well past expires_at, settle still pending.
-        let past = old_expires.saturating_add(5_000);
-        Positions::<Test>::mutate(&owner, netuid(), |p| {
-            if let Some(p) = p {
-                p.last_accrued = old_expires;
-                p.interest_remainder = 0;
-                p.expiry_due = past.saturating_sub(100);
-            }
-        });
-        System::set_block_number(past);
-        mint_tao(&owner, 20_000_000_000_000);
-        assert_ok!(Lending::open(
-            RuntimeOrigin::signed(owner.clone()),
-            netuid(),
-            Side::Short,
-            2_000_000_000_000,
-            None,
-            1,
-            0,
-            0,
-            deadline(),
-        ));
-        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
-        assert_eq!(
-            after.last_accrued, past,
-            "renew must advance last_accrued to the renew block"
-        );
-        assert!(after.expires_at > old_expires);
-        assert!(after.annual_interest > annual_before);
-
-        // One more block after renew: close quote interest must be ~1 block of
-        // the new coupon, not the multi-thousand-block deferral gap.
-        System::set_block_number(past.saturating_add(1));
-        let quoted = Lending::quote_close(&owner, netuid(), None, true).unwrap();
-        let year = u128::from(after.blocks_per_year);
-        let one_block = (u128::from(after.annual_interest) / year + 1) as u64;
-        let gap_blocks = u128::from(past.saturating_sub(old_expires).saturating_add(1));
-        let gap_charge = (u128::from(after.annual_interest) * gap_blocks / year + 1) as u64;
-        let interest_taken = after
-            .collateral
-            .saturating_add(after.proceeds)
-            .saturating_sub(quoted.refund);
-        assert!(
-            interest_taken <= one_block.saturating_add(1),
-            "post-renew interest {interest_taken} must not include deferral gap (~{gap_charge})"
-        );
-        assert!(
-            interest_taken < gap_charge / 10,
-            "deferral gap must not be charged"
-        );
-    });
-}
-
-/// Skeptic fid:f40d8fd2 — renewing after a band deferral must clear
-/// `BandDeferralSince` so the new term does not inherit a force-settle stamp.
-#[test]
-fn increase_after_band_deferral_clears_band_stamp() {
-    new_test_ext().execute_with(|| {
-        let owner = account(1);
-        mint_tao(&owner, 100_000_000_000_000);
-        assert_ok!(Lending::open(
-            RuntimeOrigin::signed(owner.clone()),
-            netuid(),
-            Side::Short,
-            10_000_000_000_000,
-            None,
-            1,
-            1,
-            0,
-            deadline(),
-        ));
-        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
-        Positions::<Test>::mutate(&owner, netuid(), |p| {
-            if let Some(p) = p {
-                p.last_accrued = snap.expires_at;
-            }
-        });
-        // Pump spot outside the 15% EMA band, then hit expiry → defer.
-        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 20);
-        let ema = References::<Test>::get(netuid()).unwrap().price;
-        let spot = MockPool::price();
-        let ceiling = ema.saturating_mul(U64F64::from_num(11_500u32)) / U64F64::from_num(10_000u32);
-        assert!(spot > ceiling, "precondition: spot outside band");
-
         System::set_block_number(snap.expires_at);
-        let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(snap.expires_at, &mut meter);
-        assert!(Positions::<Test>::contains_key(&owner, netuid()));
-        let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
-        assert!(LastDeferral::<Test>::get(&owner, netuid()).is_some());
-
-        // Renew past the old force window. Restore depth so the increase can
-        // size; the EMA reference is left alone so a later thin still lands
-        // outside the band.
-        let renew_at = since
-            .saturating_add(<<Test as Config>::MaxSettlementDeferral as Get<u64>>::get())
-            .saturating_add(50);
-        System::set_block_number(renew_at);
-        write(
-            &key(b"test/pool_alpha", netuid()),
-            pool_alpha().saturating_mul(20),
-        );
         mint_tao(&owner, 20_000_000_000_000);
-        assert_ok!(Lending::open(
-            RuntimeOrigin::signed(owner.clone()),
-            netuid(),
-            Side::Short,
-            2_000_000_000_000,
-            None,
-            1,
-            0,
-            0,
-            deadline(),
-        ));
-        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
-        assert!(after.expires_at > snap.expires_at);
-        assert!(
-            BandDeferralSince::<Test>::get(&owner, netuid()).is_none(),
-            "renew must clear the inherited band stamp"
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                2_000_000_000_000,
+                None,
+                1,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::DeadlinePassed
         );
-        assert!(
-            LastDeferral::<Test>::get(&owner, netuid()).is_none(),
-            "renew must clear the stale deferral marker"
-        );
-
-        // At the new expiry, thin again so spot is outside the (unchanged) EMA
-        // band: must defer again (not force-settle from the cleared stamp).
-        Positions::<Test>::mutate(&owner, netuid(), |p| {
-            if let Some(p) = p {
-                p.last_accrued = after.expires_at;
-            }
-        });
-        write(&key(b"test/pool_alpha", netuid()), pool_alpha() / 20);
-        let ema = References::<Test>::get(netuid()).unwrap().price;
-        let spot = MockPool::price();
-        let ceiling = ema.saturating_mul(U64F64::from_num(11_500u32)) / U64F64::from_num(10_000u32);
-        assert!(
-            spot > ceiling,
-            "precondition at new expiry: spot outside band"
-        );
-        System::set_block_number(after.expires_at);
-        System::reset_events();
-        let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(after.expires_at, &mut meter);
-        assert!(
-            Positions::<Test>::contains_key(&owner, netuid()),
-            "new-term outside-band expiry must defer"
-        );
-        assert!(
-            System::events().into_iter().any(|e| matches!(
-                e.event,
-                RuntimeEvent::Lending(Event::SettlementDeferred { .. })
-            )),
-            "must emit SettlementDeferred on the renewed term"
-        );
-        assert!(
-            System::events().into_iter().all(|e| !matches!(
-                e.event,
-                RuntimeEvent::Lending(Event::Forfeited { .. } | Event::Expired { .. })
-            )),
-            "must not force-settle from a stale BandDeferralSince"
-        );
-        let new_since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("fresh stamp");
-        assert!(
-            new_since >= after.expires_at,
-            "fresh band stamp must start at the new-term deferral"
+        assert!(Positions::<Test>::contains_key(&owner, netuid()));
+        assert_eq!(
+            Positions::<Test>::get(&owner, netuid()).unwrap().expires_at,
+            snap.expires_at
         );
     });
 }
@@ -4954,7 +4805,7 @@ fn fixed_term_expiry_is_bounded_by_weight() {
         // Room for exactly one settle; second settle must fail the meter.
         let budget = one.saturating_add(Weight::from_parts(1, 0));
         let mut meter = WeightMeter::with_limit(budget);
-        Lending::collect_expiry(expires_at, &mut meter);
+        Lending::collect_expiry(expires_at, &mut meter, u32::MAX);
         let remaining_after_partial = Positions::<Test>::iter().count();
         assert!(
             remaining_after_partial > 0 && remaining_after_partial < usize::from(n),
@@ -4963,7 +4814,7 @@ fn fixed_term_expiry_is_bounded_by_weight() {
 
         // Finish with full weight.
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(expires_at, &mut meter);
+        Lending::collect_expiry(expires_at, &mut meter, u32::MAX);
         assert_eq!(Positions::<Test>::iter().count(), 0);
         assert_eq!(ExpiryIndex::<Test>::get(expires_at), 0);
     });
@@ -5144,7 +4995,7 @@ fn short_exit(mv: PriceMove, path: ExitPath) -> (ExitOutcome, (u64, u64)) {
         match path {
             ExitPath::Expiry => {
                 let mut meter = WeightMeter::with_limit(Weight::MAX);
-                Lending::collect_expiry(position.expires_at, &mut meter);
+                Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
                 let (_, _, _, sa, st) = expired_event(&owner);
                 shortfalls = (sa, st);
             }
@@ -5201,7 +5052,7 @@ fn long_exit(mv: PriceMove, path: ExitPath) -> (ExitOutcome, (u64, u64)) {
         match path {
             ExitPath::Expiry => {
                 let mut meter = WeightMeter::with_limit(Weight::MAX);
-                Lending::collect_expiry(position.expires_at, &mut meter);
+                Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
                 let (_, _, _, sa, st) = expired_event(&owner);
                 shortfalls = (sa, st);
             }
@@ -5427,7 +5278,7 @@ fn underwater_short_expiry_when_principal_exceeds_pool_alpha() {
         System::set_block_number(position.expires_at);
         System::reset_events();
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(position.expires_at, &mut meter);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
 
         assert_eq!(tao(&owner), wallet_before);
         assert_no_expiry_retry_left(&owner);
@@ -5498,7 +5349,7 @@ fn insolvent_long_expiry_forfeits_no_retry() {
         System::set_block_number(position.expires_at);
         System::reset_events();
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(position.expires_at, &mut meter);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
 
         assert_no_expiry_retry_left(&owner);
         assert!(
@@ -5683,7 +5534,7 @@ fn long_expiry_forfeits_when_fees_make_escrow_insolvent() {
         System::set_block_number(position.expires_at);
         System::reset_events();
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(position.expires_at, &mut meter);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
 
         assert!(
             System::events()
@@ -5738,7 +5589,7 @@ fn expiry_squeeze_outside_ema_band_defers_settlement() {
         System::set_block_number(position.expires_at);
         System::reset_events();
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(position.expires_at, &mut meter);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
 
         assert!(
             Positions::<Test>::contains_key(&owner, netuid()),
@@ -5973,7 +5824,7 @@ fn band_deferral_stops_interest_accrual_at_expires_at() {
         });
         System::set_block_number(snap.expires_at);
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(snap.expires_at, &mut meter);
+        Lending::collect_expiry(snap.expires_at, &mut meter, u32::MAX);
         assert!(
             Positions::<Test>::contains_key(&owner, netuid()),
             "must defer outside the band"
@@ -6076,7 +5927,7 @@ fn expiry_band_deferral_bound_forces_settlement() {
 
         System::set_block_number(position.expires_at);
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(position.expires_at, &mut meter);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
         assert!(Positions::<Test>::contains_key(&owner, netuid()));
         let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
         let force_at =
@@ -6184,7 +6035,7 @@ fn within_band_forfeit_buyback_restores_k_or_records_shortfall() {
         System::set_block_number(position.expires_at);
         System::reset_events();
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(position.expires_at, &mut meter);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
 
         assert_no_expiry_retry_left(&owner);
         assert!(
@@ -6275,7 +6126,7 @@ fn forfeit_in_band_under_recovery_burns_zero_records_shortfall() {
         System::set_block_number(position.expires_at);
         System::reset_events();
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(position.expires_at, &mut meter);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
         assert!(
             System::events()
                 .into_iter()
@@ -6357,7 +6208,7 @@ fn forfeit_extreme_forced_settle_records_shortfall() {
 
         System::set_block_number(snap.expires_at);
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(snap.expires_at, &mut meter);
+        Lending::collect_expiry(snap.expires_at, &mut meter, u32::MAX);
         assert!(
             Positions::<Test>::contains_key(&owner, netuid()),
             "must defer outside the band"
@@ -6519,7 +6370,7 @@ fn expiry_k_neutral_burn_restores_l_at_half_weight() {
         System::set_block_number(position.expires_at);
         System::reset_events();
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(position.expires_at, &mut meter);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
         let _ = expired_event(&owner);
 
         assert_eq!(quote_weight_parts(), w_before, "w_q unchanged");
@@ -9669,7 +9520,7 @@ fn per_loan_burn_no_first_last_closer_advantage() {
 #[test]
 fn terms_version_snapshotted_at_open_and_kept_on_raise() {
     new_test_ext().execute_with(|| {
-        assert_eq!(CurrentTermsVersion::<Test>::get(), TERMS_VERSION_V1);
+        assert_eq!(CurrentTermsVersion::<Test>::get(), TERMS_VERSION_V2);
         let owner = account(1);
         let hotkey = account(2);
         mint_alpha(&owner, &hotkey, netuid(), 200_000_000_000_000);
@@ -9685,7 +9536,7 @@ fn terms_version_snapshotted_at_open_and_kept_on_raise() {
             deadline(),
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
-        assert_eq!(position.terms_version, TERMS_VERSION_V1);
+        assert_eq!(position.terms_version, TERMS_VERSION_V2);
         assert_eq!(position.interest_period, 10u64);
         assert_eq!(position.blocks_per_year, 520u64);
 
@@ -9705,7 +9556,7 @@ fn terms_version_snapshotted_at_open_and_kept_on_raise() {
             deadline(),
         ));
         let after = Positions::<Test>::get(&owner, netuid()).unwrap();
-        assert_eq!(after.terms_version, TERMS_VERSION_V1);
+        assert_eq!(after.terms_version, TERMS_VERSION_V2);
         assert_eq!(after.interest_period, position.interest_period);
         assert_eq!(after.blocks_per_year, position.blocks_per_year);
 
@@ -10245,7 +10096,7 @@ fn multi_loan_and_forfeit_emission_offsets() {
         });
         System::set_block_number(position.expires_at);
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        Lending::collect_expiry(position.expires_at, &mut meter);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
         assert!(
             !Positions::<Test>::contains_key(&a, netuid()),
             "long must be cleared by forfeit/expiry"
@@ -10610,7 +10461,9 @@ fn old_short_dissolution_keeps_rate_r() {
         let free_before = tao(&owner);
         assert_ok!(Lending::start_dissolution(netuid()));
         let frozen = Dissolutions::<Test>::get(netuid()).unwrap().frozen_at;
-        let opened_at = position.expires_at.saturating_sub(position.blocks_per_year);
+        let opened_at = position
+            .expires_at
+            .saturating_sub(TestMaxLoanDuration::get());
         assert!(
             frozen.saturating_sub(opened_at) >= YoungShortWindow::get(),
             "fixture must be at/past the young window"
@@ -10676,7 +10529,9 @@ fn young_short_boundary_exactly_window_uses_r() {
         let free_before = tao(&owner);
         assert_ok!(Lending::start_dissolution(netuid()));
         let frozen = Dissolutions::<Test>::get(netuid()).unwrap().frozen_at;
-        let opened_at = position.expires_at.saturating_sub(position.blocks_per_year);
+        let opened_at = position
+            .expires_at
+            .saturating_sub(TestMaxLoanDuration::get());
         assert_eq!(frozen.saturating_sub(opened_at), YoungShortWindow::get());
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
@@ -10693,5 +10548,305 @@ fn young_short_boundary_exactly_window_uses_r() {
             refund.abs_diff(expected_refund) <= tol,
             "boundary age==window must use r: got={refund} expected={expected_refund}"
         );
+    });
+}
+
+#[test]
+fn max_loan_duration_open_enqueues_and_emits_loan_expired_on_settle() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        let opened_at = System::block_number();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(position.terms_version, TERMS_VERSION_V2);
+        assert_eq!(
+            position.expires_at,
+            opened_at.saturating_add(TestMaxLoanDuration::get())
+        );
+        assert!(Expiry::<Test>::contains_key(
+            position.expires_at,
+            (&owner, netuid())
+        ));
+
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_initialize(position.expires_at);
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::LoanExpired {
+                    expires_at,
+                    settled_at,
+                    ..
+                }) if expires_at == position.expires_at && settled_at == position.expires_at
+            )),
+            "expiry must emit LoanExpired"
+        );
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Expired { .. } | Event::Forfeited { .. })
+            )),
+            "expiry must also emit Expired or Forfeited accounting"
+        );
+    });
+}
+
+#[test]
+fn long_expires_exactly_at_max_loan_duration() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 100_000_000_000_000);
+        let opened_at = System::block_number();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            5_000_000_000_000,
+            Some(hotkey),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let expires_at = Positions::<Test>::get(&owner, netuid()).unwrap().expires_at;
+        assert_eq!(
+            expires_at,
+            opened_at.saturating_add(TestMaxLoanDuration::get())
+        );
+        System::set_block_number(expires_at);
+        let _ = <Lending as Hooks<_>>::on_initialize(expires_at);
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
+#[test]
+fn on_initialize_expiry_respects_max_settlements_per_block() {
+    new_test_ext().execute_with(|| {
+        let n = 5u8;
+        assert!(u32::from(n) > TestMaxExpirySettlements::get());
+        for i in 0..n {
+            let owner = account(20 + i);
+            mint_tao(&owner, 50_000_000_000_000);
+            assert_ok!(Lending::open(
+                RuntimeOrigin::signed(owner),
+                netuid(),
+                Side::Short,
+                5_000_000_000_000,
+                None,
+                1,
+                1,
+                0,
+                deadline(),
+            ));
+        }
+        let expires_at = Positions::<Test>::iter()
+            .next()
+            .map(|(_, _, p)| p.expires_at)
+            .unwrap();
+        assert_eq!(ExpiryIndex::<Test>::get(expires_at), u32::from(n));
+
+        System::set_block_number(expires_at);
+        let _ = <Lending as Hooks<_>>::on_initialize(expires_at);
+        let left = Positions::<Test>::iter().count() as u32;
+        let settled = u32::from(n).saturating_sub(left);
+        assert_eq!(
+            settled,
+            TestMaxExpirySettlements::get(),
+            "on_initialize must settle exactly the per-block cap"
+        );
+        assert!(ExpiryBucketCursor::<Test>::get().is_some() || left > 0);
+
+        // Next block finishes the remainder (cap again, then idle/full).
+        let next = expires_at.saturating_add(1);
+        System::set_block_number(next);
+        let _ = <Lending as Hooks<_>>::on_initialize(next);
+        let _ = <Lending as Hooks<_>>::on_idle(next, Weight::MAX);
+        assert_eq!(Positions::<Test>::iter().count(), 0);
+    });
+}
+
+#[test]
+fn reopen_after_expiry_starts_fresh_max_loan_clock() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 200_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let first_expires = Positions::<Test>::get(&owner, netuid()).unwrap().expires_at;
+        System::set_block_number(first_expires);
+        let _ = <Lending as Hooks<_>>::on_initialize(first_expires);
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+
+        let reopen_at = first_expires.saturating_add(3);
+        System::set_block_number(reopen_at);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let second = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(second.terms_version, TERMS_VERSION_V2);
+        assert_eq!(
+            second.expires_at,
+            reopen_at.saturating_add(TestMaxLoanDuration::get())
+        );
+        assert!(second.expires_at > first_expires);
+    });
+}
+
+fn max_duration_migration_key() -> BoundedVec<u8, ConstU32<128>> {
+    BoundedVec::truncate_from(b"migrate_position_max_duration_v1".to_vec())
+}
+
+#[test]
+fn position_max_duration_migration_rewrites_and_is_idempotent() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let before = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let old_expires = before.expires_at;
+        // Mark as legacy terms v1 and stamp a stale band deferral.
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.terms_version = TERMS_VERSION_V1;
+            }
+        });
+        BandDeferralSince::<Test>::insert(&owner, netuid(), 11u64);
+        LastDeferral::<Test>::insert(&owner, netuid(), (1u8, 12u64, BoundedVec::default()));
+        CurrentTermsVersion::<Test>::put(TERMS_VERSION_V1);
+        HasMigrationRun::<Test>::remove(max_duration_migration_key());
+
+        // Advance so migration_block + MaxLoanDuration differs from the open clock.
+        System::set_block_number(System::block_number().saturating_add(50));
+        let mig_block = System::block_number();
+        let _ = migrations::migrate_position_max_duration::<Test>();
+        assert!(HasMigrationRun::<Test>::get(max_duration_migration_key()));
+        assert_eq!(CurrentTermsVersion::<Test>::get(), TERMS_VERSION_V2);
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let want = mig_block.saturating_add(TestMaxLoanDuration::get());
+        assert_eq!(after.terms_version, TERMS_VERSION_V2);
+        assert_eq!(after.expires_at, want);
+        assert_eq!(after.expiry_due, want);
+        assert_eq!(after.principal, before.principal);
+        assert!(Expiry::<Test>::contains_key(want, (&owner, netuid())));
+        if old_expires != want {
+            assert!(!Expiry::<Test>::contains_key(
+                old_expires,
+                (&owner, netuid())
+            ));
+        }
+        assert!(BandDeferralSince::<Test>::get(&owner, netuid()).is_none());
+        assert!(LastDeferral::<Test>::get(&owner, netuid()).is_none());
+
+        // Idempotent.
+        let _ = migrations::migrate_position_max_duration::<Test>();
+        assert_eq!(
+            Positions::<Test>::get(&owner, netuid()).unwrap().expires_at,
+            want
+        );
+    });
+}
+
+#[cfg(feature = "try-runtime")]
+#[test]
+fn position_max_duration_migration_try_runtime_checks_pass() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.terms_version = TERMS_VERSION_V1;
+            }
+        });
+        CurrentTermsVersion::<Test>::put(TERMS_VERSION_V1);
+        HasMigrationRun::<Test>::remove(max_duration_migration_key());
+
+        let state =
+            <migrations::PositionMaxDurationMigration<Test> as OnRuntimeUpgrade>::pre_upgrade()
+                .expect("pre_upgrade");
+        let _ = <migrations::PositionMaxDurationMigration<Test> as OnRuntimeUpgrade>::on_runtime_upgrade(
+        );
+        assert_ok!(
+            <migrations::PositionMaxDurationMigration<Test> as OnRuntimeUpgrade>::post_upgrade(
+                state
+            )
+        );
+    });
+}
+
+#[test]
+fn young_short_v2_opened_at_uses_max_loan_duration() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        let open_block = System::block_number();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(position.terms_version, TERMS_VERSION_V2);
+        let opened_at = position
+            .expires_at
+            .saturating_sub(TestMaxLoanDuration::get());
+        assert_eq!(opened_at, open_block);
     });
 }

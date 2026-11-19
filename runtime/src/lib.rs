@@ -281,7 +281,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
     // Above mainnet tip (488) so a real upgrade from main never rolls version back.
-    spec_version: 490,
+    spec_version: 491,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1528,6 +1528,9 @@ parameter_types! {
     // 50_400 ≈ 7 days at 12 s blocks.
     pub const LendingInterestPeriod: BlockNumber = 50_400;
     pub const LendingBlocksPerYear: u64 = 2_628_000; // ~12s blocks
+    /// Hard max loan lifetime (~30 days at 12 s). New opens expire after this;
+    /// increases never extend (Jacob 2026-11-19).
+    pub const LendingMaxLoanDuration: BlockNumber = 216_000;
     pub const LendingReferenceWarmup: BlockNumber = 7_200; // ~24h
     pub const LendingMaxPositionsPerSubnet: u32 = 10_000;
     pub const LendingMaxTotalPositions: u32 = 1_000_000;
@@ -1539,6 +1542,8 @@ parameter_types! {
     // forfeit (~7 days at 12 s). Longer than settle_ema_blocks (24 h) so a
     // sustained pump through forced settle is far costlier (N28 / Jacob).
     pub const LendingMaxSettlementDeferral: BlockNumber = 50_400;
+    /// Bounded expiry drain per `on_initialize` (normal + deferred attempts).
+    pub const LendingMaxExpirySettlementsPerBlock: u32 = 16;
     /// Young-short dissolution window: shorts younger than this settle debt at
     /// `max(r, P_open)` (~3.5 days at 12 s). Older shorts keep full dereg at `r`.
     pub const LendingYoungShortSettlementWindow: BlockNumber = 25_200;
@@ -1550,12 +1555,14 @@ impl pallet_lending::Config for Runtime {
     type MinimumLoanValue = LendingMinimumLoanValue;
     type InterestPeriod = LendingInterestPeriod;
     type BlocksPerYear = LendingBlocksPerYear;
+    type MaxLoanDuration = LendingMaxLoanDuration;
     type ReferenceWarmup = LendingReferenceWarmup;
     type MaxPositionsPerSubnet = LendingMaxPositionsPerSubnet;
     type MaxTotalPositions = LendingMaxTotalPositions;
     type ExpiryRetryDelay = LendingExpiryRetryDelay;
     type InterestRetryDelay = LendingInterestRetryDelay;
     type MaxSettlementDeferral = LendingMaxSettlementDeferral;
+    type MaxExpirySettlementsPerBlock = LendingMaxExpirySettlementsPerBlock;
     type YoungShortSettlementWindow = LendingYoungShortSettlementWindow;
     type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
 }
@@ -1913,6 +1920,9 @@ type Migrations = (
     pallet_lending::migrations::ResetN24ShortfallCountersMigration<Runtime>,
     // v5.8: append LiftBook.short_sold_alpha for net-long emission.
     pallet_lending::migrations::LiftBookShortSoldMigration<Runtime>,
+    // Hard 30-day MaxLoanDuration: rewrite live rows to terms v2, rebuild
+    // expiry queues, clear stale band-deferral stamps (mainnet has none).
+    pallet_lending::migrations::PositionMaxDurationMigration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -3020,7 +3030,7 @@ impl_runtime_apis! {
         fn current_terms_version() -> u16 {
             let v = pallet_lending::CurrentTermsVersion::<Runtime>::get();
             if v == 0 {
-                pallet_lending::TERMS_VERSION_V1
+                pallet_lending::TERMS_VERSION_V2
             } else {
                 v
             }

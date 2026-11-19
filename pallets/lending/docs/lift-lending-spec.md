@@ -1,8 +1,20 @@
-# Lift-based lending on main's Balancer pools: final spec (v5.8: net-long emission, 1 τ min loan, young-short dereg)
-**Version:** v5.8, 2026-11-09. Encodes Jacob's locked decisions as of 2026-10-20 (term locked that day; EMA band added 2026-10-28; settlement band + forfeit buyback 2026-11-03; emission-price exclusion 2026-11-05; net-long emission + 1 τ min loan + young-short dereg 2026-11-09). Supersedes v5.7 (emission minus the longs), v5.6 (settlement band + forfeit buyback), v5.5 (health accumulators + versioned terms), v5.4 (2026-10-28, kept as `lift-lending-spec.v5.4-backup-20261103.md` when archived), v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
+# Lift-based lending on main's Balancer pools: final spec (v5.9: hard 30-day max loan duration)
+**Version:** v5.9, 2026-11-19. Encodes Jacob's locked decisions as of 2026-10-20 (EMA band 2026-10-28; settlement band + forfeit buyback 2026-11-03; emission-price exclusion 2026-11-05; net-long emission + 1 τ min loan + young-short dereg 2026-11-09; **hard 30-day MaxLoanDuration / terms v2 2026-11-19**). Supersedes v5.8 (net-long emission), v5.7 (emission minus the longs), v5.6 (settlement band + forfeit buyback), v5.5 (health accumulators + versioned terms), v5.4 (2026-10-28, kept as `lift-lending-spec.v5.4-backup-20261103.md` when archived), v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
 **Target:** RaoFoundation/subtensor `main` @ 7ba9601d (2026-10-15 15:53 CT). PR #3211 is a parts bin only (§11).
 **Numbers:** live chain state at block 9,298,539 (2026-10-16), with real `Swap.SwapBalancer` weights; P&L uses the same 117-subnet bootstrap paths as before.
 **Files:** scripts `lending-pnl/{final,final2,final3,sim_final2,pnl_final2,plot11}.py`; data `data/final*.{json,csv}` (floor sweep: `data/final3.json`, `data/final3_pnl.csv`), `data/balancer_now.json`; figure `fig11_final.png`. v5 additions: `lift-lending-raise/calc.py` + `res.json` (escrowed-long impacts, raise example); companion implementer notes `lift-lending-raise-cli.md`; v5.1: `lift-lending-dereg/calc.py` + `res.json` (dereg settlement examples); why not zero-loss LTV: `zero-loss-ltv-example.md`; v5.2: `sn29-analysis.md` + `sn29/calc.py` → `res.json` (`r`-pump attack and fix numbers); v5.3: `lending-pnl/sim_final4.py` (escrowed-long books, same seeds and paths as `sim_final2.py`) + `lending-pnl/final4.py` → `data/final4.json`, `data/final4_pnl.csv`, `data/final4_long_default.csv` (thin floor on, tier LTV, escrowed-long P&L); `lift-lending-raise/calc.py` → `res.json` key `v53_raise_table` (raise tables, thin-tier mirrors).
+
+## Changelog: v5.9 vs v5.8
+* **2026-11-19: hard 30-day maximum loan duration (Jacob).** So the protocol can always fully unwind lending by waiting 30 days.
+  * `Config::MaxLoanDuration = 216_000` blocks (~30 days at 12 s). `#[pallet::constant]` like the other duration caps.
+  * Terms **v2**: new opens set `expires_at = now + MaxLoanDuration` and enqueue the existing `Expiry` schedule. `CurrentTermsVersion` defaults to 2.
+  * **No renewal / extension.** Increases and partial repay preserve the original `expires_at`. An increase at or after expiry returns `DeadlinePassed`. After the old position settles, the owner may open a fresh position under a new 30-day clock (normal checks / caps).
+  * **Mandatory bounded `on_initialize`:** at most `MaxExpirySettlementsPerBlock` (production **16**) normal + deferred expiry attempts per block; remainder via `ExpiryBucketCursor` / `ExpiryRetry`. Keep the metered `on_idle` fallback. No full-position scans. Dissolution settle still wins.
+  * Expiry path unchanged otherwise: forced close / forfeit at spot, 15% EMA band, 50_400-block max deferral, per-loan k-neutral burn, shortfall counter, burned excess forfeit TAO, owner remainder.
+  * Event `LoanExpired { position_id, owner, netuid, side, expires_at, settled_at }` after every expiry close/forfeit (including deferred forced settles), alongside `Expired` / `Forfeited`.
+  * Migration `PositionMaxDurationMigration`: existing rows → terms v2 with `expires_at = migration_block + MaxLoanDuration`, rebuild expiry queues, clear stale band-deferral stamps; idempotent; try-runtime checks. **Mainnet has no lending positions.**
+  * Young-short age for v2: `opened_at = expires_at − MaxLoanDuration` (v1 kept `expires_at − blocks_per_year`).
+* Touched: §15, §17, header; runtime `spec_version` bump; SDK / TESTERS wording.
 
 ## Changelog: v5.8 vs v5.7
 * **2026-11-09: net-long emission add-back (Jacob, closes Karl item-2 hedged prune-price suppression).** v5.7 restored *all* long alpha while shorts still moved live TAO, so an equal long+short hedge left emission ≈ 0.86× while spot stayed ≈ 0.99× — the cheapest market-neutral way to push prune ranking down. v5.8 restores only unmatched long alpha:
@@ -14,7 +26,7 @@
   * `Lifts.short_sold_alpha` tracks aggregate short principal force-sold into the pool; migration appends 0.
 * **Flow path (symmetric open/exit):** long forced *buys and sells* (close / repay / interest / forfeit / expiry) set `LendingSkipTaoFlow` only while `short_sold_alpha == 0` (lone-long books). When shorts already offset, both legs record so a hedged long round trip nets ~0 dormant `SubnetTaoFlow` (clone retest Medium: exits were hard-skipped while opens recorded). Short opens always record. Residual order-dependence if the offsetting short closes before the long exit is accepted; `SubnetMovingPrice` (netted) is the authoritative emission/prune input.
 * **Minimum loan 1 τ (Jacob, closes Karl item-1 slot DoS).** `LendingMinimumLoanValue = 1_000_000_000` rao (was `0.001 τ`). Gate is **opening value in TAO of loan size**: long principal is already TAO; short uses `tao_for_alpha(principal, coupon_price)`. Partial repay: both the repaid slice and any nonzero remainder must be 0 or ≥ this floor (`AmountTooSmall` — including 1-rao slices — never swap `ReservesTooLow`). No per-owner slot cap.
-* **Young-short dereg settlement (Jacob, closes Karl item-4 last-minute dereg short).** Shorts with age `< YoungShortSettlementWindow` (25_200 blocks ≈ 3.5 days at 12 s; `Config` constant) settle alpha debt at `max(r, P_open)` instead of `r`. `P_open = proceeds / principal` (volume-weighted short sell / execution price) — bounds the spot-to-`r` gap so a last-minute short earns about a spot round trip. Age = `frozen_at − (expires_at − blocks_per_year)` (open / last increase); age `==` window keeps `r`. Extra TAO collected stays in the pot for stakers; escrow remainder still refunds to the shorter. Older shorts unchanged (full dereg at `r`).
+* **Young-short dereg settlement (Jacob, closes Karl item-4 last-minute dereg short).** Shorts with age `< YoungShortSettlementWindow` (25_200 blocks ≈ 3.5 days at 12 s; `Config` constant) settle alpha debt at `max(r, P_open)` instead of `r`. `P_open = proceeds / principal` (volume-weighted short sell / execution price) — bounds the spot-to-`r` gap so a last-minute short earns about a spot round trip. Age = `frozen_at − opened_at` where `opened_at = expires_at − MaxLoanDuration` on terms v2 (v1 used `expires_at − blocks_per_year`); age `==` window keeps `r`. Extra TAO collected stays in the pot for stakers; escrow remainder still refunds to the shorter. Older shorts unchanged (full dereg at `r`).
 * **Unchanged:** live AMM spot, swap math, per-loan k-neutral burn, caps, band, buyback, interest, raise, dissolution `r` construction for old shorts / longs.
 * Hook: `LendingInterface::emission_reserve_offsets(netuid) → (held_tao, held_alpha, escrow_tao, escrow_alpha, short_sold_alpha)`.
 * Touched: §4.4, §5, §13.3, §14.2, header; runtime `spec_version` bump; `LiftBook` migration.
@@ -136,7 +148,7 @@ Ship with these values; raise the thin-side caps after launch once the book is o
   * Longs pay alpha, which is sold into the pool on a paced schedule, and the TAO received is burned.
   * **Not** return-until-whole (§6.1).
 * **No liquidations, no recall, no recourse.**
-* **One-year fixed term (locked).** Every long and short expires one year after open and is auto-closed at spot through the pool, like a default `close` with no wallet top-up (§15). Increases (both sides) restart the term; partial repay does not change it; dissolution settle wins if it comes first.
+* **Hard 30-day max loan duration (locked, Jacob 2026-11-19).** Every long and short expires after `MaxLoanDuration` (216_000 blocks ≈ 30 days) and is auto-closed at spot through the pool, like a default `close` with no wallet top-up (§15). Increases never extend the clock; increase at/after expiry → `DeadlinePassed`; partial repay does not change it; dissolution settle wins if it comes first.
 * **Directional EMA band on opens (locked).** Longs (buys) cannot open if post-trade spot > EMA·1.15; shorts (sells) cannot if post-trade spot < EMA·0.85. Opposite side always allowed; exits never blocked (§5.4).
 * **User protections:** every trading extrinsic carries a min-out / max-price limit and a block deadline (§5.2). Partial repay is supported on both sides (§4.4). Escrow and collateral sit in lending custody on a non-validating hotkey and earn no emissions (§14).
 * **Shorters make money on deregistration (core requirement, §13).** Shorting a subnet down to dereg pays the shorter: at dissolution an *old* short's debt is `P` alpha valued at the low dissolution rate `r` (smoothed and capped at the EMA price so it can't be pumped at the flag, §13.2). They keep `E_S + C − P·r`. Shorts younger than 3.5 days settle at `max(r, P_open)` so a last-minute short earns about a spot round trip (v5.8). Their escrow is **never** confiscated or swept into the pot. New shorts are **not** blocked near the dereg threshold, only once the subnet is actually flagged dissolving. All loans settle inside the dissolution flow, before the staker pot is paid.
@@ -407,7 +419,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
 * **Partial repay (§4.4):** after `repay(k)`, every position field equals `(1 − k)×` the old value (to rounding), `L_S`/`L_L`/`B_L` fall by the slice, the pool's reserves change exactly as a `k`-sized close would, accrued interest to the block is charged once (no double charge on a later close), dust remainders are rejected, and a sequence of partial repays summing to `P` leaves the same end state as one `close`.
 * **Outside alpha (§5.3):** `V_dyn` is unchanged by any amount of the borrower's unlocked stake; the raise's `C + S` check excludes collateral, escrow and miner/hotkey locks.
 * **EMA band (§5.4):** same-side opens that would leave post-trade spot outside EMA±`ema_band_bps` fail with `PriceTooFarFromEma`; opposite side and all exits succeed.
-* **Fixed term (§15):** every position carries `expires_at = open + BlocksPerYear`; increases restart it; expiry auto-closes at spot (default close path, no wallet top-up, underwater → forfeit) with bounded `on_idle` weight; dissolution wins if earlier.
+* **Fixed term (§15):** every position carries `expires_at = open + MaxLoanDuration` (216_000 ≈ 30 days); increases never extend it; expiry auto-closes at spot (default close path, no wallet top-up, underwater → forfeit) with bounded `on_initialize` / `on_idle` processing; dissolution wins if earlier.
 * **Custody (§14):** escrow and collateral alpha sit on the lending custody hotkey and earn no emissions; the custody hotkey can't register, set children or take; coldkey swap re-keys positions to the new coldkey and later payouts go there; positions store no hotkey (per-call only); auto-settle pays TAO to the owner coldkey; the raise and all lending calls dispatch only under proxy types that already allow staking management.
 
 ## 9. Code changes vs main
@@ -653,7 +665,7 @@ btcli lending raise --netuid 32 --hotkey <hotkey> --amount 500 --sell 150000 -w 
 # Tighter slippage and an explicit inclusion deadline.
 btcli lending raise --netuid 32 --hotkey <hotkey> --amount 500 --max-slippage 0.5 --valid-until <block> -w mywallet
 
-# Partial repay (pro-rata collateral release; does not restart the 1-year term).
+# Partial repay (pro-rata collateral release; does not extend MaxLoanDuration).
 btcli lending repay --netuid 32 --principal 10 --hotkey <hotkey> -w mywallet
 
 # Underwater short close: escrow buyback may need a free-TAO top-up (quote.shortfall);
@@ -668,7 +680,7 @@ btcli lending show --netuid 32 -w mywallet   # position + close quote (incl. sho
 * Flow:
   1. Quote with runtime API `lending_raise_quote(netuid, coldkey, hotkey, amount|collateral, sell?)`. It returns `P, C, A, S, free_tao_out, price_before/after_buy/after, V_dyn, cap headroom, annual_interest`.
   2. Check the caller's unlocked stake ≥ `C + S` and the signer's fee balance.
-  3. Show the review: borrowed (escrowed), collateral locked, alpha sold, **free TAO you receive (from the sale)**, annual interest (burned), net price impact, new `expires_at` (increases restart the 1-year term).
+  3. Show the review: borrowed (escrowed), collateral locked, alpha sold, **free TAO you receive (from the sale)**, annual interest (burned), net price impact, unchanged `expires_at` (increases do not extend MaxLoanDuration).
   4. Sign and submit through the MEV-shield flow.
 * The review states plainly: *"The loan's TAO stays escrowed as alpha. The TAO you receive comes from selling S of your own alpha."*
 * `--sell 0` is rejected with a pointer to `btcli lending open --side long`.
@@ -885,16 +897,17 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
   * Every other proxy type is denied, `NonCritical` and `NonFungible` included. `NonCritical` grants stake management but not lending; that matches PR #3268's filters.
 * A proxy can never redirect funds: there is no `to`/`beneficiary` parameter on any lending call.
 
-## 15. One-year fixed term and auto-close at spot
-> **Locked (Jacob, 2026-10-20; expiry valuation revised 2026-11-02; underwater → forfeit Karl / Shorting 2026-11-02):** every lending position — long and short — expires **one year after it is opened** and is then **closed automatically through the pool at spot**: the same path as a default `close` (§4, `repay_from_wallet = false`) when solvent, with **no liquidations**, **no wallet top-up**, and **no user slippage limits**. Underwater / insolvent positions reuse the §4 collateral-exhaustion forfeit. Dissolution (§13) keeps its smoothed-rate settlement.
+## 15. Hard 30-day max loan duration and auto-close at spot
+> **Locked (Jacob, 2026-11-19; replaces the 2026-10-20 one-year renewing term; expiry valuation revised 2026-11-02; underwater → forfeit Karl / Shorting 2026-11-02):** every lending position — long and short — expires **at most 30 days after it is opened** (`MaxLoanDuration`) and is then **closed automatically through the pool at spot**: the same path as a default `close` (§4, `repay_from_wallet = false`) when solvent, with **no liquidations**, **no wallet top-up**, and **no user slippage limits**. Underwater / insolvent positions reuse the §4 collateral-exhaustion forfeit. Dissolution (§13) keeps its smoothed-rate settlement. The protocol can always fully unwind lending by waiting 30 days.
 
 ### 15.1 Term length
-* Term = `BlocksPerYear` (runtime constant; ≈ 2,628,000 blocks at 12 s ≈ one year).
-* On a **new** open (not an increase), set `Position.expires_at = now + BlocksPerYear` and enqueue `(owner, netuid)` in the expiry schedule at that block.
+* Term = `MaxLoanDuration` (runtime constant; **216_000** blocks at 12 s ≈ **30 days**). `BlocksPerYear` remains the interest accrual year only.
+* On a **new** open (not an increase), set `Position.expires_at = now + MaxLoanDuration`, snapshot `terms_version = 2`, and enqueue `(owner, netuid)` in the expiry schedule at that block.
 * Interest schedule (`due` / `Due*`) is unchanged and independent of the term.
 
 ### 15.2 What happens on expiry
-* In `on_idle`, after interest collection, the pallet walks the expiry schedule with a `WeightMeter` (same bounded / resumable pattern as `Due` and dissolution settle).
+* **`on_initialize` (mandatory):** drain up to `MaxExpirySettlementsPerBlock` (**16** in production) normal + deferred expiry attempts. Remainder carries via `ExpiryBucketCursor` / `ExpiryRetry`.
+* **`on_idle` (fallback):** after interest collection, continue the expiry schedule under a `WeightMeter` (same bounded / resumable pattern as `Due` and dissolution settle).
 * For each due entry whose subnet is **not** dissolving, run **expiry == default close at spot**:
   1. Accrue and charge interest through **`expires_at`** (final charge) — never past the term end, so a settlement-band deferral does not bill the borrower for waiting. `interest_due` applies this cap for both execution and `quote_close` / `quote_repay`, so quotes cannot invent post-expiry interest while settlement is deferred. If interest exhausts collateral the position forfeits, exactly as in `close`.
   2. **Settlement EMA band.** If spot is outside `[EMA·(1−band), EMA·(1+band)]` and `MaxSettlementDeferral` has not elapsed since the first band deferral, roll back and defer (`SettlementDeferred`, `ExpiryRetry`, reason `SettlementPriceOutsideEmaBand`). Manual close/repay are not gated.
@@ -906,13 +919,13 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
      * **Short:** buy back `P` alpha with `E_S + C` (stepwise, `MAX_BUYBACK_STEPS`). Refund the unspent TAO to the owner. Weight-preserving readd of `lift_tao` and the bought alpha, k-neutral burn, remove the position. Buyback overshoot alpha is sold at spot and paid as TAO.
      * **Long:** sell escrow `A`, then the minimal collateral needed to cover `P`; repay `P` to the pool; weight-preserving readd of `P` TAO and `lift_alpha`; k-neutral burn; remove the position. The owner receives TAO surplus above `P`, and the collateral alpha `close` would have returned is **sold at spot and paid as TAO** (expiry has no hotkey to stake it to, §14).
   5. **No top-up.** Expiry never pulls free TAO from the owner's wallet. A solvent position behaves like a default `close` in that block.
-  6. Emit `Expired { owner, netuid, side, principal_tao_equiv, principal, payment, tao_to_pool, tao_refund, rate, shortfall_alpha, shortfall_tao }` for solvent exits only. `rate` is the **spot price sampled before the closing trades** (not the EMA). Shorts: `payment` is the TAO spent on the buyback; longs: the TAO repaid to the pool. `shortfall_alpha` / `shortfall_tao` are always zero (ABI retained; insolvency forfeits).
+  6. Emit `Expired { … }` for solvent exits only (accounting). Also emit `LoanExpired { position_id, owner, netuid, side, expires_at, settled_at }` after every expiry close **or** forfeit (including deferred forced settles). `rate` on `Expired` is the **spot price sampled before the closing trades** (not the EMA). Shorts: `payment` is the TAO spent on the buyback; longs: the TAO repaid to the pool. `shortfall_alpha` / `shortfall_tao` are always zero (ABI retained; insolvency forfeits).
 * Infrastructure failures (e.g. the pool refuses a sale, the subtoken is disabled) and **out-of-band spot** roll the settle back onto `ExpiryRetry`. Economic insolvency forfeits in-place (when inside the band, or after the max-deferral force) and never retries.
 * **Max deferral:** `MaxSettlementDeferral = 50_400` blocks (~7 days; N28). After `BandDeferralSince + MaxSettlementDeferral`, the band gate lifts and the next collector retry settles even outside the band. A pump held that full window can still cost the pool.
-* Weight is bounded per block. A cursor (`ExpiryBucketCursor`) resumes mid-bucket. Many expiries in one block may span several blocks of `on_idle`.
+* Count-bounded in `on_initialize` (`MaxExpirySettlementsPerBlock`); weight-bounded in `on_idle`. A cursor (`ExpiryBucketCursor`) resumes mid-bucket. Many expiries in one block may span several blocks.
 
 ### 15.3 Top-ups, partial repay, and dissolution
-* **Any increase** (long or short, new principal and/or new collateral) **restarts the one-year clock** (`expires_at = now + BlocksPerYear`). Jacob allowed keep-or-restart; the restart is kept so fresh principal or collateral cannot be opened and immediately closed out by an imminent expiry.
+* **No renewal.** Any increase (long or short) **preserves** the original `expires_at`. An increase at or after expiry returns `DeadlinePassed`. After the position settles, the owner may open a fresh loan with a new 30-day clock under normal checks and caps.
 * **Dissolution settle** (§13.3) values long escrow `A` at the smoothed rate `r` and caps collateral `C` at `min(⌊C·r⌋, AMM quote_sell(C))`. **Expiry does not use `r`**: it sells `A` and `C` through the pool, so no cap is needed.
 * **Partial repay** (§4.4) leaves `expires_at` unchanged. Full repay / `close` removes the position and its expiry queue entry.
 * **Dissolution before expiry:** if the subnet is flagged dissolving while the position is still open, §13 settlement is authoritative. Dissolution settle clears the position (and therefore the expiry index). Expiry processing **skips** dissolving netuids, so it never double-settles.
@@ -931,9 +944,10 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 * `short_interest_valued_at_min_reference_and_spot`: F16 — pumped spot or pumped EMA cannot inflate short `opening_value` / `annual_interest`.
 * `expiry_k_neutral_burn_restores_l_at_half_weight`: the k-neutral burn still restores Balancer `L` after an expiry exit.
 * `fixed_term_expiry_closes_at_spot_not_reference_ema`: a far-away reference EMA does not move the expiry valuation; `Expired.rate` is spot.
-* Many expiries in one bucket: a tight `WeightMeter` settles some but not all; a later full-weight pass finishes the rest.
-* A short increase and a long collateral top-up both restart `expires_at`; partial repay never extends.
-* Dissolution before `expires_at` settles via §13 and leaves no `Expired` event when the old expiry block arrives.
+* Many expiries in one bucket: a tight `WeightMeter` / `MaxExpirySettlementsPerBlock` settles some but not all; later blocks finish the rest.
+* A short increase and a long collateral top-up both **preserve** `expires_at`; increase at/after expiry → `DeadlinePassed`; reopen after settle starts a fresh clock.
+* Dissolution before `expires_at` settles via §13 and leaves no `Expired` / `LoanExpired` event when the old expiry block arrives.
+* `PositionMaxDurationMigration` rewrites live rows to terms v2 (mainnet has none).
 
 ## 16. Lending health accumulators
 
@@ -962,16 +976,17 @@ Cumulative counters so anyone can measure what lending earns versus what pools l
 Future economic rule changes apply only to loans opened after them. Existing positions finish under the rules they were opened under.
 
 ### 17.1 Snapshots on `Position`
-* `terms_version: u16` — set at open from `CurrentTermsVersion` (default / start = 1). Raise and top-up **keep** this value even when they restart `expires_at`.
+* `terms_version: u16` — set at open from `CurrentTermsVersion` (default / start = **2**). Raise and top-up **keep** this value and the original `expires_at`.
 * `interest_period` — blocks between interest charges (`Config::InterestPeriod` at open).
-* `blocks_per_year` — accrual year length (`Config::BlocksPerYear` at open). Used by interest math and term restarts.
+* `blocks_per_year` — accrual year length (`Config::BlocksPerYear` at open). Used by interest math only (not the loan term).
 
 Already stored and therefore version-stable without a new field: `annual_interest`, `expires_at` / `expiry_due`, lift legs, escrow / collateral / principal.
 
 ### 17.2 What is per-version vs tunable for new opens only
-* **Per-version (rules 1–5 behaviour):** close math (weight-preserving re-add + k-neutral burn), expiry-as-close, **forfeit buyback**, settlement EMA band + max-deferral bound, dissolution rate settlement, wallet top-up, interest charging, deferral/retry. Dispatch is `match terms_version` with a v1 arm today; unsupported versions return `UnsupportedTermsVersion`.
-* **Tunable for new opens only (not snapshotted on the position):** LTV, capacity caps / split, EMA band width (`ema_band_bps`), APR / coupon at open (coupon itself is stored as `annual_interest`), thin thresholds, lift params generally. `MaxSettlementDeferral` is a runtime constant shared by all versions.
+* **Per-version (rules 1–5 behaviour):** close math (weight-preserving re-add + k-neutral burn), expiry-as-close, **forfeit buyback**, settlement EMA band + max-deferral bound, dissolution rate settlement (including young-short `opened_at` formula), wallet top-up, interest charging, deferral/retry. Dispatch accepts v1 and v2; unsupported versions return `UnsupportedTermsVersion`.
+* **Tunable for new opens only (not snapshotted on the position):** LTV, capacity caps / split, EMA band width (`ema_band_bps`), APR / coupon at open (coupon itself is stored as `annual_interest`), thin thresholds, lift params generally. `MaxLoanDuration`, `MaxExpirySettlementsPerBlock`, and `MaxSettlementDeferral` are runtime constants shared by live versions.
 
 ### 17.3 Migration
 * `PositionTermsVersionMigration` appends the three fields to pre-terms rows as v1 with the live cadence constants, and ensures `CurrentTermsVersion ≥ 1`.
+* `PositionMaxDurationMigration` rewrites every live row to terms v2 with `expires_at = migration_block + MaxLoanDuration`, rebuilds the expiry schedule, clears band-deferral stamps, and sets `CurrentTermsVersion = 2`. Idempotent; try-runtime checks. **Mainnet has no lending positions at this upgrade.**
 * Runtime API: `current_terms_version()`. Events `Opened` / `Increased` / `Raised` carry `terms_version`. CLI `show` / `list` surface it.

@@ -609,10 +609,14 @@ pub struct LiftBook {
     pub short_sold_alpha: u64,
 }
 
-/// First terms version: today's close / interest / forfeit / expiry / dissolution
-/// rules. Future economic changes bump [`CurrentTermsVersion`] so only new
-/// opens pick them up; live loans keep the version snapshotted at open.
+/// First terms version: close / interest / forfeit / expiry / dissolution rules
+/// under the legacy one-year fixed term. Superseded for new opens by
+/// [`TERMS_VERSION_V2`].
 pub const TERMS_VERSION_V1: u16 = 1;
+/// Terms version for the hard max loan duration (Jacob 2026-11-19): new opens
+/// expire after [`Config::MaxLoanDuration`], increases never extend the clock,
+/// and young-short age uses `expires_at − MaxLoanDuration`.
+pub const TERMS_VERSION_V2: u16 = 2;
 
 #[freeze_struct("4cb5f2c7438cc992")]
 #[derive(
@@ -637,21 +641,21 @@ pub struct Position<AccountId, BlockNumber> {
     pub last_accrued: BlockNumber,
     pub interest_remainder: u64,
     pub due: BlockNumber,
-    /// Fixed one-year term end (§15). Set at open; increases restart it;
-    /// partial repay keeps it.
+    /// Fixed-term end (§15). Set at open to `now + MaxLoanDuration` (terms v2);
+    /// increases and partial repay preserve it (no renewal).
     pub expires_at: BlockNumber,
     /// Current `Expiry` queue bucket for this position. Equals `expires_at` at
     /// open; advances when a failed settle is deferred onto a retry slot so
     /// coldkey re-key / remove always find the live claim.
     pub expiry_due: BlockNumber,
-    /// Economic rules version snapshotted at open (see [`TERMS_VERSION_V1`]).
-    /// Raise / top-up keep this value even when they restart `expires_at`.
+    /// Economic rules version snapshotted at open (see [`TERMS_VERSION_V2`]).
+    /// Raise / top-up keep this value and the original `expires_at`.
     pub terms_version: u16,
     /// Interest charge cadence in blocks, snapshotted at open from
     /// [`Config::InterestPeriod`].
     pub interest_period: BlockNumber,
     /// Accrual year length in blocks, snapshotted at open from
-    /// [`Config::BlocksPerYear`]. Used by interest math and term restarts.
+    /// [`Config::BlocksPerYear`]. Used by interest math only (not the term).
     pub blocks_per_year: u64,
 }
 
@@ -830,7 +834,7 @@ const BISECTION_STEPS: u32 = 64;
 enum SettleKind {
     /// Subnet dissolution (§13): rate is pot `r`, no AMM trades.
     Dissolution,
-    /// Fixed one-year term end (§15): a default close through the pool at spot;
+    /// Fixed-term end (§15): a default close through the pool at spot;
     /// the rate argument is only reported on `Expired`.
     Expiry,
 }
@@ -854,6 +858,12 @@ pub mod pallet {
         type InterestPeriod: Get<BlockNumberFor<Self>>;
         #[pallet::constant]
         type BlocksPerYear: Get<u64>;
+        /// Hard maximum loan lifetime in blocks (Jacob 2026-11-19). Production:
+        /// 216_000 (~30 days at 12 s). New opens set
+        /// `expires_at = now + MaxLoanDuration`; the protocol can fully unwind
+        /// lending by waiting this long. Not a renew/extension knob.
+        #[pallet::constant]
+        type MaxLoanDuration: Get<BlockNumberFor<Self>>;
         #[pallet::constant]
         type ReferenceWarmup: Get<BlockNumberFor<Self>>;
         #[pallet::constant]
@@ -877,6 +887,11 @@ pub mod pallet {
         /// (24 h) so holding a pump through forced settle is far costlier.
         #[pallet::constant]
         type MaxSettlementDeferral: Get<BlockNumberFor<Self>>;
+        /// Hard cap on normal + deferred expiry settle attempts in
+        /// `on_initialize` (Jacob 2026-11-19). Production: 16. Remainder carries
+        /// via `ExpiryBucketCursor` / `ExpiryRetry` into later blocks / `on_idle`.
+        #[pallet::constant]
+        type MaxExpirySettlementsPerBlock: Get<u32>;
         /// Age window (blocks) under which a short at dissolution settles its
         /// alpha debt at `max(r, P_open)` instead of `r` (Jacob v5.8). Production:
         /// 25_200 (~3.5 days at 12 s). Older shorts keep full dereg payout at `r`.
@@ -1090,7 +1105,7 @@ pub mod pallet {
     /// version snapshotted into [`Position::terms_version`] at open.
     #[pallet::type_value]
     pub fn DefaultCurrentTermsVersion<T: Config>() -> u16 {
-        TERMS_VERSION_V1
+        TERMS_VERSION_V2
     }
     #[pallet::storage]
     pub type CurrentTermsVersion<T: Config> =
@@ -1306,6 +1321,18 @@ pub mod pallet {
             /// Always zero. Kept for event ABI compatibility.
             shortfall_tao: u64,
         },
+        /// Lifecycle signal after every fixed-term expiry close or forfeit
+        /// (including deferred forced settles). Emitted alongside the
+        /// accounting [`Event::Expired`] / [`Event::Forfeited`] event.
+        /// `position_id` is a stable twox-64 of `(owner, netuid)` for indexers.
+        LoanExpired {
+            position_id: u64,
+            owner: T::AccountId,
+            netuid: NetUid,
+            side: Side,
+            expires_at: BlockNumberFor<T>,
+            settled_at: BlockNumberFor<T>,
+        },
     }
 
     #[pallet::error]
@@ -1398,23 +1425,35 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn integrity_test() {
             assert!(T::BlocksPerYear::get() > 0);
+            assert!(T::MaxLoanDuration::get() > BlockNumberFor::<T>::default());
             assert!(T::InterestPeriod::get() > BlockNumberFor::<T>::default());
             assert!(T::ExpiryRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::InterestRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::MaxSettlementDeferral::get() > BlockNumberFor::<T>::default());
+            assert!(T::MaxExpirySettlementsPerBlock::get() > 0);
             assert!(T::YoungShortSettlementWindow::get() > BlockNumberFor::<T>::default());
             assert!(T::MinimumLoanValue::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() <= T::MaxTotalPositions::get());
         }
 
-        fn on_initialize(_: BlockNumberFor<T>) -> Weight {
-            // Reserve for ActiveNets that on_finalize walks. When lending is
-            // unused the count is 0 and we charge a single reference unit so the
-            // block remains usable. Cap matches `MAX_ACTIVE_NET_UPDATES`.
+        fn on_initialize(now: BlockNumberFor<T>) -> Weight {
+            // Mandatory bounded expiry drain so the 30-day unwind cannot stall
+            // on empty `on_idle` weight. Cap attempts; remainder resumes via
+            // ExpiryBucketCursor / ExpiryRetry. Dissolution settle still wins
+            // inside the collectors. Keep the ActiveNets reserve for finalize.
+            let max = T::MaxExpirySettlementsPerBlock::get();
+            let settle_budget = T::WeightInfo::settle()
+                .saturating_mul(u64::from(max))
+                .saturating_add(T::DbWeight::get().reads_writes(8, 8));
+            let mut meter = WeightMeter::with_limit(settle_budget);
+            let mut budget = max;
+            budget = Self::collect_expiry(now, &mut meter, budget);
+            let _ = Self::collect_expiry_retries(now, &mut meter, budget);
             let n = u64::from(ActiveNetCount::<T>::get()).clamp(1, MAX_ACTIVE_NET_UPDATES);
-            T::WeightInfo::update_reference()
-                .saturating_mul(n)
+            meter
+                .consumed()
+                .saturating_add(T::WeightInfo::update_reference().saturating_mul(n))
                 .saturating_add(T::DbWeight::get().reads(2))
         }
 
@@ -1494,8 +1533,9 @@ pub mod pallet {
             let mut meter = WeightMeter::with_limit(remaining);
             Self::collect_due(now, &mut meter);
             Self::collect_interest_retries(now, &mut meter);
-            Self::collect_expiry(now, &mut meter);
-            Self::collect_expiry_retries(now, &mut meter);
+            // Metered fallback after the bounded on_initialize drain.
+            let _ = Self::collect_expiry(now, &mut meter, u32::MAX);
+            let _ = Self::collect_expiry_retries(now, &mut meter, u32::MAX);
             Self::convert_pending(now, &mut meter);
             meter.consumed()
         }
@@ -2848,6 +2888,10 @@ pub mod pallet {
             let mut existing = Positions::<T>::get(&owner, netuid);
             if let Some(ref position) = existing {
                 Self::ensure_matching_side(position, side)?;
+                // Terms v2: no renewal. An increase at or after expiry is
+                // rejected; the owner must let the position settle, then open
+                // a fresh loan under a new MaxLoanDuration clock.
+                ensure!(now < position.expires_at, Error::<T>::DeadlinePassed);
             }
             if let Some(mut position) = existing.take() {
                 Self::charge_interest(&owner, netuid, &mut position, now, false, false)?;
@@ -2949,11 +2993,12 @@ pub mod pallet {
                     !EscrowOwner::<T>::contains_key(netuid, &escrow),
                     Error::<T>::EscrowInUse
                 );
-                // One-year fixed term from open (§15). Increases restart it.
-                let term: BlockNumberFor<T> = T::BlocksPerYear::get().saturated_into();
+                // Hard MaxLoanDuration term from open (§15 / terms v2).
+                // Increases preserve expires_at (no renewal).
+                let term = T::MaxLoanDuration::get();
                 let terms_version = {
                     let v = CurrentTermsVersion::<T>::get();
-                    if v == 0 { TERMS_VERSION_V1 } else { v }
+                    if v == 0 { TERMS_VERSION_V2 } else { v }
                 };
                 Position {
                     side,
@@ -3092,41 +3137,9 @@ pub mod pallet {
                 Expiry::<T>::insert(expires_at, (&owner, netuid), ());
                 Self::note_expiry_inserted(expires_at);
                 Self::note_active_net(netuid);
-            } else if principal > 0 || collateral > 0 {
-                // Restart the one-year term on increases (Jacob allowed
-                // keep-or-restart). Keep-original enabled near-expiry drains:
-                // long collateral redeemed from the pot at EMA above AMM, and
-                // short principal force-sold at live spot then settled at a
-                // lower EMA (§15 / Skeptic). Keep `terms_version` (and the
-                // snapshotted cadence / year length) from the original open.
-                let term: BlockNumberFor<T> = position.blocks_per_year.saturated_into();
-                let new_expiry = now.saturating_add(term);
-                if new_expiry != position.expiry_due {
-                    if Expiry::<T>::take(position.expiry_due, (&owner, netuid)).is_some() {
-                        Self::note_expiry_removed(position.expiry_due);
-                    }
-                    Expiry::<T>::insert(new_expiry, (&owner, netuid), ());
-                    Self::note_expiry_inserted(new_expiry);
-                    position.expires_at = new_expiry;
-                    position.expiry_due = new_expiry;
-                    // Skeptic fid:b7bc4c4b — after a deferred past-expiry settle
-                    // the pre-charge above clamps at the old expires_at and
-                    // leaves `last_accrued` there. Advancing the term without
-                    // resetting that clock would let the next collection charge
-                    // the deferral gap [old_expires, now] at the (possibly
-                    // increased) annual_interest. Mid-term increases already
-                    // have `last_accrued == now` from the pre-charge.
-                    position.last_accrued = now;
-                    // Skeptic fid:f40d8fd2 — a deferred past-expiry renew must
-                    // not inherit the old BandDeferralSince stamp, or
-                    // force_settlement_despite_band would skip the EMA gate
-                    // for the entire new term. Clear the deferral markers so
-                    // the next out-of-band settle at the new expiry defers
-                    // again from a fresh stamp.
-                    BandDeferralSince::<T>::remove(&owner, netuid);
-                    LastDeferral::<T>::remove(&owner, netuid);
-                }
             }
+            // Terms v2: increases and collateral top-ups keep the original
+            // expires_at / expiry queue entry (no renewal, no extension).
             let terms_version = position.terms_version;
             Positions::<T>::insert(&owner, netuid, position);
             Self::deposit_event(if increasing {
@@ -4390,13 +4403,48 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Select the economic rules table for a live loan. v1 is today's
-        /// behaviour; a future arm can add v2 without rewriting v1 paths.
+        /// Select the economic rules table for a live loan. v1 is the legacy
+        /// one-year term; v2 is the hard MaxLoanDuration term (Jacob 2026-11-19).
         fn ensure_terms_version(version: u16) -> DispatchResult {
             match version {
-                TERMS_VERSION_V1 => Ok(()),
+                TERMS_VERSION_V1 | TERMS_VERSION_V2 => Ok(()),
                 _ => Err(Error::<T>::UnsupportedTermsVersion.into()),
             }
+        }
+
+        /// Stable indexer id for the unique `(owner, netuid)` loan slot.
+        fn loan_position_id(owner: &T::AccountId, netuid: NetUid) -> u64 {
+            u64::from_le_bytes((owner, netuid).using_encoded(sp_io::hashing::twox_64))
+        }
+
+        /// Open-block estimate for young-short age. Terms v1 used
+        /// `expires_at − blocks_per_year` (open / last increase under renew).
+        /// Terms v2 uses `expires_at − MaxLoanDuration` (true open; no renew).
+        fn position_opened_at(
+            position: &Position<T::AccountId, BlockNumberFor<T>>,
+        ) -> BlockNumberFor<T> {
+            let term = match position.terms_version {
+                TERMS_VERSION_V2 => T::MaxLoanDuration::get(),
+                _ => position.blocks_per_year.saturated_into(),
+            };
+            position.expires_at.saturating_sub(term)
+        }
+
+        fn emit_loan_expired(
+            owner: &T::AccountId,
+            netuid: NetUid,
+            side: Side,
+            expires_at: BlockNumberFor<T>,
+            settled_at: BlockNumberFor<T>,
+        ) {
+            Self::deposit_event(Event::LoanExpired {
+                position_id: Self::loan_position_id(owner, netuid),
+                owner: owner.clone(),
+                netuid,
+                side,
+                expires_at,
+                settled_at,
+            });
         }
 
         fn interest_due(
@@ -5015,6 +5063,50 @@ pub mod pallet {
             }
         }
 
+        /// One-shot MaxLoanDuration rewrite used by
+        /// [`migrations::migrate_position_max_duration`].
+        pub(crate) fn migrate_position_max_duration(
+            migration_name: BoundedVec<u8, super::MigrationKeyMaxLen>,
+        ) -> Weight {
+            let mut weight = T::DbWeight::get().reads(1);
+            if HasMigrationRun::<T>::get(&migration_name) {
+                return weight;
+            }
+
+            let now = frame_system::Pallet::<T>::block_number();
+            let term = T::MaxLoanDuration::get();
+            let new_expires = now.saturating_add(term);
+            weight = weight.saturating_add(T::DbWeight::get().reads(1));
+
+            let keys: alloc::vec::Vec<_> = Positions::<T>::iter_keys().collect();
+            weight = weight.saturating_add(T::DbWeight::get().reads(keys.len() as u64));
+
+            for (owner, netuid) in keys {
+                let Some(mut position) = Positions::<T>::get(&owner, netuid) else {
+                    continue;
+                };
+                if Expiry::<T>::take(position.expiry_due, (&owner, netuid)).is_some() {
+                    Self::note_expiry_removed(position.expiry_due);
+                    weight = weight.saturating_add(T::DbWeight::get().reads_writes(2, 2));
+                }
+                let _ = Self::take_expiry_retry(position.expiry_due, &owner, netuid);
+
+                position.terms_version = TERMS_VERSION_V2;
+                position.expires_at = new_expires;
+                position.expiry_due = new_expires;
+                Positions::<T>::insert(&owner, netuid, &position);
+                Expiry::<T>::insert(new_expires, (&owner, netuid), ());
+                Self::note_expiry_inserted(new_expires);
+                BandDeferralSince::<T>::remove(&owner, netuid);
+                LastDeferral::<T>::remove(&owner, netuid);
+                weight = weight.saturating_add(T::DbWeight::get().reads_writes(4, 5));
+            }
+
+            CurrentTermsVersion::<T>::put(TERMS_VERSION_V2);
+            HasMigrationRun::<T>::insert(&migration_name, true);
+            weight.saturating_add(T::DbWeight::get().writes(2))
+        }
+
         fn take_expiry_retry(at: BlockNumberFor<T>, owner: &T::AccountId, netuid: NetUid) -> bool {
             if ExpiryRetry::<T>::take(at, (owner, netuid)).is_some() {
                 let left = ExpiryRetryPending::<T>::mutate(|c| {
@@ -5388,17 +5480,28 @@ pub mod pallet {
             }
         }
 
-        /// Auto-close positions whose fixed one-year term has ended (§15).
+        /// Auto-close positions whose fixed term has ended (§15).
         /// Runs the default close path at spot (no wallet top-up, no slippage
         /// limits, best-effort on underwater loans).
         /// Dissolution wins if the subnet is already dissolving — skip those.
-        pub(crate) fn collect_expiry(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
+        ///
+        /// `budget` caps settle attempts (shared with expiry retries in
+        /// `on_initialize`). Returns the remaining budget. Pass `u32::MAX` from
+        /// metered `on_idle`.
+        pub(crate) fn collect_expiry(
+            now: BlockNumberFor<T>,
+            meter: &mut WeightMeter,
+            mut budget: u32,
+        ) -> u32 {
             use frame_support::storage::{TransactionOutcome, with_transaction};
+            if budget == 0 {
+                return 0;
+            }
             if meter
                 .try_consume(T::DbWeight::get().reads_writes(2, 1))
                 .is_err()
             {
-                return;
+                return budget;
             }
             if TotalPositions::<T>::get() == 0 {
                 NextExpiry::<T>::kill();
@@ -5406,15 +5509,19 @@ pub mod pallet {
                 NextExpiryRetry::<T>::kill();
                 ExpiryRetryPending::<T>::kill();
                 ExpiryRetryCursor::<T>::kill();
-                return;
+                return budget;
             }
             let Some(mut at) = NextExpiry::<T>::get() else {
-                return;
+                return budget;
             };
             while at <= now {
+                if budget == 0 {
+                    NextExpiry::<T>::put(at);
+                    return 0;
+                }
                 if meter.try_consume(T::DbWeight::get().reads(1)).is_err() {
                     NextExpiry::<T>::put(at);
-                    return;
+                    return budget;
                 }
                 let iter = if let Some(cursor) = ExpiryBucketCursor::<T>::get() {
                     Expiry::<T>::iter_prefix_from(at, Expiry::<T>::hashed_key_for(at, cursor))
@@ -5425,13 +5532,21 @@ pub mod pallet {
                 let mut last_done: Option<(T::AccountId, NetUid)> = None;
                 for ((owner, netuid), ()) in iter {
                     saw_entry = true;
+                    if budget == 0 {
+                        if let Some(done) = last_done {
+                            ExpiryBucketCursor::<T>::put(done);
+                        }
+                        NextExpiry::<T>::put(at);
+                        return 0;
+                    }
                     if meter.try_consume(T::WeightInfo::settle()).is_err() {
                         if let Some(done) = last_done {
                             ExpiryBucketCursor::<T>::put(done);
                         }
                         NextExpiry::<T>::put(at);
-                        return;
+                        return budget;
                     }
+                    budget = budget.saturating_sub(1);
                     let outcome = with_transaction(|| {
                         let result = (|| {
                             // Dissolution settle is authoritative if it started first.
@@ -5519,6 +5634,7 @@ pub mod pallet {
                     at = n;
                 }
             }
+            budget
         }
 
         /// Drain [`InterestRetry`] with metered empty-bucket bumps (no linked-list
@@ -5650,24 +5766,36 @@ pub mod pallet {
         }
 
         /// Drain [`ExpiryRetry`] with the same O(1)-enqueue / metered-bump shape
-        /// as [`Self::collect_interest_retries`].
-        fn collect_expiry_retries(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
+        /// as [`Self::collect_interest_retries`]. `budget` is shared with
+        /// [`Self::collect_expiry`] in `on_initialize`.
+        fn collect_expiry_retries(
+            now: BlockNumberFor<T>,
+            meter: &mut WeightMeter,
+            mut budget: u32,
+        ) -> u32 {
             use frame_support::storage::{TransactionOutcome, with_transaction};
+            if budget == 0 {
+                return 0;
+            }
             if meter
                 .try_consume(T::DbWeight::get().reads_writes(1, 1))
                 .is_err()
             {
-                return;
+                return budget;
             }
             let Some(mut at) = NextExpiryRetry::<T>::get() else {
-                return;
+                return budget;
             };
             let mut empty_bumps = 0u32;
             const MAX_EMPTY_BUMPS: u32 = 64;
             while at <= now {
+                if budget == 0 {
+                    NextExpiryRetry::<T>::put(at);
+                    return 0;
+                }
                 if meter.try_consume(T::DbWeight::get().reads(1)).is_err() {
                     NextExpiryRetry::<T>::put(at);
-                    return;
+                    return budget;
                 }
                 let iter = if let Some(cursor) = ExpiryRetryCursor::<T>::get() {
                     ExpiryRetry::<T>::iter_prefix_from(
@@ -5682,13 +5810,21 @@ pub mod pallet {
                 for ((owner, netuid), ()) in iter {
                     saw_entry = true;
                     empty_bumps = 0;
+                    if budget == 0 {
+                        if let Some(done) = last_done {
+                            ExpiryRetryCursor::<T>::put(done);
+                        }
+                        NextExpiryRetry::<T>::put(at);
+                        return 0;
+                    }
                     if meter.try_consume(T::WeightInfo::settle()).is_err() {
                         if let Some(done) = last_done {
                             ExpiryRetryCursor::<T>::put(done);
                         }
                         NextExpiryRetry::<T>::put(at);
-                        return;
+                        return budget;
                     }
+                    budget = budget.saturating_sub(1);
                     let outcome = with_transaction(|| {
                         let result = (|| {
                             if Dissolutions::<T>::contains_key(netuid) {
@@ -5747,7 +5883,7 @@ pub mod pallet {
                 }
                 ExpiryRetryCursor::<T>::kill();
                 if ExpiryRetryPending::<T>::get() == 0 {
-                    return;
+                    return budget;
                 }
                 if saw_entry {
                     if ExpiryRetry::<T>::iter_prefix(at).next().is_none() {
@@ -5755,13 +5891,13 @@ pub mod pallet {
                         NextExpiryRetry::<T>::put(at);
                     } else {
                         NextExpiryRetry::<T>::put(at);
-                        return;
+                        return budget;
                     }
                 } else {
                     empty_bumps = empty_bumps.saturating_add(1);
                     if empty_bumps >= MAX_EMPTY_BUMPS {
                         NextExpiryRetry::<T>::put(at.saturating_add(1u32.into()));
-                        return;
+                        return budget;
                     }
                     at = at.saturating_add(1u32.into());
                     NextExpiryRetry::<T>::put(at);
@@ -5770,6 +5906,7 @@ pub mod pallet {
             if ExpiryRetryPending::<T>::get() > 0 {
                 NextExpiryRetry::<T>::put(at);
             }
+            budget
         }
 
         fn convert_pending(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
@@ -6183,13 +6320,12 @@ pub mod pallet {
                     // earns about a spot round trip. Extra TAO collected stays
                     // in the pot for stakers; escrow remainder still refunds.
                     // Older shorts keep settlement at r (full dereg payout).
-                    // Age uses expires_at − blocks_per_year (= open / last
-                    // increase); boundary age == window keeps r.
+                    // Age uses position_opened_at (v1: expires_at −
+                    // blocks_per_year; v2: expires_at − MaxLoanDuration).
+                    // Boundary age == window keeps r.
                     let mut settle_rate = r;
                     if position.principal > 0 {
-                        let opened_at = position
-                            .expires_at
-                            .saturating_sub(position.blocks_per_year.saturated_into());
+                        let opened_at = Self::position_opened_at(&position);
                         let age = interest_until.saturating_sub(opened_at);
                         if age < T::YoungShortSettlementWindow::get() {
                             if let Some(p_open) = U64F64::from_num(position.proceeds)
@@ -6462,27 +6598,31 @@ pub mod pallet {
             spot: U64F64,
             interest_until: BlockNumberFor<T>,
         ) -> DispatchResult {
-            // Versioned expiry-as-close. v1 mirrors a default close at spot.
+            // Versioned expiry-as-close. v1/v2 mirror a default close at spot.
             Self::ensure_terms_version(position.terms_version)?;
+            let expires_at = position.expires_at;
+            let side = position.side;
             Self::ensure_settlement_ema_band(owner, netuid, interest_until)?;
             // Band already checked above; interest forfeit may proceed.
             Self::charge_interest(owner, netuid, &mut position, interest_until, true, false)?;
             // Interest can exhaust collateral and `forfeit`, which already restored
             // lifts, moved escrow, and removed the claim.
             if !Positions::<T>::contains_key(owner, netuid) {
+                Self::emit_loan_expired(owner, netuid, side, expires_at, interest_until);
                 return Ok(());
             }
 
             // Karl / Shorting: when escrow cannot fully close, forfeit instead of
             // recording a shortfall. Restores open-time lift + escrowed proceeds.
             if !Self::can_fully_close_from_escrow(netuid, &position)? {
-                return Self::forfeit(owner, netuid, &position);
+                Self::forfeit(owner, netuid, &position)?;
+                Self::emit_loan_expired(owner, netuid, side, expires_at, interest_until);
+                return Ok(());
             }
 
             let custody = Self::custody_hotkey()?;
             let reserve = Self::reserve_account(netuid);
             let escrow = position.custody.clone();
-            let side = position.side;
 
             let mut leftover_collateral = 0u64;
             let (credited_tao, credited_alpha, paid, to_pool, mut refund) = match side {
@@ -6663,6 +6803,7 @@ pub mod pallet {
                 shortfall_alpha: 0,
                 shortfall_tao: 0,
             });
+            Self::emit_loan_expired(owner, netuid, side, expires_at, interest_until);
             Self::bump_stats(netuid, |s| {
                 s.expiry_settlement_count = s.expiry_settlement_count.saturating_add(1);
             });

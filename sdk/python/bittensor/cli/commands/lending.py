@@ -461,7 +461,7 @@ def open_loan(
     Shorts sell borrowed alpha into escrowed TAO (no --hotkey). Longs buy
     escrowed alpha with borrowed TAO and require --hotkey as the collateral
     source. No free borrowed assets are delivered. Increasing an existing
-    position restarts its one-year term.
+    position keeps its original MaxLoanDuration expiry (~30 days; no renewal).
     """
     context = ctx_of(ctx)
     try:
@@ -514,7 +514,7 @@ def open_loan(
         lambda client: client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
     )
     if existing is not None:
-        # Side check before the term-restart warning (E2E U3).
+        # Side check before the term note (E2E U3).
         existing_side = str(existing.get("side") or "").lower()
         if existing_side and existing_side != side.value.lower():
             _exit_error(
@@ -523,8 +523,8 @@ def open_loan(
                 code=1,
             )
         context.output.message(
-            "warning: increasing this position restarts the 1-year fixed term "
-            "(expires_at moves to now + BlocksPerYear)"
+            "note: increasing this position keeps the original MaxLoanDuration "
+            "expiry (~30 days); it does not extend expires_at"
         )
 
     if requested is not None:
@@ -1022,7 +1022,7 @@ def repay_loan(
     principal equals btcli lending close. Hotkey and --from-wallet flags match
     close (--repay-from-wallet is a hidden alias). The runtime quote sets
     payment ceiling and refund floor for the slice. Partial repay does not
-    restart the one-year term.
+    extend the MaxLoanDuration expiry.
     """
     context = ctx_of(ctx)
     if repay_from_wallet_alias is not None:
@@ -1276,14 +1276,16 @@ def raise_loan(
         lambda client: client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
     )
     if existing is not None:
-        # Side check before the term-restart warning (E2E U3).
+        # Side check before the term note (E2E U3).
         if str(existing.get("side") or "").lower() != "long":
             _exit_error(
                 context,
                 f"raise is long-only; existing loan is {existing.get('side')}",
                 code=1,
             )
-        context.output.message("warning: increasing this position restarts the 1-year fixed term")
+        context.output.message(
+            "note: increasing this position keeps the original MaxLoanDuration expiry (~30 days)"
+        )
 
     with context.output.activity("resolving raise deadline…"):
         until = context.run(lambda client: _resolve_valid_until(client, valid_until))

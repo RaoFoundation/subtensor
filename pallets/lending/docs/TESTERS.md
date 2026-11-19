@@ -43,7 +43,12 @@ Default close tops up free TAO for the buyback shortfall (bounded by
 needed). If free balance is short, expect `InsufficientEscrow` and use the
 quote's shortfall — or `--repay-from-wallet --hotkey …`.
 
-## Fixed-term expiry
+## Fixed-term expiry (30-day max)
+
+New opens expire after `MaxLoanDuration` (**216_000** blocks ≈ **30 days** at
+12 s; terms v2). Increases and partial repay **do not** extend the clock; an
+increase at or after `expires_at` returns `DeadlinePassed`. After settle, open a
+fresh position for a new 30-day clock.
 
 At `expires_at` the position is closed automatically at spot through the pool:
 expiry == a default close, not an EMA settlement. There is no wallet top-up and
@@ -54,24 +59,28 @@ An underwater short or insolvent long reuses the collateral-exhaustion
 `Lending.Forfeited` path instead of recording a shortfall: lift + escrowed
 proceeds are re-added (weight-preserving), remaining collateral is burned,
 nothing returns to the borrower, and the k-neutral burn runs as usual. Solvent
-positions still emit `Lending.Expired` (`rate` = spot before the closing trades).
-Neither path loops in the retry queue.
+positions emit `Lending.Expired` (`rate` = spot before the closing trades).
+Every expiry close/forfeit also emits `Lending.LoanExpired`. Neither path loops
+in the retry queue once settled. Up to **16** expiry settles run in
+`on_initialize` each block; remainder continues in later blocks / `on_idle`.
 
 ## Cards and list columns
 
 Dry-run shows the Loan / Repayment / Raise card (quoted payment, refund,
 shortfall). List columns include status (underwater), escrow, expires_at, due,
-and runway capped at the one-year term. JSON amounts are rao integers.
+and runway capped at the remaining MaxLoanDuration term. JSON amounts are rao
+integers.
 
 ## Locked V1 economics (testers)
 
 - Short interest / opening value = `min(lending EMA, spot)` (F16, Jacob 2026-11-03).
-  A pumped spot or pumped EMA cannot inflate the TAO coupon. Terms v1 (no bump).
+  A pumped spot or pumped EMA cannot inflate the TAO coupon.
+- Hard max loan duration: **216_000 blocks (~30 days)**; no renewal (terms v2).
 - Caps: floor 33%, thin floor 15% below 3k τ, 50/50 split → 7.5% per side on thin
   pools (to be raised after launch). LTV 25% (15% thin longs).
 - Volatility-targeting controller is **not** in V1.
 - Never-deepen burn: **per-loan on every readd** (not idle-book last-close).
-  Emission growth between open and close is not burned. Terms v1.
+  Emission growth between open and close is not burned.
 - Max settlement deferral: **50_400 blocks (~7 days)** (N28). Band gate lifts then;
   settle runs on the next collector retry. Interest still stops at `expires_at`.
 - Curve independence: **HOLD**.

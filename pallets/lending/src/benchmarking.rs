@@ -392,7 +392,7 @@ mod benchmarks {
         #[block]
         {
             let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-            Pallet::<T>::collect_expiry(expires_at, &mut meter);
+            Pallet::<T>::collect_expiry(expires_at, &mut meter, u32::MAX);
         }
         assert!(
             !Positions::<T>::contains_key(&caller, netuid),

@@ -1,6 +1,6 @@
 {
   "generator": "sdk/python/scripts/record_hashed_vectors.py",
-  "spec_version": 490,
+  "spec_version": 491,
   "transaction_version": 1,
   "metadata_sha256": "a0380b45fd6efaa5c40d44cdc653c3a2c9bb09c64e5b3935cfd7832fb489163d",
   "wallets": [
