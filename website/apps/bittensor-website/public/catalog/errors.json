@@ -116,18 +116,7 @@
       "description": "The signing coldkey does not own the target registered hotkey. Sign `set_commitment_to` with the hotkey's owner coldkey; hotkeys cannot fund channel commitments.",
       "docs_url": "/docs/errors/chain/AccountNotAuthorized",
       "markdown_url": "/llms.mdx/docs/errors/chain/AccountNotAuthorized/content.md",
-      "pallets": [
-        "Commitments"
-      ],
-      "sources": [
-        {
-          "pallet": "Commitments",
-          "path": "pallets/commitments/src/lib.rs",
-          "line": 245,
-          "url": "/code/pallets/commitments/src/lib.rs#L245",
-          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
-        }
-      ]
+      "pallets": []
     },
     "AccountPolicyViolation": {
       "code": "not_authorized",
@@ -653,7 +642,7 @@
     },
     "BasketMinOutNotMet": {
       "code": "insufficient_liquidity",
-      "description": "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set (destination alpha, or TAO when the destination is netuid 0), so the whole trade rolled back; nothing moved. The pool moved between your quote and execution, or the floor was set above what the trade could ever yield. Re-quote and retry, or widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 disables this check; the 2% protocol band still applies.",
+      "description": "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set (destination alpha, or TAO when the destination is netuid 0), so the whole trade rolled back; nothing moved. The pool moved between your quote and execution, or the floor was set above what the trade could ever yield. Re-quote and retry, or widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 disables this check; the configured protocol band still applies.",
       "docs_url": "/docs/errors/chain/BasketMinOutNotMet",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketMinOutNotMet/content.md",
       "pallets": [
@@ -743,7 +732,7 @@
     },
     "BasketTurnoverBudgetExceeded": {
       "code": "rate_limited",
-      "description": "The trade would push more TAO through the fund than its turnover bucket holds. The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%); it refills continuously over 7200 blocks and each swap takes the TAO through its middle out of it, so at most one capacity can be traded at any instant. Query `basket_trading_status` for the remaining budget, the capacity, and the refill rate; trade a smaller amount or wait for the bucket to refill.",
+      "description": "The trade would push more TAO through the fund than its turnover bucket holds. The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%); it refills continuously over `BasketTradeRefillBlocks` (7200 by default) and each swap takes the TAO through its middle out of it, so at most one capacity can be traded at any instant. Query `basket_trading_status` for the remaining budget, the capacity, and the refill rate; trade a smaller amount or wait for the bucket to refill.",
       "docs_url": "/docs/errors/chain/BasketTurnoverBudgetExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketTurnoverBudgetExceeded/content.md",
       "pallets": [
@@ -843,8 +832,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 261,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L261",
+          "line": 285,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L285",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -872,18 +861,7 @@
       "description": "The channel's current burn price exceeds the caller's `max_burn`. Query the live decayed price and raise `max_burn`, or retry after the price decays.",
       "docs_url": "/docs/errors/chain/BurnPriceLimitExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/BurnPriceLimitExceeded/content.md",
-      "pallets": [
-        "Commitments"
-      ],
-      "sources": [
-        {
-          "pallet": "Commitments",
-          "path": "pallets/commitments/src/lib.rs",
-          "line": 247,
-          "url": "/code/pallets/commitments/src/lib.rs#L247",
-          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
-        }
-      ]
+      "pallets": []
     },
     "BurnRecycleEmissionAboveMaximum": {
       "code": "policy_violation",
@@ -1142,18 +1120,7 @@
       "description": "A bounded hotkey-swap migration is still moving this hotkey's channel commitments. Wait for the migration to finish before publishing another channel commitment.",
       "docs_url": "/docs/errors/chain/ChannelMigrationPending",
       "markdown_url": "/llms.mdx/docs/errors/chain/ChannelMigrationPending/content.md",
-      "pallets": [
-        "Commitments"
-      ],
-      "sources": [
-        {
-          "pallet": "Commitments",
-          "path": "pallets/commitments/src/lib.rs",
-          "line": 251,
-          "url": "/code/pallets/commitments/src/lib.rs#L251",
-          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
-        }
-      ]
+      "pallets": []
     },
     "ChildParentInconsistency": {
       "code": "invalid_argument",
@@ -1464,8 +1431,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 285,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L285",
+          "line": 309,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L309",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1482,8 +1449,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 283,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L283",
+          "line": 307,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L307",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1833,8 +1800,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 281,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L281",
+          "line": 305,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L305",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -2373,18 +2340,7 @@
       "description": "Burning is enabled for mechanism 0, channel 0, so the legacy free `set_commitment` call is unavailable. Use the coldkey-signed `set_commitment_to` with an adequate burn limit.",
       "docs_url": "/docs/errors/chain/FreeCommitmentDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/FreeCommitmentDisabled/content.md",
-      "pallets": [
-        "Commitments"
-      ],
-      "sources": [
-        {
-          "pallet": "Commitments",
-          "path": "pallets/commitments/src/lib.rs",
-          "line": 249,
-          "url": "/code/pallets/commitments/src/lib.rs#L249",
-          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
-        }
-      ]
+      "pallets": []
     },
     "FundsNotSettled": {
       "code": "policy_violation",
@@ -2623,8 +2579,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 287,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L287",
+          "line": 311,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L311",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3576,8 +3532,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 275,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L275",
+          "line": 299,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L299",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3936,8 +3892,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 259,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L259",
+          "line": 283,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L283",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3954,8 +3910,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 273,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L273",
+          "line": 297,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L297",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3972,8 +3928,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 271,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L271",
+          "line": 295,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L295",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4044,8 +4000,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 257,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L257",
+          "line": 281,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L281",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4102,7 +4058,6 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/MechanismDoesNotExist/content.md",
       "pallets": [
         "SubtensorModule",
-        "Commitments",
         "Swap"
       ],
       "sources": [
@@ -4112,13 +4067,6 @@
           "line": 174,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L174",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        },
-        {
-          "pallet": "Commitments",
-          "path": "pallets/commitments/src/lib.rs",
-          "line": 243,
-          "url": "/code/pallets/commitments/src/lib.rs#L243",
-          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         },
         {
           "pallet": "Swap",
@@ -4150,8 +4098,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 267,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L267",
+          "line": 291,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L291",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4168,8 +4116,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 269,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L269",
+          "line": 293,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L293",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4285,8 +4233,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 263,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L263",
+          "line": 287,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L287",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4838,18 +4786,7 @@
       "description": "The signer is not the validator's currently authorized delegate for this exact netuid and mechanism, or the validator's grant is still moving after a hotkey change. Query the delegate for the validator and mechanism, wait for lifecycle cleanup, and have the validator grant or renew the delegation before retrying.",
       "docs_url": "/docs/errors/chain/NotMechWeightDelegate",
       "markdown_url": "/llms.mdx/docs/errors/chain/NotMechWeightDelegate/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 505,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L505",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
+      "pallets": []
     },
     "NotNoted": {
       "code": "not_found",
@@ -4881,8 +4818,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 277,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L277",
+          "line": 301,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L301",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5249,8 +5186,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 279,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L279",
+          "line": 303,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L303",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -6140,8 +6077,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 255,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L255",
+          "line": 279,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L279",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -7095,8 +7032,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 265,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L265",
+          "line": 289,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L289",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

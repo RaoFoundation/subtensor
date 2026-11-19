@@ -17,11 +17,11 @@ the validator slot every block, whatever the subnet sets — the pre-sign
 plan shows that share and what alpha validators are left with, and lists
 every rule the chain would reject (including a validator share at or below
 the baseline), so a bad vector is caught before signing. Owners may change
-the vector once per week per subnet.
+the vector once per configured rate-limit interval per subnet.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_subnet_emission_weights_v2`](/code/pallets/admin-utils/src/lib.rs#L3017-L3043) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_subnet_emission_weights_v2`](/code/pallets/admin-utils/src/lib.rs#L3042-L3068) |
 
 ## Verify
 
@@ -87,7 +87,7 @@ result = sub.execute_tool("set_subnet_emission_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`AdminUtils.sudo_set_subnet_emission_weights_v2` — [`pallets/admin-utils/src/lib.rs#L3023`](/code/pallets/admin-utils/src/lib.rs#L3017-L3043):
+`AdminUtils.sudo_set_subnet_emission_weights_v2` — [`pallets/admin-utils/src/lib.rs#L3048`](/code/pallets/admin-utils/src/lib.rs#L3042-L3068):
 
 ```rust
 #[pallet::call_index(120)]
