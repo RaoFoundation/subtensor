@@ -430,15 +430,12 @@ jobs:
     needs: [check, build-core, check-python-notes]
     if: ${{ !cancelled() && needs.build-core.result == 'success' && needs.check-python-notes.result == 'success' }}
     runs-on: [self-hosted, fireactions-turbo-8]
-    # One stable upload at a time, shared with publish-python-stable.yml.
+    # One stable upload at a time.
     concurrency:
       group: stable-python-pypi
       cancel-in-progress: false
-    # PyPI trusted publishing (OIDC). Publishers for `bittensor` and
-    # bittensor-core are registered against this workflow file plus the
-    # mainnet environment. publish-python-stable.yml is a second publisher
-    # and needs its own PyPI row before it can upload. Completeness accepts
-    # an attestation from either workflow file.
+    # PyPI trusted publishing (OIDC); publishers for `bittensor` and
+    # bittensor-core are registered against this workflow + mainnet environment.
     environment: mainnet
     permissions:
       id-token: write
