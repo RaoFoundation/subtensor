@@ -96,7 +96,7 @@ pub fn reveal_weights(
 }
 ```
 
-Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L763).
+Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L768).
 
 `SubtensorModule.reveal_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L318`](/code/pallets/subtensor/src/macros/dispatches.rs#L316-L336):
 
@@ -124,13 +124,13 @@ pub fn reveal_mechanism_weights(
 }
 ```
 
-Delegates to [`do_reveal_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L782).
+Delegates to [`do_reveal_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L787).
 
 `SubtensorModule.reveal_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3358`](/code/pallets/subtensor/src/macros/dispatches.rs#L3356-L3378):
 
 ```rust
 #[pallet::call_index(169)]
-#[pallet::weight((Pallet::<T>::reveal_mechanism_weights_weight(*netuid, uids.len() as u32).saturating_add(T::DbWeight::get().reads(2)), DispatchClass::Normal, Pays::Yes))]
+#[pallet::weight((Pallet::<T>::reveal_mechanism_weights_weight(*netuid, uids.len() as u32).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
 pub fn reveal_mechanism_weights_for(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -154,6 +154,6 @@ pub fn reveal_mechanism_weights_for(
 }
 ```
 
-Delegates to [`do_reveal_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L97).
+Delegates to [`do_reveal_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L102).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

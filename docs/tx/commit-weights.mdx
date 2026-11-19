@@ -96,13 +96,13 @@ pub fn commit_timelocked_mechanism_weights(
 }
 ```
 
-Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L474).
+Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L479).
 
 `SubtensorModule.commit_timelocked_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3383`](/code/pallets/subtensor/src/macros/dispatches.rs#L3381-L3401):
 
 ```rust
 #[pallet::call_index(170)]
-#[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()).saturating_add(T::DbWeight::get().reads(2)), DispatchClass::Normal, Pays::Yes))]
+#[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
 pub fn commit_timelocked_mechanism_weights_for(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -124,6 +124,6 @@ pub fn commit_timelocked_mechanism_weights_for(
 }
 ```
 
-Delegates to [`do_commit_timelocked_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L111).
+Delegates to [`do_commit_timelocked_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L116).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

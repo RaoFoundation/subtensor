@@ -79,7 +79,7 @@ result = sub.execute_tool("set_mech_weight_delegate", {...}, wallet)
 
 ```rust
 #[pallet::call_index(166)]
-#[pallet::weight(T::DbWeight::get().reads_writes(4, 1))]
+#[pallet::weight(T::DbWeight::get().reads_writes(5, 2))]
 pub fn set_mech_weight_delegate(
     origin: OriginFor<T>,
     netuid: NetUid,

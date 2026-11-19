@@ -111,6 +111,24 @@
         }
       ]
     },
+    "AccountNotAuthorized": {
+      "code": "not_authorized",
+      "description": "The signing coldkey does not own the target registered hotkey. Sign `set_commitment_to` with the hotkey's owner coldkey; hotkeys cannot fund channel commitments.",
+      "docs_url": "/docs/errors/chain/AccountNotAuthorized",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AccountNotAuthorized/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 245,
+          "url": "/code/pallets/commitments/src/lib.rs#L245",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
+      ]
+    },
     "AccountPolicyViolation": {
       "code": "not_authorized",
       "description": "This proxy delegation would weaken the protected account's authorization. Use a compatible hashed delegate; a classical proxy cannot bypass hashed authorization.",
@@ -849,6 +867,24 @@
         }
       ]
     },
+    "BurnPriceLimitExceeded": {
+      "code": "limit_exceeded",
+      "description": "The channel's current burn price exceeds the caller's `max_burn`. Query the live decayed price and raise `max_burn`, or retry after the price decays.",
+      "docs_url": "/docs/errors/chain/BurnPriceLimitExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BurnPriceLimitExceeded/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 247,
+          "url": "/code/pallets/commitments/src/lib.rs#L247",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
+      ]
+    },
     "BurnRecycleEmissionAboveMaximum": {
       "code": "policy_violation",
       "description": "Slots 0 (burn) and 1 (recycle) of the emission weight vector together exceed the 33% ceiling. Burn destroys alpha but still counts toward issuance; recycle removes alpha from `SubnetAlphaOut` and `TotalAlphaIssuance`. Lower burn and/or recycle so their sum is at most 0.33.",
@@ -1099,6 +1135,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/ChangePending/content.md",
       "pallets": [
         "Grandpa"
+      ]
+    },
+    "ChannelMigrationPending": {
+      "code": "too_early",
+      "description": "A bounded hotkey-swap migration is still moving this hotkey's channel commitments. Wait for the migration to finish before publishing another channel commitment.",
+      "docs_url": "/docs/errors/chain/ChannelMigrationPending",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ChannelMigrationPending/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 251,
+          "url": "/code/pallets/commitments/src/lib.rs#L251",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
       ]
     },
     "ChildParentInconsistency": {
@@ -2311,6 +2365,24 @@
           "line": 202,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L202",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "FreeCommitmentDisabled": {
+      "code": "not_authorized",
+      "description": "Burning is enabled for mechanism 0, channel 0, so the legacy free `set_commitment` call is unavailable. Use the coldkey-signed `set_commitment_to` with an adequate burn limit.",
+      "docs_url": "/docs/errors/chain/FreeCommitmentDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/FreeCommitmentDisabled/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 249,
+          "url": "/code/pallets/commitments/src/lib.rs#L249",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
     },
@@ -4030,6 +4102,7 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/MechanismDoesNotExist/content.md",
       "pallets": [
         "SubtensorModule",
+        "Commitments",
         "Swap"
       ],
       "sources": [
@@ -4039,6 +4112,13 @@
           "line": 174,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L174",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        },
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 243,
+          "url": "/code/pallets/commitments/src/lib.rs#L243",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         },
         {
           "pallet": "Swap",
@@ -4749,6 +4829,24 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 485,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L485",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NotMechWeightDelegate": {
+      "code": "not_authorized",
+      "description": "The signer is not the validator's currently authorized delegate for this exact netuid and mechanism, or the validator's grant is still moving after a hotkey change. Query the delegate for the validator and mechanism, wait for lifecycle cleanup, and have the validator grant or renew the delegation before retrying.",
+      "docs_url": "/docs/errors/chain/NotMechWeightDelegate",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotMechWeightDelegate/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 505,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L505",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]

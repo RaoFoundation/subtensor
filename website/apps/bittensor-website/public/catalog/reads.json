@@ -517,8 +517,8 @@
         "container": "SubtensorModule",
         "name": "ColdkeySwapV2PolicySnapshots",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4190,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4190",
+        "line": 4208,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4208",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -623,8 +623,8 @@
         "container": "Commitments",
         "name": "CommitmentOf",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 472,
-        "url": "/code/pallets/commitments/src/lib.rs#L472",
+        "line": 452,
+        "url": "/code/pallets/commitments/src/lib.rs#L452",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -1939,8 +1939,8 @@
         "container": "Commitments",
         "name": "RevealedCommitments",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 508,
-        "url": "/code/pallets/commitments/src/lib.rs#L508",
+        "line": 488,
+        "url": "/code/pallets/commitments/src/lib.rs#L488",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -2620,8 +2620,8 @@
         "container": "SubtensorModule",
         "name": "SubnetGammaEmissionWhitelisted",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4140,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4140",
+        "line": 4158,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4158",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2921,8 +2921,8 @@
         "container": "SubtensorModule",
         "name": "TaoUsdPriceOracle",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4145,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4145",
+        "line": 4163,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4163",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2930,8 +2930,8 @@
         "container": "SubtensorModule",
         "name": "TaoUsdPrice",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4149,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4149",
+        "line": 4167,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4167",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]

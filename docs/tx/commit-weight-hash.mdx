@@ -83,13 +83,13 @@ pub fn commit_mechanism_weights(
 }
 ```
 
-Delegates to [`do_commit_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L255).
+Delegates to [`do_commit_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L260).
 
 `SubtensorModule.commit_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3345`](/code/pallets/subtensor/src/macros/dispatches.rs#L3343-L3353):
 
 ```rust
 #[pallet::call_index(168)]
-#[pallet::weight((<T as Config>::WeightInfo::commit_mechanism_weights().saturating_add(T::DbWeight::get().reads(2)), DispatchClass::Normal, Pays::Yes))]
+#[pallet::weight((<T as Config>::WeightInfo::commit_mechanism_weights().saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
 pub fn commit_mechanism_weights_for(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -101,6 +101,6 @@ pub fn commit_mechanism_weights_for(
 }
 ```
 
-Delegates to [`do_commit_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L86).
+Delegates to [`do_commit_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L91).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

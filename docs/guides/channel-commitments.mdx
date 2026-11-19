@@ -189,6 +189,9 @@ The validator's identity is used for registration, rate-limit, and timelock
 encryption checks—not the delegate's. Registration, stake, permit, version,
 rate-limit, and weight-conformance rules still apply to the validator. The
 chain verifies that the signer is currently authorized for that mechanism.
+After a hotkey swap, bounded idle work moves the grant only when the destination
+owns the validator's former UID. A reverse swap before that work completes
+restores the grant on the hotkey that currently owns the UID.
 
 These delegated calls charge a **normal transaction fee to the signing
 delegate**, unlike hotkey weight calls whose fee is routed to the validator's
