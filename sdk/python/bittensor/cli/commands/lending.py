@@ -1952,9 +1952,7 @@ def show_position(
             max_defer = _lift_params_deferral(params)
             if max_defer is None:
                 constant = await client.constant(("Lending", "MaxSettlementDeferral"))
-                max_defer = (
-                    int(constant) if isinstance(constant, int) and constant > 0 else None
-                )
+                max_defer = int(constant) if isinstance(constant, int) and constant > 0 else None
             spot_rao = await view.runtime(api.SwapRuntimeApi.current_alpha_price, [netuid])
             ema = None
             price_raw = None

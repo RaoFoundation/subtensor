@@ -11292,6 +11292,67 @@ fn set_lift_params_rejects_duration_and_expiry_bounds() {
             Lending::set_lift_params(RuntimeOrigin::root(), zero_min),
             Error::<Test>::InvalidLiftParams
         );
+        // Remaining economic knobs Jacob requires root-settable with sane bounds.
+        for bad in [
+            LiftParams {
+                apr_long_bps: 10_001,
+                ..test_lift_params()
+            },
+            LiftParams {
+                apr_short_bps: 10_001,
+                ..test_lift_params()
+            },
+            LiftParams {
+                ema_band_bps: 10_001,
+                ..test_lift_params()
+            },
+            LiftParams {
+                max_settlement_deferral: 0,
+                ..test_lift_params()
+            },
+            LiftParams {
+                young_short_settlement_window: 0,
+                ..test_lift_params()
+            },
+            LiftParams {
+                new_subnet_ramp: 0,
+                ..test_lift_params()
+            },
+            LiftParams {
+                max_expiry_settlements_per_block: 0,
+                ..test_lift_params()
+            },
+        ] {
+            assert_noop!(
+                Lending::set_lift_params(RuntimeOrigin::root(), bad),
+                Error::<Test>::InvalidLiftParams
+            );
+        }
+    });
+}
+
+#[test]
+fn set_lift_params_emits_lift_params_set_and_accepts_valid() {
+    new_test_ext().execute_with(|| {
+        System::reset_events();
+        let params = LiftParams {
+            apr_long_bps: 8_000,
+            apr_short_bps: 9_000,
+            max_loan_duration: 14_400,
+            young_short_settlement_window: 12_600,
+            ..test_lift_params()
+        };
+        assert_ok!(Lending::set_lift_params(RuntimeOrigin::root(), params));
+        assert_eq!(LiftParamsStore::<Test>::get(), params);
+        assert!(
+            System::events().iter().any(|e| {
+                matches!(
+                    &e.event,
+                    RuntimeEvent::Lending(Event::LiftParamsSet { params: p }) if *p == params
+                )
+            }),
+            "set_lift_params must emit LiftParamsSet"
+        );
     });
 }
 
