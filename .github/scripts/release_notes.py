@@ -38,11 +38,6 @@ REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 SPEC_LINE_RE = re.compile(r"(?m)^\s*spec_version:\s*([0-9]+)\s*,\s*$")
 
-URL_RE = re.compile(r"https?://[^\s<>'\"`]+")
-HASH_RE = re.compile(r"\b(?:[0-9a-fA-F]{64}|[0-9a-fA-F]{40})\b")
-PY_VERSION_RE = re.compile(r"\b[0-9]+\.[0-9]+\.[0-9]+(?:rc[0-9]+|\.dev[0-9]+)?\b")
-SPEC_TOKEN_RE = re.compile(r"\b[0-9]{3,}\b")
-
 NOTES_KEYS = {
     "kind",
     "spec_version",
@@ -541,32 +536,6 @@ def check_diff(
     return CheckResult(True, grandfathered, "\n".join(messages))
 
 
-def _strip_url(url: str) -> str:
-    return url.rstrip(".,);]>")
-
-
-def fact_tokens(text: str) -> set[tuple[str, str]]:
-    found: set[tuple[str, str]] = set()
-    for match in URL_RE.finditer(text):
-        found.add(("url", _strip_url(match.group(0))))
-    for match in HASH_RE.finditer(text):
-        found.add(("hash", match.group(0).lower()))
-    for match in PY_VERSION_RE.finditer(text):
-        found.add(("version", match.group(0)))
-    for match in SPEC_TOKEN_RE.finditer(text):
-        found.add(("number", match.group(0)))
-    return found
-
-
-def unexpected_model_tokens(model_text: str, facts: str) -> list[str]:
-    allowed = fact_tokens(facts)
-    extra: list[str] = []
-    for kind, value in sorted(fact_tokens(model_text)):
-        if (kind, value) not in allowed:
-            extra.append(f"{kind} {value}")
-    return extra
-
-
 def default_install(sdk: str) -> tuple[str, ...]:
     return (
         "uv venv && source .venv/bin/activate",
@@ -735,17 +704,12 @@ def render_announcement(
         audiences=audiences,
         install_commands=install_commands,
     )
+    # The posted summary is the human text. Model prose is not inserted: it can
+    # add an instruction that is not a version, a hash, or a URL.
     model_status = "absent"
     chosen = summary
     if model_summary is not None and model_summary.strip() != "":
-        extra = unexpected_model_tokens(model_summary, facts)
-        if extra:
-            model_status = "rejected: " + ", ".join(extra)
-        elif len(model_summary.strip()) > MAX_SUMMARY_CHARS:
-            model_status = "rejected: summary is too long"
-        else:
-            chosen = model_summary.strip()
-            model_status = "accepted"
+        model_status = "ignored"
     banner = SAMPLE_BANNER if sample else None
     message = fit_message(banner, KIND_TITLES[kind], chosen, facts)
     return Announcement(message=message, summary=chosen, facts=facts, model_status=model_status)

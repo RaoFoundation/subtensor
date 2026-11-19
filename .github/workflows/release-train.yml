@@ -37,6 +37,7 @@ name: Release Train
 # Discord (secret DISCORD_WEBHOOK_URL on mainnet and mainnet-release only):
 # one post when this train's propose job submits a mainnet upgrade, then
 # the watcher posts when that upgrade is live and when stable PyPI succeeds.
+# The posted summary is the human release text. Model prose is not inserted.
 # There is no post for devnet, testnet, rc, or TestPyPI. A missing notes
 # file blocks propose-mainnet. Spec 492 and the Python versions committed
 # with it are grandfathered because they have no release page.
@@ -822,4 +823,3 @@ jobs:
           dry-run: "false"
           status-context: announce/runtime-proposed
           webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}

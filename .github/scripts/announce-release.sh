@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Render a release announcement and, unless this is a dry run, POST it.
-# A pull_request job never calls Discord. A missing model key posts the
-# human summary. A model summary that adds a version, hash, or URL is dropped.
-# The chain release does not depend on this script succeeding.
+# A pull_request job never calls Discord. The posted summary is the human
+# text. Model prose is not inserted. The chain release does not depend on
+# this script succeeding.
 
 set -euo pipefail
 
@@ -13,7 +13,6 @@ cd "$repo_root"
 if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
   ANNOUNCE_DRY_RUN=true
   DISCORD_WEBHOOK_URL=
-  ANNOUNCE_OPENAI_API_KEY=
 fi
 
 dry=${ANNOUNCE_DRY_RUN:-false}
@@ -74,52 +73,6 @@ render() {
 }
 
 render
-
-rewrite_summary() {
-  if [ -z "${ANNOUNCE_OPENAI_API_KEY:-}" ]; then
-    echo "ANNOUNCE_OPENAI_API_KEY is not set; using the human summary."
-    return 0
-  fi
-  local body code
-  if ! body=$(jq -n \
-    --rawfile summary "$workdir/summary.txt" \
-    --arg model "${ANNOUNCE_MODEL:-gpt-4o-mini}" \
-    '{
-      model: $model,
-      temperature: 0,
-      max_tokens: 400,
-      messages: [
-        {
-          role: "system",
-          content: "You rewrite a release summary. Return only the rewritten summary. Do not add a version number, a hash, a URL, a command, or a date. Do not add claims that are not in the summary."
-        },
-        {role: "user", content: $summary}
-      ]
-    }'); then
-    echo "Could not build the OpenAI request; using the human summary." >&2
-    return 0
-  fi
-  code=$(curl -sS --max-time 25 -o "$workdir/openai.json" -w '%{http_code}' \
-    -H "Authorization: Bearer ${ANNOUNCE_OPENAI_API_KEY}" \
-    -H "Content-Type: application/json" \
-    --data-binary "$body" \
-    https://api.openai.com/v1/chat/completions || true)
-  if [ "$code" != "200" ]; then
-    echo "OpenAI request failed (HTTP ${code:-none}); using the human summary." >&2
-    return 0
-  fi
-  if ! jq -er '.choices[0].message.content' "$workdir/openai.json" >"$workdir/model.txt"; then
-    echo "OpenAI response had no summary; using the human summary." >&2
-    rm -f "$workdir/model.txt"
-    return 0
-  fi
-  args+=(--model-summary-file "$workdir/model.txt")
-  render
-}
-
-if [ "$dry" != true ]; then
-  rewrite_summary
-fi
 
 write_summary() {
   if [ -z "${GITHUB_STEP_SUMMARY:-}" ]; then

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Render a Discord announcement from release facts.
 
-The model may replace only the human summary. Versions, hashes, install
-commands, and URLs come from this script. A model summary that adds a
-version, hash, or URL that is not in the fact block is discarded.
+The posted summary is the human text. A model summary is ignored. Versions,
+hashes, install commands, and URLs come from this script.
 """
 
 from __future__ import annotations

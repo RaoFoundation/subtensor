@@ -169,12 +169,12 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.notes.outputs.sha }}
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Install uv 0.11.28
         run: |
@@ -196,10 +196,16 @@ jobs:
           merge-multiple: true
 
       - name: Prepare stable SDK distribution
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
         run: python3 .github/scripts/prepare-sdk-dist.py
 
       - name: Build SDK wheel and sdist
         working-directory: sdk/python
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
         run: uv build --out-dir "$GITHUB_WORKSPACE/dist"
 
       - name: Verify stable artifacts
@@ -227,6 +233,9 @@ jobs:
           test -f "dist/bittensor_core-${core_version}.tar.gz"
 
       - name: Check SDK against its minimum bittensor-core
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
         run: |
           if [ -f .github/scripts/check-sdk-core-floor.sh ]; then
             .github/scripts/check-sdk-core-floor.sh dist
@@ -417,4 +426,3 @@ jobs:
           dry-run: "false"
           status-context: announce/python-stable
           webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}

@@ -663,7 +663,6 @@ jobs:
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.announce_dry_run == true && 'true' || 'false' }}
           status-context: announce/runtime-live
           webhook: ${{ (github.event_name != 'workflow_dispatch' || inputs.announce_dry_run != true) && secrets.DISCORD_WEBHOOK_URL || '' }}
-          openai-api-key: ${{ (github.event_name != 'workflow_dispatch' || inputs.announce_dry_run != true) && secrets.ANNOUNCE_OPENAI_API_KEY || '' }}
 
   announce-python:
     name: Announce stable Python release
@@ -724,4 +723,3 @@ jobs:
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.announce_dry_run == true && 'true' || 'false' }}
           status-context: announce/python-stable
           webhook: ${{ (github.event_name != 'workflow_dispatch' || inputs.announce_dry_run != true) && secrets.DISCORD_WEBHOOK_URL || '' }}
-          openai-api-key: ${{ (github.event_name != 'workflow_dispatch' || inputs.announce_dry_run != true) && secrets.ANNOUNCE_OPENAI_API_KEY || '' }}
