@@ -1060,15 +1060,10 @@ mod tests {
                 "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
+        // P2-c: Staking must not grant lending; use Any / NonTransfer for loans.
         assert_eq!(
             allowed_calls(ProxyType::Staking),
             expected(&[
-                "Lending::close",
-                "Lending::open",
-                "Lending::open_exact",
-                "Lending::repay",
-                "Lending::open_long_and_sell",
-                "Lending::warm_reference",
                 "SubtensorModule::add_collateral",
                 "SubtensorModule::add_stake",
                 "SubtensorModule::add_stake_limit",
