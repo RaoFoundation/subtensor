@@ -53,6 +53,12 @@ pub trait WeightInfo {
 	fn open_long_and_sell_by_amount() -> Weight;
 	fn close() -> Weight;
 	fn repay() -> Weight;
+	/// Alias of [`Self::close`] until reference re-measure (H2). Roll accrues
+	/// interest and rewrites the expiry queue but does no AMM trade; close is a
+	/// safe upper bound. Do not invent local numerics.
+	fn roll() -> Weight {
+		Self::close()
+	}
 	fn set_enabled() -> Weight;
 	fn set_lift_params() -> Weight;
 	fn warm_reference() -> Weight;

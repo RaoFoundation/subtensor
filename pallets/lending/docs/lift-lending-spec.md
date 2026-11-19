@@ -1,14 +1,52 @@
-# Lift-based lending on main's Balancer pools: final spec (v5.9: hard 30-day max loan duration)
-**Version:** v5.9, 2026-11-19. Encodes Jacob's locked decisions as of 2026-10-20 (EMA band 2026-10-28; settlement band + forfeit buyback 2026-11-03; emission-price exclusion 2026-11-05; net-long emission + 1 τ min loan + young-short dereg 2026-11-09; **hard 30-day MaxLoanDuration / terms v2 2026-11-19**). Supersedes v5.8 (net-long emission), v5.7 (emission minus the longs), v5.6 (settlement band + forfeit buyback), v5.5 (health accumulators + versioned terms), v5.4 (2026-10-28, kept as `lift-lending-spec.v5.4-backup-20261103.md` when archived), v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
+# Lift-based lending on main's Balancer pools: final spec (v5.10: roll + root economic params)
+**Version:** v5.10, 2026-11-19. Encodes Jacob's locked decisions as of 2026-10-20 (EMA band 2026-10-28; settlement band + forfeit buyback 2026-11-03; emission-price exclusion 2026-11-05; net-long emission + 1 τ min loan + young-short dereg 2026-11-09; hard 30-day MaxLoanDuration / terms v2 2026-11-19; **atomic `roll(netuid)` + root-settable economic params 2026-11-19**). Supersedes v5.9 (hard 30-day term), v5.8 (net-long emission), v5.7 (emission minus the longs), v5.6 (settlement band + forfeit buyback), v5.5 (health accumulators + versioned terms), v5.4 (2026-10-28, kept as `lift-lending-spec.v5.4-backup-20261103.md` when archived), v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
 **Target:** RaoFoundation/subtensor `main` @ 7ba9601d (2026-10-15 15:53 CT). PR #3211 is a parts bin only (§11).
 **Numbers:** live chain state at block 9,298,539 (2026-10-16), with real `Swap.SwapBalancer` weights; P&L uses the same 117-subnet bootstrap paths as before.
 **Files:** scripts `lending-pnl/{final,final2,final3,sim_final2,pnl_final2,plot11}.py`; data `data/final*.{json,csv}` (floor sweep: `data/final3.json`, `data/final3_pnl.csv`), `data/balancer_now.json`; figure `fig11_final.png`. v5 additions: `lift-lending-raise/calc.py` + `res.json` (escrowed-long impacts, raise example); companion implementer notes `lift-lending-raise-cli.md`; v5.1: `lift-lending-dereg/calc.py` + `res.json` (dereg settlement examples); why not zero-loss LTV: `zero-loss-ltv-example.md`; v5.2: `sn29-analysis.md` + `sn29/calc.py` → `res.json` (`r`-pump attack and fix numbers); v5.3: `lending-pnl/sim_final4.py` (escrowed-long books, same seeds and paths as `sim_final2.py`) + `lending-pnl/final4.py` → `data/final4.json`, `data/final4_pnl.csv`, `data/final4_long_default.csv` (thin floor on, tier LTV, escrowed-long P&L); `lift-lending-raise/calc.py` → `res.json` key `v53_raise_table` (raise tables, thin-tier mirrors).
 
+## Changelog: v5.10 vs v5.9
+* **2026-11-19: atomic `roll(netuid)` (Jacob).** Owner-signed term extension under open gates.
+  * Allowed only while opens are enabled (`ensure_lending_live` + `ensure_new_subnet_gate` + warm reference). **Opens-off disables rolls.**
+  * Reject if `now >= expires_at` (`DeadlinePassed`); reject if spot outside the directional 15% EMA band (`ensure_open_ema_band` on current spot, no trade).
+  * First `charge_interest` to now (`final_charge=false`, `permissionless=false`); re-check LTV at current open price as a fresh open; reject over-cap books with `ΔL = 0` so caps shrink by attrition.
+  * Set `expires_at = now + max_loan_duration`; move expiry queue; clear `BandDeferralSince`. Do **not** change principal, collateral, proceeds / escrow_alpha, lift legs, or `last_exposure_added_at` (young-short age unchanged).
+  * Emit `Rolled { owner, netuid, side, old_expires_at, new_expires_at }`. Proxy: `LendingCalls` (Any / NonTransfer); **not** Staking.
+  * Increases / partial repay still preserve `expires_at` (no silent renewal). Roll is the explicit renew path.
+* **2026-11-19: all economic params root-settable via `LiftParams` / `set_lift_params`.**
+  * Split `apr_bps` → `apr_long_bps` + `apr_short_bps` (migrate equal).
+  * Appended: `max_loan_duration` (7200..=2_628_000; opens + rolls only — never rewrites live `expires_at`), `max_settlement_deferral`, `young_short_settlement_window` (default 25_200), `minimum_loan_value`, `max_expiry_settlements_per_block` (≤ compile-time hard cap for weight safety).
+  * Existing: LTV long/short/thin (≤5000), EMA band, cap floor / thin floor / split, new-subnet delay + ramp.
+  * Migration `LiftParamsEconomicMigration` (DecodeAll); event remains `LiftParamsSet`.
+  * Structural / weight bounds (`MaxPositions*`, `PalletId`, retry delays, `MaxExpirySettlementsPerBlock` hard cap) stay compile-time.
+
+### Parameter table (v5.10)
+
+| Name | Default | Bounds | Setter |
+|---|---|---|---|
+| `floor_bps` | 3300 | ≤ `ceiling_bps` | `set_lift_params` |
+| `thin_floor_bps` | 1500 | ≤ `ceiling_bps` | `set_lift_params` |
+| `ceiling_bps` | 5000 | ≤ 10_000 | `set_lift_params` |
+| `split_short_bps` | 5000 | ≤ 10_000 | `set_lift_params` |
+| `ltv_short_bps` | 2500 | ≤ 5000 | `set_lift_params` |
+| `ltv_long_bps` | 2500 | ≤ 5000 | `set_lift_params` |
+| `thin_ltv_long_bps` | 1500 | ≤ 5000 | `set_lift_params` |
+| `apr_long_bps` | 10_000 | ≤ 10_000 | `set_lift_params` |
+| `apr_short_bps` | 10_000 | ≤ 10_000 | `set_lift_params` |
+| `ema_band_bps` | 1500 | ≤ 10_000 | `set_lift_params` |
+| `new_subnet_min_age` | 50_400 | ≥ 0 | `set_lift_params` |
+| `new_subnet_ramp` | 216_000 | > 0 | `set_lift_params` |
+| `max_loan_duration` | 216_000 | 7200..=2_628_000 | `set_lift_params` |
+| `max_settlement_deferral` | 50_400 | > 0 | `set_lift_params` |
+| `young_short_settlement_window` | 25_200 | > 0 | `set_lift_params` |
+| `minimum_loan_value` | 1e9 rao | > 0 | `set_lift_params` |
+| `max_expiry_settlements_per_block` | 16 | 1..=hard Config cap | `set_lift_params` |
+| `Enabled` | false (dark launch) | bool | `set_enabled` |
+
 ## Changelog: v5.9 vs v5.8
 * **2026-11-19: hard 30-day maximum loan duration (Jacob).** So the protocol can always fully unwind lending by waiting 30 days.
-  * `Config::MaxLoanDuration = 216_000` blocks (~30 days at 12 s). `#[pallet::constant]` like the other duration caps.
-  * Terms **v2**: new opens set `expires_at = now + MaxLoanDuration` and enqueue the existing `Expiry` schedule. `CurrentTermsVersion` defaults to 2.
-  * **No renewal / extension.** Increases and partial repay preserve the original `expires_at`. An increase at or after expiry returns `DeadlinePassed`. After the old position settles, the owner may open a fresh position under a new 30-day clock (normal checks / caps).
+  * `LiftParams.max_loan_duration` default 216_000 blocks (~30 days at 12 s); compile-time Config seed / hard-cap pattern for related knobs.
+  * Terms **v2**: new opens set `expires_at = now + max_loan_duration` and enqueue the existing `Expiry` schedule. `CurrentTermsVersion` defaults to 2.
+  * **No silent renewal / extension.** Increases and partial repay preserve the original `expires_at`. An increase at or after expiry returns `DeadlinePassed`. Explicit renew is `roll(netuid)` under open gates (v5.10). After settle, the owner may open a fresh position under a new clock.
   * **Mandatory bounded `on_initialize`:** at most `MaxExpirySettlementsPerBlock` (production **16**) normal + deferred expiry attempts per block; remainder via `ExpiryBucketCursor` / `ExpiryRetry`. Keep the metered `on_idle` fallback. No full-position scans. Dissolution settle still wins.
   * Expiry path unchanged otherwise: forced close / forfeit at spot, 15% EMA band, 50_400-block max deferral, per-loan k-neutral burn, shortfall counter, burned excess forfeit TAO, owner remainder.
   * Event `LoanExpired { position_id, owner, netuid, side, expires_at, settled_at }` after every expiry close/forfeit (including deferred forced settles), alongside `Expired` / `Forfeited`.
@@ -896,9 +934,9 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 * Neither swap is allowed to change `Position.custody`, `PalletHotkey` or the lift accounts.
 
 ### 14.4 Proxies and origins
-* All position calls (`open`, `open_exact`, `repay`, `close`, `open_long_and_sell`) need a signed origin: the owner coldkey, or a proxy acting for it. Root setters (`set_lift_params`, `set_enabled`) are root-only.
+* All position calls (`open`, `open_exact`, `repay`, `close`, `roll`, `open_long_and_sell`) need a signed origin: the owner coldkey, or a proxy acting for it. Root setters (`set_lift_params`, `set_enabled`) are root-only.
 * Proxy filter groups:
-  * `LendingCalls` = `open`, `open_exact`, `close`, **`repay`**. Allowed under `Any`, `Staking` and `NonTransfer`: these calls move the owner's stake and return it only to the owner, like `add_stake`/`remove_stake`.
+  * `LendingCalls` = `open`, `open_exact`, `close`, `repay`, **`roll`**, `warm_reference`. Allowed under `Any` and `NonTransfer` (not `Staking` — Greg P2-c).
   * `LendingRaiseCalls` = `open_long_and_sell`. Allowed only under types that allow **both** `LendingCalls` and stake removal (`Any`, `Staking`, `NonTransfer`), because its sale leg is a `remove_stake` to the owner's free balance.
   * Every other proxy type is denied, `NonCritical` and `NonFungible` included. `NonCritical` grants stake management but not lending; that matches PR #3268's filters.
 * A proxy can never redirect funds: there is no `to`/`beneficiary` parameter on any lending call.
@@ -931,7 +969,7 @@ r = min(T_settle / D, SubnetMovingPrice_at_flag)      // computed once at the st
 * Count-bounded in `on_initialize` (`MaxExpirySettlementsPerBlock`); weight-bounded in `on_idle`. A cursor (`ExpiryBucketCursor`) resumes mid-bucket. Many expiries in one block may span several blocks.
 
 ### 15.3 Top-ups, partial repay, and dissolution
-* **No renewal.** Any increase (long or short) **preserves** the original `expires_at`. An increase at or after expiry returns `DeadlinePassed`. After the position settles, the owner may open a fresh loan with a new 30-day clock under normal checks and caps.
+* **No silent renewal.** Any increase (long or short) **preserves** the original `expires_at`. An increase at or after expiry returns `DeadlinePassed`. Explicit renew is owner-signed `roll(netuid)` under open gates (v5.10); opens-off disables rolls. After the position settles, the owner may also open a fresh loan under a new clock.
 * **Dissolution settle** (§13.3) values long escrow `A` at the smoothed rate `r` and caps collateral `C` at `min(⌊C·r⌋, AMM quote_sell(C))`. **Expiry does not use `r`**: it sells `A` and `C` through the pool, so no cap is needed.
 * **Partial repay** (§4.4) leaves `expires_at` unchanged. Full repay / `close` removes the position and its expiry queue entry.
 * **Dissolution before expiry:** if the subnet is flagged dissolving while the position is still open, §13 settlement is authoritative. Dissolution settle clears the position (and therefore the expiry index). Expiry processing **skips** dissolving netuids, so it never double-settles.

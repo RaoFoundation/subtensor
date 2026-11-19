@@ -908,9 +908,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1622,
-        "end_line": 1641,
-        "url": "/code/pallets/lending/src/lib.rs#L1619-L1641",
+        "line": 1707,
+        "end_line": 1726,
+        "url": "/code/pallets/lending/src/lib.rs#L1704-L1726",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2737,18 +2737,18 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1556,
-        "end_line": 1580,
-        "url": "/code/pallets/lending/src/lib.rs#L1551-L1580",
+        "line": 1641,
+        "end_line": 1665,
+        "url": "/code/pallets/lending/src/lib.rs#L1636-L1665",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
         "pallet": "Lending",
         "call": "open_exact",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1585,
-        "end_line": 1612,
-        "url": "/code/pallets/lending/src/lib.rs#L1583-L1612",
+        "line": 1670,
+        "end_line": 1697,
+        "url": "/code/pallets/lending/src/lib.rs#L1668-L1697",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2967,9 +2967,9 @@
         "pallet": "Lending",
         "call": "open_long_and_sell",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1653,
-        "end_line": 1681,
-        "url": "/code/pallets/lending/src/lib.rs#L1644-L1681",
+        "line": 1738,
+        "end_line": 1766,
+        "url": "/code/pallets/lending/src/lib.rs#L1729-L1766",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -3646,9 +3646,9 @@
         "pallet": "Lending",
         "call": "repay",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1710,
-        "end_line": 1731,
-        "url": "/code/pallets/lending/src/lib.rs#L1705-L1731",
+        "line": 1795,
+        "end_line": 1816,
+        "url": "/code/pallets/lending/src/lib.rs#L1790-L1816",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -3762,6 +3762,48 @@
         "end_line": 286,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L275-L286",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "roll_loan",
+    "summary": "Extend a live loan onto a fresh MaxLoanDuration clock without changing exposure.",
+    "description": "Extend a live loan onto a fresh MaxLoanDuration clock without changing exposure.\n\nSame open gates (lending enabled, new-subnet, warm reference, EMA band).\nCharges interest to now, re-checks LTV, and rejects when the side book is\nalready over the current side cap. Opens-off disables rolls. Does not move\nprincipal, collateral, escrow, lift legs, or `last_exposure_added_at`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "roll"
+      ]
+    ],
+    "docs_url": "/docs/tx/roll-loan",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the position to roll."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx roll-loan --netuid <int>",
+    "python_class": "RollLoan",
+    "markdown_url": "/llms.mdx/docs/tx/roll-loan/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "roll",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 1845,
+        "end_line": 1848,
+        "url": "/code/pallets/lending/src/lib.rs#L1839-L1848",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
   },

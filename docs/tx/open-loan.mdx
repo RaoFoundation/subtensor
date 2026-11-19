@@ -44,7 +44,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1551-L1580), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L1583-L1612) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1636-L1665), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L1668-L1697) |
 
 ## Parameters
 
@@ -105,7 +105,7 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open` — [`pallets/lending/src/lib.rs#L1556`](/code/pallets/lending/src/lib.rs#L1551-L1580):
+`Lending.open` — [`pallets/lending/src/lib.rs#L1641`](/code/pallets/lending/src/lib.rs#L1636-L1665):
 
 ```rust
 #[pallet::call_index(0)]
@@ -140,7 +140,7 @@ pub fn open(
 }
 ```
 
-`Lending.open_exact` — [`pallets/lending/src/lib.rs#L1585`](/code/pallets/lending/src/lib.rs#L1583-L1612):
+`Lending.open_exact` — [`pallets/lending/src/lib.rs#L1670`](/code/pallets/lending/src/lib.rs#L1668-L1697):
 
 ```rust
 #[pallet::call_index(1)]

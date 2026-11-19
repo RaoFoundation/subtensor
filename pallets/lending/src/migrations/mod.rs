@@ -2,6 +2,7 @@
 mod migrate_clear_invariant_baseline;
 mod migrate_drop_position_hotkey;
 mod migrate_lift_book_short_sold;
+mod migrate_lift_params_economic;
 mod migrate_lift_params_ema_band;
 mod migrate_position_max_duration;
 mod migrate_position_terms_version;
@@ -23,6 +24,10 @@ pub(crate) use migrate_lift_book_short_sold::LiftBookBeforeShortSold;
 #[allow(unused_imports)]
 pub use migrate_lift_book_short_sold::{
     Migration as LiftBookShortSoldMigration, migrate_lift_book_short_sold,
+};
+#[allow(unused_imports)]
+pub use migrate_lift_params_economic::{
+    Migration as LiftParamsEconomicMigration, migrate_lift_params_economic,
 };
 #[allow(unused_imports)]
 pub use migrate_lift_params_ema_band::{

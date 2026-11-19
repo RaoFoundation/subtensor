@@ -468,7 +468,7 @@ pub enum Side {
 }
 
 /// Root-settable capacity / LTV / interest / pacing parameters (bps where noted).
-#[freeze_struct("9a49f40a29bbd017")]
+#[freeze_struct("4297e3450b01d77e")]
 #[derive(
     Encode,
     Decode,
@@ -506,8 +506,10 @@ pub struct LiftParams {
     pub ltv_long_bps: u16,
     /// Thin long LTV when G_ref < thin_tao (default 1500 = 15%).
     pub thin_ltv_long_bps: u16,
-    /// APR in bps (default 10000 = 100%).
-    pub apr_bps: u16,
+    /// Long APR in bps (default 10000 = 100%). Split from legacy `apr_bps`.
+    pub apr_long_bps: u16,
+    /// Short APR in bps (default 10000 = 100%). Split from legacy `apr_bps`.
+    pub apr_short_bps: u16,
     /// Per-block long-interest sell cap as spot move bps (default 1).
     pub slice_bps: u16,
     /// Skip paced sells while spot < crash_guard_bps of EMA (default 9500).
@@ -522,7 +524,28 @@ pub struct LiftParams {
     /// side (§5.4; default 1500 = 15%). Longs reject if spot > EMA·(1+band);
     /// shorts reject if spot < EMA·(1−band). Closes / repays / settles ignore it.
     pub ema_band_bps: u16,
+    /// Hard maximum loan lifetime in blocks for **new opens and rolls only**
+    /// (default 216_000 ≈ 30 days). Changing this never rewrites live
+    /// `expires_at`. Bounds: [`MIN_MAX_LOAN_DURATION`]..=[`MAX_MAX_LOAN_DURATION`].
+    pub max_loan_duration: u64,
+    /// Max window a permissionless settle may stay band-deferred (default
+    /// 50_400 ≈ 7 days). Counted from [`BandDeferralSince`].
+    pub max_settlement_deferral: u64,
+    /// Age window under which a short at dissolution settles at `max(r, P_open)`
+    /// (default 25_200 ≈ 3.5 days).
+    pub young_short_settlement_window: u64,
+    /// Minimum opening value in TAO rao (default 1_000_000_000 = 1 τ).
+    pub minimum_loan_value: u64,
+    /// Cap on expiry settles per `on_initialize` (default 16). Runtime value
+    /// must be ≤ the compile-time [`Config::MaxExpirySettlementsPerBlock`] hard
+    /// cap used for weight safety.
+    pub max_expiry_settlements_per_block: u32,
 }
+
+/// Inclusive lower bound on [`LiftParams::max_loan_duration`] (≈ 1 day at 12 s).
+pub const MIN_MAX_LOAN_DURATION: u64 = 7_200;
+/// Inclusive upper bound on [`LiftParams::max_loan_duration`] (≈ 1 year at 12 s).
+pub const MAX_MAX_LOAN_DURATION: u64 = 2_628_000;
 
 impl Default for LiftParams {
     fn default() -> Self {
@@ -539,13 +562,19 @@ impl Default for LiftParams {
             ltv_short_bps: 2_500,
             ltv_long_bps: 2_500,
             thin_ltv_long_bps: 1_500,
-            apr_bps: 10_000,
+            apr_long_bps: 10_000,
+            apr_short_bps: 10_000,
             slice_bps: 1,
             crash_guard_bps: 9_500,
             settle_ema_blocks: 7_200,
             new_subnet_min_age: 50_400,
             new_subnet_ramp: 216_000,
             ema_band_bps: 1_500,
+            max_loan_duration: 216_000,
+            max_settlement_deferral: 50_400,
+            young_short_settlement_window: 25_200,
+            minimum_loan_value: 1_000_000_000,
+            max_expiry_settlements_per_block: 16,
         }
     }
 }
@@ -571,6 +600,66 @@ pub(crate) struct LiftParamsBeforeEmaBand {
     settle_ema_blocks: u64,
     new_subnet_min_age: u64,
     new_subnet_ramp: u64,
+}
+
+/// Pre-economic-expand layout (`apr_bps` + `ema_band_bps`, no duration knobs).
+///
+/// Decoded by [`migrations::migrate_lift_params_economic`] and produced by the
+/// ema-band migration before that expand lands.
+#[derive(Encode, Decode, MaxEncodedLen, TypeInfo, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LiftParamsBeforeEconomic {
+    pub floor_bps: u16,
+    pub thin_floor_bps: u16,
+    pub ref_tao: u64,
+    pub move_bps: u16,
+    pub ceiling_bps: u16,
+    pub split_short_bps: u16,
+    pub rebalance_target_bps: u16,
+    pub rebalance_rate_bps: u16,
+    pub thin_tao: u64,
+    pub ltv_short_bps: u16,
+    pub ltv_long_bps: u16,
+    pub thin_ltv_long_bps: u16,
+    pub apr_bps: u16,
+    pub slice_bps: u16,
+    pub crash_guard_bps: u16,
+    pub settle_ema_blocks: u64,
+    pub new_subnet_min_age: u64,
+    pub new_subnet_ramp: u64,
+    pub ema_band_bps: u16,
+}
+
+impl LiftParamsBeforeEconomic {
+    pub(crate) fn into_current(self) -> LiftParams {
+        LiftParams {
+            floor_bps: self.floor_bps,
+            thin_floor_bps: self.thin_floor_bps,
+            ref_tao: self.ref_tao,
+            move_bps: self.move_bps,
+            ceiling_bps: self.ceiling_bps,
+            split_short_bps: self.split_short_bps,
+            rebalance_target_bps: self.rebalance_target_bps,
+            rebalance_rate_bps: self.rebalance_rate_bps,
+            thin_tao: self.thin_tao,
+            ltv_short_bps: self.ltv_short_bps,
+            ltv_long_bps: self.ltv_long_bps,
+            thin_ltv_long_bps: self.thin_ltv_long_bps,
+            apr_long_bps: self.apr_bps,
+            apr_short_bps: self.apr_bps,
+            slice_bps: self.slice_bps,
+            crash_guard_bps: self.crash_guard_bps,
+            settle_ema_blocks: self.settle_ema_blocks,
+            new_subnet_min_age: self.new_subnet_min_age,
+            new_subnet_ramp: self.new_subnet_ramp,
+            ema_band_bps: self.ema_band_bps,
+            max_loan_duration: LiftParams::default().max_loan_duration,
+            max_settlement_deferral: LiftParams::default().max_settlement_deferral,
+            young_short_settlement_window: LiftParams::default().young_short_settlement_window,
+            minimum_loan_value: LiftParams::default().minimum_loan_value,
+            max_expiry_settlements_per_block: LiftParams::default()
+                .max_expiry_settlements_per_block,
+        }
+    }
 }
 
 #[freeze_struct("7bf4887a563d4874")]
@@ -856,16 +945,16 @@ pub mod pallet {
         type Pool: LendingPoolInterface<Self::AccountId>;
         #[pallet::constant]
         type PalletId: Get<PalletId>;
+        /// Compile-time floor / genesis seed for [`LiftParams::minimum_loan_value`].
+        /// Live value is root-settable via [`LiftParamsStore`].
         #[pallet::constant]
         type MinimumLoanValue: Get<u64>;
         #[pallet::constant]
         type InterestPeriod: Get<BlockNumberFor<Self>>;
         #[pallet::constant]
         type BlocksPerYear: Get<u64>;
-        /// Hard maximum loan lifetime in blocks (Jacob 2026-11-19). Production:
-        /// 216_000 (~30 days at 12 s). New opens set
-        /// `expires_at = now + MaxLoanDuration`; the protocol can fully unwind
-        /// lending by waiting this long. Not a renew/extension knob.
+        /// Compile-time floor / genesis seed for [`LiftParams::max_loan_duration`].
+        /// Live value is root-settable; applies to new opens and rolls only.
         #[pallet::constant]
         type MaxLoanDuration: Get<BlockNumberFor<Self>>;
         #[pallet::constant]
@@ -882,23 +971,16 @@ pub mod pallet {
         /// Surviving loans must not lose `Due` coverage (Auditor fid:2aff7381).
         #[pallet::constant]
         type InterestRetryDelay: Get<BlockNumberFor<Self>>;
-        /// Max window a permissionless settle (expiry / interest-exhaustion
-        /// forfeit) may stay deferred because spot is outside the §5.4 EMA
-        /// band. Counted from the first band deferral (`BandDeferralSince`);
-        /// after this many blocks the settle runs even outside the band so a
-        /// sustained pump cannot strand the claim forever. Production: 50_400
-        /// (~7 days at 12 s blocks; N28). Longer than `settle_ema_blocks`
-        /// (24 h) so holding a pump through forced settle is far costlier.
+        /// Compile-time floor / genesis seed for
+        /// [`LiftParams::max_settlement_deferral`]. Live value is root-settable.
         #[pallet::constant]
         type MaxSettlementDeferral: Get<BlockNumberFor<Self>>;
-        /// Hard cap on normal + deferred expiry settle attempts in
-        /// `on_initialize` (Jacob 2026-11-19). Production: 16. Remainder carries
-        /// via `ExpiryBucketCursor` / `ExpiryRetry` into later blocks / `on_idle`.
+        /// Hard compile-time cap on expiry settles per block (weight safety).
+        /// Live [`LiftParams::max_expiry_settlements_per_block`] must be ≤ this.
         #[pallet::constant]
         type MaxExpirySettlementsPerBlock: Get<u32>;
-        /// Age window (blocks) under which a short at dissolution settles its
-        /// alpha debt at `max(r, P_open)` instead of `r` (Jacob v5.8). Production:
-        /// 25_200 (~3.5 days at 12 s). Older shorts keep full dereg payout at `r`.
+        /// Compile-time floor / genesis seed for
+        /// [`LiftParams::young_short_settlement_window`]. Live value is root-settable.
         #[pallet::constant]
         type YoungShortSettlementWindow: Get<BlockNumberFor<Self>>;
         type WeightInfo: WeightInfo;
@@ -1337,6 +1419,14 @@ pub mod pallet {
             expires_at: BlockNumberFor<T>,
             settled_at: BlockNumberFor<T>,
         },
+        /// Owner rolled a live loan onto a fresh MaxLoanDuration clock.
+        Rolled {
+            owner: T::AccountId,
+            netuid: NetUid,
+            side: Side,
+            old_expires_at: BlockNumberFor<T>,
+            new_expires_at: BlockNumberFor<T>,
+        },
     }
 
     #[pallet::error]
@@ -1429,14 +1519,14 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn integrity_test() {
             assert!(T::BlocksPerYear::get() > 0);
-            assert!(T::MaxLoanDuration::get() > BlockNumberFor::<T>::default());
+            assert!(Self::max_loan_duration() > BlockNumberFor::<T>::default());
             assert!(T::InterestPeriod::get() > BlockNumberFor::<T>::default());
             assert!(T::ExpiryRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::InterestRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::MaxSettlementDeferral::get() > BlockNumberFor::<T>::default());
             assert!(T::MaxExpirySettlementsPerBlock::get() > 0);
-            assert!(T::YoungShortSettlementWindow::get() > BlockNumberFor::<T>::default());
-            assert!(T::MinimumLoanValue::get() > 0);
+            assert!(Self::young_short_settlement_window() > BlockNumberFor::<T>::default());
+            assert!(Self::minimum_loan_value() > 0);
             assert!(T::MaxPositionsPerSubnet::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() <= T::MaxTotalPositions::get());
         }
@@ -1446,9 +1536,12 @@ pub mod pallet {
             // on empty `on_idle` weight. Cap attempts; remainder resumes via
             // ExpiryBucketCursor / ExpiryRetry. Dissolution settle still wins
             // inside the collectors. Keep the ActiveNets reserve for finalize.
-            let max = T::MaxExpirySettlementsPerBlock::get();
+            // Weight budget uses the compile-time hard cap; the live drain
+            // count is the root-settable value clamped to that cap.
+            let hard_cap = T::MaxExpirySettlementsPerBlock::get();
+            let max = Self::max_expiry_settlements_per_block();
             let settle_budget = T::WeightInfo::settle()
-                .saturating_mul(u64::from(max))
+                .saturating_mul(u64::from(hard_cap))
                 .saturating_add(T::DbWeight::get().reads_writes(8, 8));
             let mut meter = WeightMeter::with_limit(settle_budget);
             let mut budget = max;
@@ -1733,11 +1826,67 @@ pub mod pallet {
             ensure_signed(origin)?;
             Self::do_warm_reference(netuid)
         }
+
+        /// Atomically extend a live loan's fixed term without changing exposure.
+        ///
+        /// Same open gates (lending live, new-subnet, warm reference, EMA band).
+        /// Charges interest to now, re-checks LTV at the current open price, and
+        /// rejects when the side book already exceeds the current side cap so
+        /// caps can shrink by attrition. Sets `expires_at = now + max_loan_duration`
+        /// and clears band deferral; does not touch principal, collateral,
+        /// proceeds / escrow_alpha, lift legs, or `last_exposure_added_at`.
+        /// Opens-off (`Enabled=false`) disables rolls.
+        #[pallet::call_index(8)]
+        // Alias close until a reference-hardware re-measure (H2). Roll charges
+        // interest and rewrites the expiry queue but does no AMM trade; close is
+        // a safe upper bound. Do not invent local numerics.
+        #[pallet::weight(T::WeightInfo::roll())]
+        #[transactional]
+        pub fn roll(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
+            let owner = ensure_signed(origin)?;
+            Self::do_roll(owner, netuid)
+        }
     }
 
     impl<T: Config> Pallet<T> {
         pub fn lift_params() -> LiftParams {
             LiftParamsStore::<T>::get()
+        }
+
+        /// Live max loan duration from [`LiftParamsStore`] (opens + rolls only).
+        pub fn max_loan_duration() -> BlockNumberFor<T> {
+            Self::lift_params().max_loan_duration.saturated_into()
+        }
+
+        /// Live max settlement band-deferral window from [`LiftParamsStore`].
+        pub fn max_settlement_deferral() -> BlockNumberFor<T> {
+            Self::lift_params().max_settlement_deferral.saturated_into()
+        }
+
+        /// Live young-short dissolution window from [`LiftParamsStore`].
+        pub fn young_short_settlement_window() -> BlockNumberFor<T> {
+            Self::lift_params()
+                .young_short_settlement_window
+                .saturated_into()
+        }
+
+        /// Live minimum loan opening value (TAO rao) from [`LiftParamsStore`].
+        pub fn minimum_loan_value() -> u64 {
+            Self::lift_params().minimum_loan_value
+        }
+
+        /// Live expiry-settle budget per block, capped by the compile-time hard
+        /// limit used for weight safety.
+        pub fn max_expiry_settlements_per_block() -> u32 {
+            let live = Self::lift_params().max_expiry_settlements_per_block;
+            live.min(T::MaxExpirySettlementsPerBlock::get())
+        }
+
+        fn apr_bps_for_side(side: Side, params: &LiftParams) -> u16 {
+            match side {
+                Side::Long => params.apr_long_bps,
+                Side::Short => params.apr_short_bps,
+            }
         }
 
         fn ensure_valid_lift_params(p: &LiftParams) -> DispatchResult {
@@ -1751,13 +1900,21 @@ pub mod pallet {
                     && p.ltv_short_bps <= 5_000
                     && p.ltv_long_bps <= 5_000
                     && p.thin_ltv_long_bps <= 5_000
-                    && p.apr_bps <= 10_000
+                    && p.apr_long_bps <= 10_000
+                    && p.apr_short_bps <= 10_000
                     && p.crash_guard_bps <= 10_000
                     && p.ema_band_bps <= 10_000
                     && p.move_bps > 0
                     && p.ref_tao > 0
                     && p.settle_ema_blocks > 0
-                    && p.new_subnet_ramp > 0,
+                    && p.new_subnet_ramp > 0
+                    && p.max_loan_duration >= MIN_MAX_LOAN_DURATION
+                    && p.max_loan_duration <= MAX_MAX_LOAN_DURATION
+                    && p.max_settlement_deferral > 0
+                    && p.young_short_settlement_window > 0
+                    && p.minimum_loan_value > 0
+                    && p.max_expiry_settlements_per_block > 0
+                    && p.max_expiry_settlements_per_block <= T::MaxExpirySettlementsPerBlock::get(),
                 Error::<T>::InvalidLiftParams
             );
             Ok(())
@@ -1822,7 +1979,7 @@ pub mod pallet {
             now: BlockNumberFor<T>,
         ) -> bool {
             BandDeferralSince::<T>::get(owner, netuid)
-                .map(|since| now >= since.saturating_add(T::MaxSettlementDeferral::get()))
+                .map(|since| now >= since.saturating_add(Self::max_settlement_deferral()))
                 .unwrap_or(false)
         }
 
@@ -2220,7 +2377,7 @@ pub mod pallet {
             principal_part: u64,
             price: U64F64,
         ) -> DispatchResult {
-            let min = T::MinimumLoanValue::get();
+            let min = Self::minimum_loan_value();
             let part_value = Self::opening_value_of(side, principal_part, price)?;
             ensure!(part_value >= min, Error::<T>::AmountTooSmall);
             let remainder = principal.saturating_sub(principal_part);
@@ -2444,15 +2601,15 @@ pub mod pallet {
                 Side::Long => principal,
             };
             let annual_interest = match side {
-                Side::Short => Self::mul_bps(opening_value, params.apr_bps)?,
+                Side::Short => Self::mul_bps(opening_value, Self::apr_bps_for_side(side, params))?,
                 Side::Long => {
                     let alpha = Self::alpha_for_tao(principal, price, true)?;
-                    Self::mul_bps(alpha, params.apr_bps)?
+                    Self::mul_bps(alpha, Self::apr_bps_for_side(side, params))?
                 }
             };
             ensure!(principal > 0, Error::<T>::PrincipalZero);
             ensure!(
-                annual_interest > 0 && opening_value >= T::MinimumLoanValue::get(),
+                annual_interest > 0 && opening_value >= Self::minimum_loan_value(),
                 Error::<T>::AmountTooSmall
             );
             Ok(OpeningQuote {
@@ -2538,7 +2695,7 @@ pub mod pallet {
             if headroom == 0 {
                 return Ok(true);
             }
-            let min_value = T::MinimumLoanValue::get();
+            let min_value = Self::minimum_loan_value();
             let y = T::Pool::pool_tao(netuid).to_u64();
             let x = T::Pool::pool_alpha(netuid).to_u64();
             if y == 0 || x == 0 {
@@ -2842,6 +2999,98 @@ pub mod pallet {
             }
         }
 
+        /// Extend `expires_at` under open gates without changing booked exposure.
+        #[transactional]
+        fn do_roll(owner: T::AccountId, netuid: NetUid) -> DispatchResult {
+            let now = frame_system::Pallet::<T>::block_number();
+            // Same gates as open (opens-off disables rolls).
+            Self::ensure_lending_live(netuid)?;
+            Self::ensure_new_subnet_gate(netuid)?;
+            ensure!(
+                T::Pool::owner_allowed(&owner),
+                Error::<T>::SubnetUnavailable
+            );
+            let reference = Self::ensure_or_init_reference(netuid)?;
+            let mut position =
+                Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
+            ensure!(now < position.expires_at, Error::<T>::DeadlinePassed);
+
+            let params = Self::lift_params();
+            let side = position.side;
+            // Current spot vs EMA (no trade) — same band helper as open.
+            Self::ensure_open_ema_band(
+                side,
+                T::Pool::current_alpha_price(netuid),
+                reference.price,
+                &params,
+            )?;
+
+            // Accrue through now before LTV / cap checks.
+            Self::charge_interest(&owner, netuid, &mut position, now, false, false)?;
+            if !Positions::<T>::contains_key(&owner, netuid) {
+                // Exhausted and forfeited during charge — nothing left to roll.
+                return Err(Error::<T>::PositionMissing.into());
+            }
+
+            // Re-check LTV at current open price as a fresh open of this size
+            // (old_principal = 0). Skip capacity-on-incremental: exposure is
+            // already booked; over-cap is checked separately with ΔL = 0.
+            let ltv = Self::ltv_tier_bps(netuid, side, &params);
+            let ltv_ok = match side {
+                Side::Short => {
+                    let max_debt = Self::mul_bps(position.collateral, ltv)?;
+                    let debt_value = Self::tao_for_alpha(
+                        position.principal,
+                        T::Pool::current_alpha_price(netuid),
+                        true,
+                    )?;
+                    debt_value <= max_debt
+                }
+                Side::Long => {
+                    let v = Self::v_dyn(
+                        netuid,
+                        position.collateral,
+                        position.principal,
+                        &reference,
+                        Some(&owner),
+                    )?;
+                    let max_p = Self::mul_bps(v, ltv)?;
+                    position.principal <= max_p
+                }
+            };
+            ensure!(ltv_ok, Error::<T>::DynamicCollateral);
+
+            // Cap attrition: reject roll when the live book already exceeds the
+            // current side cap (ΔL = 0).
+            Self::ensure_side_capacity(netuid, side, 0)?;
+
+            let old_expires_at = position.expires_at;
+            let old_expiry_due = position.expiry_due;
+            let term = Self::max_loan_duration();
+            let new_expires_at = now.saturating_add(term);
+
+            // Move expiry queue: remove old claim, insert at the new term end.
+            Expiry::<T>::remove(old_expiry_due, (&owner, netuid));
+            Self::note_expiry_removed(old_expiry_due);
+            Expiry::<T>::insert(new_expires_at, (&owner, netuid), ());
+            Self::note_expiry_inserted(new_expires_at);
+
+            position.expires_at = new_expires_at;
+            position.expiry_due = new_expires_at;
+            // Cleared so a prior band deferral does not force-settle the new term.
+            BandDeferralSince::<T>::remove(&owner, netuid);
+            Positions::<T>::insert(&owner, netuid, &position);
+
+            Self::deposit_event(Event::Rolled {
+                owner,
+                netuid,
+                side,
+                old_expires_at,
+                new_expires_at,
+            });
+            Ok(())
+        }
+
         #[transactional]
         fn do_open(
             owner: T::AccountId,
@@ -2987,7 +3236,7 @@ pub mod pallet {
                 );
                 // Hard MaxLoanDuration term from open (§15 / terms v2).
                 // Increases preserve expires_at (no renewal).
-                let term = T::MaxLoanDuration::get();
+                let term = Self::max_loan_duration();
                 let terms_version = {
                     let v = CurrentTermsVersion::<T>::get();
                     if v == 0 { TERMS_VERSION_V2 } else { v }
@@ -3923,7 +4172,7 @@ pub mod pallet {
                     T::Pool::current_alpha_price(netuid),
                 )?;
                 ensure!(
-                    opening_value >= T::MinimumLoanValue::get(),
+                    opening_value >= Self::minimum_loan_value(),
                     Error::<T>::AmountTooSmall
                 );
             }
@@ -5098,7 +5347,7 @@ pub mod pallet {
             }
 
             let now = frame_system::Pallet::<T>::block_number();
-            let term = T::MaxLoanDuration::get();
+            let term = Self::max_loan_duration();
             let new_expires = now.saturating_add(term);
             weight = weight.saturating_add(T::DbWeight::get().reads(1));
 
@@ -5138,7 +5387,7 @@ pub mod pallet {
                 // when the field is still zero (pre-exposure rows).
                 if position.last_exposure_added_at.is_zero() {
                     let prior_term = match position.terms_version {
-                        TERMS_VERSION_V2 => T::MaxLoanDuration::get(),
+                        TERMS_VERSION_V2 => Self::max_loan_duration(),
                         _ => position.blocks_per_year.saturated_into(),
                     };
                     position.last_exposure_added_at =
@@ -6397,7 +6646,7 @@ pub mod pallet {
                     if position.principal > 0 {
                         let opened_at = Self::position_opened_at(&position);
                         let age = until.saturating_sub(opened_at);
-                        if age < T::YoungShortSettlementWindow::get() {
+                        if age < Self::young_short_settlement_window() {
                             if let Some(p_open) = U64F64::from_num(position.proceeds)
                                 .checked_div(U64F64::from_num(position.principal))
                             {
@@ -7531,8 +7780,9 @@ pub mod pallet {
                 ));
             }
             let interest_alpha = Self::alpha_for_tao(p, price, true)?;
-            let annual_interest = Self::mul_bps(interest_alpha, params.apr_bps)?;
-            if annual_interest == 0 || p < T::MinimumLoanValue::get() {
+            let annual_interest =
+                Self::mul_bps(interest_alpha, Self::apr_bps_for_side(Side::Long, &params))?;
+            if annual_interest == 0 || p < Self::minimum_loan_value() {
                 return Err(Self::refuse_dust_or_capacity(
                     netuid,
                     Side::Long,

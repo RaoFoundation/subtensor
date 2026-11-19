@@ -1895,13 +1895,15 @@ mod pow_proxy_tests {
             valid_until: 100,
         });
         let warm = RuntimeCall::Lending(LendingCall::warm_reference { netuid });
+        let roll = RuntimeCall::Lending(LendingCall::roll { netuid });
 
-        // NonTransfer / Any may open, close, repay, raise, and warm.
+        // NonTransfer / Any may open, close, repay, roll, raise, and warm.
         for proxy in [ProxyType::NonTransfer, ProxyType::Any] {
             assert!(proxy.filter(&open), "{proxy:?} must allow open");
             assert!(proxy.filter(&open_exact), "{proxy:?} must allow open_exact");
             assert!(proxy.filter(&close), "{proxy:?} must allow close");
             assert!(proxy.filter(&repay), "{proxy:?} must allow repay");
+            assert!(proxy.filter(&roll), "{proxy:?} must allow roll");
             assert!(proxy.filter(&raise), "{proxy:?} must allow raise");
             assert!(proxy.filter(&warm), "{proxy:?} must allow warm_reference");
         }
@@ -1911,6 +1913,7 @@ mod pow_proxy_tests {
             !ProxyType::Staking.filter(&close),
             "Staking must deny close"
         );
+        assert!(!ProxyType::Staking.filter(&roll), "Staking must deny roll");
         assert!(
             !ProxyType::Staking.filter(&raise),
             "Staking must deny raise"
@@ -1928,6 +1931,7 @@ mod pow_proxy_tests {
         ] {
             assert!(!proxy.filter(&open), "{proxy:?} must deny open");
             assert!(!proxy.filter(&close), "{proxy:?} must deny close");
+            assert!(!proxy.filter(&roll), "{proxy:?} must deny roll");
             assert!(!proxy.filter(&raise), "{proxy:?} must deny raise");
             assert!(!proxy.filter(&warm), "{proxy:?} must deny warm_reference");
         }

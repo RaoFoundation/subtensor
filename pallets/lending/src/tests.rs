@@ -41,11 +41,14 @@ parameter_types! {
     pub static MinLoanValue: u64 = 1;
     /// Production is 25_200; tests use a short window so age cases stay cheap.
     pub const YoungShortWindow: u64 = 100;
-    /// Matches BlocksPerYear in tests so open-term assertions stay cheap; production
-    /// uses 216_000 (~30 days) while BlocksPerYear stays ~one year.
-    pub const TestMaxLoanDuration: u64 = 520;
+    /// At least [`MIN_MAX_LOAN_DURATION`] (7200) so root `set_lift_params` accepts
+    /// the fixture. Production uses 216_000 (~30 days).
+    pub const TestMaxLoanDuration: u64 = 7_200;
     /// Small so queue-bounding tests can exhaust the on_initialize cap.
     pub const TestMaxExpirySettlements: u32 = 2;
+    /// Large vs `TestMaxLoanDuration` so a full-term max-LTV loan is not
+    /// forfeited by interest before expiry (~7% of annual coupon, like prod).
+    pub const TestBlocksPerYear: u64 = 100_000;
 }
 
 impl Config for Test {
@@ -53,7 +56,7 @@ impl Config for Test {
     type PalletId = LendingId;
     type MinimumLoanValue = MinLoanValue;
     type InterestPeriod = ConstU64<10>;
-    type BlocksPerYear = ConstU64<520>;
+    type BlocksPerYear = TestBlocksPerYear;
     type MaxLoanDuration = TestMaxLoanDuration;
     type ReferenceWarmup = ConstU64<1>;
     type MaxPositionsPerSubnet = ConstU32<8>;
@@ -778,22 +781,40 @@ fn deadline() -> u64 {
     u64::MAX
 }
 
+fn set_minimum_loan_value(v: u64) {
+    MinLoanValue::set(v);
+    LiftParamsStore::<Test>::mutate(|p| p.minimum_loan_value = v);
+}
+
+/// Production defaults with Test Config economic knobs (valid under the
+/// compile-time `MaxExpirySettlementsPerBlock` hard cap of 2).
+fn test_lift_params() -> LiftParams {
+    LiftParams {
+        new_subnet_min_age: 0,
+        new_subnet_ramp: 1,
+        max_loan_duration: TestMaxLoanDuration::get(),
+        max_settlement_deferral: 200,
+        young_short_settlement_window: YoungShortWindow::get(),
+        minimum_loan_value: MinLoanValue::get(),
+        max_expiry_settlements_per_block: TestMaxExpirySettlements::get(),
+        ..LiftParams::default()
+    }
+}
+
 fn new_test_ext() -> sp_io::TestExternalities {
     let mut ext: sp_io::TestExternalities = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap()
         .into();
     ext.execute_with(|| {
-        MinLoanValue::set(1); // restore after tests that raise it to 1 τ
+        set_minimum_loan_value(1); // restore after tests that raise it to 1 τ
         System::set_block_number(10);
         assert_ok!(Lending::initialize_custody());
         Enabled::<Test>::put(true);
         // Bypass §2.3 gate/ramp for the common fixture; dedicated tests restore defaults.
-        LiftParamsStore::<Test>::put(LiftParams {
-            new_subnet_min_age: 0,
-            new_subnet_ramp: 1,
-            ..LiftParams::default()
-        });
+        // Economic knobs match the Test Config (not production Defaults) so
+        // MaxLoanDuration / young-short / deferral / expiry-drain fixtures stay cheap.
+        LiftParamsStore::<Test>::put(test_lift_params());
         set_registered_at(0);
         set_subtoken_enabled(true);
         // Deep pool so capacity / depth checks pass.
@@ -954,16 +975,25 @@ fn raise_after_interest_forfeit_sells_full_new_escrow() {
         let old_escrow = first.escrow_alpha;
         assert!(old_escrow > 0);
         // Keep collateral healthy for raise *sizing*, but make the open-path
-        // interest charge exhaust it and forfeit inside `do_open`.
+        // interest charge exhaust it and forfeit inside `do_open`. Size the
+        // coupon so one InterestPeriod (10) exhausts the pot without advancing
+        // past expires_at (MaxLoanDuration).
         let now = System::block_number();
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(pos) = p {
-                pos.annual_interest = 10_000_000_000_000;
+                let pot = pos.collateral.saturating_add(pos.escrow_alpha);
+                let year = TestBlocksPerYear::get();
+                let period = 10u64;
+                pos.annual_interest = pot
+                    .saturating_mul(year)
+                    .saturating_div(period)
+                    .saturating_add(1)
+                    .max(1);
                 pos.interest_remainder = 0;
-                pos.last_accrued = 0;
+                pos.last_accrued = now;
             }
         });
-        System::set_block_number(now.saturating_add(520));
+        System::set_block_number(now.saturating_add(10));
         mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
         // Auditor: quote must preview forfeit (capacity + pool re-add), not
         // refuse SideCapacity against the pre-forfeit book.
@@ -1285,7 +1315,7 @@ fn raise_rolls_back_on_slippage() {
 #[test]
 fn capacity_floor_ceiling_and_side_split() {
     new_test_ext().execute_with(|| {
-        let params = LiftParams::default();
+        let params = test_lift_params();
         assert_eq!(params.floor_bps, 3_300);
         assert_eq!(params.thin_floor_bps, 1_500);
         assert_eq!(params.ceiling_bps, 5_000);
@@ -2903,7 +2933,12 @@ fn migration_appends_ema_band_from_pre_band_layout() {
         let after = LiftParamsStore::<Test>::get();
         assert_eq!(after.ema_band_bps, 1_500);
         assert_eq!(after.floor_bps, before.floor_bps);
-        assert_eq!(after.apr_bps, before.apr_bps);
+        assert_eq!(after.apr_long_bps, before.apr_bps);
+        assert_eq!(after.apr_short_bps, before.apr_bps);
+        assert_eq!(
+            after.max_loan_duration,
+            LiftParams::default().max_loan_duration
+        );
         assert_eq!(after.new_subnet_ramp, before.new_subnet_ramp);
         // Idempotent: second run preserves the widened value.
         let _ = migrations::migrate_lift_params_ema_band::<Test>();
@@ -2913,24 +2948,84 @@ fn migration_appends_ema_band_from_pre_band_layout() {
 
 #[test]
 fn lift_params_current_layout_rejects_prefix_decode_as_pre_band() {
-    // SCALE Decode accepts trailing bytes, so a current-layout blob would
+    // SCALE Decode accepts trailing bytes, so a pre-economic blob would
     // wrongly decode as LiftParamsBeforeEmaBand; DecodeAll must reject it.
     use codec::DecodeAll;
-    let params = LiftParams {
-        ema_band_bps: 1_500,
+    let pre = LiftParamsBeforeEconomic {
         floor_bps: 3_300,
-        ..LiftParams::default()
+        thin_floor_bps: 1_500,
+        ref_tao: 1_000_000_000_000,
+        move_bps: 1_000,
+        ceiling_bps: 5_000,
+        split_short_bps: 5_000,
+        rebalance_target_bps: 0,
+        rebalance_rate_bps: 0,
+        thin_tao: 3_000_000_000_000,
+        ltv_short_bps: 2_500,
+        ltv_long_bps: 2_500,
+        thin_ltv_long_bps: 1_500,
+        apr_bps: 10_000,
+        slice_bps: 1,
+        crash_guard_bps: 9_500,
+        settle_ema_blocks: 7_200,
+        new_subnet_min_age: 50_400,
+        new_subnet_ramp: 216_000,
+        ema_band_bps: 1_500,
     };
-    let bytes = params.encode();
+    let bytes = pre.encode();
     assert!(
         LiftParamsBeforeEmaBand::decode(&mut &bytes[..]).is_ok(),
-        "plain Decode must accept current layout as a pre-band prefix"
+        "plain Decode must accept pre-economic layout as a pre-band prefix"
     );
     assert!(
         LiftParamsBeforeEmaBand::decode_all(&mut &bytes[..]).is_err(),
         "DecodeAll must reject trailing ema_band_bps"
     );
-    assert!(LiftParams::decode_all(&mut &bytes[..]).is_ok());
+    assert!(LiftParamsBeforeEconomic::decode_all(&mut &bytes[..]).is_ok());
+    assert!(LiftParams::decode_all(&mut &bytes[..]).is_err());
+}
+
+#[test]
+fn migration_expands_economic_params_from_pre_economic_layout() {
+    new_test_ext().execute_with(|| {
+        let key = BoundedVec::truncate_from(b"migrate_lift_params_economic_v1".to_vec());
+        HasMigrationRun::<Test>::remove(&key);
+        let before = LiftParamsBeforeEconomic {
+            floor_bps: 3_300,
+            thin_floor_bps: 1_500,
+            ref_tao: 1_000_000_000_000,
+            move_bps: 1_000,
+            ceiling_bps: 5_000,
+            split_short_bps: 5_000,
+            rebalance_target_bps: 0,
+            rebalance_rate_bps: 0,
+            thin_tao: 3_000_000_000_000,
+            ltv_short_bps: 2_500,
+            ltv_long_bps: 2_500,
+            thin_ltv_long_bps: 1_500,
+            apr_bps: 8_000,
+            slice_bps: 1,
+            crash_guard_bps: 9_500,
+            settle_ema_blocks: 7_200,
+            new_subnet_min_age: 50_400,
+            new_subnet_ramp: 216_000,
+            ema_band_bps: 1_500,
+        };
+        frame_support::storage::unhashed::put_raw(
+            &LiftParamsStore::<Test>::hashed_key(),
+            &before.encode(),
+        );
+        let _ = migrations::migrate_lift_params_economic::<Test>();
+        assert!(HasMigrationRun::<Test>::get(&key));
+        let after = LiftParamsStore::<Test>::get();
+        assert_eq!(after.apr_long_bps, 8_000);
+        assert_eq!(after.apr_short_bps, 8_000);
+        assert_eq!(after.max_loan_duration, 216_000);
+        assert_eq!(after.minimum_loan_value, 1_000_000_000);
+        assert_eq!(after.max_expiry_settlements_per_block, 16);
+        let _ = migrations::migrate_lift_params_economic::<Test>();
+        assert_eq!(LiftParamsStore::<Test>::get(), after);
+    });
 }
 
 #[cfg(feature = "try-runtime")]
@@ -2943,7 +3038,8 @@ fn ema_band_migration_try_runtime_noop_when_already_stamped() {
         let params = LiftParams {
             ema_band_bps: 1_500,
             floor_bps: 3_300,
-            apr_bps: 10_000,
+            apr_long_bps: 10_000,
+            apr_short_bps: 10_000,
             ..LiftParams::default()
         };
         LiftParamsStore::<Test>::put(params);
@@ -5770,15 +5866,21 @@ fn quote_close_and_repay_cap_interest_at_expires_at() {
             }
         });
         let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
-        let expected = ((u128::from(annual) * u128::from(window) / u128::from(year)) + 1) as u64;
+        let expected_floor =
+            ((u128::from(annual) * u128::from(window) / u128::from(year)) as u64).saturating_add(1);
         let unclamped_elapsed = past.saturating_sub(snap.expires_at.saturating_sub(window));
         assert!(unclamped_elapsed > window);
         let quoted = Lending::quote_close(&owner, netuid(), None, true).unwrap();
-        let remaining = pos.collateral.saturating_sub(expected.min(pos.collateral));
-        assert_eq!(
-            quoted.refund,
-            remaining.saturating_add(pos.proceeds),
-            "quote interest must stop at expires_at"
+        // Interest charged ∈ [floor(annual·window/year), floor+1] depending on
+        // remainder rounding; refund must match a capped pre-expiry charge.
+        let interest_paid = pos
+            .collateral
+            .saturating_add(pos.proceeds)
+            .saturating_sub(quoted.refund);
+        assert!(
+            interest_paid == expected_floor.saturating_sub(1)
+                || interest_paid == expected_floor,
+            "quote interest must stop at expires_at (paid={interest_paid}, expected≈{expected_floor})"
         );
         let unclamped =
             ((u128::from(annual) * u128::from(unclamped_elapsed) / u128::from(year)) + 1) as u64;
@@ -9539,7 +9641,7 @@ fn terms_version_snapshotted_at_open_and_kept_on_raise() {
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
         assert_eq!(position.terms_version, TERMS_VERSION_V2);
         assert_eq!(position.interest_period, 10u64);
-        assert_eq!(position.blocks_per_year, 520u64);
+        assert_eq!(position.blocks_per_year, TestBlocksPerYear::get());
 
         // Bump the live current version; raise/top-up must keep the snapshot.
         CurrentTermsVersion::<Test>::put(9);
@@ -10116,7 +10218,7 @@ fn minimum_loan_value_one_tao_rejects_below_accepts_exact() {
     new_test_ext().execute_with(|| {
         // Mirror production: MinimumLoanValue is opening-value in TAO (rao).
         // Long principal is already TAO; short uses tao_for_alpha(principal, coupon).
-        MinLoanValue::set(1_000_000_000); // 1 τ
+        set_minimum_loan_value(1_000_000_000); // 1 τ
         let owner = account(1);
         let hotkey = account(2);
         mint_tao(&owner, 50_000_000_000_000);
@@ -10194,14 +10296,14 @@ fn minimum_loan_value_one_tao_rejects_below_accepts_exact() {
             0,
             deadline(),
         ));
-        MinLoanValue::set(1); // restore default for other tests in same process
+        set_minimum_loan_value(1); // restore default for other tests in same process
     });
 }
 
 #[test]
 fn partial_repay_cannot_leave_below_minimum_loan() {
     new_test_ext().execute_with(|| {
-        MinLoanValue::set(1_000_000_000); // 1 τ
+        set_minimum_loan_value(1_000_000_000); // 1 τ
         let owner = account(1);
         let hotkey = account(2);
         mint_tao(&owner, 1);
@@ -10244,7 +10346,7 @@ fn partial_repay_cannot_leave_below_minimum_loan() {
         ));
         let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
         assert_eq!(pos.principal, 1_000_000_000);
-        MinLoanValue::set(1);
+        set_minimum_loan_value(1);
     });
 }
 
@@ -10253,7 +10355,7 @@ fn partial_repay_one_rao_is_amount_too_small_not_reserves() {
     // Clone retest: a 1-rao repay previously bubbled swap ReservesTooLow;
     // dust / min-loan gate must reject with AmountTooSmall first.
     new_test_ext().execute_with(|| {
-        MinLoanValue::set(1_000_000_000); // 1 τ
+        set_minimum_loan_value(1_000_000_000); // 1 τ
         let owner = account(1);
         let hotkey = account(2);
         mint_tao(&owner, 1);
@@ -10286,7 +10388,7 @@ fn partial_repay_one_rao_is_amount_too_small_not_reserves() {
             Lending::quote_repay(&owner, netuid(), Some(&hotkey), 1, false),
             Error::<Test>::AmountTooSmall
         );
-        MinLoanValue::set(1);
+        set_minimum_loan_value(1);
     });
 }
 
@@ -10296,7 +10398,7 @@ fn partial_repay_one_rao_is_amount_too_small_not_reserves() {
 #[test]
 fn long_round_trip_with_tiny_short_leaves_tao_flow_unchanged() {
     new_test_ext().execute_with(|| {
-        MinLoanValue::set(1_000_000_000);
+        set_minimum_loan_value(1_000_000_000);
         let short_owner = account(1);
         let long_owner = account(3);
         let hotkey = account(2);
@@ -10359,7 +10461,7 @@ fn long_round_trip_with_tiny_short_leaves_tao_flow_unchanged() {
             Positions::<Test>::contains_key(&short_owner, netuid()),
             "tiny short must remain open through the long loop"
         );
-        MinLoanValue::set(1);
+        set_minimum_loan_value(1);
     });
 }
 
@@ -10910,7 +11012,7 @@ fn ensure_valid_lift_params_rejects_ltv_above_5000() {
     new_test_ext().execute_with(|| {
         let short_over = LiftParams {
             ltv_short_bps: 5_001,
-            ..Default::default()
+            ..test_lift_params()
         };
         assert_noop!(
             Lending::set_lift_params(RuntimeOrigin::root(), short_over),
@@ -10919,7 +11021,7 @@ fn ensure_valid_lift_params_rejects_ltv_above_5000() {
         let long_over = LiftParams {
             ltv_short_bps: 5_000,
             ltv_long_bps: 5_001,
-            ..Default::default()
+            ..test_lift_params()
         };
         assert_noop!(
             Lending::set_lift_params(RuntimeOrigin::root(), long_over),
@@ -10929,11 +11031,299 @@ fn ensure_valid_lift_params_rejects_ltv_above_5000() {
             ltv_short_bps: 5_000,
             ltv_long_bps: 5_000,
             thin_ltv_long_bps: 5_001,
-            ..Default::default()
+            ..test_lift_params()
         };
         assert_noop!(
             Lending::set_lift_params(RuntimeOrigin::root(), thin_over),
             Error::<Test>::InvalidLiftParams
         );
+    });
+}
+
+#[test]
+fn roll_extends_expires_at_without_changing_exposure() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        // Exact principal well under max LTV so a later interest charge still passes.
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1_000_000_000, // 1 τ of alpha principal at price≈1
+            1,
+            0,
+            deadline(),
+        ));
+        let before = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let opened_at = System::block_number();
+        let old_expires = before.expires_at;
+        assert_eq!(
+            old_expires,
+            opened_at.saturating_add(TestMaxLoanDuration::get())
+        );
+        // Advance part-way through the term; last_exposure_added_at must stay.
+        System::set_block_number(opened_at + 50);
+        let k_before = sqrt_k_approx();
+        assert_ok!(Lending::roll(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid()
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let now = System::block_number();
+        assert_eq!(
+            after.expires_at,
+            now.saturating_add(TestMaxLoanDuration::get())
+        );
+        assert_ne!(after.expires_at, old_expires);
+        // Exposure legs unchanged (interest may reduce collateral / proceeds).
+        assert_eq!(after.principal, before.principal);
+        assert_eq!(after.escrow_alpha, before.escrow_alpha);
+        assert_eq!(after.lift_tao, before.lift_tao);
+        assert_eq!(after.lift_alpha, before.lift_alpha);
+        assert_eq!(after.last_exposure_added_at, before.last_exposure_added_at);
+        assert!(after.collateral <= before.collateral);
+        assert_eq!(sqrt_k_approx(), k_before, "roll must not trade / change k");
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Rolled {
+                    old_expires_at,
+                    new_expires_at,
+                    ..
+                }) if old_expires_at == old_expires && new_expires_at == after.expires_at
+            )),
+            "must emit Rolled"
+        );
+    });
+}
+
+#[test]
+fn roll_rejects_when_disabled_or_expired() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        Enabled::<Test>::put(false);
+        assert_noop!(
+            Lending::roll(RuntimeOrigin::signed(owner.clone()), netuid()),
+            Error::<Test>::Disabled
+        );
+        Enabled::<Test>::put(true);
+        let expires = Positions::<Test>::get(&owner, netuid()).unwrap().expires_at;
+        System::set_block_number(expires);
+        assert_noop!(
+            Lending::roll(RuntimeOrigin::signed(owner.clone()), netuid()),
+            Error::<Test>::DeadlinePassed
+        );
+    });
+}
+
+#[test]
+fn roll_rejects_outside_ema_band() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        // Crash spot below EMA·(1−band) so a short roll fails the open band.
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = U64F64::from_num(1_000u64);
+            }
+        });
+        set_pool(1, 1_000_000_000_000_000); // near-zero spot
+        assert_noop!(
+            Lending::roll(RuntimeOrigin::signed(owner.clone()), netuid()),
+            Error::<Test>::PriceTooFarFromEma
+        );
+    });
+}
+
+#[test]
+fn roll_rejects_when_ltv_fails_at_current_price() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        // Near the 25% LTV ceiling: 1e9 α principal ≈ 1e9 τ debt vs 4e9 τ coll.
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            4_000_000_000,
+            None,
+            1_000_000_000,
+            1,
+            0,
+            deadline(),
+        ));
+        // 3× spot → debt 3e9 > 25%·4e9. Keep EMA with spot so the open band passes.
+        set_pool(3_000_000_000_000_000, 1_000_000_000_000_000);
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = MockPool::price();
+            }
+        });
+        assert_noop!(
+            Lending::roll(RuntimeOrigin::signed(owner.clone()), netuid()),
+            Error::<Test>::DynamicCollateral
+        );
+    });
+}
+
+#[test]
+fn roll_rejects_when_side_over_cap() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        // Shrink Cap to zero via floor/ceiling so ΔL=0 still fails.
+        assert_ok!(Lending::set_lift_params(
+            RuntimeOrigin::root(),
+            LiftParams {
+                floor_bps: 0,
+                thin_floor_bps: 0,
+                ceiling_bps: 0,
+                ..test_lift_params()
+            }
+        ));
+        assert_noop!(
+            Lending::roll(RuntimeOrigin::signed(owner.clone()), netuid()),
+            Error::<Test>::SideCapacity
+        );
+    });
+}
+
+#[test]
+fn roll_charges_interest_before_extending() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open_exact(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1_000_000_000,
+            1,
+            0,
+            deadline(),
+        ));
+        let before = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let opened = System::block_number();
+        System::set_block_number(opened + 20); // > InterestPeriod (10)
+        assert_ok!(Lending::roll(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid()
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert!(
+            after.collateral < before.collateral || after.last_accrued > before.last_accrued,
+            "roll must charge interest through now"
+        );
+        assert_eq!(after.last_accrued, System::block_number());
+    });
+}
+
+#[test]
+fn set_lift_params_rejects_duration_and_expiry_bounds() {
+    new_test_ext().execute_with(|| {
+        let too_short = LiftParams {
+            max_loan_duration: MIN_MAX_LOAN_DURATION - 1,
+            ..test_lift_params()
+        };
+        assert_noop!(
+            Lending::set_lift_params(RuntimeOrigin::root(), too_short),
+            Error::<Test>::InvalidLiftParams
+        );
+        let too_long = LiftParams {
+            max_loan_duration: MAX_MAX_LOAN_DURATION + 1,
+            ..test_lift_params()
+        };
+        assert_noop!(
+            Lending::set_lift_params(RuntimeOrigin::root(), too_long),
+            Error::<Test>::InvalidLiftParams
+        );
+        let over_hard_cap = LiftParams {
+            max_expiry_settlements_per_block: TestMaxExpirySettlements::get() + 1,
+            ..test_lift_params()
+        };
+        assert_noop!(
+            Lending::set_lift_params(RuntimeOrigin::root(), over_hard_cap),
+            Error::<Test>::InvalidLiftParams
+        );
+        let zero_min = LiftParams {
+            minimum_loan_value: 0,
+            ..test_lift_params()
+        };
+        assert_noop!(
+            Lending::set_lift_params(RuntimeOrigin::root(), zero_min),
+            Error::<Test>::InvalidLiftParams
+        );
+    });
+}
+
+#[test]
+fn max_loan_duration_change_does_not_rewrite_existing_expires_at() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let before = Positions::<Test>::get(&owner, netuid()).unwrap().expires_at;
+        assert_ok!(Lending::set_lift_params(
+            RuntimeOrigin::root(),
+            LiftParams {
+                max_loan_duration: 14_400, // still ≥ MIN_MAX_LOAN_DURATION
+                ..test_lift_params()
+            }
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap().expires_at;
+        assert_eq!(
+            after, before,
+            "duration setter must not rewrite live expires_at"
+        );
+        assert_eq!(Lending::max_loan_duration(), 14_400);
     });
 }

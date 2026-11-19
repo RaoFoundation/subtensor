@@ -24,7 +24,9 @@ fn migration_key() -> BoundedVec<u8, MigrationKeyMaxLen> {
 }
 
 fn from_before(old: LiftParamsBeforeEmaBand) -> LiftParams {
-    LiftParams {
+    // Jump straight to the current economic layout so a chain that still has
+    // the pre-band blob does not depend on the follow-on expand migration.
+    LiftParamsBeforeEconomic {
         floor_bps: old.floor_bps,
         thin_floor_bps: old.thin_floor_bps,
         ref_tao: old.ref_tao,
@@ -45,6 +47,7 @@ fn from_before(old: LiftParamsBeforeEmaBand) -> LiftParams {
         new_subnet_ramp: old.new_subnet_ramp,
         ema_band_bps: 1_500,
     }
+    .into_current()
 }
 
 /// Idempotent: guarded by [`HasMigrationRun`].
@@ -134,7 +137,8 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
             if let Some(before) = before {
                 ensure!(
                     after.floor_bps == before.floor_bps
-                        && after.apr_bps == before.apr_bps
+                        && after.apr_long_bps == before.apr_long_bps
+                        && after.apr_short_bps == before.apr_short_bps
                         && after.new_subnet_ramp == before.new_subnet_ramp,
                     "ema-band migration must preserve existing LiftParams fields"
                 );

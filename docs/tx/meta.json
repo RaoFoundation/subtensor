@@ -32,6 +32,7 @@
     "open-loan",
     "raise-loan",
     "repay-loan",
+    "roll-loan",
     "---LimitOrders---",
     "authorize-order",
     "cancel-order",

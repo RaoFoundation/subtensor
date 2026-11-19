@@ -264,6 +264,28 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn roll() {
+        // Interest + expiry-queue rewrite only (no AMM trade). Measured path
+        // mirrors a warm short open then roll; committed weight aliases close
+        // until reference re-measure (H2).
+        let caller: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("hk", 0, 0);
+        let netuid = NetUid::from(1u16);
+        open_short_fixture::<T>(&caller, &hotkey, netuid);
+        let opened = frame_system::Pallet::<T>::block_number();
+        frame_system::Pallet::<T>::set_block_number(opened.saturating_add(1u32.into()));
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller.clone()), netuid);
+        let position = Positions::<T>::get(&caller, netuid).expect("roll keeps position");
+        let now = frame_system::Pallet::<T>::block_number();
+        assert_eq!(
+            position.expires_at,
+            now.saturating_add(Pallet::<T>::max_loan_duration()),
+            "roll must set expires_at = now + max_loan_duration"
+        );
+    }
+
+    #[benchmark]
     fn set_enabled() {
         #[extrinsic_call]
         _(RawOrigin::Root, true);

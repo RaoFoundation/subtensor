@@ -43,12 +43,18 @@ Default close tops up free TAO for the buyback shortfall (bounded by
 needed). If free balance is short, expect `InsufficientEscrow` and use the
 quote's shortfall — or `--repay-from-wallet --hotkey …`.
 
-## Fixed-term expiry (30-day max)
+## Fixed-term expiry (30-day max) and roll
 
-New opens expire after `MaxLoanDuration` (**216_000** blocks ≈ **30 days** at
-12 s; terms v2). Increases and partial repay **do not** extend the clock; an
-increase at or after `expires_at` returns `DeadlinePassed`. After settle, open a
-fresh position for a new 30-day clock.
+New opens expire after `max_loan_duration` (**216_000** blocks ≈ **30 days** at
+12 s by default; terms v2; root-settable). Increases and partial repay **do not**
+extend the clock; an increase at or after `expires_at` returns `DeadlinePassed`.
+
+**`btcli lending roll --netuid N`** (extrinsic `roll`) renews a live loan onto a
+fresh clock under the same gates as open. Opens-off (`Enabled=false`) disables
+rolls. Rejected when expired, out of EMA band, LTV fails at current price, or
+the side book already exceeds the current side cap. Interest is charged to now;
+principal / collateral / lift / young-short age (`last_exposure_added_at`) are
+unchanged. After settle, open a fresh position for a new clock.
 
 At `expires_at` the position is closed automatically at spot through the pool:
 expiry == a default close, not an EMA settlement. There is no wallet top-up and
@@ -75,15 +81,20 @@ integers.
 
 - Short interest / opening value = `min(lending EMA, spot)` (F16, Jacob 2026-11-03).
   A pumped spot or pumped EMA cannot inflate the TAO coupon.
-- Hard max loan duration: **216_000 blocks (~30 days)**; no renewal (terms v2).
+- Hard max loan duration: **216_000 blocks (~30 days)** default; renew via
+  `roll` only (terms v2). Root can change duration for **new opens / rolls**
+  without rewriting live `expires_at`.
 - Caps: floor 33%, thin floor 15% below 3k τ, 50/50 split → 7.5% per side on thin
-  pools (to be raised after launch). LTV 25% (15% thin longs).
+  pools (to be raised after launch). LTV 25% (15% thin longs). APR long/short
+  split (default 100% each). All of these are root-settable via `set_lift_params`.
 - Volatility-targeting controller is **not** in V1.
 - Never-deepen burn: **per-loan on every readd** (not idle-book last-close).
   Emission growth between open and close is not burned.
-- Max settlement deferral: **50_400 blocks (~7 days)** (N28). Band gate lifts then;
-  settle runs on the next collector retry. Interest still stops at `expires_at`.
+- Max settlement deferral: **50_400 blocks (~7 days)** default (N28). Band gate
+  lifts then; settle runs on the next collector retry. Interest still stops at
+  `expires_at`.
 - Curve independence: **HOLD**.
+- Dark launch: `Enabled=false` until root `set_enabled(true)`.
 
 ## Known issues / residual risk
 

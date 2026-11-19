@@ -13,7 +13,7 @@ from ..._generated import runtime_apis as api
 from ..._generated.storage import Item as StorageItem
 from ...balance import Balance
 from ...executor import _find_event
-from ...intents import CloseLoan, OpenLoan, RaiseLoan, RepayLoan
+from ...intents import CloseLoan, OpenLoan, RaiseLoan, RepayLoan, RollLoan
 from ...intents._money import alpha_amount, tao_amount
 from ...intents.lending import _available_alpha, _spendable_tao
 from ...result import BittensorError
@@ -47,7 +47,7 @@ app = typer.Typer(
     # Wide terminals: don't ellipsize long option names / help (E2E F15).
     context_settings={"max_content_width": 200, "help_option_names": ["-h", "--help"]},
     help=(
-        "Lift-based escrowed loans: open, close, repay, raise, list, show.\n\n"
+        "Lift-based escrowed loans: open, close, repay, roll, raise, list, show.\n\n"
         "Queries: lending_position / lending_close_quote / lending_stats (SDK reads).\n\n"
         "Docs `see:` links default to RaoFoundation/subtensor@main; set "
         "BITTENSOR_DOCS_REF=<git-ref> (or BITTENSOR_DOCS_URL) for a PR tip / "
@@ -807,6 +807,73 @@ def open_loan(
         proxy_for=proxy or "self",
         card_sections=[("Loan", loan_rows)],
         on_result=_attach_opened,
+    )
+
+
+@app.command("roll")
+@with_tx_globals
+def roll_loan(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", min=1, max=65535, help="Subnet of your position."),
+    proxy: Optional[str] = typer.Option(
+        None,
+        "--proxy",
+        help="Proxy coldkey that submits this roll (Any / NonTransfer).",
+    ),
+):
+    """Extend a live loan onto a fresh MaxLoanDuration clock.
+
+    Same open gates (lending enabled, new-subnet, warm reference, EMA band).
+    Charges interest to now, re-checks LTV, and rejects when the side is over
+    the current side cap. Opens-off disables rolls. Does not change principal,
+    collateral, escrow, or lift legs.
+    """
+    context = ctx_of(ctx)
+    owner = context.review_account()
+    if owner is None:
+        _exit_error(context, "select the account that owns this position before rolling")
+    position = context.run(
+        lambda client: client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
+    )
+    if position is None:
+        _exit_error(context, f"no lending position on netuid {netuid}")
+    side = position["side"]
+    old_expires = position.get("expires_at")
+    params = context.run(lambda client: client.query(*_LIFT_PARAMS))
+    duration = None
+    if isinstance(params, dict):
+        duration = params.get("max_loan_duration")
+    head = context.run(lambda client: client.block())
+    new_expires = None
+    if isinstance(duration, int) and isinstance(head, int):
+        new_expires = int(head) + int(duration)
+    principal = position.get("principal")
+    loan_rows = [
+        ("netuid", str(netuid)),
+        ("side", str(side)),
+        ("old_expires_at", str(old_expires)),
+        (
+            "new_expires_at",
+            str(new_expires) if new_expires is not None else "now + max_loan_duration",
+        ),
+        ("principal", _fmt_amount(principal) if isinstance(principal, Balance) else str(principal)),
+    ]
+    intent = RollLoan(netuid=netuid)
+
+    def _attach_rolled(result):
+        attrs = _find_event(result.events, "Lending", "Rolled")
+        display = {
+            "old_expires_at": str(attrs.get("old_expires_at") if attrs else old_expires),
+            "new_expires_at": str(attrs.get("new_expires_at") if attrs else new_expires),
+            "side": str(attrs.get("side") if attrs else side),
+        }
+        _result_amounts(result, display=display, raw={})
+
+    context.submit(
+        intent,
+        proxy_for=proxy or "self",
+        card_sections=[("Roll", loan_rows)],
+        on_result=_attach_rolled,
     )
 
 

@@ -980,6 +980,41 @@ class RepayLoan(Intent):
         return cast(Balance, tao_amount(self.max_payment))
 
 
+@register
+@dataclass
+class RollLoan(Intent):
+    """Extend a live loan onto a fresh MaxLoanDuration clock without changing exposure.
+
+    Same open gates (lending enabled, new-subnet, warm reference, EMA band).
+    Charges interest to now, re-checks LTV, and rejects when the side book is
+    already over the current side cap. Opens-off disables rolls. Does not move
+    principal, collateral, escrow, lift legs, or ``last_exposure_added_at``.
+    """
+
+    op = "roll_loan"
+    signer = "coldkey"
+    wraps = (("Lending", "roll"),)
+    mev_shield_default = True
+
+    netuid: int = field(metadata={"help": "Subnet of the position to roll."})
+
+    def __post_init__(self):
+        _check_netuid(self.netuid)
+
+    async def build(self, substrate, wallet: Any):
+        owner = self.coldkey_address(wallet)
+        position = await substrate.query(*POSITIONS, [owner, self.netuid])
+        if not isinstance(position, dict):
+            raise BittensorError(f"no lending position on netuid {self.netuid}")
+        return await substrate.compose(Call("Lending", "roll", {"netuid": self.netuid}))
+
+    def summary(self) -> str:
+        return f"roll lending position on netuid {self.netuid}"
+
+    def spend(self) -> Spend:
+        return None
+
+
 def _fmt_outcome_amount(rao: int, netuid: int) -> str:
     """Match CLI Result card money formatting for SDK ExtrinsicResult.data."""
     amount = rao / 1_000_000_000
@@ -1068,6 +1103,15 @@ def lending_outcome_data(events: list, *, op: Optional[str] = None) -> dict[str,
                 "sold_rao": sell_rao,
                 "received": _fmt_outcome_amount(free_tao_rao, 0),
                 "received_rao": free_tao_rao,
+            }
+    if op in (None, "roll_loan"):
+        attrs = _find_lending_event(events, "Rolled")
+        if isinstance(attrs, dict):
+            return {
+                "old_expires_at": attrs.get("old_expires_at"),
+                "new_expires_at": attrs.get("new_expires_at"),
+                "side": _event_side(attrs),
+                "netuid": attrs.get("netuid"),
             }
     if op in (None, "close_loan", "repay_loan"):
         # Partial repay emits Repaid; principal_part == full principal closes and

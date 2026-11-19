@@ -1926,6 +1926,8 @@ type Migrations = (
     // validation against real network state.
     pallet_lending::migrations::WarmReferencesMigration<Runtime>,
     pallet_lending::migrations::LiftParamsEmaBandMigration<Runtime>,
+    // Split apr_bps and append root-settable duration / min-loan / settle knobs.
+    pallet_lending::migrations::LiftParamsEconomicMigration<Runtime>,
     pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
     pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
     pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,

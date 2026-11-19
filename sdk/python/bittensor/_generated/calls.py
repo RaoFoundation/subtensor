@@ -1935,6 +1935,11 @@ class Lending:
         return Call('Lending', 'repay', {'netuid': netuid, 'hotkey': hotkey, 'principal_part': principal_part, 'repay_from_wallet': repay_from_wallet, 'max_payment': max_payment, 'min_refund': min_refund, 'valid_until': valid_until})
 
     @staticmethod
+    def roll(netuid: 'NetUid') -> Call:
+        'Atomically extend a live loan\'s fixed term without changing exposure.'
+        return Call('Lending', 'roll', {'netuid': netuid})
+
+    @staticmethod
     def set_enabled(enabled: 'bool') -> Call:
         return Call('Lending', 'set_enabled', {'enabled': enabled})
 
