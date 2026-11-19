@@ -13,6 +13,13 @@ name: Publish stable Python
 # Before uploading, each one runs check-python-release.py, which accepts an
 # attestation from either workflow file. A complete release skips the upload.
 # uv publish --check-url also skips files that are already on the index.
+#
+# Tooling (this workflow, the checker, and the announce action) is the commit
+# that started the run, not whatever main points at when a queued job starts.
+# The package tree is a separate commit that must already be on main.
+# Environment mainnet only admits the main branch, and this file refuses any
+# other ref before it uses that environment. uv is the upstream 0.11.28
+# linux tarball, checked against a digest pinned below.
 # Discord is posted only after this run uploads, or when retry_announce is
 # checked and the commit status announce/python-stable is not success.
 # A normal dispatch of a version that is already on PyPI does not post.
@@ -45,6 +52,7 @@ jobs:
       statuses: read
     timeout-minutes: 15
     outputs:
+      tooling_sha: ${{ steps.meta.outputs.tooling_sha }}
       sha: ${{ steps.meta.outputs.sha }}
       sdk: ${{ steps.meta.outputs.sdk }}
       core: ${{ steps.meta.outputs.core }}
@@ -54,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Resolve the commit and require notes
@@ -63,8 +71,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REF: ${{ inputs.ref }}
           DRY_RUN: ${{ inputs.dry_run }}
+          TOOLING_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "publish-python-stable only runs from main"
+            exit 1
+          }
+          [ "$TOOLING_SHA" = "$GITHUB_SHA" ] || {
+            echo "tooling sha drifted from this run"
+            exit 1
+          }
           git fetch --no-tags origin main
           if [ -z "$REF" ] || [ "$REF" = main ]; then
             sha=$(git rev-parse origin/main)
@@ -109,6 +126,7 @@ jobs:
             fi
           fi
           {
+            echo "tooling_sha=$TOOLING_SHA"
             echo "sha=$sha"
             echo "sdk=$sdk"
             echo "core=$core"
@@ -165,8 +183,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ needs.notes.outputs.tooling_sha }}
           fetch-depth: 1
+
+      - name: Use the tooling commit fixed before approval
+        env:
+          TOOLING_SHA: ${{ needs.notes.outputs.tooling_sha }}
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "publish-python-stable only runs from main"
+            exit 1
+          }
+          [ "$TOOLING_SHA" = "$GITHUB_SHA" ] || {
+            echo "refusing tooling commit $TOOLING_SHA; this run is $GITHUB_SHA"
+            exit 1
+          }
+          git rev-parse HEAD | grep -qx "$TOOLING_SHA"
 
       - name: Fetch the commit to publish
         run: git fetch --no-tags origin ${{ needs.notes.outputs.sha }}
@@ -214,11 +247,18 @@ jobs:
             echo "should_announce=$should_announce"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Install uv
+      - name: Install uv 0.11.28
         if: steps.state.outputs.should_upload == 'true'
         run: |
-          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          set -euo pipefail
+          [ "$(uname -m)" = x86_64 ] || { echo "this job only installs the pinned x86_64 uv"; exit 1; }
+          mkdir -p "$HOME/.local/bin" "$RUNNER_TEMP/uv"
+          curl -fsSL -o "$RUNNER_TEMP/uv.tar.gz" \
+            https://github.com/astral-sh/uv/releases/download/0.11.28/uv-x86_64-unknown-linux-gnu.tar.gz
+          echo "e490a6464492183c5d4534a5527fb4440f7f2bb2f228162ad7e4afe076dc0224  $RUNNER_TEMP/uv.tar.gz" | sha256sum -c
+          tar -xzf "$RUNNER_TEMP/uv.tar.gz" -C "$RUNNER_TEMP/uv"
+          install -m 755 "$RUNNER_TEMP/uv/uv-x86_64-unknown-linux-gnu/uv" "$HOME/.local/bin/uv"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Check out the release tree
         if: steps.state.outputs.should_upload == 'true'

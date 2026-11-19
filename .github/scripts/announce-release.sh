@@ -146,6 +146,10 @@ if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
   echo "refusing to call Discord from a pull_request job" >&2
   exit 1
 fi
+if [ -n "${GITHUB_REF:-}" ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+  echo "refusing to call Discord from $GITHUB_REF" >&2
+  exit 1
+fi
 
 if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
   echo "DISCORD_WEBHOOK_URL is empty; not posting." >&2
@@ -178,7 +182,7 @@ fi
 jq -n \
   --arg username "RaoFoundation" \
   --rawfile content "$workdir/message.txt" \
-  '{username: $username, content: $content}' >"$workdir/payload.json"
+  '{username: $username, content: $content, allowed_mentions: {parse: []}}' >"$workdir/payload.json"
 
 code=$(curl -sS --max-time 20 -o "$workdir/discord.txt" -w '%{http_code}' \
   -H "Content-Type: application/json" \
