@@ -834,6 +834,104 @@ jobs:
           fi
           exit 1
 
+  # A spec or Python version bump needs a notes file and a real releases page.
+  # Spec 492 and the current Python versions are grandfathered. This job also
+  # renders the Discord message and does not call Discord.
+  release-notes:
+    name: Release notes
+    if: github.event_name != 'workflow_dispatch' || inputs.try_runtime_only != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare versions with the base
+        id: versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          head_json=$(python3 .github/scripts/check-release-notes.py versions)
+          if [ "$EVENT_NAME" = pull_request ]; then
+            tmp=$(mktemp -d)
+            mkdir -p "$tmp/runtime/src" "$tmp/sdk/python" "$tmp/sdk/bittensor-core-py"
+            gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/$GITHUB_REPOSITORY/contents/runtime/src/lib.rs?ref=$BASE_SHA" \
+              > "$tmp/runtime/src/lib.rs"
+            gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/$GITHUB_REPOSITORY/contents/sdk/python/pyproject.toml?ref=$BASE_SHA" \
+              > "$tmp/sdk/python/pyproject.toml"
+            gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/$GITHUB_REPOSITORY/contents/sdk/bittensor-core-py/pyproject.toml?ref=$BASE_SHA" \
+              > "$tmp/sdk/bittensor-core-py/pyproject.toml"
+            base_json=$(python3 .github/scripts/check-release-notes.py versions --root "$tmp")
+          else
+            base_json=$head_json
+          fi
+          python3 .github/scripts/check-release-notes.py diff \
+            --base-spec "$(jq -er .spec <<<"$base_json")" \
+            --head-spec "$(jq -er .spec <<<"$head_json")" \
+            --base-sdk "$(jq -er .sdk <<<"$base_json")" \
+            --head-sdk "$(jq -er .sdk <<<"$head_json")" \
+            --base-core "$(jq -er .core <<<"$base_json")" \
+            --head-core "$(jq -er .core <<<"$head_json")"
+          python3 .github/scripts/check-release-notes.py tree
+          spec=$(jq -er .spec <<<"$head_json")
+          sdk=$(jq -er .sdk <<<"$head_json")
+          {
+            echo "spec=$spec"
+            echo "sdk=$sdk"
+            echo "core=$(jq -er .core <<<"$head_json")"
+          } >> "$GITHUB_OUTPUT"
+          if [ -f ".github/release-notes/runtime/${spec}.json" ]; then
+            echo "runtime_notes=.github/release-notes/runtime/${spec}.json" >> "$GITHUB_OUTPUT"
+            echo "runtime_sample=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "runtime_notes=" >> "$GITHUB_OUTPUT"
+            echo "runtime_sample=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -f ".github/release-notes/python/${sdk}.json" ]; then
+            echo "python_notes=.github/release-notes/python/${sdk}.json" >> "$GITHUB_OUTPUT"
+            echo "python_sample=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "python_notes=" >> "$GITHUB_OUTPUT"
+            echo "python_sample=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dry-run runtime Discord message
+        uses: ./.github/actions/announce-release
+        with:
+          kind: runtime-proposed
+          spec: ${{ steps.versions.outputs.spec }}
+          sdk-version: ${{ steps.versions.outputs.sdk }}
+          core-version: ${{ steps.versions.outputs.core }}
+          sha: ${{ github.sha }}
+          sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          notes-file: ${{ steps.versions.outputs.runtime_notes }}
+          allow-missing-notes: "true"
+          sample: ${{ steps.versions.outputs.runtime_sample }}
+          public-path: /releases/v${{ steps.versions.outputs.spec }}-upgrade
+          dry-run: "true"
+          status-context: announce/runtime-proposed
+
+      - name: Dry-run Python Discord message
+        uses: ./.github/actions/announce-release
+        with:
+          kind: python-stable
+          sdk-version: ${{ steps.versions.outputs.sdk }}
+          core-version: ${{ steps.versions.outputs.core }}
+          sha: ${{ github.sha }}
+          notes-file: ${{ steps.versions.outputs.python_notes }}
+          allow-missing-notes: "true"
+          sample: ${{ steps.versions.outputs.python_sample }}
+          public-path: /releases/python-sample
+          dry-run: "true"
+          status-context: announce/python-stable
+
   docs-website:
     name: Docs and website build
     needs: changes

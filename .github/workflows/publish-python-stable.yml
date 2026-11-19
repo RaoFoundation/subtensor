@@ -1,0 +1,329 @@
+name: Publish stable Python
+
+# Stable bittensor and bittensor-core with no runtime upgrade.
+# This file does not publish release candidates or TestPyPI packages.
+#
+# watch-mainnet-release.yml still publishes the same packages when a runtime
+# finalizes. That upload stays on the PyPI trusted publisher already registered
+# for watch-mainnet-release.yml and the mainnet environment. This workflow is
+# a second OIDC publisher. It cannot upload until PyPI has a trusted-publisher
+# row for publish-python-stable.yml on the mainnet environment.
+#
+# The two publish jobs share the concurrency group stable-python-pypi.
+# Before uploading, each one runs check-python-release.py, which accepts an
+# attestation from either workflow file. A complete release skips the upload.
+# uv publish --check-url also skips files that are already on the index.
+# Discord is posted only after this run uploads, or when retry_announce is
+# checked and the commit status announce/python-stable is not success.
+# A normal dispatch of a version that is already on PyPI does not post.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Render the Discord message. Do not publish and do not POST."
+        type: boolean
+        default: false
+      retry_announce:
+        description: "If this version is already on PyPI, post Discord when the commit status is not success."
+        type: boolean
+        default: false
+      ref:
+        description: "Commit on main to publish. Empty means the tip of main."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  notes:
+    name: Check release notes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: read
+    timeout-minutes: 15
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+      sdk: ${{ steps.meta.outputs.sdk }}
+      core: ${{ steps.meta.outputs.core }}
+      notes: ${{ steps.meta.outputs.notes }}
+      already_published: ${{ steps.meta.outputs.already_published }}
+      announce_missing: ${{ steps.meta.outputs.announce_missing }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve the commit and require notes
+        id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF: ${{ inputs.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if [ -z "$REF" ] || [ "$REF" = main ]; then
+            sha=$(git rev-parse origin/main)
+          else
+            git fetch --no-tags origin "$REF"
+            sha=$(git rev-parse --verify "FETCH_HEAD^{commit}")
+          fi
+          git merge-base --is-ancestor "$sha" origin/main \
+            || { echo "ref $sha is not on main"; exit 1; }
+          git show "$sha:sdk/python/pyproject.toml" > /tmp/sdk.toml
+          git show "$sha:sdk/bittensor-core-py/pyproject.toml" > /tmp/core.toml
+          versions=$(python3 .github/scripts/release-python-versions.py /tmp/sdk.toml /tmp/core.toml)
+          sdk=$(jq -er .sdk <<<"$versions")
+          core=$(jq -er .core <<<"$versions")
+          python3 .github/scripts/check-release-notes.py python \
+            --sdk "$sdk" --core "$core" --revision "$sha"
+          if git cat-file -e "${sha}:.github/release-notes/python/${sdk}.json"; then
+            notes=".github/release-notes/python/${sdk}.json"
+          else
+            notes=""
+          fi
+          already=false
+          announce_missing=true
+          if [ "$DRY_RUN" != true ]; then
+            if python3 .github/scripts/check-python-release.py \
+                --sdk-version "$sdk" \
+                --core-version "$core" \
+                --repository "$GITHUB_REPOSITORY"; then
+              already=true
+            else
+              status=$?
+              if [ "$status" -ne 1 ]; then
+                exit "$status"
+              fi
+            fi
+            gh api "repos/$GITHUB_REPOSITORY/commits/${sha}/status" > /tmp/status.json
+            state=$(jq -r \
+              'first(.statuses[] | select(.context == "announce/python-stable") | .state) // ""' \
+              /tmp/status.json)
+            if [ "$state" = success ]; then
+              announce_missing=false
+            fi
+          fi
+          {
+            echo "sha=$sha"
+            echo "sdk=$sdk"
+            echo "core=$core"
+            echo "notes=$notes"
+            echo "already_published=$already"
+            echo "announce_missing=$announce_missing"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Dry-run Discord message
+        if: inputs.dry_run == true
+        uses: ./.github/actions/announce-release
+        with:
+          kind: python-stable
+          sdk-version: ${{ steps.meta.outputs.sdk }}
+          core-version: ${{ steps.meta.outputs.core }}
+          sha: ${{ steps.meta.outputs.sha }}
+          revision: ${{ steps.meta.outputs.sha }}
+          notes-file: ${{ steps.meta.outputs.notes }}
+          allow-missing-notes: "true"
+          dry-run: "true"
+          status-context: announce/python-stable
+
+  build-core:
+    name: Build bittensor-core wheels
+    needs: notes
+    if: inputs.dry_run != true && needs.notes.outputs.already_published != 'true'
+    uses: ./.github/workflows/build-core-wheels.yml
+    with:
+      ref: ${{ needs.notes.outputs.sha }}
+
+  publish:
+    name: Publish stable packages and announce
+    needs: [notes, build-core]
+    if: >-
+      always() &&
+      !cancelled() &&
+      inputs.dry_run != true &&
+      needs.notes.result == 'success' &&
+      (needs.build-core.result == 'success' || needs.build-core.result == 'skipped') &&
+      (
+        needs.notes.outputs.already_published != 'true' ||
+        (inputs.retry_announce == true && needs.notes.outputs.announce_missing == 'true')
+      )
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 30
+    concurrency:
+      group: stable-python-pypi
+      cancel-in-progress: false
+    environment: mainnet
+    permissions:
+      id-token: write
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Fetch the commit to publish
+        run: git fetch --no-tags origin ${{ needs.notes.outputs.sha }}
+
+      - name: Decide whether to upload
+        id: state
+        env:
+          SDK_VERSION: ${{ needs.notes.outputs.sdk }}
+          CORE_VERSION: ${{ needs.notes.outputs.core }}
+          RELEASE_SHA: ${{ needs.notes.outputs.sha }}
+          RETRY: ${{ inputs.retry_announce }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/check-release-notes.py python \
+            --sdk "$SDK_VERSION" --core "$CORE_VERSION" --revision "$RELEASE_SHA"
+          should_upload=true
+          if python3 .github/scripts/check-python-release.py \
+              --sdk-version "$SDK_VERSION" \
+              --core-version "$CORE_VERSION" \
+              --repository "$GITHUB_REPOSITORY"; then
+            echo "Stable Python packages are already complete on PyPI."
+            should_upload=false
+          else
+            status=$?
+            if [ "$status" -ne 1 ]; then
+              exit "$status"
+            fi
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/commits/${RELEASE_SHA}/status" > /tmp/status.json
+          state=$(jq -r \
+            'first(.statuses[] | select(.context == "announce/python-stable") | .state) // ""' \
+            /tmp/status.json)
+          should_announce=false
+          if [ "$should_upload" = true ]; then
+            should_announce=true
+          elif [ "$RETRY" = true ] && [ "$state" != success ]; then
+            should_announce=true
+          fi
+          if [ "$state" = success ]; then
+            should_announce=false
+          fi
+          {
+            echo "should_upload=$should_upload"
+            echo "should_announce=$should_announce"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install uv
+        if: steps.state.outputs.should_upload == 'true'
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Check out the release tree
+        if: steps.state.outputs.should_upload == 'true'
+        run: git worktree add --detach source ${{ needs.notes.outputs.sha }}
+
+      - name: Download bittensor-core wheels
+        if: steps.state.outputs.should_upload == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: core-dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Prepare stable SDK distribution
+        if: steps.state.outputs.should_upload == 'true'
+        working-directory: source
+        run: python3 .github/scripts/prepare-sdk-dist.py
+
+      - name: Build SDK wheel and sdist
+        if: steps.state.outputs.should_upload == 'true'
+        working-directory: source/sdk/python
+        run: uv build --out-dir "$GITHUB_WORKSPACE/dist"
+
+      - name: Verify stable artifacts
+        if: steps.state.outputs.should_upload == 'true'
+        env:
+          EXPECTED_SDK_VERSION: ${{ needs.notes.outputs.sdk }}
+          EXPECTED_CORE_VERSION: ${{ needs.notes.outputs.core }}
+        run: |
+          set -euo pipefail
+          sdk_version=$(sed -n 's/^version = "\(.*\)"/\1/p' source/sdk/python/pyproject.toml | head -n 1)
+          core_version=$(sed -n 's/^version = "\(.*\)"/\1/p' source/sdk/bittensor-core-py/pyproject.toml | head -n 1)
+          : ${sdk_version:?could not parse stable SDK version}
+          : ${core_version:?could not parse stable core version}
+          [[ "$sdk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "SDK version is not stable: $sdk_version"; exit 1; }
+          [[ "$core_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "core version is not stable: $core_version"; exit 1; }
+          [ "$sdk_version" = "$EXPECTED_SDK_VERSION" ] \
+            || { echo "SDK version $sdk_version != expected $EXPECTED_SDK_VERSION"; exit 1; }
+          [ "$core_version" = "$EXPECTED_CORE_VERSION" ] \
+            || { echo "core version $core_version != expected $EXPECTED_CORE_VERSION"; exit 1; }
+          ls -la dist
+          test -f "dist/bittensor-${sdk_version}-py3-none-any.whl"
+          test -f "dist/bittensor-${sdk_version}.tar.gz"
+          compgen -G "dist/bittensor_core-${core_version}-*.whl" >/dev/null
+          test -f "dist/bittensor_core-${core_version}.tar.gz"
+
+      - name: Check SDK against its minimum bittensor-core
+        if: steps.state.outputs.should_upload == 'true'
+        working-directory: source
+        run: |
+          if [ -f .github/scripts/check-sdk-core-floor.sh ]; then
+            .github/scripts/check-sdk-core-floor.sh "$GITHUB_WORKSPACE/dist"
+          else
+            echo "release predates check-sdk-core-floor.sh; skipping"
+          fi
+
+      - name: Generate PEP 740 attestations
+        if: steps.state.outputs.should_upload == 'true'
+        uses: astral-sh/attest-action@f589a42a7efb6fe400b4f400de60b4bc90390027 # v0.0.6
+
+      - name: Publish to PyPI
+        if: steps.state.outputs.should_upload == 'true'
+        run: |
+          ls -la dist
+          uv publish --trusted-publishing always \
+            --check-url https://pypi.org/simple/ dist/*
+
+      - name: Verify complete publication on PyPI
+        if: steps.state.outputs.should_upload == 'true'
+        env:
+          SDK_VERSION: ${{ needs.notes.outputs.sdk }}
+          CORE_VERSION: ${{ needs.notes.outputs.core }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            status=0
+            python3 .github/scripts/check-python-release.py \
+              --sdk-version "$SDK_VERSION" \
+              --core-version "$CORE_VERSION" \
+              --repository "$GITHUB_REPOSITORY" || status=$?
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 12 ]; then
+              echo "PyPI state not authoritative yet (attempt $attempt/12); retrying."
+              sleep 10
+            fi
+          done
+          echo "PyPI did not expose the complete attested release within two minutes."
+          exit 1
+
+      - name: Post to Discord
+        if: steps.state.outputs.should_announce == 'true'
+        uses: ./.github/actions/announce-release
+        with:
+          kind: python-stable
+          sdk-version: ${{ needs.notes.outputs.sdk }}
+          core-version: ${{ needs.notes.outputs.core }}
+          sha: ${{ needs.notes.outputs.sha }}
+          revision: ${{ needs.notes.outputs.sha }}
+          notes-file: ${{ needs.notes.outputs.notes }}
+          allow-missing-notes: "true"
+          dry-run: "false"
+          status-context: announce/python-stable
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}

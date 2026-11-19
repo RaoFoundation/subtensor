@@ -1,0 +1,101 @@
+name: Announce release
+description: >-
+  Render a Discord announcement from the release template. Dry-run writes the
+  message to the job summary and does not POST. A pull_request event never
+  calls Discord. The model may rewrite only the human summary.
+
+inputs:
+  kind:
+    description: runtime-proposed, runtime-live, or python-stable
+    required: true
+  spec:
+    description: Runtime spec. Required for runtime announcements.
+    required: false
+    default: ""
+  sdk-version:
+    description: Stable bittensor version (X.Y.Z)
+    required: true
+  core-version:
+    description: Stable bittensor-core version (X.Y.Z)
+    required: true
+  sha:
+    description: 40-character commit sha
+    required: true
+  sha256:
+    description: Wasm sha256. Required for runtime announcements.
+    required: false
+    default: ""
+  utc:
+    description: UTC timestamp. Empty means the current UTC time.
+    required: false
+    default: ""
+  repo:
+    description: GitHub owner/name. Empty uses GITHUB_REPOSITORY.
+    required: false
+    default: ""
+  notes-file:
+    description: Path to the release-notes JSON. Empty if the version is grandfathered.
+    required: false
+    default: ""
+  revision:
+    description: Commit sha to read notes from. Empty reads the working tree.
+    required: false
+    default: ""
+  allow-missing-notes:
+    description: Allow a grandfathered version with no notes file.
+    required: false
+    default: "false"
+  sample:
+    description: Mark the message as a dry-run sample. It does not describe a release.
+    required: false
+    default: "false"
+  public-path:
+    description: Sample notes path, such as /releases/v493-upgrade. Ignored when notes exist.
+    required: false
+    default: ""
+  dry-run:
+    description: Write the message to the job summary and do not POST.
+    required: true
+    default: "false"
+  status-context:
+    description: Commit status used so a retry does not post twice.
+    required: false
+    default: ""
+  webhook:
+    description: Discord webhook URL. Leave empty for a dry run.
+    required: false
+    default: ""
+  openai-api-key:
+    description: ANNOUNCE_OPENAI_API_KEY. Empty posts the human summary.
+    required: false
+    default: ""
+  model:
+    description: Model that may rewrite the summary.
+    required: false
+    default: gpt-4o-mini
+
+runs:
+  using: composite
+  steps:
+    - name: Render or post the announcement
+      shell: bash
+      env:
+        ANNOUNCE_KIND: ${{ inputs.kind }}
+        ANNOUNCE_SPEC: ${{ inputs.spec }}
+        ANNOUNCE_SDK_VERSION: ${{ inputs.sdk-version }}
+        ANNOUNCE_CORE_VERSION: ${{ inputs.core-version }}
+        ANNOUNCE_SHA: ${{ inputs.sha }}
+        ANNOUNCE_SHA256: ${{ inputs.sha256 }}
+        ANNOUNCE_UTC: ${{ inputs.utc }}
+        ANNOUNCE_REPO: ${{ inputs.repo }}
+        ANNOUNCE_NOTES_FILE: ${{ inputs.notes-file }}
+        ANNOUNCE_REVISION: ${{ inputs.revision }}
+        ANNOUNCE_ALLOW_MISSING: ${{ inputs.allow-missing-notes }}
+        ANNOUNCE_SAMPLE: ${{ inputs.sample }}
+        ANNOUNCE_PUBLIC_PATH: ${{ inputs.public-path }}
+        ANNOUNCE_DRY_RUN: ${{ inputs.dry-run }}
+        ANNOUNCE_STATUS_CONTEXT: ${{ inputs.status-context }}
+        DISCORD_WEBHOOK_URL: ${{ inputs.webhook }}
+        ANNOUNCE_OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        ANNOUNCE_MODEL: ${{ inputs.model }}
+      run: bash "$GITHUB_ACTION_PATH/../../scripts/announce-release.sh"

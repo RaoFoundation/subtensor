@@ -33,6 +33,13 @@ name: Release Train
 # After the multisig executes on chain, watch-mainnet-release.yml cuts the
 # release without another approval: mainnet mirror (and with it the mainnet
 # Docker images) and GitHub release, then PyPI stable and docs promotion.
+#
+# Discord (secret DISCORD_WEBHOOK_URL on mainnet and mainnet-release only):
+# one post when this train's propose job submits a mainnet upgrade, then
+# the watcher posts when that upgrade is live and when stable PyPI succeeds.
+# There is no post for devnet, testnet, rc, or TestPyPI. A missing notes
+# file blocks propose-mainnet. Spec 492 and the Python versions committed
+# with it are grandfathered because they have no release page.
 
 on:
   push:
@@ -299,6 +306,31 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm moonwall test smoke_testnet
 
+  # Notes are required only when this build would propose a new mainnet spec.
+  # A missing file stops the tag, the multisig, and the pre-release.
+  check-runtime-notes:
+    name: Check runtime release notes
+    needs: [build, check-testnet]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require notes before a mainnet proposal
+        env:
+          SPEC: ${{ needs.build.outputs.spec_version }}
+        run: |
+          set -euo pipefail
+          chain=$(curl -sf --connect-timeout 10 --max-time 30 \
+            -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://entrypoint-finney.opentensor.ai" | jq -er '.result.specVersion')
+          echo "built spec $SPEC; mainnet spec $chain"
+          if [ "$SPEC" -gt "$chain" ]; then
+            python3 .github/scripts/check-release-notes.py runtime --spec "$SPEC"
+          else
+            echo "built spec is not newer than mainnet; notes are not required."
+          fi
+
   # SDK rc channel rides the train: publish after testnet is green
   # (replaces the publish-sdk-rc job in deploy-testnet.yml).
   #
@@ -349,6 +381,24 @@ jobs:
           echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
           echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
+  # The rc string is not a notes key. The check uses the stable base versions.
+  # This does not post to Discord and does not block propose-mainnet.
+  check-python-notes:
+    name: Check Python release notes
+    needs: rc-versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require notes for the stable versions behind this rc
+        run: |
+          set -euo pipefail
+          versions=$(python3 .github/scripts/release-python-versions.py \
+            sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml)
+          python3 .github/scripts/check-release-notes.py python \
+            --sdk "$(jq -er .sdk <<<"$versions")" \
+            --core "$(jq -er .core <<<"$versions")"
+
   build-core-rc:
     name: Build bittensor-core rc wheels
     needs: rc-versions
@@ -358,7 +408,7 @@ jobs:
 
   publish-sdk-rc:
     name: Publish SDK rc to PyPI
-    needs: [rc-versions, build-core-rc]
+    needs: [rc-versions, build-core-rc, check-python-notes]
     runs-on: [self-hosted, fireactions-turbo-8]
     environment: testnet
     permissions:
@@ -416,12 +466,14 @@ jobs:
   # ------------------------------------------------------------------
   propose-mainnet:
     name: Propose mainnet upgrade (multisig)
-    needs: [build, check-testnet]
+    needs: [build, check-testnet, check-runtime-notes]
     runs-on: [self-hosted, fireactions-turbo-8]
     environment: mainnet
     timeout-minutes: 30
     permissions:
       contents: write # publish the proposal pre-release + tag
+    outputs:
+      should_propose: ${{ steps.guard.outputs.should_propose }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -711,3 +763,57 @@ jobs:
             echo "btcli upgrade sign --url ${url} -w <your-wallet>"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Separate from propose-mainnet so a Discord failure does not submit
+  # another multisig. mainnet-release holds the webhook and has no reviewers,
+  # so this does not ask for a second mainnet approval.
+  announce-proposed:
+    name: Announce proposed runtime upgrade
+    needs: [build, propose-mainnet]
+    if: needs.propose-mainnet.outputs.should_propose == 'true'
+    runs-on: ubuntu-latest
+    environment: mainnet-release
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-${{ needs.build.outputs.spec_version }}
+          path: wasm
+      - name: Read release facts
+        id: facts
+        run: |
+          set -euo pipefail
+          sha256=$(jq -er '.sha256' wasm/subtensor-digest.json | tr '[:upper:]' '[:lower:]')
+          [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] || { echo "wasm sha256 is not 64 hex characters"; exit 1; }
+          versions=$(python3 .github/scripts/release-python-versions.py \
+            sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml)
+          spec="${{ needs.build.outputs.spec_version }}"
+          {
+            echo "sha256=$sha256"
+            echo "sdk=$(jq -er .sdk <<<"$versions")"
+            echo "core=$(jq -er .core <<<"$versions")"
+          } >> "$GITHUB_OUTPUT"
+          if [ -f ".github/release-notes/runtime/${spec}.json" ]; then
+            echo "notes=.github/release-notes/runtime/${spec}.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "notes=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Post to Discord
+        uses: ./.github/actions/announce-release
+        with:
+          kind: runtime-proposed
+          spec: ${{ needs.build.outputs.spec_version }}
+          sdk-version: ${{ steps.facts.outputs.sdk }}
+          core-version: ${{ steps.facts.outputs.core }}
+          sha: ${{ github.sha }}
+          sha256: ${{ steps.facts.outputs.sha256 }}
+          notes-file: ${{ steps.facts.outputs.notes }}
+          allow-missing-notes: "true"
+          dry-run: "false"
+          status-context: announce/runtime-proposed
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}
