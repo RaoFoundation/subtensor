@@ -31,7 +31,7 @@ name: Watch Mainnet Release
 # Merging this file does not announce a release that is already final.
 # workflow_dispatch input retry_announce posts only when that box is checked
 # and the commit status for that event is not already success.
-# announce_dry_run renders the message and does not POST.
+# announce_dry_run only renders previews.
 
 on:
   schedule:
@@ -39,7 +39,7 @@ on:
   workflow_dispatch:
     inputs:
       announce_dry_run:
-        description: "Render Discord messages in the job summary and do not POST"
+        description: "Preview Discord messages without finalizing or publishing a release."
         type: boolean
         default: false
       retry_announce:
@@ -236,7 +236,7 @@ jobs:
   release:
     name: Cut GitHub release v${{ needs.check.outputs.spec_version }}
     needs: check
-    if: needs.check.outputs.release_needed == 'true'
+    if: inputs.announce_dry_run != true && needs.check.outputs.release_needed == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     # Scheduled runs can overlap, so finalize one at a time. A run that finds
     # the release already final reports finalized=false and leaves the
@@ -378,11 +378,15 @@ jobs:
   check-python-notes:
     name: Check Python release notes
     needs: check
-    if: needs.check.outputs.python_needed == 'true'
+    if: inputs.announce_dry_run != true && needs.check.outputs.python_needed == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Fetch the release commit
         run: git fetch --no-tags --depth=1 origin ${{ needs.check.outputs.sha }}
       - name: Require notes for the tagged Python versions
@@ -412,6 +416,7 @@ jobs:
     if: >-
       always() &&
       !cancelled() &&
+      inputs.announce_dry_run != true &&
       needs.check-python-notes.result == 'success' &&
       needs.check.outputs.python_needed == 'true' &&
       (
@@ -607,6 +612,7 @@ jobs:
     if: >-
       always() &&
       !cancelled() &&
+      inputs.announce_dry_run != true &&
       (
         needs.release.outputs.finalized == 'true' ||
         (
@@ -663,9 +669,9 @@ jobs:
           revision: ${{ needs.check.outputs.sha }}
           notes-file: ${{ steps.facts.outputs.notes }}
           allow-missing-notes: "true"
-          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.announce_dry_run == true && 'true' || 'false' }}
+          dry-run: "false"
           status-context: announce/runtime-live
-          webhook: ${{ (github.event_name != 'workflow_dispatch' || inputs.announce_dry_run != true) && secrets.DISCORD_WEBHOOK_URL || '' }}
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
           openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}
 
   announce-python:
@@ -674,6 +680,7 @@ jobs:
     if: >-
       always() &&
       !cancelled() &&
+      inputs.announce_dry_run != true &&
       (
         needs.publish-sdk.result == 'success' ||
         (
@@ -724,7 +731,81 @@ jobs:
           revision: ${{ needs.check.outputs.sha }}
           notes-file: ${{ steps.facts.outputs.notes }}
           allow-missing-notes: "true"
-          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.announce_dry_run == true && 'true' || 'false' }}
+          dry-run: "false"
           status-context: announce/python-stable
-          webhook: ${{ (github.event_name != 'workflow_dispatch' || inputs.announce_dry_run != true) && secrets.DISCORD_WEBHOOK_URL || '' }}
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}
+
+  preview-announcements:
+    name: Preview release announcements
+    needs: check
+    if: github.ref == 'refs/heads/main' && inputs.announce_dry_run == true && needs.check.outputs.sha != ''
+    runs-on: ubuntu-latest
+    environment: mainnet-release
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read the release facts
+        id: facts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPEC: ${{ needs.check.outputs.spec_version }}
+          SHA: ${{ needs.check.outputs.sha }}
+          SDK: ${{ needs.check.outputs.sdk_version }}
+          ARTIFACT_ID: ${{ needs.check.outputs.artifact_id }}
+          CODE_HASH: ${{ needs.check.outputs.code_hash }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$SHA"
+          if [ -n "$ARTIFACT_ID" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > artifact.zip
+            sha256=$(python3 .github/scripts/verify-release-artifact.py artifact.zip \
+              --spec "$SPEC" --commit "$SHA" --code-hash "$CODE_HASH" | jq -er '.wasm_sha256')
+          else
+            gh release download "v${SPEC}" --repo "$GITHUB_REPOSITORY" \
+              --pattern subtensor-digest.json --dir "$RUNNER_TEMP"
+            sha256=$(jq -er '.sha256' "$RUNNER_TEMP/subtensor-digest.json" | tr '[:upper:]' '[:lower:]')
+          fi
+          [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] || { echo "wasm sha256 is not 64 hex characters"; exit 1; }
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          runtime_notes=".github/release-notes/runtime/${SPEC}.json"
+          python_notes=".github/release-notes/python/${SDK}.json"
+          if git cat-file -e "${SHA}:${runtime_notes}"; then
+            echo "runtime_notes=$runtime_notes" >> "$GITHUB_OUTPUT"
+          fi
+          if git cat-file -e "${SHA}:${python_notes}"; then
+            echo "python_notes=$python_notes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Preview the runtime announcement
+        uses: ./.github/actions/announce-release
+        with:
+          kind: runtime-live
+          spec: ${{ needs.check.outputs.spec_version }}
+          sdk-version: ${{ needs.check.outputs.sdk_version }}
+          core-version: ${{ needs.check.outputs.core_version }}
+          sha: ${{ needs.check.outputs.sha }}
+          sha256: ${{ steps.facts.outputs.sha256 }}
+          revision: ${{ needs.check.outputs.sha }}
+          notes-file: ${{ steps.facts.outputs.runtime_notes }}
+          allow-missing-notes: "true"
+          dry-run: "true"
+          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}
+
+      - name: Preview the Python announcement
+        uses: ./.github/actions/announce-release
+        with:
+          kind: python-stable
+          sdk-version: ${{ needs.check.outputs.sdk_version }}
+          core-version: ${{ needs.check.outputs.core_version }}
+          sha: ${{ needs.check.outputs.sha }}
+          revision: ${{ needs.check.outputs.sha }}
+          notes-file: ${{ steps.facts.outputs.python_notes }}
+          allow-missing-notes: "true"
+          dry-run: "true"
           openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}
