@@ -31,15 +31,11 @@ type AdminAll = (SubnetManagementCalls, RootConfigCalls, LendingRootCalls);
 /// `Transfer`: liquid value movement.
 type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 
-/// `Staking`: stake position management, accumulated root-dividend claims, and
-/// lending. `LendingRaiseCalls` is included because Staking already grants both
-/// open and remove_stake — the raise filter is the stricter of those two.
-type StakingAllowed = (
-    StakeManagementCalls,
-    RootClaimCalls,
-    // Lending is excluded from Staking (Greg Zaitsev P2-c): existing staking
-    // proxies must not silently gain loan authority. Use Any / NonTransfer.
-);
+/// `Staking`: stake position management and accumulated root-dividend claims.
+/// Loan open/close/repay/raise are **not** included (Greg Zaitsev P2-c) — use
+/// `Any` / `NonTransfer` for those. Keep this type body free of the loan pallet
+/// name so SDK `test_protected_preparation` word-scan of the alias stays exact.
+type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
 
 /// `Lock`: stake conviction-lock management and nothing else.
 type LockAllowed = LockCalls;
