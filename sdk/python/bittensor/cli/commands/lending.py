@@ -141,6 +141,24 @@ def _format_expiry(block: Optional[int], *, head: int, head_time: Optional[datet
     return f"{block} (~{when.strftime('%Y-%m-%d')} UTC)"
 
 
+def _quoted_expires_at(
+    *,
+    head: int,
+    max_loan_duration: Optional[int],
+    existing_expires: Optional[int] = None,
+) -> Optional[int]:
+    """Block shown on open / increase / raise quote cards.
+
+    New opens: ``head + MaxLoanDuration`` (~30 days / 216_000 blocks).
+    Increase and raise keep the position's existing ``expires_at`` (no extension).
+    """
+    if existing_expires is not None:
+        return int(existing_expires)
+    if isinstance(max_loan_duration, int) and max_loan_duration > 0:
+        return int(head) + max_loan_duration
+    return None
+
+
 def _terms_version_label(value: Any) -> str:
     """Strict terms_version display — never hide a missing/0 behind `or 1` (N26)."""
     if value is None:
@@ -685,11 +703,16 @@ def open_loan(
 
     async def _term_meta(client):
         head = await client.block()
-        year = await client.constant(("Lending", "BlocksPerYear"))
-        return head, int(year) if isinstance(year, int) and year > 0 else None
+        duration = await client.constant(("Lending", "MaxLoanDuration"))
+        return head, int(duration) if isinstance(duration, int) and duration > 0 else None
 
-    head, year = context.run(_term_meta)
-    new_expires = (head + year) if year else None
+    head, max_loan_duration = context.run(_term_meta)
+    existing_expires = existing.get("expires_at") if isinstance(existing, dict) else None
+    new_expires = _quoted_expires_at(
+        head=head,
+        max_loan_duration=max_loan_duration,
+        existing_expires=existing_expires,
+    )
 
     loan_rows = [
         ("loan owner", owner),
@@ -719,12 +742,10 @@ def open_loan(
         elif isinstance(quote.get("escrow_estimate"), Balance):
             loan_rows.append(("quoted escrow alpha", _fmt_amount(quote["escrow_estimate"])))
     if new_expires is not None:
-        loan_rows.append(
-            (
-                "expires at (after open/increase)",
-                _format_expiry(new_expires, head=head),
-            )
+        expiry_label = (
+            "expires at (unchanged)" if existing_expires is not None else "expires at (after open)"
         )
+        loan_rows.append((expiry_label, _format_expiry(new_expires, head=head)))
     # Open defaults valid_until to u32::MAX ("no deadline"); only show when explicit.
     if int(intent.valid_until) < VALID_UNTIL_NONE:
         loan_rows.append(("valid until", _format_valid_until(intent.valid_until, head=head)))
@@ -1478,8 +1499,14 @@ def raise_loan(
         )
         sell_label = "sell (default = escrowed α)"
     head = context.run(lambda client: client.block())
-    year = context.run(lambda client: client.constant(("Lending", "BlocksPerYear")))
-    new_expires = (head + int(year)) if isinstance(year, int) and year > 0 else None
+    duration = context.run(lambda client: client.constant(("Lending", "MaxLoanDuration")))
+    max_loan_duration = int(duration) if isinstance(duration, int) and duration > 0 else None
+    existing_expires = existing.get("expires_at") if isinstance(existing, dict) else None
+    new_expires = _quoted_expires_at(
+        head=head,
+        max_loan_duration=max_loan_duration,
+        existing_expires=existing_expires,
+    )
     card = [
         ("netuid", str(netuid)),
         ("owner", owner),
@@ -1508,7 +1535,10 @@ def raise_loan(
         ]
     )
     if new_expires is not None:
-        card.append(("expires at (after raise)", _format_expiry(new_expires, head=head)))
+        expiry_label = (
+            "expires at (unchanged)" if existing_expires is not None else "expires at (after raise)"
+        )
+        card.append((expiry_label, _format_expiry(new_expires, head=head)))
 
     def _attach_raised(result):
         error = getattr(result, "error", None)

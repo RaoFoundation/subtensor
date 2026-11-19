@@ -5,11 +5,42 @@ from __future__ import annotations
 import pytest
 
 from bittensor.balance import Balance
-from bittensor.cli.commands.lending import _bound, _require_slippage
+from bittensor.cli.commands.lending import _bound, _quoted_expires_at, _require_slippage
 from bittensor.cli.context import AppContext
 from bittensor.error_descriptions.lending import DESCRIPTIONS as LENDING_DESCRIPTIONS
 from bittensor.intents.lending import RaiseLoan
 from bittensor.result import BittensorError
+
+# On-chain MaxLoanDuration (~30 days at 12s blocks). Must not use BlocksPerYear.
+_MAX_LOAN_DURATION = 216_000
+
+
+def test_quoted_expires_at_open_uses_max_loan_duration():
+    """New open cards show head + MaxLoanDuration, not BlocksPerYear (~1 year)."""
+    head = 1_000_000
+    expires = _quoted_expires_at(head=head, max_loan_duration=_MAX_LOAN_DURATION)
+    assert expires == head + _MAX_LOAN_DURATION
+    # Regression: BlocksPerYear would add ~2.6M blocks (~1 year).
+    assert expires - head != 2_628_000
+    assert expires - head == 216_000
+
+
+def test_quoted_expires_at_increase_keeps_existing_expires():
+    """Increase / raise cards keep the position expires_at (no extension)."""
+    head = 1_000_000
+    existing = head + 50_000
+    assert (
+        _quoted_expires_at(
+            head=head,
+            max_loan_duration=_MAX_LOAN_DURATION,
+            existing_expires=existing,
+        )
+        == existing
+    )
+    # Existing wins even if MaxLoanDuration is missing.
+    assert (
+        _quoted_expires_at(head=head, max_loan_duration=None, existing_expires=existing) == existing
+    )
 
 
 def test_require_slippage_rejects_zero():

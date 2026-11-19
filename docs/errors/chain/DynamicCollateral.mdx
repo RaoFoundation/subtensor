@@ -7,7 +7,9 @@ description: "Fund the signing account or reduce the amount; check with `btcli w
 
 Collateral is below the dynamic valuation requirement at the current LTV tier. Add collateral or reduce principal; re-quote with lending_raise_quote / lending_open_quote (or btcli lending show).
 
-It classifies to the semantic code [`insufficient_balance`](/docs/errors/insufficient-balance).
+Declared by the `Lending` pallet; it classifies to the semantic code [`insufficient_balance`](/docs/errors/insufficient-balance).
+
+Declared at [`pallets/lending/src/lib.rs#L1362`](/code/pallets/lending/src/lib.rs#L1362).
 
 ## Remediation
 

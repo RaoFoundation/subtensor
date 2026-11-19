@@ -7,7 +7,9 @@ description: "Reduce borrow size, wait for repayment on this side, or check `btc
 
 This subnet's lend/borrow side cap has no headroom for this size (even at full Cap). Reduce the borrow, wait for other loans to repay, or check lending_reserves headroom. This is capacity, not AMM depth — SideCapacityRamping means only the ramp binds.
 
-It classifies to the semantic code [`limit_exceeded`](/docs/errors/limit-exceeded).
+Declared by the `Lending` pallet; it classifies to the semantic code [`limit_exceeded`](/docs/errors/limit-exceeded).
+
+Declared at [`pallets/lending/src/lib.rs#L1354`](/code/pallets/lending/src/lib.rs#L1354).
 
 ## Remediation
 
