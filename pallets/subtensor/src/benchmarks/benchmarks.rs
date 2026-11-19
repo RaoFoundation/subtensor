@@ -2588,7 +2588,7 @@ mod pallet_benchmarks {
         Owner::<T>::insert(&hotkey, &coldkey);
 
         // Every pool is 100,000 τ against 100,000 α (spot 1.0) with its moving price
-        // pinned to spot, so a 100 α leg moves each pool by ~0.1%, well inside the 2%
+        // pinned to spot, so a 100 α leg moves each pool by ~0.1%, well inside the default 5%
         // band. The fund holds 5,000 α on each of the `h` origin-side subnets: 1/20 of a
         // pool, under the 10% liquidity cap, and enough NAV that the turnover budget
         // (10% of NAV) clears the ~100 τ through the middle.
@@ -2661,7 +2661,7 @@ mod pallet_benchmarks {
         Owner::<T>::insert(&hotkey, &coldkey);
 
         // Much deeper pools than the single-leg benchmark keep all 128 repeated legs
-        // inside the 2% price band. One-TAO legs remain above the minimum trade amount.
+        // inside the default 5% price band. One-TAO legs remain above the minimum trade amount.
         let reserve_tao = TaoBalance::from(10_000_000_000_000_000_u64);
         let reserve_alpha = AlphaBalance::from(10_000_000_000_000_000_u64);
         let holding = AlphaBalance::from(5_000_000_000_000_000_u64);

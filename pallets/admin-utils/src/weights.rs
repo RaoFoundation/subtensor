@@ -160,6 +160,9 @@ pub trait WeightInfo {
 	fn sudo_set_basket_trading_frozen() -> Weight;
 	fn sudo_set_basket_daily_turnover_cap() -> Weight;
 	fn sudo_set_basket_liquidity_cap() -> Weight;
+	fn sudo_set_basket_trade_max_slippage_bps() -> Weight;
+	fn sudo_set_basket_trade_refill_blocks() -> Weight;
+	fn sudo_set_basket_trade_price_reference() -> Weight;
 	/// Same root check, single storage write and event as the liquidity cap setter.
 	/// CI reference benchmarking replaces this shared envelope with measured weights.
 	fn sudo_set_basket_min_trade_tao() -> Weight {
@@ -1593,6 +1596,21 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// 34758967315, steps 50 / repeat 20): weight 3_893_000, io r 0 w 1.
 		Weight::from_parts(3_893_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Same root check, single storage write and event as the liquidity cap setter.
+	/// CI reference benchmarking replaces this shared envelope with measured weights.
+	fn sudo_set_basket_trade_max_slippage_bps() -> Weight {
+		Self::sudo_set_basket_liquidity_cap()
+	}
+	/// Same root check, single storage write and event as the liquidity cap setter.
+	/// CI reference benchmarking replaces this shared envelope with measured weights.
+	fn sudo_set_basket_trade_refill_blocks() -> Weight {
+		Self::sudo_set_basket_liquidity_cap()
+	}
+	/// Same root check, single storage write and event as the liquidity cap setter.
+	/// CI reference benchmarking replaces this shared envelope with measured weights.
+	fn sudo_set_basket_trade_price_reference() -> Weight {
+		Self::sudo_set_basket_liquidity_cap()
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -3059,6 +3077,21 @@ impl WeightInfo for () {
 		// 34758967315, steps 50 / repeat 20): weight 3_893_000, io r 0 w 1.
 		Weight::from_parts(3_893_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Same root check, single storage write and event as the liquidity cap setter.
+	/// CI reference benchmarking replaces this shared envelope with measured weights.
+	fn sudo_set_basket_trade_max_slippage_bps() -> Weight {
+		Self::sudo_set_basket_liquidity_cap()
+	}
+	/// Same root check, single storage write and event as the liquidity cap setter.
+	/// CI reference benchmarking replaces this shared envelope with measured weights.
+	fn sudo_set_basket_trade_refill_blocks() -> Weight {
+		Self::sudo_set_basket_liquidity_cap()
+	}
+	/// Same root check, single storage write and event as the liquidity cap setter.
+	/// CI reference benchmarking replaces this shared envelope with measured weights.
+	fn sudo_set_basket_trade_price_reference() -> Weight {
+		Self::sudo_set_basket_liquidity_cap()
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)

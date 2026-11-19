@@ -172,10 +172,15 @@ pub const DEFAULT_BASKET_CONCENTRATION_CAP: u16 = u16::MAX / 16 + 1;
 /// NAV (u16-normalized).
 pub const DEFAULT_BASKET_DAILY_TURNOVER_CAP: u16 = u16::MAX / 10;
 
-/// Blocks for an empty `swap_basket` turnover bucket to refill completely (one day at 12s
-/// blocks). The bucket refills continuously at `budget / BASKET_TRADE_REFILL_BLOCKS` per
-/// block, so at any instant at most one full budget can be spent.
-pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
+/// Default [`BasketTradeRefillBlocks`]: an empty `swap_basket` turnover bucket refills
+/// completely in one day at 12-second blocks. The bucket refills continuously, so at any
+/// instant at most one full budget can be spent.
+pub const DEFAULT_BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
+
+/// Legacy test-only spelling retained for protected tests whose arithmetic must not change.
+/// Runtime code reads [`BasketTradeRefillBlocks`] instead.
+#[cfg(test)]
+pub const BASKET_TRADE_REFILL_BLOCKS: u64 = DEFAULT_BASKET_TRADE_REFILL_BLOCKS;
 
 /// Most legs accepted by one [`Pallet::swap_basket_many`] call. The call values the
 /// basket and flushes queued dividends once, then updates the two affected marks after
@@ -212,17 +217,15 @@ pub const DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO: u64 = 100_000;
 /// of a small row is sold as before.
 pub const DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO: u64 = 10_000_000;
 
-/// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
-/// points (2%). The reference is the *strictest* of the subnet's slow moving (emission
-/// EMA) price, its fast moving price ([`SubnetFastMovingPrice`]), and its spot price: the
-/// fast anchor defeats a same-block (or short-held) pump or dump, the slow anchor caps how
-/// far a held pump can carry the fund, and the spot anchor caps the trade's own price
-/// impact. Applied to the sell leg as a floor and the buy leg as a ceiling via the AMM
-/// `price_limit`; a leg that cannot fill fully within the bound fails.
-pub const BASKET_TRADE_MAX_SLIPPAGE_BPS: u64 = 200;
+/// Default [`BasketTradeMaxSlippageBps`]: maximum deviation of a `swap_basket` leg's
+/// execution price from its reference, in basis points (5%). The default reference is spot;
+/// [`BasketTradePriceReferenceMode`] also offers the legacy strictest-of-EMAs-and-spot mode.
+/// Applied to the sell leg as a floor and the buy leg as a ceiling via the AMM `price_limit`;
+/// a leg that cannot fill fully within the bound fails.
+pub const DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS: u16 = 500;
 
 /// Maximum basket NAV impact of out-of-band prices on dividend share minting (0.1%).
-/// The per-pool 2% band still defines which prices require an anchored comparison.
+/// The configured per-pool trade band defines which prices require an anchored comparison.
 pub const BASKET_DIVIDEND_PRICE_IMPACT_BPS: u64 = 10;
 
 /// Gross incoming-dividend and combined mint-ratio impact budget (2%). This preserves
@@ -654,6 +657,31 @@ pub mod pallet {
         /// Use previous consensus at maximum bond penalty, otherwise current consensus.
         #[default]
         Auto,
+    }
+
+    /// Selects the price reference used to bound validator basket trade legs.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        Default,
+        TypeInfo,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+        MaxEncodedLen,
+    )]
+    pub enum BasketTradePriceReference {
+        /// Measure both the sell floor and buy ceiling from the current spot price only.
+        #[default]
+        #[codec(index = 0)]
+        SpotOnly,
+        /// Legacy mode: sell floor from `max(slow EMA, fast EMA, spot)` and buy ceiling
+        /// from `min(slow EMA, fast EMA, spot)`. Missing or zero EMAs refuse the trade.
+        #[codec(index = 1)]
+        StrictestEmaAndSpot,
     }
 
     /// Miner registration collateral for a `(hotkey, coldkey)` stake position
@@ -2039,11 +2067,10 @@ pub mod pallet {
     /// MAP ( netuid ) --> fast moving price | A fast EMA of the subnet's spot price
     /// (TAO per alpha, unclamped) with a [`BASKET_FAST_EMA_HALF_LIFE_BLOCKS`] half-life,
     /// updated once per block right after [`SubnetMovingPrice`] from the spot at the end of
-    /// the previous block, so no extrinsic in the current block can move it. It is a trading
-    /// anchor only — `swap_basket` bounds every leg to within
-    /// [`BASKET_TRADE_MAX_SLIPPAGE_BPS`] of the strictest of this, the slow EMA, and spot —
-    /// and plays no part in emission. Absent until the subnet's first update after the
-    /// upgrade (trading on it is refused until then).
+    /// the previous block, so no extrinsic in the current block can move it. It remains an
+    /// emission-independent valuation anchor and is used by `swap_basket` in
+    /// [`BasketTradePriceReference::StrictestEmaAndSpot`] mode. The default spot-only trade
+    /// mode does not require it; legacy mode refuses trades while it is missing or zero.
     #[pallet::storage]
     pub type SubnetFastMovingPrice<T: Config> =
         StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
@@ -3460,14 +3487,53 @@ pub mod pallet {
     }
 
     /// --- ITEM --> capacity of a fund's `swap_basket` turnover bucket as a u16-normalized
-    /// share of the fund's NAV (`u16::MAX` = 100%). The bucket refills at
-    /// `capacity / BASKET_TRADE_REFILL_BLOCKS` per block, so at most one capacity can be
-    /// pushed through the fund at any instant and about one per day sustained. Each leg is
-    /// also bounded to [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of *both* the moving price
-    /// and the spot price. Set via `AdminUtils::sudo_set_basket_daily_turnover_cap`.
+    /// share of the fund's NAV (`u16::MAX` = 100%). The bucket refills continuously over
+    /// [`BasketTradeRefillBlocks`], so at most one capacity can be pushed through the fund
+    /// at any instant. Each leg is also bounded by [`BasketTradeMaxSlippageBps`] around the
+    /// reference selected by [`BasketTradePriceReferenceMode`]. Set via
+    /// `AdminUtils::sudo_set_basket_daily_turnover_cap`.
     #[pallet::storage]
     pub type BasketDailyTurnoverCap<T: Config> =
         StorageValue<_, u16, ValueQuery, DefaultBasketDailyTurnoverCap<T>>;
+
+    #[pallet::type_value]
+    /// Default maximum deviation of a basket trade leg from its price reference: 5%.
+    pub fn DefaultBasketTradeMaxSlippageBps<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS
+    }
+
+    /// Maximum `swap_basket` leg price deviation from its selected reference, in basis
+    /// points (`10_000` = 100%). Defaults to 5% from spot. Set via
+    /// `AdminUtils::sudo_set_basket_trade_max_slippage_bps`.
+    #[pallet::storage]
+    pub type BasketTradeMaxSlippageBps<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketTradeMaxSlippageBps<T>>;
+
+    #[pallet::type_value]
+    /// Default full turnover-bucket refill period: 7200 blocks.
+    pub fn DefaultBasketTradeRefillBlocks<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_TRADE_REFILL_BLOCKS
+    }
+
+    /// Blocks for an empty `swap_basket` turnover bucket to refill completely and for
+    /// destination-pool flow usage to decay to zero. Defaults to 7200 blocks. Set via
+    /// `AdminUtils::sudo_set_basket_trade_refill_blocks`; zero is rejected.
+    #[pallet::storage]
+    pub type BasketTradeRefillBlocks<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketTradeRefillBlocks<T>>;
+
+    #[pallet::type_value]
+    /// Default basket trade price reference: current spot only.
+    pub fn DefaultBasketTradePriceReference<T: Config>() -> BasketTradePriceReference {
+        BasketTradePriceReference::SpotOnly
+    }
+
+    /// Price reference for `swap_basket` leg bounds. Defaults to spot only; the legacy
+    /// strictest-of-slow-EMA, fast-EMA, and spot mode remains available through
+    /// `AdminUtils::sudo_set_basket_trade_price_reference`.
+    #[pallet::storage]
+    pub type BasketTradePriceReferenceMode<T: Config> =
+        StorageValue<_, BasketTradePriceReference, ValueQuery, DefaultBasketTradePriceReference<T>>;
 
     #[pallet::type_value]
     /// Default minimum basket trade value: 0.5 TAO, in rao.
@@ -3565,7 +3631,7 @@ pub mod pallet {
     /// --- MAP ( validator_hotkey ) --> `(tao_available, last_refill_block)` of the fund's
     /// `swap_basket` turnover bucket. A missing row is a full bucket (a new fund starts full).
     /// On each trade the bucket is refilled for the blocks elapsed since `last_refill_block`
-    /// at `budget / BASKET_TRADE_REFILL_BLOCKS` per block, clamped to one budget (NAV at
+    /// at `budget / BasketTradeRefillBlocks` per block, clamped to one budget (NAV at
     /// that moment), then the TAO through the middle of the swap is taken out. Follows the
     /// fund on hotkey swap (lower level, later refill block).
     #[pallet::storage]
@@ -3577,7 +3643,7 @@ pub mod pallet {
     ///
     /// The standing-position liquidity cap resets when the fund sells the holding
     /// back to zero. This map does not: it accumulates alpha bought into `netuid`
-    /// and decays to zero over [`crate::BASKET_TRADE_REFILL_BLOCKS`], so
+    /// and decays to zero over [`BasketTradeRefillBlocks`], so
     /// accumulate/unwind cycles cannot spend the turnover budget as band slack.
     /// Follows the fund on hotkey swap (higher used, later block).
     #[pallet::storage]

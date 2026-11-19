@@ -20,6 +20,7 @@ AccountId32 = Any
 AdjustmentDirection = Any
 AlphaBalance = Any
 BTreeSet = Any
+BasketTradePriceReference = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
@@ -635,7 +636,7 @@ class SubtensorModule:
 
     @staticmethod
     def swap_basket(hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', amount: 'AlphaBalance', min_amount_out: 'u64') -> Call:
-        "--- Rebalances a root validator's beta basket: sells `amount` of the fund's `origin_netuid` holding for TAO and buys `destination_netuid` with it. Either side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker entitlements are unchanged; only the fund's composition moves.  Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price; the TAO through the middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for the hotkey by governance. On top of the protocol band the caller may set its own floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy). * `hotkey`: The root-registered validator whose basket to rebalance. * `origin_netuid`: Subnet to sell out of (root = the TAO slot). * `destination_netuid`: Subnet to buy into (root = the TAO slot). * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root). * `min_amount_out`: Least amount the buy leg must credit to the destination holding, in `destination_netuid` alpha (rao of TAO when the destination is root), after fees. `0` sets no floor; the 2% protocol band still applies.  # Events * `BasketSwapped`: On success, with the amounts on both legs.  # Errors * `BasketTradingDisabled`, `BasketTradingFrozen`: Gated off. * `BasketSameSubnet`: Origin equals destination. * `NonAssociatedColdKey`: Caller does not own `hotkey`. * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root. * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin. * `SlippageTooHigh`: A leg could not fill within 2% of the moving price. * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`. * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds. * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap. * `BasketConcentrationCapExceeded`: The destination would exceed the concentration cap."
+        "--- Rebalances a root validator's beta basket: sells `amount` of the fund's `origin_netuid` holding for TAO and buys `destination_netuid` with it. Either side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker entitlements are unchanged; only the fund's composition moves.  Guardrails: each AMM leg must fill fully within the configured `BasketTradeMaxSlippageBps` of its `BasketTradePriceReference` (5% from spot by default; legacy strictest-of-EMAs-and-spot is available); the TAO through the middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV, refilling over `BasketTradeRefillBlocks`); the destination holding may not end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for the hotkey by governance. On top of the protocol band the caller may set its own floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy). * `hotkey`: The root-registered validator whose basket to rebalance. * `origin_netuid`: Subnet to sell out of (root = the TAO slot). * `destination_netuid`: Subnet to buy into (root = the TAO slot). * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root). * `min_amount_out`: Least amount the buy leg must credit to the destination holding, in `destination_netuid` alpha (rao of TAO when the destination is root), after fees. `0` sets no floor; the configured protocol band still applies.  # Events * `BasketSwapped`: On success, with the amounts on both legs.  # Errors * `BasketTradingDisabled`, `BasketTradingFrozen`: Gated off. * `BasketSameSubnet`: Origin equals destination. * `NonAssociatedColdKey`: Caller does not own `hotkey`. * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root. * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin. * `SlippageTooHigh`: A leg could not fill within the configured price band. * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`. * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds. * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap. * `BasketConcentrationCapExceeded`: The destination would exceed the concentration cap."
         return Call('SubtensorModule', 'swap_basket', {'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'amount': amount, 'min_amount_out': min_amount_out})
 
     @staticmethod
@@ -1087,7 +1088,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_basket_daily_turnover_cap(cap: 'u16') -> Call:
-        "Sets the basket daily turnover budget ([`pallet_subtensor::BasketDailyTurnoverCap`]): the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share of fund NAV (`u16::MAX` = 100%). The bucket refills over 7200 blocks, so at most one capacity can be traded at any instant and about one per day sustained. Root-only."
+        "Sets the basket daily turnover budget ([`pallet_subtensor::BasketDailyTurnoverCap`]): the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share of fund NAV (`u16::MAX` = 100%). The bucket refills over [`pallet_subtensor::BasketTradeRefillBlocks`], so at most one capacity can be traded at any instant. Root-only."
         return Call('AdminUtils', 'sudo_set_basket_daily_turnover_cap', {'cap': cap})
 
     @staticmethod
@@ -1099,6 +1100,21 @@ class AdminUtils:
     def sudo_set_basket_min_trade_tao(min_trade_rao: 'u64') -> Call:
         'Sets the minimum TAO value through each basket trade leg, in rao. Root-only. Zero disables this additional floor; the general staking minimum still applies.'
         return Call('AdminUtils', 'sudo_set_basket_min_trade_tao', {'min_trade_rao': min_trade_rao})
+
+    @staticmethod
+    def sudo_set_basket_trade_max_slippage_bps(bps: 'u16') -> Call:
+        'Sets the maximum deviation of a `swap_basket` leg from its configured price reference, in basis points. Must be greater than zero and at most 10_000 (100%). Defaults to 500 (5%). Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_trade_max_slippage_bps', {'bps': bps})
+
+    @staticmethod
+    def sudo_set_basket_trade_price_reference(reference: 'BasketTradePriceReference') -> Call:
+        'Selects the price reference for `swap_basket` leg bounds: current spot only (default), or the legacy strictest of the slow EMA, fast EMA, and spot. Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_trade_price_reference', {'reference': reference})
+
+    @staticmethod
+    def sudo_set_basket_trade_refill_blocks(blocks: 'u64') -> Call:
+        'Sets the number of blocks over which a `swap_basket` turnover bucket fully refills and destination-pool flow usage decays to zero. Defaults to 7200 blocks; zero is rejected. Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_trade_refill_blocks', {'blocks': blocks})
 
     @staticmethod
     def sudo_set_basket_trading_enabled(enabled: 'bool') -> Call:

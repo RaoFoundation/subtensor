@@ -395,7 +395,7 @@ mod errors {
         BasketTradingFrozen,
         /// The trade would push more TAO through the fund than its turnover bucket holds
         /// ([`crate::BasketDailyTurnoverCap`] of fund NAV, refilling over
-        /// [`crate::BASKET_TRADE_REFILL_BLOCKS`]). Wait for the bucket to refill or trade
+        /// [`crate::BasketTradeRefillBlocks`]). Wait for the bucket to refill or trade
         /// a smaller amount.
         BasketTurnoverBudgetExceeded,
         /// `swap_basket` origin and destination are the same subnet.

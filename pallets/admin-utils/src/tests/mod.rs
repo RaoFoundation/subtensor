@@ -4375,6 +4375,105 @@ fn burn_toggle_obeys_owner_cooldown_and_freeze() {
 }
 
 #[test]
+fn test_sudo_set_basket_trade_max_slippage_bps() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(
+            BasketTradeMaxSlippageBps::<Test>::get(),
+            DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS
+        );
+        assert_eq!(DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS, 500);
+
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trade_max_slippage_bps(
+                RuntimeOrigin::signed(U256::from(1)),
+                200
+            ),
+            DispatchError::BadOrigin
+        );
+        for bps in [0, 10_001] {
+            assert_noop!(
+                AdminUtils::sudo_set_basket_trade_max_slippage_bps(RuntimeOrigin::root(), bps),
+                Error::<Test>::ValueNotInBounds
+            );
+        }
+        assert_eq!(BasketTradeMaxSlippageBps::<Test>::get(), 500);
+
+        assert_ok!(AdminUtils::sudo_set_basket_trade_max_slippage_bps(
+            RuntimeOrigin::root(),
+            200
+        ));
+        assert_eq!(BasketTradeMaxSlippageBps::<Test>::get(), 200);
+        System::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradeMaxSlippageBpsSet { bps: 200 },
+        ));
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_trade_refill_blocks() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(
+            BasketTradeRefillBlocks::<Test>::get(),
+            DEFAULT_BASKET_TRADE_REFILL_BLOCKS
+        );
+        assert_eq!(DEFAULT_BASKET_TRADE_REFILL_BLOCKS, 7200);
+
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trade_refill_blocks(
+                RuntimeOrigin::signed(U256::from(1)),
+                14_400
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trade_refill_blocks(RuntimeOrigin::root(), 0),
+            Error::<Test>::ValueNotInBounds
+        );
+        assert_eq!(BasketTradeRefillBlocks::<Test>::get(), 7200);
+
+        assert_ok!(AdminUtils::sudo_set_basket_trade_refill_blocks(
+            RuntimeOrigin::root(),
+            14_400
+        ));
+        assert_eq!(BasketTradeRefillBlocks::<Test>::get(), 14_400);
+        System::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradeRefillBlocksSet { blocks: 14_400 },
+        ));
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_trade_price_reference() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(
+            BasketTradePriceReferenceMode::<Test>::get(),
+            BasketTradePriceReference::SpotOnly
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trade_price_reference(
+                RuntimeOrigin::signed(U256::from(1)),
+                BasketTradePriceReference::StrictestEmaAndSpot
+            ),
+            DispatchError::BadOrigin
+        );
+
+        assert_ok!(AdminUtils::sudo_set_basket_trade_price_reference(
+            RuntimeOrigin::root(),
+            BasketTradePriceReference::StrictestEmaAndSpot
+        ));
+        assert_eq!(
+            BasketTradePriceReferenceMode::<Test>::get(),
+            BasketTradePriceReference::StrictestEmaAndSpot
+        );
+        System::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradePriceReferenceSet {
+                reference: BasketTradePriceReference::StrictestEmaAndSpot,
+            },
+        ));
+    });
+}
+
+#[test]
 fn test_sudo_set_basket_min_trade_tao() {
     new_test_ext().execute_with(|| {
         assert_eq!(BasketMinTradeTao::<Test>::get(), 500_000_000);

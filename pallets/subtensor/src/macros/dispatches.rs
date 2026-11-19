@@ -2288,9 +2288,11 @@ mod dispatches {
         /// side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker
         /// entitlements are unchanged; only the fund's composition moves.
         ///
-        /// Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price;
-        /// the TAO through the middle is taken from the fund's turnover bucket
-        /// (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not
+        /// Guardrails: each AMM leg must fill fully within the configured
+        /// `BasketTradeMaxSlippageBps` of its `BasketTradePriceReference` (5% from spot by
+        /// default; legacy strictest-of-EMAs-and-spot is available); the TAO through the
+        /// middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV,
+        /// refilling over `BasketTradeRefillBlocks`); the destination holding may not
         /// end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above
         /// `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for
         /// the hotkey by governance. On top of the protocol band the caller may set its own
@@ -2304,7 +2306,7 @@ mod dispatches {
         /// * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root).
         /// * `min_amount_out`: Least amount the buy leg must credit to the destination
         ///   holding, in `destination_netuid` alpha (rao of TAO when the destination is
-        ///   root), after fees. `0` sets no floor; the 2% protocol band still applies.
+        ///   root), after fees. `0` sets no floor; the configured protocol band still applies.
         ///
         /// # Events
         /// * `BasketSwapped`: On success, with the amounts on both legs.
@@ -2315,7 +2317,7 @@ mod dispatches {
         /// * `NonAssociatedColdKey`: Caller does not own `hotkey`.
         /// * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root.
         /// * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin.
-        /// * `SlippageTooHigh`: A leg could not fill within 2% of the moving price.
+        /// * `SlippageTooHigh`: A leg could not fill within the configured price band.
         /// * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`.
         /// * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds.
         /// * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap.

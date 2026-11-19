@@ -246,6 +246,24 @@ pub mod pallet {
             /// Whether subnets may give it gamma shares.
             whitelisted: bool,
         },
+
+        /// The basket trade band (`BasketTradeMaxSlippageBps`) was set.
+        BasketTradeMaxSlippageBpsSet {
+            /// Maximum deviation from the selected price reference, in basis points.
+            bps: u16,
+        },
+
+        /// The basket turnover-bucket refill period (`BasketTradeRefillBlocks`) was set.
+        BasketTradeRefillBlocksSet {
+            /// Blocks for an empty turnover bucket to refill completely.
+            blocks: u64,
+        },
+
+        /// The basket trade price reference (`BasketTradePriceReference`) was set.
+        BasketTradePriceReferenceSet {
+            /// Price reference used to bound basket trade legs.
+            reference: pallet_subtensor::BasketTradePriceReference,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2829,8 +2847,9 @@ pub mod pallet {
 
         /// Sets the basket daily turnover budget ([`pallet_subtensor::BasketDailyTurnoverCap`]):
         /// the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share
-        /// of fund NAV (`u16::MAX` = 100%). The bucket refills over 7200 blocks, so at most one
-        /// capacity can be traded at any instant and about one per day sustained. Root-only.
+        /// of fund NAV (`u16::MAX` = 100%). The bucket refills over
+        /// [`pallet_subtensor::BasketTradeRefillBlocks`], so at most one capacity can be traded
+        /// at any instant. Root-only.
         #[pallet::call_index(108)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_daily_turnover_cap())]
         pub fn sudo_set_basket_daily_turnover_cap(
@@ -3069,7 +3088,58 @@ pub mod pallet {
             });
             Ok(())
         }
+        /// Sets the maximum deviation of a `swap_basket` leg from its configured price
+        /// reference, in basis points. Must be greater than zero and at most 10_000 (100%).
+        /// Defaults to 200 (2%). Root-only.
+        #[pallet::call_index(128)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_trade_max_slippage_bps())]
+        pub fn sudo_set_basket_trade_max_slippage_bps(
+            origin: OriginFor<T>,
+            bps: u16,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(bps > 0 && bps <= 10_000, Error::<T>::ValueNotInBounds);
+            pallet_subtensor::BasketTradeMaxSlippageBps::<T>::put(bps);
+            Self::deposit_event(Event::BasketTradeMaxSlippageBpsSet { bps });
+            log::debug!("BasketTradeMaxSlippageBpsSet( bps: {bps:?} )");
+            Ok(())
+        }
 
+        /// Sets the number of blocks over which a `swap_basket` turnover bucket fully
+        /// refills and destination-pool flow usage decays to zero. Defaults to 7200 blocks;
+        /// zero is rejected. Root-only.
+        #[pallet::call_index(129)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_trade_refill_blocks())]
+        pub fn sudo_set_basket_trade_refill_blocks(
+            origin: OriginFor<T>,
+            blocks: u64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(blocks > 0, Error::<T>::ValueNotInBounds);
+            pallet_subtensor::BasketTradeRefillBlocks::<T>::put(blocks);
+            Self::deposit_event(Event::BasketTradeRefillBlocksSet { blocks });
+            log::debug!("BasketTradeRefillBlocksSet( blocks: {blocks:?} )");
+            Ok(())
+        }
+
+        /// Selects the price reference for `swap_basket` leg bounds: the legacy strictest of
+        /// the slow EMA, fast EMA, and spot (default), or current spot only. Root-only.
+        #[pallet::call_index(130)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_trade_price_reference())]
+        pub fn sudo_set_basket_trade_price_reference(
+            origin: OriginFor<T>,
+            reference: pallet_subtensor::BasketTradePriceReference,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::BasketTradePriceReferenceMode::<T>::put(reference);
+            Self::deposit_event(Event::BasketTradePriceReferenceSet { reference });
+            log::debug!("BasketTradePriceReferenceSet( reference: {reference:?} )");
+            Ok(())
+        }
+    }
+}
+
+impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
         /// Sets the maximum number of timelocked commitments a hotkey may queue in
         /// one Yuma subnet mechanism and commit epoch. Zero pauses new admissions;
         /// already queued commitments remain eligible to reveal. Root-only.
