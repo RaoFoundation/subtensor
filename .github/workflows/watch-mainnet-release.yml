@@ -620,6 +620,12 @@ jobs:
       contents: read
       statuses: write
     steps:
+      - name: Require the main branch
+        run: |
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "Discord announcements only run from main"
+            exit 1
+          }
       - uses: actions/checkout@v4
       - name: Fetch the released commit
         run: git fetch --no-tags --depth=1 origin ${{ needs.check.outputs.sha }}
@@ -684,6 +690,12 @@ jobs:
       contents: read
       statuses: write
     steps:
+      - name: Require the main branch
+        run: |
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "Discord announcements only run from main"
+            exit 1
+          }
       - uses: actions/checkout@v4
       - name: Fetch the released commit
         run: git fetch --no-tags --depth=1 origin ${{ needs.check.outputs.sha }}

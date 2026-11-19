@@ -17,8 +17,10 @@ name: Publish stable Python
 # Tooling (this workflow, the checker, and the announce action) is the commit
 # that started the run, not whatever main points at when a queued job starts.
 # The package tree is a separate commit that must already be on main.
-# Environment mainnet only admits the main branch, and this file refuses any
-# other ref before it uses that environment. uv is the upstream 0.11.28
+# Building that tree has no PyPI token and no id-token. Only the publish job
+# has environment mainnet, and it runs the pinned tooling against the built
+# artifacts. It does not execute scripts from the selected release tree.
+# Environment mainnet only admits the main branch. uv is the upstream 0.11.28
 # linux tarball, checked against a digest pinned below.
 # Discord is posted only after this run uploads, or when retry_announce is
 # checked and the commit status announce/python-stable is not success.
@@ -157,18 +159,104 @@ jobs:
     with:
       ref: ${{ needs.notes.outputs.sha }}
 
+  # No environment and no id-token. Scripts from the selected release commit
+  # run here, then the publish job below only receives the built files.
+  build-sdk:
+    name: Build the stable SDK distribution
+    needs: [notes, build-core]
+    if: inputs.dry_run != true && needs.notes.outputs.already_published != 'true' && needs.build-core.result == 'success'
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.notes.outputs.sha }}
+          fetch-depth: 1
+
+      - name: Install uv 0.11.28
+        run: |
+          set -euo pipefail
+          [ "$(uname -m)" = x86_64 ] || { echo "this job only installs the pinned x86_64 uv"; exit 1; }
+          mkdir -p "$HOME/.local/bin" "$RUNNER_TEMP/uv"
+          curl -fsSL -o "$RUNNER_TEMP/uv.tar.gz" \
+            https://github.com/astral-sh/uv/releases/download/0.11.28/uv-x86_64-unknown-linux-gnu.tar.gz
+          echo "e490a6464492183c5d4534a5527fb4440f7f2bb2f228162ad7e4afe076dc0224  $RUNNER_TEMP/uv.tar.gz" | sha256sum -c
+          tar -xzf "$RUNNER_TEMP/uv.tar.gz" -C "$RUNNER_TEMP/uv"
+          install -m 755 "$RUNNER_TEMP/uv/uv-x86_64-unknown-linux-gnu/uv" "$HOME/.local/bin/uv"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Download bittensor-core wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: core-dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Prepare stable SDK distribution
+        run: python3 .github/scripts/prepare-sdk-dist.py
+
+      - name: Build SDK wheel and sdist
+        working-directory: sdk/python
+        run: uv build --out-dir "$GITHUB_WORKSPACE/dist"
+
+      - name: Verify stable artifacts
+        env:
+          EXPECTED_SDK_VERSION: ${{ needs.notes.outputs.sdk }}
+          EXPECTED_CORE_VERSION: ${{ needs.notes.outputs.core }}
+        run: |
+          set -euo pipefail
+          sdk_version=$(sed -n 's/^version = "\(.*\)"/\1/p' sdk/python/pyproject.toml | head -n 1)
+          core_version=$(sed -n 's/^version = "\(.*\)"/\1/p' sdk/bittensor-core-py/pyproject.toml | head -n 1)
+          : ${sdk_version:?could not parse stable SDK version}
+          : ${core_version:?could not parse stable core version}
+          [[ "$sdk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "SDK version is not stable: $sdk_version"; exit 1; }
+          [[ "$core_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "core version is not stable: $core_version"; exit 1; }
+          [ "$sdk_version" = "$EXPECTED_SDK_VERSION" ] \
+            || { echo "SDK version $sdk_version != expected $EXPECTED_SDK_VERSION"; exit 1; }
+          [ "$core_version" = "$EXPECTED_CORE_VERSION" ] \
+            || { echo "core version $core_version != expected $EXPECTED_CORE_VERSION"; exit 1; }
+          ls -la dist
+          test -f "dist/bittensor-${sdk_version}-py3-none-any.whl"
+          test -f "dist/bittensor-${sdk_version}.tar.gz"
+          compgen -G "dist/bittensor_core-${core_version}-*.whl" >/dev/null
+          test -f "dist/bittensor_core-${core_version}.tar.gz"
+
+      - name: Check SDK against its minimum bittensor-core
+        run: |
+          if [ -f .github/scripts/check-sdk-core-floor.sh ]; then
+            .github/scripts/check-sdk-core-floor.sh dist
+          else
+            echo "release predates check-sdk-core-floor.sh; skipping"
+          fi
+
+      - name: Upload the distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-python-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 5
+
   publish:
     name: Publish stable packages and announce
-    needs: [notes, build-core]
+    needs: [notes, build-core, build-sdk]
     if: >-
       always() &&
       !cancelled() &&
       inputs.dry_run != true &&
       needs.notes.result == 'success' &&
-      (needs.build-core.result == 'success' || needs.build-core.result == 'skipped') &&
       (
-        needs.notes.outputs.already_published != 'true' ||
-        (inputs.retry_announce == true && needs.notes.outputs.announce_missing == 'true')
+        needs.build-sdk.result == 'success' ||
+        (
+          needs.notes.outputs.already_published == 'true' &&
+          inputs.retry_announce == true &&
+          needs.notes.outputs.announce_missing == 'true'
+        )
       )
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
@@ -212,11 +300,15 @@ jobs:
           RELEASE_SHA: ${{ needs.notes.outputs.sha }}
           RETRY: ${{ inputs.retry_announce }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_SDK_RESULT: ${{ needs.build-sdk.result }}
         run: |
           set -euo pipefail
           python3 .github/scripts/check-release-notes.py python \
             --sdk "$SDK_VERSION" --core "$CORE_VERSION" --revision "$RELEASE_SHA"
           should_upload=true
+          if [ "$BUILD_SDK_RESULT" != success ]; then
+            should_upload=false
+          fi
           if python3 .github/scripts/check-python-release.py \
               --sdk-version "$SDK_VERSION" \
               --core-version "$CORE_VERSION" \
@@ -260,62 +352,21 @@ jobs:
           install -m 755 "$RUNNER_TEMP/uv/uv-x86_64-unknown-linux-gnu/uv" "$HOME/.local/bin/uv"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Check out the release tree
-        if: steps.state.outputs.should_upload == 'true'
-        run: git worktree add --detach source ${{ needs.notes.outputs.sha }}
-
-      - name: Download bittensor-core wheels
+      - name: Download the built distribution
         if: steps.state.outputs.should_upload == 'true'
         uses: actions/download-artifact@v4
         with:
-          pattern: core-dist-*
+          name: stable-python-dist
           path: dist
-          merge-multiple: true
 
-      - name: Prepare stable SDK distribution
-        if: steps.state.outputs.should_upload == 'true'
-        working-directory: source
-        run: python3 .github/scripts/prepare-sdk-dist.py
-
-      - name: Build SDK wheel and sdist
-        if: steps.state.outputs.should_upload == 'true'
-        working-directory: source/sdk/python
-        run: uv build --out-dir "$GITHUB_WORKSPACE/dist"
-
-      - name: Verify stable artifacts
+      - name: Keep only the expected distribution files
         if: steps.state.outputs.should_upload == 'true'
         env:
-          EXPECTED_SDK_VERSION: ${{ needs.notes.outputs.sdk }}
-          EXPECTED_CORE_VERSION: ${{ needs.notes.outputs.core }}
+          SDK_VERSION: ${{ needs.notes.outputs.sdk }}
+          CORE_VERSION: ${{ needs.notes.outputs.core }}
         run: |
           set -euo pipefail
-          sdk_version=$(sed -n 's/^version = "\(.*\)"/\1/p' source/sdk/python/pyproject.toml | head -n 1)
-          core_version=$(sed -n 's/^version = "\(.*\)"/\1/p' source/sdk/bittensor-core-py/pyproject.toml | head -n 1)
-          : ${sdk_version:?could not parse stable SDK version}
-          : ${core_version:?could not parse stable core version}
-          [[ "$sdk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-            || { echo "SDK version is not stable: $sdk_version"; exit 1; }
-          [[ "$core_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-            || { echo "core version is not stable: $core_version"; exit 1; }
-          [ "$sdk_version" = "$EXPECTED_SDK_VERSION" ] \
-            || { echo "SDK version $sdk_version != expected $EXPECTED_SDK_VERSION"; exit 1; }
-          [ "$core_version" = "$EXPECTED_CORE_VERSION" ] \
-            || { echo "core version $core_version != expected $EXPECTED_CORE_VERSION"; exit 1; }
-          ls -la dist
-          test -f "dist/bittensor-${sdk_version}-py3-none-any.whl"
-          test -f "dist/bittensor-${sdk_version}.tar.gz"
-          compgen -G "dist/bittensor_core-${core_version}-*.whl" >/dev/null
-          test -f "dist/bittensor_core-${core_version}.tar.gz"
-
-      - name: Check SDK against its minimum bittensor-core
-        if: steps.state.outputs.should_upload == 'true'
-        working-directory: source
-        run: |
-          if [ -f .github/scripts/check-sdk-core-floor.sh ]; then
-            .github/scripts/check-sdk-core-floor.sh "$GITHUB_WORKSPACE/dist"
-          else
-            echo "release predates check-sdk-core-floor.sh; skipping"
-          fi
+          python3 .github/scripts/select-stable-dist.py "$SDK_VERSION" "$CORE_VERSION" dist
 
       - name: Generate PEP 740 attestations
         if: steps.state.outputs.should_upload == 'true'
