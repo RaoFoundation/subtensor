@@ -35,6 +35,10 @@ pub(crate) const MAX_BASKET_ROWS: u64 = crate::MAX_ROOT_CLAIM_WORK as u64;
 /// more than this must claim per hotkey instead.
 pub(crate) const MAX_BASKET_FLUSH_ROWS: u64 = 2 * MAX_BASKET_ROWS;
 
+/// Dividend valuation keeps its independent 2% tolerance around the fast EMA. The
+/// governance-tunable basket execution band must not widen share-issuance admission checks.
+const BASKET_DIVIDEND_REFERENCE_BAND_BPS: u64 = 200;
+
 /// Work counters of one pending-deposit flush, in the two units the flush weight prices
 /// separately: read-only AMM `quotes` (NAV sweeps, price-band checks, and the scan's spot
 /// reads) and executed `rows` (one in-place credit per credit — stake and queue writes each).
@@ -131,9 +135,9 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Weight of the work reported by [`Self::flush_basket_deposits_for_hotkey`]: quotes are
-    /// priced like NAV-sweep rows (read-only sim-swap valuations), plus eight reads per
-    /// stability check: existence, mechanism, fast price, the configured trade band, and
-    /// the swap price's mechanism, two reserves and balancer. The number of checks is bounded
+    /// priced like NAV-sweep rows (read-only sim-swap valuations), plus seven reads per
+    /// stability check: existence, mechanism, fast price, and the swap price's mechanism,
+    /// two reserves and balancer. The number of checks is bounded
     /// by the admitted holding rows plus executed credit rows, not every quote (the same rows
     /// are quoted repeatedly). Executed rows — stake and queue writes each — are priced like
     /// redeemed `claim_root` rows, the benchmarked figure for one swap-and-write row (an upper
@@ -144,7 +148,7 @@ impl<T: Config> Pallet<T> {
         } else {
             let price_checks = work.quotes.min(MAX_BASKET_ROWS).saturating_add(work.rows);
             Self::basket_nav_sweep_weight(work.quotes)
-                .saturating_add(T::DbWeight::get().reads(price_checks.saturating_mul(8)))
+                .saturating_add(T::DbWeight::get().reads(price_checks.saturating_mul(7)))
         };
         let rows = if work.rows == 0 {
             Weight::zero()
@@ -814,11 +818,11 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Rebase an already computed realizable quote to the fast-price anchor. Holdings
-    /// inside [`crate::BasketTradeMaxSlippageBps`] of that anchor keep their live mark;
-    /// incoming credits always use the anchor so their aggregate impact budget includes
-    /// in-band errors too. This is never the
-    /// price used to mint or redeem shares. Keep liquidity/slippage discounts from the
-    /// live quote; no extra swap simulation or pool mutation is needed.
+    /// inside the independent 2% dividend tolerance keep their live mark; incoming credits
+    /// always use the anchor so their aggregate impact budget includes in-band errors too.
+    /// The trade execution band does not change this share-issuance admission tolerance.
+    /// This is never the price used to mint or redeem shares. Keep liquidity/slippage
+    /// discounts from the live quote; no extra swap simulation or pool mutation is needed.
     fn basket_dividend_reference_value(
         netuid: NetUid,
         value: u64,
@@ -844,7 +848,7 @@ impl<T: Config> Pallet<T> {
             return Err(Error::<T>::SlippageTooHigh.into());
         }
 
-        let band = u64::from(BasketTradeMaxSlippageBps::<T>::get());
+        let band = BASKET_DIVIDEND_REFERENCE_BAND_BPS;
         let denominator = U64F64::saturating_from_num(10_000u64);
         let lower = fast
             .saturating_mul(U64F64::saturating_from_num(10_000u64.saturating_sub(band)))

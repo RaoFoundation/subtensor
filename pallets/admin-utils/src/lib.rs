@@ -158,24 +158,6 @@ pub mod pallet {
             cap: u16,
         },
 
-        /// The basket trade band (`BasketTradeMaxSlippageBps`) was set.
-        BasketTradeMaxSlippageBpsSet {
-            /// Maximum deviation from the selected price reference, in basis points.
-            bps: u16,
-        },
-
-        /// The basket turnover-bucket refill period (`BasketTradeRefillBlocks`) was set.
-        BasketTradeRefillBlocksSet {
-            /// Blocks for an empty turnover bucket to refill completely.
-            blocks: u64,
-        },
-
-        /// The basket trade price reference (`BasketTradePriceReference`) was set.
-        BasketTradePriceReferenceSet {
-            /// Price reference used to bound basket trade legs.
-            reference: pallet_subtensor::BasketTradePriceReference,
-        },
-
         /// Validator basket trading (`swap_basket`) was enabled or disabled network-wide.
         BasketTradingToggled {
             /// Whether validators can now rebalance their baskets.
@@ -254,6 +236,24 @@ pub mod pallet {
             netuid: NetUid,
             /// Whether subnets may give it gamma shares.
             whitelisted: bool,
+        },
+
+        /// The basket trade band (`BasketTradeMaxSlippageBps`) was set.
+        BasketTradeMaxSlippageBpsSet {
+            /// Maximum deviation from the selected price reference, in basis points.
+            bps: u16,
+        },
+
+        /// The basket turnover-bucket refill period (`BasketTradeRefillBlocks`) was set.
+        BasketTradeRefillBlocksSet {
+            /// Blocks for an empty turnover bucket to refill completely.
+            blocks: u64,
+        },
+
+        /// The basket trade price reference (`BasketTradePriceReference`) was set.
+        BasketTradePriceReferenceSet {
+            /// Price reference used to bound basket trade legs.
+            reference: pallet_subtensor::BasketTradePriceReference,
         },
     }
 
