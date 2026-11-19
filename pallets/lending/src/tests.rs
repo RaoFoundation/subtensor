@@ -4960,11 +4960,12 @@ fn fixed_term_expiry_is_bounded_by_weight() {
 
         System::set_block_number(expires_at);
         // Drive collect_expiry directly so interest Due work cannot eat the budget.
-        let header = RocksDbWeight::get()
-            .reads_writes(2, 1)
-            .saturating_add(RocksDbWeight::get().reads(1));
+        // Header + bucket open + one queue peek, then one settle (skeptic fid:a74169e6).
+        let header = Lending::expiry_collect_header_weight()
+            .saturating_add(Lending::expiry_bucket_open_weight())
+            .saturating_add(Lending::expiry_queue_peek_weight());
         let one = header.saturating_add(<() as WeightInfo>::settle());
-        // Room for exactly one settle; second settle must fail the meter.
+        // Room for exactly one settle; second peek/settle must fail the meter.
         let budget = one.saturating_add(Weight::from_parts(1, 0));
         let mut meter = WeightMeter::with_limit(budget);
         Lending::collect_expiry(expires_at, &mut meter, u32::MAX);

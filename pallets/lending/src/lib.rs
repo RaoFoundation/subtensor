@@ -1566,8 +1566,20 @@ pub mod pallet {
             // count is the root-settable value clamped to that cap.
             let hard_cap = T::MaxExpirySettlementsPerBlock::get();
             let max = Self::max_expiry_settlements_per_block();
+            // settle() × hard_cap plus proof-aware queue probes (header, bucket
+            // open, peek per attempt + trailing end-of-bucket peek, empty-bucket
+            // cleanup). Without these, RocksDbWeight-only padding under-funds
+            // proof size and the u32 drain cap cannot be reached (skeptic
+            // fid:a74169e6).
             let settle_budget = T::WeightInfo::settle()
                 .saturating_mul(u64::from(hard_cap))
+                .saturating_add(Self::expiry_collect_header_weight())
+                .saturating_add(Self::expiry_bucket_open_weight())
+                .saturating_add(
+                    Self::expiry_queue_peek_weight()
+                        .saturating_mul(u64::from(hard_cap.saturating_add(1))),
+                )
+                .saturating_add(Self::expiry_empty_bucket_weight())
                 .saturating_add(T::DbWeight::get().reads_writes(8, 8));
             let mut meter = WeightMeter::with_limit(settle_budget);
             let mut budget = max;
@@ -1908,6 +1920,51 @@ pub mod pallet {
             let reads = hops.saturating_add(4);
             Weight::from_parts(0, reads.saturating_mul(EXPIRY_MAP_PROOF))
                 .saturating_add(T::DbWeight::get().reads_writes(reads, 4))
+        }
+
+        // MaxEncodedLen "added" proof bytes from `weights.rs` Proof lines.
+        // `RocksDbWeight` charges ref_time only (proof_size 0), so collectors
+        // that touch these keys must add proof explicitly (skeptic fid:a74169e6).
+        const EXPIRY_INDEX_PROOF: u64 = 2_491;
+        const EXPIRY_ENTRY_PROOF: u64 = 2_537;
+        const EXPIRY_CURSOR_PROOF: u64 = 529;
+        const EXPIRY_SCALAR_PROOF: u64 = 499; // NextExpiry / Tail / TotalPositions
+
+        /// Header for [`Self::collect_expiry`]: `TotalPositions` + `NextExpiry`
+        /// (and the empty-book kill writes). Proof-aware.
+        pub(crate) fn expiry_collect_header_weight() -> Weight {
+            Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF.saturating_mul(2))
+                .saturating_add(T::DbWeight::get().reads_writes(2, 1))
+        }
+
+        /// Open one due expiry bucket: cursor read + resume writes for
+        /// `NextExpiry` / `ExpiryBucketCursor`. Charged **before** touching
+        /// those keys (skeptic fid:a74169e6).
+        pub(crate) fn expiry_bucket_open_weight() -> Weight {
+            Weight::from_parts(
+                0,
+                Self::EXPIRY_CURSOR_PROOF.saturating_add(Self::EXPIRY_SCALAR_PROOF),
+            )
+            .saturating_add(T::DbWeight::get().reads_writes(1, 2))
+        }
+
+        /// One `Expiry` map probe (proof + DbWeight read) before `iter.next()`.
+        pub(crate) fn expiry_queue_peek_weight() -> Weight {
+            Weight::from_parts(0, Self::EXPIRY_ENTRY_PROOF)
+                .saturating_add(T::DbWeight::get().reads(1))
+        }
+
+        /// Empty-bucket cleanup: `ExpiryIndex` remove + linked-list unlink
+        /// (`ExpiryPrev` / `ExpiryNext` / head / tail). Charged before those
+        /// writes (skeptic fid:a74169e6).
+        pub(crate) fn expiry_empty_bucket_weight() -> Weight {
+            Weight::from_parts(
+                0,
+                Self::EXPIRY_INDEX_PROOF
+                    .saturating_add(Self::EXPIRY_INDEX_PROOF.saturating_mul(2))
+                    .saturating_add(Self::EXPIRY_SCALAR_PROOF.saturating_mul(2)),
+            )
+            .saturating_add(T::DbWeight::get().reads_writes(5, 5))
         }
 
         /// Live max loan duration from [`LiftParamsStore`] (opens + rolls only).
@@ -5901,8 +5958,10 @@ pub mod pallet {
             if budget == 0 {
                 return 0;
             }
+            // Proof-aware header before TotalPositions / NextExpiry (skeptic
+            // fid:a74169e6). Insufficient budget: touch nothing.
             if meter
-                .try_consume(T::DbWeight::get().reads_writes(2, 1))
+                .try_consume(Self::expiry_collect_header_weight())
                 .is_err()
             {
                 return budget;
@@ -5920,21 +5979,48 @@ pub mod pallet {
             };
             while at <= now {
                 if budget == 0 {
+                    // Resume write reserved in the bucket-open charge below on
+                    // prior iterations; when we never opened, charge a scalar
+                    // write before putting.
+                    if meter
+                        .try_consume(
+                            Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF)
+                                .saturating_add(T::DbWeight::get().writes(1)),
+                        )
+                        .is_err()
+                    {
+                        return 0;
+                    }
                     NextExpiry::<T>::put(at);
                     return 0;
                 }
-                if meter.try_consume(T::DbWeight::get().reads(1)).is_err() {
-                    NextExpiry::<T>::put(at);
+                // Cursor + resume writes reserved before any queue touch.
+                if meter
+                    .try_consume(Self::expiry_bucket_open_weight())
+                    .is_err()
+                {
                     return budget;
                 }
-                let iter = if let Some(cursor) = ExpiryBucketCursor::<T>::get() {
+                let mut iter = if let Some(cursor) = ExpiryBucketCursor::<T>::get() {
                     Expiry::<T>::iter_prefix_from(at, Expiry::<T>::hashed_key_for(at, cursor))
                 } else {
                     Expiry::<T>::iter_prefix(at)
                 };
                 let mut saw_entry = false;
                 let mut last_done: Option<(T::AccountId, NetUid)> = None;
-                for ((owner, netuid), ()) in iter {
+                // Peek weight before each `iter.next()` so proof is reserved
+                // before the storage read; settle() before processing the row.
+                loop {
+                    if meter.try_consume(Self::expiry_queue_peek_weight()).is_err() {
+                        if let Some(done) = last_done {
+                            ExpiryBucketCursor::<T>::put(done);
+                        }
+                        NextExpiry::<T>::put(at);
+                        return budget;
+                    }
+                    let Some(((owner, netuid), ())) = iter.next() else {
+                        break;
+                    };
                     saw_entry = true;
                     if budget == 0 {
                         if let Some(done) = last_done {
@@ -5944,6 +6030,9 @@ pub mod pallet {
                         return 0;
                     }
                     if meter.try_consume(T::WeightInfo::settle()).is_err() {
+                        // Row was fetched under peek weight; resume from
+                        // last_done so this key is retried (iter_prefix_from
+                        // is exclusive of the cursor).
                         if let Some(done) = last_done {
                             ExpiryBucketCursor::<T>::put(done);
                         }
@@ -6022,6 +6111,13 @@ pub mod pallet {
                 }
                 ExpiryBucketCursor::<T>::kill();
                 if !saw_entry {
+                    if meter
+                        .try_consume(Self::expiry_empty_bucket_weight())
+                        .is_err()
+                    {
+                        NextExpiry::<T>::put(at);
+                        return budget;
+                    }
                     ExpiryIndex::<T>::remove(at);
                     Self::unlink_expiry_bucket(at);
                 }
@@ -6029,6 +6125,17 @@ pub mod pallet {
                     break;
                 };
                 if n == at {
+                    // Stale head: unlink needs the same proof envelope as empty
+                    // cleanup when the index path did not already unlink.
+                    if saw_entry {
+                        if meter
+                            .try_consume(Self::expiry_empty_bucket_weight())
+                            .is_err()
+                        {
+                            NextExpiry::<T>::put(at);
+                            return budget;
+                        }
+                    }
                     Self::unlink_expiry_bucket(at);
                     let Some(n) = NextExpiry::<T>::get() else {
                         break;
@@ -6181,8 +6288,12 @@ pub mod pallet {
             if budget == 0 {
                 return 0;
             }
+            // Proof-aware read of the retry head before touching storage.
             if meter
-                .try_consume(T::DbWeight::get().reads_writes(1, 1))
+                .try_consume(
+                    Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF)
+                        .saturating_add(T::DbWeight::get().reads_writes(1, 1)),
+                )
                 .is_err()
             {
                 return budget;
@@ -6197,11 +6308,13 @@ pub mod pallet {
                     NextExpiryRetry::<T>::put(at);
                     return 0;
                 }
-                if meter.try_consume(T::DbWeight::get().reads(1)).is_err() {
-                    NextExpiryRetry::<T>::put(at);
+                if meter
+                    .try_consume(Self::expiry_bucket_open_weight())
+                    .is_err()
+                {
                     return budget;
                 }
-                let iter = if let Some(cursor) = ExpiryRetryCursor::<T>::get() {
+                let mut iter = if let Some(cursor) = ExpiryRetryCursor::<T>::get() {
                     ExpiryRetry::<T>::iter_prefix_from(
                         at,
                         ExpiryRetry::<T>::hashed_key_for(at, cursor),
@@ -6211,7 +6324,17 @@ pub mod pallet {
                 };
                 let mut saw_entry = false;
                 let mut last_done: Option<(T::AccountId, NetUid)> = None;
-                for ((owner, netuid), ()) in iter {
+                loop {
+                    if meter.try_consume(Self::expiry_queue_peek_weight()).is_err() {
+                        if let Some(done) = last_done {
+                            ExpiryRetryCursor::<T>::put(done);
+                        }
+                        NextExpiryRetry::<T>::put(at);
+                        return budget;
+                    }
+                    let Some(((owner, netuid), ())) = iter.next() else {
+                        break;
+                    };
                     saw_entry = true;
                     empty_bumps = 0;
                     if budget == 0 {
