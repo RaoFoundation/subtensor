@@ -17,7 +17,7 @@ right call instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.clear_coldkey_swap_announcement`](/code/pallets/subtensor/src/macros/dispatches.rs#L2778-L2801) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.clear_coldkey_swap_announcement`](/code/pallets/subtensor/src/macros/dispatches.rs#L2777-L2800) |
 
 ## Parameters
 
@@ -62,14 +62,14 @@ result = sub.execute_tool("clear_coldkey_swap_announcement", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.clear_coldkey_swap_announcement` — [`pallets/subtensor/src/macros/dispatches.rs#L2784`](/code/pallets/subtensor/src/macros/dispatches.rs#L2778-L2801):
+`SubtensorModule.clear_coldkey_swap_announcement` — [`pallets/subtensor/src/macros/dispatches.rs#L2783`](/code/pallets/subtensor/src/macros/dispatches.rs#L2777-L2800):
 
 ```rust
 #[pallet::call_index(133)]
 #[pallet::weight(
     <T as crate::pallet::Config>::WeightInfo::clear_coldkey_swap_announcement()
         .saturating_add(Pallet::<T>::coldkey_swap_reservation_release_weight())
-        .saturating_add(T::DbWeight::get().writes(1))
+        .saturating_add(T::DbWeight::get().writes(2))
 )]
 pub fn clear_coldkey_swap_announcement(origin: OriginFor<T>) -> DispatchResult {
     let who = ensure_signed(origin)?;
@@ -84,13 +84,13 @@ pub fn clear_coldkey_swap_announcement(origin: OriginFor<T>) -> DispatchResult {
 
     Self::release_coldkey_swap_destination_reservation(&who);
     ColdkeySwapAnnouncements::<T>::remove(&who);
-    ColdkeySwapV2PolicySnapshots::<T>::remove(&who);
+    Self::set_coldkey_swap_v2_policy_snapshot(&who, None);
 
     Self::deposit_event(Event::ColdkeySwapCleared { who });
     Ok(())
 }
 ```
 
-Delegates to [`release_coldkey_swap_destination_reservation`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L242).
+Delegates to [`release_coldkey_swap_destination_reservation`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L273), [`set_coldkey_swap_v2_policy_snapshot`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L522).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

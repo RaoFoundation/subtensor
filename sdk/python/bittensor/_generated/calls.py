@@ -545,7 +545,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_reject_locked_alpha(enabled: 'bool') -> Call:
-        'Sets or clears whether the caller rejects incoming locked alpha.  Coldkeys reject locked alpha by default. Passing `false` opts the caller into receiving locked alpha from stake transfers or coldkey swaps.'
+        'Sets or clears whether the caller rejects incoming locked alpha payments.  Coldkeys reject locked alpha by default. Passing `false` opts the caller into receiving locked alpha through stake transfers.'
         return Call('SubtensorModule', 'set_reject_locked_alpha', {'enabled': enabled})
 
     @staticmethod
