@@ -477,11 +477,11 @@ mod errors {
         GammaDepositDoesNotExist,
         /// A gamma deposit with a balance cannot be closed.
         GammaDepositNotEmpty,
-        /// A mint named a spender other than the one its gamma deposit names.
+        /// Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.
         GammaDepositSpenderMismatch,
         /// A mint named a daily spend cap other than its gamma deposit's.
         GammaDepositDailySpendCapMismatch,
-        /// The signer is not the gamma deposit's spender.
+        /// Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.
         NotGammaDepositSpender,
         /// The gamma deposit's balance is below the amount.
         InsufficientGammaBalance,
@@ -501,5 +501,7 @@ mod errors {
         TooManyGammaShares,
         /// `set_subnet_emission_weights_v2`: a subnet under a lease may not have gamma shares.
         GammaEmissionNotSettableOnLeasedSubnet,
+        /// The hotkey has no service on this subnet.
+        ServiceDoesNotExist,
     }
 }

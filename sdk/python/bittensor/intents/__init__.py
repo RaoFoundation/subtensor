@@ -36,7 +36,6 @@ from .gamma import (
     MintGammaWithStake,
     MoveGamma,
     SetGammaDepositDailySpendCap,
-    SetGammaDepositSpender,
     SpendGamma,
 )
 from .governance import (
@@ -183,7 +182,6 @@ __all__ = [
     "SetChildren",
     "SetCrowdloanMaxContribution",
     "SetGammaDepositDailySpendCap",
-    "SetGammaDepositSpender",
     "SetHyperparameter",
     "SetIdentity",
     "SetMechanismCount",

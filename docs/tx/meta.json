@@ -86,7 +86,6 @@
     "set-childkey-take",
     "set-children",
     "set-gamma-deposit-daily-spend-cap",
-    "set-gamma-deposit-spender",
     "set-identity",
     "set-min-collateral",
     "set-perpetual-lock",

@@ -1541,6 +1541,40 @@ fn coldkey_swap_after_owner_hotkey_change_keeps_the_subnet() {
     });
 }
 
+// Rotating a hotkey with a full or subnet swap must take its gamma deposit with it, so the old,
+// possibly compromised, hotkey cannot spend what is left and the new hotkey can.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn hotkey_swap_takes_gamma_spending_from_the_old_hotkey() {
+    use super::gamma::{
+        GAMMA, OWNER_COLDKEY, OWNER_HOTKEY, TAO, deposit, gamma_subnet, mint, spend,
+    };
+    for subnet_swap in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let netuid = gamma_subnet();
+            let new_hotkey = 99;
+            mint(netuid, OWNER_COLDKEY, OWNER_HOTKEY, TAO);
+            assert_ok!(spend(netuid, OWNER_HOTKEY, GAMMA));
+            let left = deposit(netuid, OWNER_HOTKEY).balance.to_u64();
+            add_balance_to_coldkey_account(&U256::from(OWNER_COLDKEY), (10 * TAO).into());
+            System::set_block_number(System::block_number() + 1_000);
+            assert_ok!(SubtensorModule::swap_hotkey_v2(
+                RuntimeOrigin::signed(U256::from(OWNER_COLDKEY)),
+                U256::from(OWNER_HOTKEY),
+                U256::from(new_hotkey),
+                subnet_swap.then_some(netuid),
+                false
+            ));
+            assert_eq!(
+                spend(netuid, OWNER_HOTKEY, crate::MIN_GAMMA_AMOUNT),
+                Err(Error::<Test>::GammaDepositDoesNotExist.into())
+            );
+            assert_ok!(spend(netuid, new_hotkey, left));
+            assert_eq!(deposit(netuid, new_hotkey).balance.to_u64(), 0);
+        });
+    }
+}
+
 // Childkey dividends must remain backed by recorded alpha issuance. This scenario
 // deliberately uses different coldkey owners: CKBurn only applies to dividends
 // delegated between those owners, so same-owner fixtures cannot expose the issue.

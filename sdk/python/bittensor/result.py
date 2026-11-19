@@ -355,7 +355,8 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     ),
     "AmountTooLow": (
         "raise the amount above the chain minimum stake (after fees/slippage), or to "
-        "mint at least 0.1 gamma; check with `btcli stake list` / subnet price"
+        "mint, spend or move at least 0.1 gamma, or a daily spend cap to 0 or at least 0.1 "
+        "gamma; check with `btcli stake list` / subnet price"
     ),
     "NonAssociatedColdKey": (
         "sign with the coldkey that owns the hotkey (`btcli wallet registrations`) or its "
@@ -367,11 +368,7 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     ),
     "GammaDepositNotEmpty": (
         "move the balance out with `btcli gamma move --amount-gamma all`, which closes "
-        "the deposit, or close it once its spender has spent it"
-    ),
-    "GammaDepositSpenderMismatch": (
-        "the deposit already names another spender (`btcli gamma show`); mint without "
-        "`--spender` or `--service-hotkey`, or change it with `btcli gamma set-spender` first"
+        "the deposit, or close it once its hotkey has spent it"
     ),
     "GammaDepositDailySpendCapMismatch": (
         "the deposit already has another daily spend cap (`btcli gamma show`); mint without "

@@ -1152,8 +1152,7 @@ fn test_gamma_lifecycle() {
     const GAMMA: u128 = 1_000_000_000;
     let ctx = TestContext::new();
     let alice = ctx.alice.coldkey.ss58_address();
-    let charlie = Wallet::from_uris("//Charlie", "//Charlie//hot").expect("Charlie wallet");
-    let bob = ctx.bob.coldkey.ss58_address();
+    let service = ctx.alice.hotkey.ss58_address();
     let execute = |intent: &IntentCall, wallet: &Wallet| {
         let result = ctx
             .executor()
@@ -1195,25 +1194,32 @@ fn test_gamma_lifecycle() {
             .runtime_call("GammaRuntimeApi", method, params, None)
             .unwrap_or_else(|error| panic!("{method}: {error}"))
     };
-    let spend = |netuid: u16, hotkey: &str, amount: u128| {
-        let spends = list([Value::Tuple(vec![
-            s(hotkey),
-            u128v(amount),
-            Value::Bytes(vec![0; 32]),
-        ])]);
-        let call = gamma(
+    // The hotkey, holding no TAO, spends at the service for free.
+    let spend = |netuid: u16, wallet: &Wallet, amount: u128| {
+        let call = IntentCall::new(
             "spend_gamma",
-            record([("netuid", u(netuid)), ("spends", spends)]),
+            SignerRole::Hotkey,
+            "SubtensorModule",
+            "spend_gamma",
+            record([
+                ("service", s(service.clone())),
+                ("netuid", u(netuid)),
+                ("amount", u128v(amount)),
+            ]),
         );
-        let result = ctx
-            .executor()
-            .execute_with(&call, &charlie, None, Some(&bob), None, true)
-            .expect("proxied spend submits");
-        assert_success(&result);
+        let result = execute(&call, wallet);
         value_u128(
             event_attributes(&result, "SubtensorModule", "GammaSpent").expect("GammaSpent"),
             "amount",
         )
+    };
+    let spent = |netuid: u16, hotkey: &str| {
+        let params = [u(netuid), s(service.clone()), s(hotkey)];
+        let spent = ctx
+            .client
+            .query("SubtensorModule", "GammaSpent", &params, None)
+            .expect("spent read");
+        as_u128(&spent).expect("spent")
     };
     let balance = |netuid: u16, hotkey: &str| {
         let info = read("get_gamma_deposit", &[u(netuid), s(hotkey)]);
@@ -1242,8 +1248,38 @@ fn test_gamma_lifecycle() {
     );
     execute(&enable, &ctx.alice);
 
+    // The owner's coldkey publishes the owner hotkey's service.
+    let url = "https://example.com/services.json";
+    let publish = IntentCall::new(
+        "set_service",
+        SignerRole::Coldkey,
+        "SubtensorModule",
+        "set_service",
+        record([
+            ("netuid", u(netuid)),
+            ("hotkey", s(service.clone())),
+            ("url", bytes(url)),
+        ]),
+    );
+    let result = execute(&publish, &ctx.alice);
+    assert!(event_attributes(&result, "SubtensorModule", "ServiceSet").is_some());
+    let published = ctx
+        .client
+        .query(
+            "SubtensorModule",
+            "Services",
+            &[u(netuid), s(service.clone())],
+            None,
+        )
+        .expect("service read");
+    assert_eq!(
+        field(&published, "url").and_then(text_bytes).as_deref(),
+        Some(url)
+    );
+
     // Mint with TAO against the quote; the pool can move by a block's emission.
-    let api_key = random_wallet().hotkey.ss58_address();
+    let api_wallet = random_wallet();
+    let api_key = api_wallet.hotkey.ss58_address();
     execute(
         &gamma(
             "try_associate_hotkey",
@@ -1261,7 +1297,6 @@ fn test_gamma_lifecycle() {
             ("netuid", u(netuid)),
             ("amount", u128v(amount)),
             ("min_amount_out", u128v(quoted / 100 * 99)),
-            ("spender", Value::Null),
             ("daily_spend_cap", Value::Null),
         ]),
     );
@@ -1282,29 +1317,12 @@ fn test_gamma_lifecycle() {
         u128v(GAMMA),
         &api_key,
     );
-    terms(
-        "set_gamma_deposit_spender",
-        "spender",
-        s(bob.clone()),
-        &api_key,
-    );
-
-    let add_proxy = IntentCall::new(
-        "add_proxy",
-        SignerRole::Coldkey,
-        "Proxy",
-        "add_proxy",
-        record([
-            ("delegate", s(charlie.coldkey.ss58_address())),
-            ("proxy_type", proxy_type("GammaSpend")),
-            ("delay", u32v(0)),
-        ]),
-    );
-    execute(&add_proxy, &ctx.bob);
-    assert_eq!(spend(netuid, &api_key, GAMMA), GAMMA);
+    assert_eq!(spend(netuid, &api_wallet, GAMMA), GAMMA);
     assert_eq!(balance(netuid, &api_key), minted_gamma - GAMMA);
+    assert_eq!(spent(netuid, &api_key), GAMMA);
 
-    let moved_key = random_wallet().hotkey.ss58_address();
+    let moved_wallet = random_wallet();
+    let moved_key = moved_wallet.hotkey.ss58_address();
     execute(
         &gamma(
             "try_associate_hotkey",
@@ -1329,7 +1347,6 @@ fn test_gamma_lifecycle() {
     ));
     let moved = read("get_gamma_deposit", &[u(netuid), s(moved_key.clone())]);
     let terms_moved = field(&moved, "deposit").expect("deposit");
-    assert_eq!(value_str(terms_moved, "spender"), bob);
     let daily_spend_cap = field(terms_moved, "daily_spend_cap").expect("daily spend cap");
     assert_eq!(value_u128(daily_spend_cap, "cap"), GAMMA);
     assert_eq!(value_u128(terms_moved, "balance"), minted_gamma - GAMMA);
@@ -1341,10 +1358,11 @@ fn test_gamma_lifecycle() {
         &moved_key,
     );
     assert_eq!(
-        spend(netuid, &moved_key, minted_gamma - GAMMA),
+        spend(netuid, &moved_wallet, minted_gamma - GAMMA),
         minted_gamma - GAMMA
     );
     assert_eq!(balance(netuid, &moved_key), 0);
+    assert_eq!(spent(netuid, &moved_key), minted_gamma - GAMMA);
     let close = gamma(
         "close_gamma_deposit",
         record([("hotkey", s(moved_key.clone())), ("netuid", u(netuid))]),
@@ -1380,7 +1398,6 @@ fn test_gamma_lifecycle() {
             ("netuid", u(netuid)),
             ("alpha_amount", u128v(alpha)),
             ("min_amount_out", u128v(0)),
-            ("spender", Value::Null),
             ("daily_spend_cap", Value::Null),
         ]),
     );
@@ -1393,36 +1410,6 @@ fn test_gamma_lifecycle() {
     let deposits = read("get_gamma_deposits_for_coldkey", &[s(alice.clone())]);
     assert!(value_contains_str(&deposits, &staked_key));
     assert!(!value_contains_str(&deposits, &moved_key));
-
-    // The owner's coldkey publishes the owner hotkey's service, spent by itself.
-    let url = "https://example.com/services.json";
-    let publish = IntentCall::new(
-        "set_service",
-        SignerRole::Coldkey,
-        "SubtensorModule",
-        "set_service",
-        record([
-            ("netuid", u(netuid)),
-            ("hotkey", s(ctx.alice.hotkey.ss58_address())),
-            ("url", bytes(url)),
-            ("spender", s(alice.clone())),
-        ]),
-    );
-    let result = execute(&publish, &ctx.alice);
-    assert!(event_attributes(&result, "SubtensorModule", "ServiceSet").is_some());
-    let published = ctx
-        .client
-        .query(
-            "SubtensorModule",
-            "Services",
-            &[u(netuid), s(ctx.alice.hotkey.ss58_address())],
-            None,
-        )
-        .expect("service read");
-    assert_eq!(
-        field(&published, "url").and_then(text_bytes).as_deref(),
-        Some(url)
-    );
 }
 
 #[test]

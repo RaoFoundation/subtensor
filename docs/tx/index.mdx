@@ -122,7 +122,6 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`set-childkey-take`](/docs/tx/set-childkey-take) | coldkey | signed account (pallet role may apply) | Set the childkey take for a hotkey on a subnet. |
 | [`set-children`](/docs/tx/set-children) | coldkey | signed account (pallet role may apply) | Assign child hotkeys with stake-weight proportions on a subnet. |
 | [`set-gamma-deposit-daily-spend-cap`](/docs/tx/set-gamma-deposit-daily-spend-cap) | coldkey | signed account (pallet role may apply) | Set or remove the daily spend cap of your gamma deposit. |
-| [`set-gamma-deposit-spender`](/docs/tx/set-gamma-deposit-spender) | coldkey | signed account (pallet role may apply) | Set who may spend your gamma deposit. |
 | [`set-identity`](/docs/tx/set-identity) | coldkey | signed account (pallet role may apply) | Publish an on-chain identity (name, links, description) for the coldkey. |
 | [`set-min-collateral`](/docs/tx/set-min-collateral) | coldkey | signed account (pallet role may apply) | Set the self-maintaining collateral floor for your hotkey on a subnet. |
 | [`set-perpetual-lock`](/docs/tx/set-perpetual-lock) | coldkey | signed account (pallet role may apply) | Enable or disable perpetual lock mode for a coldkey on a subnet. |
@@ -133,7 +132,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`set-subnet-identity`](/docs/tx/set-subnet-identity) | coldkey | subnet owner | Publish identity metadata for a subnet (signer must be the subnet owner). |
 | [`set-take`](/docs/tx/set-take) | coldkey | signed account (pallet role may apply) | Set the delegate take to an absolute value. |
 | [`set-weights`](/docs/tx/set-weights) | hotkey | signed account (pallet role may apply) | Set validator weights, auto-selecting plaintext or commit-reveal. |
-| [`spend-gamma`](/docs/tx/spend-gamma) | coldkey | signed account (pallet role may apply) | Spend gamma from the deposits you are the spender of. |
+| [`spend-gamma`](/docs/tx/spend-gamma) | hotkey | signed account (pallet role may apply) | Spend gamma from the deposit at this hotkey, at a service on its subnet. |
 | [`stake-burn`](/docs/tx/stake-burn) | coldkey | signed account (pallet role may apply) | Buy back / burn stake via the stake-burn extrinsic. |
 | [`stake-into-basket`](/docs/tx/stake-into-basket) | coldkey | signed account (pallet role may apply) | Buy shares in a root-registered validator's basket with free TAO. |
 | [`start-call`](/docs/tx/start-call) | coldkey | subnet owner | Activate a subnet (subtoken trading, epochs) as its owner. |

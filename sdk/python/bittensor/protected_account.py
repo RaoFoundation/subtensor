@@ -30,7 +30,6 @@ ALLOW_ITEM_TO_PROXY_TYPE: dict[str, str] = {
     "basket": "BasketTrading",
     "basket-swaps": "BasketTrading",
     "basket_swaps": "BasketTrading",
-    "gamma": "GammaSpend",
     "root-claim": "RootClaim",
     "root_claim": "RootClaim",
     "rootclaim": "RootClaim",
@@ -97,7 +96,6 @@ PROXY_TYPE_INTENT_OPS: dict[str, frozenset[str]] = {
     "BasketTrading": frozenset({"swap_basket", "swap_basket_many"}),
     "Registration": frozenset({"burned_register", "pow_register"}),
     "Lock": frozenset({"lock_stake", "move_lock", "set_perpetual_lock"}),
-    "GammaSpend": frozenset({"spend_gamma"}),
     "RootClaim": frozenset({"claim_root", "claim_root_with_hotkey"}),
     "Validate": frozenset(
         {
