@@ -136,7 +136,7 @@ mod benchmarks {
     use crate::tests::mock;
     use sp_runtime::PerU16;
     use substrate_fixed::types::{I64F64, U64F64};
-    use subtensor_runtime_common::{NetUid, TaoBalance};
+    use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
 
     #[benchmark]
     fn swap_authorities(a: Linear<0, 32>) {
@@ -1200,6 +1200,21 @@ mod benchmarks {
 
         #[extrinsic_call]
         _(RawOrigin::Signed(owner), netuid, U64F64::from_num(3));
+    }
+
+    #[benchmark]
+    fn sudo_set_commit_burn() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        sudo_set_commit_burn_min(
+            RawOrigin::Signed(owner),
+            netuid,
+            MechId::MAIN,
+            0,
+            TaoBalance::ZERO,
+        );
     }
 
     #[benchmark]

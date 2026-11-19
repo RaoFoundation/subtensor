@@ -62,6 +62,7 @@ std = [
 	"pallet-admin-utils/std",
 	"pallet-alpha-assets/std",
 	"pallet-balances/std",
+	"pallet-commitments/std",
 	"pallet-crowdloan/std",
 	"pallet-drand/std",
 	"pallet-evm-precompile-bn128/std",
@@ -95,6 +96,7 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"pallet-admin-utils/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
+	"pallet-commitments/runtime-benchmarks",
 	"pallet-crowdloan/runtime-benchmarks",
 	"pallet-drand/runtime-benchmarks",
 	"pallet-evm/runtime-benchmarks",
@@ -114,4 +116,5 @@ runtime-benchmarks = [
 hex = { workspace = true, features = ["std"] }
 serde_json = { workspace = true, features = ["std"] }
 pallet-preimage = { workspace = true, features = ["std"] }
+pallet-commitments = { workspace = true }
 precompile-utils = { workspace = true, features = ["std", "testing"] }

@@ -105,8 +105,26 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 132,
-          "url": "/code/pallets/commitments/src/lib.rs#L132",
+          "line": 235,
+          "url": "/code/pallets/commitments/src/lib.rs#L235",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
+      ]
+    },
+    "AccountNotAuthorized": {
+      "code": "not_authorized",
+      "description": "The signing coldkey does not own the target registered hotkey. Sign `set_commitment_to` with the hotkey's owner coldkey; hotkeys cannot fund channel commitments.",
+      "docs_url": "/docs/errors/chain/AccountNotAuthorized",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AccountNotAuthorized/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 245,
+          "url": "/code/pallets/commitments/src/lib.rs#L245",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -825,8 +843,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 252,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L252",
+          "line": 261,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L261",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -846,6 +864,24 @@
           "line": 434,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L434",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BurnPriceLimitExceeded": {
+      "code": "limit_exceeded",
+      "description": "The channel's current burn price exceeds the caller's `max_burn`. Query the live decayed price and raise `max_burn`, or retry after the price decays.",
+      "docs_url": "/docs/errors/chain/BurnPriceLimitExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BurnPriceLimitExceeded/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 247,
+          "url": "/code/pallets/commitments/src/lib.rs#L247",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
     },
@@ -1099,6 +1135,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/ChangePending/content.md",
       "pallets": [
         "Grandpa"
+      ]
+    },
+    "ChannelMigrationPending": {
+      "code": "too_early",
+      "description": "A bounded hotkey-swap migration is still moving this hotkey's channel commitments. Wait for the migration to finish before publishing another channel commitment.",
+      "docs_url": "/docs/errors/chain/ChannelMigrationPending",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ChannelMigrationPending/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 251,
+          "url": "/code/pallets/commitments/src/lib.rs#L251",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
       ]
     },
     "ChildParentInconsistency": {
@@ -1410,8 +1464,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 276,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L276",
+          "line": 285,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L285",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1428,8 +1482,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 274,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L274",
+          "line": 283,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L283",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1779,8 +1833,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 272,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L272",
+          "line": 281,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L281",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -2314,6 +2368,24 @@
         }
       ]
     },
+    "FreeCommitmentDisabled": {
+      "code": "not_authorized",
+      "description": "Burning is enabled for mechanism 0, channel 0, so the legacy free `set_commitment` call is unavailable. Use the coldkey-signed `set_commitment_to` with an adequate burn limit.",
+      "docs_url": "/docs/errors/chain/FreeCommitmentDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/FreeCommitmentDisabled/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 249,
+          "url": "/code/pallets/commitments/src/lib.rs#L249",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
+      ]
+    },
     "FundsNotSettled": {
       "code": "policy_violation",
       "description": "`finalize` ran the configured `call`, but the raised funds were still in the crowdloan's funds account afterwards, so finalization was refused. This happens when the call does not spend the raised amount, or when a wrapper such as `Utility.batch` returns Ok after its inner call failed. Fix the finalization call so it consumes the full `raised` amount, then `finalize` again.",
@@ -2551,8 +2623,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 278,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L278",
+          "line": 287,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L287",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3504,8 +3576,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 266,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L266",
+          "line": 275,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L275",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3864,8 +3936,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 250,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L250",
+          "line": 259,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L259",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3882,8 +3954,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 264,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L264",
+          "line": 273,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L273",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3900,8 +3972,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 262,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L262",
+          "line": 271,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L271",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3972,8 +4044,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 248,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L248",
+          "line": 257,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L257",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4030,6 +4102,7 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/MechanismDoesNotExist/content.md",
       "pallets": [
         "SubtensorModule",
+        "Commitments",
         "Swap"
       ],
       "sources": [
@@ -4039,6 +4112,13 @@
           "line": 174,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L174",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        },
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 243,
+          "url": "/code/pallets/commitments/src/lib.rs#L243",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         },
         {
           "pallet": "Swap",
@@ -4070,8 +4150,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 258,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L258",
+          "line": 267,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L267",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4088,8 +4168,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 260,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L260",
+          "line": 269,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L269",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4205,8 +4285,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 254,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L254",
+          "line": 263,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L263",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4753,6 +4833,24 @@
         }
       ]
     },
+    "NotMechWeightDelegate": {
+      "code": "not_authorized",
+      "description": "The signer is not the validator's currently authorized delegate for this exact netuid and mechanism, or the validator's grant is still moving after a hotkey change. Query the delegate for the validator and mechanism, wait for lifecycle cleanup, and have the validator grant or renew the delegation before retrying.",
+      "docs_url": "/docs/errors/chain/NotMechWeightDelegate",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotMechWeightDelegate/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 505,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L505",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "NotNoted": {
       "code": "not_found",
       "description": "The preimage cannot be unnoted because no preimage was ever noted for this hash. Check `RequestStatusFor` (or legacy `StatusFor`) for the hash to confirm what, if anything, is stored.",
@@ -4783,8 +4881,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 268,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L268",
+          "line": 277,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L277",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5151,8 +5249,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 270,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L270",
+          "line": 279,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L279",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5862,8 +5960,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 134,
-          "url": "/code/pallets/commitments/src/lib.rs#L134",
+          "line": 237,
+          "url": "/code/pallets/commitments/src/lib.rs#L237",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6042,8 +6140,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 246,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L246",
+          "line": 255,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L255",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -6266,8 +6364,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 138,
-          "url": "/code/pallets/commitments/src/lib.rs#L138",
+          "line": 241,
+          "url": "/code/pallets/commitments/src/lib.rs#L241",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6384,8 +6482,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 130,
-          "url": "/code/pallets/commitments/src/lib.rs#L130",
+          "line": 233,
+          "url": "/code/pallets/commitments/src/lib.rs#L233",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6853,8 +6951,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 136,
-          "url": "/code/pallets/commitments/src/lib.rs#L136",
+          "line": 239,
+          "url": "/code/pallets/commitments/src/lib.rs#L239",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6997,8 +7095,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 256,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L256",
+          "line": 265,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L265",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

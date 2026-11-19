@@ -31,6 +31,7 @@ pallet-scheduler = { workspace = true, default-features = false, optional = true
 [dev-dependencies]
 approx.workspace = true
 frame-executive.workspace = true
+pallet-commitments = { workspace = true, default-features = false }
 pallet-evm-chain-id.workspace = true
 scale-info.workspace = true
 sp-consensus-aura.workspace = true
@@ -53,6 +54,7 @@ std = [
 	"log/std",
 	"pallet-alpha-assets/std",
 	"pallet-balances/std",
+	"pallet-commitments/std",
 	"pallet-crowdloan/std",
 	"pallet-drand/std",
 	"pallet-evm/std",
@@ -83,6 +85,7 @@ runtime-benchmarks = [
 	"sp-runtime/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
+	"pallet-commitments/runtime-benchmarks",
 	"pallet-crowdloan/runtime-benchmarks",
 	"pallet-drand/runtime-benchmarks",
 	"pallet-evm/runtime-benchmarks",

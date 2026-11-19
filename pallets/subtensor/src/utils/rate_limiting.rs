@@ -226,6 +226,8 @@ pub enum Hyperparameter {
     /// `set_subnet_emission_weights`; limited to once a week per subnet rather than by tempo.
     EmissionWeights = 39,
     SubnetGammaEnabled = 40,
+    /// Per-channel commitment burn configuration.
+    CommitBurn = 41,
 }
 
 impl<T: Config> Pallet<T> {

@@ -328,7 +328,7 @@ pub mod pallet {
         traits::{
             OriginTrait, QueryPreimage, StorePreimage, UnfilteredDispatchable, tokens::fungible,
         },
-        weights::Weight,
+        weights::{Weight, WeightMeter},
     };
     use frame_system::pallet_prelude::*;
     use pallet_drand::types::RoundNumber;
@@ -4000,6 +4000,100 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// The account authorized to submit weights for a validator on one mechanism.
+    /// The tuple key is the mechanism storage index and the validator hotkey.
+    #[pallet::storage]
+    pub type MechWeightDelegate<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUidStorageIndex>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+        ),
+        T::AccountId,
+        OptionQuery,
+    >;
+
+    /// Mechanisms granted by one validator. Per-grant rows avoid rewriting a set.
+    #[pallet::storage]
+    pub type MechWeightDelegateTargets<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Identity, MechId>,
+        ),
+        (),
+        OptionQuery,
+    >;
+
+    /// Invalidated validator hotkeys awaiting bounded removal of their grants.
+    #[pallet::storage]
+    pub type MechWeightDelegatePurgeQueue<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        Option<u16>,
+        OptionQuery,
+    >;
+
+    /// A grant being moved with its original UID to a new validator hotkey.
+    #[derive(Clone, PartialEq, Eq, Encode, Decode, TypeInfo, MaxEncodedLen, Debug)]
+    #[scale_info(skip_type_params(T))]
+    pub struct PendingMechWeightDelegateMove<T: Config> {
+        /// UID originally moved from the source hotkey.
+        pub uid: u16,
+        /// Hotkey that must still own this UID when the move drains.
+        pub destination: T::AccountId,
+        /// Authorized delegate to install, or no delegate for a revoked grant.
+        pub delegate: Option<T::AccountId>,
+    }
+
+    #[pallet::storage]
+    pub type MechWeightDelegateMoveQueue<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Identity, MechId>,
+        ),
+        PendingMechWeightDelegateMove<T>,
+        OptionQuery,
+    >;
+
+    /// Incoming rename edges for a validator hotkey. These must be removed on deregistration.
+    #[pallet::storage]
+    pub type MechWeightDelegateMoveOrigins<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Identity, MechId>,
+        ),
+        (),
+        OptionQuery,
+    >;
+
+    /// Pending moves indexed by mechanism and origin hotkey.
+    #[pallet::storage]
+    pub type MechWeightDelegateMechanismMoves<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Identity, MechId>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+        ),
+        (),
+        OptionQuery,
+    >;
+
+    /// Retired mechanisms whose grants must be removed before another count change.
+    #[pallet::storage]
+    pub type MechWeightDelegateRetirementQueue<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, MechId, (), OptionQuery>;
+
     /// ITEM ( enabled ) | Whether gamma can be minted at all; a subnet also needs
     /// [`SubnetGammaEnabled`].
     #[pallet::storage]
@@ -4416,6 +4510,8 @@ pub trait CommitmentsInterface<AccountId> {
     fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
 
     fn purge_neuron(netuid: NetUid, account: &AccountId);
+
+    fn swap_neuron(netuid: NetUid, old_hotkey: &AccountId, new_hotkey: &AccountId);
 }
 
 /// Default minimum TAO value through the middle of a `swap_basket` trade. The call costs

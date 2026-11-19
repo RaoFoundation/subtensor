@@ -1033,7 +1033,23 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // 3.6. Swap the subnet loaded emission.
+        // 3.6. Swap the mechanism-scoped weight delegation and channel commitments.
+        if is_network_member {
+            T::CommitmentsInterface::swap_neuron(netuid, old_hotkey, new_hotkey);
+            for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
+                let index = Self::get_mechanism_storage_index(netuid, MechId::from(mecid));
+                let delegate = MechWeightDelegate::<T>::get((index, old_hotkey));
+                Self::queue_mech_weight_delegate_move(
+                    netuid,
+                    mecid.into(),
+                    old_hotkey,
+                    new_hotkey,
+                    delegate,
+                );
+            }
+        }
+
+        // 3.7. Swap the subnet loaded emission.
         // LoadedEmission( netuid ) --> Vec<(hotkey, u64)> -- the loaded emission for the subnet.
         if is_network_member && let Some(mut old_loaded_emission) = LoadedEmission::<T>::get(netuid)
         {

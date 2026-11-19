@@ -294,9 +294,19 @@ class SubtensorModule:
         return Call('SubtensorModule', 'commit_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'commit_hash': commit_hash})
 
     @staticmethod
+    def commit_mechanism_weights_for(netuid: 'NetUid', mecid: 'MechId', hotkey: 'AccountId32', commit_hash: 'H256') -> Call:
+        'Commits a weight hash for the validator through its mechanism delegate.'
+        return Call('SubtensorModule', 'commit_mechanism_weights_for', {'netuid': netuid, 'mecid': mecid, 'hotkey': hotkey, 'commit_hash': commit_hash})
+
+    @staticmethod
     def commit_timelocked_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', commit: 'BoundedVec', reveal_round: 'u64', commit_reveal_version: 'u16') -> Call:
         'Used to commit timelock encrypted commit-reveal weight values to later be revealed for a mechanism.  # Arguments * `origin`: The committing hotkey.  * `netuid`: The u16 network identifier.  * `mecid`: The u8 mechanism identifier.  * `commit`: The encrypted compressed commit. The steps for this are: 1. Instantiate [`WeightsTlockPayload`] 2. Serialize it using the `parity_scale_codec::Encode` trait 3. Encrypt it following the steps (here)[https://github.com/ideal-lab5/tle/blob/f8e6019f0fb02c380ebfa6b30efb61786dede07b/timelock/src/tlock.rs#L283-L336] to produce a [`TLECiphertext<TinyBLS381>`] type. 4. Serialize and compress using the `ark-serialize` `CanonicalSerialize` trait.  * `reveal_round`: The drand reveal round which will be avaliable during epoch `n+1` from the current epoch.  * `commit_reveal_version`: The client (bittensor-drand) version.'
         return Call('SubtensorModule', 'commit_timelocked_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'commit': commit, 'reveal_round': reveal_round, 'commit_reveal_version': commit_reveal_version})
+
+    @staticmethod
+    def commit_timelocked_mechanism_weights_for(netuid: 'NetUid', mecid: 'MechId', hotkey: 'AccountId32', commit: 'BoundedVec', reveal_round: 'u64', commit_reveal_version: 'u16') -> Call:
+        'Commits timelocked weights for a validator through its mechanism delegate.'
+        return Call('SubtensorModule', 'commit_timelocked_mechanism_weights_for', {'netuid': netuid, 'mecid': mecid, 'hotkey': hotkey, 'commit': commit, 'reveal_round': reveal_round, 'commit_reveal_version': commit_reveal_version})
 
     @staticmethod
     def commit_timelocked_weights(netuid: 'NetUid', commit: 'BoundedVec', reveal_round: 'u64', commit_reveal_version: 'u16') -> Call:
@@ -449,6 +459,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'reveal_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'uids': uids, 'values': values, 'salt': salt, 'version_key': version_key})
 
     @staticmethod
+    def reveal_mechanism_weights_for(netuid: 'NetUid', mecid: 'MechId', hotkey: 'AccountId32', uids: 'Any', values: 'Any', salt: 'Any', version_key: 'u64') -> Call:
+        "Reveals a validator's hash commit through its mechanism delegate."
+        return Call('SubtensorModule', 'reveal_mechanism_weights_for', {'netuid': netuid, 'mecid': mecid, 'hotkey': hotkey, 'uids': uids, 'values': values, 'salt': salt, 'version_key': version_key})
+
+    @staticmethod
     def reveal_weights(netuid: 'NetUid', uids: 'Any', values: 'Any', salt: 'Any', version_key: 'u64') -> Call:
         'Used to reveal the weights for a previously committed hash.  # Arguments * `origin`: The signature of the revealing hotkey.  * `netuid`: The u16 network identifier.  * `uids`: The uids for the weights being revealed.  * `values`: The values of the weights being revealed.  * `salt`: The salt used to generate the commit hash.  * `version_key`: The network version key.  # Errors * `CommitRevealDisabled`: Attempting to reveal weights when the commit-reveal mechanism is disabled.  * `NoWeightsCommitFound`: Attempting to reveal weights without an existing commit.  * `ExpiredWeightCommit`: Attempting to reveal a weight commit that has expired.  * `RevealTooEarly`: Attempting to reveal weights outside the valid reveal period.  * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.'
         return Call('SubtensorModule', 'reveal_weights', {'netuid': netuid, 'uids': uids, 'values': values, 'salt': salt, 'version_key': version_key})
@@ -519,9 +534,19 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_identity', {'name': name, 'url': url, 'github_repo': github_repo, 'image': image, 'discord': discord, 'description': description, 'additional': additional})
 
     @staticmethod
+    def set_mech_weight_delegate(netuid: 'NetUid', mecid: 'MechId', delegate: 'Any') -> Call:
+        'Authorizes an account to set weights for this registered hotkey on one mechanism.'
+        return Call('SubtensorModule', 'set_mech_weight_delegate', {'netuid': netuid, 'mecid': mecid, 'delegate': delegate})
+
+    @staticmethod
     def set_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
         'Sets the caller weights for the incentive mechanism for mechanisms. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored weights are u16s max-upscaled by the pallet, so the largest non-zero supplied weight is stored as `u16::MAX`. The weights determine how inflation propagates outward from this peer.  # Note Input weights are relative. They do not need to sum to a particular value before submission.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `mecid`: The u8 mechnism identifier.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: Relative u16-encoded weights, max-upscaled by the pallet before storage.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
         return Call('SubtensorModule', 'set_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'dests': dests, 'weights': weights, 'version_key': version_key})
+
+    @staticmethod
+    def set_mechanism_weights_for(netuid: 'NetUid', mecid: 'MechId', hotkey: 'AccountId32', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
+        "Sets weights as the validator's authorized delegate on this mechanism only."
+        return Call('SubtensorModule', 'set_mechanism_weights_for', {'netuid': netuid, 'mecid': mecid, 'hotkey': hotkey, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod
     def set_min_collateral(netuid: 'NetUid', hotkey: 'AccountId32', min_locked: 'AlphaBalance') -> Call:
@@ -997,6 +1022,11 @@ class Commitments:
         return Call('Commitments', 'set_commitment', {'netuid': netuid, 'info': info})
 
     @staticmethod
+    def set_commitment_to(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', hotkey: 'AccountId32', info: 'CommitmentInfo', max_burn: 'TaoBalance') -> Call:
+        'Publish a channel commitment, with the coldkey paying the optional burn.'
+        return Call('Commitments', 'set_commitment_to', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'hotkey': hotkey, 'info': info, 'max_burn': max_burn})
+
+    @staticmethod
     def set_max_space(new_limit: 'u32') -> Call:
         'Sudo-set MaxSpace'
         return Call('Commitments', 'set_max_space', {'new_limit': new_limit})
@@ -1129,6 +1159,31 @@ class AdminUtils:
     def sudo_set_collateral_lock_share(netuid: 'NetUid', lock_share: 'u16') -> Call:
         'Sets the miner collateral lock share (p) for a subnet: the share of the registration price that is staked to the registering hotkey and locked as collateral instead of burned. Normalized so `u16::MAX` = 100%; capped at 95% so the burned share stays positive. 0 disables collateral. Callable by root and subnet owner. Applies only to future registrations; standing collateral is never re-priced.'
         return Call('AdminUtils', 'sudo_set_collateral_lock_share', {'netuid': netuid, 'lock_share': lock_share})
+
+    @staticmethod
+    def sudo_set_commit_burn_enabled(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', enabled: 'bool') -> Call:
+        'Enable or disable the optional burn for one commitment channel.'
+        return Call('AdminUtils', 'sudo_set_commit_burn_enabled', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'enabled': enabled})
+
+    @staticmethod
+    def sudo_set_commit_burn_half_life(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', value: 'u16') -> Call:
+        'Set the commitment burn half-life in blocks.'
+        return Call('AdminUtils', 'sudo_set_commit_burn_half_life', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'value': value})
+
+    @staticmethod
+    def sudo_set_commit_burn_increase_mult(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', value: 'FixedU128') -> Call:
+        "Set the commitment burn multiplier, using registration's `[1, 3]` bounds."
+        return Call('AdminUtils', 'sudo_set_commit_burn_increase_mult', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'value': value})
+
+    @staticmethod
+    def sudo_set_commit_burn_max(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', value: 'TaoBalance') -> Call:
+        'Set the commitment burn ceiling.'
+        return Call('AdminUtils', 'sudo_set_commit_burn_max', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'value': value})
+
+    @staticmethod
+    def sudo_set_commit_burn_min(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', value: 'TaoBalance') -> Call:
+        'Set the commitment burn floor.'
+        return Call('AdminUtils', 'sudo_set_commit_burn_min', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'value': value})
 
     @staticmethod
     def sudo_set_commit_reveal_version(version: 'u16') -> Call:

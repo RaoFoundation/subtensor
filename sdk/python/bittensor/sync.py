@@ -153,6 +153,9 @@ class SyncSnapshot:
     def runtime(self, method, params: list):
         return self._call(self._snapshot.runtime(method, params))
 
+    def decode_commitment_registration(self, data: Any):
+        return self._call(self._snapshot.decode_commitment_registration(data))
+
     def constant(self, item):
         return self._call(self._snapshot.constant(item))
 
@@ -377,6 +380,9 @@ class SyncClient:
 
     def decode_scale(self, type_string: str, data):
         return self._call(self._client.decode_scale(type_string, data))
+
+    def decode_commitment_registration(self, data: Any, *, block: Optional[int] = None):
+        return self._call(self._client.decode_commitment_registration(data, block=block))
 
     def at(self, block: Optional[int] = None) -> SyncSnapshot:
         """A read-only view pinned to ``block``: blocking namespaces, reads,

@@ -603,6 +603,12 @@ DESCRIPTIONS: dict[str, str] = {
         "`ValidatorPermit` for the neuron's uid (e.g. via the metagraph or `btcli subnets "
         "metagraph`) and whether its stake ranks it as a validator."
     ),
+    "NotMechWeightDelegate": (
+        "The signer is not the validator's currently authorized delegate for this exact netuid "
+        "and mechanism, or the validator's grant is still moving after a hotkey change. Query "
+        "the delegate for the validator and mechanism, wait for lifecycle cleanup, and have the "
+        "validator grant or renew the delegation before retrying."
+    ),
     "NewColdKeyIsHotkey": (
         "The proposed new coldkey in a coldkey swap is already an existing hotkey account, "
         "which is not allowed. Check the `Owner` storage for the candidate key to confirm it is "

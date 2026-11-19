@@ -99,8 +99,6 @@ RAW_ONLY: dict[str, set[str]] = {
         # reveal_weights is wrapped by the RevealWeights intent for salt commits)
         "set_weights",
         "commit_weights",
-        "commit_mechanism_weights",
-        "reveal_mechanism_weights",
         "commit_crv3_mechanism_weights",
         "commit_timelocked_weights",
         "batch_set_weights",
