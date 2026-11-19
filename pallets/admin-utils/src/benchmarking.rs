@@ -136,7 +136,7 @@ mod benchmarks {
     use crate::tests::mock;
     use sp_runtime::PerU16;
     use substrate_fixed::types::{I64F64, U64F64};
-    use subtensor_runtime_common::{NetUid, TaoBalance};
+    use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
 
     #[benchmark]
     fn swap_authorities(a: Linear<0, 32>) {

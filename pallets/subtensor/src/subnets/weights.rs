@@ -61,6 +61,10 @@ impl<T: Config> Pallet<T> {
         Self::ensure_mechanism_exists(netuid, mecid)?;
         let index = Self::get_mechanism_storage_index(netuid, mecid);
         ensure!(
+            Uids::<T>::contains_key(netuid, hotkey),
+            Error::<T>::NotMechWeightDelegate
+        );
+        ensure!(
             !Self::mech_weight_delegate_lifecycle_pending(netuid, hotkey),
             Error::<T>::NotMechWeightDelegate
         );

@@ -394,26 +394,6 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// Hotkeys with at least one pending channel rename destination.
-    #[pallet::storage]
-    pub type ChannelMechanismSwaps<T: Config> =
-        StorageDoubleMap<_, Identity, NetUid, Twox64Concat, T::AccountId, (), OptionQuery>;
-
-    /// Pending channel rows by mechanism, destination, and source hotkey.
-    /// Both endpoints are keyed so one destination cannot erase another source's lineage.
-    #[pallet::storage]
-    pub type ChannelMechanismSwapOrigins<T: Config> = StorageNMap<
-        _,
-        (
-            NMapKey<Identity, NetUid>,
-            NMapKey<Identity, MechId>,
-            NMapKey<Twox64Concat, T::AccountId>,
-            NMapKey<Twox64Concat, T::AccountId>,
-        ),
-        (),
-        OptionQuery,
-    >;
-
     /// Raw-key cursor for the bounded, round-robin channel reveal pass. An inclusive
     /// cursor survives removal of the previously visited row without starving other entries.
     #[pallet::storage]
@@ -772,7 +752,7 @@ pub mod pallet {
                 return Weight::zero();
             }
             let queue = ChannelMechanismPurgeQueue::<T>::iter_keys().next();
-            let swap_item_weight = T::DbWeight::get().reads_writes(9, 11);
+            let swap_item_weight = T::DbWeight::get().reads_writes(9, 13);
             let mut total_weight = if queue.is_some()
                 || remaining_weight.any_lt(base.saturating_add(swap_item_weight))
             {
@@ -827,8 +807,7 @@ pub mod pallet {
             meter.consume(base);
             let work = Self::reveal_channel_timelocked_commitments_metered(&meter)
                 .unwrap_or(Weight::zero());
-            let revealed = total_weight.saturating_add(base.saturating_add(work));
-            revealed
+            total_weight.saturating_add(base.saturating_add(work))
         }
     }
 }
@@ -1560,16 +1539,27 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// Queue a rename with two fixed-size index writes. The old dispatch weight
-    /// never depends on the number of channel targets.
+    /// Queue one deferred rename. Empty intermediate edges remain until their
+    /// incoming source has drained, so storage iteration order cannot strand rows.
     pub fn swap_neuron(netuid: NetUid, old_hotkey: &T::AccountId, new_hotkey: &T::AccountId) {
-        if let Some(previous) = ChannelSwapPendingHotkeys::<T>::take(netuid, old_hotkey) {
+        if ChannelSwapPendingHotkeys::<T>::get(netuid, new_hotkey).as_ref() == Some(old_hotkey)
+            && ChannelSwapOrigins::<T>::contains_key((netuid, old_hotkey, new_hotkey))
+        {
+            // Cancel the older direction. If no row reached this intermediate,
+            // the reversal is a no-op; otherwise those rows must return as well.
+            ChannelSwapPendingHotkeys::<T>::remove(netuid, new_hotkey);
+            if ChannelTargetsOf::<T>::iter_key_prefix((netuid, old_hotkey))
+                .next()
+                .is_none()
+            {
+                ChannelSwapOrigins::<T>::remove((netuid, old_hotkey, new_hotkey));
+                return;
+            }
+        } else if let Some(previous) = ChannelSwapPendingHotkeys::<T>::take(netuid, old_hotkey) {
             ChannelSwapOrigins::<T>::remove((netuid, &previous, old_hotkey));
-            ChannelMechanismSwaps::<T>::remove(netuid, &previous);
         }
         ChannelSwapPendingHotkeys::<T>::insert(netuid, old_hotkey, new_hotkey.clone());
         ChannelSwapOrigins::<T>::insert((netuid, new_hotkey, old_hotkey), ());
-        ChannelMechanismSwaps::<T>::insert(netuid, new_hotkey, ());
     }
 
     /// Writes resume after both incoming and outgoing channel work has drained.
@@ -1599,62 +1589,28 @@ impl<T: Config> Pallet<T> {
         ChannelMechanismTargetsOf::<T>::remove((netuid, mecid, hotkey, channel));
     }
 
-    /// Keep destination-to-source lineage until all source targets have moved.
-    /// Removing an edge must not erase a different mechanism's queued migration.
-    fn cancel_channel_mechanism_swap(
-        netuid: NetUid,
-        mecid: MechId,
-        old_hotkey: &T::AccountId,
-        new_hotkey: &T::AccountId,
-    ) {
-        ChannelMechanismSwapOrigins::<T>::remove((netuid, mecid, new_hotkey, old_hotkey));
-        if ChannelTargetsOf::<T>::iter_key_prefix((netuid, old_hotkey))
-            .next()
-            .is_none()
-            && ChannelSwapPendingHotkeys::<T>::get(netuid, old_hotkey).as_ref() == Some(new_hotkey)
-        {
-            ChannelSwapPendingHotkeys::<T>::remove(netuid, old_hotkey);
-            ChannelSwapOrigins::<T>::remove((netuid, new_hotkey, old_hotkey));
-        }
-        if ChannelMechanismSwapOrigins::<T>::iter_key_prefix((netuid,))
-            .all(|(_, destination, _)| destination != *new_hotkey)
-        {
-            ChannelMechanismSwaps::<T>::remove(netuid, new_hotkey);
-        }
-    }
-
-    /// Remove a retired target while retaining the lineage needed to cancel
-    /// any unmoved source copy for the same mechanism and channel.
-    fn remove_channel_target_and_cancel_swap(
-        netuid: NetUid,
-        hotkey: &T::AccountId,
-        mecid: MechId,
-        channel: u8,
-    ) {
-        ChannelTargetsOf::<T>::remove((netuid, hotkey, mecid, channel));
-        ChannelMechanismTargetsOf::<T>::remove((netuid, mecid, hotkey, channel));
-        if let Some(source) =
-            ChannelMechanismSwapOrigins::<T>::iter_key_prefix((netuid, mecid, hotkey)).next()
-            && !ChannelTargetsOf::<T>::contains_key((netuid, &source, mecid, channel))
-        {
-            Self::cancel_channel_mechanism_swap(netuid, mecid, &source, hotkey);
-        }
-        if let Some(destination) = ChannelSwapPendingHotkeys::<T>::get(netuid, hotkey)
-            && ChannelTargetsOf::<T>::contains_key((netuid, &destination, mecid, channel))
-        {
-            Self::cancel_channel_mechanism_swap(netuid, mecid, hotkey, &destination);
-        }
-    }
-
     /// Queue cleanup without traversing channel state or rename edges inline.
     pub fn purge_channel_neuron(netuid: NetUid, account: &T::AccountId) {
         ChannelNeuronPurgeQueue::<T>::insert(netuid, account, ());
     }
 
-    /// Cancel one edge or remove one target per budgeted step. Purges propagate
-    /// along rename edges so no partially migrated payer or target is stranded.
+    /// Cancel an incoming edge before deleting its destination. The source purge
+    /// releases any not-yet-migrated reserve, so cleanup cannot finish and then
+    /// receive a late row from that source.
+    fn cancel_channel_purge_edges(netuid: NetUid, hotkey: &T::AccountId) {
+        if let Some(source) = ChannelSwapOrigins::<T>::iter_key_prefix((netuid, hotkey)).next() {
+            ChannelSwapPendingHotkeys::<T>::remove(netuid, &source);
+            ChannelSwapOrigins::<T>::remove((netuid, hotkey, &source));
+            ChannelNeuronPurgeQueue::<T>::insert(netuid, source, ());
+            return;
+        }
+        if let Some(destination) = ChannelSwapPendingHotkeys::<T>::take(netuid, hotkey) {
+            ChannelSwapOrigins::<T>::remove((netuid, destination, hotkey));
+        }
+    }
+
     pub fn drain_channel_purges(weight_meter: &mut WeightMeter) {
-        let item_weight = T::DbWeight::get().reads_writes(7, 9);
+        let item_weight = T::DbWeight::get().reads_writes(5, 11);
         for _ in 0..MAX_CHANNEL_PURGE_ROWS_PER_BLOCK {
             if !weight_meter.can_consume(item_weight) {
                 return;
@@ -1662,62 +1618,105 @@ impl<T: Config> Pallet<T> {
             let Some((netuid, hotkey)) = ChannelNeuronPurgeQueue::<T>::iter_keys().next() else {
                 return;
             };
-            // Preserve rename edges until every target on both sides has been
-            // purged. Other subnets may still need to migrate into this hotkey;
-            // clearing the edge here would strand that subnet's reserve.
-            let Some((mecid, channel)) =
+            if let Some((mecid, channel)) =
                 ChannelTargetsOf::<T>::iter_key_prefix((netuid, &hotkey)).next()
-            else {
+            {
+                Self::purge_channel_target(netuid, &hotkey, mecid, channel);
+            } else if ChannelSwapOrigins::<T>::iter_key_prefix((netuid, &hotkey))
+                .next()
+                .is_some()
+                || ChannelSwapPendingHotkeys::<T>::contains_key(netuid, &hotkey)
+            {
+                Self::cancel_channel_purge_edges(netuid, &hotkey);
+            } else {
                 ChannelNeuronPurgeQueue::<T>::remove(netuid, &hotkey);
-                weight_meter.consume(item_weight);
-                continue;
-            };
-            Self::purge_channel_target(netuid, &hotkey, mecid, channel);
-            Self::remove_channel_target_and_cancel_swap(netuid, &hotkey, mecid, channel);
+            }
             weight_meter.consume(item_weight);
         }
     }
 
-    /// Move at most 256 indexed channel rows from pending hotkey renames.
     pub fn drain_channel_swaps(weight_meter: &mut WeightMeter) {
-        Self::drain_channel_swaps_filtered(weight_meter, true);
-    }
-
-    /// Dissolution is the only caller allowed to move into a retired mechanism:
-    /// its subsequent prefix purge removes that final destination and its reserve.
-    fn drain_channel_swaps_without_retirement_step(weight_meter: &mut WeightMeter) {
-        Self::drain_channel_swap_step(weight_meter, false);
-    }
-
-    fn drain_channel_swaps_filtered(weight_meter: &mut WeightMeter, honor_retirement: bool) {
         for _ in 0..MAX_CHANNEL_PURGE_ROWS_PER_BLOCK {
-            Self::drain_channel_swap_step(weight_meter, honor_retirement);
+            Self::drain_channel_swap_step(weight_meter, true);
         }
     }
 
     fn drain_channel_swap_step(weight_meter: &mut WeightMeter, honor_retirement: bool) {
-        let item_weight = T::DbWeight::get().reads_writes(9, 11);
+        let item_weight = T::DbWeight::get().reads_writes(9, 13);
         if !weight_meter.can_consume(item_weight) {
             return;
         }
-        let Some((netuid, old_hotkey, new_hotkey)) = ChannelSwapPendingHotkeys::<T>::iter().next()
+        let Some((netuid, mut old_hotkey, mut new_hotkey)) =
+            ChannelSwapPendingHotkeys::<T>::iter().next()
         else {
             return;
         };
-        let Some((mecid, channel)) = ChannelTargetsOf::<T>::iter_key_prefix((netuid, &old_hotkey))
-            .find(|(mecid, _)| {
-                !honor_retirement || !ChannelMechanismPurgeQueue::<T>::contains_key(netuid, *mecid)
-            })
-        else {
+        if ChannelPurgePending::<T>::get(netuid) {
             ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
             ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
-            ChannelMechanismSwaps::<T>::remove(netuid, &new_hotkey);
+            weight_meter.consume(item_weight);
+            return;
+        }
+        if ChannelTargetsOf::<T>::iter_key_prefix((netuid, &old_hotkey))
+            .next()
+            .is_none()
+            && let Some(source) =
+                ChannelSwapOrigins::<T>::iter_key_prefix((netuid, &old_hotkey)).next()
+            && ChannelTargetsOf::<T>::iter_key_prefix((netuid, &source))
+                .next()
+                .is_some()
+        {
+            // An empty B -> C edge may sort before A -> B. Service the source
+            // that can actually supply B's next row instead of spinning on B.
+            new_hotkey = old_hotkey;
+            old_hotkey = source;
+        }
+        let mut targets = ChannelTargetsOf::<T>::iter_key_prefix((netuid, &old_hotkey));
+        let first_target = targets.next();
+        let first_is_live = first_target.is_some_and(|(mecid, _)| {
+            !honor_retirement || !ChannelMechanismPurgeQueue::<T>::contains_key(netuid, mecid)
+        });
+        let target = if first_is_live {
+            first_target
+        } else {
+            targets.find(|(mecid, _)| {
+                !honor_retirement || !ChannelMechanismPurgeQueue::<T>::contains_key(netuid, *mecid)
+            })
+        };
+        let Some((mecid, channel)) = target else {
+            if ChannelNeuronPurgeQueue::<T>::contains_key(netuid, &new_hotkey) {
+                ChannelNeuronPurgeQueue::<T>::insert(netuid, &old_hotkey, ());
+            } else if first_target.is_none()
+                && ChannelSwapOrigins::<T>::iter_key_prefix((netuid, &old_hotkey))
+                    .next()
+                    .is_some()
+            {
+                // B -> C may be visited before A -> B. Keep the empty edge
+                // until A supplies B's rows; the next pass will move them on.
+                weight_meter.consume(item_weight);
+                return;
+            }
+            ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
+            ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
             weight_meter.consume(item_weight);
             return;
         };
+        if ChannelNeuronPurgeQueue::<T>::contains_key(netuid, &new_hotkey) {
+            ChannelNeuronPurgeQueue::<T>::insert(netuid, &old_hotkey, ());
+            ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
+            ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
+            weight_meter.consume(item_weight);
+            return;
+        }
         let index = Self::target_index(netuid, mecid);
         let old_key = (index, &old_hotkey, channel);
         let new_key = (index, &new_hotkey, channel);
+        // A swap destination is not a subnet member but may retain a channel from
+        // an earlier registration. Last-write-wins must release that row's payer
+        // before replacing it, rather than orphaning the old reserve.
+        if ChannelTargetsOf::<T>::contains_key((netuid, &new_hotkey, mecid, channel)) {
+            Self::purge_channel_target(netuid, &new_hotkey, mecid, channel);
+        }
         if let Some(registration) = ChannelCommitmentOf::<T>::take(&old_key) {
             ChannelCommitmentOf::<T>::insert(&new_key, registration);
         }
@@ -1740,8 +1739,6 @@ impl<T: Config> Pallet<T> {
         ChannelTargetsOf::<T>::insert((netuid, &new_hotkey, mecid, channel), ());
         ChannelMechanismTargetsOf::<T>::remove((netuid, mecid, &old_hotkey, channel));
         ChannelMechanismTargetsOf::<T>::insert((netuid, mecid, &new_hotkey, channel), ());
-        ChannelMechanismSwaps::<T>::insert(netuid, &new_hotkey, ());
-        ChannelMechanismSwapOrigins::<T>::insert((netuid, mecid, &new_hotkey, &old_hotkey), ());
         weight_meter.consume(item_weight);
     }
 
@@ -1753,14 +1750,14 @@ impl<T: Config> Pallet<T> {
     ) -> bool {
         let write_weight = T::DbWeight::get().writes(1);
         let index = Self::target_index(netuid, mecid);
-        // Target rows include revealed-only commitments, so they are the source
-        // of truth for both reserve release and exact mechanism/channel cleanup.
+        // Target rows include revealed-only channels. Retirement deletes those
+        // rows directly; live mechanisms on the same pending rename still move.
         let mut remaining_rows = row_limit;
         loop {
             if remaining_rows == 0 {
                 return false;
             }
-            let item_weight = T::DbWeight::get().reads_writes(9, 12);
+            let item_weight = T::DbWeight::get().reads_writes(8, 9);
             if !weight_meter.can_consume(item_weight) {
                 return false;
             }
@@ -1770,32 +1767,10 @@ impl<T: Config> Pallet<T> {
                 break;
             };
             Self::purge_channel_target(netuid, &hotkey, mecid, channel);
-            Self::remove_channel_target_and_cancel_swap(netuid, &hotkey, mecid, channel);
             remaining_rows = remaining_rows.saturating_sub(1);
             weight_meter.consume(item_weight);
         }
-
-        loop {
-            if remaining_rows == 0 {
-                return false;
-            }
-            let item_weight = T::DbWeight::get().reads_writes(8, 9);
-            if !weight_meter.can_consume(item_weight) {
-                return false;
-            }
-            let Some(((destination, source), _)) =
-                ChannelMechanismSwapOrigins::<T>::iter_prefix((netuid, mecid)).next()
-            else {
-                break;
-            };
-            // This index is written only after a target reaches its destination.
-            // Any source-side targets are removed above or by the target-index
-            // pass; cancellation is limited to this mechanism's remaining edge.
-            Self::cancel_channel_mechanism_swap(netuid, mecid, &source, &destination);
-            remaining_rows = remaining_rows.saturating_sub(1);
-            weight_meter.consume(item_weight);
-        }
-        let done = clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+        clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             ChannelRevealedCommitments::<T>::clear_prefix((index,), limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             ChannelReservePayerOf::<T>::clear_prefix((index,), limit, None)
@@ -1805,11 +1780,7 @@ impl<T: Config> Pallet<T> {
             ChannelLastCommitment::<T>::clear_prefix((index,), limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             ChannelTimelockedIndex::<T>::clear_prefix((index,), limit, None)
-        });
-        if !done {
-            return false;
-        }
-        true
+        })
     }
 
     fn purge_channel_mechanism_config(
@@ -1834,25 +1805,18 @@ impl<T: Config> Pallet<T> {
     }
 
     fn clear_channel_netuid_swaps(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
-        // Finish migrations on every affected subnet before its target rows are
-        // deleted. The purge walk below releases deposits only after those edges
-        // are gone; in particular, a dissolved destination may still hold another
-        // subnet's partially migrated reserve.
         loop {
-            let item_weight = T::DbWeight::get().reads_writes(9, 11);
+            let item_weight = T::DbWeight::get().reads_writes(9, 13);
             if !weight_meter.can_consume(item_weight) {
                 return false;
             }
             if ChannelSwapPendingHotkeys::<T>::iter_prefix(netuid)
                 .next()
                 .is_none()
-                && ChannelSwapOrigins::<T>::iter_key_prefix((netuid,))
-                    .next()
-                    .is_none()
             {
                 break;
             }
-            Self::drain_channel_swaps_without_retirement_step(weight_meter);
+            Self::drain_channel_swap_step(weight_meter, false);
         }
         Self::clear_channel_netuid_swaps_without_migration(netuid, weight_meter)
     }
@@ -1871,26 +1835,13 @@ impl<T: Config> Pallet<T> {
             {
                 ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
                 ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
-                ChannelMechanismSwaps::<T>::remove(netuid, &new_hotkey);
                 weight_meter.consume(item_weight);
                 continue;
-            }
-            if ChannelMechanismSwapOrigins::<T>::iter_key_prefix((netuid,))
-                .next()
-                .is_some()
-            {
-                if !clear_prefix_with_meter(weight_meter, item_weight, |limit| {
-                    ChannelMechanismSwapOrigins::<T>::clear_prefix((netuid,), limit, None)
-                }) {
-                    return false;
-                }
             }
             return clear_prefix_with_meter(weight_meter, item_weight, |limit| {
                 ChannelNeuronPurgeQueue::<T>::clear_prefix(netuid, limit, None)
             }) && clear_prefix_with_meter(weight_meter, item_weight, |limit| {
-                ChannelMechanismSwaps::<T>::clear_prefix(netuid, limit, None)
-            }) && clear_prefix_with_meter(weight_meter, item_weight, |limit| {
-                ChannelMechanismSwapOrigins::<T>::clear_prefix((netuid,), limit, None)
+                ChannelSwapOrigins::<T>::clear_prefix((netuid,), limit, None)
             });
         }
     }

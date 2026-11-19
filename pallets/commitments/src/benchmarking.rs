@@ -169,7 +169,9 @@ mod benchmarks {
             TaoBalance::ZERO,
         );
 
-        assert!(ChannelCommitmentOf::<T>::get((netuid, caller, 0)).is_some());
+        assert!(
+            ChannelCommitmentOf::<T>::get((NetUidStorageIndex::from(netuid), caller, 0)).is_some()
+        );
     }
 
     #[benchmark]
@@ -178,7 +180,7 @@ mod benchmarks {
         let caller: T::AccountId = whitelisted_caller();
         let _ = T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
         CommitBurnConfig::<T>::insert(
-            (netuid, 0),
+            (NetUidStorageIndex::from(netuid), 0),
             CommitBurnParameters {
                 enabled: true,
                 burn: TaoBalance::from(1u64),
@@ -201,7 +203,9 @@ mod benchmarks {
             TaoBalance::from(1u64),
         );
 
-        assert!(ChannelCommitmentOf::<T>::get((netuid, caller, 0)).is_some());
+        assert!(
+            ChannelCommitmentOf::<T>::get((NetUidStorageIndex::from(netuid), caller, 0)).is_some()
+        );
     }
 
     #[benchmark]

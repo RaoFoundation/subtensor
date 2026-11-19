@@ -3400,6 +3400,7 @@ mod pallet_benchmarks {
         let mecid = subtensor_runtime_common::MechId::MAIN;
         let (netuid, hotkey, uids, weight_values, salt, version_key) =
             setup_mechanism_weight_benchmark::<T>(mecid, n);
+        Tempo::<T>::insert(netuid, 0);
         let delegate: T::AccountId = account("weight_delegate", 0, 1);
         let index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
         MechWeightDelegate::<T>::insert((index, &hotkey), &delegate);
@@ -3417,7 +3418,13 @@ mod pallet_benchmarks {
             &hotkey,
             VecDeque::from([(commit_hash, commit_epoch, 0, 0)]),
         );
-        SubnetEpochIndex::<T>::insert(netuid, commit_epoch.saturating_add(1));
+        LastEpochBlock::<T>::insert(netuid, 0);
+        BlocksSinceLastStep::<T>::insert(netuid, 0);
+        PendingEpochAt::<T>::insert(netuid, 0);
+        SubnetEpochIndex::<T>::insert(
+            netuid,
+            commit_epoch.saturating_add(Subtensor::<T>::get_reveal_period(netuid)),
+        );
         assert!(Subtensor::<T>::is_reveal_block_range(netuid, commit_epoch));
 
         #[extrinsic_call]

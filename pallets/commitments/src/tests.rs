@@ -8,12 +8,13 @@ use subtensor_runtime_common::{MechId, NetUid, NetUidStorageIndex, TaoBalance, T
 #[cfg(test)]
 use crate::{
     BalanceOf, ChannelCommitmentOf, ChannelMechanismPurgeQueue, ChannelNeuronPurgeQueue,
-    ChannelPurgePending, ChannelRevealedCommitments, ChannelSwapPendingHotkeys, ChannelTargetsOf,
-    ChannelTimelockRevealCursor, ChannelTimelockedIndex, ChannelUsedSpaceOf, CommitmentInfo,
-    CommitmentOf, Config, Data, Error, Event, LastBondsReset, LastCommitment,
-    MAX_TIMELOCK_REVEALS_PER_BLOCK, MAX_TIMELOCK_VISITS_PER_BLOCK, MaxSpace, Pallet, Registration,
-    RevealFailure, RevealedCommitments, TimelockRevealCursor, TimelockedIndex, UsageTracker,
-    UsedSpaceOf, WeightInfo,
+    ChannelPurgePending, ChannelReservePayerOf, ChannelRevealedCommitments,
+    ChannelSwapPendingHotkeys, ChannelTargetsOf, ChannelTimelockRevealCursor,
+    ChannelTimelockedIndex, ChannelUsedSpaceOf, CommitmentInfo, CommitmentOf, Config, Data, Error,
+    Event, LastBondsReset, LastCommitment, MAX_TIMELOCK_REVEALS_PER_BLOCK,
+    MAX_TIMELOCK_VISITS_PER_BLOCK, MaxSpace, Pallet, Registration, RevealFailure,
+    RevealedCommitments, TimelockRevealCursor, TimelockedIndex, UsageTracker, UsedSpaceOf,
+    WeightInfo,
     mock::{
         Balances, DRAND_QUICKNET_SIG_2000_HEX, DRAND_QUICKNET_SIG_HEX, RuntimeEvent, RuntimeOrigin,
         Test, TestCommitBurn, TestCommitDeposit, TestMaxFields, insert_drand_pulse, new_test_ext,
@@ -127,6 +128,97 @@ fn channel_commitment_is_independent_and_timelock_reveals() {
 }
 
 #[test]
+fn reversing_unmigrated_swap_cancels_edge_without_losing_channel() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = 456;
+        let new_hotkey = 789;
+        TestCommitBurn::set_accepts_any_owner(true);
+        let info = Box::new(CommitmentInfo::<TestMaxFields> {
+            fields: BoundedVec::try_from(vec![Data::Raw(
+                b"channel".to_vec().try_into().expect("raw fits"),
+            )])
+            .expect("one field fits"),
+        });
+        assert_ok!(Pallet::<Test>::set_commitment_to(
+            RuntimeOrigin::signed(hotkey),
+            netuid,
+            MechId::MAIN,
+            0,
+            hotkey,
+            info,
+            TaoBalance::ZERO,
+        ));
+        Pallet::<Test>::swap_neuron(netuid, &hotkey, &new_hotkey);
+        Pallet::<Test>::swap_neuron(netuid, &new_hotkey, &hotkey);
+        assert!(!crate::ChannelNeuronPurgeQueue::<Test>::contains_key(
+            netuid, hotkey
+        ));
+        assert!(!ChannelSwapPendingHotkeys::<Test>::contains_key(
+            netuid, hotkey
+        ));
+        assert!(
+            crate::ChannelSwapOrigins::<Test>::iter_key_prefix((netuid, hotkey))
+                .next()
+                .is_none()
+        );
+        assert!(!Pallet::<Test>::channel_migration_pending(netuid, &hotkey));
+        assert!(!Pallet::<Test>::channel_migration_pending(
+            netuid,
+            &new_hotkey
+        ));
+        assert!(ChannelSwapPendingHotkeys::<Test>::iter().next().is_none());
+        assert!(crate::ChannelSwapOrigins::<Test>::iter().next().is_none());
+        assert!(
+            ChannelCommitmentOf::<Test>::get((NetUidStorageIndex::from(netuid), hotkey, 0))
+                .is_some()
+        );
+        Pallet::<Test>::purge_channel_neuron(netuid, &hotkey);
+        drain_channel_queues();
+        assert!(ChannelTargetsOf::<Test>::iter_keys().next().is_none());
+
+        let intermediate = 888;
+        let final_hotkey = 999;
+        Pallet::<Test>::set_commitment_to(
+            RuntimeOrigin::signed(hotkey),
+            netuid,
+            MechId::MAIN,
+            0,
+            hotkey,
+            Box::new(CommitmentInfo::<TestMaxFields> {
+                fields: BoundedVec::try_from(vec![Data::Raw(
+                    b"channel".to_vec().try_into().expect("raw fits"),
+                )])
+                .expect("one field fits"),
+            }),
+            TaoBalance::ZERO,
+        )
+        .expect("channel can be recreated after purge");
+        Pallet::<Test>::swap_neuron(netuid, &hotkey, &new_hotkey);
+        Pallet::<Test>::swap_neuron(netuid, &new_hotkey, &intermediate);
+        Pallet::<Test>::swap_neuron(netuid, &intermediate, &final_hotkey);
+        Pallet::<Test>::swap_neuron(netuid, &final_hotkey, &intermediate);
+        assert_eq!(
+            ChannelSwapPendingHotkeys::<Test>::get(netuid, new_hotkey),
+            Some(intermediate)
+        );
+        assert!(crate::ChannelSwapOrigins::<Test>::contains_key((
+            netuid,
+            intermediate,
+            new_hotkey
+        )));
+        drain_channel_queues();
+        assert!(
+            ChannelCommitmentOf::<Test>::get((NetUidStorageIndex::from(netuid), intermediate, 0))
+                .is_some()
+        );
+        Pallet::<Test>::purge_channel_neuron(netuid, &intermediate);
+        drain_channel_queues();
+        assert!(ChannelTargetsOf::<Test>::iter_keys().next().is_none());
+    });
+}
+
+#[test]
 fn channel_swap_is_bounded_and_preserves_reserve_payer_across_coldkey_swap() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
@@ -173,7 +265,7 @@ fn channel_swap_is_bounded_and_preserves_reserve_payer_across_coldkey_swap() {
             ),
             Error::<Test>::ChannelMigrationPending
         );
-        let unit = RocksDbWeight::get().reads_writes(9, 11);
+        let unit = RocksDbWeight::get().reads_writes(12, 23);
         let mut meter = frame_support::weights::WeightMeter::with_limit(unit);
         Pallet::<Test>::drain_channel_swaps(&mut meter);
         assert!(
@@ -228,6 +320,133 @@ fn channel_swap_is_bounded_and_preserves_reserve_payer_across_coldkey_swap() {
         drain_channel_queues();
         assert_eq!(Balances::reserved_balance(second_coldkey), 0.into());
     });
+}
+
+// PROTECTED_REGRESSION: a deferred swap must release any residual destination channel's original payer reserve before last-write-wins replaces its commitment; changes require explicit human approval.
+#[test]
+fn swap_releases_residual_destination_payer_before_overwriting_channel() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let source = 456;
+        let destination = 789;
+        let source_payer = 123;
+        let destination_payer = 124;
+        TestCommitDeposit::set(100, 50);
+        Balances::make_free_balance_be(&source_payer, 10_000.into());
+        Balances::make_free_balance_be(&destination_payer, 10_000.into());
+        TestCommitBurn::set_accepts_any_owner(true);
+        let info = Box::new(CommitmentInfo::<TestMaxFields> {
+            fields: BoundedVec::try_from(vec![Data::Raw(
+                b"channel".to_vec().try_into().expect("raw fits"),
+            )])
+            .expect("one field fits"),
+        });
+        for (hotkey, payer) in [(source, source_payer), (destination, destination_payer)] {
+            assert_ok!(Pallet::<Test>::set_commitment_to(
+                RuntimeOrigin::signed(payer),
+                netuid,
+                MechId::MAIN,
+                0,
+                hotkey,
+                info.clone(),
+                TaoBalance::ZERO,
+            ));
+        }
+        assert_eq!(Balances::reserved_balance(destination_payer), 150.into());
+        Pallet::<Test>::swap_neuron(netuid, &source, &destination);
+        let mut meter = frame_support::weights::WeightMeter::new();
+        Pallet::<Test>::drain_channel_swaps(&mut meter);
+        assert_eq!(Balances::reserved_balance(destination_payer), 0.into());
+        assert_eq!(Balances::free_balance(destination_payer), 10_000.into());
+        assert_eq!(Balances::reserved_balance(source_payer), 150.into());
+        assert_eq!(
+            ChannelReservePayerOf::<Test>::get((NetUidStorageIndex::from(netuid), destination, 0)),
+            Some(source_payer)
+        );
+        Pallet::<Test>::purge_channel_neuron(netuid, &destination);
+        drain_channel_queues();
+        assert_eq!(Balances::reserved_balance(source_payer), 0.into());
+        assert_eq!(Balances::free_balance(source_payer), 10_000.into());
+    });
+}
+
+// PROTECTED_REGRESSION: chained renames and deregistration must not strand a channel reserve on an intermediate or deregistered hotkey, regardless of storage iteration order; changes require explicit human approval.
+#[test]
+fn chained_swaps_and_purges_release_reserves_for_both_account_orderings() {
+    for (first, intermediate, final_hotkey) in [(456, 789, 900), (900, 789, 456)] {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+            let payer = 123;
+            TestCommitDeposit::set(100, 50);
+            Balances::make_free_balance_be(&payer, 10_000.into());
+            TestCommitBurn::set_accepts_any_owner(true);
+            for channel in [0, 1] {
+                assert_ok!(Pallet::<Test>::set_commitment_to(
+                    RuntimeOrigin::signed(payer),
+                    netuid,
+                    MechId::MAIN,
+                    channel,
+                    first,
+                    Box::new(CommitmentInfo::<TestMaxFields> {
+                        fields: BoundedVec::try_from(vec![Data::Raw(
+                            vec![channel].try_into().expect("one byte fits"),
+                        )])
+                        .expect("one field fits"),
+                    }),
+                    TaoBalance::ZERO,
+                ));
+            }
+            Pallet::<Test>::swap_neuron(netuid, &first, &intermediate);
+            Pallet::<Test>::swap_neuron(netuid, &intermediate, &final_hotkey);
+            drain_channel_queues();
+            assert!(
+                ChannelCommitmentOf::<Test>::get((
+                    NetUidStorageIndex::from(netuid),
+                    final_hotkey,
+                    0,
+                ))
+                .is_some()
+            );
+            for hotkey in [first, intermediate] {
+                assert!(
+                    ChannelCommitmentOf::<Test>::get(
+                        (NetUidStorageIndex::from(netuid), hotkey, 0,)
+                    )
+                    .is_none()
+                );
+            }
+            Pallet::<Test>::purge_channel_neuron(netuid, &final_hotkey);
+            drain_channel_queues();
+            assert_eq!(Balances::reserved_balance(payer), 0.into());
+
+            for channel in [0, 1] {
+                assert_ok!(Pallet::<Test>::set_commitment_to(
+                    RuntimeOrigin::signed(payer),
+                    netuid,
+                    MechId::MAIN,
+                    channel,
+                    first,
+                    Box::new(CommitmentInfo::<TestMaxFields> {
+                        fields: BoundedVec::try_from(vec![Data::Raw(
+                            vec![channel].try_into().expect("one byte fits"),
+                        )])
+                        .expect("one field fits"),
+                    }),
+                    TaoBalance::ZERO,
+                ));
+            }
+            Pallet::<Test>::swap_neuron(netuid, &first, &intermediate);
+            let mut meter = frame_support::weights::WeightMeter::with_limit(
+                RocksDbWeight::get().reads_writes(12, 23),
+            );
+            Pallet::<Test>::drain_channel_swaps(&mut meter);
+            Pallet::<Test>::purge_channel_neuron(netuid, &intermediate);
+            drain_channel_queues();
+            assert_eq!(Balances::reserved_balance(payer), 0.into());
+            assert!(ChannelTargetsOf::<Test>::iter().next().is_none());
+            assert!(ChannelNeuronPurgeQueue::<Test>::iter().next().is_none());
+        });
+    }
 }
 
 #[test]
@@ -703,8 +922,7 @@ fn retirement_after_overlapping_destination_swap_preserves_live_channels() {
 #[test]
 fn dissolution_finishes_incoming_migration_before_releasing_reserves() {
     new_test_ext().execute_with(|| {
-        let source = NetUid::from(1);
-        let destination = NetUid::from(2);
+        let destination = NetUid::from(1);
         let coldkey = 11;
         let first = 12;
         let second = 13;
@@ -722,7 +940,7 @@ fn dissolution_finishes_incoming_migration_before_releasing_reserves() {
         for (mechanism, channel) in [(MechId::MAIN, 7), (MechId::MAIN, 8)] {
             assert_ok!(Pallet::<Test>::set_commitment_to(
                 RuntimeOrigin::signed(coldkey),
-                source,
+                destination,
                 mechanism,
                 channel,
                 first,
@@ -730,7 +948,7 @@ fn dissolution_finishes_incoming_migration_before_releasing_reserves() {
                 TaoBalance::ZERO,
             ));
         }
-        Pallet::<Test>::swap_neuron(source, &first, &second);
+        Pallet::<Test>::swap_neuron(destination, &first, &second);
         let mut meter = frame_support::weights::WeightMeter::with_limit(
             RocksDbWeight::get().reads_writes(9, 11),
         );
@@ -757,8 +975,7 @@ fn dissolution_finishes_incoming_migration_before_releasing_reserves() {
 #[test]
 fn dissolution_resumes_after_incoming_migration_consumes_idle_budget() {
     new_test_ext().execute_with(|| {
-        let source = NetUid::from(1);
-        let destination = NetUid::from(2);
+        let destination = NetUid::from(1);
         let coldkey = 11;
         let first = 12;
         let second = 13;
@@ -767,7 +984,7 @@ fn dissolution_resumes_after_incoming_migration_consumes_idle_budget() {
         Balances::make_free_balance_be(&coldkey, 10_000.into());
         assert_ok!(Pallet::<Test>::set_commitment_to(
             RuntimeOrigin::signed(coldkey),
-            source,
+            destination,
             MechId::MAIN,
             7,
             first,
@@ -779,7 +996,7 @@ fn dissolution_resumes_after_incoming_migration_consumes_idle_budget() {
             }),
             TaoBalance::ZERO,
         ));
-        Pallet::<Test>::swap_neuron(source, &first, &second);
+        Pallet::<Test>::swap_neuron(destination, &first, &second);
         Pallet::<Test>::purge_channel_neuron(destination, &second);
         let budget = RocksDbWeight::get()
             .reads_writes(1, 1)
@@ -799,6 +1016,12 @@ fn dissolution_resumes_after_incoming_migration_consumes_idle_budget() {
             let mut meter = frame_support::weights::WeightMeter::with_limit(
                 RocksDbWeight::get().reads_writes(9, 12),
             );
+            if Pallet::<Test>::purge_channel_netuid(destination, &mut meter) {
+                break;
+            }
+        }
+        for _ in 0..16 {
+            let mut meter = frame_support::weights::WeightMeter::with_limit(Weight::MAX);
             if Pallet::<Test>::purge_channel_netuid(destination, &mut meter) {
                 break;
             }

@@ -4021,10 +4021,28 @@ pub mod pallet {
 
     /// Invalidated validator hotkeys awaiting bounded removal of their grants.
     #[pallet::storage]
-    pub type MechWeightDelegatePurgeQueue<T: Config> =
-        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+    pub type MechWeightDelegatePurgeQueue<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        Option<u16>,
+        OptionQuery,
+    >;
 
-    /// A grant being moved to a new validator hotkey, or `None` for revocation.
+    /// A grant being moved with its original UID to a new validator hotkey.
+    #[derive(Clone, PartialEq, Eq, Encode, Decode, TypeInfo, MaxEncodedLen, Debug)]
+    #[scale_info(skip_type_params(T))]
+    pub struct PendingMechWeightDelegateMove<T: Config> {
+        /// UID originally moved from the source hotkey.
+        pub uid: u16,
+        /// Hotkey that must still own this UID when the move drains.
+        pub destination: T::AccountId,
+        /// Authorized delegate to install, or no delegate for a revoked grant.
+        pub delegate: Option<T::AccountId>,
+    }
+
     #[pallet::storage]
     pub type MechWeightDelegateMoveQueue<T: Config> = StorageNMap<
         _,
@@ -4033,7 +4051,7 @@ pub mod pallet {
             NMapKey<Blake2_128Concat, T::AccountId>,
             NMapKey<Identity, MechId>,
         ),
-        (T::AccountId, Option<T::AccountId>),
+        PendingMechWeightDelegateMove<T>,
         OptionQuery,
     >;
 

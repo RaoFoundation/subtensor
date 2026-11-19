@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use super::mock::*;
 use crate::Error;
 use frame_support::{assert_noop, assert_ok};
