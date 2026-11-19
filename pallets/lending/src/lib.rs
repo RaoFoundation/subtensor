@@ -618,7 +618,7 @@ pub const TERMS_VERSION_V1: u16 = 1;
 /// and young-short age uses `expires_at − MaxLoanDuration`.
 pub const TERMS_VERSION_V2: u16 = 2;
 
-#[freeze_struct("4cb5f2c7438cc992")]
+#[freeze_struct("4219c1e8f15c7714")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -657,6 +657,10 @@ pub struct Position<AccountId, BlockNumber> {
     /// Accrual year length in blocks, snapshotted at open from
     /// [`Config::BlocksPerYear`]. Used by interest math only (not the term).
     pub blocks_per_year: u64,
+    /// Block of open, or the last increase that added principal. Young-short
+    /// settlement ages from this clock (not from `expires_at`), so an increase
+    /// that adds exposure restarts the 3.5-day young window (Greg Zaitsev P1-b).
+    pub last_exposure_added_at: BlockNumber,
 }
 
 #[freeze_struct("78138cda5aaf128")]
@@ -1513,19 +1517,7 @@ pub mod pallet {
                 ActiveNetCount::<T>::put(active);
                 writes = writes.saturating_add(1);
             }
-            // Rebuild DueTail from the schedule head when missing.
-            if DueTail::<T>::get().is_none() {
-                reads = reads.saturating_add(1);
-                if let Some(mut cur) = NextDue::<T>::get() {
-                    reads = reads.saturating_add(1);
-                    while let Some(n) = DueNext::<T>::get(cur) {
-                        reads = reads.saturating_add(1);
-                        cur = n;
-                    }
-                    DueTail::<T>::put(cur);
-                    writes = writes.saturating_add(1);
-                }
-            }
+            // DueTail rebuild moved to `RebuildDueTailMigration` (audit M2).
             weight.saturating_add(T::DbWeight::get().reads_writes(reads, writes))
         }
 
@@ -1756,9 +1748,9 @@ pub mod pallet {
             ensure!(
                 p.ceiling_bps <= 10_000
                     && p.split_short_bps <= 10_000
-                    && p.ltv_short_bps <= 10_000
-                    && p.ltv_long_bps <= 10_000
-                    && p.thin_ltv_long_bps <= 10_000
+                    && p.ltv_short_bps <= 5_000
+                    && p.ltv_long_bps <= 5_000
+                    && p.thin_ltv_long_bps <= 5_000
                     && p.apr_bps <= 10_000
                     && p.crash_guard_bps <= 10_000
                     && p.ema_band_bps <= 10_000
@@ -3018,6 +3010,7 @@ pub mod pallet {
                     terms_version,
                     interest_period: T::InterestPeriod::get(),
                     blocks_per_year: T::BlocksPerYear::get(),
+                    last_exposure_added_at: now,
                 }
             };
 
@@ -3124,6 +3117,11 @@ pub mod pallet {
             position.lift_tao = Self::add(position.lift_tao, lift_tao.to_u64())?;
             position.lift_alpha = Self::add(position.lift_alpha, lift_alpha.to_u64())?;
             position.annual_interest = Self::add(position.annual_interest, quote.annual_interest)?;
+            // Any increase that adds principal restarts the young-short clock
+            // (Greg Zaitsev P1-b). Collateral-only top-ups keep the prior stamp.
+            if principal > 0 {
+                position.last_exposure_added_at = now;
+            }
 
             if !increasing {
                 let due = position.due;
@@ -3270,6 +3268,10 @@ pub mod pallet {
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_s = book.l_s.saturating_sub(position.lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
+                            // Short lift dust (lift_alpha − principal) leaves held_alpha (audit L3).
+                            book.held_alpha = book.held_alpha.saturating_sub(
+                                position.lift_alpha.saturating_sub(position.principal),
+                            );
                             book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
                             book.short_sold_alpha =
                                 book.short_sold_alpha.saturating_sub(position.principal);
@@ -3369,6 +3371,10 @@ pub mod pallet {
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_s = book.l_s.saturating_sub(position.lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
+                            // Short lift dust (lift_alpha − principal) leaves held_alpha (audit L3).
+                            book.held_alpha = book.held_alpha.saturating_sub(
+                                position.lift_alpha.saturating_sub(position.principal),
+                            );
                             book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
                             book.short_sold_alpha =
                                 book.short_sold_alpha.saturating_sub(position.principal);
@@ -3679,6 +3685,9 @@ pub mod pallet {
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_s = book.l_s.saturating_sub(slice_lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(slice_lift_tao);
+                            book.held_alpha = book
+                                .held_alpha
+                                .saturating_sub(slice_lift_alpha.saturating_sub(slice_p));
                             book.escrow_tao = book.escrow_tao.saturating_sub(slice_e_s);
                             book.short_sold_alpha = book.short_sold_alpha.saturating_sub(slice_p);
                         });
@@ -3759,6 +3768,9 @@ pub mod pallet {
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_s = book.l_s.saturating_sub(slice_lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(slice_lift_tao);
+                            book.held_alpha = book
+                                .held_alpha
+                                .saturating_sub(slice_lift_alpha.saturating_sub(slice_p));
                             book.escrow_tao = book.escrow_tao.saturating_sub(slice_e_s);
                             book.short_sold_alpha = book.short_sold_alpha.saturating_sub(slice_p);
                         });
@@ -4417,17 +4429,14 @@ pub mod pallet {
             u64::from_le_bytes((owner, netuid).using_encoded(sp_io::hashing::twox_64))
         }
 
-        /// Open-block estimate for young-short age. Terms v1 used
-        /// `expires_at − blocks_per_year` (open / last increase under renew).
-        /// Terms v2 uses `expires_at − MaxLoanDuration` (true open; no renew).
+        /// Young-short age clock: open block, or the last increase that added
+        /// principal (`last_exposure_added_at`). Do not derive from `expires_at`
+        /// — increases keep the original term end, which would otherwise leave
+        /// newly added exposure looking mature (Greg Zaitsev P1-b).
         fn position_opened_at(
             position: &Position<T::AccountId, BlockNumberFor<T>>,
         ) -> BlockNumberFor<T> {
-            let term = match position.terms_version {
-                TERMS_VERSION_V2 => T::MaxLoanDuration::get(),
-                _ => position.blocks_per_year.saturated_into(),
-            };
-            position.expires_at.saturating_sub(term)
+            position.last_exposure_added_at
         }
 
         fn emit_loan_expired(
@@ -4598,7 +4607,13 @@ pub mod pallet {
                 // Live-market path still defaults when collateral is exhausted.
                 if !Dissolutions::<T>::contains_key(netuid) {
                     if permissionless {
-                        Self::ensure_settlement_ema_band(owner, netuid, until)?;
+                        // Wall-clock now for the max-deferral force gate; accrual
+                        // `until` stays for interest math only (audit L4).
+                        Self::ensure_settlement_ema_band(
+                            owner,
+                            netuid,
+                            frame_system::Pallet::<T>::block_number(),
+                        )?;
                     }
                     Self::forfeit(owner, netuid, position)?;
                 }
@@ -4679,6 +4694,10 @@ pub mod pallet {
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_s = book.l_s.saturating_sub(position.lift_tao);
                             book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
+                            // Short lift dust (lift_alpha − principal) leaves held_alpha (audit L3).
+                            book.held_alpha = book.held_alpha.saturating_sub(
+                                position.lift_alpha.saturating_sub(position.principal),
+                            );
                             book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
                             book.short_sold_alpha =
                                 book.short_sold_alpha.saturating_sub(position.principal);
@@ -5068,6 +5087,11 @@ pub mod pallet {
         pub(crate) fn migrate_position_max_duration(
             migration_name: BoundedVec<u8, super::MigrationKeyMaxLen>,
         ) -> Weight {
+            use codec::DecodeAll;
+            use frame_support::storage::unhashed;
+            use migrations::PositionBeforeExposure;
+            use sp_runtime::traits::Zero;
+
             let mut weight = T::DbWeight::get().reads(1);
             if HasMigrationRun::<T>::get(&migration_name) {
                 return weight;
@@ -5082,14 +5106,44 @@ pub mod pallet {
             weight = weight.saturating_add(T::DbWeight::get().reads(keys.len() as u64));
 
             for (owner, netuid) in keys {
-                let Some(mut position) = Positions::<T>::get(&owner, netuid) else {
+                let key = Positions::<T>::hashed_key_for(&owner, netuid);
+                let Some(bytes) = unhashed::get_raw(&key) else {
                     continue;
                 };
+                // Prefer the pre-exposure layout when present; otherwise decode
+                // the current Position (already has last_exposure_added_at).
+                let mut position = if let Ok(old) = PositionBeforeExposure::<
+                    T::AccountId,
+                    BlockNumberFor<T>,
+                >::decode_all(&mut &bytes[..])
+                {
+                    old.into_position::<T>()
+                } else if let Ok(cur) =
+                    Position::<T::AccountId, BlockNumberFor<T>>::decode_all(&mut &bytes[..])
+                {
+                    cur
+                } else {
+                    continue;
+                };
+                weight = weight.saturating_add(T::DbWeight::get().reads(1));
+
                 if Expiry::<T>::take(position.expiry_due, (&owner, netuid)).is_some() {
                     Self::note_expiry_removed(position.expiry_due);
                     weight = weight.saturating_add(T::DbWeight::get().reads_writes(2, 2));
                 }
                 let _ = Self::take_expiry_retry(position.expiry_due, &owner, netuid);
+
+                // Preserve the young-short exposure clock across the expires_at
+                // rewrite (Greg Zaitsev P1-b). Only seed from the old term end
+                // when the field is still zero (pre-exposure rows).
+                if position.last_exposure_added_at.is_zero() {
+                    let prior_term = match position.terms_version {
+                        TERMS_VERSION_V2 => T::MaxLoanDuration::get(),
+                        _ => position.blocks_per_year.saturated_into(),
+                    };
+                    position.last_exposure_added_at =
+                        position.expires_at.saturating_sub(prior_term);
+                }
 
                 position.terms_version = TERMS_VERSION_V2;
                 position.expires_at = new_expires;
@@ -6005,22 +6059,33 @@ pub mod pallet {
                     }
                 };
                 let reserve = Self::reserve_account(netuid);
-                let sold = match T::Pool::forced_sell_into_escrow(
-                    &reserve,
-                    &custody,
-                    &reserve,
-                    netuid,
-                    slice.into(),
-                    min_out.into(),
-                    Self::skip_long_tao_flow(netuid),
-                ) {
+                // Sell + burn + pending debit are atomic: a failed burn must not
+                // clear pending interest or emit success (Greg Zaitsev P2-b).
+                use frame_support::storage::{TransactionOutcome, with_transaction};
+                let sold = match with_transaction(|| {
+                    let sold = match T::Pool::forced_sell_into_escrow(
+                        &reserve,
+                        &custody,
+                        &reserve,
+                        netuid,
+                        slice.into(),
+                        min_out.into(),
+                        Self::skip_long_tao_flow(netuid),
+                    ) {
+                        Ok(t) => t,
+                        Err(e) => return TransactionOutcome::Rollback(Err(e)),
+                    };
+                    if let Err(e) = T::Pool::burn_interest_tao(&reserve, sold) {
+                        return TransactionOutcome::Rollback(Err(e));
+                    }
+                    TransactionOutcome::Commit(Ok::<TaoBalance, DispatchError>(sold))
+                }) {
                     Ok(t) => t,
                     Err(_) => {
                         last_done = Some(netuid);
                         continue;
                     }
                 };
-                let _ = T::Pool::burn_interest_tao(&reserve, sold);
                 LongInterestPending::<T>::mutate(netuid, |p| {
                     *p = p.saturating_sub(slice);
                     if *p == 0 {
@@ -6252,11 +6317,14 @@ pub mod pallet {
             let pending = LongInterestPending::<T>::get(netuid);
             if pending > 0 {
                 let tao = Self::tao_for_alpha(pending, dissolution.rate, false).unwrap_or(0);
-                LongInterestPending::<T>::remove(netuid);
-                LongInterestSince::<T>::remove(netuid);
                 if tao > 0 {
-                    // §13: pending long-interest alpha converts at r; burn the TAO from the pot.
-                    let _ = T::Pool::burn_from_pot(netuid, tao.into());
+                    // §13: burn first; only then clear pending. A failed burn
+                    // must retain pending interest and not advance the phase
+                    // (Greg Zaitsev P2-b).
+                    if T::Pool::burn_from_pot(netuid, tao.into()).is_err() {
+                        DissolutionPhase::<T>::insert(netuid, 2u8);
+                        return false;
+                    }
                     Self::deposit_event(Event::InterestBurned {
                         netuid,
                         side: Side::Long,
@@ -6267,6 +6335,8 @@ pub mod pallet {
                             s.interest_burned_tao.saturating_add(u128::from(tao));
                     });
                 }
+                LongInterestPending::<T>::remove(netuid);
+                LongInterestSince::<T>::remove(netuid);
             }
             DissolutionPhase::<T>::insert(netuid, 3u8);
             true
@@ -6295,14 +6365,6 @@ pub mod pallet {
             if matches!(kind, SettleKind::Expiry) {
                 return Self::settle_expiry_as_close(netuid, owner, position, r, interest_until);
             }
-            // Accrue and burn interest through the cutoff before settlement.
-            Self::charge_interest(owner, netuid, &mut position, interest_until, true, false)?;
-            // Dissolution skips forfeit inside `charge_interest`, so the claim
-            // always survives here; keep the guard for defence in depth.
-            if !Positions::<T>::contains_key(owner, netuid) {
-                return Ok(());
-            }
-            Positions::<T>::insert(owner, netuid, position.clone());
 
             let escrow = position.custody.clone();
             let reserve = Self::reserve_account(netuid);
@@ -6310,23 +6372,31 @@ pub mod pallet {
 
             match position.side {
                 Side::Short => {
-                    // Pay min(P·rate, E+C) into the pot/pool; borrower gets the
-                    // remainder (interest already burned from collateral above).
-                    //
+                    // §13 / Greg Zaitsev P2-a: pot (staker recovery) has first
+                    // claim on E_S + C; interest burns from the remainder only.
+                    // Accrue the due amount without debiting collateral yet.
+                    let mut until = interest_until;
+                    if let Some(d) = Dissolutions::<T>::get(netuid) {
+                        if until > d.frozen_at {
+                            until = d.frozen_at;
+                        }
+                    }
+                    if until > position.expires_at {
+                        until = position.expires_at;
+                    }
+                    let (due, rem) = Self::interest_due(&position, until, true)?;
+                    position.last_accrued = until;
+                    position.interest_remainder = rem;
+
                     // Young shorts (age < YoungShortSettlementWindow): rate =
-                    // max(r, P_open) where P_open is the volume-weighted short
-                    // sell price `proceeds/principal` (execution VWAP). That
-                    // bounds the dereg spot-to-r gap so a last-minute short
-                    // earns about a spot round trip. Extra TAO collected stays
-                    // in the pot for stakers; escrow remainder still refunds.
-                    // Older shorts keep settlement at r (full dereg payout).
-                    // Age uses position_opened_at (v1: expires_at −
-                    // blocks_per_year; v2: expires_at − MaxLoanDuration).
-                    // Boundary age == window keeps r.
+                    // max(r, P_open) where P_open is the principal-weighted
+                    // average open price `proceeds/principal` (VWAP across
+                    // open + increases). Age uses last_exposure_added_at
+                    // (Greg Zaitsev P1-b). Boundary age == window keeps r.
                     let mut settle_rate = r;
                     if position.principal > 0 {
                         let opened_at = Self::position_opened_at(&position);
-                        let age = interest_until.saturating_sub(opened_at);
+                        let age = until.saturating_sub(opened_at);
                         if age < T::YoungShortSettlementWindow::get() {
                             if let Some(p_open) = U64F64::from_num(position.proceeds)
                                 .checked_div(U64F64::from_num(position.principal))
@@ -6340,7 +6410,9 @@ pub mod pallet {
                     let debt = Self::tao_for_alpha(position.principal, settle_rate, true)?;
                     let available = Self::add(position.proceeds, position.collateral)?;
                     let to_pot = debt.min(available);
-                    let refund = available.saturating_sub(to_pot);
+                    let after_pot = available.saturating_sub(to_pot);
+                    let interest = due.min(after_pot);
+                    let refund = after_pot.saturating_sub(interest);
                     // Withdraw recovery + refund in one credit split so a below-ED
                     // refund cannot be reaped by an intervening Expendable transfer.
                     let (recovered, refunded) = T::Pool::terminal_split_tao(
@@ -6361,6 +6433,20 @@ pub mod pallet {
                             0u64.into(),
                         )?;
                     }
+                    if interest > 0 {
+                        // Interest TAO remains on escrow after the pot+refund
+                        // split; burn it atomically (P2-b).
+                        T::Pool::burn_interest_tao(&escrow, interest.into())?;
+                        Self::deposit_event(Event::InterestBurned {
+                            netuid,
+                            side: Side::Short,
+                            tao: interest,
+                        });
+                        Self::bump_stats(netuid, |s| {
+                            s.interest_burned_tao =
+                                s.interest_burned_tao.saturating_add(u128::from(interest));
+                        });
+                    }
                     if refunded < refund {
                         Self::deposit_event(Event::DustForfeited {
                             netuid,
@@ -6370,6 +6456,9 @@ pub mod pallet {
                     }
                     Lifts::<T>::mutate(netuid, |book| {
                         book.l_s = book.l_s.saturating_sub(position.lift_tao);
+                        book.held_alpha = book
+                            .held_alpha
+                            .saturating_sub(position.lift_alpha.saturating_sub(position.principal));
                         book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
                         book.short_sold_alpha =
                             book.short_sold_alpha.saturating_sub(position.principal);
@@ -6402,6 +6491,20 @@ pub mod pallet {
                     });
                 }
                 Side::Long => {
+                    // Accrue / destroy due interest alpha before valuing A+C.
+                    Self::charge_interest(
+                        owner,
+                        netuid,
+                        &mut position,
+                        interest_until,
+                        true,
+                        false,
+                    )?;
+                    // Dissolution skips forfeit inside `charge_interest`.
+                    if !Positions::<T>::contains_key(owner, netuid) {
+                        return Ok(());
+                    }
+                    Positions::<T>::insert(owner, netuid, position.clone());
                     // Escrow A settles at EMA (quantity-backed). Collateral C is
                     // capped at an impact-aware AMM sale so near-expiry top-ups
                     // cannot redeem above dumping C into the live pool.
@@ -6602,7 +6705,12 @@ pub mod pallet {
             Self::ensure_terms_version(position.terms_version)?;
             let expires_at = position.expires_at;
             let side = position.side;
-            Self::ensure_settlement_ema_band(owner, netuid, interest_until)?;
+            // Wall-clock now for the max-deferral force gate (audit L4).
+            Self::ensure_settlement_ema_band(
+                owner,
+                netuid,
+                frame_system::Pallet::<T>::block_number(),
+            )?;
             // Band already checked above; interest forfeit may proceed.
             Self::charge_interest(owner, netuid, &mut position, interest_until, true, false)?;
             // Interest can exhaust collateral and `forfeit`, which already restored
@@ -6675,6 +6783,9 @@ pub mod pallet {
                     Lifts::<T>::mutate(netuid, |book| {
                         book.l_s = book.l_s.saturating_sub(position.lift_tao);
                         book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
+                        book.held_alpha = book
+                            .held_alpha
+                            .saturating_sub(position.lift_alpha.saturating_sub(position.principal));
                         book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
                         book.short_sold_alpha =
                             book.short_sold_alpha.saturating_sub(position.principal);

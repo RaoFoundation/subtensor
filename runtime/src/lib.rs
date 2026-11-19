@@ -1935,6 +1935,8 @@ type Migrations = (
     // Hard 30-day MaxLoanDuration: rewrite live rows to terms v2, rebuild
     // expiry queues, clear stale band-deferral stamps (mainnet has none).
     pallet_lending::migrations::PositionMaxDurationMigration<Runtime>,
+    // Bound DueTail rebuild (was unbounded in on_runtime_upgrade; audit M2).
+    pallet_lending::migrations::RebuildDueTailMigration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.

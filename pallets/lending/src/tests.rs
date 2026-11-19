@@ -13,7 +13,8 @@ use codec::{Decode, Encode};
 #[cfg(feature = "try-runtime")]
 use frame_support::traits::OnRuntimeUpgrade;
 use frame_support::{
-    BoundedVec, assert_err, assert_ok, construct_runtime, derive_impl, ensure, parameter_types,
+    BoundedVec, assert_err, assert_noop, assert_ok, construct_runtime, derive_impl, ensure,
+    parameter_types,
     traits::{ConstU32, ConstU64, Get, Hooks},
     weights::{Weight, WeightMeter, constants::RocksDbWeight},
 };
@@ -10461,11 +10462,9 @@ fn old_short_dissolution_keeps_rate_r() {
         let free_before = tao(&owner);
         assert_ok!(Lending::start_dissolution(netuid()));
         let frozen = Dissolutions::<Test>::get(netuid()).unwrap().frozen_at;
-        let opened_at = position
-            .expires_at
-            .saturating_sub(TestMaxLoanDuration::get());
+        assert_eq!(position.last_exposure_added_at, open_block);
         assert!(
-            frozen.saturating_sub(opened_at) >= YoungShortWindow::get(),
+            frozen.saturating_sub(position.last_exposure_added_at) >= YoungShortWindow::get(),
             "fixture must be at/past the young window"
         );
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
@@ -10529,10 +10528,11 @@ fn young_short_boundary_exactly_window_uses_r() {
         let free_before = tao(&owner);
         assert_ok!(Lending::start_dissolution(netuid()));
         let frozen = Dissolutions::<Test>::get(netuid()).unwrap().frozen_at;
-        let opened_at = position
-            .expires_at
-            .saturating_sub(TestMaxLoanDuration::get());
-        assert_eq!(frozen.saturating_sub(opened_at), YoungShortWindow::get());
+        assert_eq!(position.last_exposure_added_at, open_block);
+        assert_eq!(
+            frozen.saturating_sub(position.last_exposure_added_at),
+            YoungShortWindow::get()
+        );
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
         assert!(Lending::settle_lending(netuid(), &mut meter));
@@ -10844,9 +10844,87 @@ fn young_short_v2_opened_at_uses_max_loan_duration() {
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
         assert_eq!(position.terms_version, TERMS_VERSION_V2);
-        let opened_at = position
-            .expires_at
-            .saturating_sub(TestMaxLoanDuration::get());
-        assert_eq!(opened_at, open_block);
+        assert_eq!(position.last_exposure_added_at, open_block);
+        // expires_at derivation must not be the young-short clock.
+        assert_eq!(
+            position
+                .expires_at
+                .saturating_sub(TestMaxLoanDuration::get()),
+            open_block
+        );
+    });
+}
+
+// PROTECTED_REGRESSION: Greg P1-b — increase that adds principal restarts the
+// young-short clock via last_exposure_added_at; changes require explicit human approval.
+#[test]
+fn increase_restarts_young_short_exposure_clock() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 100_000_000_000_000);
+        let open_block = System::block_number();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        // Age past the young window on the original open.
+        let aged = open_block
+            .saturating_add(YoungShortWindow::get())
+            .saturating_add(1);
+        System::set_block_number(aged);
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = aged;
+            }
+        });
+        let before = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(before.last_exposure_added_at, open_block);
+        // Increase adds principal → exposure clock must move to `aged`.
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(after.last_exposure_added_at, aged);
+        assert_eq!(after.expires_at, before.expires_at);
+    });
+}
+
+// PROTECTED_REGRESSION: audit M5 — LTV caps at 50%; changes require explicit human approval.
+#[test]
+fn ensure_valid_lift_params_rejects_ltv_above_5000() {
+    new_test_ext().execute_with(|| {
+        let mut params = LiftParams::default();
+        params.ltv_short_bps = 5_001;
+        assert_noop!(
+            Lending::set_lift_params(RuntimeOrigin::root(), params.clone()),
+            Error::<Test>::InvalidLiftParams
+        );
+        params.ltv_short_bps = 5_000;
+        params.ltv_long_bps = 5_001;
+        assert_noop!(
+            Lending::set_lift_params(RuntimeOrigin::root(), params.clone()),
+            Error::<Test>::InvalidLiftParams
+        );
+        params.ltv_long_bps = 5_000;
+        params.thin_ltv_long_bps = 5_001;
+        assert_noop!(
+            Lending::set_lift_params(RuntimeOrigin::root(), params),
+            Error::<Test>::InvalidLiftParams
+        );
     });
 }

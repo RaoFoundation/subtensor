@@ -5,6 +5,7 @@ mod migrate_lift_book_short_sold;
 mod migrate_lift_params_ema_band;
 mod migrate_position_max_duration;
 mod migrate_position_terms_version;
+mod migrate_rebuild_due_tail;
 mod migrate_reset_n24_shortfall_counters;
 mod migrate_warm_references;
 #[allow(unused_imports)]
@@ -29,13 +30,18 @@ pub use migrate_lift_params_ema_band::{
 };
 #[allow(unused_imports)]
 pub use migrate_position_max_duration::{
-    Migration as PositionMaxDurationMigration, migrate_position_max_duration,
+    Migration as PositionMaxDurationMigration, PositionBeforeExposure,
+    migrate_position_max_duration,
 };
 #[cfg(any(test, feature = "try-runtime"))]
 pub(crate) use migrate_position_terms_version::PositionBeforeTermsVersion;
 #[allow(unused_imports)]
 pub use migrate_position_terms_version::{
     Migration as PositionTermsVersionMigration, migrate_position_terms_version,
+};
+#[allow(unused_imports)]
+pub use migrate_rebuild_due_tail::{
+    Migration as RebuildDueTailMigration, migrate_rebuild_due_tail,
 };
 #[allow(unused_imports)]
 pub use migrate_reset_n24_shortfall_counters::{

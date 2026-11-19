@@ -277,13 +277,6 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_min_price_impact() {
-        // No dedicated extrinsic; keep the weight slot for template compatibility.
-        #[block]
-        {}
-    }
-
-    #[benchmark]
     fn warm_reference() {
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);

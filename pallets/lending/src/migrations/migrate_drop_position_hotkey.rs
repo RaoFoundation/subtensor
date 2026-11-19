@@ -18,6 +18,8 @@ use frame_support::{
 #[cfg(feature = "try-runtime")]
 use sp_runtime::TryRuntimeError;
 
+use sp_runtime::traits::{SaturatedConversion, Saturating};
+
 use crate::*;
 
 /// Storage items removed alongside `Position.hotkey`.
@@ -57,6 +59,9 @@ impl<AccountId, BlockNumber> PositionBeforeHotkeyDrop<AccountId, BlockNumber> {
         AccountId: Into<T::AccountId>,
         BlockNumber: Into<BlockNumberFor<T>>,
     {
+        let expires_at: BlockNumberFor<T> = self.expires_at.into();
+        let blocks_per_year = T::BlocksPerYear::get();
+        let last_exposure_added_at = expires_at.saturating_sub(blocks_per_year.saturated_into());
         Position {
             side: self.side,
             custody: self.custody.into(),
@@ -70,11 +75,12 @@ impl<AccountId, BlockNumber> PositionBeforeHotkeyDrop<AccountId, BlockNumber> {
             last_accrued: self.last_accrued.into(),
             interest_remainder: self.interest_remainder,
             due: self.due.into(),
-            expires_at: self.expires_at.into(),
+            expires_at,
             expiry_due: self.expiry_due.into(),
             terms_version: TERMS_VERSION_V1,
             interest_period: T::InterestPeriod::get(),
-            blocks_per_year: T::BlocksPerYear::get(),
+            blocks_per_year,
+            last_exposure_added_at,
         }
     }
 }

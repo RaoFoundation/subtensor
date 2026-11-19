@@ -2,15 +2,18 @@
 //!
 //! Pre-band layouts decode as [`LiftParamsBeforeEmaBand`](crate::LiftParamsBeforeEmaBand).
 //! Empty storage is left empty (`ValueQuery` still supplies [`Default`]).
+//! Production path uses `DecodeAll`: if the current layout already decodes, the
+//! migration is a stamped no-op (audit L6).
 use core::marker::PhantomData;
 
 #[cfg(feature = "try-runtime")]
 use alloc::vec::Vec;
+use codec::DecodeAll;
 #[cfg(feature = "try-runtime")]
-use codec::{Decode, DecodeAll, Encode};
+use codec::{Decode, Encode};
 #[cfg(feature = "try-runtime")]
 use frame_support::ensure;
-use frame_support::{BoundedVec, traits::OnRuntimeUpgrade, weights::Weight};
+use frame_support::{BoundedVec, storage::unhashed, traits::OnRuntimeUpgrade, weights::Weight};
 #[cfg(feature = "try-runtime")]
 use sp_runtime::TryRuntimeError;
 
@@ -20,10 +23,34 @@ fn migration_key() -> BoundedVec<u8, MigrationKeyMaxLen> {
     BoundedVec::truncate_from(b"migrate_lift_params_ema_band_v1".to_vec())
 }
 
+fn from_before(old: LiftParamsBeforeEmaBand) -> LiftParams {
+    LiftParams {
+        floor_bps: old.floor_bps,
+        thin_floor_bps: old.thin_floor_bps,
+        ref_tao: old.ref_tao,
+        move_bps: old.move_bps,
+        ceiling_bps: old.ceiling_bps,
+        split_short_bps: old.split_short_bps,
+        rebalance_target_bps: old.rebalance_target_bps,
+        rebalance_rate_bps: old.rebalance_rate_bps,
+        thin_tao: old.thin_tao,
+        ltv_short_bps: old.ltv_short_bps,
+        ltv_long_bps: old.ltv_long_bps,
+        thin_ltv_long_bps: old.thin_ltv_long_bps,
+        apr_bps: old.apr_bps,
+        slice_bps: old.slice_bps,
+        crash_guard_bps: old.crash_guard_bps,
+        settle_ema_blocks: old.settle_ema_blocks,
+        new_subnet_min_age: old.new_subnet_min_age,
+        new_subnet_ramp: old.new_subnet_ramp,
+        ema_band_bps: 1_500,
+    }
+}
+
 /// Idempotent: guarded by [`HasMigrationRun`].
 ///
-/// Translation failure leaves the old value and does **not** stamp the guard,
-/// so a later upgrade can retry instead of locking the pre-band layout in.
+/// DecodeAll on the current layout is a stamped no-op. Pre-band blobs are
+/// rewritten. Undecodable values leave the guard clear for a later retry.
 pub fn migrate_lift_params_ema_band<T: Config>() -> Weight {
     let migration_name = migration_key();
     let mut weight = T::DbWeight::get().reads(1);
@@ -32,39 +59,27 @@ pub fn migrate_lift_params_ema_band<T: Config>() -> Weight {
         return weight;
     }
 
-    weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
-    match LiftParamsStore::<T>::translate::<LiftParamsBeforeEmaBand, _>(|old| {
-        old.map(|o| LiftParams {
-            floor_bps: o.floor_bps,
-            thin_floor_bps: o.thin_floor_bps,
-            ref_tao: o.ref_tao,
-            move_bps: o.move_bps,
-            ceiling_bps: o.ceiling_bps,
-            split_short_bps: o.split_short_bps,
-            rebalance_target_bps: o.rebalance_target_bps,
-            rebalance_rate_bps: o.rebalance_rate_bps,
-            thin_tao: o.thin_tao,
-            ltv_short_bps: o.ltv_short_bps,
-            ltv_long_bps: o.ltv_long_bps,
-            thin_ltv_long_bps: o.thin_ltv_long_bps,
-            apr_bps: o.apr_bps,
-            slice_bps: o.slice_bps,
-            crash_guard_bps: o.crash_guard_bps,
-            settle_ema_blocks: o.settle_ema_blocks,
-            new_subnet_min_age: o.new_subnet_min_age,
-            new_subnet_ramp: o.new_subnet_ramp,
-            ema_band_bps: 1_500,
-        })
-    }) {
-        Ok(_) => {
-            HasMigrationRun::<T>::insert(&migration_name, true);
-            weight.saturating_add(T::DbWeight::get().writes(1))
-        }
-        Err(_) => {
-            // Leave the guard clear so a subsequent upgrade can retry.
-            weight
-        }
+    weight = weight.saturating_add(T::DbWeight::get().reads(1));
+    let key = LiftParamsStore::<T>::hashed_key();
+    let Some(bytes) = unhashed::get_raw(&key) else {
+        // Empty storage: ValueQuery Default already has ema_band_bps.
+        HasMigrationRun::<T>::insert(&migration_name, true);
+        return weight.saturating_add(T::DbWeight::get().writes(1));
+    };
+
+    if LiftParams::decode_all(&mut &bytes[..]).is_ok() {
+        // Already current layout — stamped no-op (audit L6).
+        HasMigrationRun::<T>::insert(&migration_name, true);
+        return weight.saturating_add(T::DbWeight::get().writes(1));
     }
+
+    if let Ok(old) = LiftParamsBeforeEmaBand::decode_all(&mut &bytes[..]) {
+        LiftParamsStore::<T>::put(from_before(old));
+        HasMigrationRun::<T>::insert(&migration_name, true);
+        weight = weight.saturating_add(T::DbWeight::get().writes(2));
+    }
+    // Undecodable: leave guard clear for a later upgrade retry.
+    weight
 }
 
 pub struct Migration<T: Config>(PhantomData<T>);
@@ -77,38 +92,14 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
     #[cfg(feature = "try-runtime")]
     fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
         let already_run = HasMigrationRun::<T>::get(migration_key());
-        // Decode the on-disk blob as either the pre-band layout or the current
-        // layout. `LiftParamsStore::get()` cannot see the old encoding and would
-        // substitute Default, invalidating the preservation check.
-        let raw = frame_support::storage::unhashed::get_raw(&LiftParamsStore::<T>::hashed_key());
-        // DecodeAll: LiftParamsBeforeEmaBand is a SCALE prefix of LiftParams, so
-        // plain Decode would accept current-layout values as "pre-band" and leave
-        // trailing ema_band_bps unread — breaking the already-run no-op check.
+        let raw = unhashed::get_raw(&LiftParamsStore::<T>::hashed_key());
         let snapshot = match raw.as_deref() {
             None => None,
             Some(bytes) => {
                 if let Ok(old) = LiftParamsBeforeEmaBand::decode_all(&mut &bytes[..]) {
-                    Some(LiftParams {
-                        floor_bps: old.floor_bps,
-                        thin_floor_bps: old.thin_floor_bps,
-                        ref_tao: old.ref_tao,
-                        move_bps: old.move_bps,
-                        ceiling_bps: old.ceiling_bps,
-                        split_short_bps: old.split_short_bps,
-                        rebalance_target_bps: old.rebalance_target_bps,
-                        rebalance_rate_bps: old.rebalance_rate_bps,
-                        thin_tao: old.thin_tao,
-                        ltv_short_bps: old.ltv_short_bps,
-                        ltv_long_bps: old.ltv_long_bps,
-                        thin_ltv_long_bps: old.thin_ltv_long_bps,
-                        apr_bps: old.apr_bps,
-                        slice_bps: old.slice_bps,
-                        crash_guard_bps: old.crash_guard_bps,
-                        settle_ema_blocks: old.settle_ema_blocks,
-                        new_subnet_min_age: old.new_subnet_min_age,
-                        new_subnet_ramp: old.new_subnet_ramp,
-                        ema_band_bps: 0,
-                    })
+                    let mut p = from_before(old);
+                    p.ema_band_bps = 0;
+                    Some(p)
                 } else if let Ok(cur) = LiftParams::decode_all(&mut &bytes[..]) {
                     Some(cur)
                 } else {

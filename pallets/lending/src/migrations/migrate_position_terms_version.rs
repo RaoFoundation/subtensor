@@ -14,6 +14,10 @@ use frame_support::{BoundedVec, storage::unhashed, traits::OnRuntimeUpgrade, wei
 #[cfg(feature = "try-runtime")]
 use sp_runtime::TryRuntimeError;
 
+#[cfg(feature = "try-runtime")]
+use sp_runtime::traits::Zero;
+use sp_runtime::traits::{SaturatedConversion, Saturating};
+
 use crate::*;
 
 fn migration_key() -> BoundedVec<u8, MigrationKeyMaxLen> {
@@ -45,6 +49,10 @@ impl<AccountId, BlockNumber> PositionBeforeTermsVersion<AccountId, BlockNumber> 
         AccountId: Into<T::AccountId>,
         BlockNumber: Into<BlockNumberFor<T>>,
     {
+        let expires_at: BlockNumberFor<T> = self.expires_at.into();
+        let blocks_per_year = T::BlocksPerYear::get();
+        // Pre-exposure rows: derive the young-short clock from the v1 term end.
+        let last_exposure_added_at = expires_at.saturating_sub(blocks_per_year.saturated_into());
         Position {
             side: self.side,
             custody: self.custody.into(),
@@ -58,11 +66,12 @@ impl<AccountId, BlockNumber> PositionBeforeTermsVersion<AccountId, BlockNumber> 
             last_accrued: self.last_accrued.into(),
             interest_remainder: self.interest_remainder,
             due: self.due.into(),
-            expires_at: self.expires_at.into(),
+            expires_at,
             expiry_due: self.expiry_due.into(),
             terms_version: TERMS_VERSION_V1,
             interest_period: T::InterestPeriod::get(),
-            blocks_per_year: T::BlocksPerYear::get(),
+            blocks_per_year,
+            last_exposure_added_at,
         }
     }
 }
@@ -140,6 +149,10 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
 
     #[cfg(feature = "try-runtime")]
     fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
+        // Assert only what this migration owns: every row decodes, count is
+        // unchanged, and cadence snapshots are present. Do not assert
+        // terms_version / expires_at — PositionMaxDurationMigration rewrites
+        // those later in the Executive chain (audit H4).
         let expected: Vec<(T::AccountId, NetUid, PositionOf<T>)> =
             Decode::decode(&mut &state[..]).map_err(|_| "pre_upgrade state must decode")?;
         ensure!(
@@ -154,14 +167,22 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
             Positions::<T>::iter().count() == expected.len(),
             "migration must not add or drop positions"
         );
-        for (owner, netuid, position) in expected {
+        for (owner, netuid, before) in expected {
+            let after =
+                Positions::<T>::get(&owner, netuid).ok_or("migrated position must remain")?;
             ensure!(
-                Positions::<T>::get(&owner, netuid).as_ref() == Some(&position),
-                "migration must preserve every Position field"
-            );
-            ensure!(
-                position.terms_version == TERMS_VERSION_V1,
-                "migrated positions must be terms v1"
+                after.side == before.side
+                    && after.custody == before.custody
+                    && after.principal == before.principal
+                    && after.collateral == before.collateral
+                    && after.proceeds == before.proceeds
+                    && after.escrow_alpha == before.escrow_alpha
+                    && after.lift_tao == before.lift_tao
+                    && after.lift_alpha == before.lift_alpha
+                    && after.annual_interest == before.annual_interest
+                    && after.interest_period > Zero::zero()
+                    && after.blocks_per_year > 0,
+                "terms migration must preserve economics and seed cadence snapshots"
             );
         }
         Ok(())

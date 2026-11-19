@@ -1,9 +1,8 @@
-//! Append `short_sold_alpha` (default 0) to stored [`LiftBook`](crate::LiftBook).
+//! Append `short_sold_alpha` to stored [`LiftBook`](crate::LiftBook).
 //!
-//! Pre-v5.8 layouts decode as [`LiftBookBeforeShortSold`]. Empty storage is left
-//! empty (`ValueQuery` still supplies [`Default`]). No mainnet positions exist
-//! at the upgrade, so rebuilding from `Positions` is unnecessary — zero is
-//! correct, and subsequent opens track the aggregate.
+//! Pre-v5.8 layouts decode as [`LiftBookBeforeShortSold`]. When open short
+//! positions exist, rebuild `short_sold_alpha` as Σ short `principal` on that
+//! netuid (Greg audit H5). Empty books stay empty.
 use core::marker::PhantomData;
 
 use alloc::vec::Vec;
@@ -36,7 +35,7 @@ pub struct LiftBookBeforeShortSold {
 }
 
 impl LiftBookBeforeShortSold {
-    fn into_current(self) -> LiftBook {
+    fn into_current(self, short_sold_alpha: u64) -> LiftBook {
         LiftBook {
             l_s: self.l_s,
             l_l: self.l_l,
@@ -48,9 +47,27 @@ impl LiftBookBeforeShortSold {
             long_collateral_alpha: self.long_collateral_alpha,
             g_ema: self.g_ema,
             last: self.last,
-            short_sold_alpha: 0,
+            short_sold_alpha,
         }
     }
+}
+
+/// Σ open short principals on `netuid` (force-sold alpha still outstanding).
+fn short_sold_from_positions<T: Config>(netuid: NetUid) -> (u64, u64) {
+    let mut sum = 0u64;
+    let mut reads = 0u64;
+    for (owner, ()) in OpenByNetuid::<T>::iter_prefix(netuid) {
+        reads = reads.saturating_add(1);
+        if let Some(position) = Positions::<T>::get(&owner, netuid) {
+            reads = reads.saturating_add(1);
+            if matches!(position.side, Side::Short) {
+                sum = sum.saturating_add(position.principal);
+            }
+        } else {
+            reads = reads.saturating_add(1);
+        }
+    }
+    (sum, reads)
 }
 
 /// Idempotent: guarded by [`HasMigrationRun`], and each row is rewritten only
@@ -72,7 +89,9 @@ pub fn migrate_lift_book_short_sold<T: Config>() -> Weight {
             continue;
         };
         if let Ok(old) = LiftBookBeforeShortSold::decode_all(&mut &bytes[..]) {
-            Lifts::<T>::insert(netuid, old.into_current());
+            let (short_sold, reads) = short_sold_from_positions::<T>(netuid);
+            weight = weight.saturating_add(T::DbWeight::get().reads(reads));
+            Lifts::<T>::insert(netuid, old.into_current(short_sold));
             weight = weight.saturating_add(T::DbWeight::get().writes(1));
         } else if LiftBook::decode_all(&mut &bytes[..]).is_err() {
             undecodable = undecodable.saturating_add(1);
@@ -100,7 +119,8 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
             let bytes = unhashed::get_raw(&Lifts::<T>::hashed_key_for(netuid))
                 .ok_or("Lifts key must have a value")?;
             let book = if let Ok(old) = LiftBookBeforeShortSold::decode_all(&mut &bytes[..]) {
-                old.into_current()
+                let (short_sold, _) = short_sold_from_positions::<T>(netuid);
+                old.into_current(short_sold)
             } else if let Ok(cur) = LiftBook::decode_all(&mut &bytes[..]) {
                 cur
             } else {

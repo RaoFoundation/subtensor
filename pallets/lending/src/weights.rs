@@ -55,7 +55,6 @@ pub trait WeightInfo {
 	fn repay() -> Weight;
 	fn set_enabled() -> Weight;
 	fn set_lift_params() -> Weight;
-	fn set_min_price_impact() -> Weight;
 	fn warm_reference() -> Weight;
 	fn collect() -> Weight;
 	fn update_reference() -> Weight;
@@ -863,13 +862,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Minimum execution time: 3_414_000 picoseconds.
 		Weight::from_parts(3_586_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
-	}
-	fn set_min_price_impact() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `0`
-		//  Estimated: `0`
-		// Minimum execution time: 123_000 picoseconds.
-		Weight::from_parts(153_000, 0)
 	}
 	/// Storage: `Lending::Enabled` (r:1 w:0)
 	/// Proof: `Lending::Enabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
@@ -1952,13 +1944,6 @@ impl WeightInfo for () {
 		// Minimum execution time: 3_414_000 picoseconds.
 		Weight::from_parts(3_586_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
-	}
-	fn set_min_price_impact() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `0`
-		//  Estimated: `0`
-		// Minimum execution time: 123_000 picoseconds.
-		Weight::from_parts(153_000, 0)
 	}
 	/// Storage: `Lending::Enabled` (r:1 w:0)
 	/// Proof: `Lending::Enabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)

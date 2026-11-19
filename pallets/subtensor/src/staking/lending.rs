@@ -8,6 +8,7 @@ use frame_support::{
     traits::tokens::{Fortitude, Preservation, fungible::Inspect},
     transactional,
 };
+use pallet_alpha_assets::AlphaAssetsInterface;
 use pallet_lending::LendingPoolInterface;
 use sp_runtime::traits::AccountIdConversion;
 use substrate_fixed::types::U64F64;
@@ -61,9 +62,11 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
     }
 
     fn quote_may_round_to_zero(error: &DispatchError) -> bool {
+        // Only a verified dust miss (AmountTooLow) may forfeit. ReservesTooLow /
+        // TerminalLiquidity means the pool cannot fill the sale — keep the
+        // claim and retry later (ExpiryRetry). Never infer dust from liquidity
+        // failure (Greg Zaitsev P1-a).
         *error == Error::<T>::AmountTooLow.into()
-            || T::SwapInterface::classify_failure(error)
-                == subtensor_swap_interface::SwapFailureKind::TerminalLiquidity
     }
 
     fn buy_spendable_tao(account: &T::AccountId) -> TaoBalance {
@@ -470,9 +473,13 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
     }
 
     fn all_alpha_for_lending_settlement(netuid: NetUid) -> u128 {
-        // §13: always include pool alpha on every subnet (legacy and new).
-        u128::from(SubnetAlphaIn::<T>::get(netuid).to_u64())
-            .saturating_add(u128::from(SubnetAlphaOut::<T>::get(netuid).to_u64()))
+        // §13: pool In + circulating Out, minus burned alpha. Ordinary burns
+        // leave SubnetAlphaOut intact and record AlphaBurned separately, so
+        // eligible Out must subtract burns (Greg Zaitsev P1-c).
+        let alpha_out = u128::from(SubnetAlphaOut::<T>::get(netuid).to_u64());
+        let burned = u128::from(T::AlphaAssets::alpha_burned(netuid).to_u64());
+        let eligible_out = alpha_out.saturating_sub(burned);
+        u128::from(SubnetAlphaIn::<T>::get(netuid).to_u64()).saturating_add(eligible_out)
     }
 
     fn moving_alpha_price(netuid: NetUid) -> U64F64 {
