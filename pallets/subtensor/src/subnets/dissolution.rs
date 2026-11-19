@@ -417,6 +417,7 @@ impl<T: Config> Pallet<T> {
         BondsPenalty::<T>::remove(netuid);
         BondsResetOn::<T>::remove(netuid);
         WeightsSetRateLimit::<T>::remove(netuid);
+        MaxTimelockedCommitsPerHotkey::<T>::remove(netuid);
         ValidatorPruneLen::<T>::remove(netuid);
         ScalingLawPower::<T>::remove(netuid);
         TargetRegistrationsPerInterval::<T>::remove(netuid);

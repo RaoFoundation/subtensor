@@ -956,9 +956,13 @@ DESCRIPTIONS: dict[str, str] = {
         "mechanism count so their product stays within the limit."
     ),
     "TooManyUnrevealedCommits": (
-        "`commit_weights` (or a CRv3 commit) failed because the hotkey already has 10 "
-        "unrevealed commits queued on the subnet. Inspect `WeightCommits` for the hotkey and "
-        "reveal or let old commits expire before committing again."
+        "Legacy hash commits (`commit_weights` and `commit_mechanism_weights`) reached their "
+        "fixed limit of 10 unexpired entries in `WeightCommits` for this hotkey and mechanism. "
+        "Reveal one or wait for it to expire. For a Yuma CRv3 timelocked commit, the hotkey "
+        "reached the subnet's `MaxTimelockedCommitsPerHotkey` limit in the current mechanism "
+        "and commit epoch. Check that setting and `TimelockedWeightCommits`. A setting of 0 "
+        "pauses new Yuma commits even with an empty queue; root must raise it before retrying. "
+        "Otherwise, retry in a later commit epoch or after root raises the cap."
     ),
     "TransactorAccountShouldBeHotKey": (
         "The extrinsic must be signed by the hotkey itself, but a different account (typically "

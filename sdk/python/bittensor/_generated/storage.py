@@ -242,6 +242,7 @@ class SubtensorModule:
     BondsPenalty = Item('SubtensorModule', 'BondsPenalty', 'u16')
     BondsResetOn = Item('SubtensorModule', 'BondsResetOn', 'bool')
     WeightsSetRateLimit = Item('SubtensorModule', 'WeightsSetRateLimit', 'u64')
+    MaxTimelockedCommitsPerHotkey = Item('SubtensorModule', 'MaxTimelockedCommitsPerHotkey', 'u8')
     ValidatorPruneLen = Item('SubtensorModule', 'ValidatorPruneLen', 'u64')
     ScalingLawPower = Item('SubtensorModule', 'ScalingLawPower', 'u16')
     TargetRegistrationsPerInterval = Item('SubtensorModule', 'TargetRegistrationsPerInterval', 'u16')

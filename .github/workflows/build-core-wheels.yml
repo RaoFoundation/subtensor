@@ -10,10 +10,11 @@ name: Build bittensor-core wheels
 #   macos-15; x86_64 is cross-compiled — Xcode carries both SDKs), plus an
 #   sdist fallback for everything else (requires a Rust toolchain to build).
 #
-# Callers: release-train.yml (rc channel) and watch-mainnet-release.yml
-# (stable). Each job uploads its output as a core-dist-* artifact; the
-# caller's publish job downloads them next to the SDK wheel and pushes
-# everything in one `uv publish`.
+# Callers: release-train.yml (rc channel), watch-mainnet-release.yml
+# (stable, after a runtime finalizes), and publish-python-stable.yml
+# (stable, with no runtime upgrade). Each job uploads its output as a
+# core-dist-* artifact; the caller's publish job downloads them next to
+# the SDK wheel and pushes everything in one `uv publish`.
 
 on:
   workflow_call:

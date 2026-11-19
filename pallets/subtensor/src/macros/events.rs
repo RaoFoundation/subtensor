@@ -1074,5 +1074,7 @@ mod events {
             /// Gamma credited.
             gamma: GammaBalance,
         },
+        /// Maximum Yuma timelocked commits per hotkey and queue epoch was set.
+        MaxTimelockedCommitsPerHotkeySet(NetUid, u8),
     }
 }

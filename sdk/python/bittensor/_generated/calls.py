@@ -1266,6 +1266,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_max_registrations_per_block', {'netuid': netuid, 'max_registrations_per_block': max_registrations_per_block})
 
     @staticmethod
+    def sudo_set_max_timelocked_commits_per_hotkey(netuid: 'NetUid', max_commits: 'u8') -> Call:
+        'Sets the maximum number of timelocked commitments a hotkey may queue in one Yuma subnet mechanism and commit epoch. Zero pauses new admissions; already queued commitments remain eligible to reveal. Root-only.'
+        return Call('AdminUtils', 'sudo_set_max_timelocked_commits_per_hotkey', {'netuid': netuid, 'max_commits': max_commits})
+
+    @staticmethod
     def sudo_set_mechanism_count(netuid: 'NetUid', mechanism_count: 'MechId') -> Call:
         'Sets the desired number of mechanisms in a subnet'
         return Call('AdminUtils', 'sudo_set_mechanism_count', {'netuid': netuid, 'mechanism_count': mechanism_count})

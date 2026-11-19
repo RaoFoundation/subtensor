@@ -22,7 +22,10 @@ once the current epoch moves past that target,
 [`is_commit_expired`](/code/pallets/subtensor/src/subnets/weights.rs#L1206-L1211)
 drops the commit and a late reveal fails with
 [`ExpiredWeightCommit`](/code/pallets/subtensor/src/macros/errors.rs#L180).
-A hotkey may hold at most 10 unrevealed commits.
+Legacy hash commits have a fixed limit of 10 unexpired entries per hotkey and
+mechanism. Yuma timelocked (CRv3) commits instead use the sudo-configured
+`MaxTimelockedCommitsPerHotkey` limit per hotkey, mechanism, and commit epoch.
+Setting that limit to 0 pauses new Yuma commits, even for an empty queue.
 
 The value is bounded on-chain:
 [`set_reveal_period`](/code/pallets/subtensor/src/subnets/weights.rs#L1213-L1228)
