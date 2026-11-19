@@ -314,6 +314,9 @@ INTENT_SAMPLES: dict[str, dict] = {
         "repay_from_wallet": False,
         "valid_until": 10**9,
     },
+    "roll_loan": {
+        "netuid": 1,
+    },
 }
 
 
