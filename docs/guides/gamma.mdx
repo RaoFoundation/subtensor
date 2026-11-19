@@ -1,6 +1,6 @@
 ---
 title: Gamma
-description: Dollar-valued service credits minted by burning a subnet's alpha, held in deposits keyed by API-key hotkeys and spent by each deposit's spender.
+description: Dollar-valued service credits minted by burning a subnet's alpha, held in deposits keyed by API-key hotkeys and spent by each hotkey at the subnet's services.
 ---
 
 Gamma is a credit a subnet can accept as payment for its service, valued in US
@@ -11,17 +11,16 @@ can also buy it with [shares of their emission](/docs/concepts/emission-weights#
 
 Gamma is held in **deposits**. Each deposit belongs to a coldkey and is keyed by
 a hotkey, which [signs](/docs/guides/signed-requests) the customer's requests to the service, so the hotkey
-works as an API key. The deposit's **spender** spends it as it serves those
-requests.
+works as an API key. The hotkey spends the deposit at the service, which credits
+it with what it spent.
 
 The API-key hotkey can be unassociated. If it is already associated with a
 coldkey, only that coldkey can open a deposit at it, including by moving gamma
 into a new deposit. This prevents someone else from reserving an owned hotkey's
 deposit slot, including a subnet owner's hotkey used to receive gamma emission.
-The funding coldkey controls the deposit's spender, daily cap, and balance.
-The key holder signs service requests; the configured spender charges gamma
-on chain. Moving the balance to another API key revokes access to those credits
-through the old key.
+The funding coldkey controls the deposit's daily cap and balance. The key
+holder signs service requests and spends the gamma on chain. Moving the balance
+to another API key revokes access to those credits through the old key.
 
 There is only one deposit per `(netuid, hotkey)`. If another coldkey has already
 opened that slot, use another API key; staking ownership does not grant control
@@ -32,12 +31,11 @@ TAO. Amounts are in gamma, with 10^9 units per gamma.
 
 | Role | Can |
 |---|---|
-| Coldkey | mint into its deposits, move gamma between them, set each deposit's spender and daily spend cap, close empty deposits |
-| Hotkey | nothing on chain; it signs requests to the service |
-| Validator or subnet owner hotkey | publish a [service](/docs/guides/services) and its spender on its subnet, signed by its coldkey |
-| Spender | spend the deposits that name it, directly or through a `GammaSpend` proxy |
-| Subnet owner | enable gamma on its subnet with [`gamma_enabled`](/docs/hyperparameters/gamma-enabled); pay shares of its subnet's emission into other subnets' gamma; spender of the deposits a mint opens while it owns the subnet, unless its hotkey's service names another or a lease owns it |
-| Lease beneficiary | enable gamma through its `SubnetLeaseBeneficiary` proxy; spender of the deposits a mint opens while its lease owns the subnet, unless the subnet owner hotkey's service, which it publishes through that proxy, names another |
+| Coldkey | mint into its deposits, move gamma between them, set each deposit's daily spend cap, close empty deposits |
+| Hotkey | spend its deposit at the subnet's services, without a fee; sign requests to them |
+| Validator or subnet owner hotkey | publish a [service](/docs/guides/services) on its subnet, signed by its coldkey |
+| Subnet owner | enable gamma on its subnet with [`gamma_enabled`](/docs/hyperparameters/gamma-enabled); pay shares of its subnet's emission into other subnets' gamma |
+| Lease beneficiary | enable gamma and publish the subnet owner hotkey's service through its `SubnetLeaseBeneficiary` proxy |
 | Root | enable gamma network-wide and on any subnet but root, whitelist subnets for gamma emission, and set the TAO/USD price oracle |
 | Oracle | feed the TAO/USD price |
 
@@ -45,23 +43,17 @@ TAO. Amounts are in gamma, with 10^9 units per gamma.
 
 Minting needs gamma enabled on the subnet and a fresh
 [TAO/USD price](#the-taousd-price). Mint with TAO into a deposit at a fresh
-hotkey, for a service the subnet lists with [`services`](/docs/query/services):
+hotkey:
 
 ```bash
 btcli wallet new-hotkey -H API_KEY
-btcli query services --netuid 1
-btcli gamma mint --netuid 1 --hotkey API_KEY --amount-tao 10 --service-hotkey SERVICE_HOTKEY
+btcli gamma mint --netuid 1 --hotkey API_KEY --amount-tao 10
 ```
 
 ```python
 quote = await client.gamma.quote_mint_gamma(netuid=1, amount_tao=10)
-await client.execute(
-    bt.MintGamma(netuid=1, hotkey_ss58=api_key, amount_tao=10, service_hotkey_ss58=service), wallet
-)
+await client.execute(bt.MintGamma(netuid=1, hotkey_ss58=api_key, amount_tao=10), wallet)
 ```
-
-`--service-hotkey` names the spender the service publishes, so the service can
-spend the deposit.
 
 [`mint-gamma`](/docs/tx/mint-gamma) buys alpha with the TAO and burns it, with
 the same pool and flow accounting as [`stake-burn`](/docs/tx/stake-burn), and
@@ -70,7 +62,7 @@ creates no stake position.
 already hold instead:
 
 ```bash
-btcli gamma mint-with-stake --netuid 1 --hotkey API_KEY --origin-hotkey VALIDATOR --amount-alpha 100 --service-hotkey SERVICE_HOTKEY
+btcli gamma mint-with-stake --netuid 1 --hotkey API_KEY --origin-hotkey VALIDATOR --amount-alpha 100
 ```
 
 `--amount-alpha all` burns the whole stake.
@@ -96,7 +88,7 @@ The SDK quotes the mint first and fails it if the minted gamma would fall more
 than `rate_tolerance` (5% by default) below the quote. The with-stake quote
 assumes the whole amount is burned; the SDK quotes no more than the stake you
 hold. Once the mint runs, `result.data["minted"]` holds the deposit's
-`hotkey_ss58`, `spender_ss58` and `daily_spend_cap_gamma`, and the
+`hotkey_ss58` and `daily_spend_cap_gamma`, and the
 `alpha_burned`, `tao_value` and `gamma` minted, as exact decimal strings.
 
 A mint fails with [`GammaDisabled`](/docs/errors/chain/GammaDisabled) while
@@ -112,9 +104,8 @@ mint above the add-stake swap input limit fails with
 moving into a hotkey whose deposit belongs to another coldkey fails with
 [`NonAssociatedColdKey`](/docs/errors/chain/NonAssociatedColdKey).
 
-Through a proxy, minting and moving need an `Any` or `NonCritical` proxy.
-Setting a deposit's spender or daily spend cap and closing it also take a
-`NonTransfer` proxy.
+Through a proxy, minting, moving and setting a deposit's daily spend cap need an
+`Any` or `NonCritical` proxy, and closing it also takes a `NonTransfer` proxy.
 
 ## Deposits and API keys
 
@@ -137,94 +128,64 @@ btcli gamma move --netuid 1 --origin-hotkey THEIR_KEY --destination-hotkey API_K
 ```
 
 [`move-gamma`](/docs/tx/move-gamma) to a hotkey with no deposit opens one with
-the origin's spender and daily spend cap. A move that empties the origin closes
-it. A deposit spent to zero stays open with its terms, so it can be refilled,
+the origin's daily spend cap. A move takes the whole balance, or at least 0.1
+gamma leaving at least as much, and one that empties the origin closes it. A
+deposit spent to zero stays open with its cap, so it can be refilled,
 until it is closed with [`close-gamma-deposit`](/docs/tx/close-gamma-deposit):
 
 ```bash
 btcli gamma close --netuid 1 --hotkey API_KEY
 ```
 
-## Spenders and daily spend caps
-
-The spender stays the same if the subnet changes hands. Name another account
-with [`set-gamma-deposit-spender`](/docs/tx/set-gamma-deposit-spender) and
-`--spender SPENDER`, a service's spender with `--service-hotkey SERVICE_HOTKEY`,
-or `--default-spender` for the spender of the subnet owner's service, otherwise
-the subnet's current owner, or its lease's beneficiary:
-
-```bash
-btcli gamma set-spender --netuid 1 --hotkey API_KEY --service-hotkey SERVICE_HOTKEY
-```
+## Daily spend caps
 
 A daily spend cap, set with
 [`set-gamma-deposit-daily-spend-cap`](/docs/tx/set-gamma-deposit-daily-spend-cap),
-bounds what the spender can take. What it allows refills linearly at the cap
+bounds what the hotkey can spend. What it allows refills linearly at the cap
 per 7200 blocks, up to the cap. A cap set where there was none starts full, and
 a changed cap keeps what it allows now, up to the new cap, so ending a pause
 refills from nothing. A cap of zero pauses the deposit, and `--remove-cap`
 removes the cap.
 
-While a deposit has a cap, a spender takes at most the highest cap plus its
+While a deposit has a cap, its hotkey spends at most the highest cap plus its
 refill over any period. A deposit opened with a cap starts full.
 
 ```bash
 btcli gamma set-cap --netuid 1 --hotkey API_KEY --daily-spend-cap-gamma 20
 ```
 
-A mint can name a new deposit's terms with `--spender SPENDER` or
-`--service-hotkey SERVICE_HOTKEY`, and `--daily-spend-cap-gamma 20`, so the
-deposit never opens on others. A deposit that already has other terms fails the
-mint with
-[`GammaDepositSpenderMismatch`](/docs/errors/chain/GammaDepositSpenderMismatch)
-or
+A mint can name a new deposit's cap with `--daily-spend-cap-gamma 20`, so the
+deposit never opens without it. A deposit that already has another cap fails
+the mint with
 [`GammaDepositDailySpendCapMismatch`](/docs/errors/chain/GammaDepositDailySpendCapMismatch).
 
 ## Spending
 
-The spender spends many deposits in one [`spend-gamma`](/docs/tx/spend-gamma)
-call, up to 512 entries of a hotkey, an amount and a reference:
+The hotkey spends its deposit at a service the subnet lists with
+[`services`](/docs/query/services), with [`spend-gamma`](/docs/tx/spend-gamma)
+signed by the hotkey:
 
 ```bash
-btcli gamma spend --netuid 1 --spend API_KEY=0.25:0xREFERENCE --spend OTHER_KEY=1.5
+btcli query services --netuid 1
+btcli gamma spend --netuid 1 --service-hotkey SERVICE_HOTKEY --amount-gamma 5 -H API_KEY
 ```
 
 ```python
-result = await client.execute(
-    bt.SpendGamma(
-        netuid=1,
-        spends=[{"hotkey_ss58": api_key, "amount_gamma": 0.25, "reference": reference}],
-    ),
-    spender,
-)
+api_key = bt.Wallet(name="my_coldkey", hotkey="API_KEY")
+await client.execute(bt.SpendGamma(netuid=1, service_hotkey_ss58=service, amount_gamma=5), api_key)
 ```
 
-Each entry spends its whole amount, and the spent gamma is destroyed. Entries
-whose hotkey has no deposit, whose deposit names another spender, or whose
-amount is zero or above the deposit's balance or what its daily spend cap
-allows now, are skipped, and cost less as they write nothing.
-`spendable_gamma` in [`gamma-deposit`](/docs/query/gamma-deposit) is what an
-entry can spend now. Once the spend runs, `result.data["spent"]` lists each
-entry that spent, with its `hotkey_ss58`, `amount_gamma` as an exact decimal
-string, and `reference`, and `result.data["skipped"]` lists each entry that was
-skipped, with the chain error that skipped it as `reason`, such as
-`InsufficientGammaBalance`.
+A spend destroys its amount and adds it to what the hotkey has spent at the
+service, [`gamma-spent`](/docs/query/gamma-spent), which the service credits to
+the hotkey (see [Subnet services](/docs/guides/services#accepting-gamma)).
 
-A reference is any 32 bytes, all zero when omitted. The chain repeats it in the
-entry's `GammaSpent` or `GammaSpendSkipped` event and reads it nowhere else, so
-an entry sent twice spends twice. By convention it is the service's own 32-byte id for the request
-the entry pays for, returned with its response, so the customer can match each
-spend to its own request.
-
-Since the coldkey can change the spender or pause the deposit at any time, a
-service spends ahead: it spends what it is about to serve, and serves what was
-spent. The spender can hand this right to a `GammaSpend` proxy, which can
-make no other call and spends with `--proxy-for` (`proxy_for=` in Python):
-
-```bash
-btcli proxy add --delegate BILLING_KEY --proxy-type GammaSpend -w SERVICE
-btcli gamma spend --netuid 1 --spend API_KEY=0.25 -w BILLING_KEY --proxy-for SERVICE
-```
+A spend is at least 0.1 gamma unless it empties the deposit, and within the
+deposit's balance and what its daily spend cap allows now: `spendable_gamma` in
+[`gamma-deposit`](/docs/query/gamma-deposit). It pays no fee, so the hotkey
+needs no TAO; the chain refuses a spend that would fail before it enters a
+block. A hotkey has one spend pending per subnet: a second is refused until the
+first is in a block. A spend at a hotkey with no service on the subnet is
+refused.
 
 ## The TAO/USD price
 
@@ -245,21 +206,14 @@ btcli query tao-usd-price
 
 - Gamma confers no claim on any party and cannot be redeemed. A subnet decides
   whether, and at what prices, it accepts its gamma.
-- Dissolving or pruning a subnet destroys all of its gamma, and holders receive
-  nothing.
-- Spent gamma pays its spender nothing: the burned alpha's value accrues to the
-  subnet's alpha holders.
+- Dissolving or pruning a subnet destroys all of its gamma and clears what was
+  spent at its services, and holders receive nothing.
+- Spent gamma pays the service nothing on chain: the burned alpha's value
+  accrues to the subnet's alpha holders.
 - While a coldkey swap is announced, the coldkey's gamma calls are refused, but
-  its spenders keep spending. A spender whose own swap is announced cannot
-  spend.
+  its deposits' hotkeys keep spending.
 - A coldkey swap adds the coldkey's deposits to the new coldkey's. It fails if
   the new coldkey would hold more than 64 on a subnet, and is refused when the
   two coldkeys hold more than 128 together.
-- A spender's coldkey swap does not change any deposit's or service's spender.
-  After a subnet owner or lease beneficiary swaps its coldkey, the deposits and
-  the owner's service that name the old coldkey keep it. The owner republishes
-  its service, and a deposit's coldkey re-points it with
-  `btcli gamma set-spender --default-spender`. An owner whose service names a
-  spender that never needs a swap, such as a multisig, needs neither.
 - The oracle is trusted: its accepted price can rise at most about 61% per day,
   until root replaces or removes it.

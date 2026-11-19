@@ -317,14 +317,14 @@ def test_rotation_migrates_controller_allow_without_restoring_old_key(monkeypatc
     chain = _Chain(
         [
             {"delegate": old.ss58_address, "proxy_type": "Any", "delay": DELAY},
-            {"delegate": old.ss58_address, "proxy_type": "GammaSpend", "delay": 0},
+            {"delegate": old.ss58_address, "proxy_type": "BasketTrading", "delay": 0},
         ]
     )
     ctx = _context(monkeypatch, chain, {"old": receiving_address(old)})
     record = _record(
         old,
         pure,
-        allows=["GammaSpend"],
+        allows=["BasketTrading"],
         allow_key_ss58=receiving_address(old),
     )
 
@@ -337,10 +337,10 @@ def test_rotation_migrates_controller_allow_without_restoring_old_key(monkeypatc
     )
     chain.apply({"op": "batch", "intents": children})
 
-    assert migrated == ["GammaSpend"]
+    assert migrated == ["BasketTrading"]
     assert not any(grant["delegate"] == old.ss58_address for grant in chain.grants)
     assert {"delegate": new.ss58_address, "proxy_type": "Any", "delay": DELAY} in chain.grants
-    assert {"delegate": new.ss58_address, "proxy_type": "GammaSpend", "delay": 0} in chain.grants
+    assert {"delegate": new.ss58_address, "proxy_type": "BasketTrading", "delay": 0} in chain.grants
 
 
 # PR #3305: hashed identities must not leave a revoked controller able to spend protected funds.

@@ -697,37 +697,6 @@ def _pure_created_data(result: ExtrinsicResult) -> dict[str, Any]:
     return data
 
 
-def _gamma_spent_data(result: ExtrinsicResult) -> dict[str, Any]:
-    """What each spend entry did, in order: ``spent`` lists the entries that spent, and
-    ``skipped`` the others with the chain error that skipped them as ``reason``.
-
-    Nothing while the spend has not run: submitted without waiting, or a multisig
-    approval short of its threshold.
-    """
-    events = {_event_parts(entry)[:2] for entry in result.events}
-    if not events or events & {("Multisig", "NewMultisig"), ("Multisig", "MultisigApproval")}:
-        return {}
-    spent: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = []
-    for entry in result.events:
-        module_id, event_id, attributes, _ = _event_parts(entry)
-        if module_id != "SubtensorModule" or not isinstance(attributes, dict):
-            continue
-        if event_id not in ("GammaSpent", "GammaSpendSkipped"):
-            continue
-        entry_data = {
-            "hotkey_ss58": str(attributes["hotkey"]),
-            "amount_gamma": gamma_from_units(attributes["amount"]),
-            "reference": str(attributes["reference"]),
-        }
-        if event_id == "GammaSpent":
-            spent.append(entry_data)
-        else:
-            reason = chain_error_from_dispatch(attributes["reason"])
-            skipped.append({**entry_data, "reason": reason.name or reason.message})
-    return {"spent": spent, "skipped": skipped}
-
-
 def _gamma_minted_data(result: ExtrinsicResult) -> dict[str, Any]:
     """What a mint credited, from its ``GammaMinted`` event.
 
@@ -742,7 +711,6 @@ def _gamma_minted_data(result: ExtrinsicResult) -> dict[str, Any]:
     return {
         "minted": {
             "hotkey_ss58": str(attributes["hotkey"]),
-            "spender_ss58": str(attributes["spender"]),
             "daily_spend_cap_gamma": None if cap is None else gamma_from_units(cap),
             "alpha_burned": format(alpha.decimal, "f"),
             "tao_value": format(Balance.from_rao(int(attributes["value"])).decimal, "f"),
@@ -1341,8 +1309,6 @@ class Executor:
             semantic_intent = await _coerce_addresses(self.substrate, intent.semantic_intent())
             if semantic_intent.op == "create_pure_proxy":
                 data.update(_pure_created_data(result))
-            if semantic_intent.op == "spend_gamma":
-                data.update(_gamma_spent_data(result))
             if semantic_intent.op in ("mint_gamma", "mint_gamma_with_stake"):
                 data.update(_gamma_minted_data(result))
             data.update(plan.extras)
@@ -1503,8 +1469,6 @@ class Executor:
         )
         if result.success and semantic_intent.op == "create_pure_proxy":
             result = replace(result, data={**result.data, **_pure_created_data(result)})
-        if result.success and semantic_intent.op == "spend_gamma":
-            result = replace(result, data={**result.data, **_gamma_spent_data(result)})
         if result.success and semantic_intent.op in ("mint_gamma", "mint_gamma_with_stake"):
             result = replace(result, data={**result.data, **_gamma_minted_data(result)})
         if (

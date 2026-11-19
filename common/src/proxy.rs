@@ -127,7 +127,11 @@ impl ProxyType {
     pub fn is_deprecated(&self) -> bool {
         matches!(
             self,
-            Self::Triumvirate | Self::Senate | Self::Governance | Self::RootWeights
+            Self::Triumvirate
+                | Self::Senate
+                | Self::Governance
+                | Self::RootWeights
+                | Self::GammaSpend
         )
     }
 }

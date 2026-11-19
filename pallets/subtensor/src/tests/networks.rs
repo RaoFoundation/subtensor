@@ -794,7 +794,6 @@ fn dissolve_clears_all_per_subnet_storages() {
             owner_hot,
             GammaDeposit {
                 coldkey: owner_cold,
-                spender: owner_cold,
                 balance: GammaBalance::from(1),
                 daily_spend_cap: None,
             },
@@ -809,9 +808,9 @@ fn dissolve_clears_all_per_subnet_storages() {
             owner_hot,
             ServiceInfo {
                 url: BoundedVec::truncate_from(b"u".to_vec()),
-                spender: owner_cold,
             },
         );
+        GammaSpent::<Test>::insert((net, owner_hot, owner_hot), GammaBalance::from(1));
 
         // ------------------------------------------------------------------
         // Dissolve
@@ -991,6 +990,9 @@ fn dissolve_clears_all_per_subnet_storages() {
         assert!(!GammaDeposits::<Test>::contains_key(net, owner_hot));
         assert!(!ColdkeyGammaHotkeys::<Test>::contains_key(net, owner_cold));
         assert!(!Services::<Test>::contains_key(net, owner_hot));
+        assert!(!GammaSpent::<Test>::contains_key((
+            net, owner_hot, owner_hot
+        )));
 
         // ------------------------------------------------------------------
         // Final subnet removal confirmation

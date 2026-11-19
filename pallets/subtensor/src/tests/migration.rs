@@ -356,6 +356,45 @@ fn test_migrate_tao_in_refund_deployment_block() {
 }
 
 #[test]
+fn test_migrate_drop_gamma_spenders() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let (coldkey, hotkey, spender) = (U256::from(1), U256::from(2), U256::from(3));
+        let balance = subtensor_runtime_common::GammaBalance::from(7_u64);
+        let daily_spend_cap = Some(GammaDailySpendCap {
+            cap: 5_u64.into(),
+            bucket: (3_u64.into(), 9),
+        });
+        let service = ServiceInfo {
+            url: frame_support::BoundedVec::truncate_from(b"https://example.com".to_vec()),
+        };
+        put(
+            &GammaDeposits::<Test>::hashed_key_for(netuid, hotkey),
+            &(coldkey, spender, balance, daily_spend_cap),
+        );
+        put(
+            &Services::<Test>::hashed_key_for(netuid, hotkey),
+            &(&service.url, spender),
+        );
+
+        crate::migrations::migrate_drop_gamma_spenders::migrate_drop_gamma_spenders::<Test>();
+
+        assert_eq!(
+            GammaDeposits::<Test>::get(netuid, hotkey),
+            Some(GammaDeposit {
+                coldkey,
+                balance,
+                daily_spend_cap,
+            })
+        );
+        assert_eq!(Services::<Test>::get(netuid, hotkey), Some(service));
+        assert!(HasMigrationRun::<Test>::get(
+            b"migrate_drop_gamma_spenders".to_vec()
+        ));
+    });
+}
+
+#[test]
 fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
     new_test_ext(1).execute_with(|| {
         let migration_name = b"migrate_fix_subnet_hotkey_lock_swaps".to_vec();

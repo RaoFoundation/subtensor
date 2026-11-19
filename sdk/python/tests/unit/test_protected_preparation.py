@@ -63,7 +63,6 @@ def test_every_instant_operation_matches_its_runtime_filter(proxy_type):
 @pytest.mark.parametrize(
     "proxy_type,op",
     [
-        ("GammaSpend", "set_gamma_deposit_spender"),
         ("GammaSpend", "set_gamma_deposit_daily_spend_cap"),
         ("ChildKeys", "set_take"),
         ("ChildKeys", "increase_take"),
@@ -105,7 +104,6 @@ def test_root_only_hyperparameter_does_not_use_owner_grant(proxy_type):
     "proxy_type,op",
     [
         ("Staking", "stake_into_basket"),
-        ("GammaSpend", "spend_gamma"),
         ("Validate", "reset_axon"),
         ("SubnetLeaseBeneficiary", "start_call"),
         ("SubnetLeaseBeneficiary", "set_service"),

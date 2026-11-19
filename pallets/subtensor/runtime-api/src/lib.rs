@@ -168,7 +168,7 @@ sp_api::decl_runtime_apis! {
     }
 
     pub trait GammaRuntimeApi {
-        /// The deposit at a hotkey on a subnet, and what its spender can spend from it now.
+        /// The deposit at a hotkey on a subnet, and what its hotkey can spend from it now.
         fn get_gamma_deposit(netuid: NetUid, hotkey: AccountId32) -> Option<GammaDepositInfo<AccountId32>>;
         /// Every deposit of a coldkey, on every subnet.
         fn get_gamma_deposits_for_coldkey(coldkey: AccountId32) -> Vec<GammaDepositInfo<AccountId32>>;
