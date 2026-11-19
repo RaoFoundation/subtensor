@@ -337,17 +337,26 @@ class TestMintPreview:
     @pytest.mark.parametrize(
         ("owner", "deposit", "blocked"),
         [(SIGNER, None, False), (ALICE, None, True),
-         (ss58_encode(bytes(32), 42), None, True), (None, None, True),
+         (ss58_encode(bytes(32), 42), None, True), (None, None, False),
          (ALICE, _deposit(), False)],
-        ids=["owned", "foreign", "unowned", "unread", "top-up"],
+        ids=["owned", "foreign", "stored-zero-owner", "unassociated", "top-up"],
     )  # fmt: skip
+    @pytest.mark.parametrize(
+        "op,args", [("mint_gamma", MINT), ("mint_gamma_with_stake", MINT_STAKE)]
+    )
     @pytest.mark.asyncio
-    async def test_a_new_deposit_requires_the_hotkey_owner(self, owner, deposit, blocked):
+    async def test_a_new_deposit_rejects_another_hotkeys_owner(
+        self, owner, deposit, blocked, op, args
+    ):
         sub = FakeSubstrate()
         sub.seed("SubtensorModule", "Owner", [BOB_HOT], owner)
         sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], deposit)
-        preview = await build("mint_gamma", MINT).preflight(sub, SIGNER, SIGNER)
-        assert any("associate" in block for block in preview.blocks) is blocked
+        preview = await build(op, args).preflight(sub, SIGNER, SIGNER)
+        assert bool(preview.blocks) is blocked
+        if blocked:
+            assert (
+                "hotkey" in preview.blocks[0] and "belongs to another coldkey" in preview.blocks[0]
+            )
 
     @pytest.mark.parametrize(
         ("amount", "staked", "warned"),
@@ -493,6 +502,17 @@ class TestDepositPreviews:
         sub.seed("SubtensorModule", "Owner", [BOB_HOT], SIGNER)
         blocks = await build("move_gamma", {**MOVE, "amount_gamma": "all"}).blocks(sub, SIGNER)
         assert [faulty in block for block in blocks] == ([True] if faulty else [])
+
+    @pytest.mark.parametrize("owner", [SIGNER, ALICE, None, ss58_encode(bytes(32), 42)])
+    @pytest.mark.asyncio
+    async def test_move_opens_only_owned_or_unassociated_api_keys(self, owner):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaDeposits", [1, ALICE_HOT], _deposit(balance=RAO))
+        sub.seed("SubtensorModule", "Owner", [BOB_HOT], owner)
+        blocks = await build("move_gamma", {**MOVE, "amount_gamma": "all"}).blocks(sub, SIGNER)
+        assert bool(blocks) is (owner is not None and owner != SIGNER)
+        if blocks:
+            assert "hotkey" in blocks[0] and "belongs to another coldkey" in blocks[0]
 
     @pytest.mark.parametrize(
         "args",
@@ -787,3 +807,33 @@ def test_unmintable_mint_submits_nothing(fake, monkeypatch):  # noqa: F811
     assert result.exit_code == 1
     assert "GammaDisabled" in result.output
     assert fake.submissions == []
+
+
+@pytest.mark.parametrize(
+    "op,args",
+    [
+        ("mint_gamma", MINT),
+        ("mint_gamma_with_stake", MINT_STAKE),
+        ("move_gamma", {**MOVE, "amount_gamma": "all"}),
+    ],
+)
+@pytest.mark.asyncio
+async def test_new_gamma_deposit_distinguishes_absence_from_default_owner(op, args):
+    sub = FakeSubstrate()
+    # Owner is ValueQuery: missing keys decode to the zero account on a real node.
+    sub.seed_default("SubtensorModule", "Owner", ss58_encode(bytes(32), 42))
+    sub.seed("SubtensorModule", "GammaDeposits", [1, ALICE_HOT], _deposit(balance=RAO))
+    intent = build(op, args)
+    if op == "move_gamma":
+        assert not await intent.blocks(sub, SIGNER)
+    else:
+        assert not (await intent.preflight(sub, SIGNER, SIGNER)).blocks
+
+
+@pytest.mark.asyncio
+async def test_new_gamma_deposit_compares_owner_account_ids_across_ss58_prefixes():
+    from bittensor.sp_core import ss58_decode
+
+    sub = FakeSubstrate()
+    sub.seed("SubtensorModule", "Owner", [BOB_HOT], ss58_encode(ss58_decode(SIGNER), 0))
+    assert not (await build("mint_gamma", MINT).preflight(sub, SIGNER, SIGNER)).blocks

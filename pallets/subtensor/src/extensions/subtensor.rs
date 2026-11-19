@@ -523,10 +523,11 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
     /// Weight of [`Self::check_call_guards`] plus the coldkey-swap gate for one call.
     fn call_guards_weight(call: &CallOf<T>) -> Weight
     where
-        T: pallet_commitments::Config + pallet_shield::Config,
+        T: pallet_commitments::Config + pallet_proxy::Config + pallet_shield::Config,
         CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
             + IsSubType<Call<T>>
             + IsSubType<pallet_commitments::Call<T>>
+            + IsSubType<pallet_proxy::Call<T>>
             + IsSubType<pallet_shield::Call<T>>,
         OriginOf<T>: OriginTrait<AccountId = T::AccountId>,
     {

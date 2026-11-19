@@ -58,14 +58,9 @@ def _live_hotkeys(app_ctx: AppContext, owner: str, include_root: bool) -> list[s
 
 def _stake_owner(app_ctx: AppContext, proxy_for: Optional[str]) -> str:
     """Resolve the coldkey whose live positions ``--all-hotkeys`` should sweep."""
-    effective_proxy = proxy_for
-    if effective_proxy is None:
-        configured = cfg.get("proxy_for")
-        effective_proxy = str(configured) if configured else None
-    if effective_proxy not in (None, "self"):
-        owner = app_ctx.resolve_address("proxy_for", effective_proxy)
-        if owner is not None:
-            return owner
+    owner = app_ctx.resolve_preparation_proxy(proxy_for)
+    if owner is not None:
+        return owner
 
     if app_ctx.uses_external_signer():
         signer_ref = app_ctx.signer_address or cfg.get("signer_address")

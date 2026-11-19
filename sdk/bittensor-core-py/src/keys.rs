@@ -404,11 +404,38 @@ fn verify(message: &[u8], signature: &[u8], ss58_address: &str, crypto_type: u8)
     keys::verify(message, signature, ss58_address, crypto_type).map_err(to_py_err)
 }
 
+/// Verify exactly the supplied bytes without a `<Bytes>` wrapper retry.
+#[pyfunction]
+#[pyo3(signature = (message, signature, ss58_address, crypto_type=CRYPTO_SR25519))]
+fn verify_strict(
+    message: &[u8],
+    signature: &[u8],
+    ss58_address: &str,
+    crypto_type: u8,
+) -> PyResult<bool> {
+    keys::verify_strict(message, signature, ss58_address, crypto_type).map_err(to_py_err)
+}
+
 /// Decode an SS58 address to its 32-byte account identity.
 #[pyfunction]
 fn ss58_decode<'py>(py: Python<'py>, ss58_address: &str) -> PyResult<Bound<'py, PyBytes>> {
     let public_key = keys::public_key_from_ss58(ss58_address).map_err(to_py_err)?;
     Ok(PyBytes::new(py, &public_key))
+}
+
+/// Encode a compressed 33-byte secp256k1 public key as an SS58 address
+/// (the account id is `blake2_256(compressed_pubkey)`).
+#[pyfunction]
+#[pyo3(signature = (public_key, ss58_format=DEFAULT_SS58_FORMAT))]
+fn ecdsa_ss58_encode(public_key: &[u8], ss58_format: u16) -> PyResult<String> {
+    keys::ss58_from_ecdsa_public(public_key, ss58_format).map_err(to_py_err)
+}
+
+/// Account id (32 bytes) of a compressed 33-byte secp256k1 public key.
+#[pyfunction]
+fn ecdsa_account_id<'py>(py: Python<'py>, public_key: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
+    let account = keys::account_id_from_ecdsa_public(public_key).map_err(to_py_err)?;
+    Ok(PyBytes::new(py, &account))
 }
 
 /// Encode a raw 32-byte public key as an SS58 address.
@@ -549,6 +576,13 @@ fn get_password_from_environment(env_var_name: &str) -> PyResult<Option<String>>
     keyfiles::get_password_from_environment(env_var_name).map_err(to_py_err)
 }
 
+/// Encode a wallet password without consulting or changing the environment.
+#[pyfunction]
+fn encode_password_for_environment(env_var_name: &str, password: &str) -> PyResult<String> {
+    bittensor_core::keyfile_env::encode_password_for_environment(env_var_name, password)
+        .map_err(to_py_err)
+}
+
 #[pyfunction]
 fn save_password_to_environment(env_var_name: &str, password: &str) -> PyResult<String> {
     keyfiles::save_password_to_environment(env_var_name, password).map_err(to_py_err)
@@ -557,6 +591,7 @@ fn save_password_to_environment(env_var_name: &str, password: &str) -> PyResult<
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Keypair>()?;
     m.add_function(wrap_pyfunction!(verify, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_strict, m)?)?;
     m.add_function(wrap_pyfunction!(ss58_decode, m)?)?;
     m.add_function(wrap_pyfunction!(ss58_encode, m)?)?;
     m.add_function(wrap_pyfunction!(encode_hashed_receiving_address, m)?)?;
@@ -565,6 +600,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode_mldsa_receiving_address, m)?)?;
     m.add_function(wrap_pyfunction!(verify_hashed_authorization, m)?)?;
     m.add_function(wrap_pyfunction!(verify_mldsa_authorization, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdsa_ss58_encode, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdsa_account_id, m)?)?;
     // Backwards-compatible aliases for pre-migration bittensor.sp_core names.
     m.add("verify_signature", m.getattr("verify")?)?;
     m.add("decode_ss58", m.getattr("ss58_decode")?)?;
@@ -580,8 +617,14 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(keyfile_data_encryption_method, m)?)?;
     m.add_function(wrap_pyfunction!(get_password_from_environment, m)?)?;
     m.add_function(wrap_pyfunction!(save_password_to_environment, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_password_for_environment, m)?)?;
     m.add("CRYPTO_ED25519", keys::CRYPTO_ED25519)?;
     m.add("CRYPTO_SR25519", keys::CRYPTO_SR25519)?;
+    m.add("CRYPTO_ECDSA", keys::CRYPTO_ECDSA)?;
+    m.add("ECDSA_PUBLIC_KEY_LEN", keys::ECDSA_PUBLIC_KEY_LEN)?;
+    m.add("ED25519_SIGNATURE_LEN", keys::ED25519_SIGNATURE_LEN)?;
+    m.add("SR25519_SIGNATURE_LEN", keys::SR25519_SIGNATURE_LEN)?;
+    m.add("ECDSA_SIGNATURE_LEN", keys::ECDSA_SIGNATURE_LEN)?;
     m.add("CRYPTO_HASHED", keys::CRYPTO_HASHED)?;
     m.add("CRYPTO_HASHED_ED25519", keys::CRYPTO_HASHED_ED25519)?;
     m.add("CRYPTO_MLDSA65", keys::CRYPTO_MLDSA65)?;

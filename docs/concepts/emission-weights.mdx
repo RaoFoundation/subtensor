@@ -10,8 +10,8 @@ Every subnet carries a five-slot **emission weight vector**
 ```
 
 that says how each block's alpha emission is divided. Each slot is a `u64`
-share of `u64::MAX`, so the five slots sum to exactly one. The subnet owner
-(or root) sets it with
+share of `u64::MAX`, and the five slots sum to exactly one with the subnet's
+[gamma shares](#gamma-shares). The subnet owner (or root) sets it with
 [`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights); anyone
 reads it with [`subnet-emission-weights`](/docs/query/subnet-emission-weights)
 or `btcli subnets emission show`.
@@ -105,8 +105,8 @@ how much TAO or alpha is injected into its pool.
 
 Updates are **sparse**: name the slots you are changing and their new shares;
 omitted owner/validator/miner slots keep their current value. Because the
-five slots must still sum to one, lowering one slot means raising another in
-the same call. `btcli` does the arithmetic:
+five slots and the gamma shares must still sum to one, lowering one slot means
+raising another in the same call. `btcli` does the arithmetic:
 
 ```bash
 # see the vector, root's share and baseline, every allowed range, and the next change window
@@ -119,9 +119,15 @@ btcli subnets emission set-value --netuid 12 --slot owner --value 0.10
 btcli subnets emission increase --netuid 12 --slot miner --by 5%
 btcli subnets emission decrease --netuid 12 --slot validator --by 0.02
 
-# write the whole split at once
-btcli subnets emission set --netuid 12 --owner 0.10 --validator 0.40 --miner 0.50
+# set all five slots at once and explicitly remove any existing gamma shares
+btcli subnets emission set --netuid 12 --owner 0.10 --validator 0.40 --miner 0.50 --no-gamma
 ```
+
+`set` keeps existing gamma shares unless you pass `--no-gamma`. Because those
+shares count toward the same 100%, a five-slot split totaling 100% needs
+`--no-gamma` on a subnet that may already have gamma shares. You can combine
+`--no-gamma` with new `--gamma TARGET=SHARE` flags to replace the whole gamma
+allocation explicitly.
 
 Every write validates against the rules locally first and prints each broken
 rule in the same words the chain error carries, with the allowed range, so a
@@ -138,6 +144,68 @@ reused netuid starts fresh. Both owner and root must obey every rule,
 including the lease floor. Changes take effect on the next block's emission
 and are announced by the `SubnetEmissionWeightsSet` event, which carries the
 full post-merge vector.
+
+## Gamma shares
+
+A subnet can also pay shares of its emission into other subnets'
+[gamma](/docs/guides/gamma). Each **gamma share** names a target subnet and
+takes at most 10% of `alpha_out`, and a subnet has at most 16. A subnet with a
+10% gamma share has five slots summing to 90%.
+
+The subnet owner (or root) sets the whole split, the five slots and the gamma
+shares, with
+
+```
+AdminUtils.sudo_set_subnet_emission_weights_v2(netuid: u16, split: Vec<(EmissionSlot, u64)>)
+```
+
+where `EmissionSlot` is `Burn`, `Recycle`, `Owner`, `Validator`, `Miner` or
+`Gamma { netuid }`. The split lists each slot at most once, in that order and
+gamma slots by netuid (`EmissionSlotsNotAscending`), and a slot it leaves out is
+zero. The call has the rules, rate limit and freeze window of
+`sudo_set_subnet_emission_weights`. A gamma share must name another subnet, with
+gamma enabled, that root has whitelisted for gamma emission with
+[`set-subnet-gamma-emission-whitelisted`](/docs/tx/set-subnet-gamma-emission-whitelisted)
+(`InvalidValue`, `GammaDisabled`, `GammaEmissionTargetNotWhitelisted`,
+`GammaEmissionAboveMaximum`, `TooManyGammaShares`). A subnet under a lease has
+no gamma shares (`GammaEmissionNotSettableOnLeasedSubnet`).
+
+[`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights) and
+`btcli subnets emission` send this call for every change, keeping the gamma
+shares a change does not name; a share of 0 removes one:
+
+```bash
+# set the gamma share to subnet 3; the five slots are rescaled proportionally
+btcli subnets emission set-value --netuid 12 --slot gamma:3 --value 5%
+
+# set all five slots and a gamma share
+btcli subnets emission set --netuid 12 --owner 0.10 --validator 0.40 --miner 0.45 --gamma 3=0.05
+```
+
+While a share's target breaks these rules, every change must also remove the
+share (a share of 0).
+
+The gamma shares of each block's `alpha_out` accrue together and are allotted
+to their targets at the subnet's epoch. Each target then converts on its own:
+the subnet sells the alpha down to 2% below the higher of its fast moving and
+spot prices, buys the target's alpha with all of the TAO up to 2% above the
+lower of the target's two, and burns it. The gamma, valued as a
+[mint](/docs/guides/gamma#minting) values it, is credited to the subnet owner's
+deposit at the subnet owner hotkey on the target, which opens with the
+target's default spender and no daily spend cap, and `GammaEmissionMinted`
+reports it. Alpha the pools cannot take in one conversion waits for the next
+epoch, and so does all of it while a price is past its bound, the subnet's
+subtoken is disabled, gamma cannot be minted on the target, the TAO/USD price
+is stale, the gamma would be below 0.1 or the subnet owner coldkey does not own
+the owner hotkey.
+
+A target that leaves the whitelist or is dissolved is removed from every
+split: its share is added to the miner slot and its unconverted alpha to the
+pending miner emission, as is the unconverted alpha of a share the owner
+drops. The v2 call and every removal emit `SubnetEmissionWeightsSet` with the
+five slots and `SubnetGammaEmissionSet` with the gamma shares, and
+`btcli subnets emission show --json` reports them as `gamma_shares` and their
+sum as `gamma_share`.
 
 ## Related
 

@@ -454,13 +454,12 @@ def _pick(
 
 
 def _stake_owner(app_ctx: AppContext, kwargs: dict) -> tuple[str, str]:
-    """The coldkey whose stake is on offer: the proxied account with --proxy-for,
-    otherwise the signing wallet's coldkey (the derived multisig account when
-    ``-w`` names a saved multisig)."""
-    proxied = kwargs.get("proxy_for") or app_ctx.proxy_for
-    if proxied and proxied != "self":
-        owner = app_ctx.resolve_address("proxy_for", proxied)
-        return owner, str(proxied)
+    """The effective coldkey, including a protected pure before delayed routing."""
+    owner = app_ctx.resolve_preparation_proxy(kwargs.get("proxy_for"))
+    if owner is not None:
+        reference = kwargs.get("proxy_for") or app_ctx.proxy_for or cfg.get("proxy_for")
+        label = str(reference) if reference else f"protected account for {app_ctx.wallet_name!r}"
+        return owner, label
     # Same precedence as the write path: `-w <multisig>` means the multisig
     # account, even if a wallet dir shares the name.
     derived = app_ctx._saved_multisig_address(app_ctx.wallet_name)

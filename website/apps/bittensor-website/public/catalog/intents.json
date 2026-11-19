@@ -72,7 +72,7 @@
   {
     "name": "add_proxy",
     "summary": "Authorize a delegate key to sign calls on this account's behalf.",
-    "description": "Authorize a delegate key to sign calls on this account's behalf.\n\nThe foundation of the keep-the-coldkey-offline setup: sign this once from\nthe coldkey, then let the delegate submit day-to-day calls with\n`proxy_for=<this account>`. The chain reserves a small deposit from the\nsigner per delegation (returned on removal). The delegate can act within\n`proxy_type` immediately (or after announcing, if `delay` > 0) \u2014 grant\nonly to keys you control or fully trust. `Validate` and `Weights` cover\nhotkey-signed calls, so the wallet's hotkey signs those grants and must hold\nthe deposit and fee.",
+    "description": "Authorize a delegate key to sign calls on this account's behalf.\n\nThe foundation of the keep-the-coldkey-offline setup: sign this once from\nthe coldkey, then let the delegate submit day-to-day calls with\n`proxy_for=<this account>`. The chain reserves a small deposit from the\nsigner per delegation (returned on removal). The delegate can act within\n`proxy_type` immediately (or after announcing, if `delay` > 0) \u2014 grant\nonly to keys you control or fully trust. `Validate` and `Weights` cover\nhotkey-signed calls, so by default the wallet's hotkey signs those grants\nand must hold the deposit and fee. Set `from_hotkey=False` to grant from\nthe coldkey or a proxied account instead (for example, to preserve a pure\naccount's existing grants). `from_hotkey=True` selects the hotkey for\nany proxy type.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -97,6 +97,10 @@
         "delay": {
           "type": "integer",
           "description": "Announcement delay in blocks: the delegate must announce each call and wait this long before executing it, giving you time to veto. 0 executes immediately."
+        },
+        "from_hotkey": {
+          "type": "boolean",
+          "description": "Signing origin: true selects the hotkey; false selects the coldkey or proxied account. Omit to use the hotkey for Validate/Weights and the coldkey for other proxy types."
         }
       },
       "required": [
@@ -326,6 +330,53 @@
         "end_line": 2518,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2469-L2518",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "announce_proxy_call",
+    "summary": "Commit the hash of a future proxy call (delayed-proxy announce step).",
+    "description": "Commit the hash of a future proxy call (delayed-proxy announce step).\n\nA delegate whose grant has `delay` > 0 must publish the call hash here\nand wait before `execute_proxy_announced` can reveal and run it. The\nchain stores only the hash; keep the plaintext locally (the CLI's\nprotected-account store does this). The deposit reserved for the\nannouncement is returned when the call is executed, removed, or rejected.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "announce"
+      ]
+    ],
+    "docs_url": "/docs/tx/announce-proxy-call",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "real_ss58": {
+          "type": "string",
+          "description": "Account the future call will execute as (the delegation's grantor)."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Blake2-256 hash of the exact call bytes that will later be passed to execute_proxy_announced (0x-prefixed hex)."
+        }
+      },
+      "required": [
+        "real_ss58",
+        "call_hash"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx announce-proxy-call --real <ss58|name> --call-hash <value>",
+    "python_class": "AnnounceProxyCall",
+    "markdown_url": "/llms.mdx/docs/tx/announce-proxy-call/content.md",
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "announce",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 480,
+        "end_line": 522,
+        "url": "/code/pallets/proxy/src/lib.rs#L478-L522",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
   },
@@ -1440,7 +1491,7 @@
   {
     "name": "execute_proxy_announced",
     "summary": "Execute a proxy call that was announced and has passed its delay.",
-    "description": "Execute a proxy call that was announced and has passed its delay.\n\nThe delayed-proxy flow: a delegate added with `delay` > 0 first announces\nthe call's hash, waits out the delay (during which the real account can\nveto), then anyone may dispatch the announced call with this intent. The\ninner call is given as an intent op name plus its arguments and must hash\nto exactly what was announced. Fails if the delay has not elapsed or no\nmatching announcement exists.",
+    "description": "Execute a proxy call that was announced and has passed its delay.\n\nThe delayed-proxy flow: a delegate added with `delay` > 0 first announces\nthe call's hash, waits out the delay (during which the real account can\nveto), then anyone may dispatch the announced call with this intent. The\ninner call is given as an intent op name plus its arguments and must hash\nto exactly what was announced. Fails if the delay has not elapsed or no\nmatching announcement exists. Fee payer can be any funded account \u2014 it\nneed not be the multisig that announced.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1473,6 +1524,22 @@
         "force_proxy_type": {
           "type": "string",
           "description": "Require the delegation to be exactly this proxy type instead of accepting any type that covers the call."
+        },
+        "announced_call_data": {
+          "type": "string",
+          "description": "Exact SCALE bytes (0x-hex) of the announced call. Prefer this over rebuilding from inner_op/inner_args so the hash still matches after pool prices or balances move."
+        },
+        "expected_call_hash": {
+          "type": "string",
+          "description": "Expected on-chain Blake2-256 commitment for the saved call bytes."
+        },
+        "announced_spec_version": {
+          "type": "integer",
+          "description": "Runtime spec version under which the saved call was composed."
+        },
+        "announced_call_semantics": {
+          "type": "object",
+          "description": "Decoded call recorded when the announcement was composed."
         }
       },
       "required": [
@@ -3036,6 +3103,53 @@
     ]
   },
   {
+    "name": "reject_proxy_announcement",
+    "summary": "Veto a delegate's pending announcement (real-account path).",
+    "description": "Veto a delegate's pending announcement (real-account path).\n\nMust be signed *as the real account*. For a keyless pure proxy that means\ndispatching through a proxy relationship that can reach this call \u2014 typically\nimpractical during the same delay window, which is why protected-account\ncancel uses `remove_proxy_announcement` (delegate path) instead.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "reject_announcement"
+      ]
+    ],
+    "docs_url": "/docs/tx/reject-proxy-announcement",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "delegate_ss58": {
+          "type": "string",
+          "description": "Delegate that made the announcement."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Hash previously announced by the delegate (0x-prefixed hex)."
+        }
+      },
+      "required": [
+        "delegate_ss58",
+        "call_hash"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx reject-proxy-announcement --delegate <ss58|name> --call-hash <value>",
+    "python_class": "RejectProxyAnnouncement",
+    "markdown_url": "/llms.mdx/docs/tx/reject-proxy-announcement/content.md",
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "reject_announcement",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 566,
+        "end_line": 578,
+        "url": "/code/pallets/proxy/src/lib.rs#L561-L578",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "release_own_coldkey_swap_destination_reservation",
     "summary": "Free a coldkey-swap destination reservation that names this account.",
     "description": "Free a coldkey-swap destination reservation that names this account.\n\nAnnounce exclusively reserves its destination so a third party cannot\nregister that address as a hotkey during the delay. If someone else\nannounced a swap into your coldkey (or you no longer want the hold), sign\nthis from the reserved destination to drop exclusivity. The announcer's\nannouncement may still exist; reservations also expire after\n`when + reannouncement delay`.",
@@ -3156,6 +3270,53 @@
         "line": 358,
         "end_line": 367,
         "url": "/code/pallets/proxy/src/lib.rs#L356-L367",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "remove_proxy_announcement",
+    "summary": "Cancel one of your own pending proxy announcements (delegate path).",
+    "description": "Cancel one of your own pending proxy announcements (delegate path).\n\nSigned by the delegate that announced the call. Returns the announcement\ndeposit. Prefer this over `reject_proxy_announcement` when the real\naccount is a keyless pure proxy (it has no key to sign a reject).",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "remove_announcement"
+      ]
+    ],
+    "docs_url": "/docs/tx/remove-proxy-announcement",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "real_ss58": {
+          "type": "string",
+          "description": "Account the announcement targeted (the delegation's grantor)."
+        },
+        "call_hash": {
+          "type": "string",
+          "description": "Hash previously passed to announce_proxy_call (0x-prefixed hex)."
+        }
+      },
+      "required": [
+        "real_ss58",
+        "call_hash"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx remove-proxy-announcement --real <ss58|name> --call-hash <value>",
+    "python_class": "RemoveProxyAnnouncement",
+    "markdown_url": "/llms.mdx/docs/tx/remove-proxy-announcement/content.md",
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "remove_announcement",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 539,
+        "end_line": 549,
+        "url": "/code/pallets/proxy/src/lib.rs#L534-L549",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -4332,297 +4493,297 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_epoch_consensus",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1559,
-        "end_line": 1581,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1554-L1581",
+        "line": 1566,
+        "end_line": 1588,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1561-L1588",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_tempo",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1236,
-        "end_line": 1240,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1225-L1240",
+        "line": 1243,
+        "end_line": 1247,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1232-L1247",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_immunity_period",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 602,
-        "end_line": 628,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L600-L628",
+        "line": 609,
+        "end_line": 635,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L607-L635",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_allowed_weights",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 635,
-        "end_line": 661,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L633-L661",
+        "line": 642,
+        "end_line": 668,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L640-L668",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_weights_version_key",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 487,
-        "end_line": 515,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L485-L515",
+        "line": 494,
+        "end_line": 522,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L492-L522",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_activity_cutoff_factor",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 811,
-        "end_line": 825,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L809-L825",
+        "line": 818,
+        "end_line": 832,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L816-L832",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_burn",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 946,
-        "end_line": 978,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L944-L978",
+        "line": 953,
+        "end_line": 985,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L951-L985",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_burn",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 985,
-        "end_line": 1017,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L983-L1017",
+        "line": 992,
+        "end_line": 1024,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L990-L1024",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_moving_average",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1101,
-        "end_line": 1133,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1099-L1133",
+        "line": 1108,
+        "end_line": 1140,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1106-L1140",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_penalty",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1140,
-        "end_line": 1164,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1138-L1164",
+        "line": 1147,
+        "end_line": 1171,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1145-L1171",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_serving_rate_limit",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 386,
-        "end_line": 405,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L384-L405",
+        "line": 393,
+        "end_line": 412,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L391-L412",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_reveal_weights_interval",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1633,
-        "end_line": 1660,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1631-L1660",
+        "line": 1640,
+        "end_line": 1667,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1638-L1667",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 668,
-        "end_line": 715,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L666-L715",
+        "line": 675,
+        "end_line": 722,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L673-L722",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_increase_mult",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2507,
-        "end_line": 2545,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2505-L2545",
+        "line": 2514,
+        "end_line": 2552,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2512-L2552",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_half_life",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2465,
-        "end_line": 2501,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2463-L2501",
+        "line": 2472,
+        "end_line": 2508,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2470-L2508",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_lock_share",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2621,
-        "end_line": 2654,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2619-L2654",
+        "line": 2628,
+        "end_line": 2661,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2626-L2661",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_drain_ratio",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2664,
-        "end_line": 2703,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2662-L2703",
+        "line": 2671,
+        "end_line": 2710,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2669-L2710",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_adjustment_alpha",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 571,
-        "end_line": 595,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L569-L595",
+        "line": 578,
+        "end_line": 602,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L576-L602",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_rho",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 738,
-        "end_line": 758,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L736-L758",
+        "line": 745,
+        "end_line": 765,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L743-L765",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_difficulty",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 454,
-        "end_line": 480,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L452-L480",
+        "line": 461,
+        "end_line": 487,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L459-L487",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_alpha_sigmoid_steepness",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1887,
-        "end_line": 1919,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1885-L1919",
+        "line": 1894,
+        "end_line": 1926,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1892-L1926",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_childkey_take_per_subnet",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1404,
-        "end_line": 1436,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1402-L1436",
+        "line": 1411,
+        "end_line": 1443,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1409-L1443",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_immune_neuron_limit",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2073,
-        "end_line": 2091,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2071-L2091",
+        "line": 2080,
+        "end_line": 2098,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2078-L2098",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_alpha_values",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1505,
-        "end_line": 1528,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1503-L1528",
+        "line": 1512,
+        "end_line": 1535,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1510-L1535",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_reveal_weights_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1443,
-        "end_line": 1468,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1441-L1468",
+        "line": 1450,
+        "end_line": 1475,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1448-L1475",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_liquid_alpha_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1481,
-        "end_line": 1500,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1479-L1500",
+        "line": 1488,
+        "end_line": 1507,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1486-L1507",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_network_registration_allowed",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 832,
-        "end_line": 874,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L830-L874",
+        "line": 839,
+        "end_line": 881,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L837-L881",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_network_pow_registration_allowed",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 881,
-        "end_line": 912,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L879-L912",
+        "line": 888,
+        "end_line": 919,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L886-L919",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_gamma_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2936,
-        "end_line": 2962,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2934-L2962",
+        "line": 2943,
+        "end_line": 2969,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2941-L2969",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_yuma3_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1932,
-        "end_line": 1953,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1930-L1953",
+        "line": 1939,
+        "end_line": 1960,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1937-L1960",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_reset_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1966,
-        "end_line": 1987,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1964-L1987",
+        "line": 1973,
+        "end_line": 1994,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1971-L1994",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_toggle_transfer",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1725,
-        "end_line": 1745,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1723-L1745",
+        "line": 1732,
+        "end_line": 1752,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1730-L1752",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_cut_auto_lock_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2565,
-        "end_line": 2583,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2563-L2583",
+        "line": 2572,
+        "end_line": 2590,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2570-L2590",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -4733,9 +4894,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_mechanism_count",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2134,
-        "end_line": 2154,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2131-L2154",
+        "line": 2141,
+        "end_line": 2161,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2138-L2161",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -5088,24 +5249,24 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_emission_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2593,
-        "end_line": 2611,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2591-L2611",
+        "line": 2600,
+        "end_line": 2618,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2598-L2618",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
   },
   {
     "name": "set_subnet_emission_weights",
-    "summary": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).",
-    "description": "Set slots of a subnet's emission weight vector (btcli `subnets emission`).\n\nDispatches `AdminUtils.sudo_set_subnet_emission_weights` for the named\nslots. The signer must be the subnet's owner coldkey (root may also call\nit). With `renormalize` the untouched slots are rescaled so the vector\nstill sums to one; without it the merged vector is submitted as given.\nRoot stakers are paid their baseline share of emission (what they earn\nwith the default validator share and the global TaoWeight) off the top of\nthe validator slot every block, whatever the subnet sets \u2014 the pre-sign\nplan shows that share and what alpha validators are left with, and lists\nevery rule the chain would reject (including a validator share at or below\nthe baseline), so a bad vector is caught before signing. Owners may change\nthe vector once per week per subnet.",
+    "summary": "Set a subnet's emission split: its five slots and gamma shares (btcli `subnets emission`).",
+    "description": "Set a subnet's emission split: its five slots and gamma shares (btcli `subnets emission`).\n\nDispatches `AdminUtils.sudo_set_subnet_emission_weights_v2` with the\nwhole split, keeping the gamma shares it does not name. The signer must\nbe the subnet's owner coldkey (root may also call it). With\n`renormalize` the untouched slots are rescaled so the vector and the\nsubnet's gamma shares still sum to one; without it the merged vector is\nsubmitted as given.\nRoot stakers are paid their baseline share of emission (what they earn\nwith the default validator share and the global TaoWeight) off the top of\nthe validator slot every block, whatever the subnet sets \u2014 the pre-sign\nplan shows that share and what alpha validators are left with, and lists\nevery rule the chain would reject (including a validator share at or below\nthe baseline), so a bad vector is caught before signing. Owners may change\nthe vector once per week per subnet.",
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": "subnet_emission_weights",
     "wraps": [
       [
         "AdminUtils",
-        "sudo_set_subnet_emission_weights"
+        "sudo_set_subnet_emission_weights_v2"
       ]
     ],
     "docs_url": "/docs/tx/set-subnet-emission-weights",
@@ -5124,7 +5285,7 @@
               "string"
             ]
           },
-          "description": "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted slots keep their current share."
+          "description": "Slots to set, by name or uid: 0 burn, 1 recycle, 2 owner, 3 validator, 4 miner. Omitted slots keep their current share. Empty, with empty `values`, to change only gamma shares."
         },
         "values": {
           "type": "array",
@@ -5135,11 +5296,15 @@
               "string"
             ]
           },
-          "description": "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage (\"41%\"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five sum to exactly 1."
+          "description": "New share for each slot, pairwise with `slots`: a 0..1 fraction (0.41), a percentage (\"41%\"), or raw u64 parts of 2^64-1. Rules: burn + recycle <= 33%; owner <= 33% (>= 18% on lease-created subnets); validator <= 50% and above root's baseline share of emission, which is paid off the top of the validator slot (see `btcli subnets emission show`); miner >= 33%; all five and the subnet's gamma shares sum to exactly 1."
         },
         "renormalize": {
           "type": "boolean",
-          "description": "Keep the named slots as given and rescale the other slots proportionally so the vector sums to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1."
+          "description": "Keep the named slots as given and rescale the other slots proportionally so the vector and the subnet's gamma shares sum to 1 (the last free slot absorbs rounding). Without it, the update is applied verbatim and must already sum to 1 with them (the miner slot absorbs up to 1,000 parts of rounding)."
+        },
+        "gamma": {
+          "type": "object",
+          "description": "Gamma shares to set, as a JSON object mapping target netuid to share ({\"3\": \"5%\"}), in the same forms as `values`. Omitted targets keep their current share; a share of 0 removes one. Rules: at most 16, each <= 10%, to another subnet root whitelisted for gamma emission with gamma enabled; none on a leased subnet. With `renormalize` the five slots make room."
         }
       },
       "required": [
@@ -5155,11 +5320,62 @@
     "sources": [
       {
         "pallet": "AdminUtils",
-        "call": "sudo_set_subnet_emission_weights",
+        "call": "sudo_set_subnet_emission_weights_v2",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2738,
-        "end_line": 2759,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2736-L2759",
+        "line": 3014,
+        "end_line": 3034,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3008-L3034",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "set_subnet_gamma_emission_whitelisted",
+    "summary": "Whitelist a subnet for gamma emission, or remove it from the whitelist (root only).",
+    "description": "Whitelist a subnet for gamma emission, or remove it from the whitelist (root only).\n\nA subnet owner's gamma share may only name a subnet on this whitelist (see\nthe `set_subnet_emission_weights` intent). Removing a subnet removes every\ngamma share to it: each share is added to the paying subnet's miner slot and\nits unconverted alpha to that subnet's pending miner emission.",
+    "signer": "coldkey",
+    "origin": "root",
+    "verify": "subnet_gamma_emission_whitelisted",
+    "wraps": [
+      [
+        "AdminUtils",
+        "sudo_set_subnet_gamma_emission_whitelisted"
+      ],
+      [
+        "Sudo",
+        "sudo"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-subnet-gamma-emission-whitelisted",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to whitelist or remove from the whitelist."
+        },
+        "whitelisted": {
+          "type": "boolean",
+          "description": "True to whitelist the subnet, false to remove it."
+        }
+      },
+      "required": [
+        "netuid",
+        "whitelisted"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-subnet-gamma-emission-whitelisted --netuid <int> --whitelisted/--no-whitelisted",
+    "python_class": "SetSubnetGammaEmissionWhitelisted",
+    "markdown_url": "/llms.mdx/docs/tx/set-subnet-gamma-emission-whitelisted/content.md",
+    "sources": [
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_subnet_gamma_emission_whitelisted",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 3041,
+        "end_line": 3062,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3038-L3062",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -6211,9 +6427,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_trim_null_uids_batch",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2219,
-        "end_line": 2243,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2217-L2243",
+        "line": 2226,
+        "end_line": 2250,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2224-L2250",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -6258,9 +6474,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_trim_to_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2192,
-        "end_line": 2212,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2186-L2212",
+        "line": 2199,
+        "end_line": 2219,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2193-L2219",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]

@@ -82,9 +82,8 @@ pub fn swap_coldkey_announced(
     let base = <T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced();
     let announcement_read = T::DbWeight::get().reads(1);
     let initial_precheck = base.saturating_add(announcement_read);
-    // Read (do not take) until the swap commits. A failed execute — e.g.
-    // destination opt-outs that appeared after announce — must leave the
-    // announcement intact so the fee is not silently burned.
+    // Keep a paid announcement until the swap commits, including when
+    // the destination's lock mode changed after announcement.
     let (when, new_coldkey_hash) =
         ColdkeySwapAnnouncements::<T>::get(who.clone()).ok_or(Self::fail_with_weight(
             Error::<T>::ColdkeySwapAnnouncementNotFound,
@@ -95,11 +94,11 @@ pub fn swap_coldkey_announced(
     let snapshot_read = if legacy_hash_matches {
         Weight::zero()
     } else {
-        T::DbWeight::get().reads(4)
+        T::DbWeight::get().reads(5)
     };
     let precheck = initial_precheck.saturating_add(snapshot_read);
     let policy_import_mode = if legacy_hash_matches {
-        crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode::CurrentDestination
+        ColdkeySwapPolicyImportMode::CurrentDestination
     } else {
         Self::coldkey_swap_v2_policy_snapshot(&who, &new_coldkey, &new_coldkey_hash, when)
             .ok_or(Self::fail_with_weight(
@@ -114,10 +113,11 @@ pub fn swap_coldkey_announced(
         Self::fail_with_weight(Error::<T>::ColdkeySwapTooEarly, precheck)
     );
 
-    let work = Self::do_swap_coldkey_tracked_with_policy_snapshot(
+    let work = Self::do_announced_coldkey_swap(
         &who,
         &new_coldkey,
         policy_import_mode,
+        !legacy_hash_matches,
     )
     .map_err(|(done, error)| {
         Self::fail_with_weight(
@@ -132,7 +132,7 @@ pub fn swap_coldkey_announced(
     }
     Self::release_coldkey_swap_destination_reservation(&who);
     ColdkeySwapAnnouncements::<T>::remove(&who);
-    ColdkeySwapV2PolicySnapshots::<T>::remove(&who);
+    Self::set_coldkey_swap_v2_policy_snapshot(&who, None);
 
     Ok((
         Some(
@@ -144,6 +144,6 @@ pub fn swap_coldkey_announced(
 }
 ```
 
-Delegates to [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1769), [`coldkey_swap_v2_policy_snapshot`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L496), [`do_swap_coldkey_tracked_with_policy_snapshot`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L762).
+Delegates to [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1790), [`coldkey_swap_v2_policy_snapshot`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L605), [`do_announced_coldkey_swap`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L890).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

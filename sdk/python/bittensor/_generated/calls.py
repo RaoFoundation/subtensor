@@ -547,7 +547,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_reject_locked_alpha(enabled: 'bool') -> Call:
-        'Sets or clears whether the caller rejects incoming locked alpha.  Coldkeys reject locked alpha by default. Passing `false` opts the caller into receiving locked alpha from stake transfers or coldkey swaps.'
+        'Sets or clears whether the caller rejects incoming locked alpha payments.  Coldkeys reject locked alpha by default. Passing `false` opts the caller into receiving locked alpha through stake transfers.'
         return Call('SubtensorModule', 'set_reject_locked_alpha', {'enabled': enabled})
 
     @staticmethod
@@ -1416,6 +1416,16 @@ class AdminUtils:
     def sudo_set_subnet_emission_weights(netuid: 'NetUid', uids: 'Any', values: 'Any') -> Call:
         "Sets entries of a subnet's emission weight vector `[burn, recycle, owner, validator, miner]`, each a `u64` share of `u64::MAX`.  `uids` names the slots to write and `values` their new shares; slots that are not named keep their current value (burn and recycle are always zero in v1). The merged vector must satisfy every rule, each of which has its own error: burn = 0, recycle = 0, `0 ≤ owner ≤ 33%` (lease-created subnets `≥ 18%`), `validator ≤ 50%`, `miner ≥ 33%`, and the five slots must sum to exactly `u64::MAX`.  Root is paid its baseline share of the subnet's emission (what root earns with the default validator share and the global `TaoWeight`) off the top of the validator slot every block, capped at the slot; alpha validators get the rest. The call fails if the new validator share is at or below that baseline right now. Callable by the subnet owner (once per week per subnet; the first call is never rate-limited) or root (no rate limit). Both respect the admin freeze window."
         return Call('AdminUtils', 'sudo_set_subnet_emission_weights', {'netuid': netuid, 'uids': uids, 'values': values})
+
+    @staticmethod
+    def sudo_set_subnet_emission_weights_v2(netuid: 'NetUid', split: 'BoundedVec') -> Call:
+        "Replaces a subnet's whole emission split: the burn, recycle, owner, validator and miner shares and the shares of whitelisted subnets' gamma, each a `u64` share of `u64::MAX`, slots in strictly ascending order. A slot left out is zero.  Every rule of [`Call::sudo_set_subnet_emission_weights`] applies, with the gamma shares counted in the sum. There are at most 16 gamma shares, each at most 10% to a whitelisted subnet with gamma enabled, other than this one. A gamma share that leaves the split moves its unconverted alpha to the subnet's miners. Callable by the subnet owner, under the same rate limit as [`Call::sudo_set_subnet_emission_weights`], or root; both respect the admin freeze window."
+        return Call('AdminUtils', 'sudo_set_subnet_emission_weights_v2', {'netuid': netuid, 'split': split})
+
+    @staticmethod
+    def sudo_set_subnet_gamma_emission_whitelisted(netuid: 'NetUid', whitelisted: 'bool') -> Call:
+        "Whitelists a subnet for gamma emission, so subnets may give it gamma shares, or removes it, which moves every share of it to its subnet's miner slot. Root-only."
+        return Call('AdminUtils', 'sudo_set_subnet_gamma_emission_whitelisted', {'netuid': netuid, 'whitelisted': whitelisted})
 
     @staticmethod
     def sudo_set_subnet_gamma_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:

@@ -1363,5 +1363,43 @@ mod benchmarks {
         _(RawOrigin::Root, true);
     }
 
+    #[benchmark]
+    fn sudo_set_subnet_emission_weights_v2() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        let current = pallet_subtensor::Pallet::<T>::get_subnet_emission_weights(netuid);
+        let slot = |index: pallet_subtensor::EmissionIndex| -> u64 {
+            current.get(index.position()).copied().unwrap_or(0)
+        };
+        let owner_share = slot(pallet_subtensor::EmissionIndex::Owner);
+        let validator = slot(pallet_subtensor::EmissionIndex::Validator)
+            .saturating_sub(pallet_subtensor::emission_fraction(1, 100));
+        let miner = pallet_subtensor::EMISSION_WEIGHT_ONE
+            .saturating_sub(owner_share)
+            .saturating_sub(validator);
+        let split = pallet_subtensor::EmissionSplit::truncate_from(vec![
+            (pallet_subtensor::EmissionSlot::Owner, owner_share),
+            (pallet_subtensor::EmissionSlot::Validator, validator),
+            (pallet_subtensor::EmissionSlot::Miner, miner),
+        ]);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, split);
+
+        assert_eq!(
+            pallet_subtensor::Pallet::<T>::get_subnet_emission_weights(netuid),
+            [0, 0, owner_share, validator, miner]
+        );
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_gamma_emission_whitelisted() {
+        let netuid = NetUid::from(1);
+        setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, true);
+    }
+
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);
 }

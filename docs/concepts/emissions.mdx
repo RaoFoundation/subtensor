@@ -147,8 +147,9 @@ user LP positions or LP tokens.
 Per-block `alpha_out` is divided as it accrues
 ([`emit_to_subnets`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs))
 by the subnet's [emission weight vector](/docs/concepts/emission-weights)
-`[burn, recycle, owner, validator, miner]`, which the subnet owner sets
-within chain-enforced bounds. Subnets that have never changed it keep the
+`[burn, recycle, owner, validator, miner]` and its
+[gamma shares](/docs/concepts/emission-weights#gamma-shares), which the subnet
+owner sets within chain-enforced bounds. Subnets that have never changed it keep the
 historical split:
 
 - **18%** to the subnet owner (the `owner` slot; 0 disables the cut).

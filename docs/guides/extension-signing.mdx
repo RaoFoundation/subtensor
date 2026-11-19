@@ -12,9 +12,10 @@ funds.
 Any extension that speaks the standard Polkadot dapp interface works:
 [Talisman](https://talisman.xyz),
 [Polkadot.js extension](https://polkadot.js.org/extension/), SubWallet, and
-friends. The account must be **sr25519** or **ed25519** — Ethereum-style
-(ecdsa) accounts are refused, since the chain can't verify their signatures on
-Substrate extrinsics.
+friends. The account must be **sr25519** or **ed25519**. Ethereum accounts
+(H160 addresses with ecdsa keys) are refused, since the chain can't verify
+their signatures on Substrate extrinsics. The extension signer does not support
+Substrate ecdsa accounts either.
 
 ## Setup
 
@@ -121,7 +122,8 @@ btcli extension bridge     # run the bridge in the foreground (rarely needed)
   default. The extension signs the inner call, then the encrypted carrier —
   about 96 seconds for both. Have the extension unlocked before you confirm.
   `--no-mev-shield` submits in the clear (one popup).
-- **Substrate accounts only** — sr25519 or ed25519, not ecdsa/Ethereum.
+- **sr25519 or ed25519 accounts only.** Ethereum (H160) accounts and Substrate
+  ecdsa accounts are refused.
 - `btcli wallet sign` (raw message signing) still uses local keys.
 
 ## Python
@@ -150,3 +152,12 @@ For signers this bridge doesn't cover (air-gapped devices, custom HSMs),
 `client.prepare_call` returns the exact payload bytes to sign plus the
 Polkadot-JS `SignerPayloadJSON`, and `client.submit_signature` submits the
 externally produced signature.
+
+Substrate ECDSA (secp256k1) signers can use this path. Pass
+`crypto_type=bittensor.sp_core.CRYPTO_ECDSA` to `prepare_call`, with the
+address from `bittensor.sp_core.ecdsa_ss58_encode(compressed_pubkey)`. This is
+an SS58 AccountId32 (`blake2_256` of the 33-byte compressed public key), not an
+Ethereum H160 address. The signer must produce a Substrate ECDSA signature over
+the blake2-256 digest of the payload; an Ethereum (keccak) signature will not
+verify. `submit_signature` accepts the raw 65-byte signature or the 66-byte
+form with the MultiSignature variant prefix.

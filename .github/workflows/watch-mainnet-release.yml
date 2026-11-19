@@ -449,6 +449,18 @@ jobs:
           compgen -G "dist/bittensor_core-${core_version}-*.whl" >/dev/null
           test -f "dist/bittensor_core-${core_version}.tar.gz"
 
+      # The stable SDK keeps a >= floor, which may name an older published
+      # core. Install exactly that floor, and separately upgrade over an older
+      # core; both must export every native helper sp_core needs. Releases
+      # tagged before the check existed have no script to run.
+      - name: Check SDK against its minimum bittensor-core
+        run: |
+          if [ -f .github/scripts/check-sdk-core-floor.sh ]; then
+            .github/scripts/check-sdk-core-floor.sh dist
+          else
+            echo "release predates check-sdk-core-floor.sh; skipping"
+          fi
+
       # PEP 740 provenance: sign every dist with this job's OIDC identity.
       # Must happen here, not in build-core-wheels.yml — PyPI only accepts
       # attestations whose Sigstore identity matches the trusted publisher

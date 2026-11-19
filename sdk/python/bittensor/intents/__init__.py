@@ -67,11 +67,14 @@ from .plan import Plan, Policy
 from .proxy import (
     PROXY_TYPES,
     AddProxy,
+    AnnounceProxyCall,
     CreatePureProxy,
     ExecuteProxyAnnounced,
     KillPureProxy,
+    RejectProxyAnnouncement,
     RemoveProxies,
     RemoveProxy,
+    RemoveProxyAnnouncement,
 )
 from .registration import (
     BurnedRegister,
@@ -84,7 +87,7 @@ from .registration import (
     SwapHotkey,
 )
 from .registry import REGISTRY, build, list_tools, register
-from .root import SetRootClaimThreshold, SetSubnetEmissionEnabled
+from .root import SetRootClaimThreshold, SetSubnetEmissionEnabled, SetSubnetGammaEmissionWhitelisted
 from .serving import ResetAxon, ServeAxon, ServeAxonTls, ServePrometheus, SetService
 from .staking import (
     AddStake,
@@ -117,6 +120,7 @@ __all__ = [
     "AddStake",
     "AddStakeLimit",
     "AnnounceColdkeySwap",
+    "AnnounceProxyCall",
     "AssociateEvmKey",
     "AssociateHotkey",
     "AuthorizeOrder",
@@ -166,8 +170,10 @@ __all__ = [
     "RefundCrowdloan",
     "RegisterLeasedNetwork",
     "RegisterSubnet",
+    "RejectProxyAnnouncement",
     "RemoveProxies",
     "RemoveProxy",
+    "RemoveProxyAnnouncement",
     "RemoveStake",
     "RemoveStakeLimit",
     "RepayLoan",
@@ -194,6 +200,7 @@ __all__ = [
     "SetService",
     "SetSubnetEmissionEnabled",
     "SetSubnetEmissionWeights",
+    "SetSubnetGammaEmissionWhitelisted",
     "SetSubnetIdentity",
     "SetTake",
     "SetWeights",

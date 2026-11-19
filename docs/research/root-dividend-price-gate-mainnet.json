@@ -1,0 +1,2299 @@
+{
+  "chain": "Bittensor",
+  "endpoint": "https://archive.sub.latent.to",
+  "finalizedBlock": 9468000,
+  "finalizedHash": "0x028d7a95c74db86331fbf21201adf50151ee8451ab3b63ea32328dbe85bc36ce",
+  "start": 9442681,
+  "step": 420,
+  "methodology": "Frozen end-block basket alpha quantities (large baskets >=100 holdings), historical spot prices and fast EMA; out-of-band contributions only. Spot valuation proxy, not a historical replay of realizable share mints. Missing anchors excluded, never counted as passing.",
+  "summary": {
+    "observations": 3111,
+    "oldGatePassPct": 1.7357762777242045,
+    "thresholds": [
+      {
+        "bps": 5,
+        "netPassPct": 33.333333333333336,
+        "grossPassPct": 14.979106396657023
+      },
+      {
+        "bps": 10,
+        "netPassPct": 56.47701703632273,
+        "grossPassPct": 34.97267759562842
+      },
+      {
+        "bps": 15,
+        "netPassPct": 67.88813886210222,
+        "grossPassPct": 46.19093539054966
+      },
+      {
+        "bps": 25,
+        "netPassPct": 83.83156541305047,
+        "grossPassPct": 65.02732240437159
+      },
+      {
+        "bps": 50,
+        "netPassPct": 97.10703953712633,
+        "grossPassPct": 90.19607843137256
+      }
+    ]
+  },
+  "samples": [
+    {
+      "block": 9442681,
+      "hash": "0xa6a602f42bd7eafb2fd4035bc6206149ba72f0c7f69d5a40440604a03be8d532",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 14
+        },
+        {
+          "bps": 10,
+          "count": 37
+        },
+        {
+          "bps": 15,
+          "count": 41
+        },
+        {
+          "bps": 25,
+          "count": 47
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 8,
+        "missing": 0,
+        "netBps": -3.140762508196948,
+        "grossBps": 32.13824560779675
+      }
+    },
+    {
+      "block": 9443101,
+      "hash": "0xc9e7c41b9e61f16b724e33176f9a68afa503309cf95c8043eaa192b4cd6686f7",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 14
+        },
+        {
+          "bps": 10,
+          "count": 16
+        },
+        {
+          "bps": 15,
+          "count": 36
+        },
+        {
+          "bps": 25,
+          "count": 44
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 7,
+        "missing": 0,
+        "netBps": -0.5821564876973273,
+        "grossBps": 28.587138674322723
+      }
+    },
+    {
+      "block": 9443521,
+      "hash": "0xcddcacc36568c95c7322e7614e7facae45056c2ae22c32337ee583bd887bd917",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 6
+        },
+        {
+          "bps": 10,
+          "count": 22
+        },
+        {
+          "bps": 15,
+          "count": 41
+        },
+        {
+          "bps": 25,
+          "count": 47
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 6,
+        "missing": 0,
+        "netBps": -5.426583065847312,
+        "grossBps": 20.75683503537229
+      }
+    },
+    {
+      "block": 9443941,
+      "hash": "0x798ce6874958774c4ec32592133f57590523f2a73cc0e6089ef1b39fa1b62df9",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 19
+        },
+        {
+          "bps": 10,
+          "count": 40
+        },
+        {
+          "bps": 15,
+          "count": 43
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 4,
+        "missing": 0,
+        "netBps": -3.8272726907695453,
+        "grossBps": 8.796270124326206
+      }
+    },
+    {
+      "block": 9444361,
+      "hash": "0x54f4b1f389537070223c10a84511ec95bd2ca0237a3682b9c2782a7aa5346773",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 21
+        },
+        {
+          "bps": 10,
+          "count": 49
+        },
+        {
+          "bps": 15,
+          "count": 49
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 3,
+        "missing": 0,
+        "netBps": 6.908480412208817,
+        "grossBps": 7.808173714483444
+      }
+    },
+    {
+      "block": 9444781,
+      "hash": "0x3c0583d44991a6475ec575e1dd811cab0aaf1bb5c3936e6973879ae1b588a947",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 35
+        },
+        {
+          "bps": 10,
+          "count": 50
+        },
+        {
+          "bps": 15,
+          "count": 50
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 3,
+        "missing": 0,
+        "netBps": -5.193004778526467,
+        "grossBps": 5.791616955541811
+      }
+    },
+    {
+      "block": 9445201,
+      "hash": "0xe6378684186acbb381f0811e22c298cd6ecfa72e78d6ea79184e1dc1bad9914d",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 51,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 51
+        },
+        {
+          "bps": 10,
+          "count": 51
+        },
+        {
+          "bps": 15,
+          "count": 51
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 0,
+        "missing": 0,
+        "netBps": 0,
+        "grossBps": 0
+      }
+    },
+    {
+      "block": 9445621,
+      "hash": "0xcdb4809d85292f4f8dff5639543cff157a43728f12ec162f749c71582af12e64",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 13
+        },
+        {
+          "bps": 10,
+          "count": 46
+        },
+        {
+          "bps": 15,
+          "count": 51
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 3,
+        "missing": 0,
+        "netBps": -8.528024590700456,
+        "grossBps": 9.74349670683066
+      }
+    },
+    {
+      "block": 9446041,
+      "hash": "0x4313e2ee33e86b917205dd38f0a4672c99eb5b1ed6eab87bb4a7fa792829bc9a",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 6
+        },
+        {
+          "bps": 10,
+          "count": 9
+        },
+        {
+          "bps": 15,
+          "count": 9
+        },
+        {
+          "bps": 25,
+          "count": 13
+        },
+        {
+          "bps": 50,
+          "count": 40
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 11,
+        "missing": 0,
+        "netBps": -29.539599082800684,
+        "grossBps": 32.810400735667706
+      }
+    },
+    {
+      "block": 9446461,
+      "hash": "0x8aa365982bbb96b4f5f2f323e6e0061a59b6d50ae9290d91f50e94fed6c934d5",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 4
+        },
+        {
+          "bps": 10,
+          "count": 10
+        },
+        {
+          "bps": 15,
+          "count": 11
+        },
+        {
+          "bps": 25,
+          "count": 15
+        },
+        {
+          "bps": 50,
+          "count": 42
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 12,
+        "missing": 0,
+        "netBps": -30.64665154681956,
+        "grossBps": 32.016083401459845
+      }
+    },
+    {
+      "block": 9446881,
+      "hash": "0x077b50e274dceb200ee672ae7be43e028c27dc6444d9270cba308a88e188b55d",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 4
+        },
+        {
+          "bps": 10,
+          "count": 24
+        },
+        {
+          "bps": 15,
+          "count": 43
+        },
+        {
+          "bps": 25,
+          "count": 49
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 12,
+        "missing": 0,
+        "netBps": 1.2860909957446154,
+        "grossBps": 41.278274426411116
+      }
+    },
+    {
+      "block": 9447301,
+      "hash": "0xe1ee85a3570be3974a9d0c5f469f94b5b5e65d44d4e8e04e216a8a09384f27e6",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 22
+        },
+        {
+          "bps": 10,
+          "count": 41
+        },
+        {
+          "bps": 15,
+          "count": 48
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 13,
+        "missing": 0,
+        "netBps": 5.077593858633378,
+        "grossBps": 27.871805312426538
+      }
+    },
+    {
+      "block": 9447721,
+      "hash": "0x0f58693a027b1abbe9a8916c8aac631dd0e089577a7d8c88c34432693c8469c9",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 10
+        },
+        {
+          "bps": 10,
+          "count": 19
+        },
+        {
+          "bps": 15,
+          "count": 31
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 11,
+        "missing": 0,
+        "netBps": 3.5915282346676847,
+        "grossBps": 35.47179087143088
+      }
+    },
+    {
+      "block": 9448141,
+      "hash": "0x8428fbd2c72254c910c05b71c008821ffb6f4de1820d7d30f9cff2db81b61334",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 5
+        },
+        {
+          "bps": 10,
+          "count": 9
+        },
+        {
+          "bps": 15,
+          "count": 10
+        },
+        {
+          "bps": 25,
+          "count": 21
+        },
+        {
+          "bps": 50,
+          "count": 43
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 15,
+        "missing": 0,
+        "netBps": 20.25515381375298,
+        "grossBps": 49.80671437320404
+      }
+    },
+    {
+      "block": 9448561,
+      "hash": "0xf810ebf693d46d1ca19fc697cd6391ccefdfd04baae929f9ba33b6b3d4a7eebc",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 0
+        },
+        {
+          "bps": 10,
+          "count": 0
+        },
+        {
+          "bps": 15,
+          "count": 1
+        },
+        {
+          "bps": 25,
+          "count": 17
+        },
+        {
+          "bps": 50,
+          "count": 39
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 14,
+        "missing": 0,
+        "netBps": 35.9175974906134,
+        "grossBps": 90.06129662476613
+      }
+    },
+    {
+      "block": 9448981,
+      "hash": "0xb03be70fcfea33099bd8409ba65c1bbefce5d0860f1d57faf3f36ca0ba94ea94",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 9
+        },
+        {
+          "bps": 10,
+          "count": 13
+        },
+        {
+          "bps": 15,
+          "count": 14
+        },
+        {
+          "bps": 25,
+          "count": 37
+        },
+        {
+          "bps": 50,
+          "count": 47
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 16,
+        "missing": 0,
+        "netBps": 38.82572166002074,
+        "grossBps": 71.48586055241995
+      }
+    },
+    {
+      "block": 9449401,
+      "hash": "0x1dda7f69c756663a30cfb160c78e22e1dc7960b61b0153a32345702b04be88c6",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 1
+        },
+        {
+          "bps": 10,
+          "count": 1
+        },
+        {
+          "bps": 15,
+          "count": 6
+        },
+        {
+          "bps": 25,
+          "count": 10
+        },
+        {
+          "bps": 50,
+          "count": 46
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 11,
+        "missing": 0,
+        "netBps": 35.56175675779372,
+        "grossBps": 45.080803588297975
+      }
+    },
+    {
+      "block": 9449821,
+      "hash": "0x1cfc30c528cf8d1bfadd0a8531dc4dfee7bdfe9c4da9cbe897f804af34c276cf",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 4
+        },
+        {
+          "bps": 10,
+          "count": 7
+        },
+        {
+          "bps": 15,
+          "count": 8
+        },
+        {
+          "bps": 25,
+          "count": 34
+        },
+        {
+          "bps": 50,
+          "count": 44
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 10,
+        "missing": 0,
+        "netBps": 34.287459963557865,
+        "grossBps": 40.39853595282704
+      }
+    },
+    {
+      "block": 9450241,
+      "hash": "0x0854452c9c011140ffcfcafa36b2beef6c3b62a376ac2b4249aadbdd89919dc5",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 6
+        },
+        {
+          "bps": 10,
+          "count": 8
+        },
+        {
+          "bps": 15,
+          "count": 9
+        },
+        {
+          "bps": 25,
+          "count": 12
+        },
+        {
+          "bps": 50,
+          "count": 40
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 10,
+        "missing": 0,
+        "netBps": 52.04683993253356,
+        "grossBps": 57.08397491568019
+      }
+    },
+    {
+      "block": 9450661,
+      "hash": "0x29c15443bb34faddbdd84588defd9342feb99a505dc4c70cc0de435d245f6dc4",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 8
+        },
+        {
+          "bps": 10,
+          "count": 11
+        },
+        {
+          "bps": 15,
+          "count": 14
+        },
+        {
+          "bps": 25,
+          "count": 41
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 9,
+        "missing": 0,
+        "netBps": 27.04906001665286,
+        "grossBps": 27.977832840529803
+      }
+    },
+    {
+      "block": 9451081,
+      "hash": "0x1c9a00acc3044dc2766b864dda48c64eb55bcb6a38121404902bd59eb1355a66",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 11
+        },
+        {
+          "bps": 10,
+          "count": 16
+        },
+        {
+          "bps": 15,
+          "count": 29
+        },
+        {
+          "bps": 25,
+          "count": 48
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 6,
+        "missing": 0,
+        "netBps": 13.184743241356767,
+        "grossBps": 25.275902669825868
+      }
+    },
+    {
+      "block": 9451501,
+      "hash": "0x53413e8ad699f8fe04942880653217d5b427f6aa158463aaf2084982e2ecbb8b",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 9
+        },
+        {
+          "bps": 10,
+          "count": 18
+        },
+        {
+          "bps": 15,
+          "count": 24
+        },
+        {
+          "bps": 25,
+          "count": 44
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 5,
+        "missing": 0,
+        "netBps": 0.6441634968612497,
+        "grossBps": 28.87791235750269
+      }
+    },
+    {
+      "block": 9451921,
+      "hash": "0x74e09d815dc21f59c507b6d3a97569dc0e2c746149d841cf6d1336991ef961e4",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 2,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 14
+        },
+        {
+          "bps": 10,
+          "count": 46
+        },
+        {
+          "bps": 15,
+          "count": 51
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 1,
+        "missing": 0,
+        "netBps": 5.27241866641992,
+        "grossBps": 5.272418666417331
+      }
+    },
+    {
+      "block": 9452341,
+      "hash": "0x97e1cc5f787849bfc6211cb4187b284cf51e2c8c0aa34590897dfd6556469625",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 9
+        },
+        {
+          "bps": 10,
+          "count": 21
+        },
+        {
+          "bps": 15,
+          "count": 44
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 3,
+        "missing": 0,
+        "netBps": 8.17682118316343,
+        "grossBps": 8.176821183161694
+      }
+    },
+    {
+      "block": 9452761,
+      "hash": "0xd58b376fe7a6ab77ebff99f5505feb45096913ad4dc1fb480daa07c6ee90f6ae",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 1,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 12
+        },
+        {
+          "bps": 10,
+          "count": 36
+        },
+        {
+          "bps": 15,
+          "count": 43
+        },
+        {
+          "bps": 25,
+          "count": 45
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 3,
+        "missing": 0,
+        "netBps": -7.352858117958272,
+        "grossBps": 7.352858117955595
+      }
+    },
+    {
+      "block": 9453181,
+      "hash": "0x5dca54364870218c36fe7095d587039fbdf98466d3db6b69275503b2848f7201",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 5
+        },
+        {
+          "bps": 10,
+          "count": 10
+        },
+        {
+          "bps": 15,
+          "count": 14
+        },
+        {
+          "bps": 25,
+          "count": 31
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 8,
+        "missing": 0,
+        "netBps": -24.09788420899006,
+        "grossBps": 25.00632014251403
+      }
+    },
+    {
+      "block": 9453601,
+      "hash": "0xd5bf74f1b572d822a4c377110b3c148b0257f6ed6d22ebe3ee36a5559e1844b1",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 12
+        },
+        {
+          "bps": 10,
+          "count": 41
+        },
+        {
+          "bps": 15,
+          "count": 50
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 12,
+        "missing": 0,
+        "netBps": 0.9696389138191819,
+        "grossBps": 36.79546135569319
+      }
+    },
+    {
+      "block": 9454021,
+      "hash": "0xa9e8fbd3474056188065190e4bbf9a2b25ad6e3aa6613a73e31943bd9a28a600",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 45
+        },
+        {
+          "bps": 10,
+          "count": 48
+        },
+        {
+          "bps": 15,
+          "count": 51
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 8,
+        "missing": 0,
+        "netBps": -6.961613078345641,
+        "grossBps": 10.285080992548261
+      }
+    },
+    {
+      "block": 9454441,
+      "hash": "0x9f600ec684606c5d314172d3eebdfdabcdd43319b15daf3a987d5b2f384a4dce",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 21
+        },
+        {
+          "bps": 10,
+          "count": 37
+        },
+        {
+          "bps": 15,
+          "count": 45
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 5,
+        "missing": 0,
+        "netBps": -0.05589580839182595,
+        "grossBps": 13.168694181873322
+      }
+    },
+    {
+      "block": 9454861,
+      "hash": "0xe030ce6a632debc0d0fd5cf1777dd7f89797a98c4c6447b83437071466a20b4b",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 26
+        },
+        {
+          "bps": 10,
+          "count": 45
+        },
+        {
+          "bps": 15,
+          "count": 49
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 4,
+        "missing": 0,
+        "netBps": -0.958469112648519,
+        "grossBps": 10.056361700930658
+      }
+    },
+    {
+      "block": 9455281,
+      "hash": "0xdf77a9eef7d195fcaecdbf42319a520514b1161f3d0c48b0fe2bc9a78745799a",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 10
+        },
+        {
+          "bps": 10,
+          "count": 12
+        },
+        {
+          "bps": 15,
+          "count": 16
+        },
+        {
+          "bps": 25,
+          "count": 41
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 5,
+        "missing": 0,
+        "netBps": -18.52441604356936,
+        "grossBps": 21.12368502698191
+      }
+    },
+    {
+      "block": 9455701,
+      "hash": "0xf8239fdff542a383a9eb63fd8967cc763c4d1080b0c95fbba495a4b4c941c1e4",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 12
+        },
+        {
+          "bps": 10,
+          "count": 34
+        },
+        {
+          "bps": 15,
+          "count": 41
+        },
+        {
+          "bps": 25,
+          "count": 44
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 4,
+        "missing": 0,
+        "netBps": 8.350529887179992,
+        "grossBps": 14.224534631884348
+      }
+    },
+    {
+      "block": 9456121,
+      "hash": "0x32e3b2783fc76b37f4471a5604ba53ad3be02fa8234b10e4d5fd423d7ebb4526",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 12
+        },
+        {
+          "bps": 10,
+          "count": 36
+        },
+        {
+          "bps": 15,
+          "count": 42
+        },
+        {
+          "bps": 25,
+          "count": 44
+        },
+        {
+          "bps": 50,
+          "count": 46
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 5,
+        "missing": 0,
+        "netBps": 7.694252320959993,
+        "grossBps": 10.842214616487581
+      }
+    },
+    {
+      "block": 9456541,
+      "hash": "0x7346239a04d7b7bc5201958f50cd288b82b30ffb3c4e6ffaaafebf5012eedbc6",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 26
+        },
+        {
+          "bps": 10,
+          "count": 33
+        },
+        {
+          "bps": 15,
+          "count": 35
+        },
+        {
+          "bps": 25,
+          "count": 37
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 9,
+        "missing": 0,
+        "netBps": -7.2396671075469765,
+        "grossBps": 64.91333833776133
+      }
+    },
+    {
+      "block": 9456961,
+      "hash": "0xb38bf01f328ae9aff382d8844618aaa58fc974ef58e9f62bbe2326b468978a23",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 9
+        },
+        {
+          "bps": 10,
+          "count": 20
+        },
+        {
+          "bps": 15,
+          "count": 41
+        },
+        {
+          "bps": 25,
+          "count": 49
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 8,
+        "missing": 0,
+        "netBps": -1.21326523834564,
+        "grossBps": 43.07309502843075
+      }
+    },
+    {
+      "block": 9457381,
+      "hash": "0xfb5f2c98c116007f2b95ddf2ef0ee455fab709e41c9e18901a6efe286ff3c368",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 5
+        },
+        {
+          "bps": 10,
+          "count": 26
+        },
+        {
+          "bps": 15,
+          "count": 32
+        },
+        {
+          "bps": 25,
+          "count": 42
+        },
+        {
+          "bps": 50,
+          "count": 50
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 11,
+        "missing": 0,
+        "netBps": 22.045950787277224,
+        "grossBps": 47.9803855334054
+      }
+    },
+    {
+      "block": 9457801,
+      "hash": "0x432fb7a49293740d0015a8495857aad5c19d69f48ef25336cf0d5b8146100c48",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 2
+        },
+        {
+          "bps": 10,
+          "count": 6
+        },
+        {
+          "bps": 15,
+          "count": 25
+        },
+        {
+          "bps": 25,
+          "count": 45
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 4,
+        "missing": 0,
+        "netBps": -25.037509980001538,
+        "grossBps": 30.7484659528374
+      }
+    },
+    {
+      "block": 9458221,
+      "hash": "0x5c2c7d0bd1cd8982014d2ab2cbc81e0b24adee82f4635d7706520ff25ad7ea47",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 19
+        },
+        {
+          "bps": 10,
+          "count": 38
+        },
+        {
+          "bps": 15,
+          "count": 42
+        },
+        {
+          "bps": 25,
+          "count": 48
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 3,
+        "missing": 0,
+        "netBps": -1.4968420252436943,
+        "grossBps": 19.725550837538545
+      }
+    },
+    {
+      "block": 9458641,
+      "hash": "0xa122a1557a1a5fed4f33492247ca806b580202ae922ccd812cc49cbb5009da07",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 13
+        },
+        {
+          "bps": 10,
+          "count": 39
+        },
+        {
+          "bps": 15,
+          "count": 45
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 3,
+        "missing": 0,
+        "netBps": -13.48252668876726,
+        "grossBps": 14.836656727420065
+      }
+    },
+    {
+      "block": 9459061,
+      "hash": "0xdd322cb6198f1d648e77e319e80df04accc33913677f905facf832819b864b2b",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 11
+        },
+        {
+          "bps": 10,
+          "count": 13
+        },
+        {
+          "bps": 15,
+          "count": 17
+        },
+        {
+          "bps": 25,
+          "count": 41
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 5,
+        "missing": 0,
+        "netBps": 17.498110345759432,
+        "grossBps": 19.900977888554806
+      }
+    },
+    {
+      "block": 9459481,
+      "hash": "0x918cde3cc77d241ca31448cb603b3c8b57ce808fdcf4032496a55192511314d6",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 6
+        },
+        {
+          "bps": 10,
+          "count": 12
+        },
+        {
+          "bps": 15,
+          "count": 20
+        },
+        {
+          "bps": 25,
+          "count": 41
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 3,
+        "missing": 0,
+        "netBps": 18.23157347677906,
+        "grossBps": 18.23157347677929
+      }
+    },
+    {
+      "block": 9459901,
+      "hash": "0x96d182463ae91d55fd4a9a0b5f8921dcb6c26d494aa7f01e7cb6e3881ff79afd",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 9
+        },
+        {
+          "bps": 10,
+          "count": 13
+        },
+        {
+          "bps": 15,
+          "count": 26
+        },
+        {
+          "bps": 25,
+          "count": 47
+        },
+        {
+          "bps": 50,
+          "count": 50
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 7,
+        "missing": 0,
+        "netBps": 9.36904576718467,
+        "grossBps": 25.131502380127777
+      }
+    },
+    {
+      "block": 9460321,
+      "hash": "0xc82067f0848504686dd425b00b85fa4261e08db189820c7c9887120692d8e554",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 27
+        },
+        {
+          "bps": 10,
+          "count": 50
+        },
+        {
+          "bps": 15,
+          "count": 50
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 50
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 4,
+        "missing": 0,
+        "netBps": 2.400649014981937,
+        "grossBps": 9.971974961417402
+      }
+    },
+    {
+      "block": 9460741,
+      "hash": "0x5469c1a41466236426dabac05290cfdc080799be5e88e1b4830d96119ed3a475",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 29
+        },
+        {
+          "bps": 10,
+          "count": 42
+        },
+        {
+          "bps": 15,
+          "count": 47
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 50
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 5,
+        "missing": 0,
+        "netBps": 9.626973346319456,
+        "grossBps": 23.062510849252863
+      }
+    },
+    {
+      "block": 9461161,
+      "hash": "0x7966d6f51d4365b59bb363d38db4458a1b61626caf538cefbbadbb58182333e5",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 45
+        },
+        {
+          "bps": 10,
+          "count": 50
+        },
+        {
+          "bps": 15,
+          "count": 50
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 5,
+        "missing": 0,
+        "netBps": 4.241947735361684,
+        "grossBps": 5.503921391233169
+      }
+    },
+    {
+      "block": 9461581,
+      "hash": "0x1b7a212ceabf2eacd36e196e16159019a218ce9c6ba6690c1b88a95ef6e44fff",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 14
+        },
+        {
+          "bps": 10,
+          "count": 39
+        },
+        {
+          "bps": 15,
+          "count": 48
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 3,
+        "missing": 0,
+        "netBps": 8.062865339624192,
+        "grossBps": 8.635864686509082
+      }
+    },
+    {
+      "block": 9462001,
+      "hash": "0x1d5ba773f7bf3b77274eb160c3422856235df8369077632fc4321959dcb0da2c",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 19
+        },
+        {
+          "bps": 10,
+          "count": 45
+        },
+        {
+          "bps": 15,
+          "count": 49
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 4,
+        "missing": 0,
+        "netBps": 3.8883686626967062,
+        "grossBps": 3.8883686626991385
+      }
+    },
+    {
+      "block": 9462421,
+      "hash": "0xdb90b672a7e6f6f18596bbaf7f234b16744f8575bdb565794fe8a60944198983",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 43
+        },
+        {
+          "bps": 10,
+          "count": 48
+        },
+        {
+          "bps": 15,
+          "count": 49
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 9,
+        "missing": 0,
+        "netBps": -3.4123718485812304,
+        "grossBps": 22.945150467306863
+      }
+    },
+    {
+      "block": 9462841,
+      "hash": "0x908b743ee3de2d293a13404305073f418d4d7bb92550a42e5cd99d5d59629ee1",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 42
+        },
+        {
+          "bps": 10,
+          "count": 44
+        },
+        {
+          "bps": 15,
+          "count": 46
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 9,
+        "missing": 0,
+        "netBps": -8.02004096433051,
+        "grossBps": 17.107008847734864
+      }
+    },
+    {
+      "block": 9463261,
+      "hash": "0x4136074eb476aa3100ceca326d7f770e8fce24764bfbb8698479af84bc44dda8",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 34
+        },
+        {
+          "bps": 10,
+          "count": 42
+        },
+        {
+          "bps": 15,
+          "count": 48
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 5,
+        "missing": 0,
+        "netBps": -8.995632360127015,
+        "grossBps": 15.617979200314007
+      }
+    },
+    {
+      "block": 9463681,
+      "hash": "0x3c8ec54b43a908346926df35d4833a7fb81eb896f69b81790853b0803c419cf5",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 17
+        },
+        {
+          "bps": 10,
+          "count": 43
+        },
+        {
+          "bps": 15,
+          "count": 46
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 8,
+        "missing": 0,
+        "netBps": -6.300255825566481,
+        "grossBps": 13.530422893586415
+      }
+    },
+    {
+      "block": 9464101,
+      "hash": "0xaa3c8b9037e505c08048c953a175229f16ba60e6834a85c22ad308cf60b68633",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 10
+        },
+        {
+          "bps": 10,
+          "count": 28
+        },
+        {
+          "bps": 15,
+          "count": 33
+        },
+        {
+          "bps": 25,
+          "count": 49
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 6,
+        "missing": 0,
+        "netBps": 11.912477794442378,
+        "grossBps": 26.676859325022537
+      }
+    },
+    {
+      "block": 9464521,
+      "hash": "0x5b247b500fed5c195969f085ec28e4ebbae869ba1ed0ac354bf103c923e1866a",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 2
+        },
+        {
+          "bps": 10,
+          "count": 6
+        },
+        {
+          "bps": 15,
+          "count": 12
+        },
+        {
+          "bps": 25,
+          "count": 23
+        },
+        {
+          "bps": 50,
+          "count": 42
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 8,
+        "missing": 0,
+        "netBps": -30.39550788986545,
+        "grossBps": 48.753134040163324
+      }
+    },
+    {
+      "block": 9464941,
+      "hash": "0xd7ce17c28803106536e3211bf79f0e5f7b37aaa81bb8dd0efa8d0c7f5d8ae331",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 6
+        },
+        {
+          "bps": 10,
+          "count": 8
+        },
+        {
+          "bps": 15,
+          "count": 11
+        },
+        {
+          "bps": 25,
+          "count": 39
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 7,
+        "missing": 0,
+        "netBps": -19.691418094220925,
+        "grossBps": 50.768401518326655
+      }
+    },
+    {
+      "block": 9465361,
+      "hash": "0x0e03d0fb9f82c08e4fe53907ee0bce12cbb93291004b278f6dd9e34a3ed8cd38",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 8
+        },
+        {
+          "bps": 10,
+          "count": 11
+        },
+        {
+          "bps": 15,
+          "count": 28
+        },
+        {
+          "bps": 25,
+          "count": 41
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 5,
+        "missing": 0,
+        "netBps": -3.4523414475406966,
+        "grossBps": 38.903340130658655
+      }
+    },
+    {
+      "block": 9465781,
+      "hash": "0x5a7f09ea4bfd23299b433277369bfe9dfd1b7f131282d819f3e1baa45b484ce6",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 45
+        },
+        {
+          "bps": 10,
+          "count": 47
+        },
+        {
+          "bps": 15,
+          "count": 50
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 4,
+        "missing": 0,
+        "netBps": 10.534869328713281,
+        "grossBps": 13.139784473102544
+      }
+    },
+    {
+      "block": 9466201,
+      "hash": "0xc56f93136decf3bf63f48b520f9363b0c0f39dc1377150bf51464eed8b2c90ae",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 42
+        },
+        {
+          "bps": 10,
+          "count": 50
+        },
+        {
+          "bps": 15,
+          "count": 50
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 4,
+        "missing": 0,
+        "netBps": 8.002314441002412,
+        "grossBps": 9.38058026491843
+      }
+    },
+    {
+      "block": 9466621,
+      "hash": "0x2f0c83f4ba68a770da703d98840d0eb125f8a57dd0fd89bf8332281b64ad3dae",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 44
+        },
+        {
+          "bps": 10,
+          "count": 45
+        },
+        {
+          "bps": 15,
+          "count": 45
+        },
+        {
+          "bps": 25,
+          "count": 49
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 3,
+        "missing": 0,
+        "netBps": 4.242737006205921,
+        "grossBps": 6.292881551130327
+      }
+    },
+    {
+      "block": 9467041,
+      "hash": "0xdea5f34cbae6d757fc9a7fbb9300f4ab8d7a1bd9a044b799d5a40825df77e803",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 16
+        },
+        {
+          "bps": 10,
+          "count": 49
+        },
+        {
+          "bps": 15,
+          "count": 50
+        },
+        {
+          "bps": 25,
+          "count": 50
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 4,
+        "missing": 0,
+        "netBps": 8.167566460821618,
+        "grossBps": 8.16756646081944
+      }
+    },
+    {
+      "block": 9467461,
+      "hash": "0x58e04b7980f63b3fb0cf6b87fa5c758a6bc3478453a6f669492a0d2e2e26de3d",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 1
+        },
+        {
+          "bps": 10,
+          "count": 1
+        },
+        {
+          "bps": 15,
+          "count": 1
+        },
+        {
+          "bps": 25,
+          "count": 8
+        },
+        {
+          "bps": 50,
+          "count": 46
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 8,
+        "missing": 0,
+        "netBps": -57.21350428562921,
+        "grossBps": 81.05384173573319
+      }
+    },
+    {
+      "block": 9467881,
+      "hash": "0xeec4cfba97b87007086c138878b633d6f84a39a393431cbfdcf71b829818c856",
+      "funds": 51,
+      "eligible": 51,
+      "oldGatePass": 0,
+      "netGatePass": [
+        {
+          "bps": 5,
+          "count": 43
+        },
+        {
+          "bps": 10,
+          "count": 46
+        },
+        {
+          "bps": 15,
+          "count": 51
+        },
+        {
+          "bps": 25,
+          "count": 51
+        },
+        {
+          "bps": 50,
+          "count": 51
+        }
+      ],
+      "taostats": {
+        "hotkey": "5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1",
+        "holdings": 128,
+        "outside": 4,
+        "missing": 0,
+        "netBps": 3.344900478010615,
+        "grossBps": 23.383135545002354
+      }
+    }
+  ]
+}

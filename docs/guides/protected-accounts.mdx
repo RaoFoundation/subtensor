@@ -1,0 +1,336 @@
+---
+title: Protected accounts
+description: Delay every value-moving action behind a coercion-resistant pure proxy controlled by your wallet or multisig.
+---
+
+A **protected account** is a keyless [pure proxy](/docs/guides/proxies) that
+holds your funds. Your wallet — a single coldkey **or** a multisig (for
+example 2-of-3 Polkadot Vault + local agent key + optional Ledger) — is its
+only full controller, and that control has a mandatory announcement delay
+(default 36 hours).
+
+## Why
+
+Physical coercion ("someone forces you to sign") is not a software bug. The
+mitigation is time: every value-moving call is **announced** on chain as a
+hash commit, then can only **execute** after the delay. During the window the
+controller can cancel. This is not a guarantee after the controller key is
+stolen: the attacker holding the same key can race cancellations and spend the
+controller's fee balance. Use a multisig controller for high-value accounts so
+one stolen member key cannot win that race. Instant ops are explicit, complete
+runtime proxy authorities — never transfers or proxy/coldkey-swap management.
+
+This builds on the existing Substrate proxy pallet. There is no new pallet.
+
+## Setup
+
+```bash
+btcli proxy protect --wallet main --delay 36h
+```
+
+What this does:
+
+1. Creates a pure proxy with `main` as an `Any` controller at the given delay.
+2. Optionally grants zero-delay restricted proxies for each `--allow` item
+   (held by `main` by default, or by `--allow-key`).
+3. Announces a [coldkey swap](/docs/tx/announce-coldkey-swap) from `main` onto
+   the protected account (moves stake, subnets, identity).
+4. Saves a local record that `main` controls this protected account.
+
+`--wallet` / `-w` is required. Multisig controllers are detected automatically
+and use the existing multisig signing flow.
+
+### Allows (optional, no presets)
+
+```bash
+btcli proxy protect --wallet main --delay 36h \
+  --allow staking --allow childkeys --allow basket-swaps \
+  --allow-key daily-operator
+```
+
+Each `--allow` maps to an existing runtime `ProxyType` at delay 0. Known items:
+`staking`, `childkeys`, `basket` / `basket-swaps`, `gamma`, `root-claim`,
+`validate`, `weights`, `owner`, `swap-hotkey`, and `subnet-lease`.
+
+The CLI prints every call authorized by each selected runtime filter before it
+creates the grant. Names do not imply narrower authority: for example,
+`staking` includes stake, unstake, move/swap stake, collateral management, and
+root claims. A stolen allow key can repeatedly make losing operations, lock
+capital, or destroy economic value even when it cannot transfer free TAO.
+Use a separate `--allow-key`; do not give instant allows to the delayed
+controller unless you deliberately accept that exposure.
+
+`stake` and `unstake` are refused because both would grant the complete
+`Staking` filter. `registration` and `lock` are not offered: Registration can
+burn TAO and Lock can freeze stake immediately. Protected PoW registration is
+therefore unavailable unless an administrator separately installed a
+zero-delay Registration proxy; a delayed PoW proof expires before execution.
+
+The CLI **refuses** allow items that would let someone transfer free balance
+or change proxies / coldkey swaps immediately (`transfer`, `any`,
+`nontransfer`, …). If an item has no suitably narrow existing type, it reports
+that rather than granting something broader.
+
+With no `--allow`, nothing is instant.
+
+### Keep the controller funded
+
+The coldkey migration moves **all available TAO** into the pure account. The
+controller still pays announcement deposits and transaction fees; a multisig's
+signatories also need their own fee balances. Setup warns about this before
+announcing the migration. Keep a separate funded wallet ready.
+
+After executing the migration, btcli offers to fund the controller immediately.
+You can also do it explicitly:
+
+```bash
+btcli proxy fund --wallet main --from-wallet reserve
+btcli proxy show --wallet main
+```
+
+`fund` transfers from the separate wallet directly to the controller. It refuses
+to top up before migration completes, because the migration would move that
+top-up into the pure account too. `show` reports free, reserved and available
+controller funds, the next announcement's refundable deposit, estimated fees,
+and whether a new announcement can be funded. Inspection does not need a local
+signing key. If the RPC cannot supply an estimate, the output says so.
+
+The recommended balance covers the estimated fees and deposits for 20 pending
+transfers or 10 pending staking operations, whichever requires more. The low
+balance threshold covers five transfers or two staking operations. Estimates
+use representative calls and the registered controller descriptor when present;
+ordinary accounts use a standard-signature envelope. Larger payloads, Shield
+carriers, congestion and runtime upgrades can change costs.
+They exclude the TAO being transferred or staked, which belongs to the pure.
+Announcement deposits are refundable, not fees.
+
+When controller funds are low, an ordinary transfer or staking command offers to
+include a refill from the pure account in the same `Utility.batch_all`. Accepting
+commits the refill amount and the requested action together. **The whole batch
+uses the controller's normal delay**, even if staking has a zero-delay allow.
+Executing the matured batch needs no separate refill signature. `--yes` accepts
+the displayed refill; `--no-refill-controller` disables it and
+`--max-controller-refill TAO` supplies an automation-safe ceiling. A refill
+already pending prevents another one from being queued. The CLI preflights the
+whole batch against the pure account and places refill after an unstake or claim
+that must supply its TAO. Declining continues the requested action without it. This is a
+one-time offer per command, not a background or scheduled refill. If the
+controller cannot afford even the announcement, fund it from another wallet
+first. The pure must have enough free TAO for the refill and requested action.
+
+The real btcli green-path tests run against a disposable chain with both a
+single-key controller and a 2-of-3 multisig. With a built release node and the
+SDK development environment installed, run:
+
+```bash
+bash sdk/python/scripts/test_protected_cli.sh
+```
+
+This starts and stops its own local node; it does not use a public testnet or
+require faucet funds. The `SDK protected-account E2E` CI job runs the same suite.
+
+### Coldkey swap follow-up
+
+Protect prints the execute block and the exact command:
+
+```bash
+btcli wallet swap-coldkey --new-coldkey <protected-ss58> --wallet main
+```
+
+Check progress with `btcli wallet swap-check --wallet main`. Setup is
+idempotent and resumable if a step fails midway.
+Setup validates the V2 commitment against the protected destination and the
+policy snapshot saved on chain when the swap was announced. Changes to the
+destination's balance during the delay do not change that commitment.
+
+If setup is interrupted, rerun `btcli proxy protect --wallet main`. The CLI
+resumes the same pure account and skips announcements already completed or
+still pending. Ordinary transactions are blocked while setup is incomplete,
+so they cannot silently use an account whose migration was never announced.
+
+### Updating settings
+
+Re-run protect with a new `--delay`, `--allow`, or `--disallow` on an
+already-protected wallet. Changes are queued as delayed announcements (they
+cannot take effect instantly — that would defeat the model).
+Omitting `--delay` preserves the current on-chain delay. The `36h` default
+applies only when creating a new protected account.
+
+Before queuing a disallow, the CLI cancels outstanding commitments that could
+restore that permission, including duplicate allows and rotations that preserve
+it. If an announcement's plaintext is missing, cancel it first so revocation
+can be verified.
+Allow-key changes also check grants queued through ordinary `proxy add` or
+batch commands; their display category does not change their authority.
+
+`--dry-run` previews changes without saving bindings or announcement state.
+Delayed transaction previews calculate balances and amounts against the
+protected account, with the selected controller or multisig member paying fees.
+
+## Daily usage
+
+Normal commands stay unchanged. If `main` controls a protected account, the
+CLI automatically targets it for coldkey operations on that network. Hotkey
+operations such as weights and serving continue to use the registered hotkey:
+
+```bash
+btcli wallet transfer --wallet main --dest X --amount 500
+btcli stake remove --wallet main ...
+```
+
+Value-moving calls are **announced** (signed via `main` / its multisig), the
+plaintext, exact call bytes, runtime version, and decoded meaning are stored
+locally. Before the hash is submitted, btcli shows and preflights the complete
+inner operation, including destination, amount, refill, and available balance.
+The standard btcli configuration does not install a persistent spend cap or
+netuid allowlist; the cancellation window and the displayed call review are the
+protection for delayed operations. You then see:
+
+```
+Protected account: main-protected (5H..)
+Queued #7, executes after block N (~<local time>)
+Cancel with: btcli proxy cancel --index 7 --wallet main
+```
+
+You do **not** need `--proxy-for` or an announce flag. Ops covered by a
+zero-delay `--allow` go through that restricted proxy immediately.
+The CLI checks live grants before choosing this route. Operations outside that
+proxy type's runtime filter use delayed `Any`, including administrative gamma
+settings and staking operations bundled with a root claim. Stake pickers and
+bulk unstaking discover positions on the protected account.
+
+## Pending, cancel, execute
+
+```bash
+btcli proxy show --wallet main
+btcli proxy show --index 7 --wallet main   # full detail + hash match
+btcli proxy cancel --index 7 --wallet main
+btcli proxy cancel --wallet main           # all, with confirm; -y to skip
+btcli proxy execute --index 7 --wallet main
+btcli proxy execute --index 7 --wallet main --fee-payer fees
+btcli proxy execute --wallet main          # all READY; skips not-ready
+```
+
+Execute needs only one signer to pay fees (`Proxy.proxy_announced`). When
+`-w` is a multisig, a local member pays fees — no threshold wrap.
+`--fee-payer` may name any local wallet whose owner agrees to sign and pay the
+fee; it receives no authority over the pure account and cannot change the saved
+call. It is useful when the controller itself has too little free TAO.
+Execution preserves the inner operation's MEV shielding policy: mandatory
+shielding remains mandatory, and staking retains its default shielding.
+
+Detailed inspection verifies the saved call bytes against the announcement
+hash. If the runtime changed, execution also verifies that those exact bytes
+still decode to their originally saved meaning. A mismatch is refused and must
+be cancelled and re-announced. Balance or price changes do not invalidate the
+hash comparison. Only older records without saved bytes rebuild their arguments
+for verification.
+
+For a multisig controller, every co-signer must verify the protected call's
+preimage, not merely the outer `Proxy.announce` hash. Rerun the original btcli
+operation on each signing device or securely share/import the announcement
+receipt and inspect it with `proxy show`. Generic multisig approval commands are
+suppressed when that device cannot match the announced hash to verified local
+call bytes.
+
+Submit announced guarded payments and atomic batches directly. Wrapping their
+execution inside another batch is rejected before submission, because an inner
+failure could consume the announcement while other batch actions still succeed.
+The same restriction applies to announced crowdloan finalization, whose stored
+call may contain a batch, and saved payloads that cannot be decoded.
+
+Cancel uses `Proxy.remove_announcement` (delegate path), so a keyless pure
+proxy can still cancel without a guardian key.
+
+Announcements discovered on chain keep stable local indexes, including ones
+created from another device. Protection bindings and saved announcements are
+scoped to the chain's genesis hash, so switching networks keeps each queue
+separate.
+
+If the same call was announced more than once, each on-chain commitment has its
+own stable index and execution window. Retrying after a lost receipt recovers
+the existing commitment instead of reserving another deposit. The plaintext is
+saved before submission, so an inclusion-unknown retry is refused while the
+first transaction may still be in the pool. After one instance executes,
+no-index execution skips later identical instances; pass their explicit index
+only when repeating the operation is intentional. Readiness uses the controller's
+current on-chain delay, including changes executed from another device.
+Cancelled multisig approvals are removed from the pending view after the CLI
+confirms that both the underlying approval and proxy announcement are absent.
+Older rows recover the approval identity from historical events and call data;
+if that history is unavailable, use an archive endpoint to verify their state.
+
+For records created before network scoping was introduced, select their original
+network and bind them once:
+
+```bash
+btcli proxy protect --wallet main --network finney --bind-network
+```
+
+This verifies the pure account's creation and the controller's live delayed
+grant, then asks you to confirm the network. It preserves saved call bytes and
+does not change proxy grants. Use an archive endpoint if the creation block is
+no longer available from your endpoint.
+
+## Rotate controller
+
+```bash
+btcli proxy rotate --wallet main --to newwallet
+```
+
+Rotation is refused until the old controller's announcement queue is empty;
+otherwise removing it could strand executable calls and their deposits. It
+then announces an atomic batch that replaces all proxy grants, adds `newwallet`
+as the delayed controller, and restores only live zero-delay grants that are
+also recorded as reviewed policy for the configured allow key. btcli checks the
+queue again immediately before execution and refuses if another announcement was
+added after review. A third-party relayer can still execute any matured on-chain
+rotation directly, so monitor and cancel a stale rotation if the queue changes.
+Completion requires the exact configured delay. Proxy fee sponsorship is reset.
+If any replacement fails, the entire batch rolls back. No coldkey swap is needed.
+After execution, the local config record moves to `newwallet` automatically.
+
+The destination wallet must not already control a different local protected
+account on the same network. A conflicting binding is preserved and rotation
+is refused.
+An SS58 or receiving address must resolve to exactly one local wallet or saved
+multisig name. Otherwise, pass that name explicitly with `--to`; the binding is
+stored under the name so subsequent wallet commands route automatically.
+If several rotations were queued and one executed elsewhere, finalize the
+destination that actually received control with `--to newwallet --finalize`.
+The explicit destination is checked against live grants, even if a later
+rotation is still recorded locally.
+
+## Hard-to-misuse rules
+
+* Delay 0 is refused for a protected account.
+* A loud warning is printed if the controller also holds a zero-delay
+  `Any` / `NonCritical` / `Transfer` / `SmallTransfer` / `NonTransfer` proxy
+  on the protected account — those defeat the delay.
+* `--allow` never grants transfer or proxy/swap management.
+* Ordinary `proxy add`, `proxy remove`, and `proxy kill-pure` commands are not
+  auto-routed to a recognized protected account; use `protect` or `rotate`.
+
+## Limitations
+
+* On-chain announcements store only the call **hash**. Plaintext lives in
+  `~/.bittensor/btcli_proxy_announcements.json` (override with
+  `BTCLI_PROXY_ANNOUNCEMENTS_PATH`). There is no encryption beyond the hash
+  commit.
+* Local protected bindings live in `~/.bittensor/btcli_protected.json`
+  (`BTCLI_PROTECTED_PATH`). Losing that file does not lose funds, but you
+  lose the plaintext queue and the wallet↔pure binding convenience.
+* Root / governance can still force a coldkey swap (privileged path). See
+  the security audit in the protected-accounts PR.
+* Finer proxy types (and a cancel-only guardian type) are a later job.
+* No watch/alerts command yet; no slippage limits on allows.
+* A single-key controller is a shared-secret contest after compromise. The
+  attacker can cancel your cancellation or rotation and drain the controller's
+  fee balance. Prefer a multisig controller for high-value accounts.
+
+## Related
+
+* [Proxy accounts](/docs/guides/proxies) — types, delays, pure proxies
+* [Multisig](/docs/guides/multisig) — shared controllers
+* [Vault](/docs/guides/vault) — Polkadot Vault signer (`--signer vault`;
+  unrelated to this feature's local store names)

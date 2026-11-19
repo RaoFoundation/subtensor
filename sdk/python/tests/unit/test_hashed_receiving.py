@@ -1026,6 +1026,46 @@ async def test_announced_proxy_identity_addresses_preserve_guarded_call(
             )
 
 
+async def test_saved_announced_call_data_composes_through_executor(setup):
+    """Saved announcement bytes must not collide with the multisig pin attribute.
+
+    ``ExecuteProxyAnnounced.announced_call_data`` is distinct from
+    ``MultisigIntentAdapter.inner_call_data``. Using the pin name would make
+    ``_compose_intent_call`` skip ``build()`` and return ``None``, blocking
+    protected-account withdrawals after the delay.
+    """
+    from bittensor.intents.proxy import ExecuteProxyAnnounced, compose_announceable_call
+
+    chain, wallet, key, address = setup
+    registered(chain, key)
+    real = Keypair.create_from_seed(bytes([92]) * 32, 6)
+    delegate = Keypair.create_from_seed(bytes([93]) * 32, 6)
+    registered(chain, real)
+    registered(chain, delegate)
+
+    transfer = Transfer(address, 1)
+    inner, call_hash, _ = await compose_announceable_call(
+        chain, transfer, real.ss58_address, wallet
+    )
+    saved = "0x" + bytes(inner.data).hex()
+    assert call_hash == "0x" + bytes(inner.call_hash).hex()
+
+    rebuilt = ExecuteProxyAnnounced(
+        delegate_ss58=delegate.ss58_address,
+        real_ss58=real.ss58_address,
+        inner_op="transfer",
+        # Drifted args would rebuild a different call; saved bytes win.
+        inner_args=Transfer(address, 2).to_dict(),
+        announced_call_data=saved,
+    )
+    assert not hasattr(rebuilt, "inner_call_data") or rebuilt.inner_call_data is None
+    call, _ = await _compose_intent_call(chain, rebuilt, wallet)
+    assert call is not None
+    assert (call.module, call.function) == ("Proxy", "proxy_announced")
+    assert bytes(call.params["call"].data) == bytes(inner.data)
+    assert "0x" + bytes(call.params["call"].call_hash).hex() == call_hash
+
+
 @pytest.mark.parametrize("identity", ["real", "delegate"])
 @pytest.mark.parametrize("state", ["missing", "mismatch", "unavailable", "no_finality", "disabled"])
 async def test_announced_proxy_rejects_unverified_identity_before_submission(

@@ -388,6 +388,10 @@ jobs:
       - name: Build SDK wheel and sdist
         working-directory: sdk/python
         run: uv build --out-dir ../../dist
+      # The pinned rc core must export every native helper sp_core needs,
+      # both installed fresh and as an upgrade over an older published core.
+      - name: Check SDK against its minimum bittensor-core
+        run: .github/scripts/check-sdk-core-floor.sh dist
       # PEP 740 provenance: sign every dist with this job's OIDC identity
       # (must match the trusted publisher, so it runs here rather than in
       # build-core-wheels.yml). uv publish uploads the resulting

@@ -2,10 +2,11 @@
 
 A subnet's alpha emission is divided by a five-slot vector
 ``[burn, recycle, owner, validator, miner]`` whose entries are ``u64`` parts of
-``u64::MAX`` (so the slots sum to exactly one). The owner or root sets it with
-``AdminUtils.sudo_set_subnet_emission_weights(netuid, uids, values)`` — a
-*sparse* update: every ``uids[i]`` names a slot and ``values[i]`` its new share.
-Omitted slots keep their current value. The chain then checks the v1 rules:
+``u64::MAX`` (so they sum to exactly one with the subnet's gamma shares). The
+owner or root sets it with
+``AdminUtils.sudo_set_subnet_emission_weights_v2(netuid, split)``, which
+replaces the whole split, the five slots and the gamma shares (see
+:func:`validate_gamma`). The chain checks:
 
 * ``burn + recycle <= 0.33`` (combined cap);
 * ``0 <= owner <= 0.33``; lease-created subnets may not drop below the launch
@@ -21,7 +22,7 @@ Omitted slots keep their current value. The chain then checks the v1 rules:
   past ``V``, root's cut is capped at the whole slot until the owner raises
   ``V`` — see :func:`baseline_root_share` and :func:`validator_floor`;
 * ``miner >= 0.33``;
-* the five slots sum to exactly one.
+* the five slots and the subnet's gamma shares sum to exactly one.
 
 Burn destroys alpha but still counts toward issuance; recycle removes alpha
 from ``SubnetAlphaOut`` and ``TotalAlphaIssuance``.
@@ -60,6 +61,13 @@ MAX_OWNER = fraction(33, 100)
 MAX_BURN_RECYCLE = fraction(33, 100)
 MAX_VALIDATOR = fraction(50, 100)
 MIN_MINER = fraction(33, 100)
+MAX_GAMMA = fraction(10, 100)
+MAX_GAMMA_SHARES = 16
+
+#: Most parts a split may miss one by and still count as rounding: shares
+#: given as percentages or fractions floor to whole parts, so ones that add
+#: up to 100% can fall a few parts short. See :func:`absorb_rounding`.
+MAX_ROUNDING_PARTS = 1_000
 
 #: Mainnet launch owner cut ``11796 / 65535`` scaled to u64 parts; also the
 #: floor for lease-created subnets and the base from which the default vector
@@ -78,6 +86,9 @@ OWNER_RATE_LIMIT_BLOCKS = 50_400
 BLOCK_SECONDS = 12
 
 ShareLike = Union[int, float, str]
+
+#: Slot shares keyed by uid (``2``) or by name (``"owner"``).
+SlotShares = Union[Mapping[int, int], Mapping[str, int]]
 
 
 def slot_index(slot: Union[int, str]) -> int:
@@ -170,15 +181,22 @@ class Rules:
     at this block: one part above root's baseline share, since the chain
     rejects ``V <= r`` (see :func:`validator_floor`); ``None`` when it is
     unknown (no chain state at hand). ``min_owner`` is the lease floor, zero
-    for subnets not created through a lease.
+    for subnets not created through a lease. ``gamma_share`` is the sum of
+    the subnet's gamma shares; the five slots sum to one less it.
+    ``gamma_targets`` maps each subnet root whitelisted for gamma emission to
+    whether gamma is enabled there, ``None`` when unknown; ``leased`` is whether the
+    subnet is leased now.
     """
 
     min_validator: Optional[int] = None
     min_owner: int = 0
     created_via_lease: bool = False
+    gamma_share: int = 0
+    gamma_targets: Optional[Mapping[int, bool]] = None
+    leased: bool = False
 
     def limits(self) -> dict[str, dict[str, object]]:
-        """Allowed range per slot, by slot name, as the machine-readable shape.
+        """Allowed range per slot and per gamma share, by name, as the machine-readable shape.
 
         Each entry carries ``min`` / ``max`` as 0..1 floats and ``min_parts`` /
         ``max_parts`` as exact u64 parts, plus ``why``. ``validator.min`` is the
@@ -207,6 +225,12 @@ class Rules:
                 else "must exceed root's baseline share (unknown without chain state)",
             ),
             "miner": _limit(MIN_MINER, ONE, "miner incentive floor"),
+            "gamma": _limit(
+                0,
+                MAX_GAMMA,
+                f"per gamma share; at most {MAX_GAMMA_SHARES} shares, each to another whitelisted "
+                "subnet with gamma enabled; none on a leased subnet",
+            ),
         }
 
     def table(self) -> list[tuple[str, str, str]]:
@@ -231,8 +255,19 @@ class Rules:
                 "combined cap on slots 0 and 1",
             )
         )
-        rows.append(("sum", "= 100%", f"all five slots add up to exactly {ONE} parts"))
+        rows.append(
+            (
+                "sum",
+                "= 100%",
+                f"all five slots{and_gamma(self.gamma_share)} add up to exactly {ONE} parts",
+            )
+        )
         return rows
+
+
+def and_gamma(gamma_share: int) -> str:
+    """`` and the gamma shares (10.00%)`` when the subnet has any, for messages on the sum."""
+    return f" and the gamma shares ({format_share(gamma_share)})" if gamma_share else ""
 
 
 def _limit(low: Optional[int], high: int, why: str) -> dict[str, object]:
@@ -272,7 +307,7 @@ def normalize_weights(weights: Iterable[int]) -> list[int]:
     return out
 
 
-def merge(current: Iterable[int], updates: Mapping[Union[int, str], int]) -> list[int]:
+def merge(current: Iterable[int], updates: SlotShares) -> list[int]:
     """Apply a sparse update exactly as the chain does: named slots are
     replaced; omitted slots keep their current value."""
     merged = normalize_weights(current)
@@ -281,35 +316,55 @@ def merge(current: Iterable[int], updates: Mapping[Union[int, str], int]) -> lis
     return merged
 
 
+def absorb_rounding(weights: Iterable[int], gamma_share: int = 0) -> list[int]:
+    """The vector with its rounding absorbed: when the five slots and
+    ``gamma_share`` miss one by at most :data:`MAX_ROUNDING_PARTS`, the miner
+    slot makes up the difference. Any other vector comes back unchanged."""
+    out = normalize_weights(weights)
+    gap = ONE - gamma_share - sum(out)
+    if -min(MAX_ROUNDING_PARTS, out[MINER]) <= gap <= MAX_ROUNDING_PARTS:
+        out[MINER] += gap
+    return out
+
+
+def merge_gamma(current: Mapping[int, int], updates: Mapping[int, int]) -> dict[int, int]:
+    """The gamma shares by target netuid after ``updates``: named targets are
+    replaced, a share of 0 removes one, and omitted targets keep their share."""
+    return {target: share for target, share in sorted({**current, **updates}.items()) if share}
+
+
 def renormalize(
     current: Iterable[int],
-    fixed: Mapping[Union[int, str], int],
+    fixed: SlotShares,
+    gamma_share: int = 0,
 ) -> list[int]:
     """Pin the ``fixed`` slots and rescale the other adjustable slots so the
-    vector sums to one again.
+    vector and ``gamma_share``, the subnet's gamma shares, sum to one again.
 
     The untouched slots keep their relative proportions (split evenly when
     they are all zero); the last of them in slot order — normally the miner —
-    absorbs the rounding remainder. Raises if the pinned shares alone exceed
-    one, or if every adjustable slot is pinned but the total is not one.
+    absorbs the rounding remainder. Raises if the pinned shares and the gamma
+    shares exceed one, or if every adjustable slot is pinned but the total is
+    not one beyond the rounding the miner slot absorbs (:func:`absorb_rounding`).
     """
     pinned = {slot_index(slot): int(value) for slot, value in fixed.items()}
     base = normalize_weights(current)
     free = [slot for slot in ADJUSTABLE_SLOTS if slot not in pinned]
-    remaining = ONE - sum(pinned.values())
+    remaining = ONE - gamma_share - sum(pinned.values())
     if remaining < 0:
         raise ValueError(
-            "the pinned shares alone exceed 100%: "
+            f"the pinned shares{and_gamma(gamma_share)} alone exceed 100%: "
             + ", ".join(f"{SLOT_NAMES[s]}={format_share(v)}" for s, v in pinned.items() if v)
         )
     out = base[:]
     for slot, value in pinned.items():
         out[slot] = value
     if not free:
-        if remaining != 0:
+        out = absorb_rounding(out, gamma_share)
+        if sum(out) + gamma_share != ONE:
             raise ValueError(
-                f"all adjustable slots are pinned but they sum to {format_share(ONE - remaining)}, "
-                "not 100%"
+                f"all adjustable slots are pinned but they{and_gamma(gamma_share)} sum to "
+                f"{format_share(ONE - remaining)}, not 100%"
             )
         return out
     free_total = sum(base[slot] for slot in free)
@@ -381,14 +436,74 @@ def validate(weights: Iterable[int], rules: Optional[Rules] = None) -> list[Viol
                 f"least {format_share(MIN_MINER)}",
             )
         )
-    total = sum(w)
+    total = sum(w) + rules.gamma_share
     if total != ONE:
         found.append(
             Violation(
                 "EmissionWeightsDoNotSumToOne",
-                f"the five slots sum to {format_share(total, 6)} ({total} parts), not exactly "
-                f"100% ({ONE} parts); renormalise another slot in the same call "
-                "(`btcli subnets emission set-value` does this for you)",
+                f"the five slots{and_gamma(rules.gamma_share)} sum to {format_share(total, 6)} "
+                f"({total} parts), not exactly 100% ({ONE} parts); renormalize another slot in "
+                "the same call (`btcli subnets emission set-value` does this for you)",
+            )
+        )
+    return found
+
+
+def validate_gamma(
+    netuid: int, shares: Mapping[int, int], rules: Optional[Rules] = None
+) -> list[Violation]:
+    """Every rule the chain would reject in ``shares``, the gamma shares of subnet
+    ``netuid`` by target netuid (empty when they are accepted). The whitelist and
+    gamma checks need ``rules.gamma_targets`` and are skipped without it."""
+    rules = rules or Rules()
+    targets = rules.gamma_targets
+    found: list[Violation] = []
+    for target, share in sorted(shares.items()):
+        if target == netuid:
+            found.append(
+                Violation(
+                    "InvalidValue",
+                    f"gamma:{target} names this subnet; a gamma share must name another subnet",
+                )
+            )
+        elif targets is not None and target not in targets:
+            found.append(
+                Violation(
+                    "GammaEmissionTargetNotWhitelisted",
+                    f"subnet {target} is not whitelisted for gamma emission, so a split cannot "
+                    f"name it; set gamma:{target} to 0 (`--gamma {target}=0` on `btcli subnets "
+                    "emission set`) or ask root to whitelist it",
+                )
+            )
+        elif targets is not None and not targets[target]:
+            found.append(
+                Violation(
+                    "GammaDisabled",
+                    f"subnet {target} has gamma disabled, so a split cannot name it; set "
+                    f"gamma:{target} to 0 (`--gamma {target}=0` on `btcli subnets emission set`) "
+                    "or wait for its owner to enable it",
+                )
+            )
+        if share > MAX_GAMMA:
+            found.append(
+                Violation(
+                    "GammaEmissionAboveMaximum",
+                    f"gamma:{target} is {format_share(share)}; each gamma share may be at most "
+                    f"{format_share(MAX_GAMMA)}",
+                )
+            )
+    if len(shares) > MAX_GAMMA_SHARES:
+        found.append(
+            Violation(
+                "TooManyGammaShares",
+                f"{len(shares)} gamma shares; a subnet may have at most {MAX_GAMMA_SHARES}",
+            )
+        )
+    if shares and rules.leased:
+        found.append(
+            Violation(
+                "GammaEmissionNotSettableOnLeasedSubnet",
+                "this subnet is leased, so it cannot have gamma shares until the lease ends",
             )
         )
     return found

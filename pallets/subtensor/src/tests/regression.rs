@@ -4,14 +4,678 @@
 use super::claim_root::{fund_pool, register_on_root};
 use super::mock::*;
 use crate::{
-    BasketRate, BasketShares, BurnIncreaseMult, FirstEmissionBlockNumber, PendingBasketDeposits,
+    BasketRate, BasketShares, BurnIncreaseMult, ChainIdentityV2, CheckColdkeySwap,
+    ColdkeySwapAnnouncements, ColdkeySwapDisputes, ColdkeySwapV2PolicySnapshots, Error,
+    FirstEmissionBlockNumber, IdentitiesV2, IsNetworkMember, PendingBasketDeposits,
     RootClaimableThreshold, SubnetAlphaOut, SubnetLimit, SubnetMechanism, SubtokenEnabled,
 };
-use frame_support::assert_ok;
+use frame_support::{assert_ok, traits::ExtendedDispatchable};
+use pallet_subtensor_proxy::{Announcements, Call as ProxyCall, Proxies};
 use sp_core::U256;
+use sp_runtime::traits::Hash;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64};
-use subtensor_runtime_common::{AlphaBalance, NetUid, Token};
+use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance, Token};
+
+// Owners must be able to rotate an active lock while refusing locked payments.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn coldkey_swap_moves_active_lock_without_payment_consent() {
+    for source_rejects_payments in [true, false] {
+        new_test_ext(1).execute_with(|| {
+            let source = U256::from(4_201);
+            let destination = U256::from(4_202);
+            let hotkey = U256::from(4_203);
+            let netuid = add_dynamic_network(&hotkey, &source);
+            let locked = AlphaBalance::from(2_000_000_u64);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &source, netuid, locked,
+            );
+            assert_ok!(SubtensorModule::do_lock_stake(
+                &source, netuid, &hotkey, locked
+            ));
+            assert_ok!(SubtensorModule::set_reject_locked_alpha(
+                RuntimeOrigin::signed(source),
+                source_rejects_payments,
+            ));
+            IdentitiesV2::<Test>::insert(destination, ChainIdentityV2::default());
+            assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+
+            assert_ok!(SubtensorModule::swap_coldkey(
+                RuntimeOrigin::root(),
+                source,
+                destination,
+                TaoBalance::ZERO,
+            ));
+            assert_eq!(
+                SubtensorModule::get_current_locked(&source, netuid),
+                AlphaBalance::ZERO
+            );
+            assert_eq!(
+                SubtensorModule::get_current_locked(&destination, netuid),
+                locked
+            );
+            assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+        });
+    }
+}
+
+// A paid, pre-upgrade V2 swap must remain executable with the active lock it accepted.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn paid_v491_v2_coldkey_swap_can_move_its_existing_lock() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(4_201);
+        let destination = U256::from(4_202);
+        let hotkey = U256::from(4_203);
+        let netuid = add_dynamic_network(&hotkey, &source);
+        let locked = AlphaBalance::from(2_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &source, netuid, locked,
+        );
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &source, netuid, &hotkey, locked
+        ));
+        let ed = ExistentialDeposit::get();
+        add_balance_to_coldkey_account(&source, ed);
+        add_balance_to_coldkey_account(&destination, ed);
+        assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+
+        // Restore the commitment and reservation that v491 stored after charging the fee.
+        let when = System::block_number();
+        let hash = <Test as frame_system::Config>::Hashing::hash_of(&(
+            b"coldkey-swap-v2-policy",
+            &destination,
+            false,
+        ));
+        ColdkeySwapAnnouncements::<Test>::insert(source, (when, hash));
+        ColdkeySwapV2PolicySnapshots::<Test>::insert(source, false);
+        assert_ok!(SubtensorModule::reserve_coldkey_swap_destination(
+            &source,
+            &destination,
+        ));
+
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(source),
+            destination,
+        ));
+        assert_eq!(
+            SubtensorModule::get_current_locked(&destination, netuid),
+            locked
+        );
+        assert!(!ColdkeySwapAnnouncements::<Test>::contains_key(source));
+    });
+}
+
+// Already-paid v491 swaps must move their locks into destinations eligible under v491.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn paid_v491_v2_coldkey_swap_preserves_legacy_lock_admission_and_live_lock_terms() {
+    for opts_into_locked_alpha in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let source = U256::from(4_201);
+            let destination = U256::from(4_202);
+            let hotkey = U256::from(4_203);
+            let netuid = add_dynamic_network(&hotkey, &source);
+            let locked = AlphaBalance::from(2_000_000_u64);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &source, netuid, locked,
+            );
+            assert_ok!(SubtensorModule::set_perpetual_lock(
+                RuntimeOrigin::signed(source),
+                netuid,
+                true,
+            ));
+            assert_ok!(SubtensorModule::do_lock_stake(
+                &source, netuid, &hotkey, locked
+            ));
+
+            if opts_into_locked_alpha {
+                assert_ok!(SubtensorModule::set_reject_locked_alpha(
+                    RuntimeOrigin::signed(destination),
+                    false,
+                ));
+            } else {
+                IdentitiesV2::<Test>::insert(destination, ChainIdentityV2::default());
+            }
+            let when = System::block_number();
+            let hash = <Test as frame_system::Config>::Hashing::hash_of(&(
+                b"coldkey-swap-v2-policy",
+                &destination,
+                false,
+            ));
+            ColdkeySwapAnnouncements::<Test>::insert(source, (when, hash));
+            ColdkeySwapV2PolicySnapshots::<Test>::insert(source, false);
+            assert_ok!(SubtensorModule::reserve_coldkey_swap_destination(
+                &source,
+                &destination,
+            ));
+            let ed = ExistentialDeposit::get();
+            add_balance_to_coldkey_account(&source, ed);
+            add_balance_to_coldkey_account(&destination, ed);
+
+            assert_ok!(SubtensorModule::swap_coldkey_announced(
+                RuntimeOrigin::signed(source),
+                destination,
+            ));
+            assert_eq!(
+                SubtensorModule::get_current_locked(&destination, netuid),
+                locked
+            );
+            assert_eq!(
+                SubtensorModule::is_perpetual_lock(&destination, netuid),
+                opts_into_locked_alpha
+            );
+            assert_eq!(
+                SubtensorModule::account_rejects_locked_alpha(&destination),
+                !opts_into_locked_alpha
+            );
+        });
+    }
+}
+
+// A paid v491 V2 swap to a previously blank destination keeps v491 lock admission.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn paid_v491_v2_coldkey_swap_to_previously_blank_destination_moves_the_lock() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(4_201);
+        let destination = U256::from(4_202);
+        let hotkey = U256::from(4_203);
+        let netuid = add_dynamic_network(&hotkey, &source);
+        let locked = AlphaBalance::from(2_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &source, netuid, locked,
+        );
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &source, netuid, &hotkey, locked
+        ));
+        add_balance_to_coldkey_account(&source, ExistentialDeposit::get());
+
+        let when = System::block_number();
+        let hash = <Test as frame_system::Config>::Hashing::hash_of(&(
+            b"coldkey-swap-v2-policy",
+            &destination,
+            true,
+        ));
+        ColdkeySwapAnnouncements::<Test>::insert(source, (when, hash));
+        ColdkeySwapV2PolicySnapshots::<Test>::insert(source, true);
+        assert_ok!(SubtensorModule::reserve_coldkey_swap_destination(
+            &source,
+            &destination,
+        ));
+        let identity = ChainIdentityV2 {
+            name: b"Destination".to_vec(),
+            ..Default::default()
+        };
+        IdentitiesV2::<Test>::insert(destination, identity.clone());
+
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(source),
+            destination,
+        ));
+        assert_eq!(
+            SubtensorModule::get_current_locked(&destination, netuid),
+            locked
+        );
+        assert_eq!(IdentitiesV2::<Test>::get(destination), Some(identity));
+        assert!(!SubtensorModule::same_coldkey_lineage(
+            &source,
+            &destination
+        ));
+    });
+}
+
+// A paid v491 hash announcement must still move eligible locks after upgrade.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+#[allow(clippy::expect_used)]
+fn paid_v491_hash_coldkey_swap_keeps_its_original_lock_admission() {
+    for pre_upgrade in [true, false] {
+        new_test_ext(1).execute_with(|| {
+            let source = U256::from(4_201);
+            let destination = U256::from(4_202);
+            let hotkey = U256::from(4_203);
+            let netuid = add_dynamic_network(&hotkey, &source);
+            let locked = AlphaBalance::from(2_000_000_u64);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &source, netuid, locked,
+            );
+            assert_ok!(SubtensorModule::do_lock_stake(
+                &source, netuid, &hotkey, locked
+            ));
+            let identity = ChainIdentityV2 {
+                name: b"Destination".to_vec(),
+                ..Default::default()
+            };
+            IdentitiesV2::<Test>::insert(destination, identity.clone());
+
+            let hash = <Test as frame_system::Config>::Hashing::hash_of(&destination);
+            let ed = ExistentialDeposit::get();
+            if pre_upgrade {
+                add_balance_to_coldkey_account(&source, ed);
+                ColdkeySwapAnnouncements::<Test>::insert(source, (System::block_number(), hash));
+            } else {
+                add_balance_to_coldkey_account(&source, ed + SubtensorModule::get_key_swap_cost());
+                assert_ok!(SubtensorModule::announce_coldkey_swap(
+                    RuntimeOrigin::signed(source),
+                    hash,
+                ));
+            }
+            let (when, _) = ColdkeySwapAnnouncements::<Test>::get(source).expect("announced");
+            System::set_block_number(when);
+            let locked_at_execution = SubtensorModule::get_current_locked(&source, netuid);
+            assert!(locked_at_execution > AlphaBalance::ZERO);
+            assert_ok!(SubtensorModule::swap_coldkey_announced(
+                RuntimeOrigin::signed(source),
+                destination,
+            ));
+            assert_eq!(
+                SubtensorModule::get_current_locked(&destination, netuid),
+                locked_at_execution
+            );
+            assert_eq!(
+                SubtensorModule::get_current_locked(&source, netuid),
+                AlphaBalance::ZERO
+            );
+            assert!(SubtensorModule::account_rejects_locked_alpha(&destination));
+            assert_eq!(IdentitiesV2::<Test>::get(destination), Some(identity));
+        });
+    }
+}
+
+// PROTECTED_REGRESSION: a full hotkey swap must not block the destination hotkey from registering on unrelated subnets; changes require explicit human approval.
+#[test]
+fn full_hotkey_swap_preserves_registration_on_unrelated_subnets() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(4_201);
+        let new_hotkey = U256::from(4_202);
+        let coldkey = U256::from(4_203);
+        let member_netuid = NetUid::from(21);
+        let unrelated_netuid = NetUid::from(22);
+
+        add_network(member_netuid, 1, 0);
+        add_network(unrelated_netuid, 1, 0);
+        register_ok_neuron(member_netuid, old_hotkey, coldkey, 0);
+
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
+            &old_hotkey,
+            &new_hotkey,
+            &coldkey,
+            &mut frame_support::weights::Weight::zero(),
+            false,
+        ));
+
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, member_netuid));
+        assert!(!IsNetworkMember::<Test>::contains_key(
+            new_hotkey,
+            unrelated_netuid
+        ));
+
+        register_ok_neuron(unrelated_netuid, new_hotkey, coldkey, 0);
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, unrelated_netuid));
+    });
+}
+
+// PROTECTED_REGRESSION: a historical false membership row must not block a subnet-scoped
+// hotkey swap; changes require explicit human approval.
+#[test]
+fn false_membership_row_does_not_block_subnet_hotkey_swap() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(4_211);
+        let new_hotkey = U256::from(4_212);
+        let coldkey = U256::from(4_213);
+        let netuid = NetUid::from(23);
+
+        add_network(netuid, 1, 0);
+        register_ok_neuron(netuid, old_hotkey, coldkey, 0);
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+        IsNetworkMember::<Test>::insert(new_hotkey, netuid, false);
+
+        assert!(!SubtensorModule::is_hotkey_registered_on_specific_network(
+            &new_hotkey,
+            netuid
+        ));
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &old_hotkey,
+            &new_hotkey,
+            Some(netuid),
+            false,
+        ));
+        assert!(IsNetworkMember::<Test>::get(new_hotkey, netuid));
+    });
+}
+
+// PROTECTED_REGRESSION: a tiny volatile holding must not strand earned root dividends; changes require explicit human approval.
+#[test]
+fn small_out_of_band_holding_allows_dividend_settlement_and_actual_claim() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(4_301);
+        let coldkey = U256::from(4_302);
+        let owner = U256::from(4_303);
+        let held = add_dynamic_network(&U256::from(4_304), &owner);
+        let origin = add_dynamic_network(&U256::from(4_305), &owner);
+        for netuid in [held, origin] {
+            remove_owner_registration_stake(netuid);
+            fund_pool(netuid);
+        }
+        SubtensorModule::set_tao_weight(u64::MAX);
+        super::claim_root::zero_claim_threshold();
+        fund_with_claimable_dividends(hotkey, coldkey, 0, &[held], &[]);
+        // This position is 0.1% of the cash-backed fund. A 10% spot move
+        // breaches the old per-pool gate but shifts the fund by only ~0.01%.
+        crate::SubnetTAO::<Test>::mutate(held, |tao| {
+            *tao = tao.saturating_add(tao.saturating_div(10u64.into()));
+        });
+        let credit = 1_000_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(origin, |alpha| {
+            *alpha = alpha.saturating_add(credit.into());
+        });
+        SubtensorModule::enqueue_basket_deposit(&hotkey, origin, credit.into());
+        let (_, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        assert!(completed);
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, origin));
+        assert!(BasketRate::<Test>::get(hotkey) > I96F32::from_num(1));
+        assert_ok!(SubtensorModule::claim_root(
+            RuntimeOrigin::signed(coldkey),
+            BTreeSet::new(),
+        ));
+        let paid_root = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        )
+        .to_u64();
+        // Existing cash alone is insufficient: this asserts the earned dividend
+        // actually became claimable root stake, not just an empty successful call.
+        assert!(paid_root > ROOT_STAKE + FUND_CASH + credit / 2);
+    });
+}
+
+// PROTECTED_REGRESSION: PR #3319 must not extinguish an exited claimant's alpha rights at a depressed origin price; changes require explicit human approval.
+#[test]
+fn deferred_origin_cannot_use_another_claimant_groups_price_budget() {
+    new_test_ext(1).execute_with(|| {
+        let hot = U256::from(4_401);
+        let alice = U256::from(4_402);
+        let bob = U256::from(4_403);
+        let owner = U256::from(4_404);
+        let depressed = add_dynamic_network(&U256::from(4_405), &owner);
+        let healthy = add_dynamic_network(&U256::from(4_406), &owner);
+        for netuid in [depressed, healthy] {
+            remove_owner_registration_stake(netuid);
+            fund_pool(netuid);
+        }
+        register_on_root(&hot, 0);
+        SubtensorModule::set_tao_weight(u64::MAX);
+        super::claim_root::zero_claim_threshold();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &alice,
+            NetUid::ROOT,
+            ROOT_STAKE.into(),
+        );
+
+        let alice_alpha = 100_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(depressed, |alpha| {
+            *alpha = alpha.saturating_add(alice_alpha.into());
+        });
+        SubtensorModule::enqueue_root_dividend(&hot, depressed, alice_alpha.into());
+        let original_tao = crate::SubnetTAO::<Test>::get(depressed);
+        crate::SubnetTAO::<Test>::insert(depressed, original_tao.saturating_div(100u64.into()));
+        let (_, _, ready) = SubtensorModule::flush_basket_deposits_for_hotkey(&hot);
+        assert!(ready);
+        assert!(crate::DeferredBasketRates::<Test>::contains_key(
+            hot, depressed
+        ));
+
+        // Alice fully exits before Bob joins. Their dividend rights must not mix.
+        let removed = SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &alice,
+            NetUid::ROOT,
+            ROOT_STAKE.into(),
+        );
+        assert_ok!(
+            SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hot, &alice, removed,
+            )
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&hot, &alice);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &bob,
+            NetUid::ROOT,
+            ROOT_STAKE.into(),
+        );
+        assert_ok!(
+            SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                &hot, &bob, ROOT_STAKE,
+            )
+        );
+        let bob_alpha = 10_000_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(healthy, |alpha| {
+            *alpha = alpha.saturating_add(bob_alpha.into());
+        });
+        SubtensorModule::enqueue_root_dividend(&hot, healthy, bob_alpha.into());
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert_eq!(SubtensorModule::get_basket_holdings(&hot).len(), 0);
+
+        // The bad origin is down 99%, but contributes under 1% batch error.
+        // Bob's healthy dividend can settle without closing Alice's alpha rights.
+        SubtensorModule::settle_basket_deposits_for_test(&hot);
+        assert_eq!(
+            PendingBasketDeposits::<Test>::get(hot, depressed),
+            alice_alpha.into()
+        );
+        assert!(crate::DeferredBasketRates::<Test>::contains_key(
+            hot, depressed
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &escrow, depressed),
+            AlphaBalance::ZERO,
+        );
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hot, healthy));
+        assert!(SubtensorModule::get_basket_owed_shares(&hot, &bob) > bob_alpha * 98 / 100);
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&hot, &alice), 0);
+
+        // The price recovers. Alice must receive her original dividend's value,
+        // not the ~1% share allocation permanently fixed at the depressed price.
+        crate::SubnetTAO::<Test>::insert(depressed, original_tao);
+        assert_ok!(SubtensorModule::claim_root(
+            RuntimeOrigin::signed(alice),
+            BTreeSet::new()
+        ));
+        let paid =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &alice, NetUid::ROOT)
+                .to_u64();
+        assert!(
+            paid >= alice_alpha * 99 / 100,
+            "Alice recovered only {paid}"
+        );
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hot, depressed));
+        assert!(!crate::DeferredBasketRates::<Test>::contains_key(
+            hot, depressed
+        ));
+        assert_ok!(SubtensorModule::claim_root(
+            RuntimeOrigin::signed(alice),
+            BTreeSet::new()
+        ));
+        assert_eq!(SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot, &alice, NetUid::ROOT,
+        ).to_u64(), paid);
+    });
+}
+
+// PROTECTED_REGRESSION: PR #3319 must retain deferred alpha rights when positive holding quotes round to the same value; changes require explicit human approval.
+#[test]
+fn deferred_zero_marginal_credit_survives_until_actual_claim() {
+    // Integer rounding and a price-limit-clamped quote both have this failure
+    // mode. The latter can strand a large credit rather than just atomic dust.
+    for (held, alice_alpha, depressed_tao) in [
+        (1_500_000_000_000u64, 10_000_000_000u64, 4_000_000u64),
+        (1_500_000_000u64, 10_000u64, 10_000_000u64),
+    ] {
+        new_test_ext(1).execute_with(|| {
+            let hot = U256::from(4_501);
+            let alice = U256::from(4_502);
+            let bob = U256::from(4_503);
+            let owner = U256::from(4_504);
+            let depressed = add_dynamic_network(&U256::from(4_505), &owner);
+            let healthy = add_dynamic_network(&U256::from(4_506), &owner);
+            for netuid in [depressed, healthy] {
+                remove_owner_registration_stake(netuid);
+                fund_pool(netuid);
+            }
+            register_on_root(&hot, 0);
+            SubtensorModule::set_tao_weight(u64::MAX);
+            super::claim_root::zero_claim_threshold();
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &alice,
+                NetUid::ROOT,
+                ROOT_STAKE.into(),
+            );
+            let escrow = SubtensorModule::get_beta_escrow_account_id();
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &escrow,
+                depressed,
+                held.into(),
+            );
+            let original_tao = crate::SubnetTAO::<Test>::get(depressed);
+            crate::SubnetTAO::<Test>::insert(depressed, original_tao.saturating_div(2u64.into()));
+            SubnetAlphaOut::<Test>::mutate(depressed, |alpha| {
+                *alpha = alpha.saturating_add(alice_alpha.into());
+            });
+            SubtensorModule::enqueue_root_dividend(&hot, depressed, alice_alpha.into());
+            let (_, _, ready) = SubtensorModule::flush_basket_deposits_for_hotkey(&hot);
+            assert!(ready);
+            assert!(crate::DeferredBasketRates::<Test>::contains_key(
+                hot, depressed
+            ));
+
+            let removed = SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &alice,
+                NetUid::ROOT,
+                ROOT_STAKE.into(),
+            );
+            assert_ok!(
+                SubtensorModule::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                    &hot, &alice, removed,
+                )
+            );
+            SubtensorModule::maybe_remove_staking_hotkey(&hot, &alice);
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &bob,
+                NetUid::ROOT,
+                ROOT_STAKE.into(),
+            );
+            assert_ok!(
+                SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                    &hot, &bob, ROOT_STAKE,
+                )
+            );
+
+            // Bob owns the existing basket. Cash keeps the held-price impact below
+            // 0.1% even after a further price drop; Alice owns only her deferred alpha.
+            let cash = 1_000_000_000_000_000u64;
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &escrow,
+                NetUid::ROOT,
+                cash.into(),
+            );
+            let Some(root_account) = SubtensorModule::get_subnet_account_id(NetUid::ROOT) else {
+                panic!("root subnet must have a funding account");
+            };
+            add_balance_to_coldkey_account(&root_account, cash.into());
+            BasketShares::<Test>::insert(hot, cash);
+            BasketRate::<Test>::insert(hot, I96F32::from_num(1_000_000));
+            crate::SubnetTAO::<Test>::insert(
+                depressed,
+                subtensor_runtime_common::TaoBalance::from(depressed_tao),
+            );
+            let before = SubtensorModule::try_realizable_tao_for_alpha(depressed, held);
+            let after =
+                SubtensorModule::try_realizable_tao_for_alpha(depressed, held + alice_alpha);
+            assert!(matches!(before, Ok(Some(value)) if value > 0));
+            assert_eq!(
+                before, after,
+                "nonterminal marginal quote must round to zero"
+            );
+
+            let bob_payout_before = SubtensorModule::get_basket_payout_tao(&hot, &bob);
+            let bob_alpha = 1_000_000_000u64;
+            SubnetAlphaOut::<Test>::mutate(healthy, |alpha| {
+                *alpha = alpha.saturating_add(bob_alpha.into());
+            });
+            SubtensorModule::enqueue_root_dividend(&hot, healthy, bob_alpha.into());
+            SubtensorModule::settle_basket_deposits_for_test(&hot);
+            assert_eq!(
+                PendingBasketDeposits::<Test>::get(hot, depressed),
+                alice_alpha.into()
+            );
+            assert!(crate::DeferredBasketRates::<Test>::contains_key(
+                hot, depressed
+            ));
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hot, &escrow, depressed,
+                )
+                .to_u64(),
+                held
+            );
+            assert!(!PendingBasketDeposits::<Test>::contains_key(hot, healthy));
+            assert!(
+                SubtensorModule::get_basket_payout_tao(&hot, &bob)
+                    > bob_payout_before + bob_alpha * 98 / 100
+            );
+            assert_eq!(SubtensorModule::get_basket_owed_shares(&hot, &alice), 0);
+
+            // Recovery must turn the preserved alpha into a real payout to Alice.
+            crate::SubnetTAO::<Test>::insert(depressed, original_tao);
+            let restored_value =
+                SubtensorModule::realizable_tao_for_alpha(depressed, held + alice_alpha)
+                    - SubtensorModule::realizable_tao_for_alpha(depressed, held);
+            assert!(restored_value > 0);
+            assert_ok!(SubtensorModule::claim_root(
+                RuntimeOrigin::signed(alice),
+                BTreeSet::new()
+            ));
+            let paid = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &alice,
+                NetUid::ROOT,
+            )
+            .to_u64();
+            assert!(
+                paid >= restored_value * 99 / 100,
+                "Alice recovered only {paid} of {restored_value}"
+            );
+            assert!(!PendingBasketDeposits::<Test>::contains_key(hot, depressed));
+            assert!(!crate::DeferredBasketRates::<Test>::contains_key(
+                hot, depressed
+            ));
+            assert_ok!(SubtensorModule::claim_root(
+                RuntimeOrigin::signed(alice),
+                BTreeSet::new()
+            ));
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hot,
+                    &alice,
+                    NetUid::ROOT,
+                )
+                .to_u64(),
+                paid
+            );
+        });
+    }
+}
 
 const ROOT_STAKE: u64 = 1_000_000_000;
 const FUND_CASH: u64 = 1_000_000_000;
@@ -157,5 +821,722 @@ fn f0033_coldkey_wide_claim_pays_both_large_funds_with_pending_dust() {
             assert_eq!(BasketShares::<Test>::get(hotkey), 0);
             assert_dust_queue_unchanged(hotkey, &subnets);
         }
+    });
+}
+
+// PROTECTED_REGRESSION: oversized pending baskets must make bounded progress and cannot permanently freeze root principal; changes require explicit human approval.
+#[test]
+fn oversized_pending_basket_recovers_root_stake_without_a_larger_transaction_weight() {
+    new_test_ext(1).execute_with(|| {
+        let row_count = crate::MAX_ROOT_CLAIM_WORK.saturating_add(44);
+        SubnetLimit::<Test>::put(row_count as u16);
+        let subnets = priced_subnets();
+        assert_eq!(subnets.len(), row_count as usize);
+
+        let hotkey = U256::from(4_301);
+        let incumbent = U256::from(4_302);
+        let newcomer = U256::from(4_303);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &incumbent, &hotkey
+        ));
+        register_on_root(&hotkey, 0);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &incumbent,
+            NetUid::ROOT,
+            ROOT_STAKE.into(),
+        );
+        for netuid in &subnets {
+            SubnetAlphaOut::<Test>::mutate(netuid, |alpha| {
+                *alpha = alpha.saturating_add(1_000_000u64.into())
+            });
+            SubtensorModule::enqueue_basket_deposit(
+                &hotkey,
+                *netuid,
+                AlphaBalance::from(1_000_000u64),
+            );
+        }
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(0));
+        SubtokenEnabled::<Test>::insert(NetUid::ROOT, true);
+        crate::SubnetAlphaIn::<Test>::insert(NetUid::ROOT, AlphaBalance::from(10_000_000_000u64));
+        add_balance_to_coldkey_account(&newcomer, 2_000_000_000u64.into());
+
+        let shares_before = BasketShares::<Test>::get(hotkey);
+        let first = SubtensorModule::add_stake(
+            RuntimeOrigin::signed(newcomer),
+            hotkey,
+            NetUid::ROOT,
+            1_000_000_000u64.into(),
+        );
+        assert_eq!(
+            first,
+            Err(crate::Error::<Test>::BasketDepositPending.into())
+        );
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_prefix(hotkey).count(),
+            row_count as usize,
+            "a failed dispatch is transactional and must not partially settle dividends"
+        );
+
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_prefix(hotkey).count(),
+            44,
+            "the free block drain must commit one bounded recovery chunk"
+        );
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_prefix(hotkey).count(),
+            0
+        );
+        assert!(BasketShares::<Test>::get(hotkey) > shares_before);
+
+        let stake_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &newcomer,
+            NetUid::ROOT,
+        );
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(newcomer),
+            hotkey,
+            NetUid::ROOT,
+            1_000_000_000u64.into(),
+        ));
+        let stake_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &newcomer,
+            NetUid::ROOT,
+        );
+        let added = stake_after.saturating_sub(stake_before);
+        assert!(
+            added.to_u64() > 0,
+            "the recovered add_stake must move principal"
+        );
+
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(newcomer),
+            hotkey,
+            NetUid::ROOT,
+            added,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &newcomer,
+                NetUid::ROOT,
+            ),
+            stake_before
+        );
+    });
+}
+
+// PROTECTED_REGRESSION: lease dust must not block termination or strand the synthetic account's stake; changes require explicit human approval.
+#[test]
+fn lease_termination_hands_over_dust_below_the_transfer_minimum() {
+    use super::leasing::{setup_crowdloan, setup_leased_network};
+    use crate::{
+        Error, Lock, OwnerCutAutoLockEnabled, SubnetLeases, SubnetOwner, SubnetOwnerHotkey,
+        SubnetUidToLeaseId,
+    };
+    use frame_support::{assert_noop, storage::with_storage_layer, traits::Get};
+    use sp_runtime::Percent;
+
+    for locked in [false, true] {
+        for pool_tao in [1u64, 1_000_000_000] {
+            new_test_ext(1).execute_with(|| {
+                let beneficiary = U256::from(1);
+                setup_crowdloan(
+                    0,
+                    10_000_000_000,
+                    1_000_000_000_000,
+                    beneficiary,
+                    &[(U256::from(2), 990_000_000_000)],
+                );
+                let end_block = 500;
+                let (lease_id, lease) = setup_leased_network(
+                    beneficiary,
+                    Percent::from_percent(30),
+                    Some(end_block),
+                    None,
+                );
+                run_to_block(end_block + 1);
+                remove_owner_registration_stake(lease.netuid);
+                setup_reserves(lease.netuid, pool_tao.into(), 1_000_000_000u64.into());
+                let dust = AlphaBalance::from(1_000u64);
+                assert!(dust.to_u64() < crate::DefaultMinTransfer::<Test>::get().to_u64());
+                SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey,
+                    &lease.coldkey,
+                    lease.netuid,
+                    dust,
+                );
+                let destination = U256::from(100_003);
+                assert_ok!(SubtensorModule::create_account_if_non_existent(
+                    &beneficiary,
+                    &destination
+                ));
+                // Ordinary transfers retain their minimum, even when the protocol handover is exempt.
+                assert_noop!(
+                    with_storage_layer(|| SubtensorModule::transfer_stake_within_subnet(
+                        &lease.coldkey,
+                        &lease.hotkey,
+                        &beneficiary,
+                        &destination,
+                        lease.netuid,
+                        dust,
+                    )),
+                    Error::<Test>::AmountTooLow
+                );
+                if locked {
+                    OwnerCutAutoLockEnabled::<Test>::insert(lease.netuid, true);
+                    SubtensorModule::auto_lock_owner_cut(lease.netuid, dust);
+                    assert!(Lock::<Test>::contains_key((
+                        lease.coldkey,
+                        lease.netuid,
+                        lease.hotkey
+                    )));
+                }
+                assert_ok!(SubtensorModule::terminate_lease(
+                    RuntimeOrigin::signed(beneficiary),
+                    lease_id,
+                    destination,
+                ));
+                assert_eq!(SubnetOwner::<Test>::get(lease.netuid), beneficiary);
+                assert_eq!(SubnetOwnerHotkey::<Test>::get(lease.netuid), destination);
+                assert_eq!(
+                    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &lease.hotkey,
+                        &lease.coldkey,
+                        lease.netuid,
+                    ),
+                    AlphaBalance::ZERO,
+                );
+                assert_eq!(
+                    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &destination,
+                        &beneficiary,
+                        lease.netuid,
+                    ),
+                    dust,
+                );
+                assert!(!Lock::<Test>::contains_key((
+                    lease.coldkey,
+                    lease.netuid,
+                    lease.hotkey
+                )));
+                if locked {
+                    let Some(lock) = Lock::<Test>::get((beneficiary, lease.netuid, destination))
+                    else {
+                        panic!("the dust lock must follow the handed-over stake");
+                    };
+                    assert_eq!(lock.locked_mass, dust);
+                }
+                assert!(!SubnetLeases::<Test>::contains_key(lease_id));
+                assert!(!SubnetUidToLeaseId::<Test>::contains_key(lease.netuid));
+            });
+        }
+    }
+}
+
+fn lease_regression_funded(
+    stake: u64,
+    end_block: u64,
+) -> (
+    u32,
+    crate::subnets::leasing::SubnetLeaseOf<Test>,
+    U256,
+    U256,
+) {
+    use super::leasing::{setup_crowdloan, setup_leased_network};
+    use sp_runtime::Percent;
+    let beneficiary = U256::from(1);
+    let contributor = U256::from(2);
+    let destination = U256::from(100_003);
+    setup_crowdloan(
+        0,
+        10_000_000_000,
+        1_000_000_000_000,
+        beneficiary,
+        &[(contributor, 990_000_000_000)],
+    );
+    let (id, lease) = setup_leased_network(
+        beneficiary,
+        Percent::from_percent(30),
+        Some(end_block),
+        None,
+    );
+    remove_owner_registration_stake(lease.netuid);
+    setup_reserves(
+        lease.netuid,
+        1_000_000_000_000u64.into(),
+        1_000_000_000_000u64.into(),
+    );
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &lease.hotkey,
+        &lease.coldkey,
+        lease.netuid,
+        stake.into(),
+    );
+    assert_ok!(SubtensorModule::create_account_if_non_existent(
+        &beneficiary,
+        &destination
+    ));
+    (id, lease, contributor, destination)
+}
+
+fn lease_regression_conviction_winner(
+    lease: &crate::subnets::leasing::SubnetLeaseOf<Test>,
+    now: u64,
+) -> (U256, U256) {
+    use crate::staking::lock::LockState;
+    use crate::{DecayingHotkeyLock, Lock, NetworkRegisteredAt, SubnetOwner, SubnetOwnerHotkey};
+    let coldkey = U256::from(20);
+    let hotkey = U256::from(21);
+    let mass = AlphaBalance::from(1_000_000_000_000u64);
+    System::set_block_number(now);
+    NetworkRegisteredAt::<Test>::insert(lease.netuid, 0);
+    assert_ok!(SubtensorModule::create_account_if_non_existent(
+        &coldkey, &hotkey
+    ));
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &hotkey,
+        &coldkey,
+        lease.netuid,
+        mass,
+    );
+    let source = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+        &lease.hotkey,
+        &lease.coldkey,
+        lease.netuid,
+    );
+    SubnetAlphaOut::<Test>::insert(lease.netuid, mass.saturating_add(source));
+    let state = LockState {
+        locked_mass: mass,
+        conviction: U64F64::from_num(mass.to_u64()),
+        last_update: now,
+    };
+    Lock::<Test>::insert((coldkey, lease.netuid, hotkey), state.clone());
+    DecayingHotkeyLock::<Test>::insert(lease.netuid, hotkey, state);
+    SubtensorModule::change_subnet_owner_if_needed(lease.netuid);
+    assert_eq!(SubnetOwner::<Test>::get(lease.netuid), coldkey);
+    assert_eq!(SubnetOwnerHotkey::<Test>::get(lease.netuid), hotkey);
+    (coldkey, hotkey)
+}
+
+// PROTECTED_REGRESSION: final accumulated lease dividends must reach their contributors instead of the beneficiary; changes require explicit human approval.
+#[test]
+fn lease_final_accrual_reaches_contributors_before_residual_handover() {
+    use crate::{AccumulatedLeaseDividends, SubnetLeaseShares, SubnetLeases};
+    for ended_hook_first in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let (id, lease, contributor, destination) =
+                lease_regression_funded(60_000_000_000, 500);
+            let cut = AlphaBalance::from(10_000_000_000u64);
+            SubtensorModule::distribute_leased_network_dividends(id, cut);
+            let accrued = AccumulatedLeaseDividends::<Test>::get(id);
+            assert_eq!(accrued, AlphaBalance::from(3_000_000_000u64));
+            let owed = AlphaBalance::from(
+                SubnetLeaseShares::<Test>::get(id, contributor)
+                    .saturating_mul(U64F64::from_num(accrued.to_u64()))
+                    .to_num::<u64>(),
+            );
+            assert!(owed > AlphaBalance::from(2_900_000_000u64));
+            System::set_block_number(501); // Not a scheduled distribution block.
+            if ended_hook_first {
+                SubtensorModule::distribute_leased_network_dividends(id, AlphaBalance::ZERO);
+                assert_eq!(
+                    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &lease.hotkey,
+                        &contributor,
+                        lease.netuid,
+                    ),
+                    owed
+                );
+            }
+            assert_ok!(SubtensorModule::terminate_lease(
+                RuntimeOrigin::signed(lease.beneficiary),
+                id,
+                destination,
+            ));
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey,
+                    &contributor,
+                    lease.netuid,
+                ),
+                owed
+            );
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &destination,
+                    &lease.beneficiary,
+                    lease.netuid,
+                ),
+                AlphaBalance::from(60_000_000_000u64) - owed
+            );
+            SubtensorModule::distribute_leased_network_dividends(id, AlphaBalance::ZERO);
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey,
+                    &contributor,
+                    lease.netuid,
+                ),
+                owed
+            );
+            assert!(!SubnetLeases::<Test>::contains_key(id));
+        });
+    }
+}
+
+// PROTECTED_REGRESSION: a sub-minimum contributor debt must not freeze the beneficiary's locked lease stake; changes require explicit human approval.
+#[test]
+fn lease_dust_debt_does_not_hold_back_locked_owner_stake() {
+    use crate::{Lock, OwnerCutAutoLockEnabled, SubnetLeaseUnpaidDividends, SubnetLeases};
+    new_test_ext(1).execute_with(|| {
+        let (id, lease, contributor, destination) = lease_regression_funded(55_000_000_000, 500);
+        let owner_lock = AlphaBalance::from(50_000_000_000u64);
+        OwnerCutAutoLockEnabled::<Test>::insert(lease.netuid, true);
+        SubtensorModule::auto_lock_owner_cut(lease.netuid, owner_lock);
+        let debt = AlphaBalance::from(1_000_000u64);
+        SubnetLeaseUnpaidDividends::<Test>::insert(id, contributor, debt);
+        System::set_block_number(501);
+        assert_ok!(SubtensorModule::terminate_lease(
+            RuntimeOrigin::signed(lease.beneficiary),
+            id,
+            destination,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                &contributor,
+                lease.netuid,
+            ),
+            debt
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &destination,
+                &lease.beneficiary,
+                lease.netuid,
+            ),
+            AlphaBalance::from(55_000_000_000u64) - debt
+        );
+        assert!(
+            Lock::<Test>::get((lease.beneficiary, lease.netuid, destination))
+                .is_some_and(|lock| lock.locked_mass > AlphaBalance::from(49_000_000_000u64))
+        );
+        assert!(
+            SubnetLeaseUnpaidDividends::<Test>::iter_prefix(id)
+                .next()
+                .is_none()
+        );
+        assert!(!SubnetLeases::<Test>::contains_key(id));
+    });
+}
+
+// PROTECTED_REGRESSION: terminated lease retries must preserve a conviction winner and recover outstanding funds without removing the proxy twice; changes require explicit human approval.
+#[test]
+fn lease_retry_after_conviction_takeover_recovers_funds_without_reclaiming_ownership() {
+    use crate::{SubnetLeaseUnpaidDividends, SubnetLeases, SubnetOwner, SubnetOwnerHotkey};
+    for (use_hook, legacy_record) in [(false, false), (true, false), (false, true), (true, true)] {
+        new_test_ext(1).execute_with(|| {
+            let (id, lease, contributor, destination) =
+                lease_regression_funded(55_000_000_000, 500);
+            let debt = AlphaBalance::from(100_000_000_000u64);
+            SubnetLeaseUnpaidDividends::<Test>::insert(id, contributor, debt);
+            System::set_block_number(501);
+            assert_ok!(SubtensorModule::terminate_lease(
+                RuntimeOrigin::signed(lease.beneficiary),
+                id,
+                destination,
+            ));
+            assert!(SubnetLeases::<Test>::contains_key(id));
+            if legacy_record {
+                // Pre-upgrade partial terminations have no new marker, but their proxy was removed.
+                crate::SubnetLeaseTerminationHotkey::<Test>::remove(id);
+            }
+            let (winner, winner_hotkey) =
+                lease_regression_conviction_winner(&lease, crate::staking::lock::ONE_YEAR + 501);
+            assert_ok!(SubtensorModule::terminate_lease(
+                RuntimeOrigin::signed(lease.beneficiary),
+                id,
+                destination,
+            ));
+            assert_eq!(SubnetOwner::<Test>::get(lease.netuid), winner);
+            assert_eq!(SubnetOwnerHotkey::<Test>::get(lease.netuid), winner_hotkey);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                &lease.coldkey,
+                lease.netuid,
+                debt,
+            );
+            if use_hook {
+                SubtensorModule::distribute_leased_network_dividends(id, AlphaBalance::ZERO);
+            } else {
+                assert_ok!(SubtensorModule::terminate_lease(
+                    RuntimeOrigin::signed(lease.beneficiary),
+                    id,
+                    destination,
+                ));
+            }
+            assert_eq!(SubnetOwner::<Test>::get(lease.netuid), winner);
+            assert_eq!(SubnetOwnerHotkey::<Test>::get(lease.netuid), winner_hotkey);
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey,
+                    &contributor,
+                    lease.netuid,
+                ),
+                debt
+            );
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &destination,
+                    &lease.beneficiary,
+                    lease.netuid,
+                ),
+                AlphaBalance::from(55_000_000_000u64)
+            );
+            assert!(!SubnetLeases::<Test>::contains_key(id));
+        });
+    }
+}
+
+// PROTECTED_REGRESSION: lease termination after a conviction takeover must not leave ghost locks or debit the winner's owner bucket; changes require explicit human approval.
+#[test]
+fn lease_termination_after_conviction_takeover_preserves_lock_buckets() {
+    use crate::{DecayingHotkeyLock, Lock, OwnerCutAutoLockEnabled};
+    new_test_ext(1).execute_with(|| {
+        let end = crate::staking::lock::ONE_YEAR + 1_000;
+        let (id, lease, _contributor, destination) = lease_regression_funded(55_000_000_000, end);
+        System::set_block_number(crate::staking::lock::ONE_YEAR + 1);
+        OwnerCutAutoLockEnabled::<Test>::insert(lease.netuid, true);
+        SubtensorModule::auto_lock_owner_cut(lease.netuid, 5_000_000_000u64.into());
+        let (_winner, winner_hotkey) =
+            lease_regression_conviction_winner(&lease, crate::staking::lock::ONE_YEAR + 1);
+        assert!(
+            DecayingHotkeyLock::<Test>::get(lease.netuid, lease.hotkey)
+                .is_some_and(|lock| lock.locked_mass != AlphaBalance::ZERO)
+        );
+        System::set_block_number(end + 1);
+        assert_ok!(SubtensorModule::terminate_lease(
+            RuntimeOrigin::signed(lease.beneficiary),
+            id,
+            destination,
+        ));
+        assert!(!Lock::<Test>::contains_key((
+            lease.coldkey,
+            lease.netuid,
+            lease.hotkey
+        )));
+        assert!(!DecayingHotkeyLock::<Test>::contains_key(
+            lease.netuid,
+            lease.hotkey
+        ));
+        assert!(
+            DecayingHotkeyLock::<Test>::get(lease.netuid, winner_hotkey)
+                .is_some_and(|lock| lock.locked_mass > AlphaBalance::from(900_000_000_000u64))
+        );
+        let Some(beneficiary_lock) =
+            Lock::<Test>::get((lease.beneficiary, lease.netuid, destination))
+        else {
+            panic!("the beneficiary must receive the actual retained lock");
+        };
+        assert_eq!(
+            DecayingHotkeyLock::<Test>::get(lease.netuid, destination).map(|lock| lock.locked_mass),
+            Some(beneficiary_lock.locked_mass)
+        );
+    });
+}
+
+// PROTECTED_REGRESSION: a coldkey swap must not prevent a delayed proxy controller from cancelling a takeover announcement; changes require explicit human approval.
+#[test]
+#[allow(clippy::unwrap_used)]
+fn proxy_controller_can_cancel_only_its_own_announcements_during_coldkey_swap() {
+    new_test_ext(1).execute_with(|| {
+        let pure = U256::from(4_901);
+        let controller = U256::from(4_902);
+        let other_controller = U256::from(4_903);
+        let attacker = U256::from(4_904);
+        for account in [pure, controller, other_controller] {
+            add_balance_to_coldkey_account(&account, TaoBalance::new(1_000_000_000));
+        }
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(pure),
+            controller,
+            ProxyType::Any,
+            3,
+        ));
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(pure),
+            other_controller,
+            ProxyType::Any,
+            3,
+        ));
+
+        let takeover_call = RuntimeCall::Proxy(ProxyCall::add_proxy {
+            delegate: attacker,
+            proxy_type: ProxyType::Any,
+            delay: 0,
+        });
+        let first_hash = <Test as frame_system::Config>::Hashing::hash_of(&takeover_call);
+        let second_hash = <Test as frame_system::Config>::Hashing::hash_of(&RuntimeCall::System(
+            frame_system::Call::remark { remark: vec![2] },
+        ));
+        for hash in [first_hash, second_hash] {
+            assert_ok!(Proxy::announce(
+                RuntimeOrigin::signed(controller),
+                pure,
+                hash,
+            ));
+        }
+        assert_ok!(Proxy::announce(
+            RuntimeOrigin::signed(other_controller),
+            pure,
+            first_hash,
+        ));
+
+        ColdkeySwapAnnouncements::<Test>::insert(
+            controller,
+            (
+                System::block_number(),
+                <Test as frame_system::Config>::Hashing::hash_of(&U256::from(4_905)),
+            ),
+        );
+        let remove = |call_hash| {
+            RuntimeCall::Proxy(ProxyCall::remove_announcement {
+                real: pure,
+                call_hash,
+            })
+        };
+        assert_ok!(<CheckColdkeySwap<Test> as ExtendedDispatchable<
+            RuntimeCall,
+        >>::dispatch_with_extension(
+            RuntimeOrigin::signed(controller),
+            remove(first_hash),
+        ));
+        assert_eq!(Announcements::<Test>::get(controller).0.len(), 1);
+        assert_eq!(Announcements::<Test>::get(other_controller).0.len(), 1);
+
+        System::set_block_number(System::block_number() + 3);
+        let execute_takeover = RuntimeCall::Proxy(ProxyCall::proxy_announced {
+            delegate: controller,
+            real: pure,
+            force_proxy_type: Some(ProxyType::Any),
+            call: Box::new(takeover_call),
+        });
+        assert!(
+            <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
+                RuntimeOrigin::signed(attacker),
+                execute_takeover,
+            )
+            .is_err()
+        );
+        assert!(
+            !Proxies::<Test>::get(pure)
+                .0
+                .iter()
+                .any(|definition| definition.delegate == attacker)
+        );
+
+        // A dispute keeps every other controller action frozen, but must not freeze cancellation.
+        ColdkeySwapDisputes::<Test>::insert(controller, System::block_number());
+        let announce = RuntimeCall::Proxy(ProxyCall::announce {
+            real: pure,
+            call_hash: first_hash,
+        });
+        assert_eq!(
+            <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
+                RuntimeOrigin::signed(controller),
+                announce,
+            )
+            .unwrap_err()
+            .error,
+            Error::<Test>::ColdkeySwapDisputed.into(),
+        );
+        assert_ok!(<CheckColdkeySwap<Test> as ExtendedDispatchable<
+            RuntimeCall,
+        >>::dispatch_with_extension(
+            RuntimeOrigin::signed(controller),
+            remove(second_hash),
+        ));
+        assert!(Announcements::<Test>::get(controller).0.is_empty());
+
+        // remove_announcement has no delegate argument: entering the pallet as `controller`
+        // cannot touch an announcement stored under a different delegate.
+        assert!(
+            <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
+                RuntimeOrigin::signed(controller),
+                remove(first_hash),
+            )
+            .is_err()
+        );
+        assert_eq!(Announcements::<Test>::get(other_controller).0.len(), 1);
+    });
+}
+
+// PROTECTED_REGRESSION: a coldkey swap after the owner hotkey changes must not count a lock to that hotkey twice and hand the subnet to its coldkey (finney SN24, block 9503363); changes require explicit human approval.
+#[test]
+fn coldkey_swap_after_owner_hotkey_change_keeps_the_subnet() {
+    use crate::{
+        DecayingLock, HotkeyLock, Lock, NetworkRegisteredAt, SubnetOwner, SubnetOwnerHotkey,
+        SubnetProtocolAlpha,
+    };
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(5_001);
+        let new_owner = U256::from(5_002);
+        let hotkey_coldkey = U256::from(5_003);
+        let hotkey = U256::from(5_004);
+        let netuid = add_dynamic_network(&U256::from(5_005), &owner);
+        let locked = AlphaBalance::from(1_000_000_000u64);
+
+        // The owner locks to a hotkey of another coldkey, then makes it the owner hotkey.
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &hotkey_coldkey,
+            &hotkey
+        ));
+        register_ok_neuron(netuid, hotkey, hotkey_coldkey, 0);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &owner, netuid, locked,
+        );
+        DecayingLock::<Test>::insert(owner, netuid, false);
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &owner, netuid, &hotkey, locked
+        ));
+        assert_ok!(SubtensorModule::do_set_sn_owner_hotkey(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            &hotkey,
+        ));
+
+        // The lock is 12.5% of the eligible alpha, below the 18% takeover threshold.
+        System::set_block_number(crate::staking::lock::ONE_YEAR + 1);
+        NetworkRegisteredAt::<Test>::insert(netuid, 0);
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(8_000_000_000u64));
+        SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::ZERO);
+        let conviction = SubtensorModule::hotkey_conviction(&hotkey, netuid);
+
+        assert_ok!(SubtensorModule::set_reject_locked_alpha(
+            RuntimeOrigin::signed(new_owner),
+            false,
+        ));
+        assert_ok!(SubtensorModule::do_swap_coldkey(&owner, &new_owner));
+
+        assert_eq!(
+            Lock::<Test>::get((new_owner, netuid, hotkey)).map(|lock| lock.locked_mass),
+            Some(locked)
+        );
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, hotkey).map(|lock| lock.locked_mass),
+            Some(locked)
+        );
+        assert_eq!(
+            SubtensorModule::hotkey_conviction(&hotkey, netuid),
+            conviction
+        );
+
+        SubtensorModule::change_subnet_owner_if_needed(netuid);
+        assert_eq!(SubnetOwner::<Test>::get(netuid), new_owner);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), hotkey);
     });
 }

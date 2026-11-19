@@ -1,6 +1,6 @@
 ---
 title: Signed requests
-description: Hotkey-signed HTTP between validators and miners — the btauth/1 wire format, framework recipes, and cross-language notes.
+description: Hotkey-signed HTTP requests — the btauth/1 wire format, framework recipes, and cross-language notes.
 ---
 
 Validators and miners talk to each other over plain HTTP; the chain only
@@ -10,6 +10,9 @@ hotkey, was addressed to yours, covers exactly the bytes received, and is
 recent. `bittensor.http_auth` provides that through `sign`, which produces
 headers, and `verify`, which checks them, with no HTTP server or client
 attached. Bring your own framework; recipes for FastAPI and httpx are below.
+
+Customers of a [subnet service](/docs/guides/services) that accepts `btauth/1`
+sign their requests the same way, with the hotkey of their gamma deposit.
 
 ```python
 import bittensor as bt

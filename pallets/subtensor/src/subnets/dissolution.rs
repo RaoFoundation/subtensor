@@ -198,6 +198,10 @@ impl<T: Config> Pallet<T> {
 
         // Just remove the network from the added networks, it is used to check if the network is existed.
         NetworksAdded::<T>::remove(netuid);
+        // No split may name it while its cleanup removes it from every split, and only live
+        // subnets have splits.
+        SubnetGammaEmissionWhitelisted::<T>::remove(netuid);
+        SubnetGammaEmission::<T>::remove(netuid);
         SubnetState::<T>::insert(netuid, SubnetLifecycleState::PendingDissolution);
         // Reduce the total networks count.
         TotalNetworks::<T>::mutate(|n: &mut u16| *n = n.saturating_sub(1));
@@ -261,6 +265,8 @@ impl<T: Config> Pallet<T> {
             GammaDeposits::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             ColdkeyGammaHotkeys::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            UnconvertedGammaEmission::<T>::clear_prefix(netuid, limit, None)
         });
 
         if !result {
@@ -337,12 +343,13 @@ impl<T: Config> Pallet<T> {
             }) {
                 return false;
             }
-            let lease_weight = T::DbWeight::get().writes(3);
+            let lease_weight = T::DbWeight::get().writes(4);
             if !weight_meter.can_consume(lease_weight) {
                 return false;
             }
             weight_meter.consume(lease_weight);
             SubnetLeases::<T>::remove(lease_id);
+            SubnetLeaseTerminationHotkey::<T>::remove(lease_id);
             AccumulatedLeaseDividends::<T>::remove(lease_id);
             SubnetUidToLeaseId::<T>::remove(netuid);
         }
@@ -353,7 +360,9 @@ impl<T: Config> Pallet<T> {
     pub fn remove_network_parameters(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
         // Flat write charge for the `::remove(netuid)` list below. Bump this when
         // adding or removing entries from that list so the weight stays in step.
-        let removal_weight = T::DbWeight::get().writes(94);
+        let removal_weight = T::DbWeight::get()
+            .writes(95)
+            .saturating_add(Self::remove_gamma_emission_target_weight());
         if !weight_meter.can_consume(removal_weight) {
             return false;
         }
@@ -399,6 +408,7 @@ impl<T: Config> Pallet<T> {
         FirstEmissionBlockNumber::<T>::remove(netuid);
         PendingValidatorEmission::<T>::remove(netuid);
         PendingServerEmission::<T>::remove(netuid);
+        PendingGammaEmission::<T>::remove(netuid);
         PendingRootAlphaDivs::<T>::remove(netuid);
         PendingOwnerCut::<T>::remove(netuid);
         MinerBurned::<T>::remove(netuid);
@@ -445,8 +455,6 @@ impl<T: Config> Pallet<T> {
         ImmuneOwnerUidsLimit::<T>::remove(netuid);
         StakeWeight::<T>::remove(netuid);
         LoadedEmission::<T>::remove(netuid);
-        OwnerLock::<T>::remove(netuid);
-        DecayingOwnerLock::<T>::remove(netuid);
         ActivityCutoffFactorMilli::<T>::remove(netuid);
         LastEpochBlock::<T>::remove(netuid);
         PendingEpochAt::<T>::remove(netuid);
@@ -461,6 +469,7 @@ impl<T: Config> Pallet<T> {
         SubnetOwnerCutAccrued::<T>::remove(netuid);
         SubnetGammaEnabled::<T>::remove(netuid);
         SubnetGammaPrice::<T>::remove(netuid);
+        Self::remove_gamma_emission_target(netuid);
         Self::remove_rate_limited_last_block(&RateLimitKey::OwnerHyperparamUpdate(
             netuid,
             Hyperparameter::EmissionWeights,

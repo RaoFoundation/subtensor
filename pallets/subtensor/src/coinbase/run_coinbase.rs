@@ -355,6 +355,17 @@ impl<T: Config> Pallet<T> {
             PendingServerEmission::<T>::mutate(*netuid_i, |total| {
                 *total = total.saturating_add(tou64!(pending_server_alpha).into());
             });
+            // Accumulate the gamma shares together, allotted and converted at the subnet's epoch.
+            let gamma_share = SubnetGammaEmission::<T>::get(*netuid_i)
+                .iter()
+                .fold(0u64, |total, (_, share)| total.saturating_add(*share));
+            if gamma_share > 0 {
+                let gamma_alpha =
+                    alpha_out_i.saturating_mul(Self::emission_weight_to_fixed(gamma_share));
+                PendingGammaEmission::<T>::mutate(*netuid_i, |total| {
+                    *total = total.saturating_add(tou64!(gamma_alpha).into());
+                });
+            }
             // Accumulate the validator alpha emission.
             PendingValidatorEmission::<T>::mutate(*netuid_i, |total| {
                 *total = total.saturating_add(tou64!(pending_validator_alpha).into());
@@ -535,6 +546,7 @@ impl<T: Config> Pallet<T> {
                 pending_root_alpha,
                 pending_owner_cut,
             );
+            Self::mint_gamma_emission(netuid);
             LastMechansimStepBlock::<T>::insert(netuid, current_block);
             if current_block > 0 && Self::get_epoch_consensus(netuid) == EpochConsensus::Yuma {
                 LastYumaStepBlock::<T>::insert(netuid, current_block);

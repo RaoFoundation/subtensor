@@ -94,6 +94,22 @@ async def _deposit(substrate, netuid: int, hotkey_ss58: str) -> Optional[dict]:
     return await substrate.query(*st.SubtensorModule.GammaDeposits, [netuid, hotkey_ss58])
 
 
+async def _new_deposit_blocks(substrate, hotkey_ss58: str, signer: str) -> list[str]:
+    """Match runtime Owner.try_get: a stored zero account is still an owner."""
+    block_hash = await substrate.block_hash()
+    if not await substrate.storage_exists(
+        *st.SubtensorModule.Owner, [hotkey_ss58], block_hash=block_hash
+    ):
+        return []
+    owner = await substrate.query(*st.SubtensorModule.Owner, [hotkey_ss58], block_hash=block_hash)
+    if bytes(ss58_decode(str(owner))) != bytes(ss58_decode(signer)):
+        return [
+            f"the hotkey {hotkey_ss58} belongs to another coldkey; "
+            "use your own or an unassociated hotkey"
+        ]
+    return []
+
+
 async def _service_spender(substrate, netuid: int, hotkey_ss58: str) -> str:
     """The spender a service published on the subnet names."""
     service = await substrate.query(*st.SubtensorModule.Services, [netuid, hotkey_ss58])
@@ -112,15 +128,6 @@ async def _named_spender(intent, substrate) -> Optional[str]:
 def _check_spender_or_service(intent) -> None:
     if intent.spender_ss58 is not None and intent.service_hotkey_ss58 is not None:
         raise BittensorError(f"{intent.op}: name a spender or a service, not both")
-
-
-async def _staking_owner(substrate, hotkey_ss58: str) -> Optional[str]:
-    """The coldkey owning ``hotkey_ss58`` as a staking hotkey, or None."""
-    owner = await substrate.query(*st.SubtensorModule.Owner, [hotkey_ss58])
-    # A hotkey no coldkey owns reads as the all-zero account.
-    if not owner or not any(ss58_decode(str(owner))):
-        return None
-    return str(owner)
 
 
 def _own_deposit_blocks(deposit: Optional[dict], signer: str, hotkey_ss58: str) -> list[str]:
@@ -172,12 +179,8 @@ async def _mint_preflight(
                 f"{_cap_text(_cap(deposit))}; mint without a cap, or set its cap "
                 "first"
             )
-    else:
-        owner = await _staking_owner(substrate, intent.hotkey_ss58)
-        if owner != signer:
-            preview.blocks.append(
-                f"associate {intent.hotkey_ss58} with {signer} before opening a gamma deposit"
-            )
+    if deposit is None:
+        preview.blocks += await _new_deposit_blocks(substrate, intent.hotkey_ss58, signer)
     spender = str(deposit["spender"]) if deposit is not None and named is None else named
     if deposit is not None:
         cap = _cap(deposit)
@@ -439,10 +442,9 @@ class MoveGamma(Intent):
             blocks.append(f"the gamma deposit at {self.origin_hotkey_ss58} holds no gamma")
         if destination is not None:
             blocks += _own_deposit_blocks(destination, signer_address, self.destination_hotkey_ss58)
-        elif await _staking_owner(substrate, self.destination_hotkey_ss58) != signer_address:
-            blocks.append(
-                f"associate {self.destination_hotkey_ss58} with {signer_address} "
-                "before opening a gamma deposit"
+        else:
+            blocks += await _new_deposit_blocks(
+                substrate, self.destination_hotkey_ss58, signer_address
             )
         return blocks
 

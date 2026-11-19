@@ -7,7 +7,7 @@ name: Build bittensor-core wheels
 #
 #   manylinux x86_64 + aarch64 (self-hosted, aarch64 cross-built in the
 #   maturin-action docker image), macOS arm64 + x86_64 (GitHub-hosted
-#   macos-14; x86_64 is cross-compiled — Xcode carries both SDKs), plus an
+#   macos-15; x86_64 is cross-compiled — Xcode carries both SDKs), plus an
 #   sdist fallback for everything else (requires a Rust toolchain to build).
 #
 # Callers: release-train.yml (rc channel) and watch-mainnet-release.yml
@@ -123,9 +123,9 @@ jobs:
   macos:
     name: macOS ${{ matrix.target }}
     # GitHub-hosted: the fireactions fleet is Linux-only, and macOS minutes
-    # are free on public repos. macos-14 is arm64; the x86_64 wheel is
+    # are free on public repos. macos-15 is arm64; the x86_64 wheel is
     # cross-compiled from the same runner.
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 90
     strategy:
       fail-fast: false

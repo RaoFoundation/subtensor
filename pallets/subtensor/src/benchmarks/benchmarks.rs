@@ -37,12 +37,16 @@ mod helpers;
 
 #[benchmarks(
     where
-        T: pallet_alpha_assets::Config + pallet_balances::Config + pallet_shield::Config,
+        T: pallet_alpha_assets::Config
+            + pallet_balances::Config
+            + pallet_shield::Config
+            + pallet_subtensor_proxy::Config,
         <T as pallet_balances::Config>::ExistentialDeposit: Get<TaoBalance>,
         <T as frame_system::Config>::RuntimeCall:
             Dispatchable<RuntimeOrigin = OriginFor<T>, Info = DispatchInfo, PostInfo = PostDispatchInfo>
             + IsSubType<Call<T>>
-            + IsSubType<pallet_shield::Call<T>>,
+            + IsSubType<pallet_shield::Call<T>>
+            + IsSubType<pallet_subtensor_proxy::Call<T>>,
         OriginFor<T>: Clone + OriginTrait<AccountId = T::AccountId>,
 )]
 mod pallet_benchmarks {
@@ -1063,11 +1067,19 @@ mod pallet_benchmarks {
             MinerCollateral::<T>::get((NetUid::from(1), hotkey, coldkey))
                 .is_some_and(|position| position.earned > AlphaBalance::ZERO)
         );
+        let epochs = u16::from(Subtensor::<T>::get_max_epochs_per_block());
         for subnet_index in 1..=128_u16 {
             let netuid = NetUid::from(subnet_index);
             assert!(pallet_alpha_assets::AlphaBurned::<T>::get(netuid) > AlphaBalance::ZERO);
             assert!(pallet_alpha_assets::AlphaRecycled::<T>::get(netuid) > AlphaBalance::ZERO);
             assert!(SubnetOwnerCutAccrued::<T>::get(netuid) > AlphaBalance::ZERO);
+            // Gamma emission accrues on every subnet not due an epoch.
+            assert!(subnet_index <= epochs || !PendingGammaEmission::<T>::get(netuid).is_zero());
+        }
+        // An epoch converts every gamma share.
+        let owner_hotkey: T::AccountId = account("block_step_subnet_owner_hot", 1, 0);
+        for (target, _) in SubnetGammaEmission::<T>::get(NetUid::from(1)) {
+            assert!(GammaDeposits::<T>::get(target, &owner_hotkey).is_some());
         }
     }
 

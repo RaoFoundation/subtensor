@@ -1,5 +1,6 @@
 use crate::migrations::migrate_alpha_v2::retired::Alpha;
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 use safe_math::*;
 use share_pool::SafeFloat;
 use sp_runtime::PerU16;
@@ -365,31 +366,17 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Several alpha iteration helpers that merge key space from Alpha and AlphaV2 maps
+    /// Alpha position iteration helpers. Production runtimes use AlphaV2 only; the
+    /// legacy merge exists solely for migration test runtimes.
     pub fn alpha_iter() -> impl Iterator<Item = ((T::AccountId, T::AccountId, NetUid), SafeFloat)> {
-        // Old Alpha shares format: U64F64 -> SafeFloat
-        let legacy = Alpha::<T>::iter().map(|(key, val_u64f64)| {
-            let sf: SafeFloat = val_u64f64.into();
-            (key, sf)
-        });
-
-        // New Alpha shares format
-        let v2 = AlphaV2::<T>::iter();
-
-        // Merge and prefer v2 on duplicates
-        let merged: BTreeMap<_, SafeFloat> =
-            legacy
-                .chain(v2)
-                .fold(BTreeMap::new(), |mut acc, (key, val)| {
-                    acc.entry(key)
-                        .and_modify(|existing| {
-                            *existing = val.clone();
-                        })
-                        .or_insert(val);
-                    acc
-                });
-
-        merged.into_iter()
+        if !T::LegacyAlphaCompatibility::get() {
+            return AlphaV2::<T>::iter().collect::<Vec<_>>().into_iter();
+        }
+        let merged: BTreeMap<_, SafeFloat> = Alpha::<T>::iter()
+            .map(|(key, value)| (key, SafeFloat::from(value)))
+            .chain(AlphaV2::<T>::iter())
+            .collect();
+        merged.into_iter().collect::<Vec<_>>().into_iter()
     }
 
     pub fn alpha_iter_prefix(
@@ -398,31 +385,21 @@ impl<T: Config> Pallet<T> {
     where
         T::AccountId: Clone,
     {
-        // Old Alpha shares format: U64F64 -> SafeFloat
-        let legacy = Alpha::<T>::iter_prefix(prefix).map(|(netuid, val_u64f64)| {
-            let sf: SafeFloat = val_u64f64.into();
-            (netuid, sf)
-        });
-
-        // New Alpha shares format
-        let v2 = AlphaV2::<T>::iter_prefix(prefix);
-
-        // Merge by netuid and sum SafeFloat values
-        let merged: BTreeMap<NetUid, SafeFloat> =
-            legacy
-                .chain(v2)
-                .fold(BTreeMap::new(), |mut acc, (netuid, sf)| {
-                    acc.entry(netuid)
-                        .and_modify(|existing| {
-                            *existing = sf.clone();
-                        })
-                        .or_insert(sf);
-                    acc
-                });
-
+        if !T::LegacyAlphaCompatibility::get() {
+            return AlphaV2::<T>::iter_prefix(prefix)
+                .filter(|(_, alpha_share)| !alpha_share.is_zero())
+                .collect::<Vec<_>>()
+                .into_iter();
+        }
+        let merged: BTreeMap<NetUid, SafeFloat> = Alpha::<T>::iter_prefix(prefix)
+            .map(|(netuid, value)| (netuid, SafeFloat::from(value)))
+            .chain(AlphaV2::<T>::iter_prefix(prefix))
+            .collect();
         merged
             .into_iter()
             .filter(|(_, alpha_share)| !alpha_share.is_zero())
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     pub fn alpha_iter_single_prefix(
@@ -431,30 +408,21 @@ impl<T: Config> Pallet<T> {
     where
         T::AccountId: Clone,
     {
-        // Old Alpha shares format: U64F64 -> SafeFloat
-        let legacy =
-            Alpha::<T>::iter_prefix((prefix.clone(),)).map(|((coldkey, netuid), val_u64f64)| {
-                let sf: SafeFloat = val_u64f64.into();
-                ((coldkey, netuid), sf)
-            });
-
-        // New Alpha shares format
-        let v2 = AlphaV2::<T>::iter_prefix((prefix,));
-
+        if !T::LegacyAlphaCompatibility::get() {
+            return AlphaV2::<T>::iter_prefix((prefix,))
+                .map(|((coldkey, netuid), sf)| (coldkey, netuid, sf))
+                .collect::<Vec<_>>()
+                .into_iter();
+        }
         let merged: BTreeMap<(T::AccountId, NetUid), SafeFloat> =
-            legacy
-                .chain(v2)
-                .fold(BTreeMap::new(), |mut acc, (key, sf)| {
-                    acc.entry(key)
-                        .and_modify(|existing| {
-                            *existing = sf.clone();
-                        })
-                        .or_insert(sf);
-                    acc
-                });
-
+            Alpha::<T>::iter_prefix((prefix.clone(),))
+                .map(|((coldkey, netuid), value)| ((coldkey, netuid), SafeFloat::from(value)))
+                .chain(AlphaV2::<T>::iter_prefix((prefix,)))
+                .collect();
         merged
             .into_iter()
             .map(|((coldkey, netuid), sf)| (coldkey, netuid, sf))
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 }
