@@ -260,6 +260,8 @@ RAW_ONLY: dict[str, set[str]] = {
         # still reachable via `btcli call` if needed
         "sudo_set_mechanism_emission_split",
         "sudo_set_max_registrations_per_block",
+        # root-only Yuma timelocked commit queue cap
+        "sudo_set_max_timelocked_commits_per_hotkey",
         "sudo_set_min_allowed_uids",
         "sudo_set_min_delegate_take",
         "sudo_set_min_difficulty",

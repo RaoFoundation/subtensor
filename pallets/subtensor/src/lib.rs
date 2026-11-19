@@ -90,6 +90,8 @@ pub type OriginFor<T> = <T as frame_system::Config>::RuntimeOrigin;
 /// SCALE bound includes room for a full 4,096-entry encrypted weight row.
 pub const MAX_CRV3_COMMIT_SIZE_BYTES: u32 = 32 * 1024;
 pub const YUMA_COMMIT_SIZE_BYTES: u32 = 5000;
+/// Existing per-hotkey, per-mechanism, per-epoch Yuma timelock admission limit.
+pub const DEFAULT_MAX_TIMELOCKED_COMMITS_PER_HOTKEY: u8 = 10;
 /// Bound ciphertext storage and decryption work per Null subnet epoch,
 /// shared across all emission mechanisms.
 pub const NULL_COMMIT_QUEUE_BYTES: usize = 64 * 1024;
@@ -317,8 +319,8 @@ pub mod pallet {
     use crate::subnets::subnet::NetworkRegistrationInfo;
     use crate::weights::WeightInfo;
     use crate::{
-        MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, MAX_COLDKEY_COLLATERAL_HOTKEYS, MAX_GAMMA_DEPOSITS,
-        MAX_SERVICE_URL_LEN, RateLimitKey,
+        DEFAULT_MAX_TIMELOCKED_COMMITS_PER_HOTKEY, MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS,
+        MAX_COLDKEY_COLLATERAL_HOTKEYS, MAX_GAMMA_DEPOSITS, MAX_SERVICE_URL_LEN, RateLimitKey,
     };
     use frame_support::Twox64Concat;
     use frame_support::{
@@ -1247,6 +1249,12 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultWeightsSetRateLimit<T: Config>() -> u64 {
         100
+    }
+
+    /// Default maximum Yuma timelocked commits per hotkey, mechanism, and epoch.
+    #[pallet::type_value]
+    pub fn DefaultMaxTimelockedCommitsPerHotkey<T: Config>() -> u8 {
+        DEFAULT_MAX_TIMELOCKED_COMMITS_PER_HOTKEY
     }
 
     /// Default block number at registration.
@@ -2905,6 +2913,11 @@ pub mod pallet {
     #[pallet::storage]
     pub type WeightsSetRateLimit<T> =
         StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultWeightsSetRateLimit<T>>;
+
+    /// MAP ( netuid ) --> maximum Yuma timelocked commits per hotkey and queue epoch.
+    #[pallet::storage]
+    pub type MaxTimelockedCommitsPerHotkey<T> =
+        StorageMap<_, Identity, NetUid, u8, ValueQuery, DefaultMaxTimelockedCommitsPerHotkey<T>>;
 
     /// MAP ( netuid ) --> validator_prune_len
     #[pallet::storage]
