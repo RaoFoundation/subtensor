@@ -1936,7 +1936,7 @@ class Lending:
 
     @staticmethod
     def roll(netuid: 'NetUid') -> Call:
-        'Atomically extend a live loan\'s fixed term without changing exposure.'
+        "Atomically extend a live loan's fixed term without changing exposure.  Same open gates (lending live, new-subnet, warm reference, EMA band). Charges interest to now, re-checks LTV at the current open price, and rejects when the side book already exceeds the current side cap so caps can shrink by attrition. Sets `expires_at = now + max_loan_duration` and clears band deferral; does not touch principal, collateral, proceeds / escrow_alpha, lift legs, or `last_exposure_added_at`. Opens-off (`Enabled=false`) disables rolls."
         return Call('Lending', 'roll', {'netuid': netuid})
 
     @staticmethod
