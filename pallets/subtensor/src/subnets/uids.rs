@@ -204,6 +204,16 @@ impl<T: Config> Pallet<T> {
         ValidatorTrust::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
         ValidatorPermit::<T>::mutate(netuid, |v| v.push(false));
 
+        // This is a new logical registration. A reverse hotkey swap may have
+        // restored a grant to this SS58 for its previous UID; never carry that
+        // authorization into the new registration.
+        if MechWeightDelegateTargets::<T>::iter_key_prefix((netuid, new_hotkey))
+            .next()
+            .is_some()
+        {
+            Self::purge_mech_weight_delegates(netuid, new_hotkey, None);
+        }
+
         // 4. Insert new account information.
         Keys::<T>::insert(netuid, next_uid, new_hotkey.clone()); // Make hotkey - uid association.
         Uids::<T>::insert(netuid, new_hotkey.clone(), next_uid); // Make uid - hotkey association.

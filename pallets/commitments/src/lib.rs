@@ -1699,13 +1699,29 @@ impl<T: Config> Pallet<T> {
         let Some((mecid, channel)) = target else {
             if ChannelNeuronPurgeQueue::<T>::contains_key(netuid, &new_hotkey) {
                 ChannelNeuronPurgeQueue::<T>::insert(netuid, &old_hotkey, ());
-            } else if first_target.is_none()
-                && ChannelSwapOrigins::<T>::iter_key_prefix((netuid, &old_hotkey))
-                    .next()
-                    .is_some()
+            } else if let Some(source) =
+                ChannelSwapOrigins::<T>::iter_key_prefix((netuid, &old_hotkey)).next()
             {
-                // B -> C may be visited before A -> B. Keep the empty edge
-                // until A supplies B's rows; the next pass will move them on.
+                // An empty or fully retired source cannot supply this edge.
+                // A direct return edge closes a cycle; cancel that empty edge
+                // instead of recreating the same pair on every drain. Otherwise
+                // compact source -> old -> new, retaining the source lineage.
+                if let Some(return_destination) =
+                    ChannelSwapPendingHotkeys::<T>::take(netuid, &new_hotkey)
+                {
+                    ChannelSwapOrigins::<T>::remove((netuid, &return_destination, &new_hotkey));
+                    ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
+                    ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
+                } else {
+                    ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
+                    ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
+                    ChannelSwapPendingHotkeys::<T>::remove(netuid, &source);
+                    ChannelSwapOrigins::<T>::remove((netuid, &old_hotkey, &source));
+                    if source != new_hotkey {
+                        ChannelSwapPendingHotkeys::<T>::insert(netuid, &source, new_hotkey.clone());
+                        ChannelSwapOrigins::<T>::insert((netuid, &new_hotkey, &source), ());
+                    }
+                }
                 weight_meter.consume(item_weight);
                 return;
             }
@@ -1784,6 +1800,8 @@ impl<T: Config> Pallet<T> {
             weight_meter.consume(item_weight);
         }
         clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            ChannelCommitmentOf::<T>::clear_prefix((index,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             ChannelRevealedCommitments::<T>::clear_prefix((index,), limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             ChannelReservePayerOf::<T>::clear_prefix((index,), limit, None)
