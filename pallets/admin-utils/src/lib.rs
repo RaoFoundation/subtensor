@@ -3060,6 +3060,28 @@ pub mod pallet {
             });
             Ok(())
         }
+
+        /// Sets the maximum number of timelocked commitments a hotkey may queue in
+        /// one Yuma subnet mechanism and commit epoch. Zero pauses new admissions;
+        /// already queued commitments remain eligible to reveal. Root-only.
+        #[pallet::call_index(122)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_max_timelocked_commits_per_hotkey())]
+        pub fn sudo_set_max_timelocked_commits_per_hotkey(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            max_commits: u8,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            pallet_subtensor::Pallet::<T>::set_max_timelocked_commits_per_hotkey(
+                netuid,
+                max_commits,
+            );
+            Ok(())
+        }
     }
 }
 

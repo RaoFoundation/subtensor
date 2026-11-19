@@ -1,0 +1,8 @@
+{
+  "kind": "runtime",
+  "spec_version": 493,
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v493-upgrade/page.tsx",
+  "public_path": "/releases/v493-upgrade",
+  "audiences": ["node operators", "validators", "subnet owners"],
+  "summary": "Sudo can configure each subnet's Yuma timelocked commit cap per hotkey, mechanism, and commit epoch. The default remains ten; zero pauses new commits while queued commitments remain eligible to reveal. The release also adds Discord release announcements, standalone stable Python publishing, and required release notes."
+}

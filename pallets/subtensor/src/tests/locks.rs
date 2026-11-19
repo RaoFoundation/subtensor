@@ -4613,7 +4613,7 @@ fn test_coldkey_swap_rejects_destination_lock() {
 }
 
 #[test]
-fn test_coldkey_swap_rejects_locked_alpha_to_flagged_destination() {
+fn test_coldkey_swap_migrates_lock_to_destination_rejecting_locked_payments() {
     new_test_ext(1).execute_with(|| {
         let old_coldkey = U256::from(1);
         let new_coldkey = U256::from(10);
@@ -4639,22 +4639,23 @@ fn test_coldkey_swap_rejects_locked_alpha_to_flagged_destination() {
             true,
         ));
 
-        assert_noop!(
-            SubtensorModule::swap_coldkey_locks(&old_coldkey, &new_coldkey),
-            Error::<Test>::AccountRejectsLockedAlpha
-        );
+        assert_ok!(SubtensorModule::swap_coldkey_locks(
+            &old_coldkey,
+            &new_coldkey
+        ));
 
-        let source_lock = Lock::<Test>::get((old_coldkey, netuid, old_hotkey))
-            .expect("source lock should remain after failed transfer");
-        assert_eq!(source_lock.locked_mass, old_locked);
-        assert_eq!(source_lock.conviction, old_conviction);
-        assert!(
-            Lock::<Test>::iter_prefix((new_coldkey, netuid))
-                .next()
-                .is_none()
-        );
-        assert_eq!(DecayingLock::<Test>::get(old_coldkey, netuid), Some(false));
-        assert!(DecayingLock::<Test>::get(new_coldkey, netuid).is_none());
+        assert!(!Lock::<Test>::contains_key((
+            old_coldkey,
+            netuid,
+            old_hotkey
+        )));
+        let destination_lock = Lock::<Test>::get((new_coldkey, netuid, old_hotkey))
+            .expect("destination receives the existing position");
+        assert_eq!(destination_lock.locked_mass, old_locked);
+        assert_eq!(destination_lock.conviction, old_conviction);
+        assert!(DecayingLock::<Test>::get(old_coldkey, netuid).is_none());
+        assert_eq!(DecayingLock::<Test>::get(new_coldkey, netuid), Some(false));
+        assert!(SubtensorModule::account_rejects_locked_alpha(&new_coldkey));
     });
 }
 

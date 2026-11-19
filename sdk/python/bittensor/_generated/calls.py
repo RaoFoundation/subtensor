@@ -545,7 +545,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_reject_locked_alpha(enabled: 'bool') -> Call:
-        'Sets or clears whether the caller rejects incoming locked alpha.  Coldkeys reject locked alpha by default. Passing `false` opts the caller into receiving locked alpha from stake transfers or coldkey swaps.'
+        'Sets or clears whether the caller rejects incoming locked alpha payments.  Coldkeys reject locked alpha by default. Passing `false` opts the caller into receiving locked alpha through stake transfers.'
         return Call('SubtensorModule', 'set_reject_locked_alpha', {'enabled': enabled})
 
     @staticmethod
@@ -1269,6 +1269,11 @@ class AdminUtils:
     def sudo_set_max_registrations_per_block(netuid: 'NetUid', max_registrations_per_block: 'u16') -> Call:
         'The extrinsic sets the maximum registrations per block for a subnet. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the maximum registrations per block.'
         return Call('AdminUtils', 'sudo_set_max_registrations_per_block', {'netuid': netuid, 'max_registrations_per_block': max_registrations_per_block})
+
+    @staticmethod
+    def sudo_set_max_timelocked_commits_per_hotkey(netuid: 'NetUid', max_commits: 'u8') -> Call:
+        'Sets the maximum number of timelocked commitments a hotkey may queue in one Yuma subnet mechanism and commit epoch. Zero pauses new admissions; already queued commitments remain eligible to reveal. Root-only.'
+        return Call('AdminUtils', 'sudo_set_max_timelocked_commits_per_hotkey', {'netuid': netuid, 'max_commits': max_commits})
 
     @staticmethod
     def sudo_set_mechanism_count(netuid: 'NetUid', mechanism_count: 'MechId') -> Call:
