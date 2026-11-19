@@ -11,8 +11,9 @@ currency: short collateral is TAO and short debt is alpha; long collateral
 is alpha and long debt is TAO. `proceeds` is the short's escrowed TAO
 (E_S) from the forced alpha sale at open; it is zero for longs.
 `escrow_alpha` is the long's escrowed alpha (A); zero for shorts.
-`expires_at` is the fixed one-year term end (increases restart it).
-`runway_days` is capped at days remaining until `expires_at`. Interest
+`expires_at` is the fixed MaxLoanDuration term end (~30 days; increases
+do not extend it). `runway_days` is capped at days remaining until
+`expires_at`. Interest
 and runway are estimates at the selected block. `underwater` /
 `insolvent` are true when interest is exhausted or the escrow close
 quote reports a positive `shortfall` (AMM cannot cover principal).

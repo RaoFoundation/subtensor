@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 3037,
-        "end_line": 3047,
-        "url": "/code/runtime/src/lib.rs#L3037-L3047",
+        "line": 3047,
+        "end_line": 3057,
+        "url": "/code/runtime/src/lib.rs#L3047-L3057",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -988,9 +988,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2768,
-        "end_line": 2770,
-        "url": "/code/runtime/src/lib.rs#L2768-L2770",
+        "line": 2778,
+        "end_line": 2780,
+        "url": "/code/runtime/src/lib.rs#L2778-L2780",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1254,7 +1254,7 @@
   {
     "name": "lending_position",
     "summary": "A coldkey's fixed-principal loan on one subnet, or None.",
-    "description": "A coldkey's fixed-principal loan on one subnet, or None.\n\nPrincipal increases when more is borrowed and never falls when interest is\ncollected. This record reports the combined position. Amounts retain their\ncurrency: short collateral is TAO and short debt is alpha; long collateral\nis alpha and long debt is TAO. `proceeds` is the short's escrowed TAO\n(E_S) from the forced alpha sale at open; it is zero for longs.\n`escrow_alpha` is the long's escrowed alpha (A); zero for shorts.\n`expires_at` is the fixed one-year term end (increases restart it).\n`runway_days` is capped at days remaining until `expires_at`. Interest\nand runway are estimates at the selected block. `underwater` /\n`insolvent` are true when interest is exhausted or the escrow close\nquote reports a positive `shortfall` (AMM cannot cover principal).",
+    "description": "A coldkey's fixed-principal loan on one subnet, or None.\n\nPrincipal increases when more is borrowed and never falls when interest is\ncollected. This record reports the combined position. Amounts retain their\ncurrency: short collateral is TAO and short debt is alpha; long collateral\nis alpha and long debt is TAO. `proceeds` is the short's escrowed TAO\n(E_S) from the forced alpha sale at open; it is zero for longs.\n`escrow_alpha` is the long's escrowed alpha (A); zero for shorts.\n`expires_at` is the fixed MaxLoanDuration term end (~30 days; increases\ndo not extend it). `runway_days` is capped at days remaining until\n`expires_at`. Interest\nand runway are estimates at the selected block. `underwater` /\n`insolvent` are true when interest is exhausted or the escrow close\nquote reports a positive `shortfall` (AMM cannot cover principal).",
     "params": {
       "coldkey_ss58": "string",
       "netuid": "integer"
@@ -1651,9 +1651,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2772,
-        "end_line": 2774,
-        "url": "/code/runtime/src/lib.rs#L2772-L2774",
+        "line": 2782,
+        "end_line": 2784,
+        "url": "/code/runtime/src/lib.rs#L2782-L2784",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1962,9 +1962,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 3049,
-        "end_line": 3077,
-        "url": "/code/runtime/src/lib.rs#L3049-L3077",
+        "line": 3059,
+        "end_line": 3087,
+        "url": "/code/runtime/src/lib.rs#L3059-L3087",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1991,9 +1991,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 3079,
-        "end_line": 3107,
-        "url": "/code/runtime/src/lib.rs#L3079-L3107",
+        "line": 3089,
+        "end_line": 3117,
+        "url": "/code/runtime/src/lib.rs#L3089-L3117",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2072,9 +2072,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2785,
-        "end_line": 2787,
-        "url": "/code/runtime/src/lib.rs#L2785-L2787",
+        "line": 2795,
+        "end_line": 2797,
+        "url": "/code/runtime/src/lib.rs#L2795-L2797",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2137,9 +2137,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2797,
-        "end_line": 2799,
-        "url": "/code/runtime/src/lib.rs#L2797-L2799",
+        "line": 2807,
+        "end_line": 2809,
+        "url": "/code/runtime/src/lib.rs#L2807-L2809",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2807,9 +2807,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2778,
-        "end_line": 2780,
-        "url": "/code/runtime/src/lib.rs#L2778-L2780",
+        "line": 2788,
+        "end_line": 2790,
+        "url": "/code/runtime/src/lib.rs#L2788-L2790",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -3210,9 +3210,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2791,
-        "end_line": 2793,
-        "url": "/code/runtime/src/lib.rs#L2791-L2793",
+        "line": 2801,
+        "end_line": 2803,
+        "url": "/code/runtime/src/lib.rs#L2801-L2803",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
