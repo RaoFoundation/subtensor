@@ -57,6 +57,46 @@ fn assert_quarantined(netuid: NetUid, who: u64, expected_round: u64) {
     );
 }
 
+// Channel reveal must debit cumulative scan/decryption work against the block's
+// remaining idle allowance; it must not reuse a fresh budget for each entry.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn channel_reveal_does_not_exceed_small_idle_budget() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        TestCommitDeposit::set(100, 0);
+        TestCommitBurn::set_accepts_any_owner(true);
+        let signature = hex::decode(DRAND_QUICKNET_SIG_HEX).expect("valid signature hex");
+        insert_drand_pulse(1000, &signature);
+        for who in [123u64, 456u64] {
+            Balances::make_free_balance_be(&who, 10_000.into());
+            assert_ok!(Pallet::<Test>::set_commitment_to(
+                RuntimeOrigin::signed(who),
+                netuid,
+                MechId::MAIN,
+                7,
+                who,
+                Box::new(CommitmentInfo::<TestMaxFields> {
+                    fields: BoundedVec::try_from(vec![Data::TimelockEncrypted {
+                        encrypted: produce_ciphertext(b"pending", 1000),
+                        reveal_round: 1000,
+                    }])
+                    .expect("one field fits"),
+                }),
+                TaoBalance::ZERO,
+            ));
+        }
+        let budget = <Test as Config>::WeightInfo::reveal_timelocked_commitments();
+        let consumed = <Pallet<Test> as Hooks<u64>>::on_idle(1, budget);
+        assert!(consumed.all_lte(budget));
+        assert!(ChannelTimelockedIndex::<Test>::iter_keys().next().is_some());
+        assert!(ChannelRevealedCommitments::<Test>::iter().next().is_none());
+        assert!(ChannelCommitmentOf::<Test>::iter().next().is_some());
+        assert!(Balances::reserved_balance(123) > 0.into());
+        assert!(Balances::reserved_balance(456) > 0.into());
+    });
+}
+
 #[test]
 fn channel_commitment_is_independent_and_timelock_reveals() {
     new_test_ext().execute_with(|| {

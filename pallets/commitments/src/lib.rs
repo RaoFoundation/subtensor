@@ -801,13 +801,16 @@ pub mod pallet {
             let base = T::DbWeight::get().reads(3);
             let remaining_weight = remaining_weight.saturating_sub(total_weight);
             if remaining_weight.any_lt(base) {
-                return total_weight.saturating_add(T::DbWeight::get().reads(1));
+                return total_weight;
             }
             let mut meter = WeightMeter::with_limit(remaining_weight);
             meter.consume(base);
-            let work = Self::reveal_channel_timelocked_commitments_metered(&meter)
-                .unwrap_or(Weight::zero());
-            total_weight.saturating_add(base.saturating_add(work))
+            total_weight.saturating_add(
+                base.saturating_add(
+                    Self::reveal_channel_timelocked_commitments_metered(&mut meter)
+                        .unwrap_or(Weight::zero()),
+                ),
+            )
         }
     }
 }
@@ -1288,14 +1291,15 @@ impl<T: Config> Pallet<T> {
     }
     /// Reveal channel entries with the same bounded per-block decryption work as legacy.
     pub fn reveal_channel_timelocked_commitments() -> Result<Weight, sp_runtime::DispatchError> {
-        let meter = WeightMeter::new();
-        Self::reveal_channel_timelocked_commitments_metered(&meter)
+        let mut meter = WeightMeter::new();
+        Self::reveal_channel_timelocked_commitments_metered(&mut meter)
     }
 
     fn reveal_channel_timelocked_commitments_metered(
-        meter: &WeightMeter,
+        meter: &mut WeightMeter,
     ) -> Result<Weight, sp_runtime::DispatchError> {
         let cursor = ChannelTimelockRevealCursor::<T>::get();
+        meter.consume(T::DbWeight::get().reads(1));
         let mut keys = match cursor.as_ref() {
             Some(raw) => ChannelTimelockedIndex::<T>::iter_keys_from(raw.clone()),
             None => ChannelTimelockedIndex::<T>::iter_keys(),
@@ -1313,6 +1317,7 @@ impl<T: Config> Pallet<T> {
             None => ChannelTimelockedIndex::<T>::iter_keys(),
         };
         let oldest_kept = pallet_drand::OldestStoredRound::<T>::get();
+        meter.consume(T::DbWeight::get().reads(1));
         total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
         let mut decryptions = 0u32;
         let mut visits = 0u32;
@@ -1344,13 +1349,13 @@ impl<T: Config> Pallet<T> {
                 wrapped = true;
                 continue;
             };
-            if !meter.can_consume(
-                T::DbWeight::get()
-                    .reads_writes(u64::from(T::MaxFields::get()).saturating_add(4), 4),
-            ) {
+            let scan_weight = T::DbWeight::get()
+                .reads_writes(u64::from(T::MaxFields::get()).saturating_add(4), 4);
+            if !meter.can_consume(scan_weight) {
                 budget_exhausted = true;
                 break;
             }
+            meter.consume(scan_weight);
             visits = visits.saturating_add(1);
             last_visited = Some(ChannelTimelockedIndex::<T>::hashed_key_for((
                 index, channel, &who,
@@ -1428,6 +1433,7 @@ impl<T: Config> Pallet<T> {
                             budget_exhausted = true;
                             break;
                         }
+                        meter.consume(entry_weight);
                         decryptions = decryptions.saturating_add(1);
                         total_weight = total_weight.saturating_add(decryption_weight);
                         mutated = true;
@@ -1501,13 +1507,11 @@ impl<T: Config> Pallet<T> {
         if budget_exhausted {
             if last_visited != cursor {
                 ChannelTimelockRevealCursor::<T>::set(last_visited);
-                total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
             }
         } else if cursor.is_some() {
             ChannelTimelockRevealCursor::<T>::kill();
-            total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
         }
-        Ok(total_weight)
+        Ok(meter.consumed())
     }
 
     pub fn get_commitments(netuid: NetUid) -> Vec<(T::AccountId, Vec<u8>)> {
