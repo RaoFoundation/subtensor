@@ -47,13 +47,53 @@ app = typer.Typer(
     # Wide terminals: don't ellipsize long option names / help (E2E F15).
     context_settings={"max_content_width": 200, "help_option_names": ["-h", "--help"]},
     help=(
-        "Lift-based escrowed loans: open, close, repay, roll, raise, list, show.\n\n"
-        "Queries: lending_position / lending_close_quote / lending_stats (SDK reads).\n\n"
+        "Lift-based escrowed loans: open, close, repay, roll, raise, list, show, "
+        "params.\n\n"
+        "Queries: lending_position / lending_close_quote / lending_stats / "
+        "LiftParamsStore (SDK reads).\n\n"
         "Docs `see:` links default to RaoFoundation/subtensor@main; set "
         "BITTENSOR_DOCS_REF=<git-ref> (or BITTENSOR_DOCS_URL) for a PR tip / "
         "clone before merge (N12)."
     ),
 )
+
+
+def _lift_params_duration(params: Any) -> Optional[int]:
+    """Live ``max_loan_duration`` from LiftParamsStore (opens + rolls only)."""
+    if isinstance(params, dict):
+        duration = params.get("max_loan_duration")
+        if isinstance(duration, int) and duration > 0:
+            return int(duration)
+    return None
+
+
+def _lift_params_deferral(params: Any) -> Optional[int]:
+    """Live ``max_settlement_deferral`` from LiftParamsStore."""
+    if isinstance(params, dict):
+        deferral = params.get("max_settlement_deferral")
+        if isinstance(deferral, int) and deferral > 0:
+            return int(deferral)
+    return None
+
+
+async def _live_max_loan_duration(client) -> Optional[int]:
+    """Prefer LiftParamsStore; fall back to the compile-time constant seed."""
+    params = await client.query(*_LIFT_PARAMS)
+    duration = _lift_params_duration(params)
+    if duration is not None:
+        return duration
+    constant = await client.constant(("Lending", "MaxLoanDuration"))
+    return int(constant) if isinstance(constant, int) and constant > 0 else None
+
+
+async def _live_max_settlement_deferral(client) -> Optional[int]:
+    """Prefer LiftParamsStore; fall back to the compile-time constant seed."""
+    params = await client.query(*_LIFT_PARAMS)
+    deferral = _lift_params_deferral(params)
+    if deferral is not None:
+        return deferral
+    constant = await client.constant(("Lending", "MaxSettlementDeferral"))
+    return int(constant) if isinstance(constant, int) and constant > 0 else None
 
 
 def _bound(amount: Balance, percent: float, *, ceiling: bool = False) -> Balance:
@@ -703,8 +743,8 @@ def open_loan(
 
     async def _term_meta(client):
         head = await client.block()
-        duration = await client.constant(("Lending", "MaxLoanDuration"))
-        return head, int(duration) if isinstance(duration, int) and duration > 0 else None
+        duration = await _live_max_loan_duration(client)
+        return head, duration
 
     head, max_loan_duration = context.run(_term_meta)
     existing_expires = existing.get("expires_at") if isinstance(existing, dict) else None
@@ -839,10 +879,7 @@ def roll_loan(
         _exit_error(context, f"no lending position on netuid {netuid}")
     side = position["side"]
     old_expires = position.get("expires_at")
-    params = context.run(lambda client: client.query(*_LIFT_PARAMS))
-    duration = None
-    if isinstance(params, dict):
-        duration = params.get("max_loan_duration")
+    duration = context.run(_live_max_loan_duration)
     head = context.run(lambda client: client.block())
     new_expires = None
     if isinstance(duration, int) and isinstance(head, int):
@@ -1566,8 +1603,7 @@ def raise_loan(
         )
         sell_label = "sell (default = escrowed α)"
     head = context.run(lambda client: client.block())
-    duration = context.run(lambda client: client.constant(("Lending", "MaxLoanDuration")))
-    max_loan_duration = int(duration) if isinstance(duration, int) and duration > 0 else None
+    max_loan_duration = context.run(_live_max_loan_duration)
     existing_expires = existing.get("expires_at") if isinstance(existing, dict) else None
     new_expires = _quoted_expires_at(
         head=head,
@@ -1789,6 +1825,68 @@ def list_positions(
     )
 
 
+_ENABLED = StorageItem("Lending", "Enabled", "bool")
+
+
+@app.command(
+    "params",
+    help="Show live lending economic params (LiftParamsStore + Enabled).",
+)
+@with_globals
+def show_params(ctx: typer.Context):
+    """Dump root-settable LiftParams and the Enabled dark-launch flag."""
+    context = ctx_of(ctx)
+
+    async def _load(client):
+        enabled = await client.query(*_ENABLED)
+        params = await client.query(*_LIFT_PARAMS)
+        return enabled, params
+
+    enabled, params = context.run(_load)
+    if not isinstance(params, dict):
+        _exit_error(context, "LiftParamsStore is unavailable on this node", code=1)
+    # Stable display order matching the v5.10 parameter table.
+    keys = [
+        "floor_bps",
+        "thin_floor_bps",
+        "ceiling_bps",
+        "split_short_bps",
+        "ltv_short_bps",
+        "ltv_long_bps",
+        "thin_ltv_long_bps",
+        "apr_long_bps",
+        "apr_short_bps",
+        "ema_band_bps",
+        "new_subnet_min_age",
+        "new_subnet_ramp",
+        "max_loan_duration",
+        "max_settlement_deferral",
+        "young_short_settlement_window",
+        "minimum_loan_value",
+        "max_expiry_settlements_per_block",
+        "move_bps",
+        "ref_tao",
+        "thin_tao",
+        "settle_ema_blocks",
+        "crash_guard_bps",
+    ]
+    rows: list[list[str]] = [["Enabled", str(bool(enabled))]]
+    seen: set[str] = set()
+    for key in keys:
+        if key in params:
+            rows.append([key, str(params[key])])
+            seen.add(key)
+    for key in sorted(params.keys()):
+        if key not in seen:
+            rows.append([key, str(params[key])])
+    context.output.table(
+        "lending economic params (root-settable via set_lift_params / set_enabled)",
+        ["parameter", "value"],
+        rows,
+        truncate=False,
+    )
+
+
 @app.command(
     "show",
     help="Show one open loan with status, runway, and a live escrow close quote.",
@@ -1851,7 +1949,12 @@ def show_position(
             ref = await view.query(_REF, [netuid])
             params = await view.query(_LIFT_PARAMS, [])
             since = await view.query(_BAND_SINCE, [owner, netuid])
-            max_defer = await client.constant(("Lending", "MaxSettlementDeferral"))
+            max_defer = _lift_params_deferral(params)
+            if max_defer is None:
+                constant = await client.constant(("Lending", "MaxSettlementDeferral"))
+                max_defer = (
+                    int(constant) if isinstance(constant, int) and constant > 0 else None
+                )
             spot_rao = await view.runtime(api.SwapRuntimeApi.current_alpha_price, [netuid])
             ema = None
             price_raw = None

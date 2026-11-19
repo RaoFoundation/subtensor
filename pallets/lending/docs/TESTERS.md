@@ -56,6 +56,11 @@ the side book already exceeds the current side cap. Interest is charged to now;
 principal / collateral / lift / young-short age (`last_exposure_added_at`) are
 unchanged. After settle, open a fresh position for a new clock.
 
+**`btcli lending params`** dumps live `Enabled` + `LiftParamsStore` (LTV, APR
+long/short, duration, deferral, young-short window, min loan, expiry drain,
+floors/caps/ramp, EMA band). Root changes them with `set_lift_params` /
+`set_enabled` — no runtime upgrade.
+
 At `expires_at` the position is closed automatically at spot through the pool:
 expiry == a default close, not an EMA settlement. There is no wallet top-up and
 no slippage limit (MEV at expiry is accepted), and the owner's free TAO is never
