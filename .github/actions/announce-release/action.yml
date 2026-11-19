@@ -79,6 +79,7 @@ runs:
     - name: Render or post the announcement
       shell: bash
       env:
+        GH_TOKEN: ${{ github.token }}
         ANNOUNCE_KIND: ${{ inputs.kind }}
         ANNOUNCE_SPEC: ${{ inputs.spec }}
         ANNOUNCE_SDK_VERSION: ${{ inputs.sdk-version }}
