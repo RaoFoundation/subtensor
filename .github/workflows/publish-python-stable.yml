@@ -14,12 +14,10 @@ name: Publish stable Python
 # attestation from either workflow file. A complete release skips the upload.
 # uv publish --check-url also skips files that are already on the index.
 #
-# Tooling (this workflow, the checker, and the announce action) is the commit
-# that started the run, not whatever main points at when a queued job starts.
-# The package tree is a separate commit that must already be on main.
-# Building that tree has no PyPI token and no id-token. Only the publish job
+# The tooling and package source are pinned to the main commit that started
+# the run. Building has no PyPI token and no id-token. Only the publish job
 # has environment mainnet, and it runs the pinned tooling against the built
-# artifacts. It does not execute scripts from the selected release tree.
+# artifacts.
 # Environment mainnet only admits the main branch. uv is the upstream 0.11.28
 # linux tarball, checked against a digest pinned below.
 # Discord is posted only after this run uploads, or when retry_announce is
@@ -41,10 +39,6 @@ on:
         description: "If this version is already on PyPI, post Discord when the commit status is not success."
         type: boolean
         default: false
-      ref:
-        description: "Commit on main to publish. Empty means the tip of main."
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -69,13 +63,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Resolve the commit and require notes
         id: meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REF: ${{ inputs.ref }}
           DRY_RUN: ${{ inputs.dry_run }}
           TOOLING_SHA: ${{ github.sha }}
         run: |
@@ -88,15 +81,7 @@ jobs:
             echo "tooling sha drifted from this run"
             exit 1
           }
-          git fetch --no-tags origin main
-          if [ -z "$REF" ] || [ "$REF" = main ]; then
-            sha=$(git rev-parse origin/main)
-          else
-            git fetch --no-tags origin "$REF"
-            sha=$(git rev-parse --verify "FETCH_HEAD^{commit}")
-          fi
-          git merge-base --is-ancestor "$sha" origin/main \
-            || { echo "ref $sha is not on main"; exit 1; }
+          sha="$TOOLING_SHA"
           git show "$sha:sdk/python/pyproject.toml" > /tmp/sdk.toml
           git show "$sha:sdk/bittensor-core-py/pyproject.toml" > /tmp/core.toml
           versions=$(python3 .github/scripts/release-python-versions.py /tmp/sdk.toml /tmp/core.toml)
