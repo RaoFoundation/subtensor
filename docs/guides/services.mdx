@@ -45,7 +45,7 @@ are, how to reach them, and how they are paid for:
     { "type": "mcp", "endpoint": "https://…/mcp" }
   ],
   "payments": [
-    { "type": "gamma", "signature": "btauth/1" },
+    { "type": "gamma", "signature": "btauth/1", "balance": "https://…/balance" },
     { "type": "x402" }
   ]
 }
@@ -58,8 +58,10 @@ are, how to reach them, and how they are paid for:
   Readers ignore one that is not listed, and customers spend only at listed
   hotkeys, since anyone can publish the url.
   Without `publishers`, any may point to it.
+- An `http` service is an HTTP API at `endpoint`.
 - A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma), spent at
-  the service's hotkey.
+  the service's hotkey. `balance` is the url where a hotkey reads its balance
+  at the service.
 - An [`x402`](https://www.x402.org) payment states its price and payee in each
   HTTP 402 response.
 - Readers skip service and payment types they do not know.
@@ -82,7 +84,7 @@ finalized block it reads [`gamma-spent`](/docs/query/gamma-spent) for the hotkey
 at each of its hotkeys in `publishers`, and credits what each total has grown by
 since its last read. Dissolving the subnet clears the totals and the gamma, so a
 service stores the subnet's `RegisteredSubnetCounter` with each total and starts
-from zero when the counter has grown. Spends stop at the block that removes the
-subnet, which emits `NetworkRemoved`, and the totals are cleared after it, so a
-service first credits the `GammaSpent` events at its hotkeys from its last read
-through that block.
+from zero when the counter has grown. The totals can be cleared in the block
+that removes the subnet, which emits `NetworkRemoved`, so a service takes the
+subnet's final totals as those of the block before plus that block's
+`GammaSpent` events at its hotkeys.
