@@ -26,9 +26,8 @@ use crate::tests::claim_root::{escrow_alpha, register_on_root};
 use crate::tests::mock::*;
 use crate::{
     BasketDailyTurnoverCap, BasketShares, BasketTradeBucket, BasketTradingEnabled, Error,
-    FirstEmissionBlockNumber,
-    NetworkRegistrationAllowed, NetworksAdded, Owner, SubnetAlphaIn, SubnetAlphaOut,
-    SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO, TotalStake,
+    FirstEmissionBlockNumber, NetworkRegistrationAllowed, NetworksAdded, Owner, SubnetAlphaIn,
+    SubnetAlphaOut, SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO, TotalStake,
 };
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::{assert_noop, assert_ok};
