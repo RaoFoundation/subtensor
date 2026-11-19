@@ -751,6 +751,37 @@ fn dissolution_releases_coldkey_reserves_across_bounded_retries() {
     });
 }
 
+// Mechanism retirement must not write queue progress or completion metadata
+// after consuming the block's remaining idle allowance.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn retirement_does_not_write_completion_outside_idle_budget() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let mecid = MechId::from(1);
+        ChannelMechanismPurgeQueue::<Test>::insert(netuid, mecid, ());
+        crate::ChannelMechanismRowsDrained::<Test>::insert((netuid, mecid), true);
+        let budget = RocksDbWeight::get().reads_writes(2, 1);
+        let consumed = <Pallet<Test> as Hooks<u64>>::on_idle(1, budget);
+        assert!(consumed.all_lte(budget));
+        assert!(ChannelMechanismPurgeQueue::<Test>::contains_key(
+            netuid, mecid
+        ));
+        assert!(crate::ChannelMechanismRowsDrained::<Test>::get((
+            netuid, mecid
+        )));
+
+        ChannelMechanismPurgeQueue::<Test>::remove(netuid, mecid);
+        crate::ChannelMechanismRowsDrained::<Test>::remove((netuid, mecid));
+        let consumed = <Pallet<Test> as Hooks<u64>>::on_idle(2, budget);
+        assert!(consumed.all_lte(budget));
+        assert!(!crate::ChannelMechanismRowsDrained::<Test>::get((
+            netuid, mecid
+        )));
+        assert!(crate::ChannelMechanismConfigPurgeCursor::<Test>::get((netuid, mecid)).is_none());
+    });
+}
+
 #[test]
 fn retired_mechanism_drains_bounded_idle_without_touching_other_channels() {
     new_test_ext().execute_with(|| {
