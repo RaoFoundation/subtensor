@@ -650,7 +650,10 @@ _COMMAND_RE = re.compile(
 _SHELL_RE = re.compile(r"\|\||&&|\$\(|`|\|\s*(?:ba)?sh\b|(?:^|\s)sh\s+-c\b", re.IGNORECASE)
 _URL_RE = re.compile(
     r"(?i)(?:[a-z][a-z0-9+.-]*://|www\.|discord\.gg\b|discord(?:app)?\.com/invite\b|"
-    r"\[[^\]]+\]\([^)]+\)|<[a-z][^>\s]*>)"
+    r"\[[^\]]+\]\([^)]+\)|<[a-z][^>\s]*>|"
+    r"\b(?:[a-z0-9-]+\.)+[a-z]{2,24}\b|"
+    r"\b[a-z0-9-]+\s+\.\s+[a-z]{2,24}\b|"
+    r"\b[a-z0-9-]+\s+dot\s+[a-z]{2,24}\b)"
 )
 _MENTION_RE = re.compile(
     r"(?i)(?<![A-Za-z0-9._])@(?:everyone|here|[A-Za-z0-9_]{2,32})\b|<@[!&]?[0-9]+>|<#[0-9]+>"
