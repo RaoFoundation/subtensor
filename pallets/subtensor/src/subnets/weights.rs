@@ -34,6 +34,7 @@ impl<T: Config> Pallet<T> {
         let index = Self::get_mechanism_storage_index(netuid, mecid);
         if delegate.is_none() {
             MechWeightDelegate::<T>::remove((index, &hotkey));
+            MechWeightDelegateTargets::<T>::remove((netuid, &hotkey, mecid));
         } else {
             MechWeightDelegateTargets::<T>::insert((netuid, &hotkey, mecid), ());
             if let Some(delegate) = &delegate {

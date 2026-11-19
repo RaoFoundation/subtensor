@@ -9,7 +9,7 @@ Fails with `GammaDepositNotEmpty` while the deposit holds gamma.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.close_gamma_deposit`](/code/pallets/subtensor/src/macros/dispatches.rs#L3225-L3233) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.close_gamma_deposit`](/code/pallets/subtensor/src/macros/dispatches.rs#L3224-L3232) |
 
 ## Parameters
 
@@ -61,7 +61,7 @@ result = sub.execute_tool("close_gamma_deposit", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.close_gamma_deposit` — [`pallets/subtensor/src/macros/dispatches.rs#L3227`](/code/pallets/subtensor/src/macros/dispatches.rs#L3225-L3233):
+`SubtensorModule.close_gamma_deposit` — [`pallets/subtensor/src/macros/dispatches.rs#L3226`](/code/pallets/subtensor/src/macros/dispatches.rs#L3224-L3232):
 
 ```rust
 #[pallet::call_index(161)]

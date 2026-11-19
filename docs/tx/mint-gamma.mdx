@@ -26,7 +26,7 @@ and the `alpha_burned`, `tao_value` and `gamma` minted.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3159-L3179) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3158-L3178) |
 
 ## Parameters
 
@@ -85,7 +85,7 @@ result = sub.execute_tool("mint_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.mint_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3161`](/code/pallets/subtensor/src/macros/dispatches.rs#L3159-L3179):
+`SubtensorModule.mint_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3160`](/code/pallets/subtensor/src/macros/dispatches.rs#L3158-L3178):
 
 ```rust
 #[pallet::call_index(158)]

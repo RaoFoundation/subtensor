@@ -197,7 +197,7 @@ async def test_live_and_stored_burn_reads_are_distinguished():
     assert result["increase_mult"] == "1.25"
     assert result["price_is_decayed"] is True
     client._substrate.seed_runtime("SubnetRegistrationRuntimeApi", "get_commit_burn", None)
-    client._substrate.seed("Commitments", "CommitBurnConfig", [2 * 4096 + 1, 7], live)
+    client._substrate.seed("Commitments", "CommitBurnConfig", [(2 * 4096 + 1, 7)], live)
     result = await commit_burn(client, netuid=1, mechid=2, channel=7)
     assert result["price_is_decayed"] is False
 
@@ -209,11 +209,11 @@ async def test_stored_burn_uses_tuple_key():
             return self
 
         async def runtime(self, item, params):
-            assert item.function == "get_commit_burn"
+            assert item.name == "get_commit_burn"
             return None
 
         async def query(self, item, params):
-            assert item.function == "CommitBurnConfig"
+            assert item.name == "CommitBurnConfig"
             assert params == [(4097, 7)]
             return None
 

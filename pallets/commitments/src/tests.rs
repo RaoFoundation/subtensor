@@ -61,6 +61,9 @@ fn channel_commitment_is_independent_and_timelock_reveals() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
         let who = 123;
+        TestCommitDeposit::set(100, 0);
+        TestCommitBurn::set_accepts_any_owner(true);
+        Balances::make_free_balance_be(&who, 10_000.into());
         let plaintext = b"channel reveal";
         let encrypted = produce_ciphertext(plaintext, 1000);
         let info = CommitmentInfo::<TestMaxFields> {
@@ -92,6 +95,8 @@ fn channel_commitment_is_independent_and_timelock_reveals() {
             ChannelRevealedCommitments::<Test>::get((NetUidStorageIndex::from(netuid), who, 7))
                 .expect("revealed channel data");
         assert_eq!(reveals[0].0, plaintext);
+        assert_eq!(Balances::reserved_balance(who), 0.into());
+        assert_eq!(Balances::free_balance(who), 10_000.into());
         assert!(ChannelTimelockedIndex::<Test>::iter_keys().next().is_none());
         let new_who = 456;
         (Pallet::<Test>::swap_neuron(netuid, &who, &new_who));
@@ -528,6 +533,7 @@ fn retired_mechanism_drains_bounded_idle_without_touching_other_channels() {
     });
 }
 
+// PROTECTED_REGRESSION: resolving a channel's last timelock must release the original coldkey's reserve, including during mechanism retirement and overlapping swaps; changes require explicit human approval.
 #[test]
 fn retirement_during_partial_swap_preserves_live_channels_and_releases_payer() {
     new_test_ext().execute_with(|| {
@@ -566,14 +572,33 @@ fn retirement_during_partial_swap_preserves_live_channels_and_releases_payer() {
             retired,
             9,
             old_hotkey,
-            info(b"revealed-only"),
+            Box::new(CommitmentInfo {
+                fields: BoundedVec::try_from(vec![Data::TimelockEncrypted {
+                    encrypted: produce_ciphertext(b"revealed-only", 1000),
+                    reveal_round: 1000,
+                }])
+                .expect("one field fits"),
+            }),
             TaoBalance::ZERO,
         ));
-        ChannelCommitmentOf::<Test>::remove((index, old_hotkey, 9));
-        ChannelRevealedCommitments::<Test>::insert(
-            (index, old_hotkey, 9),
-            vec![(b"revealed-only".to_vec(), 1)],
-        );
+        let signature = hex::decode(DRAND_QUICKNET_SIG_HEX).expect("valid signature");
+        insert_drand_pulse(1000, &signature);
+        assert_ok!(Pallet::<Test>::reveal_channel_timelocked_commitments());
+        assert!(ChannelCommitmentOf::<Test>::get((index, old_hotkey, 9)).is_none());
+        assert!(ChannelRevealedCommitments::<Test>::get((index, old_hotkey, 9)).is_some());
+        assert_eq!(Balances::reserved_balance(coldkey), 300.into());
+        assert!(crate::ChannelReservePayerOf::<Test>::get((index, old_hotkey, 9)).is_none());
+        for (target, hotkey, channel) in [
+            (main_index, old_hotkey, 7),
+            (main_index, old_hotkey, 8),
+            (index, old_hotkey, 3),
+        ] {
+            let registration = ChannelCommitmentOf::<Test>::get((target, hotkey, channel))
+                .expect("remaining channel registration");
+            assert_eq!(registration.deposit, 100.into());
+            assert_eq!(Balances::reserved_balance(hotkey), 0.into());
+        }
+        assert_eq!(Balances::free_balance(coldkey), 9_700.into());
         Pallet::<Test>::swap_neuron(netuid, &old_hotkey, &new_hotkey);
         let one_swap = RocksDbWeight::get().reads_writes(9, 13);
         let mut meter = frame_support::weights::WeightMeter::with_limit(one_swap);
@@ -762,8 +787,14 @@ fn dissolution_resumes_after_incoming_migration_consumes_idle_budget() {
             .saturating_add(RocksDbWeight::get().reads_writes(1, 3))
             .saturating_add(RocksDbWeight::get().reads(1));
         let mut meter = frame_support::weights::WeightMeter::with_limit(budget);
-        assert!(!Pallet::<Test>::purge_channel_netuid(destination, &mut meter));
+        assert!(!Pallet::<Test>::purge_channel_netuid(
+            destination,
+            &mut meter
+        ));
         assert_eq!(Balances::reserved_balance(coldkey), 100.into());
+        // A destination swap may be queued after the first dissolution attempt.
+        // A retry must drain that new edge as well as the interrupted one.
+        Pallet::<Test>::swap_neuron(destination, &second, &first);
         for _ in 0..4 {
             let mut meter = frame_support::weights::WeightMeter::with_limit(
                 RocksDbWeight::get().reads_writes(9, 12),
@@ -803,7 +834,7 @@ fn channel_idle_budgets_all_expired_pulse_reads() {
             TaoBalance::ZERO,
         ));
         let budget = RocksDbWeight::get()
-            .reads_writes(u64::from(TestMaxFields::get()) + 6, 3)
+            .reads_writes(u64::from(TestMaxFields::get()) + 7, 4)
             .saturating_sub(Weight::from_parts(1, 0));
         let used = <Pallet<Test> as Hooks<u64>>::on_idle(2, budget);
         assert!(used.all_lte(budget));
@@ -847,7 +878,7 @@ fn channel_timelock_cursor_survives_partial_reveal_and_swap() {
             TaoBalance::ZERO,
         ));
         let budget = RocksDbWeight::get()
-            .reads_writes(u64::from(TestMaxFields::get()) + 6, 3)
+            .reads_writes(u64::from(TestMaxFields::get()) + 7, 4)
             .saturating_sub(Weight::from_parts(1, 0));
         <Pallet<Test> as Hooks<u64>>::on_idle(2, budget);
         assert!(ChannelTimelockedIndex::<Test>::iter_keys().next().is_some());

@@ -1367,7 +1367,7 @@ impl<T: Config> Pallet<T> {
             };
             if !meter.can_consume(
                 T::DbWeight::get()
-                    .reads_writes(u64::from(T::MaxFields::get()).saturating_add(3), 3),
+                    .reads_writes(u64::from(T::MaxFields::get()).saturating_add(4), 4),
             ) {
                 budget_exhausted = true;
                 break;
@@ -1504,8 +1504,12 @@ impl<T: Config> Pallet<T> {
             registration.info.fields = fields;
             if registration.info.fields.is_empty() {
                 ChannelCommitmentOf::<T>::remove(&key);
-                // Keep the target until lifecycle cleanup removes the revealed
-                // history, tempo usage, and last-write row for this channel.
+                // Revealing the last field removes the active commitment and
+                // releases its reserve. Revealed history and its target remain
+                // until lifecycle cleanup; the payer is not migrated on rewrite.
+                if let Some(payer) = ChannelReservePayerOf::<T>::take(&key) {
+                    T::Currency::unreserve(&payer, registration.deposit);
+                }
             } else {
                 ChannelCommitmentOf::<T>::insert(&key, registration);
             }
@@ -1613,7 +1617,7 @@ impl<T: Config> Pallet<T> {
             ChannelSwapOrigins::<T>::remove((netuid, new_hotkey, old_hotkey));
         }
         if ChannelMechanismSwapOrigins::<T>::iter_key_prefix((netuid,))
-            .all(|(_, destination)| destination != *new_hotkey)
+            .all(|(_, destination, _)| destination != *new_hotkey)
         {
             ChannelMechanismSwaps::<T>::remove(netuid, new_hotkey);
         }
@@ -1779,7 +1783,7 @@ impl<T: Config> Pallet<T> {
             if !weight_meter.can_consume(item_weight) {
                 return false;
             }
-            let Some((destination, source)) =
+            let Some(((destination, source), _)) =
                 ChannelMechanismSwapOrigins::<T>::iter_prefix((netuid, mecid)).next()
             else {
                 break;

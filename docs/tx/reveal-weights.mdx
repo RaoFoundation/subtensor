@@ -18,7 +18,7 @@ salt-based commits — the timelocked path used by `set_weights` and
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L274-L285), [`SubtensorModule.reveal_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L315-L335), [`SubtensorModule.reveal_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3357-L3379) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L275-L286), [`SubtensorModule.reveal_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L316-L336), [`SubtensorModule.reveal_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3356-L3378) |
 
 ## Parameters
 
@@ -79,7 +79,7 @@ result = sub.execute_tool("reveal_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.reveal_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L276`](/code/pallets/subtensor/src/macros/dispatches.rs#L274-L285):
+`SubtensorModule.reveal_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L277`](/code/pallets/subtensor/src/macros/dispatches.rs#L275-L286):
 
 ```rust
 #[pallet::call_index(97)]
@@ -96,9 +96,9 @@ pub fn reveal_weights(
 }
 ```
 
-Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L752).
+Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L763).
 
-`SubtensorModule.reveal_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L317`](/code/pallets/subtensor/src/macros/dispatches.rs#L315-L335):
+`SubtensorModule.reveal_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L318`](/code/pallets/subtensor/src/macros/dispatches.rs#L316-L336):
 
 ```rust
 #[pallet::call_index(116)]
@@ -124,9 +124,9 @@ pub fn reveal_mechanism_weights(
 }
 ```
 
-Delegates to [`do_reveal_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L771).
+Delegates to [`do_reveal_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L782).
 
-`SubtensorModule.reveal_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3359`](/code/pallets/subtensor/src/macros/dispatches.rs#L3357-L3379):
+`SubtensorModule.reveal_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3358`](/code/pallets/subtensor/src/macros/dispatches.rs#L3356-L3378):
 
 ```rust
 #[pallet::call_index(169)]
@@ -154,6 +154,6 @@ pub fn reveal_mechanism_weights_for(
 }
 ```
 
-Delegates to [`do_reveal_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L86).
+Delegates to [`do_reveal_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L97).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

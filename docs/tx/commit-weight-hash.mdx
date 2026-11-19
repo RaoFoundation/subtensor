@@ -14,7 +14,7 @@ delegate on this mechanism; the delegate pays the normal transaction fee.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L212-L221), [`SubtensorModule.commit_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3344-L3354) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L213-L222), [`SubtensorModule.commit_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3343-L3353) |
 
 ## Parameters
 
@@ -68,7 +68,7 @@ result = sub.execute_tool("commit_weight_hash", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.commit_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L214`](/code/pallets/subtensor/src/macros/dispatches.rs#L212-L221):
+`SubtensorModule.commit_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L215`](/code/pallets/subtensor/src/macros/dispatches.rs#L213-L222):
 
 ```rust
 #[pallet::call_index(115)]
@@ -83,9 +83,9 @@ pub fn commit_mechanism_weights(
 }
 ```
 
-Delegates to [`do_commit_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L244).
+Delegates to [`do_commit_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L255).
 
-`SubtensorModule.commit_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3346`](/code/pallets/subtensor/src/macros/dispatches.rs#L3344-L3354):
+`SubtensorModule.commit_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3345`](/code/pallets/subtensor/src/macros/dispatches.rs#L3343-L3353):
 
 ```rust
 #[pallet::call_index(168)]
@@ -101,6 +101,6 @@ pub fn commit_mechanism_weights_for(
 }
 ```
 
-Delegates to [`do_commit_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L75).
+Delegates to [`do_commit_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L86).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

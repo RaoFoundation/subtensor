@@ -17,7 +17,7 @@ burn, the commitment is free apart from the normal transaction fee.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Commitments | [`Commitments.set_commitment_to`](/code/pallets/commitments/src/lib.rs#L575-L637) |
+| `coldkey` | signed account (pallet role may apply) | Commitments | [`Commitments.set_commitment_to`](/code/pallets/commitments/src/lib.rs#L687-L753) |
 
 ## Verify
 
@@ -82,7 +82,7 @@ result = sub.execute_tool("set_channel_commitment", {...}, wallet)
 
 ## On-chain implementation
 
-`Commitments.set_commitment_to` — [`pallets/commitments/src/lib.rs#L585`](/code/pallets/commitments/src/lib.rs#L575-L637):
+`Commitments.set_commitment_to` — [`pallets/commitments/src/lib.rs#L697`](/code/pallets/commitments/src/lib.rs#L687-L753):
 
 ```rust
 #[pallet::call_index(3)]
@@ -111,6 +111,10 @@ pub fn set_commitment_to(
         .map_err(|_| Error::<T>::AccountNotAllowedCommit)?;
     T::CommitBurn::ensure_coldkey_hotkey(netuid, &coldkey, &hotkey)
         .map_err(|_| Error::<T>::AccountNotAuthorized)?;
+    ensure!(
+        !Self::channel_migration_pending(netuid, &hotkey),
+        Error::<T>::ChannelMigrationPending
+    );
 
     let (tao, alpha_recycled, new_price, seq) =
         if let Some(config) = T::CommitBurn::current_price(netuid, mecid, channel) {
@@ -149,5 +153,7 @@ pub fn set_commitment_to(
     Ok(())
 }
 ```
+
+Delegates to [`channel_migration_pending`](/code/pallets/commitments/src/lib.rs#L1572).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -45,9 +45,27 @@ impl<T: Config> Pallet<T> {
         delegate: Option<T::AccountId>,
     ) {
         let index = Self::get_mechanism_storage_index(netuid, mecid);
-        if let Some((previous, _)) =
+        let mut delegate = delegate;
+        // A reverse rename may have no grant on its source because the first
+        // move is still pending or has just landed here. Redirect that lineage
+        // to the latest destination instead of reinstalling it on a retired key.
+        if delegate.is_none()
+            && !MechWeightDelegate::<T>::contains_key((index, old_hotkey))
+            && let Some(((source, _), _)) =
+                MechWeightDelegateMoveOrigins::<T>::iter_prefix((netuid, old_hotkey)).next()
+            && let Some((_, pending)) =
+                MechWeightDelegateMoveQueue::<T>::take((netuid, &source, mecid))
+        {
+            delegate = pending;
+            MechWeightDelegateMoveOrigins::<T>::remove((netuid, old_hotkey, &source, mecid));
+            MechWeightDelegateMechanismMoves::<T>::remove((netuid, mecid, &source));
+            MechWeightDelegate::<T>::remove((index, &source));
+            MechWeightDelegateTargets::<T>::remove((netuid, &source, mecid));
+        }
+        if let Some((previous, previous_delegate)) =
             MechWeightDelegateMoveQueue::<T>::take((netuid, old_hotkey, mecid))
         {
+            delegate = delegate.or(previous_delegate);
             MechWeightDelegateMoveOrigins::<T>::remove((netuid, &previous, old_hotkey, mecid));
             MechWeightDelegateMechanismMoves::<T>::remove((netuid, mecid, old_hotkey));
         }
@@ -82,7 +100,7 @@ impl<T: Config> Pallet<T> {
 
     /// One bounded grant move, edge cancellation, or deletion per step.
     pub fn drain_mech_weight_delegate_lifecycle(weight_meter: &mut WeightMeter) {
-        let item_weight = T::DbWeight::get().reads_writes(4, 5);
+        let item_weight = T::DbWeight::get().reads_writes(4, 8);
         for _ in 0..256u32 {
             if !weight_meter.can_consume(item_weight) {
                 return;

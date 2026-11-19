@@ -420,6 +420,93 @@ fn queued_delegate_move_cannot_revive_after_revocation_or_retirement() {
 }
 
 #[test]
+fn overlapping_delegate_moves_follow_membership_without_reviving_old_hotkeys() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let mecid = MechId::from(1);
+        let index = SubtensorModule::get_mechanism_storage_index(netuid, mecid);
+        let first = U256::from(55);
+        let intermediate = U256::from(56);
+        let final_hotkey = U256::from(57);
+        let delegate = U256::from(99);
+        MechanismCountCurrent::<Test>::insert(netuid, MechId::from(2));
+        SubtensorModule::queue_mech_weight_delegate_move(
+            netuid,
+            mecid,
+            &first,
+            &intermediate,
+            Some(delegate),
+        );
+        // Reverse before the first move drains. No grant exists on the source,
+        // so the incoming move must be redirected or revoked, not left to land
+        // on the old hotkey later.
+        SubtensorModule::queue_mech_weight_delegate_move(
+            netuid,
+            mecid,
+            &intermediate,
+            &first,
+            None,
+        );
+        SubtensorModule::drain_mech_weight_delegate_lifecycle(
+            &mut frame_support::weights::WeightMeter::new(),
+        );
+        assert_eq!(MechWeightDelegate::<Test>::get((index, first)), None);
+        assert_eq!(MechWeightDelegate::<Test>::get((index, intermediate)), None);
+        assert!(MechWeightDelegateMoveQueue::<Test>::iter().next().is_none());
+
+        // A later swap from the intermediate key must move that same grant to
+        // the new destination, not strand it on an outgoing intermediate key.
+        SubtensorModule::queue_mech_weight_delegate_move(
+            netuid,
+            mecid,
+            &first,
+            &intermediate,
+            Some(delegate),
+        );
+        SubtensorModule::drain_mech_weight_delegate_lifecycle(
+            &mut frame_support::weights::WeightMeter::new(),
+        );
+        SubtensorModule::queue_mech_weight_delegate_move(
+            netuid,
+            mecid,
+            &intermediate,
+            &final_hotkey,
+            None,
+        );
+        SubtensorModule::drain_mech_weight_delegate_lifecycle(
+            &mut frame_support::weights::WeightMeter::new(),
+        );
+        assert_eq!(
+            MechWeightDelegate::<Test>::get((index, final_hotkey)),
+            Some(delegate)
+        );
+        for hotkey in [first, intermediate] {
+            assert_eq!(MechWeightDelegate::<Test>::get((index, hotkey)), None);
+            assert!(
+                MechWeightDelegateTargets::<Test>::iter_key_prefix((netuid, hotkey))
+                    .next()
+                    .is_none()
+            );
+        }
+
+        SubtensorModule::queue_mech_weight_delegate_move(
+            netuid,
+            mecid,
+            &final_hotkey,
+            &intermediate,
+            None,
+        );
+        SubtensorModule::drain_mech_weight_delegate_lifecycle(
+            &mut frame_support::weights::WeightMeter::new(),
+        );
+        for hotkey in [first, intermediate, final_hotkey] {
+            assert_eq!(MechWeightDelegate::<Test>::get((index, hotkey)), None);
+        }
+        assert!(MechWeightDelegateMoveQueue::<Test>::iter().next().is_none());
+    });
+}
+
+#[test]
 fn delegate_is_scoped_revocable_and_moves_on_hotkey_swap() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
