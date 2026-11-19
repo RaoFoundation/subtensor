@@ -411,6 +411,16 @@ class TestMintTerms:
         with pytest.raises(BittensorError, match="exactly one"):
             build(op, {**DEPOSIT, **named})
 
+    @pytest.mark.parametrize(
+        ("op", "fields"),
+        [("mint_gamma", MINT), ("set_gamma_deposit_daily_spend_cap", DEPOSIT)],
+    )
+    def test_a_cap_is_zero_or_at_least_the_minimum(self, op, fields):
+        with pytest.raises(BittensorError, match="0 or at least"):
+            build(op, {**fields, "daily_spend_cap_gamma": "0.099999999"})
+        for cap in (0, "0.1"):
+            build(op, {**fields, "daily_spend_cap_gamma": cap})
+
 
 class TestDepositPreviews:
     @pytest.mark.parametrize(
