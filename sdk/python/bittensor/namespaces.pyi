@@ -305,6 +305,24 @@ class Hyperparameters(_ReadNamespace):
 class Identity(_ReadNamespace):
     """On-chain identities and commitments."""
 
+    async def channel_commitment(self, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[Commitment]:
+        """One hotkey's independent channel commitment, or None when absent.
+
+        Reads the v2 runtime API and decodes the returned SCALE registration. On a
+        node without v2, reads the equivalent channel storage instead; both paths
+        distinguish this target from the legacy `commitment` read.
+        """
+
+    async def commit_burn(self, netuid: int, mechid: int = 0, channel: int = 0, *, block: Optional[int] = None) -> Optional[dict]:
+        """Live decayed channel burn price and its stored configuration.
+
+        `burn` is the price a commitment would pay now, or None when the burn is
+        disabled/unconfigured. The runtime API returns no record when disabled, so
+        this read also inspects `CommitBurnConfig` to show `enabled` and the other
+        parameters. Direct storage readers should not treat stored `burn` as live:
+        decay is lazy; this read's `price_is_decayed` marks the runtime quote.
+        """
+
     async def commitment(self, netuid: int, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[Commitment]:
         """The commitment a hotkey has published on a subnet, or None."""
 
@@ -796,6 +814,9 @@ class Weights(_ReadNamespace):
         scaled by the u16 maximum (1.0 = the largest bond the chain can store)
         rather than row-normalized.
         """
+
+    async def mech_weight_delegate(self, netuid: int, mechid: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[str]:
+        """The account authorized to set weights for this hotkey/mechanism, or None."""
 
     async def timelocked_weight_commits(self, netuid: int, mechid: int = 0, *, block: Optional[int] = None) -> dict[int, list[dict]]:
         """Pending (still-encrypted) commit-reveal weight commits, grouped by epoch.

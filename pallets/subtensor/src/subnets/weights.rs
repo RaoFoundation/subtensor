@@ -14,6 +14,120 @@ use sp_std::{collections::btree_set::BTreeSet, collections::vec_deque::VecDeque,
 use subtensor_runtime_common::{MechId, NetUid, NetUidStorageIndex};
 
 impl<T: Config> Pallet<T> {
+    /// Grant or revoke permission to set weights for this hotkey on one mechanism.
+    pub fn do_set_mech_weight_delegate(
+        origin: OriginFor<T>,
+        netuid: NetUid,
+        mecid: MechId,
+        delegate: Option<T::AccountId>,
+    ) -> DispatchResult {
+        let hotkey = ensure_signed(origin)?;
+        Self::ensure_mechanism_exists(netuid, mecid)?;
+        ensure!(
+            Uids::<T>::contains_key(netuid, &hotkey),
+            Error::<T>::HotKeyNotRegisteredInSubNet
+        );
+        ensure!(
+            !Self::mech_weight_delegate_lifecycle_pending(netuid, &hotkey),
+            Error::<T>::NotMechWeightDelegate
+        );
+        let index = Self::get_mechanism_storage_index(netuid, mecid);
+        if delegate.is_none() {
+            MechWeightDelegate::<T>::remove((index, &hotkey));
+        } else {
+            MechWeightDelegateTargets::<T>::insert((netuid, &hotkey, mecid), ());
+            if let Some(delegate) = &delegate {
+                MechWeightDelegate::<T>::insert((index, &hotkey), delegate);
+            }
+        }
+        Self::deposit_event(Event::MechWeightDelegateSet {
+            netuid,
+            mecid,
+            hotkey,
+            delegate,
+        });
+        Ok(())
+    }
+
+    /// Authenticate the delegate, then use the validator's identity for every weight rule.
+    fn ensure_mech_weight_delegate(
+        origin: OriginFor<T>,
+        netuid: NetUid,
+        mecid: MechId,
+        hotkey: &T::AccountId,
+    ) -> Result<T::AccountId, DispatchError> {
+        let signer = ensure_signed(origin)?;
+        Self::ensure_mechanism_exists(netuid, mecid)?;
+        let index = Self::get_mechanism_storage_index(netuid, mecid);
+        ensure!(
+            !Self::mech_weight_delegate_lifecycle_pending(netuid, hotkey),
+            Error::<T>::NotMechWeightDelegate
+        );
+        ensure!(
+            MechWeightDelegate::<T>::get((index, hotkey)).as_ref() == Some(&signer),
+            Error::<T>::NotMechWeightDelegate
+        );
+        Ok(signer)
+    }
+
+    pub fn do_set_mechanism_weights_for(
+        origin: OriginFor<T>,
+        netuid: NetUid,
+        mecid: MechId,
+        hotkey: T::AccountId,
+        uids: Vec<u16>,
+        weights: Vec<u16>,
+        version_key: u64,
+    ) -> DispatchResult {
+        Self::ensure_mech_weight_delegate(origin, netuid, mecid, &hotkey)?;
+        Self::internal_set_weights(netuid, mecid, hotkey, uids, weights, version_key)
+    }
+
+    pub fn do_commit_mechanism_weights_for(
+        origin: OriginFor<T>,
+        netuid: NetUid,
+        mecid: MechId,
+        hotkey: T::AccountId,
+        commit_hash: H256,
+    ) -> DispatchResult {
+        Self::ensure_mech_weight_delegate(origin, netuid, mecid, &hotkey)?;
+        Self::internal_commit_weights(netuid, mecid, hotkey, commit_hash)
+    }
+
+    pub fn do_reveal_mechanism_weights_for(
+        origin: OriginFor<T>,
+        netuid: NetUid,
+        mecid: MechId,
+        hotkey: T::AccountId,
+        uids: Vec<u16>,
+        values: Vec<u16>,
+        salt: Vec<u16>,
+        version_key: u64,
+    ) -> DispatchResult {
+        Self::ensure_mech_weight_delegate(origin, netuid, mecid, &hotkey)?;
+        Self::internal_reveal_weights(netuid, mecid, hotkey, uids, values, salt, version_key)
+    }
+
+    pub fn do_commit_timelocked_mechanism_weights_for(
+        origin: OriginFor<T>,
+        netuid: NetUid,
+        mecid: MechId,
+        hotkey: T::AccountId,
+        commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
+        reveal_round: u64,
+        commit_reveal_version: u16,
+    ) -> DispatchResult {
+        Self::ensure_mech_weight_delegate(origin, netuid, mecid, &hotkey)?;
+        Self::internal_commit_timelocked_weights(
+            netuid,
+            mecid,
+            hotkey,
+            commit,
+            reveal_round,
+            commit_reveal_version,
+        )
+    }
+
     pub(crate) fn ensure_null_weight_permit(netuid: NetUid, who: &T::AccountId) -> DispatchResult {
         if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
             let uid = Self::get_uid_for_net_and_hotkey(netuid, who)?;
@@ -135,7 +249,7 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         commit_hash: H256,
     ) -> DispatchResult {
-        Self::internal_commit_weights(origin, netuid, MechId::MAIN, commit_hash)
+        Self::internal_commit_weights(netuid, MechId::MAIN, ensure_signed(origin)?, commit_hash)
     }
 
     pub fn do_commit_mechanism_weights(
@@ -144,13 +258,13 @@ impl<T: Config> Pallet<T> {
         mecid: MechId,
         commit_hash: H256,
     ) -> DispatchResult {
-        Self::internal_commit_weights(origin, netuid, mecid, commit_hash)
+        Self::internal_commit_weights(netuid, mecid, ensure_signed(origin)?, commit_hash)
     }
 
     fn internal_commit_weights(
-        origin: OriginFor<T>,
         netuid: NetUid,
         mecid: MechId,
+        who: T::AccountId,
         commit_hash: H256,
     ) -> DispatchResult {
         // Ensure netuid and mecid exist
@@ -159,8 +273,7 @@ impl<T: Config> Pallet<T> {
         // Calculate subnet storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
 
-        // 1. Verify the caller's signature (hotkey).
-        let who = ensure_signed(origin)?;
+        // Authentication has already established that `who` is the acting validator.
         Self::ensure_null_weight_permit(netuid, &who)?;
 
         log::debug!("do_commit_weights(hotkey: {who:?}, netuid: {netuid:?})");
@@ -349,9 +462,9 @@ impl<T: Config> Pallet<T> {
         commit_reveal_version: u16,
     ) -> DispatchResult {
         Self::internal_commit_timelocked_weights(
-            origin,
             netuid,
             MechId::MAIN,
+            ensure_signed(origin)?,
             commit,
             reveal_round,
             commit_reveal_version,
@@ -367,9 +480,9 @@ impl<T: Config> Pallet<T> {
         commit_reveal_version: u16,
     ) -> DispatchResult {
         Self::internal_commit_timelocked_weights(
-            origin,
             netuid,
             mecid,
+            ensure_signed(origin)?,
             commit,
             reveal_round,
             commit_reveal_version,
@@ -377,9 +490,9 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn internal_commit_timelocked_weights(
-        origin: OriginFor<T>,
         netuid: NetUid,
         mecid: MechId,
+        who: T::AccountId,
         commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
         reveal_round: u64,
         commit_reveal_version: u16,
@@ -390,8 +503,7 @@ impl<T: Config> Pallet<T> {
         // Calculate netuid storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
 
-        // 1. Verify the caller's signature (hotkey).
-        let who = ensure_signed(origin)?;
+        // Authentication has already established that `who` is the acting validator.
         Self::ensure_null_weight_permit(netuid, &who)?;
 
         log::debug!("do_commit_v3_weights(hotkey: {who:?}, netuid: {netuid:?})");
@@ -657,9 +769,9 @@ impl<T: Config> Pallet<T> {
         version_key: u64,
     ) -> DispatchResult {
         Self::internal_reveal_weights(
-            origin,
             netuid,
             MechId::MAIN,
+            ensure_signed(origin)?,
             uids,
             values,
             salt,
@@ -676,13 +788,21 @@ impl<T: Config> Pallet<T> {
         salt: Vec<u16>,
         version_key: u64,
     ) -> DispatchResult {
-        Self::internal_reveal_weights(origin, netuid, mecid, uids, values, salt, version_key)
+        Self::internal_reveal_weights(
+            netuid,
+            mecid,
+            ensure_signed(origin)?,
+            uids,
+            values,
+            salt,
+            version_key,
+        )
     }
 
     fn internal_reveal_weights(
-        origin: OriginFor<T>,
         netuid: NetUid,
         mecid: MechId,
+        who: T::AccountId,
         uids: Vec<u16>,
         values: Vec<u16>,
         salt: Vec<u16>,
@@ -692,8 +812,7 @@ impl<T: Config> Pallet<T> {
         // Calculate netuid storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
 
-        // --- 1. Check the caller's signature (hotkey).
-        let who = ensure_signed(origin.clone())?;
+        // Authentication has already established that `who` is the acting validator.
         Self::ensure_null_weight_permit(netuid, &who)?;
 
         log::debug!("do_reveal_weights( hotkey:{who:?} netuid:{netuid:?})");
@@ -766,10 +885,10 @@ impl<T: Config> Pallet<T> {
                     }
 
                     // --- 12. Proceed to set the revealed weights.
-                    Self::do_set_mechanism_weights(
-                        origin,
+                    Self::internal_set_weights(
                         netuid,
                         mecid,
+                        who.clone(),
                         uids.clone(),
                         values.clone(),
                         version_key,
@@ -969,9 +1088,9 @@ impl<T: Config> Pallet<T> {
     }
 
     fn internal_set_weights(
-        origin: OriginFor<T>,
         netuid: NetUid,
         mecid: MechId,
+        hotkey: T::AccountId,
         uids: Vec<u16>,
         values: Vec<u16>,
         version_key: u64,
@@ -979,8 +1098,7 @@ impl<T: Config> Pallet<T> {
         // Calculate subnet storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
 
-        // --- 1. Check the caller's signature. This is the hotkey of a registered account.
-        let hotkey = ensure_signed(origin)?;
+        // Authentication has already established that `hotkey` is the acting validator.
         Self::ensure_null_weight_permit(netuid, &hotkey)?;
         log::debug!(
             "do_set_weights( origin:{hotkey:?} netuid:{netuid:?}, uids:{uids:?}, values:{values:?})"
@@ -1141,7 +1259,14 @@ impl<T: Config> Pallet<T> {
         values: Vec<u16>,
         version_key: u64,
     ) -> dispatch::DispatchResult {
-        Self::internal_set_weights(origin, netuid, MechId::MAIN, uids, values, version_key)
+        Self::internal_set_weights(
+            netuid,
+            MechId::MAIN,
+            ensure_signed(origin)?,
+            uids,
+            values,
+            version_key,
+        )
     }
 
     /// The implementation for the extrinsic set_weights.
@@ -1193,7 +1318,14 @@ impl<T: Config> Pallet<T> {
         values: Vec<u16>,
         version_key: u64,
     ) -> dispatch::DispatchResult {
-        Self::internal_set_weights(origin, netuid, mecid, uids, values, version_key)
+        Self::internal_set_weights(
+            netuid,
+            mecid,
+            ensure_signed(origin)?,
+            uids,
+            values,
+            version_key,
+        )
     }
 
     /// The implementation for the extrinsic batch_set_weights.

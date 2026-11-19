@@ -119,6 +119,7 @@ impl<T: Config> Pallet<T> {
         }
 
         T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
+        Self::purge_mech_weight_delegates(netuid, &old_hotkey);
 
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
@@ -391,6 +392,7 @@ impl<T: Config> Pallet<T> {
                     // Remove hotkey related storage items if hotkey exists
                     if let Ok(hotkey) = Keys::<T>::try_get(netuid, neuron_uid) {
                         T::CommitmentsInterface::purge_neuron(netuid, &hotkey);
+                        Self::purge_mech_weight_delegates(netuid, &hotkey);
 
                         // Same root-churn finalization as `replace_neuron`: deposit while
                         // still on root, then recycle leftover dust after membership drops.

@@ -501,6 +501,7 @@ impl pallet_commitments::Config for Test {
     type InitialDeposit = ConstTao<0>;
     type FieldDeposit = ConstTao<0>;
     type TempoInterface = MockTempoInterface;
+    type CommitBurn = SubtensorModule;
 }
 
 pub struct OriginPrivilegeCmp;
@@ -517,11 +518,17 @@ impl CommitmentsInterface<AccountId> for CommitmentsI {
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
-        CommitmentsPallet::<Test>::purge_netuid(netuid, weight_meter)
+        CommitmentsPallet::<Test>::purge_channel_netuid(netuid, weight_meter)
+            && CommitmentsPallet::<Test>::purge_netuid(netuid, weight_meter)
     }
 
     fn purge_neuron(netuid: NetUid, account: &AccountId) {
         CommitmentsPallet::<Test>::purge_neuron(netuid, account);
+        CommitmentsPallet::<Test>::purge_channel_neuron(netuid, account);
+    }
+
+    fn swap_neuron(netuid: NetUid, old_hotkey: &AccountId, new_hotkey: &AccountId) {
+        CommitmentsPallet::<Test>::swap_neuron(netuid, old_hotkey, new_hotkey);
     }
 }
 

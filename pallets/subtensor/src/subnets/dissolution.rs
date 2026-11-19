@@ -262,6 +262,23 @@ impl<T: Config> Pallet<T> {
             return false;
         }
 
+        let queue_cleanup = clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegateTargets::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegateMoveQueue::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegateMoveOrigins::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegateMechanismMoves::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegatePurgeQueue::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegateRetirementQueue::<T>::clear_prefix(netuid, limit, None)
+        });
+        if !queue_cleanup {
+            return false;
+        }
+
         let read_weight = T::DbWeight::get().reads(1);
         if !weight_meter.can_consume(read_weight) {
             return false;
@@ -293,6 +310,8 @@ impl<T: Config> Pallet<T> {
                 Bonds::<T>::clear_prefix(netuid_index, limit, None)
             }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
                 Weights::<T>::clear_prefix(netuid_index, limit, None)
+            }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+                MechWeightDelegate::<T>::clear_prefix((netuid_index,), limit, None)
             });
 
             if !result {

@@ -68,6 +68,10 @@ class Snapshot:
         """Read a pallet constant (constants only change with runtime upgrades)."""
         return await self._client.constant(item)
 
+    async def decode_commitment_registration(self, data: Any) -> Any:
+        """Decode a channel commitment against this snapshot's runtime metadata."""
+        return await self._client.decode_commitment_registration(data, block=self.block)
+
     # Registry reads, pinned -----------------------------------------------------
 
     async def read(self, name: str, **params: Any) -> Any:

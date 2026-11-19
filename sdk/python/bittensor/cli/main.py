@@ -37,6 +37,7 @@ from .commands import (
     addresses,
     axon,
     collateral,
+    commitments,
     config,
     crowd,
     evm,
@@ -108,6 +109,7 @@ app.add_typer(sudo.app, name="hparams")
 
 app.add_typer(addresses.app, name="addr", rich_help_panel=PANEL_ACCOUNTS)
 app.add_typer(evm.app, name="evm", rich_help_panel=PANEL_ACCOUNTS)
+app.add_typer(commitments.app, name="commitments", rich_help_panel=PANEL_ACCOUNTS)
 app.add_typer(proxy.app, name="proxy", rich_help_panel=PANEL_ACCOUNTS)
 app.add_typer(multisig.app, name="multisig", rich_help_panel=PANEL_ACCOUNTS)
 
@@ -126,6 +128,7 @@ for _sub_app, _aliases in (
     (config.app, ("c", "conf")),
     (weights.app, ("wt", "weight", "weights")),
     (crowd.app, ("cr", "crowdloan", "crowd")),
+    (commitments.app, ("commitment",)),
     (addresses.app, ("addresses",)),
     (extension.app, ("extension",)),
     (timelock.app, ("timelock",)),

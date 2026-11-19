@@ -35,6 +35,10 @@ impl<T: Config> CheckWeights<T> {
                 | Call::commit_timelocked_weights { .. }
                 | Call::commit_timelocked_mechanism_weights { .. }
                 | Call::commit_crv3_mechanism_weights { .. }
+                | Call::set_mechanism_weights_for { .. }
+                | Call::commit_mechanism_weights_for { .. }
+                | Call::reveal_mechanism_weights_for { .. }
+                | Call::commit_timelocked_mechanism_weights_for { .. }
         )
     }
 
@@ -122,6 +126,12 @@ impl<T: Config> CheckWeights<T> {
             | Call::commit_timelocked_mechanism_weights { netuid, .. }
             | Call::commit_crv3_mechanism_weights { netuid, .. } => {
                 Self::ensure_min_stake(who, *netuid)
+            }
+            Call::set_mechanism_weights_for { netuid, hotkey, .. }
+            | Call::commit_mechanism_weights_for { netuid, hotkey, .. }
+            | Call::reveal_mechanism_weights_for { netuid, hotkey, .. }
+            | Call::commit_timelocked_mechanism_weights_for { netuid, hotkey, .. } => {
+                Self::ensure_min_stake(hotkey, *netuid)
             }
             Call::batch_commit_weights { netuids, .. }
             | Call::batch_set_weights { netuids, .. } => {
@@ -219,6 +229,23 @@ impl<T: Config> CheckWeights<T> {
                 salt,
                 *version_key,
             ),
+            Call::reveal_mechanism_weights_for {
+                netuid,
+                mecid,
+                hotkey,
+                uids,
+                values,
+                salt,
+                version_key,
+            } => Self::check_reveal(
+                hotkey,
+                *netuid,
+                Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
+                uids,
+                values,
+                salt,
+                *version_key,
+            ),
             Call::reveal_mechanism_weights {
                 netuid,
                 mecid,
@@ -251,6 +278,7 @@ impl<T: Config> CheckWeights<T> {
             ),
             Call::commit_timelocked_weights { reveal_round, .. }
             | Call::commit_timelocked_mechanism_weights { reveal_round, .. }
+            | Call::commit_timelocked_mechanism_weights_for { reveal_round, .. }
             | Call::commit_crv3_mechanism_weights { reveal_round, .. }
                 if *reveal_round < pallet_drand::LastStoredRound::<T>::get() =>
             {
@@ -258,7 +286,9 @@ impl<T: Config> CheckWeights<T> {
             }
             // Plain weight setting always fails at dispatch on a commit-reveal subnet and
             // the call is `Pays::No`; refuse it before it takes block space.
-            Call::set_weights { netuid, .. } | Call::set_mechanism_weights { netuid, .. }
+            Call::set_weights { netuid, .. }
+            | Call::set_mechanism_weights { netuid, .. }
+            | Call::set_mechanism_weights_for { netuid, .. }
                 if Pallet::<T>::get_commit_reveal_weights_enabled(*netuid) =>
             {
                 Err(Error::<T>::CommitRevealEnabled)

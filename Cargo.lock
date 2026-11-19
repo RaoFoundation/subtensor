@@ -9341,6 +9341,7 @@ dependencies = [
  "log",
  "pallet-alpha-assets",
  "pallet-balances",
+ "pallet-commitments",
  "pallet-crowdloan",
  "pallet-drand",
  "pallet-evm-chain-id",
@@ -9921,6 +9922,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+ "substrate-fixed",
  "subtensor-macros",
  "subtensor-runtime-common",
  "tle",
@@ -19097,6 +19099,7 @@ dependencies = [
 name = "subtensor-custom-rpc-runtime-api"
 version = "0.0.2"
 dependencies = [
+ "pallet-commitments",
  "pallet-subtensor",
  "parity-scale-codec",
  "sp-api",

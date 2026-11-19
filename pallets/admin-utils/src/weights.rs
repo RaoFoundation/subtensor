@@ -167,6 +167,8 @@ pub trait WeightInfo {
 		Self::sudo_set_basket_min_trade_tao()
 	}
 	fn sudo_set_subnet_emission_weights() -> Weight;
+	/// Conservative additive envelope for channel burn setters, pending reference benchmarks.
+	fn sudo_set_commit_burn() -> Weight { Self::sudo_set_burn_half_life() }
 }
 
 /// Weights for `pallet_admin_utils` using the Substrate node and recommended hardware.

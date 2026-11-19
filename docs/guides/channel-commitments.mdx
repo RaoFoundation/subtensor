@@ -1,0 +1,198 @@
+---
+title: Channel commitments and weight delegates
+description: Publish independent hotkey commitments with an optional floating burn and delegate weight submission for one subnet mechanism.
+---
+
+Channel commitments and mechanism weight delegates separate operational keys
+from the accounts that own a validator or its commitments. Channels let a
+coldkey publish distinct payloads for its hotkeys. Weight delegates let a
+registered validator hotkey authorize another hotkey to submit weights without
+sharing the validator's private key.
+
+## Publish a channel commitment
+
+A channel is identified by **netuid, mechanism, and channel number**. Each
+hotkey has an independent commitment at that target; publishing there does not
+replace the legacy `Commitments.set_commitment` record or another channel's
+payload. The signing coldkey must own the registered hotkey and pays the normal
+transaction fee. The channel's commitment deposit, if configured, is reserved
+from the coldkey rather than the hotkey; reducing the deposit releases the
+unused reserve. Deregistration follows the existing deposit release convention,
+but burned TAO is never refunded.
+
+After a coldkey swap, the new owner funds the full deposit on its next rewrite
+before the previous owner's reserve is released. Hotkey swaps and deregistration
+move or release channel state through bounded idle-work queues; new writes wait
+while a hotkey's migration is pending. Burn configuration and receipt sequences
+are scoped to the channel, not the hotkey, and are not migrated.
+
+The SDK constructs the same `CommitmentInfo` shape used by `set_commitment`,
+including length-tagged plaintext fields and drand timelocked fields. Pass
+`max_burn_tao` as an exact decimal TAO amount: the call fails if the current
+burn exceeds that limit. It is a **price limit, not an extra payment**. The
+runtime charges only the current burn; fees are additional. If burn is
+disabled, publishing is free apart from fees.
+
+```python
+import bittensor as bt
+
+# Plaintext, with at most 0.25 TAO of burn accepted.
+intent = bt.SetChannelCommitment(
+    netuid=1,
+    mechid=1,
+    channel=7,
+    data="model endpoint and metadata",
+    max_burn_tao="0.25",
+)
+result = await client.execute(intent, wallet)
+
+# Timelocked plaintext; the chain reveals it at the supplied future drand round.
+sealed = bt.SetChannelCommitment(
+    netuid=1,
+    mechid=1,
+    channel=7,
+    data="embargoed announcement",
+    reveal_round=12_345_678,
+    max_burn_tao="0.25",
+)
+```
+
+Use `encoding="hex"` when `data` is a hexadecimal byte string. An empty
+plaintext payload writes an empty commitment, replacing this channel's previous
+contents; it does not delete the channel's storage entry. Raw plaintext is
+limited to 512 bytes; a timelocked payload cannot be empty. The execution result
+includes the actual timelock reveal round.
+
+The dedicated CLI command uses UTF-8 text by default, `--hex` for hexadecimal,
+and `--reveal-round` for timelock encryption:
+
+```bash
+btcli commitments commit \
+  --netuid 1 --mechid 1 --channel 7 \
+  --data "model endpoint and metadata" --max-burn 0.25 \
+  -w my_coldkey -H my_hotkey
+```
+
+Read the payload with `btcli commitments show` or the registered SDK read:
+
+```python
+commitment = await client.identity.channel_commitment(
+    netuid=1, mechid=1, channel=7, hotkey_ss58=hotkey,
+)
+```
+
+The v2 runtime API returns the SCALE-encoded commitment registration. The SDK
+decodes it against the connected runtime's metadata, including the channel's
+plaintext field variants. It does not return an opaque blob.
+
+## Burn price and owner configuration
+
+Each channel has its own optional floating burn. Successful paid commits raise
+the price; it decays toward its configured minimum according to the half-life.
+Prices are **lazily decayed**. The `burn` stored in `Commitments.CommitBurnConfig`
+can be old, so use the runtime API or the registered `commit_burn` read for the
+current price rather than treating raw storage as a live quote.
+
+```python
+price = await client.identity.commit_burn(netuid=1, mechid=1, channel=7)
+print(price["burn"], price["price_is_decayed"])
+```
+
+`price_is_decayed=True` means `burn` came from the live runtime quote. The API
+returns no price when burn is disabled or unconfigured, so the read also shows
+the stored configuration with `price_is_decayed=False` and `burn=None`; its
+possibly stale amount is labeled `stored_burn`. That distinction makes
+stored-versus-live pricing explicit.
+
+```bash
+btcli commitments price --netuid 1 --mechid 1 --channel 7
+```
+
+The subnet owner coldkey (or root) configures five parameters independently
+for each mechanism and channel. Updates respect the subnet-owner rate-limit
+and admin-window rules.
+
+| Parameter | Meaning | SDK/CLI value |
+| --- | --- | --- |
+| `enabled` | Whether paid burn applies | `true` or `false` |
+| `min_burn` | Lower price bound | TAO decimal; converted exactly to rao |
+| `max_burn` | Upper price bound | TAO decimal; converted exactly to rao |
+| `half_life` | Price decay interval | Positive integer blocks |
+| `increase_mult` | Price increase after a paid commit | Decimal 1..3, or raw U64F64 bits as an integer |
+
+```bash
+btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
+  --name enabled --value true -w subnet_owner
+btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
+  --name min_burn --value 0.1 -w subnet_owner
+btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
+  --name max_burn --value 10 -w subnet_owner
+btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
+  --name half_life --value 360 -w subnet_owner
+btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
+  --name increase_mult --value 1.26 -w subnet_owner
+```
+
+Disabling burn makes subsequent channel commitments free apart from fees; it
+does not refund earlier payments. The `min_burn` and `max_burn` bounds must
+remain ordered, and the runtime enforces its own multiplier and half-life
+limits.
+
+## Delegate weights for one mechanism
+
+A registered validator hotkey can authorize one account as its **mechanism
+weight delegate**. Authorization is scoped to exactly one netuid/mechanism
+pair. It does not transfer stake, ownership, validator status, or control of
+other mechanisms. The validator hotkey signs the grant and revocation:
+
+```bash
+btcli weights delegate set --netuid 1 --mechid 1 --delegate OPERATOR_HOTKEY \
+  -w validator_coldkey -H validator_hotkey
+btcli weights delegate show --netuid 1 --mechid 1 --hotkey VALIDATOR_HOTKEY
+btcli weights delegate revoke --netuid 1 --mechid 1 \
+  -w validator_coldkey -H validator_hotkey
+```
+
+The equivalent SDK mutation is `SetMechWeightDelegate`; set `delegate=None` to
+revoke. Inspect the current grant with the `mech_weight_delegate` read.
+
+To submit as the delegate, sign with the authorized hotkey and identify the
+validator with `--for-hotkey`. This works for automatic plaintext/timelocked
+submission, forced timelock commits, and legacy reveals. The explicit legacy
+hash commit is available as `weights hash`:
+
+```bash
+btcli weights set --netuid 1 --mechid 1 --for-hotkey VALIDATOR_HOTKEY \
+  --uids 0,1,2 --weights 0.5,0.3,0.2 -w operator_coldkey -H operator_hotkey
+
+btcli weights commit --netuid 1 --mechid 1 --for-hotkey VALIDATOR_HOTKEY \
+  --uids 0,1,2 --weights 0.5,0.3,0.2 -w operator_coldkey -H operator_hotkey
+
+btcli weights reveal --netuid 1 --mechid 1 --for-hotkey VALIDATOR_HOTKEY \
+  --uids 0,1,2 --weights 0.5,0.3,0.2 --salt 1,2,3 \
+  -w operator_coldkey -H operator_hotkey
+```
+
+Or use the same intents from Python:
+
+```python
+intent = bt.SetWeights(
+    netuid=1,
+    mechid=1,
+    weights={0: 0.5, 1: 0.3, 2: 0.2},
+    for_hotkey=validator_hotkey,
+)
+result = await client.execute(intent, operator_wallet)
+```
+
+The validator's identity is used for registration, rate-limit, and timelock
+encryption checks—not the delegate's. Registration, stake, permit, version,
+rate-limit, and weight-conformance rules still apply to the validator. The
+chain verifies that the signer is currently authorized for that mechanism.
+
+These delegated calls charge a **normal transaction fee to the signing
+delegate**, unlike hotkey weight calls whose fee is routed to the validator's
+owning coldkey. The SDK deliberately does not classify the new `*_for` calls
+as owner-paid. For low-level legacy flows, `CommitWeightHash` wraps
+`commit_mechanism_weights_for`; the other intents select the appropriate
+`*_for` call automatically.

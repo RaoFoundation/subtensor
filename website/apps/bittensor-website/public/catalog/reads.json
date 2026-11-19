@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2880,
-        "end_line": 2890,
-        "url": "/code/runtime/src/lib.rs#L2880-L2890",
+        "line": 2897,
+        "end_line": 2907,
+        "url": "/code/runtime/src/lib.rs#L2897-L2907",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -395,6 +395,27 @@
     ]
   },
   {
+    "name": "channel_commitment",
+    "summary": "One hotkey's independent channel commitment, or None when absent.",
+    "description": "One hotkey's independent channel commitment, or None when absent.\n\nReads the v2 runtime API and decodes the returned SCALE registration. On a\nnode without v2, reads the equivalent channel storage instead; both paths\ndistinguish this target from the legacy `commitment` read.",
+    "params": {
+      "netuid": "integer",
+      "mechid": "integer",
+      "channel": "integer",
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "netuid": "Subnet containing the mechanism and hotkey.",
+      "mechid": "Mechanism whose independent channel to read.",
+      "channel": "Independent channel index (0..255).",
+      "hotkey_ss58": "Hotkey whose channel commitment to read."
+    },
+    "category": "Identity & commitments",
+    "docs_url": "/docs/query/channel-commitment",
+    "markdown_url": "/llms.mdx/docs/query/channel-commitment/content.md",
+    "python": "sub.identity.channel_commitment(...)"
+  },
+  {
     "name": "childkey_threshold_suspended",
     "summary": "Whether a parent hotkey's child relations are currently inert.",
     "description": "Whether a parent hotkey's child relations are currently inert.\n\nThe chain re-checks a parent's total stake against the childkey stake\nthreshold (`StakeThreshold`) whenever that stake changes. A parent that\nhas dropped below it is flagged here: its `children` and `parents` rows\nstay stored, but stake inheritance and dividend routing ignore them on\nevery subnet the parent does not own. The flag clears on its own once the\nparent's stake meets the threshold again.",
@@ -496,8 +517,8 @@
         "container": "SubtensorModule",
         "name": "ColdkeySwapV2PolicySnapshots",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4114,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4114",
+        "line": 4127,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4127",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -534,6 +555,25 @@
     "docs_url": "/docs/query/collateral-policy",
     "markdown_url": "/llms.mdx/docs/query/collateral-policy/content.md",
     "python": "sub.collateral.collateral_policy(...)"
+  },
+  {
+    "name": "commit_burn",
+    "summary": "Live decayed channel burn price and its stored configuration.",
+    "description": "Live decayed channel burn price and its stored configuration.\n\n`burn` is the price a commitment would pay now, or None when the burn is\ndisabled/unconfigured. The runtime API returns no record when disabled, so\nthis read also inspects `CommitBurnConfig` to show `enabled` and the other\nparameters. Direct storage readers should not treat stored `burn` as live:\ndecay is lazy; this read's `price_is_decayed` marks the runtime quote.",
+    "params": {
+      "netuid": "integer",
+      "mechid": "integer",
+      "channel": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose commitment channel to inspect.",
+      "mechid": "Mechanism whose channel to inspect.",
+      "channel": "Independent commitment channel index (0..255)."
+    },
+    "category": "Identity & commitments",
+    "docs_url": "/docs/query/commit-burn",
+    "markdown_url": "/llms.mdx/docs/query/commit-burn/content.md",
+    "python": "sub.identity.commit_burn(...)"
   },
   {
     "name": "commit_reveal_enabled",
@@ -583,8 +623,8 @@
         "container": "Commitments",
         "name": "CommitmentOf",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 157,
-        "url": "/code/pallets/commitments/src/lib.rs#L157",
+        "line": 360,
+        "url": "/code/pallets/commitments/src/lib.rs#L360",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -997,9 +1037,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2720,
-        "end_line": 2722,
-        "url": "/code/runtime/src/lib.rs#L2720-L2722",
+        "line": 2726,
+        "end_line": 2728,
+        "url": "/code/runtime/src/lib.rs#L2726-L2728",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1284,6 +1324,25 @@
     ]
   },
   {
+    "name": "mech_weight_delegate",
+    "summary": "The account authorized to set weights for this hotkey/mechanism, or None.",
+    "description": "The account authorized to set weights for this hotkey/mechanism, or None.",
+    "params": {
+      "netuid": "integer",
+      "mechid": "integer",
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "netuid": "Subnet containing the validator hotkey.",
+      "mechid": "Mechanism whose delegate to inspect.",
+      "hotkey_ss58": "Validator hotkey whose delegate to inspect."
+    },
+    "category": "Weights & bonds",
+    "docs_url": "/docs/query/mech-weight-delegate",
+    "markdown_url": "/llms.mdx/docs/query/mech-weight-delegate/content.md",
+    "python": "sub.weights.mech_weight_delegate(...)"
+  },
+  {
     "name": "mechanism_count",
     "summary": "Current mechanism count configured for a subnet.",
     "description": "Current mechanism count configured for a subnet.",
@@ -1459,9 +1518,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2724,
-        "end_line": 2726,
-        "url": "/code/runtime/src/lib.rs#L2724-L2726",
+        "line": 2730,
+        "end_line": 2732,
+        "url": "/code/runtime/src/lib.rs#L2730-L2732",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1796,9 +1855,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2892,
-        "end_line": 2920,
-        "url": "/code/runtime/src/lib.rs#L2892-L2920",
+        "line": 2909,
+        "end_line": 2937,
+        "url": "/code/runtime/src/lib.rs#L2909-L2937",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1825,9 +1884,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2922,
-        "end_line": 2950,
-        "url": "/code/runtime/src/lib.rs#L2922-L2950",
+        "line": 2939,
+        "end_line": 2967,
+        "url": "/code/runtime/src/lib.rs#L2939-L2967",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1880,8 +1939,8 @@
         "container": "Commitments",
         "name": "RevealedCommitments",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 193,
-        "url": "/code/pallets/commitments/src/lib.rs#L193",
+        "line": 396,
+        "url": "/code/pallets/commitments/src/lib.rs#L396",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -1906,9 +1965,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2737,
-        "end_line": 2739,
-        "url": "/code/runtime/src/lib.rs#L2737-L2739",
+        "line": 2754,
+        "end_line": 2756,
+        "url": "/code/runtime/src/lib.rs#L2754-L2756",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1971,9 +2030,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2749,
-        "end_line": 2751,
-        "url": "/code/runtime/src/lib.rs#L2749-L2751",
+        "line": 2766,
+        "end_line": 2768,
+        "url": "/code/runtime/src/lib.rs#L2766-L2768",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2561,8 +2620,8 @@
         "container": "SubtensorModule",
         "name": "SubnetGammaEmissionWhitelisted",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4064,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4064",
+        "line": 4077,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4077",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2658,9 +2717,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2730,
-        "end_line": 2732,
-        "url": "/code/runtime/src/lib.rs#L2730-L2732",
+        "line": 2737,
+        "end_line": 2739,
+        "url": "/code/runtime/src/lib.rs#L2737-L2739",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2694,8 +2753,8 @@
         "container": "SubtensorModule",
         "name": "InitialStartCallDelay",
         "path": "runtime/src/lib.rs",
-        "line": 1064,
-        "url": "/code/runtime/src/lib.rs#L1064",
+        "line": 1070,
+        "url": "/code/runtime/src/lib.rs#L1070",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2862,8 +2921,8 @@
         "container": "SubtensorModule",
         "name": "TaoUsdPriceOracle",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4069,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4069",
+        "line": 4082,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4082",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2871,8 +2930,8 @@
         "container": "SubtensorModule",
         "name": "TaoUsdPrice",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4073,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4073",
+        "line": 4086,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4086",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -3061,9 +3120,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2743,
-        "end_line": 2745,
-        "url": "/code/runtime/src/lib.rs#L2743-L2745",
+        "line": 2760,
+        "end_line": 2762,
+        "url": "/code/runtime/src/lib.rs#L2760-L2762",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

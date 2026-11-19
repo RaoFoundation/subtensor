@@ -90,6 +90,15 @@ sp_api::decl_runtime_apis! {
 
     pub trait SubnetRegistrationRuntimeApi {
         fn get_network_registration_cost() -> TaoBalance;
+        /// Current lazily decayed channel commitment price and its parameters.
+        #[api_version(2)]
+        fn get_commit_burn(netuid: NetUid, mecid: MechId, channel: u8) -> Option<pallet_commitments::CommitBurnParameters>;
+        /// Current channel commitment; `None` means absent or disabled target.
+        #[api_version(2)]
+        fn get_channel_commitment(netuid: NetUid, mecid: MechId, channel: u8, hotkey: AccountId32) -> Option<Vec<u8>>;
+        /// Optional weight delegate query for one validator and mechanism.
+        #[api_version(2)]
+        fn get_mech_weight_delegate(netuid: NetUid, mecid: MechId, hotkey: AccountId32) -> Option<AccountId32>;
     }
 
     pub trait ProxyFilterRuntimeApi {

@@ -501,5 +501,7 @@ mod errors {
         TooManyGammaShares,
         /// `set_subnet_emission_weights_v2`: a subnet under a lease may not have gamma shares.
         GammaEmissionNotSettableOnLeasedSubnet,
+        /// The signer is not the validator's delegate for this exact mechanism.
+        NotMechWeightDelegate,
     }
 }

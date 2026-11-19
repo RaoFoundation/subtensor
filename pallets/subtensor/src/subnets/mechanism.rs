@@ -35,6 +35,178 @@ pub const MAX_MECHANISM_COUNT_PER_SUBNET: u8 = 16;
 pub const NULL_UID_BUDGET: u16 = 2_500;
 
 impl<T: Config> Pallet<T> {
+    /// Queue a grant move with fixed-size storage writes. The old grant is
+    /// removed immediately; a later overlapping move supersedes the old edge.
+    pub fn queue_mech_weight_delegate_move(
+        netuid: NetUid,
+        mecid: MechId,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        delegate: Option<T::AccountId>,
+    ) {
+        let index = Self::get_mechanism_storage_index(netuid, mecid);
+        if let Some((previous, _)) =
+            MechWeightDelegateMoveQueue::<T>::take((netuid, old_hotkey, mecid))
+        {
+            MechWeightDelegateMoveOrigins::<T>::remove((netuid, &previous, old_hotkey, mecid));
+            MechWeightDelegateMechanismMoves::<T>::remove((netuid, mecid, old_hotkey));
+        }
+        if delegate.is_some() || MechWeightDelegate::<T>::contains_key((index, old_hotkey)) {
+            MechWeightDelegate::<T>::remove((index, old_hotkey));
+            MechWeightDelegateMoveQueue::<T>::insert(
+                (netuid, old_hotkey, mecid),
+                (new_hotkey.clone(), delegate),
+            );
+            MechWeightDelegateMoveOrigins::<T>::insert((netuid, new_hotkey, old_hotkey, mecid), ());
+            MechWeightDelegateMechanismMoves::<T>::insert((netuid, mecid, old_hotkey), ());
+        }
+    }
+
+    pub fn purge_mech_weight_delegates(netuid: NetUid, hotkey: &T::AccountId) {
+        MechWeightDelegatePurgeQueue::<T>::insert(netuid, hotkey, ());
+    }
+
+    pub fn purge_mechanism_weight_delegates(netuid: NetUid, mecid: MechId) {
+        MechWeightDelegateRetirementQueue::<T>::insert(netuid, mecid, ());
+    }
+
+    pub fn mech_weight_delegate_lifecycle_pending(netuid: NetUid, hotkey: &T::AccountId) -> bool {
+        MechWeightDelegatePurgeQueue::<T>::contains_key(netuid, hotkey)
+            || MechWeightDelegateMoveQueue::<T>::iter_key_prefix((netuid, hotkey))
+                .next()
+                .is_some()
+            || MechWeightDelegateMoveOrigins::<T>::iter_key_prefix((netuid, hotkey))
+                .next()
+                .is_some()
+    }
+
+    /// One bounded grant move, edge cancellation, or deletion per step.
+    pub fn drain_mech_weight_delegate_lifecycle(weight_meter: &mut WeightMeter) {
+        let item_weight = T::DbWeight::get().reads_writes(4, 5);
+        for _ in 0..256u32 {
+            if !weight_meter.can_consume(item_weight) {
+                return;
+            }
+            if let Some((netuid, mecid)) =
+                MechWeightDelegateRetirementQueue::<T>::iter_keys().next()
+            {
+                let index = Self::get_mechanism_storage_index(netuid, mecid);
+                if let Some(old_hotkey) =
+                    MechWeightDelegateMechanismMoves::<T>::iter_key_prefix((netuid, mecid)).next()
+                {
+                    if let Some((new_hotkey, _)) =
+                        MechWeightDelegateMoveQueue::<T>::take((netuid, &old_hotkey, mecid))
+                    {
+                        MechWeightDelegateMoveOrigins::<T>::remove((
+                            netuid,
+                            &new_hotkey,
+                            &old_hotkey,
+                            mecid,
+                        ));
+                        MechWeightDelegate::<T>::remove((index, &new_hotkey));
+                        MechWeightDelegateTargets::<T>::remove((netuid, &new_hotkey, mecid));
+                        if let Some((next_hotkey, _)) =
+                            MechWeightDelegateMoveQueue::<T>::get((netuid, &new_hotkey, mecid))
+                        {
+                            MechWeightDelegateMoveOrigins::<T>::insert(
+                                (netuid, &next_hotkey, &new_hotkey, mecid),
+                                (),
+                            );
+                        }
+                        MechWeightDelegatePurgeQueue::<T>::insert(netuid, &new_hotkey, ());
+                    }
+                    MechWeightDelegateTargets::<T>::remove((netuid, &old_hotkey, mecid));
+                    MechWeightDelegateMechanismMoves::<T>::remove((netuid, mecid, &old_hotkey));
+                    MechWeightDelegate::<T>::remove((index, &old_hotkey));
+                    weight_meter.consume(item_weight);
+                    continue;
+                }
+                if let Some(hotkey) = MechWeightDelegate::<T>::iter_key_prefix((index,)).next() {
+                    MechWeightDelegate::<T>::remove((index, &hotkey));
+                    MechWeightDelegateTargets::<T>::remove((netuid, &hotkey, mecid));
+                    weight_meter.consume(item_weight);
+                    continue;
+                }
+                MechWeightDelegateRetirementQueue::<T>::remove(netuid, mecid);
+                weight_meter.consume(item_weight);
+                continue;
+            }
+            if let Some((netuid, hotkey)) = MechWeightDelegatePurgeQueue::<T>::iter_keys().next() {
+                if let Some((old_hotkey, mecid)) =
+                    MechWeightDelegateMoveOrigins::<T>::iter_key_prefix((netuid, &hotkey)).next()
+                {
+                    MechWeightDelegateMoveQueue::<T>::remove((netuid, &old_hotkey, mecid));
+                    MechWeightDelegateMechanismMoves::<T>::remove((netuid, mecid, &old_hotkey));
+                    MechWeightDelegateMoveOrigins::<T>::remove((
+                        netuid,
+                        &hotkey,
+                        &old_hotkey,
+                        mecid,
+                    ));
+                    MechWeightDelegateTargets::<T>::remove((netuid, &old_hotkey, mecid));
+                    MechWeightDelegatePurgeQueue::<T>::insert(netuid, old_hotkey, ());
+                    weight_meter.consume(item_weight);
+                    continue;
+                }
+                if let Some(mecid) =
+                    MechWeightDelegateMoveQueue::<T>::iter_key_prefix((netuid, &hotkey)).next()
+                {
+                    let old_hotkey = hotkey.clone();
+                    MechWeightDelegateTargets::<T>::remove((netuid, &hotkey, mecid));
+                    if let Some((new_hotkey, _)) =
+                        MechWeightDelegateMoveQueue::<T>::take((netuid, &hotkey, mecid))
+                    {
+                        MechWeightDelegateMoveOrigins::<T>::remove((
+                            netuid,
+                            &new_hotkey,
+                            &old_hotkey,
+                            mecid,
+                        ));
+                        MechWeightDelegateMechanismMoves::<T>::remove((netuid, mecid, &old_hotkey));
+                        if let Some((next_hotkey, _)) =
+                            MechWeightDelegateMoveQueue::<T>::get((netuid, &new_hotkey, mecid))
+                        {
+                            MechWeightDelegateMoveOrigins::<T>::insert(
+                                (netuid, &next_hotkey, &new_hotkey, mecid),
+                                (),
+                            );
+                        }
+                        MechWeightDelegatePurgeQueue::<T>::insert(netuid, &new_hotkey, ());
+                    }
+                    weight_meter.consume(item_weight);
+                    continue;
+                }
+                if let Some(mecid) =
+                    MechWeightDelegateTargets::<T>::iter_key_prefix((netuid, &hotkey)).next()
+                {
+                    let index = Self::get_mechanism_storage_index(netuid, mecid);
+                    MechWeightDelegate::<T>::remove((index, &hotkey));
+                    MechWeightDelegateTargets::<T>::remove((netuid, &hotkey, mecid));
+                    weight_meter.consume(item_weight);
+                    continue;
+                }
+                MechWeightDelegatePurgeQueue::<T>::remove(netuid, &hotkey);
+                weight_meter.consume(item_weight);
+                continue;
+            }
+            let Some(((netuid, old_hotkey, mecid), (new_hotkey, delegate))) =
+                MechWeightDelegateMoveQueue::<T>::iter().next()
+            else {
+                return;
+            };
+            let index = Self::get_mechanism_storage_index(netuid, mecid);
+            if let Some(delegate) = delegate {
+                MechWeightDelegate::<T>::insert((index, &new_hotkey), delegate);
+                MechWeightDelegateTargets::<T>::insert((netuid, &new_hotkey, mecid), ());
+            }
+            MechWeightDelegateTargets::<T>::remove((netuid, &old_hotkey, mecid));
+            MechWeightDelegateMoveOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey, mecid));
+            MechWeightDelegateMoveQueue::<T>::remove((netuid, &old_hotkey, mecid));
+            MechWeightDelegateMechanismMoves::<T>::remove((netuid, mecid, &old_hotkey));
+            weight_meter.consume(item_weight);
+        }
+    }
+
     pub fn get_mechanism_storage_index(netuid: NetUid, sub_id: MechId) -> NetUidStorageIndex {
         u16::from(sub_id)
             .saturating_mul(GLOBAL_MAX_SUBNET_COUNT)
@@ -199,6 +371,15 @@ impl<T: Config> Pallet<T> {
 
         // Count cannot be zero
         ensure!(mechanism_count > 0.into(), Error::<T>::InvalidValue);
+        ensure!(
+            pallet_commitments::ChannelMechanismPurgeQueue::<T>::iter_prefix(netuid)
+                .next()
+                .is_none()
+                && MechWeightDelegateRetirementQueue::<T>::iter_prefix(netuid)
+                    .next()
+                    .is_none(),
+            Error::<T>::InvalidValue
+        );
         if Self::get_epoch_consensus(netuid) == EpochConsensus::Null
             && mechanism_count != Self::get_current_mechanism_count(netuid)
         {
@@ -285,6 +466,13 @@ impl<T: Config> Pallet<T> {
 
                     // Cleanup WeightCommits
                     let _ = WeightCommits::<T>::clear_prefix(netuid_index, u32::MAX, None);
+
+                    Self::purge_mechanism_weight_delegates(netuid, mecid.into());
+                    pallet_commitments::ChannelMechanismPurgeQueue::<T>::insert(
+                        netuid,
+                        MechId::from(mecid),
+                        (),
+                    );
 
                     // Cleanup TimelockedWeightCommits
                     let _ =

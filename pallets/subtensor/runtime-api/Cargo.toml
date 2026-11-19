@@ -19,11 +19,13 @@ substrate-fixed.workspace = true
 subtensor-runtime-common.workspace = true
 # local
 pallet-subtensor.workspace = true
+pallet-commitments.workspace = true
 
 [features]
 default = ["std"]
 std = [
 	"codec/std",
+	"pallet-commitments/std",
 	"pallet-subtensor/std",
 	"sp-api/std",
 	"sp-runtime/std",

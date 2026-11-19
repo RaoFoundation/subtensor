@@ -152,6 +152,59 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn set_commitment_to_free() {
+        let netuid = NetUid::from(1);
+        let caller: T::AccountId = whitelisted_caller();
+        let _ = T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
+        let info = Box::new(create_identity_info::<T>(0));
+
+        #[extrinsic_call]
+        set_commitment_to(
+            RawOrigin::Signed(caller.clone()),
+            netuid,
+            MechId::MAIN,
+            0,
+            caller.clone(),
+            info,
+            TaoBalance::ZERO,
+        );
+
+        assert!(ChannelCommitmentOf::<T>::get((netuid, caller, 0)).is_some());
+    }
+
+    #[benchmark]
+    fn set_commitment_to_paid() {
+        let netuid = NetUid::from(1);
+        let caller: T::AccountId = whitelisted_caller();
+        let _ = T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
+        CommitBurnConfig::<T>::insert(
+            (netuid, 0),
+            CommitBurnParameters {
+                enabled: true,
+                burn: TaoBalance::from(1u64),
+                min_burn: TaoBalance::from(1u64),
+                max_burn: TaoBalance::from(1_000_000u64),
+                half_life: 1,
+                increase_mult: U64F64::from_num(1),
+                last_update_block: 0,
+            },
+        );
+
+        #[extrinsic_call]
+        set_commitment_to(
+            RawOrigin::Signed(caller.clone()),
+            netuid,
+            MechId::MAIN,
+            0,
+            caller.clone(),
+            Box::new(create_identity_info::<T>(0)),
+            TaoBalance::from(1u64),
+        );
+
+        assert!(ChannelCommitmentOf::<T>::get((netuid, caller, 0)).is_some());
+    }
+
+    #[benchmark]
     fn set_max_space() {
         let new_space: u32 = 1_000;
 

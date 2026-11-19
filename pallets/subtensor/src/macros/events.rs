@@ -1082,5 +1082,16 @@ mod events {
             /// Gamma credited.
             gamma: GammaBalance,
         },
+        /// A validator changed its weight delegate on one mechanism.
+        MechWeightDelegateSet {
+            /// Base subnet.
+            netuid: NetUid,
+            /// Exact mechanism the authorization applies to.
+            mecid: MechId,
+            /// Validator granting or revoking the authorization.
+            hotkey: T::AccountId,
+            /// Authorized account, or `None` after revocation.
+            delegate: Option<T::AccountId>,
+        },
     }
 }

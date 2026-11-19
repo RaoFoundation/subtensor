@@ -3299,5 +3299,105 @@ mod dispatches {
         ) -> DispatchResult {
             Self::do_set_service(origin, netuid, hotkey, url, spender)
         }
+
+        /// Authorizes an account to set weights for this registered hotkey on one mechanism.
+        #[pallet::call_index(166)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 1))]
+        pub fn set_mech_weight_delegate(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            delegate: Option<T::AccountId>,
+        ) -> DispatchResult {
+            Self::do_set_mech_weight_delegate(origin, netuid, mecid, delegate)
+        }
+
+        /// Sets weights as the validator's authorized delegate on this mechanism only.
+        #[pallet::call_index(167)]
+        #[pallet::weight((Pallet::<T>::set_mechanism_weights_weight(*netuid, dests.len() as u32).saturating_add(T::DbWeight::get().reads(2)), DispatchClass::Normal, Pays::Yes))]
+        pub fn set_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            dests: Vec<u16>,
+            weights: Vec<u16>,
+            version_key: u64,
+        ) -> DispatchResult {
+            if Self::get_commit_reveal_weights_enabled(netuid) {
+                Err(Error::<T>::CommitRevealEnabled.into())
+            } else {
+                Self::do_set_mechanism_weights_for(
+                    origin,
+                    netuid,
+                    mecid,
+                    hotkey,
+                    dests,
+                    weights,
+                    version_key,
+                )
+            }
+        }
+
+        /// Commits a weight hash for the validator through its mechanism delegate.
+        #[pallet::call_index(168)]
+        #[pallet::weight((<T as Config>::WeightInfo::commit_mechanism_weights().saturating_add(T::DbWeight::get().reads(2)), DispatchClass::Normal, Pays::Yes))]
+        pub fn commit_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            commit_hash: H256,
+        ) -> DispatchResult {
+            Self::do_commit_mechanism_weights_for(origin, netuid, mecid, hotkey, commit_hash)
+        }
+
+        /// Reveals a validator's hash commit through its mechanism delegate.
+        #[pallet::call_index(169)]
+        #[pallet::weight((Pallet::<T>::reveal_mechanism_weights_weight(*netuid, uids.len() as u32).saturating_add(T::DbWeight::get().reads(2)), DispatchClass::Normal, Pays::Yes))]
+        pub fn reveal_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            uids: Vec<u16>,
+            values: Vec<u16>,
+            salt: Vec<u16>,
+            version_key: u64,
+        ) -> DispatchResult {
+            Self::do_reveal_mechanism_weights_for(
+                origin,
+                netuid,
+                mecid,
+                hotkey,
+                uids,
+                values,
+                salt,
+                version_key,
+            )
+        }
+
+        /// Commits timelocked weights for a validator through its mechanism delegate.
+        #[pallet::call_index(170)]
+        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()).saturating_add(T::DbWeight::get().reads(2)), DispatchClass::Normal, Pays::Yes))]
+        pub fn commit_timelocked_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
+            reveal_round: u64,
+            commit_reveal_version: u16,
+        ) -> DispatchResult {
+            Self::do_commit_timelocked_mechanism_weights_for(
+                origin,
+                netuid,
+                mecid,
+                hotkey,
+                commit,
+                reveal_round,
+                commit_reveal_version,
+            )
+        }
     }
 }

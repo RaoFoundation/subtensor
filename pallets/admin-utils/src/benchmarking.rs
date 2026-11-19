@@ -1188,6 +1188,21 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_commit_burn() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        sudo_set_commit_burn_min(
+            RawOrigin::Signed(owner),
+            netuid,
+            MechId::MAIN,
+            0,
+            TaoBalance::ZERO,
+        );
+    }
+
+    #[benchmark]
     fn sudo_set_collateral_lock_share() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);

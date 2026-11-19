@@ -7,15 +7,26 @@ from pathlib import Path
 
 import typer
 
-from ...intents import CommitWeights, RevealWeights, SetWeights
+from ...intents import (
+    CommitWeightHash,
+    CommitWeights,
+    RevealWeights,
+    SetMechWeightDelegate,
+    SetWeights,
+)
 from ...settings import guide_docs_url
 from ..context import AppContext, ctx_of
-from ..globals import with_tx_globals
+from ..globals import with_globals, with_tx_globals
 
 app = typer.Typer(
     no_args_is_help=True,
     help=f"Validator weight commands.\n\nGuide: {guide_docs_url('validating')}",
 )
+delegate_app = typer.Typer(
+    no_args_is_help=True,
+    help="Authorize a hotkey to submit weights for one validator mechanism.",
+)
+app.add_typer(delegate_app, name="delegate")
 
 
 def _parse_int_list(raw: str) -> list[int]:
@@ -74,6 +85,9 @@ def set_weights(
     ),
     mechid: int = typer.Option(0, "--mechid", help=SetWeights.field_help("mechid")),
     version_key: int = typer.Option(0, "--version-key", help=SetWeights.field_help("version_key")),
+    for_hotkey: str | None = typer.Option(
+        None, "--for-hotkey", help=SetWeights.field_help("for_hotkey")
+    ),
 ):
     """Set validator weights (auto-selects plaintext or commit-reveal).
 
@@ -92,6 +106,7 @@ def set_weights(
             raw_u16=raw_u16,
             mechid=mechid,
             version_key=version_key,
+            for_hotkey=app_ctx.resolve_address("for_hotkey", for_hotkey),
         )
     )
 
@@ -131,6 +146,9 @@ def commit_weights(
         help=CommitWeights.field_help("version_key")
         or "Weights version key; leave 0 unless the subnet owner requires a value.",
     ),
+    for_hotkey: str | None = typer.Option(
+        None, "--for-hotkey", help=CommitWeights.field_help("for_hotkey")
+    ),
 ):
     """Commit timelock-encrypted weights (forces the commit-reveal path).
 
@@ -148,6 +166,7 @@ def commit_weights(
             raw_u16=raw_u16,
             mechid=mechid,
             version_key=version_key,
+            for_hotkey=app_ctx.resolve_address("for_hotkey", for_hotkey),
         )
     )
 
@@ -175,6 +194,10 @@ def reveal_weights(
         "--version-key",
         help=RevealWeights.field_help("version_key") or "Weights version key used at commit time.",
     ),
+    mechid: int = typer.Option(0, "--mechid", help=RevealWeights.field_help("mechid")),
+    for_hotkey: str | None = typer.Option(
+        None, "--for-hotkey", help=RevealWeights.field_help("for_hotkey")
+    ),
 ):
     """Reveal previously committed weights.
 
@@ -191,5 +214,91 @@ def reveal_weights(
             weights=_parse_float_list(weights),
             salt=_parse_int_list(salt),
             version_key=version_key,
+            mechid=mechid,
+            for_hotkey=app_ctx.resolve_address("for_hotkey", for_hotkey),
         )
+    )
+
+
+@app.command("hash")
+@with_tx_globals
+def commit_weight_hash(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", help=CommitWeightHash.field_help("netuid")),
+    commit_hash: str = typer.Option(..., "--hash", help=CommitWeightHash.field_help("commit_hash")),
+    mechid: int = typer.Option(0, "--mechid", help=CommitWeightHash.field_help("mechid")),
+    for_hotkey: str | None = typer.Option(
+        None, "--for-hotkey", help=CommitWeightHash.field_help("for_hotkey")
+    ),
+):
+    """Commit an explicit legacy weight hash (timelock users need only `commit`)."""
+    app_ctx: AppContext = ctx_of(ctx)
+    app_ctx.submit(
+        CommitWeightHash(
+            netuid=netuid,
+            commit_hash=commit_hash,
+            mechid=mechid,
+            for_hotkey=app_ctx.resolve_address("for_hotkey", for_hotkey),
+        )
+    )
+
+
+@delegate_app.command("set")
+@with_tx_globals
+def set_delegate(
+    ctx: typer.Context,
+    netuid: int = typer.Option(
+        ..., "--netuid", help="Subnet containing the signing validator hotkey."
+    ),
+    delegate: str = typer.Option(
+        ..., "--delegate", help="Account authorized to submit weights for this hotkey."
+    ),
+    mechid: int = typer.Option(0, "--mechid", help="Mechanism on which to authorize the delegate."),
+):
+    """Authorize a weight delegate for the signing hotkey on one mechanism."""
+    app_ctx: AppContext = ctx_of(ctx)
+    app_ctx.submit(
+        SetMechWeightDelegate(
+            netuid=netuid,
+            mechid=mechid,
+            delegate=app_ctx.resolve_address("delegate", delegate),
+        )
+    )
+
+
+@delegate_app.command("revoke")
+@delegate_app.command("clear", hidden=True)
+@with_tx_globals
+def clear_delegate(
+    ctx: typer.Context,
+    netuid: int = typer.Option(
+        ..., "--netuid", help="Subnet containing the signing validator hotkey."
+    ),
+    mechid: int = typer.Option(0, "--mechid", help="Mechanism whose delegate to revoke."),
+):
+    """Revoke the signing hotkey's weight delegate on one mechanism."""
+    ctx_of(ctx).submit(SetMechWeightDelegate(netuid=netuid, mechid=mechid, delegate=None))
+
+
+@delegate_app.command("show")
+@with_globals
+def show_delegate(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", help="Subnet containing the validator hotkey."),
+    mechid: int = typer.Option(0, "--mechid", help="Mechanism whose delegate to inspect."),
+    hotkey: str | None = typer.Option(
+        None, "--hotkey", help="Validator hotkey; defaults to the configured wallet hotkey."
+    ),
+):
+    """Show the weight delegate for a validator hotkey and mechanism."""
+    app_ctx: AppContext = ctx_of(ctx)
+    address = app_ctx.resolve_address("hotkey_ss58", hotkey)
+    result = app_ctx.run(
+        lambda client: client.read(
+            "mech_weight_delegate", netuid=netuid, mechid=mechid, hotkey_ss58=address
+        )
+    )
+    app_ctx.output.detail(
+        "mechanism weight delegate",
+        {"netuid": netuid, "mechid": mechid, "hotkey": address, "delegate": result},
     )

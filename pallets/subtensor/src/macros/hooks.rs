@@ -271,6 +271,12 @@ mod hooks {
                 weight.saturating_accrue(Self::process_network_registration_queue());
             }
 
+            if weight.all_lt(limit) {
+                let mut meter = WeightMeter::with_limit(limit.saturating_sub(weight));
+                Self::drain_mech_weight_delegate_lifecycle(&mut meter);
+                weight.saturating_accrue(meter.consumed());
+            }
+
             // Parents whose stake just changed: re-check the childkey threshold here, metered,
             // instead of inside the stake extrinsics, and suspend or resume their relations.
             if weight.all_lt(limit) {

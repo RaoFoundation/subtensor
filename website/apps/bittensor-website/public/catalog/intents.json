@@ -835,6 +835,74 @@
     ]
   },
   {
+    "name": "commit_weight_hash",
+    "summary": "Submit a legacy salt-based weight hash for one subnet mechanism.",
+    "description": "Submit a legacy salt-based weight hash for one subnet mechanism.\n\nUse this only with the legacy commit/reveal protocol, followed by\n`RevealWeights` with the same mechanism, uids, values, salt, and version\nkey. Most validators should use `CommitWeights` for a timelocked commit\nor `SetWeights` to select the subnet's configured path automatically.\nWith `for_hotkey`, the signing hotkey must be that validator's authorized\ndelegate on this mechanism; the delegate pays the normal transaction fee.",
+    "signer": "hotkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "commit_mechanism_weights"
+      ],
+      [
+        "SubtensorModule",
+        "commit_mechanism_weights_for"
+      ]
+    ],
+    "docs_url": "/docs/tx/commit-weight-hash",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose miners the weights score."
+        },
+        "commit_hash": {
+          "type": "string",
+          "description": "Legacy weight commit hash (0x-prefixed H256)."
+        },
+        "mechid": {
+          "type": "integer",
+          "description": "Mechanism index within the subnet. 0 is the default (and for most subnets the only) mechanism."
+        },
+        "for_hotkey": {
+          "type": "string",
+          "description": "Validator hotkey to act for. Requires the hotkey to have authorized the signing hotkey as its weight delegate on this netuid and mechanism; normal transaction fees are paid by the delegate."
+        }
+      },
+      "required": [
+        "netuid",
+        "commit_hash"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx commit-weight-hash --netuid <int> --commit-hash <value>",
+    "python_class": "CommitWeightHash",
+    "markdown_url": "/llms.mdx/docs/tx/commit-weight-hash/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "commit_mechanism_weights",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 214,
+        "end_line": 221,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L212-L221",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "commit_mechanism_weights_for",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 3346,
+        "end_line": 3354,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3344-L3354",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
     "name": "commit_weights",
     "summary": "Timelock-encrypt and commit weights, forcing the commit-reveal path.",
     "description": "Timelock-encrypt and commit weights, forcing the commit-reveal path.\n\nEncrypts the weights with drand timelock encryption and submits the\nciphertext; the weights stay hidden until the chain auto-decrypts and\napplies them at the reveal round (no separate reveal call is needed).\nHiding weights until the round closes prevents other validators from\ncopying them. Signed by the hotkey, with the same preflight, conforming,\nand rate-limit behavior as `set_weights`. Use `set_weights` instead\nunless you need to force the commit path regardless of the subnet's\ncommit-reveal setting.",
@@ -845,6 +913,10 @@
       [
         "SubtensorModule",
         "commit_timelocked_mechanism_weights"
+      ],
+      [
+        "SubtensorModule",
+        "commit_timelocked_mechanism_weights_for"
       ]
     ],
     "docs_url": "/docs/tx/commit-weights",
@@ -877,6 +949,10 @@
           "type": "integer",
           "description": "Weights version key checked against the subnet's required version. Leave 0 unless the subnet owner requires a specific value."
         },
+        "for_hotkey": {
+          "type": "string",
+          "description": "Validator hotkey to act for. Requires the hotkey to have authorized the signing hotkey as its weight delegate on this netuid and mechanism; normal transaction fees are paid by the delegate."
+        },
         "raw_u16": {
           "type": "boolean",
           "description": "Preserve exact u16 integer ratios on Null subnets; no scaling or clipping."
@@ -902,6 +978,15 @@
         "line": 2069,
         "end_line": 2085,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "commit_timelocked_mechanism_weights_for",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 3384,
+        "end_line": 3402,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3382-L3402",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3255,6 +3340,14 @@
       [
         "SubtensorModule",
         "reveal_weights"
+      ],
+      [
+        "SubtensorModule",
+        "reveal_mechanism_weights"
+      ],
+      [
+        "SubtensorModule",
+        "reveal_mechanism_weights_for"
       ]
     ],
     "docs_url": "/docs/tx/reveal-weights",
@@ -3289,6 +3382,14 @@
         "version_key": {
           "type": "integer",
           "description": "Version key used when the commit was made."
+        },
+        "mechid": {
+          "type": "integer",
+          "description": "Mechanism index within the subnet. 0 is the default (and for most subnets the only) mechanism."
+        },
+        "for_hotkey": {
+          "type": "string",
+          "description": "Validator hotkey to act for. Requires the hotkey to have authorized the signing hotkey as its weight delegate on this netuid and mechanism; normal transaction fees are paid by the delegate."
         }
       },
       "required": [
@@ -3310,6 +3411,24 @@
         "line": 276,
         "end_line": 285,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L274-L285",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "reveal_mechanism_weights",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 317,
+        "end_line": 335,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L315-L335",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "reveal_mechanism_weights_for",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 3359,
+        "end_line": 3379,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3357-L3379",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3582,6 +3701,85 @@
     ]
   },
   {
+    "name": "set_channel_commitment",
+    "summary": "Publish a hotkey's independent channel commitment, paid by its coldkey.",
+    "description": "Publish a hotkey's independent channel commitment, paid by its coldkey.\n\n`data` is UTF-8 by default or hexadecimal with `encoding='hex'`. An\nempty plaintext clears this channel's commitment. With `reveal_round`,\nthe payload is drand-timelock-encrypted and the chain reveals it at that\nround. The target is independent of the legacy commitment and other\nmechanisms/channels. The signing coldkey must own the registered hotkey.\nWhen this channel's burn is enabled, the current decayed TAO price is paid\nfrom the coldkey; the call fails rather than exceeding `max_burn_tao`.\nThat maximum bounds policy spending; fees are additional. With no enabled\nburn, the commitment is free apart from the normal transaction fee.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": "channel_commitment",
+    "wraps": [
+      [
+        "Commitments",
+        "set_commitment_to"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-channel-commitment",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet containing the target mechanism and hotkey."
+        },
+        "mechid": {
+          "type": "integer",
+          "description": "Mechanism whose commitment channel to use."
+        },
+        "channel": {
+          "type": "integer",
+          "description": "Independent commitment channel; separate from the legacy commitment."
+        },
+        "data": {
+          "type": "string",
+          "description": "Commitment bytes as UTF-8 or hex; empty plaintext clears."
+        },
+        "max_burn_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Maximum current TAO burn accepted; never a tip or reserve."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey publishing the commitment; defaults to the wallet's hotkey."
+        },
+        "encoding": {
+          "type": "string",
+          "description": "Payload encoding: 'utf8' or 'hex'."
+        },
+        "reveal_round": {
+          "type": "integer",
+          "description": "Future drand round for a timelocked commitment; omit for plaintext."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-channel-commitment --netuid <int>",
+    "python_class": "SetChannelCommitment",
+    "markdown_url": "/llms.mdx/docs/tx/set-channel-commitment/content.md",
+    "sources": [
+      {
+        "pallet": "Commitments",
+        "call": "set_commitment_to",
+        "path": "pallets/commitments/src/lib.rs",
+        "line": 585,
+        "end_line": 637,
+        "url": "/code/pallets/commitments/src/lib.rs#L575-L637",
+        "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "set_childkey_take",
     "summary": "Set the childkey take for a hotkey on a subnet.",
     "description": "Set the childkey take for a hotkey on a subnet.\n\nThe childkey take is the fraction of emissions a child hotkey keeps from\nthe stake weight its parents delegate to it, before passing the remainder\nthrough. It is set per subnet, unlike the global delegate take. Signed by\nthe coldkey that owns the child hotkey. The chain enforces both its\nminimum and maximum childkey take bounds, and rate-limits only increases\n\u2014 decreases apply immediately, so lowering the take is always available.",
@@ -3684,6 +3882,123 @@
         "end_line": 1148,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1138-L1148",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "set_commit_burn",
+    "summary": "Set one subnet owner's commitment-channel burn parameter.",
+    "description": "Set one subnet owner's commitment-channel burn parameter.\n\n`name` is one of `enabled`, `min_burn`, `max_burn`, `half_life`,\nor `increase_mult`. Min/max values are TAO amounts, half-life is blocks,\nand increase multiplier is a decimal in 1..3 (or its raw U64F64 bits).\nChanges require the subnet-owner coldkey or root, respect the owner's\nrate-limit window, and are independent for each mechanism and channel.\nDisabling burn makes subsequent channel commitments free apart from fees;\nit does not refund earlier burns. Read the live decayed price and stored\nsettings with the `commit_burn` read.",
+    "signer": "coldkey",
+    "origin": "subnet_owner",
+    "verify": "commit_burn",
+    "wraps": [
+      [
+        "AdminUtils",
+        "sudo_set_commit_burn_enabled"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_commit_burn_min"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_commit_burn_max"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_commit_burn_half_life"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_commit_burn_increase_mult"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-commit-burn",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to configure; the signer must be its owner."
+        },
+        "name": {
+          "type": "string",
+          "description": "Burn parameter: enabled, min_burn, max_burn, half_life, or increase_mult."
+        },
+        "value": {
+          "type": [
+            "boolean",
+            "integer",
+            "number",
+            "string"
+          ],
+          "description": "Enabled flag, TAO min/max, block half-life, or 1..3 multiplier / raw U64F64 integer."
+        },
+        "mechid": {
+          "type": "integer",
+          "description": "Mechanism whose commitment channel to use."
+        },
+        "channel": {
+          "type": "integer",
+          "description": "Independent commitment channel; separate from the legacy commitment."
+        }
+      },
+      "required": [
+        "netuid",
+        "name",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-commit-burn --netuid <int> --name <value> --value <value>",
+    "python_class": "SetCommitBurn",
+    "markdown_url": "/llms.mdx/docs/tx/set-commit-burn/content.md",
+    "sources": [
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_commit_burn_enabled",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 3076,
+        "end_line": 3087,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3074-L3087",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_commit_burn_min",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 3092,
+        "end_line": 3105,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3090-L3105",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_commit_burn_max",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 3110,
+        "end_line": 3123,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3108-L3123",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_commit_burn_half_life",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 3128,
+        "end_line": 3143,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3126-L3143",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_commit_burn_increase_mult",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 3148,
+        "end_line": 3160,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3146-L3160",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
   },
@@ -4042,297 +4357,297 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_epoch_consensus",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1566,
-        "end_line": 1588,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1561-L1588",
+        "line": 1575,
+        "end_line": 1597,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1570-L1597",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_tempo",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1243,
-        "end_line": 1247,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1232-L1247",
+        "line": 1252,
+        "end_line": 1256,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1241-L1256",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_immunity_period",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 609,
-        "end_line": 635,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L607-L635",
+        "line": 618,
+        "end_line": 644,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L616-L644",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_allowed_weights",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 642,
-        "end_line": 668,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L640-L668",
+        "line": 651,
+        "end_line": 677,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L649-L677",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_weights_version_key",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 494,
-        "end_line": 522,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L492-L522",
+        "line": 503,
+        "end_line": 531,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L501-L531",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_activity_cutoff_factor",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 818,
-        "end_line": 832,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L816-L832",
+        "line": 827,
+        "end_line": 841,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L825-L841",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_burn",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 953,
-        "end_line": 985,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L951-L985",
+        "line": 962,
+        "end_line": 994,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L960-L994",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_burn",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 992,
-        "end_line": 1024,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L990-L1024",
+        "line": 1001,
+        "end_line": 1033,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L999-L1033",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_moving_average",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1108,
-        "end_line": 1140,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1106-L1140",
+        "line": 1117,
+        "end_line": 1149,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1115-L1149",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_penalty",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1147,
-        "end_line": 1171,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1145-L1171",
+        "line": 1156,
+        "end_line": 1180,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1154-L1180",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_serving_rate_limit",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 393,
-        "end_line": 412,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L391-L412",
+        "line": 402,
+        "end_line": 421,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L400-L421",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_reveal_weights_interval",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1640,
-        "end_line": 1667,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1638-L1667",
+        "line": 1649,
+        "end_line": 1676,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1647-L1676",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 675,
-        "end_line": 722,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L673-L722",
+        "line": 684,
+        "end_line": 731,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L682-L731",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_increase_mult",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2514,
-        "end_line": 2552,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2512-L2552",
+        "line": 2523,
+        "end_line": 2561,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2521-L2561",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_half_life",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2472,
-        "end_line": 2508,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2470-L2508",
+        "line": 2481,
+        "end_line": 2517,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2479-L2517",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_lock_share",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2628,
-        "end_line": 2661,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2626-L2661",
+        "line": 2637,
+        "end_line": 2670,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2635-L2670",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_drain_ratio",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2671,
-        "end_line": 2710,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2669-L2710",
+        "line": 2680,
+        "end_line": 2719,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2678-L2719",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_adjustment_alpha",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 578,
-        "end_line": 602,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L576-L602",
+        "line": 587,
+        "end_line": 611,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L585-L611",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_rho",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 745,
-        "end_line": 765,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L743-L765",
+        "line": 754,
+        "end_line": 774,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L752-L774",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_difficulty",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 461,
-        "end_line": 487,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L459-L487",
+        "line": 470,
+        "end_line": 496,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L468-L496",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_alpha_sigmoid_steepness",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1894,
-        "end_line": 1926,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1892-L1926",
+        "line": 1903,
+        "end_line": 1935,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1901-L1935",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_childkey_take_per_subnet",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1411,
-        "end_line": 1443,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1409-L1443",
+        "line": 1420,
+        "end_line": 1452,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1418-L1452",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_immune_neuron_limit",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2080,
-        "end_line": 2098,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2078-L2098",
+        "line": 2089,
+        "end_line": 2107,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2087-L2107",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_alpha_values",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1512,
-        "end_line": 1535,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1510-L1535",
+        "line": 1521,
+        "end_line": 1544,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1519-L1544",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_reveal_weights_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1450,
-        "end_line": 1475,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1448-L1475",
+        "line": 1459,
+        "end_line": 1484,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1457-L1484",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_liquid_alpha_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1488,
-        "end_line": 1507,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1486-L1507",
+        "line": 1497,
+        "end_line": 1516,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1495-L1516",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_network_registration_allowed",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 839,
-        "end_line": 881,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L837-L881",
+        "line": 848,
+        "end_line": 890,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L846-L890",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_network_pow_registration_allowed",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 888,
-        "end_line": 919,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L886-L919",
+        "line": 897,
+        "end_line": 928,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L895-L928",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_gamma_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2943,
-        "end_line": 2969,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2941-L2969",
+        "line": 2952,
+        "end_line": 2978,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2950-L2978",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_yuma3_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1939,
-        "end_line": 1960,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1937-L1960",
+        "line": 1948,
+        "end_line": 1969,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1946-L1969",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_reset_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1973,
-        "end_line": 1994,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1971-L1994",
+        "line": 1982,
+        "end_line": 2003,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1980-L2003",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_toggle_transfer",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1732,
-        "end_line": 1752,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1730-L1752",
+        "line": 1741,
+        "end_line": 1761,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1739-L1761",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_cut_auto_lock_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2572,
-        "end_line": 2590,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2570-L2590",
+        "line": 2581,
+        "end_line": 2599,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2579-L2599",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -4404,6 +4719,56 @@
     ]
   },
   {
+    "name": "set_mech_weight_delegate",
+    "summary": "Authorize or revoke one hotkey's weight delegate on one subnet mechanism.",
+    "description": "Authorize or revoke one hotkey's weight delegate on one subnet mechanism.\n\nSigned by the registered validator hotkey. The delegate may submit direct,\nlegacy commit/reveal, or timelocked weight calls *for* this hotkey and\nmechanism only, paying normal transaction fees itself. Authorization does\nnot transfer stake or ownership and is independent on every mechanism.\nPass `delegate=None` (or use the CLI's `weights delegate revoke`) to\nrevoke it. Existing delegated calls remain subject to the validator's\nregistration, permit, stake, rate-limit, and weight rules.",
+    "signer": "hotkey",
+    "origin": "signed",
+    "verify": "mech_weight_delegate",
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_mech_weight_delegate"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-mech-weight-delegate",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet containing the validator hotkey."
+        },
+        "mechid": {
+          "type": "integer",
+          "description": "Mechanism index within the subnet. 0 is the default (and for most subnets the only) mechanism."
+        },
+        "delegate": {
+          "type": "string",
+          "description": "Account authorized to submit weights for this hotkey; null revokes. The runtime accepts any account, but delegated intents sign with a hotkey."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-mech-weight-delegate --netuid <int>",
+    "python_class": "SetMechWeightDelegate",
+    "markdown_url": "/llms.mdx/docs/tx/set-mech-weight-delegate/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_mech_weight_delegate",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 3307,
+        "end_line": 3314,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3305-L3314",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
     "name": "set_mechanism_count",
     "summary": "Set the number of mechanisms on a subnet.",
     "description": "Set the number of mechanisms on a subnet.\n\nMechanisms are independent incentive sub-markets within one subnet, each\nrunning its own weights and consensus; this owner-only call sets how many\nthe subnet runs. The count must be greater than zero, and the chain caps\nhow many mechanisms a subnet may have. Increasing the count opens new\nmechanisms; decreasing it removes the highest-numbered ones and the\nminer state in them. Any change to the count clears the emission split\nback to an even division. Rate-limited and blocked during the\nend-of-epoch admin freeze window.",
@@ -4443,9 +4808,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_mechanism_count",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2141,
-        "end_line": 2161,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2138-L2161",
+        "line": 2150,
+        "end_line": 2170,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2147-L2170",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -4798,9 +5163,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_emission_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2600,
-        "end_line": 2618,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2598-L2618",
+        "line": 2609,
+        "end_line": 2627,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2607-L2627",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -4871,9 +5236,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_emission_weights_v2",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 3014,
-        "end_line": 3034,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L3008-L3034",
+        "line": 3023,
+        "end_line": 3043,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3017-L3043",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -4922,9 +5287,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_gamma_emission_whitelisted",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 3041,
-        "end_line": 3062,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L3038-L3062",
+        "line": 3050,
+        "end_line": 3071,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3047-L3071",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -5082,6 +5447,14 @@
       [
         "SubtensorModule",
         "commit_timelocked_mechanism_weights"
+      ],
+      [
+        "SubtensorModule",
+        "set_mechanism_weights_for"
+      ],
+      [
+        "SubtensorModule",
+        "commit_timelocked_mechanism_weights_for"
       ]
     ],
     "docs_url": "/docs/tx/set-weights",
@@ -5114,6 +5487,10 @@
           "type": "integer",
           "description": "Weights version key checked against the subnet's required version. Leave 0 unless the subnet owner requires a specific value."
         },
+        "for_hotkey": {
+          "type": "string",
+          "description": "Validator hotkey to act for. Requires the hotkey to have authorized the signing hotkey as its weight delegate on this netuid and mechanism; normal transaction fees are paid by the delegate."
+        },
         "raw_u16": {
           "type": "boolean",
           "description": "Preserve exact u16 integer ratios on Null subnets; no scaling or clipping."
@@ -5144,6 +5521,24 @@
         "line": 2069,
         "end_line": 2085,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_mechanism_weights_for",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 3319,
+        "end_line": 3341,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3317-L3341",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "commit_timelocked_mechanism_weights_for",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 3384,
+        "end_line": 3402,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3382-L3402",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -5976,9 +6371,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_trim_null_uids_batch",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2226,
-        "end_line": 2250,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2224-L2250",
+        "line": 2235,
+        "end_line": 2259,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2233-L2259",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -6023,9 +6418,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_trim_to_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2199,
-        "end_line": 2219,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2193-L2219",
+        "line": 2208,
+        "end_line": 2228,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2202-L2228",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
