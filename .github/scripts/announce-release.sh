@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Render a release announcement and, unless this is a dry run, POST it.
-# A pull_request job never calls Discord. The posted summary is the human
-# text. Model prose is not inserted. The chain release does not depend on
-# this script succeeding.
+# A pull_request job never calls Discord and never calls the model.
+# The model may replace only the prose section, and only with text that
+# passed the sanitizer. Versions, hashes, install commands, and links stay
+# in the template. A model failure posts the human summary.
+# The chain release does not depend on this script succeeding.
 
 set -euo pipefail
 
@@ -13,6 +15,7 @@ cd "$repo_root"
 if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
   ANNOUNCE_DRY_RUN=true
   DISCORD_WEBHOOK_URL=
+  ANNOUNCE_OPENAI_API_KEY=
 fi
 
 dry=${ANNOUNCE_DRY_RUN:-false}
@@ -64,34 +67,52 @@ fi
 workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
 
+printf '%s\n' '{"status":"skipped","text":"","reason":"no committed release notes"}' >"$workdir/model.json"
+if [ "${ANNOUNCE_SAMPLE:-false}" = true ]; then
+  printf '%s\n' '{"status":"skipped","text":"","reason":"sample text is not sent to the model"}' >"$workdir/model.json"
+elif [ -n "${ANNOUNCE_NOTES_FILE:-}" ]; then
+  if ! python3 "$repo_root/.github/scripts/rewrite-announce-summary.py" \
+    --notes "$ANNOUNCE_NOTES_FILE" \
+    --root "$repo_root" \
+    ${ANNOUNCE_REVISION:+--revision "$ANNOUNCE_REVISION"} \
+    --out "$workdir/model.json"; then
+    printf '%s\n' '{"status":"error","text":"","reason":"model rewrite failed"}' >"$workdir/model.json"
+  fi
+fi
+# The Discord request must not carry the model key.
+unset ANNOUNCE_OPENAI_API_KEY
+
+model_status=$(jq -r '.status // "error"' "$workdir/model.json")
+if [ "$model_status" = "accepted" ]; then
+  jq -rj '.text' "$workdir/model.json" >"$workdir/model.txt"
+  args+=(--model-summary-file "$workdir/model.txt")
+fi
+
 render() {
   "${args[@]}" \
     --out "$workdir/message.txt" \
     --summary-out "$workdir/summary.txt" \
+    --human-out "$workdir/human.txt" \
     --facts-out "$workdir/facts.txt" \
+    --model-call-json "$workdir/model.json" \
+    --dry-run-summary-out "$workdir/dry-run.md" \
     >/dev/null
 }
 
 render
 
 write_summary() {
-  if [ -z "${GITHUB_STEP_SUMMARY:-}" ]; then
-    return 0
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    cat "$workdir/dry-run.md" >>"$GITHUB_STEP_SUMMARY"
   fi
-  {
-    echo "## Discord dry run"
-    echo ""
-    echo "Discord was not called. The wasm sha256, when present, is only there to show the message shape."
-    echo ""
-    echo '```'
-    cat "$workdir/message.txt"
-    echo '```'
-  } >>"$GITHUB_STEP_SUMMARY"
+  # The step summary is the readable copy. The log is shielded so a line in
+  # the model prose cannot be read as a workflow command.
+  python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import release_notes; sys.stdout.write(release_notes.shield_actions_log(open(sys.argv[2], encoding="utf-8").read()))' \
+    "$repo_root/.github/scripts" "$workdir/dry-run.md"
 }
 
 if [ "$dry" = true ]; then
   write_summary
-  cat "$workdir/message.txt"
   exit 0
 fi
 

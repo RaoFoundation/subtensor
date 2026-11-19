@@ -25,6 +25,10 @@ name: Publish stable Python
 # Discord is posted only after this run uploads, or when retry_announce is
 # checked and the commit status announce/python-stable is not success.
 # A normal dispatch of a version that is already on PyPI does not post.
+# The announce job is on mainnet. ANNOUNCE_OPENAI_API_KEY there may rewrite
+# only the prose section from the committed summary. A dry run uses
+# mainnet-release for the same key, renders both the model prose and the
+# human fallback, and does not POST.
 
 on:
   workflow_dispatch:
@@ -137,19 +141,43 @@ jobs:
             echo "announce_missing=$announce_missing"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Dry-run Discord message
-        if: inputs.dry_run == true
+  # mainnet-release holds ANNOUNCE_OPENAI_API_KEY and has no reviewers.
+  # This job only renders. It does not publish and it does not POST.
+  announce-dry-run:
+    name: Dry-run Discord message
+    needs: notes
+    if: inputs.dry_run == true && needs.notes.result == 'success'
+    runs-on: ubuntu-latest
+    environment: mainnet-release
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Require the main branch
+        run: |
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "Discord announcements only run from main"
+            exit 1
+          }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Fetch the commit to announce
+        run: git fetch --no-tags --depth=1 origin ${{ needs.notes.outputs.sha }}
+      - name: Render the Discord message
         uses: ./.github/actions/announce-release
         with:
           kind: python-stable
-          sdk-version: ${{ steps.meta.outputs.sdk }}
-          core-version: ${{ steps.meta.outputs.core }}
-          sha: ${{ steps.meta.outputs.sha }}
-          revision: ${{ steps.meta.outputs.sha }}
-          notes-file: ${{ steps.meta.outputs.notes }}
+          sdk-version: ${{ needs.notes.outputs.sdk }}
+          core-version: ${{ needs.notes.outputs.core }}
+          sha: ${{ needs.notes.outputs.sha }}
+          revision: ${{ needs.notes.outputs.sha }}
+          notes-file: ${{ needs.notes.outputs.notes }}
           allow-missing-notes: "true"
           dry-run: "true"
           status-context: announce/python-stable
+          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}
 
   build-core:
     name: Build bittensor-core wheels
@@ -426,3 +454,4 @@ jobs:
           dry-run: "false"
           status-context: announce/python-stable
           webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}

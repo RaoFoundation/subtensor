@@ -1,8 +1,10 @@
 name: Announce release
 description: >-
-  Render a Discord announcement from the release template. Dry-run writes the
-  message to the job summary and does not POST. A pull_request event never
-  calls Discord. The posted summary is the human text.
+  Render a Discord announcement from the release template. The model may
+  rewrite only the prose section, from the committed summary. Versions,
+  hashes, install commands, and links stay in the template. Dry-run writes
+  the model prose and the human fallback to the job summary and does not
+  POST. A pull_request event never calls Discord or the model.
 
 inputs:
   kind:
@@ -65,6 +67,12 @@ inputs:
     description: Discord webhook URL. Leave empty for a dry run.
     required: false
     default: ""
+  openai-api-key:
+    description: >-
+      Prose rewrite key. Pass this only from a mainnet or mainnet-release job.
+      Leave it empty on pull requests.
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -87,4 +95,5 @@ runs:
         ANNOUNCE_DRY_RUN: ${{ inputs.dry-run }}
         ANNOUNCE_STATUS_CONTEXT: ${{ inputs.status-context }}
         DISCORD_WEBHOOK_URL: ${{ inputs.webhook }}
+        ANNOUNCE_OPENAI_API_KEY: ${{ inputs.openai-api-key }}
       run: bash "$GITHUB_ACTION_PATH/../../scripts/announce-release.sh"

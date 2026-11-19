@@ -836,7 +836,7 @@ jobs:
 
   # A spec or Python version bump needs a notes file and a real releases page.
   # Spec 492 and the current Python versions are grandfathered. This job also
-  # renders the Discord message and does not call Discord.
+  # renders the Discord message. It does not call Discord or the model.
   release-notes:
     name: Release notes
     if: github.event_name != 'workflow_dispatch' || inputs.try_runtime_only != true
@@ -846,6 +846,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - name: Test announcement sanitizer
+        run: python3 .github/scripts/test_announce_summary.py
 
       - name: Compare versions with the base
         id: versions

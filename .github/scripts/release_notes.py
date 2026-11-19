@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import subprocess
 import sys
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,7 +60,10 @@ REQUIRED_KEYS = (
 )
 MAX_NOTES_BYTES = 64 * 1024
 MAX_SUMMARY_CHARS = 4000
+MODEL_PROSE_MAX = 600
+MODEL_DISPLAY_MAX = 1000
 DISCORD_LIMIT = 2000
+MODEL_CALL_EVENTS = frozenset({"push", "workflow_dispatch", "schedule"})
 IMAGE_REPO = "ghcr.io/raofoundation/subtensor"
 DEFAULT_REPO = "RaoFoundation/subtensor"
 
@@ -102,11 +107,21 @@ class LoadedNotes:
 
 
 @dataclass(frozen=True)
+class ModelProse:
+    status: str
+    text: str
+    reason: str
+    display: str
+
+
+@dataclass(frozen=True)
 class Announcement:
     message: str
     summary: str
     facts: str
+    human_summary: str
     model_status: str
+    model_reason: str
 
 
 def grandfather_spec_detail() -> str:
@@ -623,6 +638,150 @@ def fit_message(banner: str | None, title: str, summary: str, facts: str) -> str
     return message
 
 
+_ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff\u2060\u180e"), None)
+_BIDI = {code: None for code in range(0x202A, 0x202F)}
+_BIDI.update({code: None for code in range(0x2066, 0x206A)})
+
+_CODE_RE = re.compile(r"```|~~~")
+_COMMAND_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9_])(?:curl|wget|sudo|pip3?|bash|zsh|fish|powershell|pwsh|"
+    r"chmod|chown|apt-get|kubectl|ncat|eval|sh)(?![A-Za-z0-9_])"
+)
+_SHELL_RE = re.compile(r"\|\||&&|\$\(|`|\|\s*(?:ba)?sh\b|(?:^|\s)sh\s+-c\b", re.IGNORECASE)
+_URL_RE = re.compile(
+    r"(?i)(?:[a-z][a-z0-9+.-]*://|www\.|discord\.gg\b|discord(?:app)?\.com/invite\b|"
+    r"\[[^\]]+\]\([^)]+\)|<[a-z][^>\s]*>)"
+)
+_MENTION_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9._])@(?:everyone|here|[A-Za-z0-9_]{2,32})\b|<@[!&]?[0-9]+>|<#[0-9]+>"
+)
+_VERSION_OR_HASH_RE = re.compile(r"\b\d+\.\d+\.\d+\b|\b[0-9a-fA-F]{32,64}\b")
+_TIME_RE = re.compile(
+    r"(?i)\b(?:UTC|GMT|PST|PDT|EST|EDT|CST|CDT|MST|MDT|CET|CEST|IST|JST|AEST|AEDT|"
+    r"local time|time ?zone)\b|[+-]\d{2}:?\d{2}\b|\d{4}-\d{2}-\d{2}T"
+)
+_UNSAFE_CHAR_RE = re.compile(r"[^A-Za-z0-9 .,;:'\"?!()/\-]")
+_PATH_RE = re.compile(r"(?:^|\s)/[A-Za-z0-9._/-]+")
+
+
+def model_call_allowed(*, event: str, ref: str) -> bool:
+    """The rewrite key is only used on main, and never from a pull request."""
+    return event in MODEL_CALL_EVENTS and ref == "refs/heads/main"
+
+
+def normalize_model_text(raw: str) -> str:
+    text = unicodedata.normalize("NFKC", raw)
+    text = text.translate(_ZERO_WIDTH)
+    text = text.translate(_BIDI)
+    text = text.replace("\x00", "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t\f\v]+", " ", text)
+    text = re.sub(r"\n+", " ", text)
+    return text.strip()
+
+
+def model_reject_reason(text: str) -> str:
+    if text == "":
+        return "empty"
+    if _CODE_RE.search(text):
+        return "code block"
+    if _COMMAND_RE.search(text) or _SHELL_RE.search(text):
+        return "shell command"
+    if _URL_RE.search(text):
+        return "url"
+    if _MENTION_RE.search(text):
+        return "mention"
+    if "discord.gg" in text.lower() or "discord.com/invite" in text.lower():
+        return "discord invite"
+    if _VERSION_OR_HASH_RE.search(text):
+        return "version or hash"
+    if _TIME_RE.search(text):
+        return "timestamp or timezone"
+    if _PATH_RE.search(text):
+        return "path"
+    if _UNSAFE_CHAR_RE.search(text):
+        return "unsupported characters"
+    if len(text) > MODEL_PROSE_MAX:
+        return "too long"
+    if re.search(r"[A-Za-z]", text) is None:
+        return "empty"
+    return ""
+
+
+def review_model_prose(raw: str | None) -> ModelProse:
+    """Accept one plain paragraph, or reject the model output."""
+    if raw is None or raw.strip() == "":
+        return ModelProse("absent", "", "", "")
+    normalized = normalize_model_text(raw)
+    reason = model_reject_reason(normalized)
+    if reason == "":
+        return ModelProse("accepted", normalized, "", normalized)
+    display = normalized
+    if len(display) > MODEL_DISPLAY_MAX:
+        display = display[:MODEL_DISPLAY_MAX] + "..."
+    return ModelProse("rejected", "", reason, display)
+
+
+def shield_actions_log(text: str) -> str:
+    """Print untrusted prose without letting it emit a workflow command."""
+    token = secrets.token_hex(16)
+    body = text.replace(token, "")
+    return f"::stop-commands::{token}\n{body}\n::{token}::\n"
+
+
+def format_dry_run_summary(
+    *,
+    message: str,
+    human_summary: str,
+    model_status: str,
+    model_text: str,
+    model_reason: str,
+) -> str:
+    """Job-summary text. Discord is not called from this string."""
+
+    def block(text: str) -> str:
+        shown = text if text else "(none)"
+        fence = "```"
+        while fence in shown:
+            fence += "`"
+        return f"{fence}\n{shown}\n{fence}"
+
+    if model_status == "skipped" and model_text.strip() == "":
+        shown_model = "(not called)"
+    else:
+        shown_model = model_text.strip()
+    posted = "model prose" if model_status == "accepted" else "human fallback"
+    lines = [
+        "## Discord dry run",
+        "",
+        "Discord was not called. Versions, hashes, install commands, and links stay in the template.",
+        "The wasm sha256, when present, is only there to show the message shape.",
+        "",
+        "### Model prose",
+        "",
+        f"Status: {model_status}",
+        f"Posted summary: {posted}",
+    ]
+    if model_reason:
+        lines.append(f"Reason: {model_reason}")
+    lines.extend(
+        [
+            "",
+            block(shown_model),
+            "",
+            "### Human fallback",
+            "",
+            block(human_summary.strip()),
+            "",
+            "### Message that would be posted",
+            "",
+            block(message.rstrip("\n")),
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def render_announcement(
     *,
     kind: str,
@@ -704,12 +863,20 @@ def render_announcement(
         audiences=audiences,
         install_commands=install_commands,
     )
-    # The posted summary is the human text. Model prose is not inserted: it can
-    # add an instruction that is not a version, a hash, or a URL.
-    model_status = "absent"
+    # Versions, hashes, install commands, and URLs stay in the fact block.
+    # The model may replace only this prose section, and only after it passes
+    # review_model_prose. A rejection posts the human summary.
+    reviewed = review_model_prose(model_summary)
     chosen = summary
-    if model_summary is not None and model_summary.strip() != "":
-        model_status = "ignored"
+    if reviewed.status == "accepted":
+        chosen = reviewed.text
     banner = SAMPLE_BANNER if sample else None
     message = fit_message(banner, KIND_TITLES[kind], chosen, facts)
-    return Announcement(message=message, summary=chosen, facts=facts, model_status=model_status)
+    return Announcement(
+        message=message,
+        summary=chosen,
+        facts=facts,
+        human_summary=summary,
+        model_status=reviewed.status,
+        model_reason=reviewed.reason,
+    )

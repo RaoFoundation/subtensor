@@ -24,7 +24,10 @@ name: Watch Mainnet Release
 #
 # Discord posts use mainnet-release (DISCORD_WEBHOOK_URL). One post runs
 # after this workflow finalizes the GitHub release. Another runs after the
-# stable PyPI publish. A failed post does not move the mainnet mirror back.
+# stable PyPI publish. ANNOUNCE_OPENAI_API_KEY on that environment may
+# rewrite only the prose section from the committed summary. A rejected or
+# failed rewrite posts the human summary. A failed post does not move the
+# mainnet mirror back.
 # Merging this file does not announce a release that is already final.
 # workflow_dispatch input retry_announce posts only when that box is checked
 # and the commit status for that event is not already success.
@@ -663,6 +666,7 @@ jobs:
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.announce_dry_run == true && 'true' || 'false' }}
           status-context: announce/runtime-live
           webhook: ${{ (github.event_name != 'workflow_dispatch' || inputs.announce_dry_run != true) && secrets.DISCORD_WEBHOOK_URL || '' }}
+          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}
 
   announce-python:
     name: Announce stable Python release
@@ -723,3 +727,4 @@ jobs:
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.announce_dry_run == true && 'true' || 'false' }}
           status-context: announce/python-stable
           webhook: ${{ (github.event_name != 'workflow_dispatch' || inputs.announce_dry_run != true) && secrets.DISCORD_WEBHOOK_URL || '' }}
+          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}
