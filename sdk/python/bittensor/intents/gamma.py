@@ -59,7 +59,12 @@ def _min_out(gamma: int, tolerance: float) -> int:
 
 
 def _daily_spend_cap(value: Optional[Money]) -> Optional[Money]:
-    return None if value is None else gamma_amount(value)
+    if value is None:
+        return None
+    cap = gamma_amount(value)
+    if 0 < gamma_units(cap) < MIN_GAMMA_AMOUNT:
+        raise BittensorError("a daily spend cap is 0 or at least 0.1 gamma")
+    return cap
 
 
 def _cap_units(value: Optional[Money]) -> Optional[int]:

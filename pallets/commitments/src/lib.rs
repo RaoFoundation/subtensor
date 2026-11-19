@@ -428,6 +428,12 @@ pub mod pallet {
     pub type ChannelMechanismConfigPurgeCursor<T: Config> =
         StorageMap<_, Identity, (NetUid, MechId), u16, OptionQuery>;
 
+    /// Next mechanism whose channel state must be removed during dissolution.
+    /// Persisted so bounded retries never repeat completed mechanism cleanup.
+    #[pallet::storage]
+    pub type ChannelNetuidPurgeMechanism<T: Config> =
+        StorageMap<_, Identity, NetUid, MechId, OptionQuery>;
+
     /// Hotkeys whose channel state must be removed by bounded idle work. The target
     /// index is retained until that work finishes so cancellation also finds migrated rows.
     #[pallet::storage]
@@ -1561,6 +1567,10 @@ impl<T: Config> Pallet<T> {
             // Cancel the older direction. If no row reached this intermediate,
             // the reversal is a no-op; otherwise those rows must return as well.
             ChannelSwapPendingHotkeys::<T>::remove(netuid, new_hotkey);
+            // The older direction is canceled regardless of whether rows have
+            // reached this intermediate. Its reverse index must not continue
+            // to authorize a stale incoming migration.
+            ChannelSwapOrigins::<T>::remove((netuid, old_hotkey, new_hotkey));
             if ChannelTargetsOf::<T>::iter_key_prefix((netuid, old_hotkey))
                 .next()
                 .is_none()
@@ -1673,6 +1683,8 @@ impl<T: Config> Pallet<T> {
         if ChannelTargetsOf::<T>::iter_key_prefix((netuid, &old_hotkey))
             .next()
             .is_none()
+            && ChannelSwapPendingHotkeys::<T>::get(netuid, &new_hotkey).as_ref()
+                != Some(&old_hotkey)
             && let Some(source) =
                 ChannelSwapOrigins::<T>::iter_key_prefix((netuid, &old_hotkey)).next()
             && ChannelTargetsOf::<T>::iter_key_prefix((netuid, &source))
@@ -1703,13 +1715,20 @@ impl<T: Config> Pallet<T> {
                 ChannelSwapOrigins::<T>::iter_key_prefix((netuid, &old_hotkey)).next()
             {
                 // An empty or fully retired source cannot supply this edge.
-                // A direct return edge closes a cycle; cancel that empty edge
-                // instead of recreating the same pair on every drain. Otherwise
-                // compact source -> old -> new, retaining the source lineage.
-                if let Some(return_destination) =
-                    ChannelSwapPendingHotkeys::<T>::take(netuid, &new_hotkey)
+                // Compact source -> old -> new, retaining the source lineage.
+                // A direct return can only be cancelled if new_hotkey owns no
+                // rows; a nonempty outgoing migration must remain in place.
+                let return_destination = ChannelSwapPendingHotkeys::<T>::get(netuid, &new_hotkey);
+                if return_destination.as_ref() == Some(&old_hotkey)
+                    && ChannelTargetsOf::<T>::iter_key_prefix((netuid, &new_hotkey))
+                        .next()
+                        .is_none()
                 {
-                    ChannelSwapOrigins::<T>::remove((netuid, &return_destination, &new_hotkey));
+                    // Both hops are storage-empty and point at each other.
+                    // Neither can supply a row, so cancel this exact pair.
+                    // A nonempty outgoing migration is never cancelled here.
+                    ChannelSwapPendingHotkeys::<T>::remove(netuid, &new_hotkey);
+                    ChannelSwapOrigins::<T>::remove((netuid, &source, &new_hotkey));
                     ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
                     ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
                 } else {
@@ -1904,8 +1923,11 @@ impl<T: Config> Pallet<T> {
         if !Self::clear_channel_netuid_swaps(netuid, weight_meter) {
             return false;
         }
-        for mechanism in 0..16u8 {
-            let mecid = MechId::from(mechanism);
+        let first_mechanism = ChannelNetuidPurgeMechanism::<T>::get(netuid)
+            .map(u16::from)
+            .unwrap_or(0);
+        for mechanism in first_mechanism..16u16 {
+            let mecid = MechId::from(mechanism as u8);
             if !Self::purge_channel_mechanism_rows(netuid, mecid, weight_meter, u32::MAX)
                 || !Self::clear_channel_netuid_swaps_without_migration(netuid, weight_meter)
             {
@@ -1914,17 +1936,22 @@ impl<T: Config> Pallet<T> {
             if !Self::purge_channel_mechanism_config(netuid, mecid, weight_meter) {
                 return false;
             }
-            if !weight_meter.can_consume(write_weight.saturating_mul(2)) {
+            if !weight_meter.can_consume(write_weight.saturating_mul(3)) {
                 return false;
             }
             ChannelMechanismPurgeQueue::<T>::remove(netuid, mecid);
             ChannelMechanismRowsDrained::<T>::remove((netuid, mecid));
-            weight_meter.consume(write_weight.saturating_mul(2));
+            ChannelNetuidPurgeMechanism::<T>::insert(
+                netuid,
+                MechId::from(mechanism.saturating_add(1) as u8),
+            );
+            weight_meter.consume(write_weight.saturating_mul(3));
         }
         ChannelTimelockRevealCursor::<T>::kill();
-        if weight_meter.can_consume(write_weight) {
+        if weight_meter.can_consume(write_weight.saturating_mul(2)) {
             ChannelPurgePending::<T>::remove(netuid);
-            weight_meter.consume(write_weight);
+            ChannelNetuidPurgeMechanism::<T>::remove(netuid);
+            weight_meter.consume(write_weight.saturating_mul(2));
             true
         } else {
             false

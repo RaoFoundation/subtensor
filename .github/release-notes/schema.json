@@ -10,7 +10,6 @@
     "page_path",
     "public_path",
     "audiences",
-    "install_commands",
     "summary"
   ],
   "properties": {
@@ -63,6 +62,7 @@
       }
     },
     "install_commands": {
+      "description": "Legacy field accepted for old notes. Announcements generate their install commands.",
       "type": "array",
       "minItems": 1,
       "items": {

@@ -23,6 +23,15 @@ def violations(tree: str) -> list[str]:
             failures.add(
                 "Wasmtime component-model is enabled; reassess RustSec exclusions"
             )
+        if name in {"wasmtime-wasi", "wasmtime-wasi-http"}:
+            failures.add(f"{name} is active; reassess WASI-only RustSec exclusions")
+        if name == "libp2p" and "quic" in re.split(r"[,\s]+", features):
+            failures.add("libp2p QUIC is enabled; reassess QUIC RustSec exclusions")
+        if name == "hickory-resolver" and any(
+            feature in re.split(r"[,\s]+", features)
+            for feature in ("dnssec", "dnssec-ring", "dnssec-openssl", "dnssec-aws-lc-rs")
+        ):
+            failures.add("Hickory DNSSEC is enabled; reassess DNS RustSec exclusions")
     return sorted(failures)
 
 

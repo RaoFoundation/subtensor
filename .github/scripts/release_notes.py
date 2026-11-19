@@ -55,7 +55,6 @@ REQUIRED_KEYS = (
     "page_path",
     "public_path",
     "audiences",
-    "install_commands",
     "summary",
 )
 MAX_NOTES_BYTES = 64 * 1024
@@ -98,7 +97,6 @@ class CheckResult:
 class LoadedNotes:
     kind: str
     summary: str
-    install_commands: tuple[str, ...]
     audiences: tuple[str, ...]
     public_path: str
     spec_version: int | None
@@ -321,7 +319,8 @@ def validate_notes_document(document: object) -> LoadedNotes:
     if len(summary) > MAX_SUMMARY_CHARS:
         _fail(f"summary is longer than {MAX_SUMMARY_CHARS} characters")
     audiences = _nonempty_lines(document["audiences"], "audiences")
-    install_commands = _nonempty_lines(document["install_commands"], "install_commands")
+    if "install_commands" in document:
+        _nonempty_lines(document["install_commands"], "install_commands")
     spec_version: int | None = None
     sdk_version: str | None = None
     core_version: str | None = None
@@ -342,7 +341,6 @@ def validate_notes_document(document: object) -> LoadedNotes:
     return LoadedNotes(
         kind=kind,
         summary=summary.strip(),
-        install_commands=install_commands,
         audiences=audiences,
         public_path=public_path,
         spec_version=spec_version,
@@ -838,7 +836,13 @@ def render_announcement(
             _fail(f"{notes_file} package versions do not match {sdk} and {core}")
         if not sample:
             summary = notes.summary
-        install_commands = notes.install_commands
+        if spec is not None:
+            install_commands = (
+                f"git fetch https://github.com/{repo}.git tag v{spec}",
+                f"git checkout --detach v{spec}",
+                "cargo build --release --locked -p node-subtensor",
+                *install_commands,
+            )
         audiences = notes.audiences
         notes_public = notes.public_path
     elif not sample and not allow_missing_notes:

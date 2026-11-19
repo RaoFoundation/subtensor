@@ -133,6 +133,17 @@ class AnnounceSummaryTests(unittest.TestCase):
         self.assertIn(UTC, announcement.message)
         self.assertEqual(announcement.human_summary, HUMAN)
 
+    def test_install_commands_use_release_facts_instead_of_note_text(self) -> None:
+        notes = self.root / self.notes
+        payload = json.loads(notes.read_text(encoding="utf-8"))
+        payload["install_commands"] = ['uv pip install "bittensor==1.2.3"']
+        notes.write_text(json.dumps(payload), encoding="utf-8")
+
+        announcement = self._announce(None)
+        self.assertIn("git checkout --detach v493", announcement.message)
+        self.assertIn('uv pip install "bittensor==9.9.9"', announcement.message)
+        self.assertNotIn('uv pip install "bittensor==1.2.3"', announcement.message)
+
     def test_operators_should_update_is_plain_prose(self) -> None:
         reviewed = release_notes.review_model_prose(
             "Operators should update their nodes before the next session."

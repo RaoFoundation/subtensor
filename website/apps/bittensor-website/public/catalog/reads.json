@@ -623,8 +623,8 @@
         "container": "Commitments",
         "name": "CommitmentOf",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 452,
-        "url": "/code/pallets/commitments/src/lib.rs#L452",
+        "line": 458,
+        "url": "/code/pallets/commitments/src/lib.rs#L458",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -1969,8 +1969,8 @@
         "container": "Commitments",
         "name": "RevealedCommitments",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 488,
-        "url": "/code/pallets/commitments/src/lib.rs#L488",
+        "line": 494,
+        "url": "/code/pallets/commitments/src/lib.rs#L494",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]

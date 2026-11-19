@@ -3756,9 +3756,9 @@
         "pallet": "Commitments",
         "call": "set_commitment_to",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 677,
-        "end_line": 733,
-        "url": "/code/pallets/commitments/src/lib.rs#L667-L733",
+        "line": 683,
+        "end_line": 739,
+        "url": "/code/pallets/commitments/src/lib.rs#L673-L739",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]

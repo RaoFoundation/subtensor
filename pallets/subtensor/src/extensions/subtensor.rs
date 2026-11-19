@@ -1000,11 +1000,6 @@ mod tests {
             let bad_request = CustomTransactionError::BadRequest.into();
 
             // No service, then no deposit.
-            assert_eq!(validate_signed(hotkey, &spend(minimum)), Err(bad_request));
-            let url = frame_support::BoundedVec::truncate_from(b"u".to_vec());
-            crate::Services::<Test>::insert(netuid, service, crate::ServiceInfo { url });
-            assert_eq!(validate_signed(hotkey, &spend(minimum)), Err(bad_request));
-
             crate::GammaDeposits::<Test>::insert(
                 netuid,
                 hotkey,
@@ -1013,6 +1008,13 @@ mod tests {
                     balance: (2 * minimum).into(),
                     daily_spend_cap: None,
                 },
+            );
+            assert_eq!(validate_signed(hotkey, &spend(minimum)), Err(bad_request));
+            let url = frame_support::BoundedVec::truncate_from(b"u".to_vec());
+            crate::Services::<Test>::insert(netuid, service, crate::ServiceInfo { url });
+            assert_eq!(
+                validate_signed(U256::from(4), &spend(minimum)),
+                Err(bad_request)
             );
             assert_eq!(
                 validate_signed(hotkey, &spend(minimum - 1)),
@@ -1048,6 +1050,89 @@ mod tests {
             assert_eq!(
                 batch(vec![spend(minimum), spend(minimum)]),
                 Err(CustomTransactionError::RateLimitExceeded.into())
+            );
+        });
+    }
+
+    // A proxied spend is checked and tagged as a spend of the real hotkey, and only under a
+    // proxy type that admits it.
+    #[test]
+    fn proxied_spend_gamma_is_checked_as_the_real_hotkeys_spend() {
+        new_test_ext(1).execute_with(|| {
+            use subtensor_runtime_common::{ProxyType, TaoBalance};
+            let netuid = NetUid::from(1);
+            let (hotkey, service, delegate) = (U256::from(1), U256::from(2), U256::from(4));
+            let minimum = crate::MIN_GAMMA_AMOUNT;
+            add_network(netuid, 1, 0);
+            let url = frame_support::BoundedVec::truncate_from(b"u".to_vec());
+            crate::Services::<Test>::insert(netuid, service, crate::ServiceInfo { url });
+            let spend = RuntimeCall::SubtensorModule(SubtensorCall::spend_gamma {
+                service,
+                netuid,
+                amount: minimum.into(),
+            });
+            let proxied = RuntimeCall::Proxy(pallet_subtensor_proxy::Call::proxy {
+                real: hotkey,
+                force_proxy_type: None,
+                call: Box::new(spend.clone()),
+            });
+            assert_eq!(proxied.get_dispatch_info().pays_fee, Pays::No);
+            let validate = |signer: U256, call: &RuntimeCall| {
+                SubtensorTransactionExtension::<Test>::new()
+                    .validate(
+                        RawOrigin::Signed(signer).into(),
+                        call,
+                        &call.get_dispatch_info(),
+                        0,
+                        (),
+                        &TxBaseImplication(()),
+                        TransactionSource::External,
+                    )
+                    .map(|(validity, _, _)| validity.provides)
+            };
+            add_balance_to_coldkey_account(&hotkey, TaoBalance::new(1_000_000_000));
+            assert_ok!(Proxy::add_proxy(
+                RuntimeOrigin::signed(hotkey),
+                delegate,
+                ProxyType::Any,
+                0
+            ));
+            crate::GammaDeposits::<Test>::insert(
+                netuid,
+                delegate,
+                crate::GammaDeposit {
+                    coldkey: U256::from(3),
+                    balance: minimum.into(),
+                    daily_spend_cap: None,
+                },
+            );
+            assert_eq!(
+                validate(delegate, &proxied),
+                Err(CustomTransactionError::BadRequest.into())
+            );
+
+            crate::GammaDeposits::<Test>::insert(
+                netuid,
+                hotkey,
+                crate::GammaDeposit {
+                    coldkey: U256::from(3),
+                    balance: minimum.into(),
+                    daily_spend_cap: None,
+                },
+            );
+            assert_eq!(validate(delegate, &proxied), validate(hotkey, &spend));
+            assert_ne!(validate(delegate, &proxied), validate(delegate, &spend));
+
+            assert_ok!(Proxy::remove_proxies(RuntimeOrigin::signed(hotkey)));
+            assert_ok!(Proxy::add_proxy(
+                RuntimeOrigin::signed(hotkey),
+                delegate,
+                ProxyType::Lock,
+                0
+            ));
+            assert_eq!(
+                validate(delegate, &proxied),
+                Err(CustomTransactionError::InvalidRealAccount.into())
             );
         });
     }

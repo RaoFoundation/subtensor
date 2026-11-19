@@ -435,6 +435,7 @@ class Commitments:
     ChannelMechanismPurgeQueue = Item('Commitments', 'ChannelMechanismPurgeQueue', '()')
     ChannelMechanismRowsDrained = Item('Commitments', 'ChannelMechanismRowsDrained', 'bool')
     ChannelMechanismConfigPurgeCursor = Item('Commitments', 'ChannelMechanismConfigPurgeCursor', 'u16')
+    ChannelNetuidPurgeMechanism = Item('Commitments', 'ChannelNetuidPurgeMechanism', 'MechId')
     ChannelNeuronPurgeQueue = Item('Commitments', 'ChannelNeuronPurgeQueue', '()')
     TimelockRevealCursor = Item('Commitments', 'TimelockRevealCursor', '(NetUid, AccountId32)')
     CommitmentOf = Item('Commitments', 'CommitmentOf', 'Registration')

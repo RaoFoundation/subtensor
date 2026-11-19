@@ -93,6 +93,34 @@ jobs:
           #   sp-maybe-compressed-blob and zstd::decode_all (also explicitly
           #   unaffected) in wasmtime-cache; no affected decoder is called.
           #   Fixing the versions still requires the next polkadot-sdk bump.
+          # RUSTSEC-2026-0544 (libz-sys heap overflow) was resolved by bumping
+          #   libz-sys 1.1.32 → 1.1.33 in Cargo.lock (no ignore).
+          # RUSTSEC-2026-0523/0524/0538 (quinn-proto / quinn-udp) were resolved
+          #   by targeted lockfile updates to 0.11.19 / 0.5.16 (no ignores).
+          # RUSTSEC-2026-0487/0489/0490: hickory text/zone parsers panic on
+          #   malformed input. libp2p and litep2p decode DNS records from the
+          #   wire and do not accept untrusted zone files or record text; these
+          #   parser paths are not used. Their consumers pin hickory below 0.26.
+          # RUSTSEC-2026-0491: hickory decodes untrusted DNS responses with an
+          #   attacker-controlled initial allocation (up to about 18 MB before
+          #   rejecting a malformed message). This exposure in libp2p/litep2p is
+          #   accepted pending a compatible >=0.26.2 networking upgrade; it is
+          #   not a claim that the ordinary DNS response path is unreachable.
+          # RUSTSEC-2026-0504/0505/0511/0512/0514/0530/0531/0532/0549/0550/0551:
+          #   DNSSEC validation errors, some without a fixed old-line release.
+          #   libp2p-dns and litep2p resolve bootstrap peers without DNSSEC;
+          #   Noise authenticates libp2p peers independently of DNS answers.
+          #   check-audit-feature-exclusions.py fails if QUIC, WASI, or DNSSEC
+          #   becomes reachable in any workspace feature/target.
+          # RUSTSEC-2026-0525: libp2p-quic is a lockfile-only optional package;
+          #   libp2p's `quic` feature is not enabled and sc-network uses litep2p
+          #   by default. A compatible 0.11 patch is unavailable; enable only
+          #   after moving to >=0.13.1 and reassessing the feature guard.
+          # RUSTSEC-2026-0566/0571: affected Wasmtime WASI stream / WASI HTTP
+          #   packages are not compiled; the node does not execute guest WASI.
+          #   0569 affects host callers of Caller::get_module_export, while
+          #   sp-wasm-interface invokes host functions only from guest Wasm.
+          #   Wasmtime 8.0.1 is pinned by the SDK fork; revisit on SDK bump.
           # RUSTSEC-2026-0459: SQLite is opened only by the opt-in Frontier SQL
           #   backend; KeyValue is the default and never opens it. Exploitation
           #   additionally requires a crafted local database + sibling WAL.
@@ -129,15 +157,6 @@ jobs:
                       --ignore RUSTSEC-2026-0489 \
                       --ignore RUSTSEC-2026-0490 \
                       --ignore RUSTSEC-2026-0491 \
-                      --ignore RUSTSEC-2026-0505 \
-                      --ignore RUSTSEC-2026-0511 \
-                      --ignore RUSTSEC-2026-0512 \
-                      --ignore RUSTSEC-2026-0530 \
-                      --ignore RUSTSEC-2026-0531 \
-                      --ignore RUSTSEC-2026-0532 \
-                      --ignore RUSTSEC-2026-0549 \
-                      --ignore RUSTSEC-2026-0550 \
-                      --ignore RUSTSEC-2026-0551 \
                       --ignore RUSTSEC-2026-0204 \
                       --ignore RUSTSEC-2026-0220 \
                       --ignore RUSTSEC-2026-0222 \
@@ -151,4 +170,19 @@ jobs:
                       --ignore RUSTSEC-2026-0387 \
                       --ignore RUSTSEC-2026-0403 \
                       --ignore RUSTSEC-2026-0424 \
-                      --ignore RUSTSEC-2026-0459
+                      --ignore RUSTSEC-2026-0459 \
+                      --ignore RUSTSEC-2026-0504 \
+                      --ignore RUSTSEC-2026-0505 \
+                      --ignore RUSTSEC-2026-0511 \
+                      --ignore RUSTSEC-2026-0512 \
+                      --ignore RUSTSEC-2026-0514 \
+                      --ignore RUSTSEC-2026-0525 \
+                      --ignore RUSTSEC-2026-0530 \
+                      --ignore RUSTSEC-2026-0531 \
+                      --ignore RUSTSEC-2026-0532 \
+                      --ignore RUSTSEC-2026-0549 \
+                      --ignore RUSTSEC-2026-0550 \
+                      --ignore RUSTSEC-2026-0551 \
+                      --ignore RUSTSEC-2026-0566 \
+                      --ignore RUSTSEC-2026-0569 \
+                      --ignore RUSTSEC-2026-0571
