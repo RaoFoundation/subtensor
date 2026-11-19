@@ -10,6 +10,7 @@ frame-benchmarking = { workspace = true, optional = true }
 frame-support.workspace = true
 frame-system.workspace = true
 scale-info.workspace = true
+sp-io.workspace = true
 sp-runtime.workspace = true
 substrate-fixed.workspace = true
 subtensor-runtime-common.workspace = true
@@ -18,7 +19,6 @@ subtensor-swap-interface.workspace = true
 
 [dev-dependencies]
 sp-core.workspace = true
-sp-io.workspace = true
 
 [lints]
 workspace = true
