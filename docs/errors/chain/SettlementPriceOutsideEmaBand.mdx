@@ -7,9 +7,7 @@ description: "The action exceeds a configured safety policy"
 
 Permissionless settlement (fixed-term expiry or interest-exhaustion forfeit) saw spot outside the 15% EMA band. The claim is deferred (~100 blocks) and retried; after MaxSettlementDeferral (~7 days / 50_400 blocks from the first band deferral) the band gate lifts and the next collector retry settles anyway. Manual close/repay is unaffected — use those with your own slippage limits if you need to exit now.
 
-Declared by the `Lending` pallet; it classifies to the semantic code [`policy_violation`](/docs/errors/policy-violation).
-
-Declared at [`pallets/lending/src/lib.rs#L1376`](/code/pallets/lending/src/lib.rs#L1376).
+It classifies to the semantic code [`policy_violation`](/docs/errors/policy-violation).
 
 ## Remediation
 
