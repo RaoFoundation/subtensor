@@ -510,6 +510,33 @@ impl LendingPoolInterface<Account> for MockPool {
         Ok((recovered, refunded))
     }
 
+    fn terminal_settle_short_tao(
+        from: &Account,
+        vault: &Account,
+        recipient: &Account,
+        recovery: TaoBalance,
+        interest: TaoBalance,
+        refund: TaoBalance,
+    ) -> Result<(TaoBalance, TaoBalance, TaoBalance), DispatchError> {
+        // Single settle path (production withdraws once). Record one step so
+        // dissolution tests prove we do not burn then split separately.
+        push_short_settle_order("terminal_settle_short");
+        if !interest.is_zero() {
+            Self::transfer_tao(from, &account(255), interest)?;
+        }
+        let recovered = if recovery.is_zero() {
+            recovery
+        } else {
+            Self::refund_dissolution_tao(from, vault, recovery)?
+        };
+        let refunded = if refund.is_zero() {
+            refund
+        } else {
+            Self::refund_dissolution_tao(from, recipient, refund)?
+        };
+        Ok((recovered, interest, refunded))
+    }
+
     fn pool_tao(_: NetUid) -> TaoBalance {
         pool_tao().into()
     }
@@ -10927,6 +10954,69 @@ fn position_max_duration_migration_rewrites_and_is_idempotent() {
     });
 }
 
+/// Skeptic fid:a2a459cf — migration must rebuild the expiry index, not
+/// `expect` a bounded mid-list insert into a deep legacy queue.
+#[test]
+fn position_max_duration_migration_rebuilds_deep_expiry_schedule() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.terms_version = TERMS_VERSION_V1;
+            }
+        });
+        CurrentTermsVersion::<Test>::put(TERMS_VERSION_V1);
+        HasMigrationRun::<Test>::remove(max_duration_migration_key());
+
+        // Seed a deep legacy expiry list so a bounded mid-list insert would
+        // return ExpiryScheduleCongested (and the old `.expect` would panic).
+        let now = System::block_number().saturating_add(50);
+        System::set_block_number(now);
+        let new_expires = now.saturating_add(TestMaxLoanDuration::get());
+        let head = new_expires.saturating_sub(u64::from(MAX_EXPIRY_BUCKET_WALK).saturating_add(2));
+        let later = new_expires.saturating_add(100);
+        NextExpiry::<Test>::put(head);
+        ExpiryTail::<Test>::put(later);
+        let mut prev = head;
+        ExpiryIndex::<Test>::insert(head, 1u32);
+        for offset in 1..=MAX_EXPIRY_BUCKET_WALK.saturating_add(1) {
+            let at = head.saturating_add(u64::from(offset));
+            ExpiryNext::<Test>::insert(prev, at);
+            ExpiryPrev::<Test>::insert(at, prev);
+            ExpiryIndex::<Test>::insert(at, 1u32);
+            prev = at;
+        }
+        ExpiryNext::<Test>::insert(prev, later);
+        ExpiryPrev::<Test>::insert(later, prev);
+        ExpiryIndex::<Test>::insert(later, 1u32);
+
+        let _ = migrations::migrate_position_max_duration::<Test>();
+        assert!(HasMigrationRun::<Test>::get(max_duration_migration_key()));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(after.expires_at, new_expires);
+        assert_eq!(NextExpiry::<Test>::get(), Some(new_expires));
+        assert_eq!(ExpiryTail::<Test>::get(), Some(new_expires));
+        assert_eq!(ExpiryIndex::<Test>::get(new_expires), 1);
+        assert!(ExpiryNext::<Test>::get(new_expires).is_none());
+        assert!(Expiry::<Test>::contains_key(
+            new_expires,
+            (&owner, netuid())
+        ));
+    });
+}
+
 #[cfg(feature = "try-runtime")]
 #[test]
 fn position_max_duration_migration_try_runtime_checks_pass() {
@@ -11427,11 +11517,11 @@ fn max_loan_duration_change_does_not_rewrite_existing_expires_at() {
     });
 }
 
-/// Skeptic fid:83813c42 — burn short interest while pot+refund still pad the
-/// escrow, then terminal-split. A below-ED interest remainder must not sit on
-/// escrow after the split (production reaping would block dissolution).
+/// Skeptic fid:0fadfc1c / 83813c42 — short dissolution settles pot + interest +
+/// refund via one `terminal_settle_short` credit path (no separate Expendable
+/// burn that could reap a below-ED remainder).
 #[test]
-fn short_dissolution_burns_interest_before_terminal_split() {
+fn short_dissolution_uses_single_credit_settle_for_interest() {
     new_test_ext().execute_with(|| {
         clear_short_settle_order();
         let owner = account(1);
@@ -11472,11 +11562,10 @@ fn short_dissolution_burns_interest_before_terminal_split() {
             burned_before
         );
         let order = short_settle_order();
-        let burn_at = order.iter().position(|s| *s == "burn_interest");
-        let split_at = order.iter().position(|s| *s == "terminal_split");
-        assert!(
-            burn_at.is_some() && split_at.is_some() && burn_at.unwrap() < split_at.unwrap(),
-            "burn_interest must precede terminal_split (fid:83813c42); order={order:?}"
+        assert_eq!(
+            order,
+            vec!["terminal_settle_short"],
+            "must use one credit settle (fid:0fadfc1c); order={order:?}"
         );
     });
 }

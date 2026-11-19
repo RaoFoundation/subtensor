@@ -12,7 +12,7 @@ principal, collateral, escrow, lift legs, or `last_exposure_added_at`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.roll`](/code/pallets/lending/src/lib.rs#L1847-L1856) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.roll`](/code/pallets/lending/src/lib.rs#L1873-L1885) |
 
 ## Parameters
 
@@ -61,14 +61,17 @@ result = sub.execute_tool("roll_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.roll` — [`pallets/lending/src/lib.rs#L1853`](/code/pallets/lending/src/lib.rs#L1847-L1856):
+`Lending.roll` — [`pallets/lending/src/lib.rs#L1882`](/code/pallets/lending/src/lib.rs#L1873-L1885):
 
 ```rust
 #[pallet::call_index(8)]
 // Alias close until a reference-hardware re-measure (H2). Roll charges
 // interest and rewrites the expiry queue but does no AMM trade; close is
-// a safe upper bound. Do not invent local numerics.
-#[pallet::weight(T::WeightInfo::roll())]
+// a safe upper bound. Plus worst-case expiry mid-list walk DbWeight
+// (skeptic fid:98821ef3). Do not invent local execution-time numerics.
+#[pallet::weight(
+    T::WeightInfo::roll().saturating_add(Pallet::<T>::expiry_insert_weight())
+)]
 #[transactional]
 pub fn roll(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
     let owner = ensure_signed(origin)?;

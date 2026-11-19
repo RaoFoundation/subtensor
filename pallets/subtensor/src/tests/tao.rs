@@ -647,3 +647,55 @@ fn test_terminal_split_tao_recovers_when_refund_is_below_ed() {
         assert_eq!(subtensor_ti_before - subtensor_total_issuance(), refund);
     });
 }
+
+/// Skeptic fid:0fadfc1c — interest + recovery + below-ED refund leave escrow in
+/// one credit settle. A separate Expendable interest burn would reap the
+/// remainder before recovery/refund and stall dissolution.
+#[test]
+fn test_terminal_settle_short_tao_when_recovery_and_refund_below_ed_after_interest() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let escrow = U256::from(10);
+        let vault = U256::from(11);
+        let recipient = U256::from(12);
+        let burn: U256 = BurnAccountId::get().into_account_truncating();
+        let ed = ExistentialDeposit::get();
+        assert!(ed > 1u64.into(), "high-ED mock required");
+        // After interest, recovery+refund is positive but below ED so a
+        // separate burn would reap the escrow mid-path.
+        let interest = ed + TaoBalance::from(10);
+        let recovery = TaoBalance::from(40);
+        let refund = TaoBalance::from(40);
+        assert!(recovery + refund < ed, "fixture needs recovery+refund < ED");
+        add_balance_to_coldkey_account(&escrow, interest + recovery + refund);
+        add_balance_to_coldkey_account(&burn, ed); // burn dest already alive
+        assert!(Balances::total_balance(&recipient).is_zero());
+        assert!(Balances::total_balance(&vault).is_zero());
+
+        let (recovered, burned, refunded) =
+            <SubtensorModule as LendingPoolInterface<U256>>::terminal_settle_short_tao(
+                &escrow, &vault, &recipient, recovery, interest, refund,
+            )
+            .expect("single-credit settle must not fail mid-path");
+
+        assert_eq!(burned, interest);
+        assert_eq!(
+            recovered,
+            TaoBalance::ZERO,
+            "below-ED recovery to empty vault is recycled as dust"
+        );
+        assert_eq!(
+            refunded,
+            TaoBalance::ZERO,
+            "below-ED refund to empty recipient is recycled"
+        );
+        assert_eq!(Balances::total_balance(&escrow), 0.into());
+        assert_eq!(
+            Balances::total_balance(&burn),
+            ed + interest,
+            "interest credited to burn"
+        );
+        assert_eq!(Balances::total_balance(&vault), 0.into());
+    });
+}

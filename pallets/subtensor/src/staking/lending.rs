@@ -150,6 +150,37 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         Ok((recovered, refunded))
     }
 
+    /// One credit withdraw for pot recovery + interest burn + owner refund so a
+    /// below-ED remainder cannot be reaped between separate Expendable debits
+    /// (skeptic fid:0fadfc1c).
+    #[transactional]
+    fn terminal_settle_short_tao(
+        from: &T::AccountId,
+        vault: &T::AccountId,
+        recipient: &T::AccountId,
+        recovery: TaoBalance,
+        interest: TaoBalance,
+        refund: TaoBalance,
+    ) -> Result<(TaoBalance, TaoBalance, TaoBalance), DispatchError> {
+        let total = recovery
+            .checked_add(&interest)
+            .and_then(|t| t.checked_add(&refund))
+            .ok_or(Error::<T>::InsufficientLiquidity)?;
+        if total.is_zero() {
+            return Ok((TaoBalance::ZERO, TaoBalance::ZERO, TaoBalance::ZERO));
+        }
+        let credit = Self::withdraw_tao_as_credit(from, total)?;
+        let burn: T::AccountId = T::BurnAccountId::get().into_account_truncating();
+        let (credit, burned) =
+            Self::resolve_lending_credit_or_recycle_dust(&burn, credit, interest)?;
+        let (credit, recovered) =
+            Self::resolve_lending_credit_or_recycle_dust(vault, credit, recovery)?;
+        let (credit, refunded) =
+            Self::resolve_lending_credit_or_recycle_dust(recipient, credit, refund)?;
+        Self::recycle_credit(credit);
+        Ok((recovered, burned, refunded))
+    }
+
     #[transactional]
     fn collect_interest_tao(
         from: &T::AccountId,

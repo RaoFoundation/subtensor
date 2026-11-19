@@ -44,7 +44,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1644-L1673), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L1676-L1705) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1662-L1696), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L1699-L1730) |
 
 ## Parameters
 
@@ -105,14 +105,19 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open` — [`pallets/lending/src/lib.rs#L1649`](/code/pallets/lending/src/lib.rs#L1644-L1673):
+`Lending.open` — [`pallets/lending/src/lib.rs#L1672`](/code/pallets/lending/src/lib.rs#L1662-L1696):
 
 ```rust
 #[pallet::call_index(0)]
 // Short and long auto-size paths differ (long: up to 64× `v_dyn` + stake
 // locks). Charge the componentwise max of both measured benchmarks
-// (Skeptic fid:75297abf).
-#[pallet::weight(T::WeightInfo::open().max(T::WeightInfo::open_long()))]
+// (Skeptic fid:75297abf). Plus worst-case expiry mid-list walk
+// (skeptic fid:98821ef3 / 600d74dc) — DbWeight only, no invented time.
+#[pallet::weight(
+    T::WeightInfo::open()
+        .max(T::WeightInfo::open_long())
+        .saturating_add(Pallet::<T>::expiry_insert_weight())
+)]
 pub fn open(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -140,11 +145,13 @@ pub fn open(
 }
 ```
 
-`Lending.open_exact` — [`pallets/lending/src/lib.rs#L1678`](/code/pallets/lending/src/lib.rs#L1676-L1705):
+`Lending.open_exact` — [`pallets/lending/src/lib.rs#L1703`](/code/pallets/lending/src/lib.rs#L1699-L1730):
 
 ```rust
 #[pallet::call_index(1)]
-#[pallet::weight(T::WeightInfo::open_exact())]
+#[pallet::weight(
+    T::WeightInfo::open_exact().saturating_add(Pallet::<T>::expiry_insert_weight())
+)]
 pub fn open_exact(
     origin: OriginFor<T>,
     netuid: NetUid,
