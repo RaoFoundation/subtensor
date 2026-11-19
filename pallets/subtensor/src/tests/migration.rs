@@ -362,9 +362,33 @@ fn test_migrate_drop_gamma_spenders() {
         let (coldkey, hotkey, spender) = (U256::from(1), U256::from(2), U256::from(3));
         let balance = subtensor_runtime_common::GammaBalance::from(7_u64);
         let daily_spend_cap = Some(GammaDailySpendCap {
-            cap: 5_u64.into(),
+            cap: MIN_GAMMA_AMOUNT.into(),
             bucket: (3_u64.into(), 9),
         });
+        let paused = Some(GammaDailySpendCap {
+            cap: 0_u64.into(),
+            bucket: (0_u64.into(), System::block_number()),
+        });
+        let (owner_coldkey, owner_hotkey) = (U256::from(4), U256::from(5));
+        SubnetOwner::<Test>::insert(netuid, owner_coldkey);
+        SubnetOwnerHotkey::<Test>::insert(netuid, owner_hotkey);
+        let small = Some(GammaDailySpendCap {
+            cap: (MIN_GAMMA_AMOUNT - 1).into(),
+            bucket: (3_u64.into(), 9),
+        });
+        // (coldkey, hotkey, cap before, cap after)
+        let others = [
+            (owner_coldkey, owner_hotkey, None, paused),
+            (coldkey, U256::from(6), None, None),
+            (coldkey, U256::from(7), small, paused),
+            (coldkey, U256::from(8), paused, paused),
+        ];
+        for (coldkey, hotkey, cap, _) in others {
+            put(
+                &GammaDeposits::<Test>::hashed_key_for(netuid, hotkey),
+                &(coldkey, spender, balance, cap),
+            );
+        }
         let service = ServiceInfo {
             url: frame_support::BoundedVec::truncate_from(b"https://example.com".to_vec()),
         };
@@ -387,6 +411,16 @@ fn test_migrate_drop_gamma_spenders() {
                 daily_spend_cap,
             })
         );
+        for (coldkey, hotkey, _, daily_spend_cap) in others {
+            assert_eq!(
+                GammaDeposits::<Test>::get(netuid, hotkey),
+                Some(GammaDeposit {
+                    coldkey,
+                    balance,
+                    daily_spend_cap,
+                })
+            );
+        }
         assert_eq!(Services::<Test>::get(netuid, hotkey), Some(service));
         assert!(HasMigrationRun::<Test>::get(
             b"migrate_drop_gamma_spenders".to_vec()

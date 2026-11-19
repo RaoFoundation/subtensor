@@ -355,7 +355,8 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     ),
     "AmountTooLow": (
         "raise the amount above the chain minimum stake (after fees/slippage), or to "
-        "mint, spend or move at least 0.1 gamma; check with `btcli stake list` / subnet price"
+        "mint, spend or move at least 0.1 gamma, or a daily spend cap to 0 or at least 0.1 "
+        "gamma; check with `btcli stake list` / subnet price"
     ),
     "NonAssociatedColdKey": (
         "sign with the coldkey that owns the hotkey (`btcli wallet registrations`) or its "

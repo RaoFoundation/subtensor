@@ -56,7 +56,7 @@ are, how to reach them, and how they are paid for:
 - `publishers` lists, by netuid and hotkey, every published service whose url
   may point to the document, including hotkeys it was published under before.
   Readers ignore one that is not listed, and customers spend only at listed
-  hotkeys, so nobody can publish the url and take its customers' gamma.
+  hotkeys, since anyone can publish the url.
   Without `publishers`, any may point to it.
 - A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma), spent at
   the service's hotkey.
@@ -82,4 +82,7 @@ finalized block it reads [`gamma-spent`](/docs/query/gamma-spent) for the hotkey
 at each of its hotkeys in `publishers`, and credits what each total has grown by
 since its last read. Dissolving the subnet clears the totals and the gamma, so a
 service stores the subnet's `RegisteredSubnetCounter` with each total and starts
-from zero when the counter has grown.
+from zero when the counter has grown. Spends stop at the block that removes the
+subnet, which emits `NetworkRemoved`, and the totals are cleared after it, so a
+service first credits the `GammaSpent` events at its hotkeys from its last read
+through that block.

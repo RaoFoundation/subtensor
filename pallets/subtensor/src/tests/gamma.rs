@@ -13,13 +13,13 @@ use subtensor_swap_interface::SwapHandler;
 use super::mock::*;
 use crate::*;
 
-const TAO: u64 = 1_000_000_000;
-const GAMMA: u64 = 1_000_000_000;
+pub(super) const TAO: u64 = 1_000_000_000;
+pub(super) const GAMMA: u64 = 1_000_000_000;
 /// 400 dollars per TAO.
 const PRICE: u64 = 400 * GAMMA;
 const ORACLE: u64 = 9_000;
-const OWNER_HOTKEY: u64 = 1;
-const OWNER_COLDKEY: u64 = 2;
+pub(super) const OWNER_HOTKEY: u64 = 1;
+pub(super) const OWNER_COLDKEY: u64 = 2;
 const COLDKEY: u64 = 3;
 const HOTKEY: u64 = 4;
 const SERVICE: u64 = 7_000;
@@ -47,7 +47,7 @@ fn enable_gamma(netuid: NetUid, tao: u64, alpha: u64) {
 }
 
 /// A gamma subnet that lists `SERVICE`.
-fn gamma_subnet() -> NetUid {
+pub(super) fn gamma_subnet() -> NetUid {
     let netuid = add_dynamic_network(&U256::from(OWNER_HOTKEY), &U256::from(OWNER_COLDKEY));
     enable_gamma(netuid, 1_000 * TAO, 1_000 * TAO);
     let url = BoundedVec::truncate_from(b"https://service.example".to_vec());
@@ -75,7 +75,7 @@ fn assert_gamma_invariants(netuid: NetUid) {
     assert_eq!(listed, deposits.len());
 }
 
-fn mint(netuid: NetUid, coldkey: u64, hotkey: u64, tao: u64) -> GammaBalance {
+pub(super) fn mint(netuid: NetUid, coldkey: u64, hotkey: u64, tao: u64) -> GammaBalance {
     if !Owner::<Test>::contains_key(U256::from(hotkey)) {
         assert_ok!(SubtensorModule::set_hotkey_owner(
             &U256::from(coldkey),
@@ -100,7 +100,7 @@ fn mint(netuid: NetUid, coldkey: u64, hotkey: u64, tao: u64) -> GammaBalance {
 }
 
 /// `hotkey` spends `amount` of its deposit on `netuid` at `SERVICE`.
-fn spend(netuid: NetUid, hotkey: u64, amount: u64) -> DispatchResult {
+pub(super) fn spend(netuid: NetUid, hotkey: u64, amount: u64) -> DispatchResult {
     SubtensorModule::spend_gamma(
         RuntimeOrigin::signed(U256::from(hotkey)),
         U256::from(SERVICE),
@@ -109,7 +109,7 @@ fn spend(netuid: NetUid, hotkey: u64, amount: u64) -> DispatchResult {
     )
 }
 
-fn deposit(netuid: NetUid, hotkey: u64) -> GammaDeposit<U256> {
+pub(super) fn deposit(netuid: NetUid, hotkey: u64) -> GammaDeposit<U256> {
     GammaDeposits::<Test>::get(netuid, U256::from(hotkey)).unwrap()
 }
 
@@ -1724,16 +1724,19 @@ fn announced_coldkey_swap_blocks_its_gamma_calls_but_not_its_hotkeys_spends() {
 }
 
 #[test]
-fn hotkey_swap_leaves_gamma_deposits() {
+fn hotkey_swap_moves_gamma_deposits() {
     new_test_ext(1).execute_with(|| {
         let netuid = gamma_subnet();
         let (owner_hotkey, new_hotkey) = (U256::from(OWNER_HOTKEY), U256::from(99));
         mint(netuid, OWNER_COLDKEY, OWNER_HOTKEY, TAO);
         assert_ok!(spend(netuid, OWNER_HOTKEY, GAMMA));
-        let before = deposit(netuid, OWNER_HOTKEY);
+        mint(netuid, OWNER_COLDKEY, 99, TAO);
+        mint(netuid, COLDKEY, HOTKEY, TAO);
+        let total = deposit(netuid, OWNER_HOTKEY).balance + deposit(netuid, 99).balance;
         let spent = |hotkey| GammaSpent::<Test>::get((netuid, U256::from(SERVICE), hotkey));
         add_balance_to_coldkey_account(&U256::from(OWNER_COLDKEY), (10 * TAO).into());
         System::set_block_number(System::block_number() + 1_000);
+        System::reset_events();
         assert_ok!(SubtensorModule::swap_hotkey_v2(
             RuntimeOrigin::signed(U256::from(OWNER_COLDKEY)),
             owner_hotkey,
@@ -1741,11 +1744,106 @@ fn hotkey_swap_leaves_gamma_deposits() {
             None,
             false
         ));
-        assert_eq!(deposit(netuid, OWNER_HOTKEY), before);
-        assert_eq!(GammaDeposits::<Test>::get(netuid, new_hotkey), None);
+        // Added to the coldkey's deposit at the new hotkey, as a move of the whole balance.
+        assert_eq!(GammaDeposits::<Test>::get(netuid, owner_hotkey), None);
+        assert_eq!(deposit(netuid, 99).balance, total);
+        assert!(matches!(
+            gamma_events()[..],
+            [Event::GammaMoved { .. }, Event::GammaDepositClosed { .. }]
+        ));
         assert_eq!(spent(owner_hotkey), GAMMA.into());
         assert_eq!(spent(new_hotkey), GammaBalance::ZERO);
         assert_gamma_invariants(netuid);
+
+        // Another coldkey's deposit at the old hotkey stays; the coldkey's own deposit pauses
+        // when the new hotkey holds another coldkey's deposit.
+        let (coldkey, other) = (U256::from(COLDKEY), U256::from(OWNER_COLDKEY));
+        assert_ok!(SubtensorModule::move_gamma(
+            RuntimeOrigin::signed(other),
+            new_hotkey,
+            U256::from(98),
+            netuid,
+            GAMMA.into()
+        ));
+        assert_ok!(SubtensorModule::move_gamma(
+            RuntimeOrigin::signed(coldkey),
+            U256::from(HOTKEY),
+            U256::from(97),
+            netuid,
+            GAMMA.into()
+        ));
+        assert_eq!(
+            SubtensorModule::swap_hotkey_gamma_deposit(
+                netuid,
+                &U256::from(98),
+                &U256::from(96),
+                &coldkey
+            ),
+            Ok(false)
+        );
+        let held = deposit(netuid, 97);
+        assert_eq!(
+            SubtensorModule::swap_hotkey_gamma_deposit(
+                netuid,
+                &U256::from(97),
+                &U256::from(98),
+                &coldkey
+            ),
+            Ok(true)
+        );
+        assert_eq!(deposit(netuid, 98).coldkey, other);
+        assert_eq!(deposit(netuid, 97).balance, held.balance);
+        assert_eq!(
+            SubtensorModule::gamma_cap(&deposit(netuid, 97)),
+            Some(GammaBalance::ZERO)
+        );
+        assert_eq!(
+            spend(netuid, 97, GAMMA),
+            Err(Error::<Test>::GammaDepositDailySpendCapExceeded.into())
+        );
+        assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn daily_spend_cap_is_zero_or_at_least_the_minimum() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let coldkey = || RuntimeOrigin::signed(U256::from(COLDKEY));
+        add_balance_to_coldkey_account(&U256::from(COLDKEY), (2 * TAO).into());
+        assert_noop!(
+            SubtensorModule::mint_gamma(
+                coldkey(),
+                U256::from(HOTKEY),
+                netuid,
+                TAO.into(),
+                GammaBalance::ZERO,
+                Some((MIN_GAMMA_AMOUNT - 1).into())
+            ),
+            Error::<Test>::AmountTooLow
+        );
+        mint(netuid, COLDKEY, HOTKEY, TAO);
+        for cap in [1, MIN_GAMMA_AMOUNT - 1] {
+            assert_noop!(
+                SubtensorModule::set_gamma_deposit_daily_spend_cap(
+                    coldkey(),
+                    U256::from(HOTKEY),
+                    netuid,
+                    Some(cap.into())
+                ),
+                Error::<Test>::AmountTooLow
+            );
+        }
+        for cap in [0, MIN_GAMMA_AMOUNT] {
+            assert_ok!(SubtensorModule::set_gamma_deposit_daily_spend_cap(
+                coldkey(),
+                U256::from(HOTKEY),
+                netuid,
+                Some(cap.into())
+            ));
+        }
+        System::set_block_number(System::block_number() + GAMMA_REFILL_BLOCKS);
+        assert_ok!(spend(netuid, HOTKEY, MIN_GAMMA_AMOUNT));
     });
 }
 

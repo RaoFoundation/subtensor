@@ -1825,7 +1825,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
+          "description": "The deposit's daily spend cap, in gamma: 0 pauses it, and any other cap is at least 0.1. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
         }
       },
       "required": [
@@ -1913,7 +1913,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
+          "description": "The deposit's daily spend cap, in gamma: 0 pauses it, and any other cap is at least 0.1. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
         }
       },
       "required": [
@@ -3762,7 +3762,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "The cap, in gamma; 0 pauses the deposit."
+          "description": "The cap, in gamma: 0 pauses the deposit, any other is at least 0.1."
         },
         "remove_cap": {
           "type": "boolean",

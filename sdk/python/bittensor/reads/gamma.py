@@ -86,7 +86,9 @@ async def gamma_deposits(view, coldkey_ss58: str) -> list[dict]:
 async def gamma_spent(view, netuid: int, service_hotkey_ss58: str, hotkey_ss58: str) -> str:
     """The gamma a hotkey has spent at a service on a subnet, as an exact decimal string.
 
-    It only grows, until the subnet is dissolved, which clears it.
+    It only grows, until the subnet is dissolved, which clears it. A service crediting spends
+    reads it at a finalized block:
+    `(await client.at(await client.finalized_block())).gamma.gamma_spent(...)`.
     """
     spent = await view.query(
         st.SubtensorModule.GammaSpent, [netuid, service_hotkey_ss58, hotkey_ss58]

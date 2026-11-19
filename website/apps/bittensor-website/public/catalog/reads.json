@@ -978,7 +978,7 @@
   {
     "name": "gamma_spent",
     "summary": "The gamma a hotkey has spent at a service on a subnet, as an exact decimal string.",
-    "description": "The gamma a hotkey has spent at a service on a subnet, as an exact decimal string.\n\nIt only grows, until the subnet is dissolved, which clears it.",
+    "description": "The gamma a hotkey has spent at a service on a subnet, as an exact decimal string.\n\nIt only grows, until the subnet is dissolved, which clears it. A service crediting spends\nreads it at a finalized block:\n`(await client.at(await client.finalized_block())).gamma.gamma_spent(...)`.",
     "params": {
       "netuid": "integer",
       "service_hotkey_ss58": "string",

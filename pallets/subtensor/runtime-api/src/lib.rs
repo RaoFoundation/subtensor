@@ -167,6 +167,7 @@ sp_api::decl_runtime_apis! {
         fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<BasketClaimPreview<AccountId32>>;
     }
 
+    #[api_version(2)]
     pub trait GammaRuntimeApi {
         /// The deposit at a hotkey on a subnet, and what its hotkey can spend from it now.
         fn get_gamma_deposit(netuid: NetUid, hotkey: AccountId32) -> Option<GammaDepositInfo<AccountId32>>;

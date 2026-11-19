@@ -40,9 +40,9 @@ MIN_GAMMA_AMOUNT = 100_000_000
 
 RATE_TOLERANCE_HELP = "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
 DAILY_SPEND_CAP_HELP = (
-    "The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an "
-    "existing one must already have it. Omit to keep the deposit's cap, which for a new deposit "
-    "is none."
+    "The deposit's daily spend cap, in gamma: 0 pauses it, and any other cap is at least 0.1. A "
+    "new deposit opens with it, and an existing one must already have it. Omit to keep the "
+    "deposit's cap, which for a new deposit is none."
 )
 
 
@@ -477,7 +477,8 @@ class SetGammaDepositDailySpendCap(Intent):
     netuid: int = field(metadata={"help": "Subnet of the deposit."})
     hotkey_ss58: str = field(metadata={"help": "Hotkey of the deposit."})
     daily_spend_cap_gamma: Optional[Money] = field(
-        default=None, metadata={"help": "The cap, in gamma; 0 pauses the deposit."}
+        default=None,
+        metadata={"help": "The cap, in gamma: 0 pauses the deposit, any other is at least 0.1."},
     )
     remove_cap: bool = field(default=False, metadata={"help": "Remove the cap."})
 

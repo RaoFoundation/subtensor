@@ -68,7 +68,8 @@ DESCRIPTIONS: dict[str, str] = {
         "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the "
         "minimum stake threshold after fees and slippage, a gamma mint came to less than "
         "0.1 gamma, a gamma spend took less than 0.1 gamma without emptying the deposit, or a "
-        "gamma move took or left less than 0.1 gamma without emptying it. Compare the amount "
+        "gamma move took or left less than 0.1 gamma without emptying it, or a gamma daily spend "
+        "cap was between 0 and 0.1 gamma. Compare the amount "
         "against the `DefaultMinStake` storage item and the subnet's alpha price before "
         "retrying with a larger amount."
     ),

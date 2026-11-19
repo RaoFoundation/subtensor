@@ -144,8 +144,8 @@ A daily spend cap, set with
 bounds what the hotkey can spend. What it allows refills linearly at the cap
 per 7200 blocks, up to the cap. A cap set where there was none starts full, and
 a changed cap keeps what it allows now, up to the new cap, so ending a pause
-refills from nothing. A cap of zero pauses the deposit, and `--remove-cap`
-removes the cap.
+refills from nothing. A cap of zero pauses the deposit, any other cap is at
+least 0.1 gamma, and `--remove-cap` removes the cap.
 
 While a deposit has a cap, its hotkey spends at most the highest cap plus its
 refill over any period. A deposit opened with a cap starts full.
@@ -212,6 +212,10 @@ btcli query tao-usd-price
   accrues to the subnet's alpha holders.
 - While a coldkey swap is announced, the coldkey's gamma calls are refused, but
   its deposits' hotkeys keep spending.
+- A hotkey swap moves the coldkey's deposit at the old hotkey on each subnet it
+  swaps to the new hotkey, as a move of the whole balance, or pauses it if the
+  new hotkey holds another coldkey's deposit there. What the old hotkey spent
+  stays under it.
 - A coldkey swap adds the coldkey's deposits to the new coldkey's. It fails if
   the new coldkey would hold more than 64 on a subnet, and is refused when the
   two coldkeys hold more than 128 together.

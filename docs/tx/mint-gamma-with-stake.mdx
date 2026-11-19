@@ -26,7 +26,7 @@ less `rate_tolerance`. Its plan's `preview` and result's
 | `amount_alpha` | number \| `"all"` | yes | Alpha of stake burned. |
 | `origin_hotkey_ss58` | string | yes | Hotkey the stake is held on (the validator backing the position). |
 | `rate_tolerance` | number | no | Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%). |
-| `daily_spend_cap_gamma` | number | no | The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none. |
+| `daily_spend_cap_gamma` | number | no | The deposit's daily spend cap, in gamma: 0 pauses it, and any other cap is at least 0.1. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -101,6 +101,6 @@ pub fn mint_gamma_with_stake(
 }
 ```
 
-Delegates to [`do_mint_gamma_with_stake`](/code/pallets/subtensor/src/subnets/gamma.rs#L354).
+Delegates to [`do_mint_gamma_with_stake`](/code/pallets/subtensor/src/subnets/gamma.rs#L369).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

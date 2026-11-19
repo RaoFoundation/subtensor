@@ -108,8 +108,18 @@ impl<T: Config> Pallet<T> {
         deposit.daily_spend_cap.map(|cap| cap.cap)
     }
 
+    /// A daily spend cap is 0, which pauses the deposit, or at least [`crate::MIN_GAMMA_AMOUNT`],
+    /// the least a spend that leaves a balance takes.
+    fn ensure_gamma_cap(cap: Option<GammaBalance>) -> DispatchResult {
+        ensure!(
+            cap.is_none_or(|cap| cap.is_zero() || cap.to_u64() >= crate::MIN_GAMMA_AMOUNT),
+            Error::<T>::AmountTooLow
+        );
+        Ok(())
+    }
+
     /// `cap` with a full bucket, as a deposit opens with.
-    fn full_gamma_cap(cap: Option<GammaBalance>) -> Option<GammaDailySpendCap> {
+    pub(crate) fn full_gamma_cap(cap: Option<GammaBalance>) -> Option<GammaDailySpendCap> {
         let now = Self::get_current_block_as_u64();
         cap.map(|cap| GammaDailySpendCap {
             cap,
@@ -189,6 +199,7 @@ impl<T: Config> Pallet<T> {
                 Ok(cap)
             }
             None => {
+                Self::ensure_gamma_cap(daily_spend_cap)?;
                 Self::insert_gamma_deposit(
                     netuid,
                     hotkey,
@@ -402,6 +413,16 @@ impl<T: Config> Pallet<T> {
         amount: GammaBalance,
     ) -> DispatchResult {
         let coldkey = ensure_signed(origin)?;
+        Self::move_coldkey_gamma(coldkey, origin_hotkey, destination_hotkey, netuid, amount)
+    }
+
+    fn move_coldkey_gamma(
+        coldkey: T::AccountId,
+        origin_hotkey: T::AccountId,
+        destination_hotkey: T::AccountId,
+        netuid: NetUid,
+        amount: GammaBalance,
+    ) -> DispatchResult {
         ensure!(
             origin_hotkey != destination_hotkey,
             Error::<T>::InvalidValue
@@ -500,6 +521,7 @@ impl<T: Config> Pallet<T> {
         daily_spend_cap: Option<GammaBalance>,
     ) -> DispatchResult {
         let coldkey = ensure_signed(origin)?;
+        Self::ensure_gamma_cap(daily_spend_cap)?;
         let mut deposit = Self::own_gamma_deposit(netuid, &hotkey, &coldkey)?;
         let now = Self::get_current_block_as_u64();
         let allowance = Self::gamma_allowance(&deposit, now);
@@ -576,6 +598,44 @@ impl<T: Config> Pallet<T> {
             cap.bucket = (allowance.saturating_sub(amount), now);
         }
         Ok(deposit)
+    }
+
+    /// Takes spending away from `old_hotkey` in a hotkey swap: the coldkey's deposit there moves
+    /// to `new_hotkey` as a move of its whole balance, or pauses when `new_hotkey` holds another
+    /// coldkey's deposit. What `old_hotkey` spent stays in [`GammaSpent`]. Returns whether it
+    /// changed a deposit.
+    pub(crate) fn swap_hotkey_gamma_deposit(
+        netuid: NetUid,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> Result<bool, DispatchError> {
+        let Some(mut deposit) = GammaDeposits::<T>::get(netuid, old_hotkey)
+            .filter(|deposit| deposit.coldkey == *coldkey && !deposit.balance.is_zero())
+        else {
+            return Ok(false);
+        };
+        if GammaDeposits::<T>::get(netuid, new_hotkey)
+            .is_none_or(|destination| destination.coldkey == *coldkey)
+        {
+            Self::move_coldkey_gamma(
+                coldkey.clone(),
+                old_hotkey.clone(),
+                new_hotkey.clone(),
+                netuid,
+                deposit.balance,
+            )?;
+        } else {
+            deposit.daily_spend_cap = Self::full_gamma_cap(Some(GammaBalance::ZERO));
+            GammaDeposits::<T>::insert(netuid, old_hotkey, deposit);
+            Self::deposit_event(Event::GammaDepositDailySpendCapSet {
+                netuid,
+                coldkey: coldkey.clone(),
+                hotkey: old_hotkey.clone(),
+                daily_spend_cap: Some(GammaBalance::ZERO),
+            });
+        }
+        Ok(true)
     }
 
     /// Moves the old coldkey's deposits on `netuid` to the new coldkey, terms unchanged; fails
