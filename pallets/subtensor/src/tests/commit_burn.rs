@@ -878,6 +878,75 @@ fn reused_source_pruning_does_not_delete_its_new_registration_grant() {
     });
 }
 
+// A reverse swap can restore a grant on the old hotkey, but that grant belongs
+// to the old registration and must not authorize a later independent one.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn reverse_swap_delegate_does_not_survive_independent_reregistration() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let mecid = MechId::MAIN;
+        let index = SubtensorModule::get_mechanism_storage_index(netuid, mecid);
+        let old_hotkey = U256::from(55);
+        let new_hotkey = U256::from(56);
+        let displaced = U256::from(57);
+        let delegate = U256::from(99);
+        add_network_disable_commit_reveal(netuid, 100, 0);
+        SubtensorModule::set_stake_threshold(0);
+        SubtensorModule::set_immunity_period(netuid, 0);
+        for hotkey in [old_hotkey, displaced] {
+            SubtensorModule::append_neuron(netuid, &hotkey, 0);
+        }
+        assert_ok!(SubtensorModule::do_set_mech_weight_delegate(
+            RuntimeOrigin::signed(old_hotkey),
+            netuid,
+            mecid,
+            Some(delegate),
+        ));
+        queue_delegate_uid_move(netuid, old_hotkey, new_hotkey, mecid, None);
+        queue_delegate_uid_move(netuid, new_hotkey, old_hotkey, mecid, None);
+        assert_eq!(
+            MechWeightDelegate::<Test>::get((index, old_hotkey)),
+            Some(delegate)
+        );
+
+        // The second registration is independent and receives a new UID.
+        SubtensorModule::append_neuron(netuid, &new_hotkey, 0);
+        SubtensorModule::append_neuron(netuid, &old_hotkey, 0);
+        assert_ne!(Uids::<Test>::get(netuid, old_hotkey), Some(0));
+        assert!(MechWeightDelegatePurgeQueue::<Test>::contains_key(
+            netuid, old_hotkey
+        ));
+        SubtensorModule::drain_mech_weight_delegate_lifecycle(
+            &mut frame_support::weights::WeightMeter::new(),
+        );
+
+        assert_eq!(MechWeightDelegate::<Test>::get((index, old_hotkey)), None);
+        assert!(!SubtensorModule::mech_weight_delegate_lifecycle_pending(
+            netuid,
+            &old_hotkey
+        ));
+        assert_noop!(
+            SubtensorModule::do_set_mechanism_weights_for(
+                RuntimeOrigin::signed(delegate),
+                netuid,
+                mecid,
+                old_hotkey,
+                vec![0],
+                vec![u16::MAX],
+                0,
+            ),
+            Error::<Test>::NotMechWeightDelegate
+        );
+        assert_ok!(SubtensorModule::do_set_mech_weight_delegate(
+            RuntimeOrigin::signed(old_hotkey),
+            netuid,
+            mecid,
+            Some(U256::from(100)),
+        ));
+    });
+}
+
 // Reused validator hotkeys must keep independent grants and must not leave stale
 // lifecycle rows that permanently block new delegations after UID pruning.
 // PROTECTED_REGRESSION: changes require explicit human approval.

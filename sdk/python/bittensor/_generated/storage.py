@@ -358,6 +358,7 @@ class SubtensorModule:
     TaoInRefundDeploymentBlock = Item('SubtensorModule', 'TaoInRefundDeploymentBlock', 'u64')
     MinNonImmuneUids = Item('SubtensorModule', 'MinNonImmuneUids', 'u16')
     MaxMechanismCount = Item('SubtensorModule', 'MaxMechanismCount', 'MechId')
+    SubnetEmissionWeightsRateLimit = Item('SubtensorModule', 'SubnetEmissionWeightsRateLimit', 'u64')
     MechanismCountCurrent = Item('SubtensorModule', 'MechanismCountCurrent', 'MechId')
     MechanismEmissionSplit = Item('SubtensorModule', 'MechanismEmissionSplit', 'Vec<u16>')
     BurnHalfLife = Item('SubtensorModule', 'BurnHalfLife', 'u16')

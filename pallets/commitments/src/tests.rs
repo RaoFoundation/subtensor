@@ -811,6 +811,140 @@ fn retirement_cursor_write_stays_inside_idle_budget() {
     });
 }
 
+// Retiring a mechanism or dissolving its subnet must remove the registration,
+// not only its reserve and indexes, before the storage index can be reused.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn mechanism_retirement_and_dissolution_remove_raw_channel_registrations() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let retired = MechId::from(1);
+        let index = NetUidStorageIndex::from(4097u16);
+        for (mechanism, channel) in [(MechId::MAIN, 7), (retired, 8)] {
+            assert_ok!(Pallet::<Test>::set_commitment_to(
+                RuntimeOrigin::signed(123),
+                netuid,
+                mechanism,
+                channel,
+                123,
+                Box::new(CommitmentInfo::<TestMaxFields> {
+                    fields: BoundedVec::try_from(vec![Data::Raw(
+                        b"raw".to_vec().try_into().expect("raw fits"),
+                    )])
+                    .expect("one field fits"),
+                }),
+                TaoBalance::ZERO,
+            ));
+        }
+        ChannelMechanismPurgeQueue::<Test>::insert(netuid, retired, ());
+        for block in 2..=3 {
+            <Pallet<Test> as Hooks<u64>>::on_idle(block, Weight::MAX);
+        }
+        assert!(ChannelCommitmentOf::<Test>::get((index, 123, 8)).is_none());
+        assert!(
+            ChannelCommitmentOf::<Test>::get((NetUidStorageIndex::from(netuid), 123, 7)).is_some()
+        );
+        let mut meter = frame_support::weights::WeightMeter::new();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut meter));
+        assert!(ChannelCommitmentOf::<Test>::iter().next().is_none());
+    });
+}
+
+// Cyclic renames with empty intermediates must shrink the queue rather than
+// selecting the same empty edge forever and blocking channel writes.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn cyclic_empty_channel_swaps_drain_without_stranding_commitments() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let (a, b, c) = (11, 12, 13);
+        assert_ok!(Pallet::<Test>::set_commitment_to(
+            RuntimeOrigin::signed(a),
+            netuid,
+            MechId::MAIN,
+            7,
+            a,
+            Box::new(CommitmentInfo::<TestMaxFields> {
+                fields: BoundedVec::try_from(vec![Data::Raw(
+                    b"raw".to_vec().try_into().expect("raw fits"),
+                )])
+                .expect("one field fits"),
+            }),
+            TaoBalance::ZERO,
+        ));
+        Pallet::<Test>::swap_neuron(netuid, &a, &b);
+        Pallet::<Test>::swap_neuron(netuid, &b, &c);
+        Pallet::<Test>::swap_neuron(netuid, &c, &a);
+        drain_channel_queues();
+        let remaining = ChannelSwapPendingHotkeys::<Test>::iter().collect::<Vec<_>>();
+        assert!(remaining.is_empty(), "remaining swap edges: {remaining:?}");
+        assert!(!Pallet::<Test>::channel_migration_pending(netuid, &b));
+        assert!(!Pallet::<Test>::channel_migration_pending(netuid, &c));
+        let destinations = ChannelTargetsOf::<Test>::iter_keys().collect::<Vec<_>>();
+        assert_eq!(destinations.len(), 1);
+        let (_, destination, _, _) = destinations[0];
+        assert!(
+            ChannelCommitmentOf::<Test>::get((NetUidStorageIndex::from(netuid), destination, 7))
+                .is_some()
+        );
+        assert_ok!(Pallet::<Test>::set_commitment_to(
+            RuntimeOrigin::signed(destination),
+            netuid,
+            MechId::MAIN,
+            7,
+            destination,
+            Box::new(CommitmentInfo::<TestMaxFields> {
+                fields: BoundedVec::default(),
+            }),
+            TaoBalance::ZERO,
+        ));
+    });
+}
+
+// A retired-only target must not make an empty intermediate drop the edge for
+// another live channel; that live registration and its reserve reach the end.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn retired_source_targets_do_not_strand_live_channel_on_empty_intermediate() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let retired = MechId::from(1);
+        let retired_index = NetUidStorageIndex::from(4097u16);
+        let (a, b, c) = (11, 12, 13);
+        TestCommitDeposit::set(100, 0);
+        Balances::make_free_balance_be(&a, 10_000.into());
+        TestCommitBurn::set_accepts_any_owner(true);
+        for (mechanism, channel) in [(MechId::MAIN, 7), (retired, 8)] {
+            assert_ok!(Pallet::<Test>::set_commitment_to(
+                RuntimeOrigin::signed(a),
+                netuid,
+                mechanism,
+                channel,
+                a,
+                Box::new(CommitmentInfo::<TestMaxFields> {
+                    fields: BoundedVec::try_from(vec![Data::Raw(
+                        b"raw".to_vec().try_into().expect("raw fits"),
+                    )])
+                    .expect("one field fits"),
+                }),
+                TaoBalance::ZERO,
+            ));
+        }
+        Pallet::<Test>::swap_neuron(netuid, &a, &b);
+        Pallet::<Test>::swap_neuron(netuid, &b, &c);
+        ChannelMechanismPurgeQueue::<Test>::insert(netuid, retired, ());
+        for block in 2..=3 {
+            <Pallet<Test> as Hooks<u64>>::on_idle(block, Weight::MAX);
+        }
+        drain_channel_queues();
+        assert!(ChannelCommitmentOf::<Test>::get((retired_index, a, 8)).is_none());
+        assert!(ChannelSwapPendingHotkeys::<Test>::iter().next().is_none());
+        Pallet::<Test>::purge_channel_neuron(netuid, &c);
+        drain_channel_queues();
+        assert_eq!(Balances::reserved_balance(a), 0.into());
+    });
+}
+
 #[test]
 fn retired_mechanism_drains_bounded_idle_without_touching_other_channels() {
     new_test_ext().execute_with(|| {
