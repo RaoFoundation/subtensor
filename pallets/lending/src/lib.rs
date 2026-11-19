@@ -1890,15 +1890,24 @@ pub mod pallet {
             LiftParamsStore::<T>::get()
         }
 
-        /// Worst-case DbWeight for a mid-list expiry-bucket insert (or the
+        /// Worst-case weight for a mid-list expiry-bucket insert (or the
         /// congestion reject that walks the same bound). Added on open / roll
         /// dispatch weights so the charged envelope covers
-        /// [`MAX_EXPIRY_BUCKET_WALK`] (skeptic fid:98821ef3). Reads only —
-        /// measured extrinsic times stay from reference benches (H2).
+        /// [`MAX_EXPIRY_BUCKET_WALK`] (skeptic fid:98821ef3 / b6129f8a).
+        ///
+        /// Includes **proof size**: `RocksDbWeight::reads` charges ref_time
+        /// only (proof_size 0), so we add MaxEncodedLen "added" bytes for each
+        /// possible `ExpiryNext` key (2491 from weight annotations) plus a few
+        /// Index/Prev/Tail/Head touches. Measured extrinsic times stay from
+        /// reference benches (H2).
         pub(crate) fn expiry_insert_weight() -> Weight {
-            // One ExpiryNext read per hop, plus Index / Prev / Next / Tail /
-            // Head touches on the success path after the walk.
-            T::DbWeight::get().reads_writes(u64::from(MAX_EXPIRY_BUCKET_WALK).saturating_add(4), 4)
+            // MaxEncodedLen "added" for `ExpiryNext` / `ExpiryPrev` /
+            // `ExpiryIndex` map keys (see `weights.rs` Proof lines).
+            const EXPIRY_MAP_PROOF: u64 = 2_491;
+            let hops = u64::from(MAX_EXPIRY_BUCKET_WALK);
+            let reads = hops.saturating_add(4);
+            Weight::from_parts(0, reads.saturating_mul(EXPIRY_MAP_PROOF))
+                .saturating_add(T::DbWeight::get().reads_writes(reads, 4))
         }
 
         /// Live max loan duration from [`LiftParamsStore`] (opens + rolls only).

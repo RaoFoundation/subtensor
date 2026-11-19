@@ -60,8 +60,12 @@ jobs:
           #   0531/0532/0549/0550/0551: additional hickory-proto /
           #   hickory-resolver DNSSEC / parser issues on the same libp2p-dns
           #   pin (0.24 / 0.25). No fixed upgrade for most; 0.26.2 fixes a
-          #   subset but needs an SDK networking bump. Default network is
-          #   litep2p; libp2p peers authenticate via Noise, not DNSSEC trust.
+          #   subset but needs an SDK networking bump. Same ignore class as
+          #   RUSTSEC-2026-0118/0119 already on main. Default network backend
+          #   is litep2p. Operators may select libp2p, but peer auth is Noise
+          #   (not DNSSEC); DNS resolution feeds dial addresses only. Parser
+          #   issues in the DNSSEC / record path are not a trust boundary for
+          #   consensus or key material. Revisit on the next networking bump.
           # RUSTSEC-2026-0523/0524/0525/0538: quinn-proto / quinn-udp /
           #   libp2p-quic. QUIC is not enabled in the node build; same
           #   lockfile-only class as the rustls-webpki 0.101 ignore.
