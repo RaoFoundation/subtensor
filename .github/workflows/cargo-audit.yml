@@ -55,7 +55,11 @@ jobs:
           #   the polkadot-sdk fork's sc-executor; fixed only by a major SDK bump.
           # RUSTSEC-2026-0098/0099/0104: rustls-webpki 0.101 via the fork's
           #   libp2p networking stack.
-          # RUSTSEC-2026-0118/0119: hickory-proto via libp2p-dns (fork tree).
+          # RUSTSEC-2026-0118/0119/0487/0489/0490/0491/0505/0511/0512/0530/
+          #   0531/0532/0549/0550/0551: hickory-proto through the libp2p-dns
+          #   transitive tree. Versions 0.24.4/0.25.2 are pinned by the fork;
+          #   patched releases require 0.26.2, so there is no compatible
+          #   lockfile-only upgrade. Revisit with the libp2p dependency bump.
           # RUSTSEC-2026-0204: crossbeam-epoch via the fork tree.
           # RUSTSEC-2025-0137 / RUSTSEC-2026-0220: ruint via the frontier/EVM
           #   fork tree; 0220 needs >=1.20.0, pinned below that by frontier.
@@ -121,6 +125,19 @@ jobs:
                       --ignore RUSTSEC-2026-0104 \
                       --ignore RUSTSEC-2026-0118 \
                       --ignore RUSTSEC-2026-0119 \
+                      --ignore RUSTSEC-2026-0487 \
+                      --ignore RUSTSEC-2026-0489 \
+                      --ignore RUSTSEC-2026-0490 \
+                      --ignore RUSTSEC-2026-0491 \
+                      --ignore RUSTSEC-2026-0505 \
+                      --ignore RUSTSEC-2026-0511 \
+                      --ignore RUSTSEC-2026-0512 \
+                      --ignore RUSTSEC-2026-0530 \
+                      --ignore RUSTSEC-2026-0531 \
+                      --ignore RUSTSEC-2026-0532 \
+                      --ignore RUSTSEC-2026-0549 \
+                      --ignore RUSTSEC-2026-0550 \
+                      --ignore RUSTSEC-2026-0551 \
                       --ignore RUSTSEC-2026-0204 \
                       --ignore RUSTSEC-2026-0220 \
                       --ignore RUSTSEC-2026-0222 \

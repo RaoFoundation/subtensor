@@ -101,8 +101,8 @@ impl<T: Config> Pallet<T> {
     ///
     /// Guardrails (see the storage docs on [`crate::BasketDailyTurnoverCap`]):
     /// * each AMM leg must fill fully within [`crate::BasketTradeMaxSlippageBps`] of the
-    ///   reference selected by [`crate::BasketTradePriceReferenceMode`] — spot by default,
-    ///   or the strictest of the slow EMA, fast EMA, and spot in legacy mode
+    ///   reference selected by [`crate::BasketTradePriceReferenceMode`] — the strictest of
+    ///   the slow EMA, fast EMA, and spot by default, or spot only after governance opts in
     ///   ([`Self::basket_trade_price_limit`]);
     /// * the TAO through the middle is taken from the fund's turnover bucket, sized from
     ///   the fund's guarded NAV ([`Self::guarded_basket_holding_value`]);
@@ -693,10 +693,10 @@ impl<T: Config> Pallet<T> {
     /// by [`crate::BasketTradeMaxSlippageBps`] (up for a buy ceiling, down for a sell floor).
     ///
     /// [`crate::BasketTradePriceReferenceMode`] selects the reference:
-    /// * `SpotOnly` (default): current spot for both legs. The slow and fast EMAs are not
-    ///   read or required, so a subnet with a valid spot remains tradeable before its moving
-    ///   prices exist and after a spot move leaves its EMAs behind.
-    /// * `StrictestEmaAndSpot` (legacy): sell floor from `max(slow EMA, fast EMA, spot)` and
+    /// * `SpotOnly` (governance opt-in): current spot for both legs. The slow and fast EMAs
+    ///   are not read or required, so a subnet with a valid spot remains tradeable before its
+    ///   moving prices exist and after a spot move leaves its EMAs behind.
+    /// * `StrictestEmaAndSpot` (default): sell floor from `max(slow EMA, fast EMA, spot)` and
     ///   buy ceiling from `min(slow EMA, fast EMA, spot)`. This retains the legacy anchors
     ///   against same-block and held price manipulation, but refuses a trade when either EMA
     ///   is missing or zero.

@@ -950,13 +950,41 @@ fn test_swap_basket_rejects_more_than_held() {
 // Guardrail: per-leg slippage band
 // =============================================================================
 
-/// Legacy mode retains the pre-trade buy refusal when spot is above its EMA band.
+/// Uninitialized settings preserve the live pre-upgrade behavior: strictest EMA/spot,
+/// a 2% band, and a 7200-block refill. No migration or post-upgrade setter is needed.
+#[test]
+fn test_swap_basket_uninitialized_settings_preserve_legacy_trade_behavior() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        assert!(!BasketTradeMaxSlippageBps::<Test>::exists());
+        assert!(!BasketTradeRefillBlocks::<Test>::exists());
+        assert!(!BasketTradePriceReferenceMode::<Test>::exists());
+        assert_eq!(BasketTradeMaxSlippageBps::<Test>::get(), 200);
+        assert_eq!(BasketTradeRefillBlocks::<Test>::get(), 7200);
+        assert_eq!(
+            BasketTradePriceReferenceMode::<Test>::get(),
+            BasketTradePriceReference::StrictestEmaAndSpot
+        );
+        assert_eq!(
+            SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, false).unwrap(),
+            979_999_999
+        );
+        assert_eq!(
+            SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, true).unwrap(),
+            1_019_999_999
+        );
+        assert_eq!(
+            SubtensorModule::get_basket_trading_status(&fund.hotkey).refill_blocks,
+            7200
+        );
+    });
+}
+
+/// The upgrade defaults retain the pre-trade buy refusal when spot is above its EMA band.
 #[test]
 fn test_swap_basket_buy_refused_when_spot_above_ema_band() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::StrictestEmaAndSpot);
-        BasketTradeMaxSlippageBps::<Test>::put(200);
         // Spot is 1.0; a moving price of 0.9 puts the ceiling at 0.918.
         SubnetMovingPrice::<Test>::insert(fund.netuid_b, I96F32::from_num(0.9));
         crate::assert_noop_ignore_postinfo!(
@@ -966,13 +994,11 @@ fn test_swap_basket_buy_refused_when_spot_above_ema_band() {
     });
 }
 
-/// Legacy mode retains the pre-trade sell refusal when spot is below its EMA band.
+/// The upgrade defaults retain the pre-trade sell refusal when spot is below its EMA band.
 #[test]
 fn test_swap_basket_sell_refused_when_spot_below_ema_band() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::StrictestEmaAndSpot);
-        BasketTradeMaxSlippageBps::<Test>::put(200);
         // Spot is 1.0; a moving price of 1.1 puts the floor at 1.078.
         SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(1.1));
         crate::assert_noop_ignore_postinfo!(
@@ -987,6 +1013,7 @@ fn test_swap_basket_sell_refused_when_spot_below_ema_band() {
 fn test_swap_basket_spot_only_ignores_missing_moving_prices() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
         for netuid in [fund.netuid_a, fund.netuid_b] {
             SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(0));
             SubnetFastMovingPrice::<Test>::remove(netuid);
@@ -1003,12 +1030,11 @@ fn test_swap_basket_spot_only_ignores_missing_moving_prices() {
     });
 }
 
-/// Legacy mode still refuses a trade when either moving price is missing or zero.
+/// Default legacy mode still refuses a trade when either moving price is missing or zero.
 #[test]
 fn test_swap_basket_legacy_refused_without_moving_price() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::StrictestEmaAndSpot);
         SubnetMovingPrice::<Test>::insert(fund.netuid_b, I96F32::from_num(0));
         crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
@@ -1070,11 +1096,12 @@ fn test_swap_basket_sell_refused_when_own_impact_exceeds_band() {
     });
 }
 
-/// The default band ignores a 20% EMA divergence on both legs and fills near spot.
+/// Spot-only mode ignores a 20% EMA divergence on both legs and fills near spot.
 #[test]
 fn test_swap_basket_fills_just_inside_band() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
         for (netuid, ema) in [(fund.netuid_a, 1.2), (fund.netuid_b, 0.8)] {
             SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(ema));
             SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(ema));
@@ -1086,16 +1113,13 @@ fn test_swap_basket_fills_just_inside_band() {
     });
 }
 
-/// Default limits are exactly 5% around spot, with no EMA reads required.
+/// A governance-selected 5% spot-only band has exact fixed-point limits without EMA reads.
 #[test]
 fn test_swap_basket_spot_only_price_limits_are_five_percent_from_spot() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        assert_eq!(BasketTradeMaxSlippageBps::<Test>::get(), 500);
-        assert_eq!(
-            BasketTradePriceReferenceMode::<Test>::get(),
-            BasketTradePriceReference::SpotOnly
-        );
+        BasketTradeMaxSlippageBps::<Test>::put(500);
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
         SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(0));
         SubnetFastMovingPrice::<Test>::remove(fund.netuid_a);
         assert_eq!(
@@ -1109,30 +1133,32 @@ fn test_swap_basket_spot_only_price_limits_are_five_percent_from_spot() {
     });
 }
 
-/// A roughly 4% drop below both EMAs no longer locks the default-mode sell leg.
+/// A roughly 4% drop below both EMAs no longer locks a spot-only sell leg.
 #[test]
 fn test_swap_basket_spot_only_sells_despite_lagging_emas() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
         SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(1.04));
         SubnetFastMovingPrice::<Test>::insert(fund.netuid_a, U64F64::from_num(1.04));
         assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, TRADE));
     });
 }
 
-/// A runtime-configured 200-bps band still applies to the spot-only reference.
+/// A governance-selected 500-bps band applies to the spot-only reference.
 #[test]
 fn test_swap_basket_spot_only_uses_storage_band() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        BasketTradeMaxSlippageBps::<Test>::put(200);
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
+        BasketTradeMaxSlippageBps::<Test>::put(500);
         assert_eq!(
             SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, false).unwrap(),
-            979_999_999
+            949_999_999
         );
         assert_eq!(
             SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, true).unwrap(),
-            1_019_999_999
+            1_049_999_999
         );
     });
 }
@@ -1142,6 +1168,7 @@ fn test_swap_basket_spot_only_uses_storage_band() {
 fn test_swap_basket_spot_only_refuses_zero_spot() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
         SubnetTAO::<Test>::insert(fund.netuid_a, TaoBalance::ZERO);
         crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
@@ -1200,8 +1227,7 @@ fn test_swap_basket_failed_second_leg_leaves_no_partial_state() {
 fn regression_failed_swap_basket_pays_its_work_not_the_envelope() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        // Human-approved legacy setup preserves the protected refusal and weight assertions.
-        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::StrictestEmaAndSpot);
+        // A thin destination: the trade's own impact pushes the buy leg out of the band.
         BasketTradeMaxSlippageBps::<Test>::put(200);
         // A thin destination: the trade's own impact pushes the buy leg out of the band.
         let reserve_tao = 100 * TRADE;
@@ -1997,9 +2023,6 @@ fn finding_2_2_bucket_denies_a_second_budget_in_the_adjacent_block() {
 fn finding_2_3_chained_legs_in_one_block_stop_at_fast_anchor() {
     new_test_ext(1).execute_with(|| {
         let (fund, netuid_c) = setup_cash_fund_with_thin_pool();
-        // Human-approved legacy setup; the protected attack inputs and assertions are unchanged.
-        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::StrictestEmaAndSpot);
-        BasketTradeMaxSlippageBps::<Test>::put(200);
         // Isolate the band: the walk would otherwise hit the liquidity cap first.
         BasketLiquidityCap::<Test>::put(u16::MAX);
         // Spot 0.01 sits 20% below a stale 0.0125 slow EMA; the fast anchor is the spot the
@@ -2040,9 +2063,6 @@ fn finding_2_3_chained_legs_in_one_block_stop_at_fast_anchor() {
 fn finding_crash_lock_blocks_selling_a_falling_holding() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        // Human-approved legacy setup; the protected crash-lock assertions are unchanged.
-        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::StrictestEmaAndSpot);
-        BasketTradeMaxSlippageBps::<Test>::put(200);
         // Spot is 1.0 on both pools. A's EMA is 5% above spot: the fund holds A and cannot
         // sell any of it — into another subnet or into cash.
         SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(1.0 / 0.95));

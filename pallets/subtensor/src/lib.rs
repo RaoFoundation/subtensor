@@ -217,12 +217,12 @@ pub const DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO: u64 = 100_000;
 /// of a small row is sold as before.
 pub const DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO: u64 = 10_000_000;
 
-/// Default [`BasketTradeMaxSlippageBps`]: maximum deviation of a `swap_basket` leg's
-/// execution price from its reference, in basis points (5%). The default reference is spot;
-/// [`BasketTradePriceReferenceMode`] also offers the legacy strictest-of-EMAs-and-spot mode.
+/// Default [`BasketTradeMaxSlippageBps`]: preserve the pre-upgrade 2% band around the
+/// strictest slow-EMA, fast-EMA, and spot reference. Governance can opt into a 5% band
+/// and [`BasketTradePriceReference::SpotOnly`] separately.
 /// Applied to the sell leg as a floor and the buy leg as a ceiling via the AMM `price_limit`;
 /// a leg that cannot fill fully within the bound fails.
-pub const DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS: u16 = 500;
+pub const DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS: u16 = 200;
 
 /// Maximum basket NAV impact of out-of-band prices on dividend share minting (0.1%).
 /// The configured per-pool trade band defines which prices require an anchored comparison.
@@ -675,11 +675,13 @@ pub mod pallet {
     )]
     pub enum BasketTradePriceReference {
         /// Measure both the sell floor and buy ceiling from the current spot price only.
-        #[default]
+        /// Governance must select this mode explicitly; unlike the default, it does not
+        /// retain the fast-EMA bound on chained same-block price manipulation.
         #[codec(index = 0)]
         SpotOnly,
-        /// Legacy mode: sell floor from `max(slow EMA, fast EMA, spot)` and buy ceiling
-        /// from `min(slow EMA, fast EMA, spot)`. Missing or zero EMAs refuse the trade.
+        /// Default legacy mode: sell floor from `max(slow EMA, fast EMA, spot)` and buy
+        /// ceiling from `min(slow EMA, fast EMA, spot)`. Missing or zero EMAs refuse the trade.
+        #[default]
         #[codec(index = 1)]
         StrictestEmaAndSpot,
     }
@@ -2068,9 +2070,9 @@ pub mod pallet {
     /// (TAO per alpha, unclamped) with a [`BASKET_FAST_EMA_HALF_LIFE_BLOCKS`] half-life,
     /// updated once per block right after [`SubnetMovingPrice`] from the spot at the end of
     /// the previous block, so no extrinsic in the current block can move it. It remains an
-    /// emission-independent valuation anchor and is used by `swap_basket` in
-    /// [`BasketTradePriceReference::StrictestEmaAndSpot`] mode. The default spot-only trade
-    /// mode does not require it; legacy mode refuses trades while it is missing or zero.
+    /// emission-independent valuation anchor and is required by `swap_basket` in the default
+    /// [`BasketTradePriceReference::StrictestEmaAndSpot`] mode. Trades are refused while it
+    /// is missing or zero; governance-selected spot-only mode does not require it.
     #[pallet::storage]
     pub type SubnetFastMovingPrice<T: Config> =
         StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
@@ -3497,14 +3499,14 @@ pub mod pallet {
         StorageValue<_, u16, ValueQuery, DefaultBasketDailyTurnoverCap<T>>;
 
     #[pallet::type_value]
-    /// Default maximum deviation of a basket trade leg from its price reference: 5%.
+    /// Default maximum deviation of a basket trade leg from its price reference: 2%.
     pub fn DefaultBasketTradeMaxSlippageBps<T: Config>() -> u16 {
         crate::DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS
     }
 
     /// Maximum `swap_basket` leg price deviation from its selected reference, in basis
-    /// points (`10_000` = 100%). Defaults to 5% from spot. Set via
-    /// `AdminUtils::sudo_set_basket_trade_max_slippage_bps`.
+    /// points (`10_000` = 100%). Defaults to 2% around the strictest EMA/spot reference.
+    /// Set via `AdminUtils::sudo_set_basket_trade_max_slippage_bps`.
     #[pallet::storage]
     pub type BasketTradeMaxSlippageBps<T: Config> =
         StorageValue<_, u16, ValueQuery, DefaultBasketTradeMaxSlippageBps<T>>;
@@ -3523,13 +3525,13 @@ pub mod pallet {
         StorageValue<_, u64, ValueQuery, DefaultBasketTradeRefillBlocks<T>>;
 
     #[pallet::type_value]
-    /// Default basket trade price reference: current spot only.
+    /// Default basket trade price reference: preserve the strictest EMA/spot behavior.
     pub fn DefaultBasketTradePriceReference<T: Config>() -> BasketTradePriceReference {
-        BasketTradePriceReference::SpotOnly
+        BasketTradePriceReference::StrictestEmaAndSpot
     }
 
-    /// Price reference for `swap_basket` leg bounds. Defaults to spot only; the legacy
-    /// strictest-of-slow-EMA, fast-EMA, and spot mode remains available through
+    /// Price reference for `swap_basket` leg bounds. Defaults to the strictest of slow EMA,
+    /// fast EMA, and spot. Governance can select `SpotOnly` through
     /// `AdminUtils::sudo_set_basket_trade_price_reference`.
     #[pallet::storage]
     pub type BasketTradePriceReferenceMode<T: Config> =
@@ -3967,13 +3969,19 @@ pub mod pallet {
         prod_or_fast!(7_200, 1)
     }
 
-    /// ITEM (Rate limit for subnet emission weight vector updates: once a week at 12 s
-    /// blocks, keyed per subnet. Root is exempt; a subnet's first call is always allowed,
-    /// and dissolution clears the key so a reused netuid starts fresh.)
+    /// ITEM (Rate limit for subnet emission weight vector updates: once per default
+    /// 360-block tempo, keyed per subnet. Root is exempt; a subnet's first call is always
+    /// allowed, and dissolution clears the key so a reused netuid starts fresh.)
     #[pallet::type_value]
-    pub fn SubnetEmissionWeightsRateLimit<T: Config>() -> u64 {
-        prod_or_fast!(50_400, 1)
+    pub fn DefaultSubnetEmissionWeightsRateLimit<T: Config>() -> u64 {
+        prod_or_fast!(360, 1)
     }
+
+    /// Blocks an owner must wait between subnet emission weight vector updates.
+    /// Set network-wide through `AdminUtils::sudo_set_subnet_emission_weights_rate_limit`.
+    #[pallet::storage]
+    pub type SubnetEmissionWeightsRateLimit<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultSubnetEmissionWeightsRateLimit<T>>;
 
     /// MAP ( netuid ) --> Current number of subnet mechanisms
     #[pallet::storage]

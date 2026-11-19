@@ -9,5 +9,5 @@
     "git checkout --detach v493",
     "cargo build --release --locked -p node-subtensor"
   ],
-  "summary": "Sudo can configure each subnet's Yuma timelocked commit cap per hotkey, mechanism, and commit epoch. The default remains ten; zero pauses new commits while queued commitments remain eligible to reveal. The release also adds Discord release announcements, standalone stable Python publishing, and required release notes."
+  "summary": "V493 lets a gamma deposit's hotkey spend at a service and migrates deposits and services to remove the old spender. It adds optional coldkey-funded commitment burns, per-mechanism weight delegation, sudo basket controls with legacy defaults, and an Etao owner-update limit of 360 blocks. The transaction version is 2 because gamma removes and renumbers calls. Release workflows announce upgrades and stable Python releases, with stable publishing through the mainnet watcher."
 }

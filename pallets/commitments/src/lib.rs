@@ -180,17 +180,6 @@ pub mod pallet {
             /// The account
             who: T::AccountId,
         },
-        /// A channel timelock-encrypted commitment was auto-revealed.
-        ChannelCommitmentRevealed {
-            /// Subnet containing the commitment target.
-            netuid: NetUid,
-            /// Emission mechanism containing the commitment target.
-            mecid: MechId,
-            /// Channel containing the revealed commitment.
-            channel: u8,
-            /// Hotkey whose channel commitment was revealed.
-            hotkey: T::AccountId,
-        },
         /// A timelock-encrypted commitment could not be revealed and was left in place
         CommitmentRevealFailed {
             /// The netuid of the commitment
@@ -224,6 +213,17 @@ pub mod pallet {
             seq: u64,
             /// Blake2-256 hash of the SCALE-encoded commitment information.
             content_hash: [u8; 32],
+        },
+        /// A channel timelock-encrypted commitment was auto-revealed.
+        ChannelCommitmentRevealed {
+            /// Subnet containing the commitment target.
+            netuid: NetUid,
+            /// Emission mechanism containing the commitment target.
+            mecid: MechId,
+            /// Channel containing the revealed commitment.
+            channel: u8,
+            /// Hotkey whose channel commitment was revealed.
+            hotkey: T::AccountId,
         },
     }
 
@@ -747,29 +747,39 @@ pub mod pallet {
         }
 
         fn on_idle(_n: BlockNumberFor<T>, remaining_weight: Weight) -> Weight {
+            let mut meter = WeightMeter::with_limit(remaining_weight);
             let base = T::DbWeight::get().reads(1);
-            if remaining_weight.any_lt(base) {
+            if !meter.can_consume(base) {
                 return Weight::zero();
             }
+            meter.consume(base);
             let queue = ChannelMechanismPurgeQueue::<T>::iter_keys().next();
             let swap_item_weight = T::DbWeight::get().reads_writes(9, 13);
-            let mut total_weight = if queue.is_some()
-                || remaining_weight.any_lt(base.saturating_add(swap_item_weight))
-            {
-                base
-            } else {
-                let mut swap_meter = WeightMeter::with_limit(remaining_weight.saturating_sub(base));
-                Self::drain_channel_swaps(&mut swap_meter);
-                base.saturating_add(swap_meter.consumed())
-            };
+            if queue.is_none() && meter.can_consume(swap_item_weight) {
+                Self::drain_channel_swaps(&mut meter);
+            }
             if let Some((netuid, mecid)) = queue {
-                let mut meter = WeightMeter::with_limit(remaining_weight);
+                if !meter.can_consume(base) {
+                    return meter.consumed();
+                }
                 meter.consume(base);
                 let drained = ChannelMechanismRowsDrained::<T>::get((netuid, mecid));
+                let completion = T::DbWeight::get()
+                    .reads(1)
+                    .saturating_add(T::DbWeight::get().writes(3));
+                if !meter.can_consume(completion) {
+                    return meter.consumed();
+                }
+                meter.consume(completion);
                 if !drained {
-                    if Self::purge_channel_mechanism_config(netuid, mecid, &mut meter) {
+                    let allowance = meter
+                        .remaining()
+                        .saturating_sub(T::DbWeight::get().writes(1));
+                    let mut retirement_meter = WeightMeter::with_limit(allowance);
+                    if Self::purge_channel_mechanism_config(netuid, mecid, &mut retirement_meter) {
                         ChannelMechanismRowsDrained::<T>::insert((netuid, mecid), true);
                     }
+                    meter.consume(retirement_meter.consumed());
                 } else if Self::purge_channel_mechanism_rows(
                     netuid,
                     mecid,
@@ -779,38 +789,28 @@ pub mod pallet {
                     ChannelMechanismPurgeQueue::<T>::remove(netuid, mecid);
                     ChannelMechanismRowsDrained::<T>::remove((netuid, mecid));
                 }
-                total_weight = total_weight.saturating_add(meter.consumed());
             }
-            if total_weight.all_lt(remaining_weight) {
-                let mut meter =
-                    WeightMeter::with_limit(remaining_weight.saturating_sub(total_weight));
+            if meter.can_consume(T::DbWeight::get().reads_writes(9, 13)) {
                 Self::drain_channel_purges(&mut meter);
-                total_weight = total_weight.saturating_add(meter.consumed());
             }
-            if ChannelMechanismPurgeQueue::<T>::iter().next().is_none()
-                && total_weight.all_lt(remaining_weight)
-            {
-                let mut meter =
-                    WeightMeter::with_limit(remaining_weight.saturating_sub(total_weight));
-                Self::drain_channel_swaps(&mut meter);
-                total_weight = total_weight.saturating_add(meter.consumed());
+            if !meter.can_consume(base) {
+                return meter.consumed();
             }
-            if ChannelTimelockedIndex::<T>::iter_keys().next().is_none() {
-                return total_weight;
-            }
-            let base = T::DbWeight::get().reads(3);
-            let remaining_weight = remaining_weight.saturating_sub(total_weight);
-            if remaining_weight.any_lt(base) {
-                return total_weight;
-            }
-            let mut meter = WeightMeter::with_limit(remaining_weight);
             meter.consume(base);
-            total_weight.saturating_add(
-                base.saturating_add(
-                    Self::reveal_channel_timelocked_commitments_metered(&mut meter)
-                        .unwrap_or(Weight::zero()),
-                ),
-            )
+            if ChannelMechanismPurgeQueue::<T>::iter().next().is_none()
+                && meter.can_consume(swap_item_weight)
+            {
+                Self::drain_channel_swaps(&mut meter);
+            }
+            let base = T::DbWeight::get().reads(4);
+            if !meter.can_consume(base) {
+                return meter.consumed();
+            }
+            meter.consume(base);
+            if ChannelTimelockedIndex::<T>::iter_keys().next().is_some() {
+                let _ = Self::reveal_channel_timelocked_commitments_metered(&mut meter);
+            }
+            meter.consumed()
         }
     }
 }
@@ -1307,8 +1307,12 @@ impl<T: Config> Pallet<T> {
         let mut wrapped = false;
         let mut total_weight = T::DbWeight::get().reads(1);
         if keys.next().is_none() && !wrapped {
+            if !meter.can_consume(T::DbWeight::get().writes(1)) {
+                return Ok(meter.consumed());
+            }
             ChannelTimelockRevealCursor::<T>::kill();
-            return Ok(total_weight);
+            meter.consume(T::DbWeight::get().writes(1));
+            return Ok(meter.consumed());
         }
         // The probe above is this pass's first visit. Rebuild the iterator rather than
         // special-casing cursor ordering; `iter_from` is inclusive so deletion is safe.
@@ -1388,7 +1392,29 @@ impl<T: Config> Pallet<T> {
                         encrypted,
                         reveal_round,
                     } => {
-                        total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
+                        let decryption_weight =
+                            <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments();
+                        let entry_weight =
+                            decryption_weight.saturating_add(T::DbWeight::get().reads_writes(4, 3));
+                        if !meter.can_consume(entry_weight) {
+                            // Keep this field and every unvisited field queued
+                            // until idle weight can cover their decryption.
+                            remaining.push(Data::TimelockEncrypted {
+                                encrypted,
+                                reveal_round,
+                            });
+                            remaining.extend(
+                                registration
+                                    .info
+                                    .fields
+                                    .into_iter()
+                                    .skip(field_index.saturating_add(1)),
+                            );
+                            pending = true;
+                            budget_exhausted = true;
+                            break;
+                        }
+                        meter.consume(entry_weight);
                         let Some(pulse) = pallet_drand::Pulses::<T>::get(reveal_round) else {
                             if oldest_kept > 0 && reveal_round < oldest_kept {
                                 mutated = true;
@@ -1411,29 +1437,6 @@ impl<T: Config> Pallet<T> {
                             }
                             continue;
                         };
-                        let decryption_weight =
-                            <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments();
-                        let entry_weight =
-                            decryption_weight.saturating_add(T::DbWeight::get().reads_writes(3, 3));
-                        if !meter.can_consume(entry_weight) {
-                            // Keep this field and every unvisited field queued
-                            // until idle weight can cover their decryption.
-                            remaining.push(Data::TimelockEncrypted {
-                                encrypted,
-                                reveal_round,
-                            });
-                            remaining.extend(
-                                registration
-                                    .info
-                                    .fields
-                                    .into_iter()
-                                    .skip(field_index.saturating_add(1)),
-                            );
-                            pending = true;
-                            budget_exhausted = true;
-                            break;
-                        }
-                        meter.consume(entry_weight);
                         decryptions = decryptions.saturating_add(1);
                         total_weight = total_weight.saturating_add(decryption_weight);
                         mutated = true;
@@ -1504,12 +1507,18 @@ impl<T: Config> Pallet<T> {
                 total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
             }
         }
-        if budget_exhausted {
-            if last_visited != cursor {
+        let update_cursor = if budget_exhausted {
+            last_visited != cursor
+        } else {
+            cursor.is_some()
+        };
+        if update_cursor && meter.can_consume(T::DbWeight::get().writes(1)) {
+            if budget_exhausted {
                 ChannelTimelockRevealCursor::<T>::set(last_visited);
+            } else {
+                ChannelTimelockRevealCursor::<T>::kill();
             }
-        } else if cursor.is_some() {
-            ChannelTimelockRevealCursor::<T>::kill();
+            meter.consume(T::DbWeight::get().writes(1));
         }
         Ok(meter.consumed())
     }
@@ -1792,19 +1801,32 @@ impl<T: Config> Pallet<T> {
         mecid: MechId,
         weight_meter: &mut WeightMeter,
     ) -> bool {
+        let read_weight = T::DbWeight::get().reads(1);
         let write_weight = T::DbWeight::get().writes(1);
+        if !weight_meter.can_consume(read_weight) {
+            return false;
+        }
+        weight_meter.consume(read_weight);
         let index = Self::target_index(netuid, mecid);
         let start = ChannelMechanismConfigPurgeCursor::<T>::get((netuid, mecid)).unwrap_or(0);
         for channel in start..=u16::from(u8::MAX) {
             if !weight_meter.can_consume(write_weight.saturating_mul(2)) {
+                if !weight_meter.can_consume(write_weight) {
+                    return false;
+                }
                 ChannelMechanismConfigPurgeCursor::<T>::insert((netuid, mecid), channel);
+                weight_meter.consume(write_weight);
                 return false;
             }
             CommitBurnConfig::<T>::remove((index, channel as u8));
             CommitBurnSequence::<T>::remove((index, channel as u8));
             weight_meter.consume(write_weight.saturating_mul(2));
         }
+        if !weight_meter.can_consume(write_weight) {
+            return false;
+        }
         ChannelMechanismConfigPurgeCursor::<T>::remove((netuid, mecid));
+        weight_meter.consume(write_weight);
         true
     }
 
@@ -1874,8 +1896,12 @@ impl<T: Config> Pallet<T> {
             if !Self::purge_channel_mechanism_config(netuid, mecid, weight_meter) {
                 return false;
             }
+            if !weight_meter.can_consume(write_weight.saturating_mul(2)) {
+                return false;
+            }
             ChannelMechanismPurgeQueue::<T>::remove(netuid, mecid);
             ChannelMechanismRowsDrained::<T>::remove((netuid, mecid));
+            weight_meter.consume(write_weight.saturating_mul(2));
         }
         ChannelTimelockRevealCursor::<T>::kill();
         if weight_meter.can_consume(write_weight) {

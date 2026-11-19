@@ -2289,9 +2289,10 @@ mod dispatches {
         /// entitlements are unchanged; only the fund's composition moves.
         ///
         /// Guardrails: each AMM leg must fill fully within the configured
-        /// `BasketTradeMaxSlippageBps` of its `BasketTradePriceReference` (5% from spot by
-        /// default; legacy strictest-of-EMAs-and-spot is available); the TAO through the
-        /// middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV,
+        /// `BasketTradeMaxSlippageBps` of its `BasketTradePriceReference` (2% from the
+        /// strictest EMA/spot reference by default; spot-only is available through governance);
+        /// the TAO through the middle is taken from the fund's turnover bucket
+        /// (`BasketDailyTurnoverCap` of NAV,
         /// refilling over `BasketTradeRefillBlocks`); the destination holding may not
         /// end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above
         /// `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for

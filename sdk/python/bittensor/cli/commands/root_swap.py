@@ -88,8 +88,8 @@ def _swap_review(
         (
             "note",
             "each leg must fill within the configured band of its price reference "
-            "(5% from spot by default); the TAO through the middle counts against "
-            "the fund's turnover budget",
+            "(2% from the strictest EMA/spot reference by default); the TAO through "
+            "the middle counts against the fund's turnover budget",
             "dim",
         )
     )
@@ -134,8 +134,8 @@ def root_swap(
     moves. Sign with the validator's coldkey, or run as its `BasketTrading`
     proxy with `--proxy-for <coldkey>` (the intended setup for a trader
     multisig). Each leg must fill within the configured band of its price
-    reference (5% from spot by default), the TAO through the middle counts
-    against the fund's turnover budget, and the destination may not end above the
+    reference (2% from the strictest EMA/spot reference by default), the TAO through
+    the middle counts against the fund's turnover budget, and the destination may not end above the
     concentration cap.
 
     btcli quotes the trade first and sets `min_amount_out` to the quoted

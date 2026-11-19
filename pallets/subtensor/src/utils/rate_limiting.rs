@@ -40,7 +40,7 @@ impl TransactionType {
         match self {
             Self::SetWeightsVersionKey => (Tempo::<T>::get(netuid) as u64)
                 .saturating_mul(WeightsVersionKeyRateLimit::<T>::get()),
-            // The emission weight vector has its own weekly limit, keyed per subnet.
+            // The emission weight vector has its own configured limit, keyed per subnet.
             Self::OwnerHyperparamUpdate(Hyperparameter::EmissionWeights) => {
                 SubnetEmissionWeightsRateLimit::<T>::get()
             }
@@ -223,7 +223,7 @@ pub enum Hyperparameter {
     BurnRegistrationAllowed = 36,
     MinDifficulty = 37,
     Difficulty = 38,
-    /// `set_subnet_emission_weights`; limited to once a week per subnet rather than by tempo.
+    /// `set_subnet_emission_weights`; configured blocks per subnet rather than by tempo.
     EmissionWeights = 39,
     SubnetGammaEnabled = 40,
     /// Per-channel commitment burn configuration.

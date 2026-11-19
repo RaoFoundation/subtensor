@@ -1856,8 +1856,8 @@ class SwapBasket(Intent):
 
     Guardrails enforced on chain: each AMM leg must fill fully within
     ``BasketTradeMaxSlippageBps`` of its configured price reference. By default
-    this is 5% from spot; governance may instead select the legacy strictest of
-    the slow EMA, fast EMA, and spot (``SlippageTooHigh`` otherwise). The TAO
+    this is 2% from the strictest of the slow EMA, fast EMA, and spot; governance
+    may instead select spot-only (``SlippageTooHigh`` otherwise). The TAO
     through the middle is taken from the fund's turnover bucket, which holds
     ``BasketDailyTurnoverCap`` of the fund's guarded NAV (each holding at
     the lower of its realizable value and its slow-moving-price value) and

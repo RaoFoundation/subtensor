@@ -174,6 +174,11 @@ pub trait WeightInfo {
 		Self::sudo_set_basket_min_trade_tao()
 	}
 	fn sudo_set_subnet_emission_weights() -> Weight;
+	/// Same root check, single storage write and event as the basket governance setters.
+	/// Reference benchmarking replaces this shared envelope with a measured weight.
+	fn sudo_set_subnet_emission_weights_rate_limit() -> Weight {
+		Self::sudo_set_basket_trade_refill_blocks()
+	}
 	/// Conservative additive envelope for channel burn setters, pending reference benchmarks.
 	fn sudo_set_commit_burn() -> Weight { Self::sudo_set_burn_half_life() }
 }

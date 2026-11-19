@@ -230,15 +230,6 @@ pub mod pallet {
             /// The new reserve amount, in rao; zero disables the reserve.
             value: TaoBalance,
         },
-        /// A channel commitment burn setting was changed by its owner or root.
-        CommitBurnConfigSet {
-            /// Subnet whose channel configuration changed.
-            netuid: NetUid,
-            /// Mechanism within that subnet.
-            mecid: MechId,
-            /// Channel within that mechanism.
-            channel: u8,
-        },
         /// A subnet was whitelisted for gamma emission or removed from the whitelist.
         SubnetGammaEmissionWhitelistedSet {
             /// The network identifier.
@@ -263,6 +254,21 @@ pub mod pallet {
         BasketTradePriceReferenceSet {
             /// Price reference used to bound basket trade legs.
             reference: pallet_subtensor::BasketTradePriceReference,
+        },
+
+        /// The subnet emission weight vector owner rate limit was set.
+        SubnetEmissionWeightsRateLimitSet {
+            /// Blocks an owner must wait between updates to a subnet's emission weights.
+            rate_limit: u64,
+        },
+        /// A channel commitment burn setting was changed by its owner or root.
+        CommitBurnConfigSet {
+            /// Subnet whose channel configuration changed.
+            netuid: NetUid,
+            /// Mechanism within that subnet.
+            mecid: MechId,
+            /// Channel within that mechanism.
+            channel: u8,
         },
     }
 
@@ -2764,9 +2770,9 @@ pub mod pallet {
         /// the default validator share and the global `TaoWeight`) off the top of the
         /// validator slot every block, capped at the slot; alpha validators get the rest.
         /// The call fails if the new validator share is at or below that baseline right
-        /// now. Callable by the subnet owner (once per week per subnet; the first call is
-        /// never rate-limited) or root (no rate limit). Both respect the admin freeze
-        /// window.
+        /// now. Callable by the subnet owner under the configured per-subnet rate limit
+        /// (the first call is never rate-limited) or root (no rate limit). Both respect
+        /// the admin freeze window.
         #[pallet::call_index(114)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_subnet_emission_weights())]
         pub fn sudo_set_subnet_emission_weights(
@@ -3088,6 +3094,28 @@ pub mod pallet {
             });
             Ok(())
         }
+        /// Sets the maximum number of timelocked commitments a hotkey may queue in
+        /// one Yuma subnet mechanism and commit epoch. Zero pauses new admissions;
+        /// already queued commitments remain eligible to reveal. Root-only.
+        #[pallet::call_index(122)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_max_timelocked_commits_per_hotkey())]
+        pub fn sudo_set_max_timelocked_commits_per_hotkey(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            max_commits: u8,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            pallet_subtensor::Pallet::<T>::set_max_timelocked_commits_per_hotkey(
+                netuid,
+                max_commits,
+            );
+            Ok(())
+        }
+
         /// Sets the maximum deviation of a `swap_basket` leg from its configured price
         /// reference, in basis points. Must be greater than zero and at most 10_000 (100%).
         /// Defaults to 200 (2%). Root-only.
@@ -3136,32 +3164,6 @@ pub mod pallet {
             log::debug!("BasketTradePriceReferenceSet( reference: {reference:?} )");
             Ok(())
         }
-    }
-}
-
-impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
-        /// Sets the maximum number of timelocked commitments a hotkey may queue in
-        /// one Yuma subnet mechanism and commit epoch. Zero pauses new admissions;
-        /// already queued commitments remain eligible to reveal. Root-only.
-        #[pallet::call_index(122)]
-        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_max_timelocked_commits_per_hotkey())]
-        pub fn sudo_set_max_timelocked_commits_per_hotkey(
-            origin: OriginFor<T>,
-            netuid: NetUid,
-            max_commits: u8,
-        ) -> DispatchResult {
-            ensure_root(origin)?;
-            ensure!(
-                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
-                Error::<T>::SubnetDoesNotExist
-            );
-            pallet_subtensor::Pallet::<T>::set_max_timelocked_commits_per_hotkey(
-                netuid,
-                max_commits,
-            );
-            Ok(())
-        }
-
 
         /// Enable or disable the optional burn for one commitment channel.
         #[pallet::call_index(123)]
@@ -3250,6 +3252,22 @@ impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
                 config.increase_mult = value;
                 Ok(())
             })
+        }
+
+        /// Sets the global per-subnet rate limit for owner updates to the emission weight
+        /// vector, in blocks. Defaults to 360 (one default tempo). Zero disables the limit.
+        /// Root remains exempt and each subnet's first owner call is always allowed.
+        #[pallet::call_index(131)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_subnet_emission_weights_rate_limit())]
+        pub fn sudo_set_subnet_emission_weights_rate_limit(
+            origin: OriginFor<T>,
+            rate_limit: u64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::SubnetEmissionWeightsRateLimit::<T>::put(rate_limit);
+            Self::deposit_event(Event::SubnetEmissionWeightsRateLimitSet { rate_limit });
+            log::debug!("SubnetEmissionWeightsRateLimitSet( rate_limit: {rate_limit:?} )");
+            Ok(())
         }
     }
 

@@ -30,6 +30,37 @@ const OWNER: u16 = EmissionIndex::Owner as u16;
 const VALIDATOR: u16 = EmissionIndex::Validator as u16;
 const MINER: u16 = EmissionIndex::Miner as u16;
 
+#[test]
+fn test_subnet_emission_weights_rate_limit_default() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(100);
+        assert!(!SubnetEmissionWeightsRateLimit::<Test>::exists());
+        let limit = DefaultSubnetEmissionWeightsRateLimit::<Test>::get();
+        let expected = if cfg!(feature = "fast-runtime") {
+            1
+        } else {
+            360
+        };
+        assert_eq!(limit, expected);
+        assert_eq!(SubnetEmissionWeightsRateLimit::<Test>::get(), expected);
+
+        let limit_tx = TransactionType::from(Hyperparameter::EmissionWeights);
+        assert_eq!(limit_tx.rate_limit_on_subnet::<Test>(netuid), expected);
+        assert!(limit_tx.passes_rate_limit_on_subnet::<Test>(&owner, netuid));
+        let block = 1_000;
+        System::set_block_number(block);
+        limit_tx.set_last_block_on_subnet::<Test>(&owner, netuid, block.saturating_sub(expected));
+        assert!(limit_tx.passes_rate_limit_on_subnet::<Test>(&owner, netuid));
+        limit_tx.set_last_block_on_subnet::<Test>(
+            &owner,
+            netuid,
+            block.saturating_sub(expected - 1),
+        );
+        assert!(!limit_tx.passes_rate_limit_on_subnet::<Test>(&owner, netuid));
+    });
+}
+
 /// Funded budgets remain authoritative through Yuma scoring and actual stake credits.
 #[test]
 fn test_yuma_credits_funded_miner_budget() {
