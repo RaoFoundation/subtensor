@@ -215,7 +215,9 @@ btcli query tao-usd-price
 - A hotkey swap moves the coldkey's deposit at the old hotkey on each subnet it
   swaps to the new hotkey, as a move of the whole balance, or pauses it if the
   new hotkey holds another coldkey's deposit there. What the old hotkey spent
-  stays under it.
+  stays under it. A deposit another coldkey holds at the old hotkey stays, and
+  the old hotkey can still spend it; if that hotkey leaked, that coldkey moves
+  the deposit or sets its daily spend cap to 0.
 - A coldkey swap adds the coldkey's deposits to the new coldkey's. It fails if
   the new coldkey would hold more than 64 on a subnet, and is refused when the
   two coldkeys hold more than 128 together.
