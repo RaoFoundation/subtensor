@@ -10908,22 +10908,31 @@ fn increase_restarts_young_short_exposure_clock() {
 #[test]
 fn ensure_valid_lift_params_rejects_ltv_above_5000() {
     new_test_ext().execute_with(|| {
-        let mut params = LiftParams::default();
-        params.ltv_short_bps = 5_001;
+        let short_over = LiftParams {
+            ltv_short_bps: 5_001,
+            ..Default::default()
+        };
         assert_noop!(
-            Lending::set_lift_params(RuntimeOrigin::root(), params.clone()),
+            Lending::set_lift_params(RuntimeOrigin::root(), short_over),
             Error::<Test>::InvalidLiftParams
         );
-        params.ltv_short_bps = 5_000;
-        params.ltv_long_bps = 5_001;
+        let long_over = LiftParams {
+            ltv_short_bps: 5_000,
+            ltv_long_bps: 5_001,
+            ..Default::default()
+        };
         assert_noop!(
-            Lending::set_lift_params(RuntimeOrigin::root(), params.clone()),
+            Lending::set_lift_params(RuntimeOrigin::root(), long_over),
             Error::<Test>::InvalidLiftParams
         );
-        params.ltv_long_bps = 5_000;
-        params.thin_ltv_long_bps = 5_001;
+        let thin_over = LiftParams {
+            ltv_short_bps: 5_000,
+            ltv_long_bps: 5_000,
+            thin_ltv_long_bps: 5_001,
+            ..Default::default()
+        };
         assert_noop!(
-            Lending::set_lift_params(RuntimeOrigin::root(), params),
+            Lending::set_lift_params(RuntimeOrigin::root(), thin_over),
             Error::<Test>::InvalidLiftParams
         );
     });
