@@ -793,7 +793,7 @@ impl<T: Config> Pallet<T> {
         );
     }
 
-    fn distribute_dividends_and_incentives_with_child_takes(
+    pub(crate) fn distribute_dividends_and_incentives_with_child_takes(
         netuid: NetUid,
         owner_cut: AlphaBalance,
         incentives: BTreeMap<T::AccountId, AlphaBalance>,
@@ -927,12 +927,22 @@ impl<T: Config> Pallet<T> {
             let delegate_take: AlphaBalance = tou64!(delegate_take).into();
             let child_take = total.saturating_sub(shared_total);
             let owner_take = delegate_take.saturating_add(child_take);
-            Self::settle_miner_collateral_without_stake_credit(
-                netuid, &hotkey, &owner, total, owner_take,
-            );
-            if !delegate_take.is_zero() {
-                log::debug!("hotkey: {hotkey:?} delegate_take: {delegate_take:?}");
-                Self::credit_epoch_owner_emission(&hotkey, &owner, netuid, delegate_take);
+            let liquid_delegate_take = if child_take.is_zero() {
+                // Preserve the pre-child-take credit path exactly: captured and
+                // liquid portions are credited separately, including the Null
+                // sole-owner fast path and its share-rounding behavior.
+                let captured =
+                    Self::settle_miner_collateral(netuid, &hotkey, &owner, total, delegate_take);
+                delegate_take.saturating_sub(captured)
+            } else {
+                Self::settle_miner_collateral_without_stake_credit(
+                    netuid, &hotkey, &owner, total, owner_take,
+                );
+                delegate_take
+            };
+            if !liquid_delegate_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} delegate_take: {liquid_delegate_take:?}");
+                Self::credit_epoch_owner_emission(&hotkey, &owner, netuid, liquid_delegate_take);
             }
             let nominator_alpha: AlphaBalance = tou64!(nominator_divs).into();
             if !nominator_alpha.is_zero() {
@@ -988,16 +998,25 @@ impl<T: Config> Pallet<T> {
             let delegate_take: AlphaBalance = tou64!(delegate_take).into();
             let child_take = total.saturating_sub(shared_total);
             let owner_take = delegate_take.saturating_add(child_take);
-            Self::settle_miner_collateral_without_stake_credit(
-                netuid, &hotkey, &owner, total, owner_take,
-            );
-            if !delegate_take.is_zero() {
-                log::debug!("hotkey: {hotkey:?} delegate_take: {delegate_take:?}");
+            let liquid_delegate_take = if child_take.is_zero() {
+                // Preserve the pre-child-take credit path exactly, including
+                // its separate captured-stake credit.
+                let captured =
+                    Self::settle_miner_collateral(netuid, &hotkey, &owner, total, delegate_take);
+                delegate_take.saturating_sub(captured)
+            } else {
+                Self::settle_miner_collateral_without_stake_credit(
+                    netuid, &hotkey, &owner, total, owner_take,
+                );
+                delegate_take
+            };
+            if !liquid_delegate_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} delegate_take: {liquid_delegate_take:?}");
                 Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                     &hotkey,
                     &owner,
                     netuid,
-                    delegate_take,
+                    liquid_delegate_take,
                 );
             }
 

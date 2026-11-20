@@ -5215,6 +5215,89 @@ fn test_alpha_dividends_floor_capture_only_from_take() {
     });
 }
 
+// PROTECTED_REGRESSION: childkey owner take may satisfy collateral without entering the shared nominator payout; changes require explicit human approval.
+#[test]
+fn test_childkey_take_collateral_capture_is_owner_only_and_counted_once() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_hotkey = U256::from(30);
+        let subnet_owner_coldkey = U256::from(31);
+        let owner_hotkey = U256::from(32);
+        let owner_coldkey = U256::from(33);
+        let nominator = U256::from(34);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        Owner::<Test>::insert(owner_hotkey, owner_coldkey);
+        OwnedHotkeys::<Test>::insert(owner_coldkey, vec![owner_hotkey]);
+        Delegates::<Test>::insert(owner_hotkey, PerU16::zero());
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &owner_hotkey,
+            &nominator,
+            netuid,
+            1_000u64.into(),
+        );
+
+        let dividend = U96F32::from_num(1_000u64);
+        let child_take_proportion = U96F32::from_num(2u64) / U96F32::from_num(5u64);
+        let child_take_float = child_take_proportion.saturating_mul(dividend);
+        let shared_dividends = dividend.saturating_sub(child_take_float);
+        let shared_total: AlphaBalance = shared_dividends.saturating_to_num::<u64>().into();
+        let child_take = AlphaBalance::from(1_000u64).saturating_sub(shared_total);
+        let nominator_take: AlphaBalance = shared_dividends.saturating_to_num::<u64>().into();
+        let shortfall = AlphaBalance::from(child_take.to_u64() / 2);
+
+        // With no validator take, collateral can only be filled from childkey
+        // take; the third-party nominator must receive only the shared part.
+        assert!(!shortfall.is_zero());
+        MinerCollateral::<Test>::insert(
+            (netuid, owner_hotkey, owner_coldkey),
+            MinerCollateralState {
+                locked: AlphaBalance::ZERO,
+                drain_ratio: U64F64::from_num(1),
+                min_locked: shortfall,
+                earned: AlphaBalance::ZERO,
+            },
+        );
+
+        SubtensorModule::distribute_dividends_and_incentives_with_child_takes(
+            netuid,
+            AlphaBalance::ZERO,
+            BTreeMap::new(),
+            BTreeMap::from([(owner_hotkey, dividend)]),
+            BTreeMap::new(),
+            BTreeMap::from([(owner_hotkey, child_take_proportion)]),
+        );
+
+        let state = MinerCollateral::<Test>::get((netuid, owner_hotkey, owner_coldkey))
+            .expect("collateral row remains while the floor is set");
+        assert_eq!(state.earned, 1_000u64.into());
+        assert_eq!(state.locked, shortfall);
+        assert_eq!(
+            ColdkeyMinerCollateral::<Test>::get(netuid, owner_coldkey),
+            shortfall
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &owner_hotkey,
+                &owner_coldkey,
+                netuid,
+            ),
+            child_take
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &owner_hotkey,
+                &nominator,
+                netuid,
+            ),
+            AlphaBalance::from(1_000u64).saturating_add(nominator_take)
+        );
+        assert_eq!(
+            AlphaDividendsPerSubnet::<Test>::get(netuid, owner_hotkey),
+            nominator_take
+        );
+    });
+}
+
 // Nominator dividends paid to a hotkey whose share pool has no members must not be left
 // unowned in `TotalHotkeyAlpha`, where the next depositor would be quoted all of them.
 // PROTECTED_REGRESSION: nominator dividends to memberless pool go to owner; changes require explicit human approval.
